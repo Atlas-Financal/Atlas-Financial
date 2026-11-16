@@ -87,7 +87,8 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
       assert.match(s.rowStatus, /\$109\.63 left Incomplete/, width + ': derived category status carries mark');
       assert.match(s.ringLabel, /left Incomplete/, width + ': accessible category name preserves derived mark');
       assert.ok(s.deltaMark, width + ': household delta carries mark');
-      assert.match(s.deltaText, /\$678 left Incomplete/, width + ': unchanged rounded household delta');
+      // 677.37 left floors to $677 on the face (95350aca: headroom rounds down).
+      assert.match(s.deltaText, /\$677 left Incomplete/, width + ': unchanged rounded household delta');
       assert.ok(s.remainingMark, width + ': Still planned carries mark');
       assert.match(s.remainingText, /677\.37 Incomplete/, width + ': unchanged exact Still planned');
       // Open the actual Household disclosure twice. The moved Still planned
