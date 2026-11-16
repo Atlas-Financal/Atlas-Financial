@@ -751,7 +751,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 ~~The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Deep Dive page was removed (#822 slice 4, bc8aae3).
 
-`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
+~~`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.~~ Fixed by `agent/reconcile-calendar-dates`.
 
 `majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
 
@@ -875,7 +875,7 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 
 Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
 
-Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
+~~Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.~~ Stale 2026-11-16: #919 closed unmerged, so main has no dated-latest-sync mode and no `post-balance-activity-unrepresented` reason to watch.
 
 ~~Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the hidden pages (Records, Credit, Deep Dive, Planning) were deleted.
 
