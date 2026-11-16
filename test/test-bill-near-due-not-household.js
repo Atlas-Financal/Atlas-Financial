@@ -341,7 +341,7 @@ console.log('The bill detail never claims a counted debit is kept out of househo
   ok((crossHtml.match(/2026-10-20/g) || []).length === 1, 'cross-period: the debit is listed once');
   const uncat = run([{ ...HYDRO, day: 23 }], [debit('2026-10-20', 90, 'Invented hydro', '')], '2026-10-21');
   const uncatHtml = detail(uncat, { id: 'hydro', label: 'Invented hydro', date: '2026-10-23' });
-  ok(!candidateOf(uncat, 'Invented hydro') || /<dt>Category<\/dt><dd>Uncategorised<\/dd>/.test(uncatHtml),
+  ok(!!candidateOf(uncat, 'Invented hydro') && /<dt>Category<\/dt><dd>Uncategorised<\/dd>/.test(uncatHtml),
     'cross-period, no ledger category: it reads Uncategorised', String(!!candidateOf(uncat, 'Invented hydro')));
   // Merchant identity (D3 follow-up): the in-period hold is kept by H1's
   // label rule, so the debit is held on the bill, not counted twice. The
