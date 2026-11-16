@@ -101,7 +101,7 @@
       || !date(asOf) || overlay.effectiveAsOf !== asOf || overlay.observedAsOf !== asOf
       || (data.meta && data.meta.asOf !== asOf)
       || packet.schema !== 'atlas-current-period-actuals/v1' || packet.observationAsOf !== asOf) return [];
-    // Forecast.nearDueBillCandidateHeld is the one test of a hold. A debit it
+    // Forecast.classifyCurrentPeriodTransaction.nearDueBillCandidateHeld is the one test of a hold. A debit it
     // does not hold (across a payday) is Other spending: it is listed with
     // its ledger category and a Lunch Money pointer, never as a possible
     // payment. Without Forecast nothing is called a possible payment.
@@ -111,8 +111,8 @@
       .map(item => {
         const projected = transaction(item, asOf);
         if (!projected) return null;
-        const held = !!(F && typeof F.nearDueBillCandidateHeld === 'function'
-          && F.nearDueBillCandidateHeld(data.plan, item));
+        const test = F && F.classifyCurrentPeriodTransaction && F.classifyCurrentPeriodTransaction.nearDueBillCandidateHeld;
+        const held = typeof test === 'function' && !!test(data.plan, item);
         return held ? projected
           : { ...projected, otherSpending: true, category: text(item.categoryLabel).trim() || 'Uncategorised' };
       }).filter(Boolean);

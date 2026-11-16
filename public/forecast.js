@@ -12225,6 +12225,8 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  // #965: the classifier's own near-due hold test, read by the bill detail.
+  classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
@@ -29391,7 +29393,7 @@
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
-    spendingCycle, nearDueBillCandidateHeld, incomeReceivedAmount, calendarIncomeContribution,
+    spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, baselineTrajectoryScenario, daleEstimatedPayrollDeposits, projectedDalePayroll,
