@@ -1520,28 +1520,67 @@ function ruleLunchMoneyRecurringIds(rule) {
     .map(value => String(value).trim()).filter(Boolean)));
 }
 
-// Recurring links claimed anywhere in the rule set a rule was read with
-// (Grok, while payee rules and recurring links run side by side): a row whose
-// recurring_id another rule names belongs to that rule's bill, so no other
-// rule takes it by payee; the recurring link wins and the row counts once.
+// Lunch Money item-note identity (Grok rule 4, link order 2 of 3). A rule that
+// names lunchMoneyItemNames links a row whose note carries exactly one
+// deliberate "item: <name>" part (";"-separated; prefix in any case, spaces
+// ignored) whose name equals one of the rule's names, ignoring case. A note
+// with two item parts links nothing by note. Lunch Money's auto-copied
+// recurring description has no prefix and never counts. Alongside, not
+// instead: the rule's other link sources still apply as before.
+const ITEM_NOTE_PREFIX = 'item:';
+function normalizeItemName(value) {
+  return String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+function ruleLunchMoneyItemNames(rule) {
+  const values = Array.isArray(rule && rule.lunchMoneyItemNames) ? rule.lunchMoneyItemNames : [];
+  return Array.from(new Set(values.map(normalizeItemName).filter(Boolean)));
+}
+function noteItemNames(notes) {
+  if (typeof notes !== 'string') return [];
+  return notes.split(';').map(part => part.trim())
+    .filter(part => part.slice(0, ITEM_NOTE_PREFIX.length).toLowerCase() === ITEM_NOTE_PREFIX)
+    .map(part => normalizeItemName(part.slice(ITEM_NOTE_PREFIX.length)));
+}
+
+// Link sources claimed anywhere in the rule set a rule was read with (Grok,
+// Plan #6, 2026-11-16): the order is recurring link, then "item:" note, then
+// payee rule last, and each payment counts once against the winning bill. A
+// row whose recurring_id or single item name another rule names is not taken
+// by this rule's payee rule. Exception: a recurring link and an item note
+// naming DIFFERENT bills both still match, so neither wins and the row is
+// held ambiguous (the incumbent consumed-twice path: To confirm).
 // Stamped on every rule each time a rule set is read; a rule read on a path
 // that never stamped it keeps its incumbent reading.
 const RULE_SET_RECURRING_CLAIMS = Symbol('atlas.ruleSetRecurringClaims');
+const RULE_SET_ITEM_CLAIMS = Symbol('atlas.ruleSetItemClaims');
 function stampRuleSetClaims(rules) {
   // A missing rule set reads as empty, as before; any other non-array is
   // returned untouched so malformed input keeps its incumbent failure.
   if (rules == null) return [];
   if (!Array.isArray(rules)) return rules;
   const claimed = new Set();
+  const claimedItems = new Set();
   for (const rule of rules) {
-    if (rule && typeof rule === 'object') ruleLunchMoneyRecurringIds(rule).forEach(id => claimed.add(id));
+    if (!rule || typeof rule !== 'object') continue;
+    ruleLunchMoneyRecurringIds(rule).forEach(id => claimed.add(id));
+    ruleLunchMoneyItemNames(rule).forEach(name => claimedItems.add(name));
   }
   for (const rule of rules) {
     if (!rule || typeof rule !== 'object') continue;
     Object.defineProperty(rule, RULE_SET_RECURRING_CLAIMS, { configurable: true, enumerable: true,
       writable: true, value: claimed });
+    Object.defineProperty(rule, RULE_SET_ITEM_CLAIMS, { configurable: true, enumerable: true,
+      writable: true, value: claimedItems });
   }
   return rules;
+}
+// The note's single deliberate item names another rule's bill: that rule's
+// item link outranks this rule's payee rule (Grok's order).
+function itemNoteClaimedElsewhere(rule, items) {
+  const claimed = rule && rule[RULE_SET_ITEM_CLAIMS];
+  return !!(items.length === 1 && claimed instanceof Set && claimed.has(items[0])
+    && !ruleLunchMoneyItemNames(rule).includes(items[0]));
 }
 function recurringLinkClaimedElsewhere(rule, linkedTo) {
   const claimed = rule && rule[RULE_SET_RECURRING_CLAIMS];
@@ -1561,6 +1600,7 @@ function ruleHasIdentity(rule, diagnostic) {
     return present;
   }
   if (ruleLunchMoneyRecurringIds(rule).length) return true;
+  if (ruleLunchMoneyItemNames(rule).length) return true;
   return rulePayeePatterns(rule).length > 0;
 }
 
@@ -1580,10 +1620,17 @@ function ruleMatchesTransactionIdentity(tx, rule) {
     return false;
   }
   const recurringIds = ruleLunchMoneyRecurringIds(rule);
+  const itemNames = ruleLunchMoneyItemNames(rule);
   const linkedTo = tx.recurringId == null ? '' : String(tx.recurringId).trim();
   if (recurringIds.length && linkedTo && recurringIds.includes(linkedTo)) return true;
+  const items = noteItemNames(tx.notes);
+  // Matched even when the row's recurring link names another bill: the two
+  // deliberate links then disagree and neither wins (To confirm).
+  if (itemNames.length && items.length === 1 && itemNames.includes(items[0])) return true;
+  // Either deliberate link elsewhere outranks this rule's payee rule.
   if (recurringLinkClaimedElsewhere(rule, linkedTo)) return false;
-  if (recurringIds.length && !rulePayeePatterns(rule).length) return false;
+  if (itemNoteClaimedElsewhere(rule, items)) return false;
+  if ((recurringIds.length || itemNames.length) && !rulePayeePatterns(rule).length) return false;
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
     if (!ruleCounterpartExternalId(rule)) return false;
