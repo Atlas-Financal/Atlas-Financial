@@ -87,7 +87,41 @@ const incumbentNumbers = value => numbers(stripMissingDeposit(stripPaydaySchedul
 // opening-dependent chain is null (the frozen engine carried numbers), its
 // sweep is null, and every other monetary or null publication still equals
 // the frozen engine exactly. A card-clean publication is compared whole.
+// Authorized change (#977 pre-review, lead ruling): a card minimum dated
+// before its own firstDue is no longer listed. The frozen engine listed it
+// as an in-opening row, counted in the printed period total and planned
+// bills but deducted nowhere. Remove exactly those rows from the FROZEN
+// publication (each validated), with their amounts from those two totals,
+// so every other field is still compared.
+function stripFirstDueStubs(advice) {
+  const cents = n => Math.round(Number(n) * 100);
+  const sub = (node, key, amount) => {
+    if (node && typeof node[key] === 'number') node[key] = (cents(node[key]) - amount) / 100;
+  };
+  const seen = new Set();
+  const walk = node => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node.bills)) {
+      const stubs = node.bills.filter(row => row && row.settledInOpening === true);
+      if (stubs.length) {
+        let amount = 0;
+        for (const row of stubs) {
+          assert.equal(row.actual, null, 'a frozen firstDue stub carries no observed payment');
+          amount += cents(Math.abs(Number(row.planned != null ? row.planned : row.amount)));
+        }
+        node.bills = node.bills.filter(row => !(row && row.settledInOpening === true));
+        sub(node, 'totalBillsThisPeriod', amount);
+        sub(node.budgetProgress && node.budgetProgress.bills && node.budgetProgress.bills.planned, 'amount', amount);
+      }
+    }
+    for (const value of Object.values(node)) walk(value);
+  };
+  walk(advice);
+  return advice;
+}
 function frozenEq(r, frozenR, label = 'frozen monetary/null publications') {
+  frozenR = stripFirstDueStubs(JSON.parse(JSON.stringify(frozenR)));
   if (r.cardPurchaseCoverage?.status !== 'unavailable') return eq(incumbentNumbers(r), numbers(frozenBad(frozenR)), label);
   const current = incumbentNumbers(r), frozen = numbers(frozenBad(frozenR));
   const chain = /^\/(payPeriodViews|defaultView\/calendarPeriods)\/(\d+)\/(opening|openingAsOf|openingSource|currentBalance|incomeAdded|leftover\/currentBalance)$/;

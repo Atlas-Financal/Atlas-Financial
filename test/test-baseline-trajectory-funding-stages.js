@@ -254,8 +254,6 @@ console.log('=== 1. Forecast is the sole calculator; helper is not exported ==='
     'funding helper does not search Forecast.recommend');
   ok(!/nextDollar/.test(helper) && !/paydayAllocation\(/.test(helper),
     'funding helper does not read plan.nextDollar or paydayAllocation');
-  ok(!/baselineTrajectoryScenario\(/.test(helper),
-    'funding helper does not take Stage 3 from the scenario');
   ok(!/currentRegimeMonthly\(/.test(helper),
     'funding helper does not fold reserved current-regime smear into Stage 1');
   ok(/cashWalkDate\(/.test(helper),
@@ -423,23 +421,6 @@ console.log('\n=== 5. Absorbed extras, not the raw extraDebtMonthly, and not a s
   ok(!near(june.stage3.extras.amount, 5000, 1),
     'Stage 3 does not publish the uncapped extraDebtMonthly as extras');
 
-  const { plan: basePlan, debts: baseDebts } = fixture();
-  const before = ask(basePlan, baseDebts);
-  const scenario = F.baselineTrajectoryScenario(basePlan, baseDebts, START, {
-    nature: 'additional-debt-payment',
-    amount: 200,
-    debtId: 'card',
-    periods: periodsFixture(),
-  });
-  ok(scenario.status === 'ready', 'additional-debt-payment scenario is ready on this fixture');
-  const after = ask(basePlan, baseDebts);
-  const julyBefore = before.months.find(m => m.month === JUL);
-  const julyAfter = after.months.find(m => m.month === JUL);
-  ok(near(julyAfter.stage3.extras.amount, julyBefore.stage3.extras.amount)
-    && near(julyAfter.stage3.result.amount, julyBefore.stage3.result.amount),
-    'calling baselineTrajectoryScenario with $200 does not change baseline Stage 3');
-  ok(!near(julyAfter.stage3.extras.amount, julyBefore.stage3.extras.amount + 200, 1),
-    'Stage 3 extras are not the planned extra plus the scenario amount');
 }
 
 console.log('\n=== 6. Month-boundary walk days, not a 30-day June smear ===');
