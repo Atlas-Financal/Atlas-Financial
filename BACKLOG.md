@@ -723,7 +723,7 @@ A zero regular-payroll override hides an already-received payroll row in the Bud
 
 Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
 
-"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.
+~~"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.~~ Fixed: the from-today walk no longer replays an occurrence already in cash (agent/future-receipts-skip-arrived).
 
 Card inference can use a future-dated posted card balance (diagnostic only). Source: PR #924.
 

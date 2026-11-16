@@ -443,6 +443,7 @@
   ["Savings audit: an unlinked Savings-paid purchase is counted once (not in the reserve, Balance After Deductions, Bills close or sweep)","test-savings-paid-spend-once.js"],
   ["Budget selected-period proposed cost funding","test-budget-period-funding.js"],
   ["Budget backing-aware remaining gaps and unknown/actual conservation","test-budget-funding-backing-gaps.js"],
+  ["Future receipts exclude a planned one-off that already arrived (#927)","test-future-receipts-arrived-one-off.js"],
   ["Budget estimated payroll trust label","test-budget-estimated-payroll-label.js"],
   ["Budget Plan Spend earmark on pay periods","test-budget-plan-spend-earmark.js"],
   ["Plan Spend mixed-source current-payday reconciliation","test-plan-spend-mixed-reconciliation.js"],
