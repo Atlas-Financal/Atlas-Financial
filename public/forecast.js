@@ -9365,22 +9365,6 @@
     return null;
   }
 
-  // Calendar-month span for snapshot-month reconstruction of already-paid
-  // card minimums. Not the household operating Pay Period definition.
-  function calendarMonthSpan(iso) {
-    if (!iso || !ISO_CALENDAR_DATE.test(String(iso))) return null;
-    const [y, m] = String(iso).split('-').map(Number);
-    const last = daysInMonth(y, m);
-    const pad = n => String(n).padStart(2, '0');
-    return {
-      start: `${y}-${pad(m)}-01`,
-      mid: `${y}-${pad(m)}-15`,
-      secondStart: `${y}-${pad(m)}-16`,
-      end: `${y}-${pad(m)}-${pad(last)}`,
-      last,
-    };
-  }
-
   // Calendar-month half (1st–15th vs 16th–end). Not the household operating
   // Pay Period. Retained for non-operating calendar-month reporting.
   function billCalendarHalf(iso) {
