@@ -88,7 +88,6 @@ const NOT_SUITES = Object.freeze({
   'proof-travel-visa-annual-estimate.js': 'manual input proof that reads data.json; never part of the public suite',
   'render-budget-v3-browse-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'render-budget-v3-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
-  'render-budget-v3-funding-month-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'render-chronological-savings-comparisons.js': 'optional visual QA renderer (Playwright, capture arguments)',
   'road-ahead-mutation-check.js': 'manual mutation check documented in docs/ROAD_AHEAD_PARTITION_RECONCILIATION.md',
 });
@@ -286,7 +285,7 @@ const SHARD_SECONDS = Object.freeze({
   'test-from-today-integration.js': 6,
   'test-fuel-effective-target.js': 6,
   'test-planned-savings-clarity.js': 6,
-  'test-privacy-guard.js': 6,
+  'test-privacy-guard.js': 13,
   'test-purpose-savings.js': 6,
   'test-savings-evidence.js': 6,
   'test-savings-paid-spend-once.js': 6,

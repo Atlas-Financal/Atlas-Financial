@@ -379,6 +379,19 @@
     const b = MONTH_SHORT[me] + ' ' + de;
     return a + '–' + b;
   }
+  // #962 D3 / #965: the one test of whether a debit the observer named as a
+  // near-due bill candidate is held To confirm on that bill (the occurrence
+  // is in the debit's own spending cycle) or stays household Other spending
+  // (across a payday, or no resolvable cycle). The classifier and the bill
+  // detail both read this, so the detail never calls a counted debit a
+  // possible payment.
+  function nearDueBillCandidateHeld(plan, tx) {
+    const nearDue = tx && tx.nearDueBillCandidate;
+    if (!nearDue || typeof nearDue.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))) return false;
+    const cycle = spendingCycle(plan, tx.date);
+    return !!(cycle && nearDue.date >= cycle.start && nearDue.date <= cycle.end);
+  }
+
   function spendingCycle(plan, asOf) {
     const stream = seaspanPayroll(plan);
     const day = financialDate(asOf);
@@ -7337,9 +7350,7 @@
     // household spending in its own period, as without the flag, so it is
     // never deducted nowhere (#965 review 6717183500).
     const nearDue = tx.nearDueBillCandidate;
-    const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
-    if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
-      && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) {
+    if (nearDueBillCandidateHeld(plan, tx)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',
@@ -9384,22 +9395,6 @@
     return null;
   }
 
-  // Calendar-month span for snapshot-month reconstruction of already-paid
-  // card minimums. Not the household operating Pay Period definition.
-  function calendarMonthSpan(iso) {
-    if (!iso || !ISO_CALENDAR_DATE.test(String(iso))) return null;
-    const [y, m] = String(iso).split('-').map(Number);
-    const last = daysInMonth(y, m);
-    const pad = n => String(n).padStart(2, '0');
-    return {
-      start: `${y}-${pad(m)}-01`,
-      mid: `${y}-${pad(m)}-15`,
-      secondStart: `${y}-${pad(m)}-16`,
-      end: `${y}-${pad(m)}-${pad(last)}`,
-      last,
-    };
-  }
-
   // Calendar-month half (1st–15th vs 16th–end). Not the household operating
   // Pay Period. Retained for non-operating calendar-month reporting.
   function billCalendarHalf(iso) {
@@ -10668,67 +10663,12 @@
         });
       }
     }
-    // Recurring card minimums firstDue skipped because they are already
-    // inside the opening. Print once as PAID in the cash-snapshot month
-    // only; leftover does not deduct them again. Gap months after that
-    // snapshot and before firstDue stay empty (Cash Back firstDue
-    // 2026-10-01 must not invent a September row). HELOC cash uses
-    // cashFirstDue and is not reconstructed here.
-    const openingAsOf = plan && plan.opening && plan.opening.asOf
-      && ISO_CALENDAR_DATE.test(String(plan.opening.asOf))
-      ? cashAsOf : null;
-    const snapMonth = openingAsOf ? calendarMonthSpan(openingAsOf) : calendarMonthSpan(cashAsOf);
-    const debtDatesPrinted = new Set();
-    for (let i = 0; i < windows.length; i++) {
-      const rows = buckets[windows[i].id] || [];
-      for (const row of rows) {
-        if (!row) continue;
-        if (row.id) debtDatesPrinted.add(row.id + '@' + row.date);
-        const rec = ((plan.obligations || []).find(o => o && o.id === row.id))
-          || ((plan.bills || []).find(b => b && b.id === row.id));
-        if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + row.date);
-      }
-    }
-    for (const o of (plan && plan.obligations) || []) {
-      if (!o || o.nonCash || o.frequency !== 'monthly' || !o.debtId || o.day == null) {
-        continue;
-      }
-      if (!o.firstDue) continue;
-      if (!openingAsOf || !snapMonth) continue;
-      const dates = monthlyDates(o.day, span.start, span.end, null);
-      for (const date of dates) {
-        if (date >= o.firstDue || date > asOf) continue;
-        if (date < snapMonth.start || date > snapMonth.end) continue;
-        if (date >= openingAsOf) continue;
-        const key = (o.id || '') + '@' + date;
-        if (seen.has(key)) continue;
-        if (debtDatesPrinted.has(o.debtId + '@' + date)
-          || debtDatesPrinted.has((o.id || '') + '@' + date)) continue;
-        seen.add(key);
-        const payingAccount = o.payingAccount || null;
-        const amt = roundCent(Number(o.amount) || 0);
-        if (!(amt > EPSILON)) continue;
-        pushRow(date, {
-          id: o.id,
-          label: o.label,
-          kind: 'obligation',
-          date,
-          planned: amt,
-          amount: amt,
-          actual: null,
-          remaining: 0,
-          settlement: 'opening',
-          status: OPENING_BILL_STATUS,
-          glanceKind: 'planned',
-          movement: householdMovement(amt, 'out'),
-          confidence: confidenceOrEstimated(o.confidence),
-          payingAccount,
-          payerLabel: plannedPayerLabel(payingAccount),
-          needsDate: false,
-          settledInOpening: true,
-        });
-      }
-    }
+    // A recurring card minimum dated before its firstDue is not listed: the
+    // plan's own firstDue starts the schedule later, so that earlier minimum
+    // is no assigned occurrence and is deducted nowhere. Listing it as a
+    // disclosure row put it in the printed period total while Balance After
+    // Deductions left it out (#977 pre-review). Saved closes that already
+    // hold such a row keep it; billInPeriodAssignedLoad still leaves it out.
     const sortRows = rows => rows.sort((a, b) =>
       String(a.date || '').localeCompare(String(b.date || ''))
       || String(a.label || '').localeCompare(String(b.label || '')));
@@ -12233,6 +12173,8 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  // #965: the classifier's own near-due hold test, read by the bill detail.
+  classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
@@ -16593,7 +16535,14 @@
         const borrowed = row => Object.fromEntries(CAPTURED_ROW_DISPLAY_KEYS[key]
           .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
           .map(field => [field, row[field]]));
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)),
+        // #887: the archive keeps a bill row's occurrence `date` only. Today's
+        // row for the same occurrence (id and date) lends its printed due.
+        const todayRows = Array.isArray(view[key]) ? view[key].filter(Boolean) : [];
+        const printedDue = row => {
+          const same = key === 'bills' && todayRows.find(t => t.id === row.id && t.date === row.date);
+          return same && typeof same.scheduledDue === 'string' ? { scheduledDue: same.scheduledDue } : {};
+        };
+        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...printedDue(row),
           ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
@@ -22199,7 +22148,35 @@
     // pre-event day-zero opening included. The walk itself (schedule,
     // payments, every other published field) is unchanged.
     if (state.some(s => !s.secured && s.pendingUnknown)) {
-      pubMarks = pubMarks.map(mark => ({ ...mark, consumer: null }));
+      // The same card's own balance is posted plus that unknown amount, and
+      // its unpublished room (available null) is not $0 of room: the card's
+      // balance and the revolving headroom are unknown on that mark, never
+      // posted + retained pending, and never that room counted as 0.
+      // Room and over-limit follow `utilisation`: they are measured on the
+      // card's posted position (the walked balance less the retained pending
+      // the walk opened with), since the walked balance also carries that
+      // stale pending. Over the limit on posted alone is known; otherwise the
+      // room is unknown.
+      pubMarks = pubMarks.map(mark => {
+        const debts = (mark.debts || []).map(d => {
+          if (!(d && d.pendingUnknown && !d.secured) || !byId[d.id]) return d;
+          const s = byId[d.id];
+          const posted = d.balance == null ? null : d.balance - (s.opening - s.postedBalance);
+          return { ...d, balance: null,
+            available: posted == null ? null : publishedAvailable(d.limit, posted, true),
+            overLimit: posted == null ? null : publishedOverLimit(d.limit, posted, true),
+            overLimitBy: posted == null ? null : publishedOverLimitBy(d.limit, posted, true) };
+        });
+        const roomUnknown = debts.some(d => d && d.pendingUnknown && d.limit != null && d.available == null);
+        // A count the scheduled-amount taint already left unknown stays unknown.
+        // The cards whose unknown pending leaves the room unknown are named.
+        const roomUnknownFrom = debts.filter(d => d && d.pendingUnknown && d.limit != null && d.available == null)
+          .map(d => d.id);
+        return { ...mark, debts, consumer: null,
+          overLimitCount: mark.overLimitCount == null ? null
+            : debts.filter(d => d && d.overLimit === true).length,
+          ...(roomUnknown ? { headroom: null, headroomUnknownFrom: roomUnknownFrom } : {}) };
+      });
     }
     return {
       marks: pubMarks, byId: pubById, end, unabsorbed: pubUnabsorbed,
@@ -23463,7 +23440,12 @@
       rows,
       // The headline the Plan quotes. Pending is already inside `used`, so a
       // card that is economically full contributes nothing here.
-      totalAvailable: rows.reduce((s, r) => s + (r.available || 0), 0),
+      // A card whose pending is unknown has unpublished room (available
+      // null), which is unknown, not $0: the total is unknown then.
+      totalAvailable: rows.some(r => r.pendingUnknown && r.available == null) ? null
+        : rows.reduce((s, r) => s + (r.available || 0), 0),
+      ...(rows.some(r => r.pendingUnknown && r.available == null)
+        ? { totalAvailableUnknownFrom: rows.filter(r => r.pendingUnknown && r.available == null).map(r => r.id) } : {}),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
     };
@@ -28365,12 +28347,12 @@
               consumer: mark.consumer == null ? null : roundCent(mark.consumer),
               secured: roundCent(mark.secured),
               heloc: roundCent(mark.heloc),
-              headroom: roundCent(mark.headroom),
+              headroom: mark.headroom == null ? null : roundCent(mark.headroom),
               interestToDate: roundCent(mark.interestToDate),
               debts: (mark.debts || []).map(d => ({
                 id: d.id,
                 label: d.label,
-                balance: roundCent(d.balance),
+                balance: d.balance == null ? null : roundCent(d.balance),
                 paid: roundCent(d.paid),
                 interest: roundCent(d.interest),
               })),
