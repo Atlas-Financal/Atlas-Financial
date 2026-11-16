@@ -22135,7 +22135,35 @@
     // pre-event day-zero opening included. The walk itself (schedule,
     // payments, every other published field) is unchanged.
     if (state.some(s => !s.secured && s.pendingUnknown)) {
-      pubMarks = pubMarks.map(mark => ({ ...mark, consumer: null }));
+      // The same card's own balance is posted plus that unknown amount, and
+      // its unpublished room (available null) is not $0 of room: the card's
+      // balance and the revolving headroom are unknown on that mark, never
+      // posted + retained pending, and never that room counted as 0.
+      // Room and over-limit follow `utilisation`: they are measured on the
+      // card's posted position (the walked balance less the retained pending
+      // the walk opened with), since the walked balance also carries that
+      // stale pending. Over the limit on posted alone is known; otherwise the
+      // room is unknown.
+      pubMarks = pubMarks.map(mark => {
+        const debts = (mark.debts || []).map(d => {
+          if (!(d && d.pendingUnknown && !d.secured) || !byId[d.id]) return d;
+          const s = byId[d.id];
+          const posted = d.balance == null ? null : d.balance - (s.opening - s.postedBalance);
+          return { ...d, balance: null,
+            available: posted == null ? null : publishedAvailable(d.limit, posted, true),
+            overLimit: posted == null ? null : publishedOverLimit(d.limit, posted, true),
+            overLimitBy: posted == null ? null : publishedOverLimitBy(d.limit, posted, true) };
+        });
+        const roomUnknown = debts.some(d => d && d.pendingUnknown && d.limit != null && d.available == null);
+        // A count the scheduled-amount taint already left unknown stays unknown.
+        // The cards whose unknown pending leaves the room unknown are named.
+        const roomUnknownFrom = debts.filter(d => d && d.pendingUnknown && d.limit != null && d.available == null)
+          .map(d => d.id);
+        return { ...mark, debts, consumer: null,
+          overLimitCount: mark.overLimitCount == null ? null
+            : debts.filter(d => d && d.overLimit === true).length,
+          ...(roomUnknown ? { headroom: null, headroomUnknownFrom: roomUnknownFrom } : {}) };
+      });
     }
     return {
       marks: pubMarks, byId: pubById, end, unabsorbed: pubUnabsorbed,
@@ -23399,7 +23427,12 @@
       rows,
       // The headline the Plan quotes. Pending is already inside `used`, so a
       // card that is economically full contributes nothing here.
-      totalAvailable: rows.reduce((s, r) => s + (r.available || 0), 0),
+      // A card whose pending is unknown has unpublished room (available
+      // null), which is unknown, not $0: the total is unknown then.
+      totalAvailable: rows.some(r => r.pendingUnknown && r.available == null) ? null
+        : rows.reduce((s, r) => s + (r.available || 0), 0),
+      ...(rows.some(r => r.pendingUnknown && r.available == null)
+        ? { totalAvailableUnknownFrom: rows.filter(r => r.pendingUnknown && r.available == null).map(r => r.id) } : {}),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
     };
@@ -28301,12 +28334,12 @@
               consumer: mark.consumer == null ? null : roundCent(mark.consumer),
               secured: roundCent(mark.secured),
               heloc: roundCent(mark.heloc),
-              headroom: roundCent(mark.headroom),
+              headroom: mark.headroom == null ? null : roundCent(mark.headroom),
               interestToDate: roundCent(mark.interestToDate),
               debts: (mark.debts || []).map(d => ({
                 id: d.id,
                 label: d.label,
-                balance: roundCent(d.balance),
+                balance: d.balance == null ? null : roundCent(d.balance),
                 paid: roundCent(d.paid),
                 interest: roundCent(d.interest),
               })),
