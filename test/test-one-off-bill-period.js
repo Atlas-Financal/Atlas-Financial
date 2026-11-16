@@ -347,8 +347,12 @@ console.log('\n=== 11. only the bill-row printers read scheduledDue ===');
   // a guessed stand-in cannot decide a window, an amount or whether another
   // row is listed. Only the printers read it. The roster row hands the
   // printed due to the at-a-glance list as the DOM attribute
-  // data-budget-bill-due; that list is checked in case 13.
+  // data-budget-bill-due; that list is checked in case 13. A saved close
+  // (applyCapturedPeriodHistory) copies it from today's row for the same
+  // occurrence and decides nothing with it
+  // (test-captured-close-printed-due.js).
   const ALLOWED = {
+    'public/forecast.js': ['applyCapturedPeriodHistory'],
     'public/plan.js': ['glanceLineLabel', 'budgetBillBrowseRowHtml'],
     'public/bill-detail.js': ['html'],
   };
@@ -371,8 +375,8 @@ console.log('\n=== 11. only the bill-row printers read scheduledDue ===');
   }
   ok(offenders.length === 0, 'Forecast writes scheduledDue once and nothing but the printers reads it', offenders.join(', '));
   const forecast = fs.readFileSync(path.join(ROOT, 'public/forecast.js'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
-  ok(forecast.split('scheduledDue').length - 1 === 1, 'positive control: the one write is there',
-    String(forecast.split('scheduledDue').length - 1));
+  ok(forecast.split('row.scheduledDue = scheduleDate;').length - 1 === 1, 'positive control: the one write is there',
+    String(forecast.split('row.scheduledDue = scheduleDate;').length - 1));
 }
 
 console.log('\n=== 12. a one-off dated after the recurring day, in a month the recurring bill is itself due ===');
