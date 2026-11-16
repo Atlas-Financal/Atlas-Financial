@@ -43,10 +43,30 @@ const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding
         return fs.existsSync(file) ? route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }) : route.fulfill({ status: 404, body: '' });
       });
       await page.goto('http://closing.test/');
-      const card = page.locator('[data-bills-closing]'); await card.waitFor();
+      await page.locator('[data-budget-surface]').waitFor();
+      // budget-blend.js parks the Bills-closing card in the hero's Period
+      // figures body; the visible result (step 07) opens it in the sheet.
+      const figuresTrigger = page.locator('[data-operating-question="07"] .budget-step-summary').first();
+      const sheet = page.locator('dialog[data-budget-detail-sheet]');
+      const openFigures = async () => {
+        await figuresTrigger.focus(); await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
+      };
+      const closeFigures = async () => {
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => !document.querySelector('[data-budget-detail-sheet]')?.open);
+        assert.equal(await figuresTrigger.evaluate(el => el === document.activeElement), true, 'Period figures returns focus to its visible opener');
+      };
+      await openFigures();
+      const card = sheet.locator('[data-bills-closing]'); await card.waitFor();
       const text = await card.innerText();
       assert.match(text, /Expected Bills balance at period end/);
-      assert.match(text, scenario.native ? /823\.47/ : /1,373\.29/);
+      // The face lifts the card's "Latest recorded Bills balance" note out
+      // beside it in the same Period figures body (blend-panel-note).
+      const recorded = sheet.locator('.blend-panel-note', { hasText: 'Latest recorded Bills balance' });
+      assert.equal(await recorded.count(), 1, 'one recorded Bills balance note');
+      assert.equal(await recorded.isVisible(), true, 'recorded Bills balance note is visible');
+      assert.match(await recorded.innerText(), scenario.native ? /823\.47/ : /1,373\.29/);
       assert.equal((await card.locator('[data-bills-closing-amount]').innerText()).replace(/\s+/g, ' ').trim(),
         ready ? 'Estimated $' + expected.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'Unavailable');
       assert.equal(await card.getAttribute('data-bills-closing-state'), ready ? 'estimated' : 'unavailable');
@@ -62,7 +82,10 @@ const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding
       await card.screenshot({ path: path.join(out, `${state}-card-${width}.png`), animations: 'disabled' });
       await summary.focus(); await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelector('[data-bills-closing-details]')?.open);
-      assert.match(await card.innerText(), /Weekly's balance and overdraft are excluded/);
+      // ade330ad (owner copy trim) removed the Weekly sentence; the card's
+      // scope line "Bills account only." carries the same exclusion.
+      assert.match(await card.innerText(), /Bills account only\./);
+      assert.doesNotMatch(await card.innerText(), /Weekly's balance and overdraft are excluded/);
       if (ready) assert.match(await card.innerText(), scenario.native ? /100\.40[\s\S]*0\.00/ : /520\.37[\s\S]*359\.86/);
       else assert.equal(await card.locator('.operating-line').count(), 0, 'unknown total does not print incomplete terms as zero');
       await card.screenshot({ path: path.join(out, `${state}-details-${width}.png`), animations: 'disabled' });
@@ -74,14 +97,24 @@ const head = cp.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding
       if (ready) {
         for (let repeat = 0; repeat < 2; repeat++) { await summary.press('Enter'); await page.keyboard.press('Escape'); }
         const amount = await card.locator('[data-bills-closing-amount]').innerText();
-        await page.locator('[data-budget-window-step="1"]').click();
-        await page.locator('[data-budget-window-step="-1"]').click();
-        assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
-        assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
+        await closeFigures();
+        // The face hides the native step arrows; the visible period control
+        // is the river slider, driven by its own keyboard contract.
+        const selected = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
+        const river = page.locator('.river[role="slider"]');
+        await river.focus(); await page.keyboard.press('ArrowRight');
+        await page.waitForFunction(was => document.querySelector('[data-pay-period-swipe]')?.getAttribute('data-selected-pay-period') !== was, selected);
+        await river.focus(); await page.keyboard.press('ArrowLeft');
+        await page.waitForFunction(was => document.querySelector('[data-pay-period-swipe]')?.getAttribute('data-selected-pay-period') === was, selected);
+        await openFigures();
+        assert.equal(await sheet.locator('[data-bills-closing-amount]').innerText(), amount);
+        assert.equal(await sheet.locator('[data-bills-closing-amount]').isVisible(), true);
         await page.setViewportSize({ width: width === 1440 ? 320 : 1440, height: 1000 });
-        assert.equal(await page.locator('[data-bills-closing-amount]').innerText(), amount);
+        assert.equal(await sheet.locator('[data-bills-closing-amount]').innerText(), amount);
+        assert.equal(await sheet.locator('[data-bills-closing-amount]').isVisible(), true);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-      }
+        await closeFigures();
+      } else await closeFigures();
       states.push({ width, state, card: text.replace(/\s+/g, ' ').trim(), synthetic: true });
       await page.close();
       console.log(`PASS ${width}px ${state}: actual boot and keyboard dismissal${ready ? ', repeat, navigation and resize' : ', known stock and explicit unavailable reason'}`);

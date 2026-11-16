@@ -659,7 +659,8 @@
     });
     if (savings && savings.parentElement !== foot) foot.appendChild(savings);
     if (afterBills) afterBills.classList.remove('blend-clip');
-    clip(closing && closing.querySelector('details > summary'));
+    // The closing card is moved into the Period figures sheet below (wirePeriodFigures), so its
+    // "How this estimate works" summary stays visible there; it is not clipped like a hero-face copy.
     hero.querySelectorAll('.budget-bills-closing > .operating-note').forEach(node => {
       if (/Latest recorded Bills balance/i.test(text(node))) {
         node.classList.add('blend-panel-note');

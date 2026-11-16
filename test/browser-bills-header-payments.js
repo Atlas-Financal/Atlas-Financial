@@ -42,18 +42,36 @@ const states = [], errors = [], writes = [], external = [];
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no viewport overflow');
       await page.evaluate(async () => { await document.fonts.ready; await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); });
       await page.screenshot({ path: path.join(out, `${state}-${width}.png`), fullPage: true, animations: 'disabled' });
-      await trigger.focus(); await page.keyboard.press('Enter');
-      await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
+      // The hero Bills summary opens the Bills roster sheet; the native Bills
+      // deduction body sits behind the roster's Why control, inside its
+      // "Period figures" disclosure (budget-blend.js).
+      const openBillsEvidence = async (opts = {}) => {
+        await trigger.focus(); await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
+        const figures = page.locator('[data-budget-detail-sheet] [data-blend-bills-panel] .blend-bill-list-context');
+        if (!await figures.evaluate(node => node.open)) { await figures.locator('> summary').focus(); await page.keyboard.press('Enter'); }
+        // The roster heading prints the sealed Bills actual; read it while the roster shows.
+        if (opts.heading) {
+          const heading = page.locator('[data-budget-detail-sheet] #budget-bills-heading');
+          assert.equal(await heading.isVisible(), true, 'Bills heading visible in the roster sheet');
+          assert.match(await heading.innerText(), state === 'coverage-withheld' ? /Unknown/ : new RegExp(expected.replace('.', '\\.')));
+        }
+        await page.locator('[data-budget-detail-sheet] [data-blend-bills-panel] [data-budget-browse-evidence="04"]').focus();
+        await page.keyboard.press('Enter');
+      };
+      await openBillsEvidence({ heading: true });
       const body = page.locator('[data-budget-detail-body]');
       const evidence = await body.locator('[data-budget-progress-evidence="bills"]').innerText();
       if (state === 'coverage-withheld') assert.match(evidence, /Actual: Unavailable/);
       else assert.ok(evidence.includes('Actual: $' + expected));
       assert.match(evidence, /Money sent is separate from lender minimum confirmation/);
-      assert.match(await page.locator('#budget-bills-heading').innerText(), state === 'coverage-withheld' ? /Unknown/ : new RegExp(expected.replace('.', '\\.')));
       await page.screenshot({ path: path.join(out, `${state}-info-${width}.png`), animations: 'disabled' });
       await page.keyboard.press('Escape');
       assert.equal(await trigger.evaluate(el => el === document.activeElement), true, 'exact trigger regains keyboard focus');
-      const bill = page.locator('[data-budget-browse="bills"] [data-budget-bill-open="invented-minimum-0"]');
+      // The face prints each roster occurrence as a visible Bills-tile row
+      // (data-blend-bill="<id>:<date>"); the native roster row is off-screen.
+      const bill = page.locator('.blend-bill-item[data-blend-bill^="invented-minimum-0:"]');
+      assert.equal(await bill.count(), 1, 'one visible minimum row');
       await bill.focus(); await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
       const billInfo = await body.innerText();
@@ -67,14 +85,20 @@ const states = [], errors = [], writes = [], external = [];
       assert.equal(await bill.evaluate(el => el === document.activeElement), true, 'exact minimum trigger regains focus');
       if (state === 'complete') {
         for (let repeat = 0; repeat < 2; repeat++) {
-          await trigger.focus(); await page.keyboard.press('Enter');
-          await page.waitForFunction(() => document.querySelector('[data-budget-detail-sheet]')?.open);
+          await openBillsEvidence();
           assert.match(await body.locator('[data-budget-progress-evidence="bills"]').innerText(), /Actual: \$317\.62/);
           await page.keyboard.press('Escape');
         }
         const selected = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
-        await page.locator('[data-budget-window-step="1"]').click();
-        await page.locator('[data-budget-window-step="-1"]').click();
+        // The face hides the native step arrows; the visible period control
+        // is the river slider, driven by its own keyboard contract.
+        const river = page.locator('.river[role="slider"]');
+        await river.focus();
+        await page.keyboard.press('ArrowRight');
+        await page.waitForFunction(was => document.querySelector('[data-pay-period-swipe]')?.getAttribute('data-selected-pay-period') !== was, selected);
+        await river.focus();
+        await page.keyboard.press('ArrowLeft');
+        await page.waitForFunction(was => document.querySelector('[data-pay-period-swipe]')?.getAttribute('data-selected-pay-period') === was, selected);
         assert.equal(await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period'), selected);
         assert.match(await page.locator('[data-operating-question="04"] > details > summary').innerText(), /317\.62[\s\S]*269\.94/);
         await page.setViewportSize({ width: width === 1440 ? 390 : 1440, height: 1000 });

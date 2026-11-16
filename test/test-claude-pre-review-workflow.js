@@ -276,6 +276,64 @@ const GOOD = { findings: 'NO BLOCKERS FOUND', blocking_findings: [], verificatio
     assertForm(await post(verdict), 'INCOMPLETE');
     assertForm(await post(verdict, { source: noFilter }), 'NO BLOCKERS FOUND');
   });
+  // Observed misfires (claude-pre-review post logs, 2026-11-10 to 2026-11-16),
+  // reworded with invented context. Each is a mention, not a verdict.
+  const MENTION_CASES = [
+    ['the contract closing sentence', 'Diff only. ' + CLOSING],
+    ['quoted test console output', "The test prints 'PASS ...' lines and 'ALL CHECKS PASSED'."],
+    ['the word PASS, unquoted', 'The new test prints a success line containing the word PASS.'],
+    ['the word PASS, quoted', "The test prints a success line that contains the word 'PASS'."],
+  ];
+  for (const [label, text] of MENTION_CASES) {
+    await check(`${label} is a mention: the record is published unchanged`, async () => {
+      for (const field of ['verification', 'scope_and_limitations']) {
+        const body = await post({ ...GOOD, [field]: text });
+        assertForm(body, 'NO BLOCKERS FOUND');
+        assert(body.includes(text), 'mention is published unchanged');
+      }
+      const obs = await post({ ...GOOD, non_blocking_observations: [text] });
+      assertForm(obs, 'NO BLOCKERS FOUND');
+      assert(obs.includes(`- ${text}`));
+    });
+  }
+  await check('regression mutation: without the mention exceptions every observed misfire is withheld', async () => {
+    const noMentions = SOURCE.replace(/const unmention = value => MENTIONS\.reduce\([\s\S]*?\), value\);/,
+      'const unmention = value => value;');
+    assert.notEqual(noMentions, SOURCE, 'mutation applied');
+    for (const [, text] of MENTION_CASES)
+      assertForm(await post({ ...GOOD, verification: text }, { source: noMentions }), 'INCOMPLETE');
+  });
+  for (const [label, text] of [
+    ['a verdict beside the closing sentence', 'Verdict: PASS. ' + CLOSING],
+    ['an approval beside the closing sentence', 'I approve this change. ' + CLOSING],
+    ['a loosened closing sentence', 'Factual review findings only; this is a formal PR approval.'],
+    ['the owner approved, as a verb', 'The owner approved this change.'],
+    ['approval granted', 'Approval granted for this head.'],
+    ['owner approval plus a verdict', 'The owner approval is recorded. Approved.'],
+    ['a quoted bare PASS', "Result: 'PASS'."],
+    ['a quoted PASS with only spaces', "Result: 'PASS   '."],
+    ['a quoted PASSED', 'Result: "PASSED".'],
+    ['test output plus a verdict', "The test prints 'PASS ...' lines. All checks PASS."],
+    ['the word PASS used as a verdict', 'the word PASS-ed'],
+    ['multiline quoted test output', "'PASS\nlabel'"],
+    ['an approval inside a PASS-prefixed quote', "Verdict: 'PASS this PR; I approve merging this head.'"],
+    ['a second PASS inside a PASS-prefixed quote', "Output: 'PASS all checks PASSED'"],
+    ['approved inside a PASS-prefixed quote', '"PASS, approved"'],
+    // A verdict in otherwise plain words, one per exemption (pre-review on 9192638).
+    ['a quoted PASS verdict in plain words', "Verdict: 'PASS looks good to merge this head'"],
+    ['a double-quoted PASS verdict in plain words', 'Result: "PASS ready, ship it"'],
+    ['an unbalanced quote after PASS', "Verdict: 'PASS ready, don't wait"],
+    ['owner-approved as a verdict', 'This head is owner-approved.'],
+    ['owner approval as a verdict', 'Owner approval given for this head.'],
+    ['the word PASS as a verdict', 'I give the word PASS to this head.'],
+    ['the closing sentence loosened into a verdict', 'Factual review findings only; formal PR approval granted.'],
+  ]) {
+    await check(`${label} remains withheld`, async () => {
+      const body = await post({ ...GOOD, verification: text });
+      assertForm(body, 'INCOMPLETE');
+      assert(!body.includes(text), 'withheld text is not published');
+    });
+  }
   for (const [label, structured, opts] of [
     ['a failed run with no structured output', null, { conclusion: 'failure', result: 'success' }],
     ['an outcome outside the closed vocabulary', { ...GOOD, findings: 'LGTM' }],
