@@ -10548,10 +10548,34 @@
       ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
         .map(event => (event.id || event.label || '') + '@' + event.date))
       : null;
-    // A completed period's own settlement evidence keeps its ordinary row.
-    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
-      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
+    // A completed period's own settlement evidence keeps its ordinary row,
+    // but only evidence that survives historical settlement qualification
+    // (qualifyHistoricalBillSettlement / sealHistoricalBillRow, the rule the
+    // completed period itself publishes): a posted, linked payment, the
+    // owner's mark or schedule-trust basis. A packet entry with neither
+    // posted backing nor provenance is no proof (#1156 lead verification,
+    // H2; Grok Bot's conditions on the Plan #6 thread), so that occurrence
+    // is carried like an unrepresented one and counted once, in the current
+    // period.
+    let closedBacked = null;
+    const settledInClosedPeriod = (row, due) => {
+      if (!calendarOccurrenceRepresented(represented, observed, row.id, due)) return false;
+      if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
+      return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
+    };
+    // The recurring carry (#953) and the overdue once carry both ignore an
+    // unbacked entry: the active loop below lists an overdue once row unless
+    // its settlement survives the same qualification (Codex P2 on #1215), so
+    // the closed copy, the current period and the cash walk agree.
+    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
+      && !settledInClosedPeriod(row, due);
+    const withoutKey = (collection, key) => {
+      if (!collection || !collection.has(key)) return collection;
+      const copy = collection instanceof Map ? new Map(collection) : new Set(collection);
+      copy.delete(key);
+      return copy;
+    };
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
@@ -10658,14 +10682,25 @@
         represented, observed, event.id, event.date);
       // Passing payday does not drop an unresolved once cash obligation, and
       // does not rewrite its due date onto the new payday. Represented /
-      // settled once rows disappear rather than remaining reserved.
+      // settled once rows disappear rather than remaining reserved, but only
+      // when that settlement survives historical qualification: an entry with
+      // neither posted backing nor provenance is no proof, so the row stays
+      // owed here, built as if no entry named it (the cash walk owes it too).
       if (due < span.start && !overdueOnce) continue;
-      if (overdueOnce && paid) continue;
+      const occurrenceKey = event.id + '@' + event.date;
+      let unbackedOnce = false;
+      if (overdueOnce && paid) {
+        const probe = calendarBillRowFromEvent(
+          plan, event, asOf, represented, observed, cashAsOf, due, opts);
+        if (!probe || settledInClosedPeriod(probe, due)) continue;
+        unbackedOnce = true;
+      }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
       seen.add(key);
-      const row = calendarBillRowFromEvent(
-        plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      const row = calendarBillRowFromEvent(plan, event, asOf,
+        unbackedOnce ? withoutKey(represented, occurrenceKey) : represented,
+        unbackedOnce ? withoutKey(observed, occurrenceKey) : observed, cashAsOf, due, opts);
       // Written here and read by the bill-row printers only. Nothing in
       // Forecast reads it back: a guessed stand-in decides no window, no
       // amount, and whether no other row is listed.
@@ -16644,6 +16679,16 @@
       return;
     }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
+    // Occurrences the current period carries in from an earlier period (To
+    // confirm and counted there). A saved close captured before the #1156 /
+    // unbacked-entry carry rules may still count one of them in its saved
+    // total; that saved figure stays exactly as saved, and its row only
+    // discloses the carry (alsoCarriedToCurrent, display only; Grok Bot,
+    // Plan #6 thread). A close that already lists it as carried says nothing more.
+    const current = views.find(v => v && v.timelineRole === 'current') || null;
+    const carriedIntoCurrent = new Set(((current && current.bills) || [])
+      .filter(row => row && row.id && row.date && current.start && row.date < current.start && row.status !== 'PAID')
+      .map(row => row.id + '@' + row.date));
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
@@ -16675,8 +16720,16 @@
           const same = key === 'bills' && todayRows.find(t => t.id === row.id && t.date === row.date);
           return same && typeof same.scheduledDue === 'string' ? { scheduledDue: same.scheduledDue } : {};
         };
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...printedDue(row),
-          ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
+        view[key] = pub[key].map(row => {
+          const copy = { ...borrowed(today.get(row.id)), ...printedDue(row),
+            ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
+          delete copy.alsoCarriedToCurrent;
+          if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
+              && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
+            copy.alsoCarriedToCurrent = true;
+          }
+          return copy;
+        });
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
         if (!Object.hasOwn(pub, key)) view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
