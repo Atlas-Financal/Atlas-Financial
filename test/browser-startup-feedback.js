@@ -126,7 +126,7 @@ async function delayedRoute(routePath, delayMs, reduced = false) {
 }
 async function interrupted() {
   const late = gate();
-  const s = await pageFor('/bills.html', async call => {
+  const s = await pageFor('/', async call => {
     if (call === 1) { await late.promise; return {}; }
     await pause(400);
     return call === 2 ? { status: 503 } : {};
@@ -156,7 +156,7 @@ async function interrupted() {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH, headless: true });
   try {
     if (process.env.STARTUP_STATIC_ONLY) await staticFeedback();
-    else await Promise.all([staticFeedback(), delayedRoute('/', longMs), delayedRoute('/bills.html', longMs),
+    else await Promise.all([staticFeedback(), delayedRoute('/', longMs),
       delayedRoute('/index.html', 2500, true), interrupted()]);
     receipt.result = 'PASS';
     console.log('PASS startup feedback: ' + JSON.stringify(receipt.scenarios));

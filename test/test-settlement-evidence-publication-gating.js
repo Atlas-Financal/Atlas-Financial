@@ -1,6 +1,6 @@
 'use strict';
 // ATLAS-080 — configured-unavailable publication gating at the serving
-// surfaces (assistant packet, Planning page, Plan page).
+// surfaces (assistant packet, Budget / Plan page).
 //
 // The settlement evidence loader returns a tri-state outcome —
 // unconfigured / qualified / unavailable(reason) — but Forecast's only
@@ -24,8 +24,8 @@
 //   qualified status -> fail closed as unavailable
 //   ('invalid-configuration'), never as unconfigured.
 //
-// The three surfaces are exercised the way production loads them:
-// the packet through its Node builder, the two browser pages through
+// The two surfaces are exercised the way production loads them:
+// the packet through its Node builder, the Budget page through
 // a vm harness that loads the real classic scripts with a recording
 // fake DOM (the same globals mechanism index.html uses).
 const test = require('node:test'), assert = require('node:assert/strict');
@@ -67,7 +67,7 @@ function fixtureInput(commitmentAmount) {
   return x;
 }
 
-// The served-data object the three surfaces already consume, with the
+// The served-data object the surfaces already consume, with the
 // settlement outcome fields attached the way the composition point
 // will attach them (status alongside, never inside, the evidence).
 function servedData(x, settlement) {
@@ -482,73 +482,6 @@ function snapshotMounts(dom) {
   return out;
 }
 
-/* ---------------------------------------------------- planning page */
-
-function loadPlanning() {
-  return loadBrowserScripts([
-    'public/app.js',
-    'public/forecast-card-period.js',
-    'public/forecast.js',
-    'public/planning.js',
-  ]);
-}
-
-test('planning: qualified threads evidence into trajectory and advice calls', () => {
-  const { sandbox } = loadPlanning();
-  const x = fixtureInput();
-  const qualified = sandbox.planningTrajectory(servedData(x, QUALIFIED()), periods());
-  assert.equal(qualified.status, 'ready');
-  const goal = (qualified.savingsFundingTimeline.goals || [])[0];
-  assert.ok(goal, 'trajectory embeds the funding timeline');
-  assert.equal(goal.requirement, 35, 'timeline requirement is the relieved remaining');
-  const plain = sandbox.planningTrajectory(servedData(fixtureInput(), null), periods());
-  assert.equal((plain.savingsFundingTimeline.goals || [])[0].requirement, 60,
-    'control: without evidence the full cost is required');
-  const advice = sandbox.planningAdvice(servedData(fixtureInput(), QUALIFIED()), periods());
-  const seq = (advice.fundingSequence || []).find(e => e.id === 'near');
-  assert.ok(seq, 'funding sequence includes the linked commitment');
-  assert.equal(seq.need, 35, 'advice funding need is the relieved remaining');
-});
-
-test('planning: renderPlanning withholds the Road Ahead under unavailable, distinctly per reason', () => {
-  const renders = REASONS.map(reason => {
-    const { sandbox, dom } = loadPlanning();
-    sandbox.renderPlanning(servedData(fixtureInput(), UNAVAILABLE(reason)), periods());
-    return dom.element('planning-road-ahead').innerHTML;
-  });
-  for (let i = 0; i < renders.length; i++) {
-    assert.match(renders[i], /data-settlement-evidence="unavailable"/);
-    assert.ok(renders[i].includes(REASONS[i]), `reason ${REASONS[i]} is named in the withheld output`);
-    assert.doesNotMatch(renders[i], /planning-road-timeline|data-planning-road-shell="ready"/,
-      'no ready Road Ahead shell leaks through');
-    for (let j = i + 1; j < renders.length; j++) assert.notEqual(renders[i], renders[j]);
-  }
-});
-
-test('planning: withheld render does not depend on the settlement-dependent figures', () => {
-  const render = amount => {
-    const { sandbox, dom } = loadPlanning();
-    sandbox.renderPlanning(servedData(fixtureInput(amount), UNAVAILABLE('document-missing')), periods());
-    return dom.element('planning-road-ahead').innerHTML;
-  };
-  assert.equal(render(97), render(60),
-    'withheld Road Ahead is identical whatever the withheld figures are');
-  const ready = (() => {
-    const { sandbox, dom } = loadPlanning();
-    sandbox.renderPlanning(servedData(fixtureInput(60), null), periods());
-    return dom.element('planning-road-ahead').innerHTML;
-  })();
-  assert.notEqual(ready, render(60), 'control: unconfigured render publishes the Road Ahead');
-});
-
-test('planning: malformed status fails closed in renderPlanning', () => {
-  const { sandbox, dom } = loadPlanning();
-  sandbox.renderPlanning(servedData(fixtureInput(), { status: { status: 'qualified' } }), periods());
-  const html = dom.element('planning-road-ahead').innerHTML;
-  assert.match(html, /data-settlement-evidence="unavailable"/);
-  assert.ok(html.includes('invalid-configuration'));
-});
-
 /* -------------------------------------------------------- plan page */
 
 function loadPlan() {
@@ -748,17 +681,12 @@ test('packet: explicit null status fails closed and is not omitted status (B3)',
     'null status with evidence also fails closed');
 });
 
-test('planning + plan: malformed effective evidence fails closed at the page surfaces (B3)', () => {
+test('plan: malformed effective evidence fails closed at the page surface (B3)', () => {
   const badEvidence = () => {
     const ev = linkEvidence();
     ev.commitments[0].links = [null];
     return { status: { status: 'qualified' }, evidence: ev };
   };
-  const { sandbox, dom } = loadPlanning();
-  sandbox.renderPlanning(servedData(fixtureInput(), badEvidence()), periods());
-  const road = dom.element('planning-road-ahead').innerHTML;
-  assert.match(road, /data-settlement-evidence="unavailable"/, 'planning withholds on malformed evidence');
-  assert.ok(road.includes('invalid-configuration'), 'planning names invalid-configuration');
   const mounts = renderPlanPage(loadPlan(), fixtureInput(), badEvidence());
   assert.equal(mounts['status-band'].planStatus, 'unavailable', 'plan withholds on malformed evidence');
   const allHtml = Object.values(mounts).map(m => m.innerHTML + m.textContent).join('\n');
@@ -938,223 +866,8 @@ test('plan: same-instance recovery from unavailable to unconfigured restores pub
   assert.equal(recovered['plan-window'].textContent, fresh['plan-window'].textContent);
 });
 
-/* --------------------------------------------------- plan spend page */
-// Plan Spend settlement publication gap (Dale's launch audit). Plan Spend
-// renders Forecast.recommend output — the savings inventory, payday funding
-// lede, planned-spending cards and note — but never read the served
-// settlement outcome: qualified relief was dropped and a configured-
-// unavailable store published legacy figures. These tests drive the real
-// plan-spend.js script and its registered renderer with synthetic data.
-
-const PLAN_SPEND_MOUNTS = ['savings-inventory', 'plan-spend-lede', 'plan-spend-list', 'plan-spend-note'];
-
-function loadPlanSpend() {
-  const loaded = loadBrowserScripts([
-    'public/app.js',
-    'public/forecast.js',
-    'public/savings-inventory.js',
-    'public/plan-spend.js',
-  ]);
-  // Record every Forecast.recommend call the page makes; the real
-  // Forecast still computes every figure.
-  const calls = [];
-  const real = loaded.sandbox.Forecast.recommend;
-  loaded.sandbox.Forecast.recommend = function (...args) { calls.push(args); return real.apply(this, args); };
-  loaded.calls = calls;
-  return loaded;
-}
-
-function renderPlanSpendPage(loaded, x, settlement) {
-  loaded.sandbox.renderPlanSpend(servedData(x, settlement), periods());
-  const out = {};
-  for (const id of PLAN_SPEND_MOUNTS) {
-    const el = loaded.dom.element(id);
-    out[id] = { innerHTML: el.innerHTML, textContent: el.textContent };
-  }
-  return out;
-}
-
-const planSpendText = mounts => Object.values(mounts).map(m => m.innerHTML + m.textContent).join('\n');
-
-// Outcome corpus shared by the parity test: every status shape the two
-// incumbent mirrors distinguish.
-function settlementCorpus() {
-  const valid = linkEvidence();
-  const bad = mutate => { const e = structuredClone(valid); mutate(e); return e; };
-  const reasons = ['invalid-configuration', 'pin-unavailable', 'pin-invalid',
-    'document-unavailable', 'document-missing', 'document-malformed',
-    'household-mismatch', 'revision-mismatch', 'document-ahead-of-pin',
-    'digest-mismatch', 'document-invalid', 'document-changed'];
-  return [
-    {},
-    { settlementEvidenceStatus: { status: 'unconfigured' } },
-    { settlementEvidenceStatus: { status: 'unconfigured' }, settlementEvidence: valid },
-    { settlementEvidenceStatus: { status: 'qualified' }, settlementEvidence: valid },
-    { settlementEvidenceStatus: { status: 'qualified' } },
-    { settlementEvidenceStatus: { status: 'qualified' }, settlementEvidence: bad(e => { e.commitments[0].links[0].assignedCents = 0; }) },
-    { settlementEvidenceStatus: { status: 'qualified' }, settlementEvidence: bad(e => { e.commitments[0].links[0].txRef = 'tx-1'; }) },
-    { settlementEvidenceStatus: { status: 'qualified' }, settlementEvidence: bad(e => { e.commitments.push(structuredClone(e.commitments[0])); }) },
-    { settlementEvidenceStatus: { status: 'qualified' }, settlementEvidence: bad(e => { e.commitments[0].links[0].effectiveDate = '2026-02-30'; }) },
-    { settlementEvidenceStatus: { status: 'qualified' }, settlementEvidence: [] },
-    ...reasons.map(reason => ({ settlementEvidenceStatus: { status: 'unavailable', reason } })),
-    { settlementEvidenceStatus: { status: 'unavailable', reason: 'not-a-loader-reason' } },
-    { settlementEvidenceStatus: { status: 'unavailable' } },
-    { settlementEvidenceStatus: { status: 'unavailable', reason: 'pin-unavailable' }, settlementEvidence: valid },
-    { settlementEvidenceStatus: { status: 'bogus' } },
-    { settlementEvidenceStatus: null },
-    { settlementEvidenceStatus: 'qualified', settlementEvidence: valid },
-    { settlementEvidenceStatus: ['qualified'] },
-    { settlementEvidence: valid },
-  ];
-}
-
-test('plan spend: settlement outcome is in parity with the Planning and Plan mirrors', () => {
-  const ps = loadPlanSpend().sandbox;
-  assert.equal(typeof ps.planSpendSettlementOutcome, 'function', 'Plan Spend reads the served settlement outcome');
-  const planning = loadPlanning().sandbox;
-  const plan = loadPlan().sandbox;
-  assert.deepEqual(
-    [...vm.runInContext('PLAN_SPEND_SETTLEMENT_REASONS', ps)].sort(),
-    [...vm.runInContext('PLANNING_SETTLEMENT_REASONS', planning)].sort(),
-    'reason vocabulary matches Planning');
-  assert.deepEqual(
-    [...vm.runInContext('PLAN_SPEND_SETTLEMENT_REASONS', ps)].sort(),
-    [...vm.runInContext('PLAN_SETTLEMENT_REASONS', plan)].sort(),
-    'reason vocabulary matches Plan');
-  const corpus = settlementCorpus();
-  for (let i = 0; i < corpus.length; i++) {
-    const d = corpus[i];
-    const mine = JSON.stringify(ps.planSpendSettlementOutcome(d));
-    assert.equal(mine, JSON.stringify(planning.planningSettlementOutcome(d)), `case ${i}: parity with Planning`);
-    assert.equal(mine, JSON.stringify(plan.planSettlementOutcome(d)), `case ${i}: parity with Plan`);
-  }
-});
-
-test('plan spend: absent status and explicit unconfigured render identically and call Forecast without evidence', () => {
-  const a = loadPlanSpend(), b = loadPlanSpend();
-  const ra = renderPlanSpendPage(a, fixtureInput(), null);
-  const rb = renderPlanSpendPage(b, fixtureInput(), UNCONFIGURED);
-  assert.deepEqual(rb, ra);
-  assert.equal(a.calls.length, 1);
-  assert.equal(Object.prototype.hasOwnProperty.call(a.calls[0][2], 'settlementEvidence'), false,
-    'unconfigured (default-inactive) recommend options carry no settlement evidence key');
-  assert.ok(ra['plan-spend-list'].innerHTML.includes('$60.00'), 'legacy output publishes the unrelieved cost');
-});
-
-test('plan spend: qualified evidence reaches Forecast.recommend unchanged and its relieved figures are published', () => {
-  const loaded = loadPlanSpend();
-  const served = QUALIFIED();
-  const supplied = structuredClone(served.evidence);
-  loaded.sandbox.renderPlanSpend(servedData(fixtureInput(), served), periods());
-  assert.equal(loaded.calls.length, 1, 'one dependent Forecast call');
-  assert.equal(loaded.calls[0][2].settlementEvidence, served.evidence,
-    'the served evidence object itself is passed (no copy, no transformation)');
-  assert.deepEqual(served.evidence, supplied, 'the page does not mutate the evidence');
-  // Compare supplied evidence with Forecast's own numbers (the test does
-  // the arithmetic; the page never does).
-  const direct = directRecommend(fixtureInput(), linkEvidence());
-  const seq = (direct.fundingSequence || []).find(e => e.id === 'near');
-  const assigned = supplied.commitments[0].links[0].assignedCents;
-  assert.equal(seq.need, 60 - assigned / 100, 'Forecast relieves the cost by the assigned evidence');
-  const list = loaded.dom.element('plan-spend-list').innerHTML;
-  assert.ok(list.includes('$35.00'), 'relieved remaining published on Plan Spend');
-  const plain = renderPlanSpendPage(loadPlanSpend(), fixtureInput(), null);
-  assert.notEqual(list, plain['plan-spend-list'].innerHTML, 'qualified render differs from legacy');
-  // Evidence amounts are read only by the structural validator (shape
-  // checks, as in the incumbent mirrors); nothing else in the page
-  // touches them, so relief can only come from Forecast.
-  const src = fs.readFileSync(path.join(ROOT, 'public/plan-spend.js'), 'utf8');
-  const start = src.indexOf('function planSpendSettlementEvidenceValid(');
-  const end = src.indexOf('\nfunction planSpendSettlementOutcome(');
-  assert.ok(start > 0 && end > start, 'validator located');
-  const outside = src.slice(0, start) + src.slice(end);
-  assert.doesNotMatch(outside, /assignedCents|\.cents\b|\.links\b|\.reversals\b/,
-    'Plan Spend never reads evidence amounts outside validation');
-});
-
-test('plan spend: unavailable withholds every dependent mount, distinctly per reason, with no Forecast call', () => {
-  const renders = REASONS.map(reason => {
-    const loaded = loadPlanSpend();
-    const mounts = renderPlanSpendPage(loaded, fixtureInput(), UNAVAILABLE(reason));
-    assert.equal(loaded.calls.length, 0, `${reason}: no dependent Forecast.recommend call`);
-    return mounts;
-  });
-  for (let i = 0; i < renders.length; i++) {
-    const m = renders[i];
-    assert.match(m['plan-spend-list'].innerHTML, /data-settlement-evidence="unavailable"/);
-    assert.ok(m['plan-spend-list'].innerHTML.includes(REASONS[i]), 'reason named');
-    assert.match(m['savings-inventory'].innerHTML, /data-settlement-evidence="unavailable"/,
-      'savings inventory replaced by the withheld notice');
-    assert.equal(m['plan-spend-lede'].innerHTML, '', 'funding lede cleared');
-    assert.equal(m['plan-spend-note'].textContent, '', 'note cleared');
-    assert.doesNotMatch(planSpendText(m), /\$\s?\d/, 'no amount (and no substituted zero) is published');
-    assert.ok(!planSpendText(m).includes('Invented first club cost'), 'no dependent claim names the cost');
-    for (let j = i + 1; j < renders.length; j++) assert.notDeepEqual(renders[i], renders[j]);
-  }
-});
-
-test('plan spend: withheld output does not depend on the withheld amounts', () => {
-  const a = renderPlanSpendPage(loadPlanSpend(), fixtureInput(60), UNAVAILABLE('digest-mismatch'));
-  const b = renderPlanSpendPage(loadPlanSpend(), fixtureInput(97), UNAVAILABLE('digest-mismatch'));
-  assert.deepEqual(b, a);
-  const ready = renderPlanSpendPage(loadPlanSpend(), fixtureInput(97), null);
-  assert.notDeepEqual(ready, a, 'control: unconfigured publishes');
-});
-
-test('plan spend: malformed or unknown statuses fail closed as invalid-configuration', () => {
-  const valid = linkEvidence();
-  for (const s of [
-    { status: { status: 'qualified' } },
-    { status: { status: 'bogus' } },
-    { status: { status: 'unavailable', reason: 'not-a-loader-reason' } },
-    { status: null },
-    { status: { status: 'unavailable', reason: 'pin-unavailable' }, evidence: valid },
-    { status: { status: 'qualified' }, evidence: { commitments: [{ goalId: 'commitment:near', links: [] }] } },
-  ]) {
-    const loaded = loadPlanSpend();
-    const data = servedData(fixtureInput(), null);
-    data.settlementEvidenceStatus = s.status;
-    if (s.evidence !== undefined) data.settlementEvidence = s.evidence;
-    loaded.sandbox.renderPlanSpend(data, periods());
-    const list = loaded.dom.element('plan-spend-list').innerHTML;
-    assert.match(list, /data-settlement-evidence="unavailable"/, JSON.stringify(s.status));
-    assert.ok(list.includes('invalid-configuration'));
-    assert.equal(loaded.calls.length, 0, 'no Forecast call when malformed');
-  }
-});
-
-test('plan spend: same-instance transitions never leave stale amounts and recover fully', () => {
-  const stale = m => /\$\s?\d/.test(planSpendText(m)) || planSpendText(m).includes('Invented first club cost');
-  // legacy -> unavailable
-  let loaded = loadPlanSpend();
-  assert.ok(stale(renderPlanSpendPage(loaded, fixtureInput(), null)), 'control: legacy publishes amounts');
-  assert.ok(!stale(renderPlanSpendPage(loaded, fixtureInput(), UNAVAILABLE('pin-unavailable'))), 'legacy -> unavailable');
-  // unavailable -> unconfigured recovery
-  const recovered = renderPlanSpendPage(loaded, fixtureInput(), null);
-  assert.deepEqual(recovered, renderPlanSpendPage(loadPlanSpend(), fixtureInput(), null), 'unconfigured recovery');
-  // qualified -> unavailable
-  loaded = loadPlanSpend();
-  renderPlanSpendPage(loaded, fixtureInput(), QUALIFIED());
-  assert.ok(!stale(renderPlanSpendPage(loaded, fixtureInput(), UNAVAILABLE('document-missing'))), 'qualified -> unavailable');
-  // unavailable -> qualified
-  const requal = renderPlanSpendPage(loaded, fixtureInput(), QUALIFIED());
-  assert.deepEqual(requal, renderPlanSpendPage(loadPlanSpend(), fixtureInput(), QUALIFIED()), 'unavailable -> qualified');
-  assert.ok(requal['plan-spend-list'].innerHTML.includes('$35.00'));
-});
-
-test('plan spend: operating-plan unavailable gate and empty state are preserved', () => {
-  const loaded = loadPlanSpend();
-  const data = servedData(fixtureInput(), null);
-  data.liveOverlay = { applied: false, operatingPlan: 'unavailable', operatingPlanNote: 'Synthetic stale opening.' };
-  loaded.sandbox.renderPlanSpend(data, periods());
-  assert.match(loaded.dom.element('plan-spend-list').innerHTML, /data-operating-plan="unavailable"/);
-  assert.ok(loaded.dom.element('plan-spend-list').innerHTML.includes('Synthetic stale opening.'));
-  const empty = loadPlanSpend().sandbox.planSpendPageHtml({ majorPlans: [] }, null);
-  assert.match(empty.list, /data-plan-spend="empty"/);
-});
-
 // Savings display closure after #675: cost explanations use Forecast's
-// attached facts while all four mounts retain the incumbent publication gate.
+// attached facts while the Budget mounts retain the incumbent publication gate.
 const displayFact = (html, name) => html.split(`data-savings-cost-${name}>`)[1]?.split('</dd>')[0];
 function displayInput(grouped = false) {
   const x = require('./fixtures/chronological-savings-data').policy(fx.advance(fx.fixture(), '2026-10-07'));
@@ -1164,48 +877,29 @@ function displayInput(grouped = false) {
   } else x.plan.commitments[1].label = x.plan.commitments[0].label;
   return x;
 }
-test('plan spend: native disclosure separates original, assigned and unpaid cost from funding need', () => {
+test('plan: native disclosure separates original, assigned and unpaid cost from funding need', () => {
   for (const [cents, paid, unpaid] of [[2500, 25, 35], [6000, 60, 0]]) {
-    const loaded = loadPlanSpend(), x = displayInput();
-    const mounts = renderPlanSpendPage(loaded, x, { status: { status: 'qualified' }, evidence: linkEvidence(cents) });
-    const list = mounts['plan-spend-list'].innerHTML;
+    const x = displayInput();
+    const mounts = renderPlanPage(loadPlan(), x, { status: { status: 'qualified' }, evidence: linkEvidence(cents) });
+    const list = mounts['savings-inventory'].innerHTML;
     assert.match(displayFact(list, 'original'), /60\.00/);
     assert.ok(displayFact(list, 'paid').includes(paid.toFixed(2)));
     assert.ok(displayFact(list, 'unpaid').includes(unpaid.toFixed(2)));
-    assert.match(list, /Funding requirement<\/small>/, 'relieved need is never labelled original Cost');
     assert.match(list, /<details[^>]*>[\s\S]*Original cost/, 'cost explanation remains in the disclosure');
     assert.match(list, /Known means published, not bank-verified/);
   }
 });
-test('plan spend: group and same-label members print their own attached facts and independent backing', () => {
-  const loaded = loadPlanSpend(), x = displayInput(true);
-  const list = renderPlanSpendPage(loaded, x, QUALIFIED())['plan-spend-list'].innerHTML;
+test('plan: group and same-label members print their own attached facts and independent backing', () => {
+  const x = displayInput(true);
+  const list = renderPlanPage(loadPlan(), x, QUALIFIED())['savings-inventory'].innerHTML;
   assert.match(displayFact(list, 'original'), /230\.00/);
   assert.match(displayFact(list, 'paid'), /25\.00/);
   assert.match(displayFact(list, 'unpaid'), /205\.00/);
-  for (const [id, original, paid, unpaid] of [['near', 60, 25, 35], ['far', 170, 0, 170]]) {
-    const member = list.split(`data-plan-spend-member="${id}"`)[1].split('</li>')[0];
-    assert.ok(displayFact(member, 'original').includes(original.toFixed(2)));
-    assert.ok(displayFact(member, 'paid').includes(paid.toFixed(2)));
-    assert.ok(displayFact(member, 'unpaid').includes(unpaid.toFixed(2)));
-  }
   const before = structuredClone(x);
   x.plan.commitments[0].settledOn = '2026-10-04';
-  const retired = renderPlanSpendPage(loadPlanSpend(), x, QUALIFIED())['plan-spend-list'].innerHTML;
+  const retired = renderPlanPage(loadPlan(), x, QUALIFIED())['savings-inventory'].innerHTML;
   assert.match(displayFact(retired, 'original'), /170\.00/);
-  assert.doesNotMatch(retired, /data-plan-spend-member="near"/);
   assert.equal(before.plan.commitments.length, 2, 'synthetic group has exactly two native commitments');
-});
-test('plan spend: cost markup is replaced across qualified/unavailable/qualified on the same instance', () => {
-  const loaded = loadPlanSpend(), x = displayInput();
-  const first = renderPlanSpendPage(loaded, x, QUALIFIED());
-  assert.match(first['plan-spend-list'].innerHTML, /data-savings-cost-original/);
-  const calls = loaded.calls.length;
-  const withheld = renderPlanSpendPage(loaded, x, UNAVAILABLE('pin-unavailable'));
-  assert.equal(loaded.calls.length, calls, 'unavailable makes no dependent Forecast call');
-  assert.doesNotMatch(planSpendText(withheld), /data-savings-cost-|Original cost|Confirmed payment assignments|\$\s?\d/);
-  const recovered = renderPlanSpendPage(loaded, x, QUALIFIED());
-  assert.deepEqual(recovered, first, 'no stale markup after recovery');
 });
 test('plan: cost disclosure markup clears on unavailable and returns only from the new qualified publication', () => {
   const loaded = loadPlan(), x = displayInput(true);
@@ -1460,19 +1154,7 @@ function rsAssertSameMounts(actual, expected, label) {
   }
 }
 
-// renderPlanSpendPage's mount capture, over an already-built served
-// object.
-function rsRenderPlanSpendData(loaded, data) {
-  loaded.sandbox.renderPlanSpend(data, periods());
-  const out = {};
-  for (const id of PLAN_SPEND_MOUNTS) {
-    const el = loaded.dom.element(id);
-    out[id] = { innerHTML: el.innerHTML, textContent: el.textContent };
-  }
-  return out;
-}
-
-test('renderer-seam composition: a real controller commit publishes through attach to Plan Spend and Plan', async () => {
+test('renderer-seam composition: a real controller commit publishes through attach to Plan', async () => {
   const stack = await rsMakeStack();
   const receipt = await rsConfirm(stack, 2500);
   assert.deepEqual(Object.keys(receipt).sort(), ['digest', 'operationId', 'revision', 'status'],
@@ -1495,18 +1177,11 @@ test('renderer-seam composition: a real controller commit publishes through atta
     'the real stack publishes the same effective evidence the contract builds directly');
   assert.deepEqual(oracle.evidence, attached.settlementEvidence,
     'the oracle publication is the same snapshot attach publishes');
-  // Plan Spend, from attach output only: identical mounts to the
-  // incumbent hand-built qualified render, with the relieved figure.
-  const spend = rsRenderPlanSpendData(loadPlanSpend(), rsRoundTrip(attached));
-  assert.deepEqual(spend, renderPlanSpendPage(loadPlanSpend(), fixtureInput(), QUALIFIED()),
-    'attach-driven Plan Spend render matches the incumbent qualified render');
-  assert.ok(spend['plan-spend-list'].innerHTML.includes('$35.00'),
-    'relieved remaining is published on Plan Spend');
   // Named cost facts on the disclosure fixture: the original cost
-  // may stand at 60.00; what relief moves is paid / unpaid.
+  // may stand at 60.00; what relief moves is paid / unpaid. Read from the
+  // Budget savings inventory mount.
   const displayAttached = await serving.attach(servedData(displayInput(), null));
-  const displaySpend = rsRenderPlanSpendData(loadPlanSpend(), rsRoundTrip(displayAttached));
-  const list = displaySpend['plan-spend-list'].innerHTML;
+  const list = rsRenderPlanData(loadPlan(), rsRoundTrip(displayAttached))['savings-inventory'].innerHTML;
   assert.match(displayFact(list, 'original'), /60\.00/, 'original cost stands at 60.00');
   assert.ok(displayFact(list, 'paid').includes('25.00'), 'linked paid is 25.00');
   assert.ok(displayFact(list, 'unpaid').includes('35.00'),
@@ -1531,12 +1206,6 @@ test('renderer-seam composition: same-instance qualified → unavailable → rec
   assert.equal(oracle.status, 'included', 'receipt-bound oracle includes the controller receipt');
   const afterCommit = rsDurableBytes(stack);
   const qualifiedData = async () => rsRoundTrip(await serving.attach(rsBaseServed()));
-  // Plan Spend on one page instance.
-  const spendLoaded = loadPlanSpend();
-  const spendFirst = rsRenderPlanSpendData(spendLoaded, await qualifiedData());
-  assert.ok(spendFirst['plan-spend-list'].innerHTML.includes('$35.00'),
-    'prime: the qualified attach output publishes the relieved remaining');
-  const callsAfterPrime = spendLoaded.calls.length;
   // Wholesale replacement of the served object with a fresh attach
   // output taken while the pin reader fails (the C6 idiom).
   const downServing = stack.servingFor(stack.adapters, {
@@ -1545,20 +1214,6 @@ test('renderer-seam composition: same-instance qualified → unavailable → rec
   const downAttached = await downServing.attach(rsBaseServed());
   assert.deepEqual(downAttached.settlementEvidenceStatus, { status: 'unavailable', reason: 'pin-unavailable' });
   assert.ok(!('settlementEvidence' in downAttached), 'unavailable attach carries no evidence');
-  const spendWithheld = rsRenderPlanSpendData(spendLoaded, rsRoundTrip(downAttached));
-  assert.equal(spendLoaded.calls.length, callsAfterPrime,
-    'the unavailable replacement makes no dependent Forecast call');
-  assert.match(spendWithheld['plan-spend-list'].innerHTML, /data-settlement-evidence="unavailable"/,
-    'the withheld notice replaces the dependent list');
-  assert.doesNotMatch(planSpendText(spendWithheld), /\$\s?\d/,
-    'no amount survives the unavailable replacement');
-  assert.ok(!planSpendText(spendWithheld).includes('Invented first club cost'),
-    'no dependent claim names the commitment under unavailable');
-  // Read-only recovery on the same instance: a fresh attach over the
-  // restored readers republishes exactly the first render.
-  const spendRecovered = rsRenderPlanSpendData(spendLoaded, await qualifiedData());
-  assert.deepEqual(spendRecovered, spendFirst,
-    'recovered Plan Spend render matches the first qualified render');
   // Plan on one page instance.
   const planLoaded = loadPlan();
   const planFirst = rsRenderPlanData(planLoaded, await qualifiedData());
@@ -1595,10 +1250,6 @@ test('renderer-seam composition: repeated renders on a used instance follow Fore
   const first = rsRenderPlanData(planLoaded, data);
   assert.deepEqual(rsRenderPlanData(planLoaded, data), first,
     'repeated Plan renders of the same object are identical');
-  const spendLoaded = loadPlanSpend();
-  const spendFirst = rsRenderPlanSpendData(spendLoaded, data);
-  assert.deepEqual(rsRenderPlanSpendData(spendLoaded, data), spendFirst,
-    'repeated Plan Spend renders of the same object are identical');
   // The render on the used instance must be exactly what a fresh instance
   // produces over the same qualified object — Forecast semantics decide the
   // figures, and no stale remaining-need state may survive.

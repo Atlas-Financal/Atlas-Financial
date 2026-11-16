@@ -267,8 +267,6 @@ const CAPTURE_ROUTES = {
   'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object', 'null']],
   'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
   'budget|public/savings-inventory.js#html<public/plan.js#renderPlan': [['asOf=str,advice=A,plan=entry-plan'], ['A.savingsFunding'], ['object', 'null']],
-  'planSpend|public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
-  'planSpend|public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
 };
 // Which anchor predicts an observation: its context shape and source, each
 // mapped to exactly one anchor (never substituted for another; 6555036724).
@@ -283,7 +281,6 @@ const CAPTURE_ANCHOR_OF = {
   'budget|asOf=str,period=view|A.savingsFunding': 'byView',
   'budget|asOf=str,period=view|other-object': 'rawPacket',
   'budget|asOf=str,period=view|result': 'pass-through',
-  'planSpend|advice=A,plan=entry-plan,asOf=str|A.savingsFunding': 'topPlan',
 };
 // The adopted per-state call roster (table r4 6558578436 as revised by r4.1
 // 6558666715; Muse 6558680563). Within a state each step is called at most
@@ -304,10 +301,6 @@ const CAPTURE_STEPS = {
     ['I', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml', 'asOf=str,advice=A,periodId=str'],
     ['J', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
     ['K', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,advice=A'],
-  ],
-  planSpend: [
-    ['P1', 'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml', 'advice=A,plan=entry-plan,asOf=str'],
-    ['P2', 'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend', 'advice=A,plan=entry-plan,asOf=str'],
   ],
 };
 // The gate-line vocabulary (r4.1 §1-§2): per Budget state, page|state|
@@ -364,7 +357,7 @@ function captureExpectedStates(head, prefix) {
     if (!view) return null;
     ids.push('period:' + view(start) + '/lens:today', 'period:' + view(start) + '/lens:payday');
   }
-  return ['budget|default', ...ids.map(id => 'budget|' + id), 'planSpend|default'];
+  return ['budget|default', ...ids.map(id => 'budget|' + id)];
 }
 // A context label in its declared shape: string values as str, the view
 // identity as view, the call's advice as A (the context's advice and the
@@ -379,7 +372,7 @@ function captureContextShape(context, advice) {
     let v = m[2];
     if (/^"[^"]*"$/.test(v)) v = 'str';
     else if (/^view:[^,]+$/.test(v)) v = 'view';
-    else if (/^(?:budget|planSpend)-advice#\d+$/.test(v)) { if (advice.label && advice.label !== v) return null; advice.label = v; v = 'A'; }
+    else if (/^budget-advice#\d+$/.test(v)) { if (advice.label && advice.label !== v) return null; advice.label = v; v = 'A'; }
     else if (!['null', 'undefined', 'entry-plan', 'string', 'number', 'boolean', 'object'].includes(v)) return null;
     out.push(m[1] + '=' + v);
   }
@@ -387,7 +380,7 @@ function captureContextShape(context, advice) {
 }
 function captureSourceShape(source, advice, n) {
   if (source === 'undefined' || source === 'null' || source === 'other-object') return source;
-  let m = /^((?:budget|planSpend)-advice#\d+)\.savingsFunding$/.exec(source);
+  let m = /^(budget-advice#\d+)\.savingsFunding$/.exec(source);
   if (m) { if (advice.label && advice.label !== m[1]) return null; advice.label = m[1]; return 'A.savingsFunding'; }
   m = /^result#(0|[1-9]\d*)$/.exec(source);
   if (m && Number(m[1]) < n) return 'result';
@@ -446,7 +439,7 @@ function captureEvidenceProblems(head, prefixes) {
     const declared = new Map();
     for (let i = 0; i < states; i++) {
       const line = at('state.' + i);
-      const m = typeof line === 'string' && /^(budget|planSpend)\|([^|]+)\|calls=(0|[1-9]\d*)\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
+      const m = typeof line === 'string' && /^(budget)\|([^|]+)\|calls=(0|[1-9]\d*)\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
       if (!m || m[4] === 'yes' || m[5] !== '0' || m[6] !== '0') { problems++; continue; }
       const id = m[1] + '|' + m[2];
       if (declared.has(id) || (expected && expected[i] !== id)) problems++;
@@ -461,7 +454,7 @@ function captureEvidenceProblems(head, prefixes) {
       const p = typeof line === 'string' ? line.split('|') : [];
       if (p.length !== 9) { problems++; continue; }
       const [label, page, state, funding, current, nviews, top, topNull, topPlan] = p;
-      const lm = /^(budget|planSpend)-advice#[1-9]\d*$/.exec(label);
+      const lm = /^(budget)-advice#[1-9]\d*$/.exec(label);
       const st = declared.get(page + '|' + state);
       if (!lm || lm[1] !== page || !st || anchors.has(label) || st.anchor || !/^(0|[1-9]\d{0,3})$/.test(nviews)) { problems++; continue; }
       if (!['absent', 'ready', 'unavailable'].includes(funding)) problems++;
@@ -535,7 +528,7 @@ function captureEvidenceProblems(head, prefixes) {
       const line = at('o' + n);
       const parts = typeof line === 'string' ? line.split('|') : [];
       parsed.push(null);
-      if (parts.length !== 8 || !['budget', 'planSpend'].includes(parts[0]) || parts[7] !== '') { problems++; continue; }
+      if (parts.length !== 8 || parts[0] !== 'budget' || parts[7] !== '') { problems++; continue; }
       const [page, state, route, source, context, ref, type] = parts;
       const st = declared.get(page + '|' + state);
       if (!st) { problems++; continue; }
@@ -619,14 +612,10 @@ function captureEvidenceProblems(head, prefixes) {
     // 6560691831; adoption record 6560081927, 6560657189, 6560714968,
     // 6560749340). R-unavail: the collector withheld the operating plan
     // (figures-snapshot.js:511-512), so the Budget surface returns its
-    // unavailable card before any savings consumer but B0 (budget-surface.js:63)
-    // and Plan spend skips P1 (plan-spend.js:287-293). R-noplans: Plan spend
-    // returns its empty state before P1 when no major plan is published
-    // (plan-spend.js:294-297); plans exist iff a `planning.<id>.verdict` key is
-    // owned (figures-snapshot.js:522-524), by presence, whatever its value.
+    // unavailable card before any savings consumer but B0 (budget-surface.js:63).
+    // (The retired Plan spend page's R-noplans step went with the page.)
     const itemKeys = Object.keys(head).filter(k => k.startsWith(prefix)).map(k => k.slice(prefix.length));
     const unavail = own(head, prefix + 'planning.operatingPlan');
-    const plansExist = itemKeys.some(k => /^planning\.(.+)\.verdict$/.test(k));
     // The page's own calendar-date predicate (public/plan.js:3709-3719).
     const isDate = v => {
       if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
@@ -717,13 +706,6 @@ function captureEvidenceProblems(head, prefixes) {
         return { key, route: row[1], ctx: row[2], src, outcome: word(outcome), ...(extra || {}) };
       };
       const out = [];
-      if (page === 'planSpend') {
-        // R-unavail and R-noplans: P1 only with an available plan and a
-        // published major plan; P2 whenever funded.
-        if (id === 'default' && funded && !unavail && plansExist) out.push(step('planSpend', 'P1', ['A.savingsFunding'], a && a.topPlan));
-        if (id === 'default' && funded) out.push(step('planSpend', 'P2', ['A.savingsFunding'], a && a.topPlan));
-        return out;
-      }
       if (unavail) {
         // R-unavail: every Budget state renders the unavailable card; only B0.
         if (funded) out.push(step('budget', 'B0', ['A.savingsFunding'], a && a.topPlan));

@@ -10,8 +10,8 @@
  *   - route callers: every function that calls a route function;
  *   - the consumer closure: every function reachable by call from the
  *     reviewed roots (the Saving-for card and sheet, SavingsInventory, and the
- *     S7-S10 surfaces), resolved within public/plan.js, savings-inventory.js,
- *     plan-spend.js and app.js;
+ *     S7-S10 surfaces), resolved within public/plan.js, savings-inventory.js
+ *     and app.js;
  *   - a SHA-256 pin of each such function's source text;
  *   - forbidden constructs inside pinned functions (eval, Function, with,
  *     Proxy, Reflect, arguments, defineProperty, __proto__, dynamic global
@@ -70,7 +70,7 @@ function definitions(src) {
   return { masked: m, defs };
 }
 
-const CONSUMER_FILES = ['public/plan.js', 'public/savings-inventory.js', 'public/plan-spend.js', 'public/app.js'];
+const CONSUMER_FILES = ['public/plan.js', 'public/savings-inventory.js', 'public/app.js'];
 const KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'function', 'return', 'catch', 'typeof', 'with']);
 const FORBIDDEN = [
   ['eval', /\beval\s*\(/], ['Function constructor', /\bnew\s+Function\b|(?<![\w$.])Function\s*\(/],

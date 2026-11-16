@@ -1,5 +1,5 @@
 'use strict';
-// The real observer/overlay, Forecast, page scripts and authenticated server.
+// The real observer/overlay, Forecast, Budget page script and authenticated server.
 // Transport, account identities, amounts and credentials are synthetic only.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -51,7 +51,8 @@ function proveServed(served) {
   assert.equal(current.fromTodayFunding.contribution, 80.63);
   assert.equal(current.fromTodayFunding.items[0].actualSaved, 169.37);
   assert.equal(current.fromTodayFunding.items[0].remainingGap, 350);
-  const budget = context('plan.js');
+  const inventory = { innerHTML: '', textContent: '' };
+  const budget = context('plan.js', { 'savings-inventory': inventory });
   Object.assign(budget, { row: current, overlay: served.liveOverlay, alloc: advice.paydayAllocation, plan: served.plan });
   const html = vm.runInContext('calendarWaterfallHtml(row, overlay, alloc, plan)', budget);
   assert.match(html, /data-from-today="2026-08-14"/);
@@ -60,13 +61,11 @@ function proveServed(served) {
   assert.match(html, /A new proposal dated/);
   assert.doesNotMatch(html, /Backed assignments are included once/);
   assert.doesNotMatch(html, /Additional contributions are withheld/);
-  const mounts = Object.fromEntries(['savings-inventory', 'plan-spend-lede', 'plan-spend-list', 'plan-spend-note']
-    .map(id => [id, { innerHTML: '', textContent: '' }]));
-  const spend = context('plan-spend.js', mounts); spend.served = served;
-  vm.runInContext('renderPlanSpend(served, null)', spend);
-  assert.match(mounts['plan-spend-list'].innerHTML, /Already saved for this cost/);
-  assert.match(mounts['plan-spend-list'].innerHTML, /\$169\.37/);
-  assert.match(mounts['savings-inventory'].innerHTML, /count backed assignments once/);
+  // Focused mount only (as test-savings-earmarks-integration.js does): the Budget renderer
+  // prints the shared savings inventory, which keeps the backed-assignment disclosure.
+  vm.runInContext('Object.assign(state, served.plan.defaults, { debts: served.debts })', Object.assign(budget, { served }));
+  try { vm.runInContext('renderPlan(served, null, null)', budget); } catch (error) { assert.match(error.message, /null/); }
+  assert.match(inventory.innerHTML, /count backed assignments once/);
   return { advice, current, html };
 }
 function proveProjection() {
@@ -92,7 +91,7 @@ async function main() {
     assert.equal(advice.savingsInventory.pools[0].intent, null);
     assert.equal(advice.savingsInventory.pools[0].unallocated, null);
   });
-  console.log('PASS reserve-aware funding: authenticated GET -> observer -> overlay -> Forecast -> Budget From today and actual Plan Spend mounts');
+  console.log('PASS reserve-aware funding: authenticated GET -> observer -> overlay -> Forecast -> Budget From today and savings-inventory mount');
 }
 module.exports = { input, proveProjection, proveServed };
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

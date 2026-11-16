@@ -11,16 +11,16 @@
  *   1. A one-off levy of 700 due Oct 12 is unpaid; as-of Oct 14. The walk
  *      takes it out of today's 2,500 (leaving 1,800), but the Plan tile
  *      said "Next cash-out total $60 — Invented internet, Oct 28".
- *   2. A card minimum of 50, monthly on the 12th, is unpaid. The Credit
- *      page said "Minimum payment $50.00 CONFIRMED · due November 12",
- *      exactly what it says when the October minimum WAS paid.
+ *   2. A card minimum of 50, monthly on the 12th, is unpaid. The creditAccounts
+ *      next payment said "$50 CONFIRMED · due November 12", exactly what it
+ *      says when the October minimum WAS paid.
  *
  * Every expected value below is written by hand from those invented
  * inputs. The path is production's: an invented canonical document dated
  * at the previous opening (Oct 9), an invented raw Lunch Money payload,
  * scripts/live-plan.js fromObservation (which advances the opening to
  * Oct 14 with priorAsOf Oct 9, as server.js serves it), then the real
- * public/plan.js tile builder and public/credit.js renderer in a vm.
+ * public/plan.js tile builder in a vm.
  * Each world has a paid twin, so the overdue answer cannot be produced
  * by always pointing at as-of.
  */
@@ -37,7 +37,6 @@ const ok = (cond, label, detail = '') => {
   if (!cond) failures++;
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
 };
-const strip = html => String(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 const PRIOR = '2026-10-09';
 const AS_OF = '2026-10-14';
@@ -108,32 +107,7 @@ function planTiles() {
   };
 }
 
-// The real credit.js renderer (same loader as test-credit-page.js).
-function creditPage() {
-  const appSrc = read('public/app.js');
-  const grab = re => { const m = re.exec(appSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-  const helpers = [
-    grab(/^const money = .*$/m), grab(/^const money2 = .*$/m), grab(/^const escapeHtml = .*$/m), grab(/^const pct = .*$/m),
-    grab(/^const fmtDate = .*$/m), grab(/^const fmtDateLong = .*$/m), grab(/^const fmtDateFull = .*$/m),
-  ].join('\n');
-  const elements = {};
-  const ctx = { Forecast: F, console, elements,
-    App: { hooks: [], register(fn) { this.hooks.push(fn); }, boot() {} } };
-  vm.runInNewContext(`${helpers}\nconst $ = id => elements[id] || (elements[id] = { innerHTML: '', textContent: '' });\n${read('public/credit.js')}`,
-    ctx, { filename: 'public/credit.js' });
-  return data => {
-    for (const k of Object.keys(elements)) delete elements[k];
-    for (const fn of ctx.App.hooks) fn(data, null, null);
-    return elements;
-  };
-}
-const fact = (html, name) => {
-  const m = new RegExp(`<div class="credit-fact" data-credit-fact="${name}"[^>]*>[\\s\\S]*?</div>`).exec(html);
-  return m ? m[0] : '';
-};
-
 const tilesOf = planTiles();
-const renderCredit = creditPage();
 const cashOut = tiles => tiles.find(t => t.lab === 'Next cash-out total') || null;
 
 /* ---------------------------------------------------------- world 1 */
@@ -192,15 +166,6 @@ console.log('\n=== 2. Unpaid card minimum (50 on the 12th), as-of Oct 14 ===');
   ok(data.plan.opening.priorAsOf === PRIOR, 'served opening carries priorAsOf Oct 9');
   const { sim } = tilesOf(data);
   ok(sim.daily[0].balance === 2450, 'the walk deducts the Oct 12 minimum today: 2,500 − 50 = 2,450', JSON.stringify(sim.daily[0]));
-  const el = renderCredit(data);
-  const card = el['credit-cards'].innerHTML;
-  const minimum = fact(card, 'minimum');
-  const dueFact = fact(card, 'due');
-  ok(/\$50\.00/.test(minimum), 'Minimum payment prints $50.00', strip(minimum));
-  ok(!/CONFIRMED/.test(strip(minimum)), 'the minimum is NOT labelled confirmed', strip(minimum));
-  ok(/OVERDUE/.test(strip(minimum)) && /TO CONFIRM/.test(strip(minimum)), 'it is labelled overdue · to confirm', strip(minimum));
-  ok(/Overdue/.test(strip(dueFact)) && /October 12/.test(strip(dueFact)) && !/November 12/.test(strip(dueFact)),
-    'the due date reads overdue, due October 12 — not November 12', strip(dueFact));
   const row = F.creditAccounts(data.plan, data.debts, AS_OF, {}).cards[0];
   ok(row.nextPayment && row.nextPayment.date === AS_OF && row.nextPayment.overdue === true
     && row.nextPayment.overdueSince === '2026-10-12' && row.nextPayment.paymentStatus === 'to-confirm',
@@ -216,11 +181,6 @@ console.log('\n=== 2b. Same world, October minimum settled ===');
   const data = served({ debts: [DEBT], obligations: [{ ...MIN, firstDue: '2026-11-12' }], rules: minRules });
   const { sim } = tilesOf(data);
   ok(sim.daily[0].balance === 2500, 'the walk no longer deducts the paid minimum', JSON.stringify(sim.daily[0]));
-  const card = renderCredit(data)['credit-cards'].innerHTML;
-  ok(/CONFIRMED/.test(strip(fact(card, 'minimum'))) && !/OVERDUE/.test(strip(fact(card, 'minimum'))),
-    'the next minimum is the confirmed November one', strip(fact(card, 'minimum')));
-  ok(/November 12/.test(strip(fact(card, 'due'))) && !/Overdue/.test(strip(fact(card, 'due'))),
-    'due November 12, not overdue', strip(fact(card, 'due')));
 }
 
 console.log('\n=== 3. Not carried by the walk: still skipped ===');
@@ -243,8 +203,8 @@ console.log('\n=== 4. A past-due minimum already sent: paid, not overdue ===');
 {
   // The Oct 12 minimum of 50 was sent Oct 11 (a validated posted
   // minimum-intent payment). The walk deducts $0 for it, so it is not
-  // carried: the next cash-out is internet 60 on Oct 28, and the Credit
-  // page's next minimum is November 12 — not "overdue, to confirm", and
+  // carried: the next cash-out is internet 60 on Oct 28, and the card's
+  // next minimum is November 12 — not "overdue, to confirm", and
   // not a $0 cash-out today.
   const plan = { windowDays: 45, opening: { asOf: AS_OF, priorAsOf: PRIOR, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
@@ -259,9 +219,6 @@ console.log('\n=== 4. A past-due minimum already sent: paid, not overdue ===');
   const row = F.creditAccounts(plan, [DEBT], AS_OF, {}).cards[0];
   ok(row.nextPayment && row.nextPayment.date === '2026-11-12' && !row.nextPayment.overdue,
     'creditAccounts: next minimum November 12, not overdue', JSON.stringify(row.nextPayment));
-  const card = renderCredit({ meta: { asOf: AS_OF }, debts: [DEBT], revolvingExtra: [], plan })['credit-cards'].innerHTML;
-  ok(!/OVERDUE/.test(strip(fact(card, 'minimum'))) && /November 12/.test(strip(fact(card, 'due'))),
-    'the Credit page does not call the sent minimum overdue', strip(fact(card, 'minimum')) + ' / ' + strip(fact(card, 'due')));
 }
 
 console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not overdue ===');
@@ -269,33 +226,27 @@ console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not over
   // Shared invented card-coverage world (test/fixtures/card-coverage-aggregate-world.js):
   // a 25 card minimum due Sep 19, as-of Sep 20. Twin A: unpaid, still owed.
   // Twin B: a posted 25 card payment on Sep 19 covers it (card ledger
-  // minimumCoverage). The Credit page reads the served /data.json, live
-  // overlay applied, the same evidence the Plan walk reads.
+  // minimumCoverage). The served /data.json carries the live overlay,
+  // the same evidence the Plan walk reads.
   const { world, run } = require('./fixtures/card-coverage-aggregate-world');
   const purchase = ['card', 80, '2026-09-19', 'purchase'];
   const pay = [['bills', 25, '2026-09-19', 'cash'], ['card', -25, '2026-09-19', 'credit']];
-  const minimumFact = data => fact(renderCredit(data)['credit-cards'].innerHTML + renderCredit(data)['credit-secured'].innerHTML, 'minimum');
-  const unpaid = run(world([purchase], { minimumDate: '2026-09-19' }));
-  ok(/OVERDUE/.test(strip(minimumFact(unpaid.observed.data))), 'unpaid twin: the Sep 19 minimum is overdue · to confirm',
-    strip(minimumFact(unpaid.observed.data)));
   const covered = run(world([purchase, ...pay], { minimumDate: '2026-09-19' }));
   ok(covered.coverage.minimumCoverage[0].status === 'covered-by-payment', 'precondition: the card ledger covers the minimum',
     covered.coverage.minimumCoverage[0].status);
-  ok(!/OVERDUE/.test(strip(minimumFact(covered.observed.data))), 'covered twin: the Credit page does not call it overdue',
-    strip(minimumFact(covered.observed.data)));
   const d = covered.observed.data;
   const sim = F.simulate(d.plan, '2026-09-20', { debts: d.debts, currentPeriodActuals: d.liveOverlay.currentPeriodActuals });
   const out = F.nextPaymentOut(sim.events, '2026-09-20');
   ok(!(out && out.overdueCount), 'covered twin: the walk carries no overdue cash-out', JSON.stringify(out));
 }
 
-console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue on Credit too ===');
+console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue in creditAccounts too ===');
 {
   // Atlas finding on 72fbd26. An invented HELOC whose interest capitalises
   // (non-cash) and whose household cash minimum is 40 on the 12th,
   // confirmed. Opening advanced Oct 9 -> Oct 14, no payment evidence: the
   // walk deducts the Oct 12 cash minimum today (2,500 - 40 = 2,460). The
-  // Credit page's "Household cash minimum" must say overdue / to confirm,
+  // creditAccounts cash minimum must say overdue / to confirm,
   // due Oct 12 — not CONFIRMED, due November 12. Settled twin: the October
   // cash minimum encoded as settled (cashFirstDue Nov 12) reads CONFIRMED,
   // November 12, and the walk deducts nothing today.
@@ -309,7 +260,6 @@ console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue on C
       day: 31, amount: 100, confidence: 'confirmed', nonCash: true, payingAccount: 'chequing-a',
       cashPayment: 40, cashDay: 12, cashLabel: 'Invented HELOC minimum', cashConfidence: 'confirmed',
       ...(cashFirstDue ? { cashFirstDue } : {}) }] });
-  const page = plan => renderCredit({ meta: { asOf: AS_OF }, debts: [HELOC], revolvingExtra: [], plan })['credit-secured'].innerHTML;
 
   const unpaid = capPlan(null);
   const sim = F.simulate(unpaid, AS_OF, {});
@@ -319,20 +269,12 @@ console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue on C
     && row.nextCashMinimum.overdue === true && row.nextCashMinimum.overdueSince === '2026-10-12'
     && row.nextCashMinimum.paymentStatus === 'to-confirm',
     'unpaid: creditAccounts.nextCashMinimum is due today, overdue since Oct 12, to confirm', JSON.stringify(row.nextCashMinimum));
-  const html = page(unpaid);
-  ok(!/CONFIRMED/.test(strip(fact(html, 'cash-minimum'))) && /OVERDUE/.test(strip(fact(html, 'cash-minimum')))
-    && /TO CONFIRM/.test(strip(fact(html, 'cash-minimum'))),
-    'unpaid: the Credit page cash minimum reads OVERDUE · TO CONFIRM, not CONFIRMED', strip(fact(html, 'cash-minimum')));
-  ok(/October 12/.test(strip(fact(html, 'cash-minimum-due'))) && !/November 12/.test(strip(fact(html, 'cash-minimum-due'))),
-    'unpaid: cash minimum due reads October 12, not November 12', strip(fact(html, 'cash-minimum-due')));
-  ok(/data-credit-noncash="true"/.test(html), 'capitalised interest stays non-cash on the page');
 
   const settled = capPlan('2026-11-12');
   ok(F.simulate(settled, AS_OF, {}).daily[0].balance === 2500, 'settled: the walk deducts nothing today');
-  const shtml = page(settled);
-  ok(/CONFIRMED/.test(strip(fact(shtml, 'cash-minimum'))) && !/OVERDUE/.test(strip(fact(shtml, 'cash-minimum')))
-    && /November 12/.test(strip(fact(shtml, 'cash-minimum-due'))),
-    'settled: CONFIRMED, due November 12, not overdue', strip(fact(shtml, 'cash-minimum')) + ' / ' + strip(fact(shtml, 'cash-minimum-due')));
+  const srow = F.creditAccounts(settled, [HELOC], AS_OF, {}).secured[0];
+  ok(srow.nextCashMinimum && srow.nextCashMinimum.date === '2026-11-12' && !srow.nextCashMinimum.overdue,
+    'settled: creditAccounts.nextCashMinimum is November 12, not overdue', JSON.stringify(srow.nextCashMinimum));
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall overdue next-payment checks pass');

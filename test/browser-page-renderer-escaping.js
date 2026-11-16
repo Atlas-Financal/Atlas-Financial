@@ -1,16 +1,14 @@
 'use strict';
 // Browser twin of test/test-page-renderer-escaping.js (external audit C2).
-// Opens the Budget app (index.html) and the Bills, Subscriptions, Credit,
-// Records and Deep Dive pages in Chromium with the invented hostile household
-// (test/fixtures/hostile-page-text.js). On Budget it clicks every control
-// twice, so detail sheets, tabs and period views render too; on every page it
-// hovers every chart mark. A MutationObserver records every element ever
+// Opens the Budget app (index.html) in Chromium with the invented hostile
+// household (test/fixtures/hostile-page-text.js). It clicks every control
+// twice, so detail sheets, tabs and period views render too, and hovers every
+// chart mark. A MutationObserver records every element ever
 // inserted, so a view that is opened and then replaced still counts. It proves:
 //   - no dialog opened (every payload calls alert);
 //   - no element carries an on* event attribute, and no img or extra script
 //     element exists;
-//   - the hostile label is visible as text, and a crafted id is the exact
-//     value of its data attribute.
+//   - the hostile label is visible as text.
 // The pages are served WITHOUT the production CSP on purpose: this proves the
 // escaping itself, not the header that backs it up.
 // CHROME_PATH=<Chromium> node test/browser-page-renderer-escaping.js
@@ -22,9 +20,6 @@ const H = require('./fixtures/hostile-page-text');
 const root = path.join(__dirname, '..');
 const pages = [
   { path: '/', main: true },
-  { path: '/bills.html', idAttr: 'data-bill-id' },
-  { path: '/subscriptions.html', idAttr: 'data-subscription-id' },
-  { path: '/credit.html', idAttr: 'data-credit-id' },
 ];
 
 (async () => {
@@ -85,7 +80,7 @@ const pages = [
         await mark.dispatchEvent('mousemove', { clientX: 10, clientY: 10 });
       }
       await page.waitForTimeout(50);
-      const face = await page.evaluate(({ idAttr, id }) => {
+      const face = await page.evaluate(() => {
         const all = [...document.querySelectorAll('*')];
         const handlers = all.flatMap(el => [...el.attributes].filter(a => /^on/i.test(a.name))
           .map(a => `${el.tagName.toLowerCase()}[${a.name}]`));
@@ -93,15 +88,13 @@ const pages = [
           handlers: handlers.concat(window.__injected),
           imgs: document.querySelectorAll('img').length,
           inlineScripts: [...document.querySelectorAll('script')].filter(s => !s.src).length,
-          idExact: idAttr ? [...document.querySelectorAll(`[${idAttr}]`)].some(el => el.getAttribute(idAttr).startsWith(id)) : true,
           tipChildren: [...(document.getElementById('tip')?.querySelectorAll('*') || [])].map(e => e.tagName.toLowerCase()),
         };
-      }, { idAttr: route.idAttr || null, id: H.ID });
+      });
       if (dialogs.length) errors.push(`${route.path}: dialog opened ${JSON.stringify(dialogs)}`);
       if (face.handlers.length) errors.push(`${route.path}: injected event attributes ${face.handlers.join(', ')}`);
       if (face.imgs) errors.push(`${route.path}: ${face.imgs} injected img element(s)`);
       if (face.inlineScripts) errors.push(`${route.path}: ${face.inlineScripts} injected inline script(s)`);
-      if (!face.idExact) errors.push(`${route.path}: ${route.idAttr} does not carry the crafted id verbatim`);
       const strayTip = face.tipChildren.filter(t => !['b', 'span', 'br', 'i'].includes(t));
       if (strayTip.length) errors.push(`${route.path}: tooltip holds ${strayTip.join(', ')}`);
       await page.close();
@@ -113,5 +106,5 @@ const pages = [
     console.error('FAIL page renderer escaping\n  ' + errors.join('\n  '));
     process.exit(1);
   }
-  console.log(`PASS ${pages.length} pages render invented hostile text inert in Chromium`);
+  console.log('PASS Budget page renders invented hostile text inert in Chromium');
 })().catch(err => { console.error(err); process.exit(1); });

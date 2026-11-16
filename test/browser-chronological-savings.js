@@ -60,14 +60,8 @@ try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','sett
   assert.match(await body.locator('[data-budget-savings-total-goal="group:club"] [data-budget-savings-proposed]').innerText(),/135\.00/);
   await page.keyboard.press('Escape');assert.ok(await futureSummary.evaluate(e=>e===document.activeElement));
   if(width===320)await page.locator('[data-budget-funding-section]').screenshot({path:path.join(output,'chronological-savings-future-320.png')});
-  await page.goto('http://one-pot.test/plan-spend.html');await page.locator('[data-savings-goal="group:club"]').waitFor();
-  assert.match(await page.locator('[data-savings-goal="group:club"] [data-savings-backed]').innerText(),/95\.00/);
-  assert.match(await page.locator('[data-plan-spend-card="summary"] [data-plan-spend-fact="protected"]').innerText(),/95\.00/);
-  assert.match(await page.locator('[data-plan-spend-card="summary"] [data-plan-spend-fact="protected"]').innerText(),/Currently backed for this cost/);
-  assert.ok(await page.evaluate(()=>window.__packet.schedule===window.__advice.planSpendPaydayFunding),'Plan Spend uses the same schedule alias');
-  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-  await page.screenshot({path:path.join(output,'chronological-savings-plan-spend-'+width+'.png'),fullPage:true});
+  assert.ok(await page.evaluate(()=>window.__packet.schedule===window.__advice.planSpendPaydayFunding),'Forecast schedule alias matches the packet');
  }
  cases.push({mode,width,backing:packet.backing.status,clubSaved:backed?club:null});await page.close();console.log('PASS '+mode+' '+width+'px');
-}assert.deepEqual(errors,[]);assert.deepEqual(external,[]);fs.writeFileSync(path.join(output,'receipt.json'),JSON.stringify({head,cases,errors,external,fixture:'independently invented chronological-savings-data',checks:'real App.boot; three Budget views and Plan Spend; calculator fallbacks forbidden; 320/390/1440px; keyboard/focus; unknown evidence; redraw immutability'},null,2)+'\n');
+}assert.deepEqual(errors,[]);assert.deepEqual(external,[]);fs.writeFileSync(path.join(output,'receipt.json'),JSON.stringify({head,cases,errors,external,fixture:'independently invented chronological-savings-data',checks:'real App.boot; three Budget views; calculator fallbacks forbidden; 320/390/1440px; keyboard/focus; unknown evidence; redraw immutability'},null,2)+'\n');
 }finally{await browser.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,7 +1,7 @@
 'use strict';
 // Independent Systems findings, using invented inputs and literal cents.
 const assert = require('node:assert/strict'), test = require('node:test');
-const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
+const path = require('node:path');
 const root = process.env.ATLAS_SAVINGS_REVIEW_ROOT || path.resolve(__dirname, '..');
 const F = require(path.join(root, 'public/forecast'));
 const Inventory = require(path.join(root, 'public/savings-inventory'));
@@ -74,9 +74,6 @@ test('a usable planning target does not resolve pending savings evidence', () =>
   assert.equal(packet.goalAllocation.evidenceTrust, 'provider-reported');
   assert.equal(packet.period.proposal, null);
 });
-const page = vm.createContext({ Forecast: F, App: { register() {}, boot() {} },
-  money2: n => '$' + n.toFixed(2), fmtDateFull: d => d });
-vm.runInContext(fs.readFileSync(path.join(root, 'public/plan-spend.js'), 'utf8'), page);
 function ready() {
   const data = fx.data('ready');
   const advice = F.recommend(data.plan, data.meta.asOf, { weeklyVariable: 40, ...data.liveOverlay });
@@ -87,12 +84,6 @@ test('grouped calculated backing retains provenance and unknown actual savings',
   assert.equal(group.backingBasis, 'policy-derived-observed-backing');
   assert.equal(group.actualSaved, null);
   assert.equal(group.protectedNow, 95);
-  page.group = group;
-  const html = vm.runInContext('planSpendScheduledFacts(group)', page);
-  assert.match(html, /Currently backed for this cost/);
-  assert.doesNotMatch(html, /Already saved/);
-  page.group = { protectedNow: 12.13, backingBasis: 'confirmed-assignment' };
-  assert.match(vm.runInContext('planSpendScheduledFacts(group)', page), /Already saved/);
 });
 const invalid = {
   missing: advice => { delete advice.savingsFunding; },
@@ -107,11 +98,6 @@ const invalid = {
 for (const [name, mutate] of Object.entries(invalid)) test(name + ' publication holds every current consumer', () => {
   const { advice, context } = ready(); mutate(advice);
   assert.equal(F.savingsFundingPublication(advice.savingsFunding, context), null);
-  page.advice = advice; page.context = context;
-  const schedule = vm.runInContext('planSpendFundingSchedule(advice, context)', page);
-  assert.equal(schedule.status, 'unavailable');
-  assert.equal(schedule.paydays.length, 0);
-  assert.equal(schedule.costs.length, 0);
   const html = Inventory.html(advice.savingsFunding, context);
   assert.match(html, /Shared savings evidence is unavailable/);
   assert.doesNotMatch(html, /95\.00/);

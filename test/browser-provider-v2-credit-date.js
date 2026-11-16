@@ -18,12 +18,6 @@ const output=process.env.ATLAS_V2_CREDIT_PROOF||path.join(require('node:os').tmp
     if(!file.startsWith(path.join(root,'public')+path.sep)||!fs.existsSync(file))return route.fulfill({status:404,body:''});
     return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.css')?'text/css':file.endsWith('.js')?'application/javascript':'text/html'});
    });
-   await page.goto('http://credit-date.test/credit.html');
-   const card=page.locator('[data-credit-id="'+fx.cardId+'"]');await card.waitFor();
-   await page.screenshot({path:path.join(output,mode+'-credit-'+width+'.png'),fullPage:true,animations:'disabled'});
-   assert.equal(await card.locator('.credit-balance > b').innerText(),fx.qualified.has(mode)?'$438.16':'$551.37',mode+': actual Credit stock cannot borrow request time');
-   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Credit no horizontal overflow');
-   assert.equal(await page.evaluate(()=>JSON.stringify(App.data)),before,'Credit source unchanged');
    await page.goto('http://credit-date.test/');const cash=page.locator('[data-live-current-balance-amount]');await cash.waitFor();
    assert.equal(await cash.innerText(),'$600.00','active Budget cash remains independent of posted/available/limit credit');
    assert.equal(await page.locator('[data-budget-surface="pay-period"]').count(),1,'one active Budget renderer');
@@ -38,6 +32,6 @@ const output=process.env.ATLAS_V2_CREDIT_PROOF||path.join(require('node:os').tmp
   }
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
   fs.writeFileSync(path.join(output,'verification.json'),JSON.stringify({executionHead:head,syntheticOnly:true,productionCredentialsUsed:false,cases,errors,external},null,2)+'\n');
-  console.log('PASS actual Credit and Budget App.boot: '+cases.length+' semantic-date cases, cash isolation, 320px and keyboard/focus');
+  console.log('PASS actual Budget App.boot with qualified Credit stock packet: '+cases.length+' semantic-date cases, cash isolation, 320px and keyboard/focus');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e.message);process.exitCode=1;});
