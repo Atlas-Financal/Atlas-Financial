@@ -707,7 +707,7 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 `test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.
 
-`firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
+~~`firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.~~ Done in `agent/drop-firstdue-minimum-stub`: the stub row is no longer listed, so the printed period total equals the deduction.
 
 A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
 

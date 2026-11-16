@@ -10649,67 +10649,12 @@
         });
       }
     }
-    // Recurring card minimums firstDue skipped because they are already
-    // inside the opening. Print once as PAID in the cash-snapshot month
-    // only; leftover does not deduct them again. Gap months after that
-    // snapshot and before firstDue stay empty (Cash Back firstDue
-    // 2026-10-01 must not invent a September row). HELOC cash uses
-    // cashFirstDue and is not reconstructed here.
-    const openingAsOf = plan && plan.opening && plan.opening.asOf
-      && ISO_CALENDAR_DATE.test(String(plan.opening.asOf))
-      ? cashAsOf : null;
-    const snapMonth = openingAsOf ? calendarMonthSpan(openingAsOf) : calendarMonthSpan(cashAsOf);
-    const debtDatesPrinted = new Set();
-    for (let i = 0; i < windows.length; i++) {
-      const rows = buckets[windows[i].id] || [];
-      for (const row of rows) {
-        if (!row) continue;
-        if (row.id) debtDatesPrinted.add(row.id + '@' + row.date);
-        const rec = ((plan.obligations || []).find(o => o && o.id === row.id))
-          || ((plan.bills || []).find(b => b && b.id === row.id));
-        if (rec && rec.debtId) debtDatesPrinted.add(rec.debtId + '@' + row.date);
-      }
-    }
-    for (const o of (plan && plan.obligations) || []) {
-      if (!o || o.nonCash || o.frequency !== 'monthly' || !o.debtId || o.day == null) {
-        continue;
-      }
-      if (!o.firstDue) continue;
-      if (!openingAsOf || !snapMonth) continue;
-      const dates = monthlyDates(o.day, span.start, span.end, null);
-      for (const date of dates) {
-        if (date >= o.firstDue || date > asOf) continue;
-        if (date < snapMonth.start || date > snapMonth.end) continue;
-        if (date >= openingAsOf) continue;
-        const key = (o.id || '') + '@' + date;
-        if (seen.has(key)) continue;
-        if (debtDatesPrinted.has(o.debtId + '@' + date)
-          || debtDatesPrinted.has((o.id || '') + '@' + date)) continue;
-        seen.add(key);
-        const payingAccount = o.payingAccount || null;
-        const amt = roundCent(Number(o.amount) || 0);
-        if (!(amt > EPSILON)) continue;
-        pushRow(date, {
-          id: o.id,
-          label: o.label,
-          kind: 'obligation',
-          date,
-          planned: amt,
-          amount: amt,
-          actual: null,
-          remaining: 0,
-          settlement: 'opening',
-          status: OPENING_BILL_STATUS,
-          glanceKind: 'planned',
-          movement: householdMovement(amt, 'out'),
-          confidence: confidenceOrEstimated(o.confidence),
-          payingAccount,
-          payerLabel: plannedPayerLabel(payingAccount),
-          needsDate: false,
-          settledInOpening: true,
-        });
-      }
-    }
+    // A recurring card minimum dated before its firstDue is not listed: the
+    // plan's own firstDue starts the schedule later, so that earlier minimum
+    // is no assigned occurrence and is deducted nowhere. Listing it as a
+    // disclosure row put it in the printed period total while Balance After
+    // Deductions left it out (#977 pre-review). Saved closes that already
+    // hold such a row keep it; billInPeriodAssignedLoad still leaves it out.
     const sortRows = rows => rows.sort((a, b) =>
       String(a.date || '').localeCompare(String(b.date || ''))
       || String(a.label || '').localeCompare(String(b.label || '')));
