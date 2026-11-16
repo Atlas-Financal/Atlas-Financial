@@ -10446,16 +10446,19 @@
       if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
       return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
     };
-    // The qualified test applies only where the current period really owns
-    // the occurrence: the #953 recurring carry, which ignores an unbacked
-    // entry. An overdue once row is listed on the active period only when no
-    // packet entry names it (calendarOccurrenceRepresented, the active loop's
-    // own test), so its closed copy keeps that same test; otherwise an
-    // unbacked once row would be counted in neither period (Codex P2 on #1215).
-    const carriedToOperating = (row, due) => carriedKeys.has((row.id || row.label || '') + '@' + due)
-      ? !settledInClosedPeriod(row, due)
-      : !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart))
-        && !calendarOccurrenceRepresented(represented, observed, row.id, due);
+    // The recurring carry (#953) and the overdue once carry both ignore an
+    // unbacked entry: the active loop below lists an overdue once row unless
+    // its settlement survives the same qualification (Codex P2 on #1215), so
+    // the closed copy, the current period and the cash walk agree.
+    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
+      && !settledInClosedPeriod(row, due);
+    const withoutKey = (collection, key) => {
+      if (!collection || !collection.has(key)) return collection;
+      const copy = collection instanceof Map ? new Map(collection) : new Set(collection);
+      copy.delete(key);
+      return copy;
+    };
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
@@ -10562,14 +10565,25 @@
         represented, observed, event.id, event.date);
       // Passing payday does not drop an unresolved once cash obligation, and
       // does not rewrite its due date onto the new payday. Represented /
-      // settled once rows disappear rather than remaining reserved.
+      // settled once rows disappear rather than remaining reserved, but only
+      // when that settlement survives historical qualification: an entry with
+      // neither posted backing nor provenance is no proof, so the row stays
+      // owed here, built as if no entry named it (the cash walk owes it too).
       if (due < span.start && !overdueOnce) continue;
-      if (overdueOnce && paid) continue;
+      const occurrenceKey = event.id + '@' + event.date;
+      let unbackedOnce = false;
+      if (overdueOnce && paid) {
+        const probe = calendarBillRowFromEvent(
+          plan, event, asOf, represented, observed, cashAsOf, due, opts);
+        if (!probe || settledInClosedPeriod(probe, due)) continue;
+        unbackedOnce = true;
+      }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
       seen.add(key);
-      const row = calendarBillRowFromEvent(
-        plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      const row = calendarBillRowFromEvent(plan, event, asOf,
+        unbackedOnce ? withoutKey(represented, occurrenceKey) : represented,
+        unbackedOnce ? withoutKey(observed, occurrenceKey) : observed, cashAsOf, due, opts);
       // Written here and read by the bill-row printers only. Nothing in
       // Forecast reads it back: a guessed stand-in decides no window, no
       // amount, and whether no other row is listed.

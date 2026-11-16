@@ -201,20 +201,44 @@ const savedClose = row => [{ schema: 'atlas-private-period-history-projection/v1
       bills: [{ id: BILL_ID, label: 'Invented stream', kind: 'bill', date: BILL_DATE, planned: BILL, amount: BILL,
         actual: null, confidence: 'confirmed', ...row }] } } }];
 const unbacked = packet => { packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE }); };
-// Codex P2 on #1215: a one-off (once) bill. The active period lists an
-// overdue once row only when no packet entry names it, so with an unbacked
-// entry the closed period keeps it (To confirm, counted) and the current one
-// does not; with no entry it is carried. Either way, counted once: 30.
-for (const [name, mutate] of [['no entry', null], ['an unbacked entry', unbacked]]) {
-  check('a one-off bill with ' + name + ' is counted once across the closed and current periods', () => {
-    const source = input({ billTx: false });
-    const bill = source.data.plan.bills[0];
-    delete bill.day; bill.frequency = 'once'; bill.date = BILL_DATE;
-    const { view, advice } = closedView(source, mutate);
-    const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
-    assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': 30 across both periods');
+// Codex P2 on #1215, and Grok Bot's test (Plan #6 thread): a past one-off
+// (once) bill with only a "paid" note counts exactly once across the closed
+// period, the current period and the cash projection, never in none. The
+// note is no proof, so it reads like no entry at all: the closed copy is
+// carried (0), the current period lists it To confirm (30), and the walk
+// deducts it once, 30 on Feb 5. A posted, linked payment is the control: Paid
+// and counted in its closed period (30), not listed now (0), not in the walk.
+const oneOff = (mutate, billTx = false) => {
+  const source = input({ billTx });
+  const bill = source.data.plan.bills[0];
+  delete bill.day; bill.frequency = 'once'; bill.date = BILL_DATE;
+  const { view, advice, row } = closedView(source, mutate);
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  const owned = current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE);
+  const walked = (advice.sim.events || []).filter(e => e.id === BILL_ID);
+  return { view, row, current, owned, walked };
+};
+for (const [name, mutate] of [['no entry', null], ['only a "paid" note', unbacked]]) {
+  check('a past one-off with ' + name + ': carried, To confirm now, deducted once by the walk', () => {
+    const { view, row, current, owned, walked } = oneOff(mutate);
+    assert.equal(row.status, 'carried', name + ': the closed copy is carried');
+    assert.equal(view.periodBillLoad, 0, name + ': closed period counts 0');
+    assert.equal(owned.length, 1, name + ': listed once now');
+    assert.notEqual(owned[0].status, 'PAID', name + ': not Paid now');
+    assert.equal(current.periodBillLoad, BILL, name + ': current period counts 30');
+    assert.equal(walked.length, 1, name + ': the cash projection deducts it once');
+    assert.equal(walked[0].date, BILL_DATE);
+    assert.equal(Math.round(-walked[0].amount * 100), BILL * 100, name + ': 30.00 in the walk');
   });
 }
+check('control: a past one-off paid by a posted, linked debit counts once, in its closed period, and not in the walk', () => {
+  const { view, row, current, owned, walked } = oneOff(null, true);
+  assert.equal(row.status, 'PAID');
+  assert.equal(view.periodBillLoad, BILL, 'closed period counts 30');
+  assert.equal(owned.length, 0, 'not listed now');
+  assert.equal(current.periodBillLoad, 0);
+  assert.equal(walked.length, 0, 'the cash projection does not deduct it again');
+});
 check('a close saved before the carry rule keeps its saved 30.00 and its row says the bill is also carried', () => {
   const { view } = closedView(input({ billTx: false }), unbacked,
     savedClose({ status: 'planned', settlement: 'unverified', remaining: BILL }));
