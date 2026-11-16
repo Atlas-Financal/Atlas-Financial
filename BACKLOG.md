@@ -735,7 +735,7 @@ Settlement-evidence relief with no transaction rows gets no E row. ATLAS-080-adj
 
 ~~Talk maps null, empty or unknown confidence to calculated, and the covered answer hard-codes calculated. Fix with one shared weakest-trust helper for every Talk answer branch (named NEXT PR on #907). Source: PR #907.~~ Retired 2026-11-11 with Talk (B103).
 
-A captured closed pay period keeps only a bill row's `date` (the period-history projection does not carry `scheduledDue`). A once row that stands in for a skipped recurring occurrence, captured after the #887 rebuild, therefore prints its real occurrence date in that closed view, not its scheduled due. Display only; no figure differs. Source: the #887 rebuild (`agent/one-off-bill-period`).
+~~A captured closed pay period keeps only a bill row's `date` (the period-history projection does not carry `scheduledDue`). A once row that stands in for a skipped recurring occurrence, captured after the #887 rebuild, therefore prints its real occurrence date in that closed view, not its scheduled due. Display only; no figure differs. Source: the #887 rebuild (`agent/one-off-bill-period`).~~ Fixed: the saved close borrows the printed due from today's row for the same occurrence (agent/closed-period-scheduled-due).
 
 ~~`billIsOccurrenceStub` leaves any once bill whose id extends a recurring bill's id off the Bills and Subscriptions page rosters, whether or not it stands in for a skipped occurrence. It is the same id-prefix guess #1037 demoted to a printed label on the Budget page; no pay-period figure reads it. Source: PR #1037 review.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Bills and Subscriptions pages and `billIsOccurrenceStub` no longer exist.
 

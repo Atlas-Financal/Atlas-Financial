@@ -16593,7 +16593,14 @@
         const borrowed = row => Object.fromEntries(CAPTURED_ROW_DISPLAY_KEYS[key]
           .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
           .map(field => [field, row[field]]));
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)),
+        // #887: the archive keeps a bill row's occurrence `date` only. Today's
+        // row for the same occurrence (id and date) lends its printed due.
+        const todayRows = Array.isArray(view[key]) ? view[key].filter(Boolean) : [];
+        const printedDue = row => {
+          const same = key === 'bills' && todayRows.find(t => t.id === row.id && t.date === row.date);
+          return same && typeof same.scheduledDue === 'string' ? { scheduledDue: same.scheduledDue } : {};
+        };
+        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...printedDue(row),
           ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
