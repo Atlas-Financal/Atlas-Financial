@@ -709,7 +709,7 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 `firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
 
-A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
+~~A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.~~ Done in `agent/walk-follows-credit-settled-income`, on Grok Bot's four conditions.
 
 ~~Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.~~ Done: the inside-opening case is in `test/test-bill-payment-excess.js`.
 
