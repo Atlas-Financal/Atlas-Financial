@@ -126,6 +126,26 @@ const Live = require('../scripts/live-plan');
     check(newReplay.data, newLive.data, 'replay serves the new observation');
     assert.notDeepEqual(newReplay.data, direct, 'old remembered result is never served for new evidence'); checks++;
     check((await load(canonical, {}, 'reuse of new observation')).data, newLive.data, 'reuse follows the new observation');
+    // Ledger-only edits (rule 17: Lunch Money owns category, note and tags):
+    // no balance moves, yet the next provider answer is new evidence, so the
+    // replay recomputes and never serves the earlier result.
+    for (const [label, edit] of [
+      ['category', p => { p.transactions[2].category_id = p.categories.find(c => c.id !== p.transactions[2].category_id).id; }],
+      ['note', p => { p.transactions[2].notes = 'Invented note'; }],
+      ['tag', p => { p.tags = [{ id: 901, name: 'Invented tag' }]; p.transactions[2].tags = [{ id: 901, name: 'Invented tag' }]; }],
+    ]) {
+      mock.payload({ ...Fixture.payload(), tags: [] });
+      await load(canonical, { forceRefresh: true }, label + ' baseline');
+      check((await load(canonical, {}, label + ' baseline replay')).workers, 1, label + ' baseline replay computes');
+      check((await load(canonical, {}, label + ' baseline reuse')).workers, 0, label + ' baseline reuses');
+      const edited = { ...Fixture.payload(), tags: [] };
+      edit(edited);
+      mock.payload(edited);
+      const editedLive = await load(canonical, { forceRefresh: true }, label + ' edit');
+      const editedReplay = await load(canonical, {}, label + ' edit replay');
+      check([editedReplay.workers, editedReplay.data], [1, editedLive.data],
+        'a ledger-only ' + label + ' edit recomputes and serves the new answer');
+    }
     mock.payload({ ...Fixture.payload(), tags: [] });
     await load(canonical, { forceRefresh: true }, 'restore observation');
 
@@ -246,6 +266,37 @@ const Live = require('../scripts/live-plan');
     const timedMiss = await load(canonical, {}, 'timed replay');
     const timedHit = await load(canonical, {}, 'timed reuse');
     check([timedMiss.workers, timedHit.workers], [1, 0], 'timing pair is one compute then one reuse');
+    // One waiter cancels during a shared-worker replay (#1162 Atlas note):
+    // the other still gets the full result from the one worker, and that
+    // result is remembered. When every waiter cancels, nothing is remembered.
+    await load(canonical, { forceRefresh: true }, 'cancel setup');
+    const cancelWorkers = workers.length, leaving = new AbortController();
+    const stays = Refresh.serve(canonical, env, { preferObservation: true });
+    const leaves = Refresh.serve(canonical, env, { preferObservation: true, signal: leaving.signal });
+    const started = async from => { while (workers.length === from) await new Promise(r => setTimeout(r, 5)); };
+    await started(cancelWorkers);
+    leaving.abort();
+    const [stayed, left] = await Promise.allSettled([stays, leaves]);
+    await drain();
+    check([left.status, left.reason?.code], ['rejected', 'live-refresh-cancelled'], 'the cancelled waiter leaves');
+    check([stayed.status, stayed.value], ['fulfilled', direct], 'the remaining waiter gets the full result');
+    check(workers.length - cancelWorkers, 1, 'both waiters joined one worker');
+    check((await load(canonical, {}, 'after one cancel')).workers, 0,
+      'the result is remembered after one waiter cancelled');
+    await load(canonical, { forceRefresh: true }, 'all-cancel setup');
+    const allWorkers = workers.length, first = new AbortController(), second = new AbortController();
+    const gone = [Refresh.serve(canonical, env, { preferObservation: true, signal: first.signal }),
+      Refresh.serve(canonical, env, { preferObservation: true, signal: second.signal })];
+    await started(allWorkers);
+    first.abort(); second.abort();
+    const goneResults = await Promise.allSettled(gone);
+    await drain();
+    check(goneResults.map(r => r.reason?.code), ['live-refresh-cancelled', 'live-refresh-cancelled'],
+      'every waiter cancelled');
+    check(workers.length - allWorkers, 1, 'both waiters had joined one running worker');
+    const afterAll = await load(canonical, {}, 'after all cancelled');
+    check([afterAll.workers, afterAll.data], [1, direct], 'nothing is remembered when every waiter cancelled');
+
     originalLog('MEASURED ' + JSON.stringify({ replayComputeMs: Math.round(timedMiss.ms), replayReuseMs: Math.round(timedHit.ms),
       fixture: 'test/fixtures/budget-surface-data (invented)' }));
     originalLog('PASS replay result reuse: ' + checks + ' checks; identical inputs reuse, changed observation/plan/day/engine/disk file/write recompute');
