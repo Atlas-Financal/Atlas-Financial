@@ -7975,7 +7975,7 @@ function renderPlan(d, periods, history) {
   forecastChart($('c-forecast'), sim);
   $('forecast-caption').innerHTML =
     `Filled dots are confirmed paydays, hollow dots estimated income, triangles payments of $500 or more. ` +
-    `Shaded weeks dip below the buffer${sim.daily.some(p => p.balance < 0) ? '; the red zone is a negative balance' : ''}. ` +
+    `Shaded weeks dip below the buffer${sim.daily.some(p => Forecast.below(p.balance, 0)) ? '; the red zone is a negative balance' : ''}. ` +
     `Every number is repeated in the table below — nothing here needs a hover.`;
 
   /* ---- weekly table (desktop) and cards (mobile) ---- */

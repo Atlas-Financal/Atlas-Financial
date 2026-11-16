@@ -873,7 +873,7 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 
 ~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 
-Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
+~~Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.~~ Done: #914 moved the overdraft flags to `below(x, 0)`; the opening gap date and the forecast chart caption followed in `agent/overdraft-date-half-cent`.
 
 ~~Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.~~ Stale 2026-11-16: #919 closed unmerged, so main has no dated-latest-sync mode and no `post-balance-activity-unrepresented` reason to watch.
 
