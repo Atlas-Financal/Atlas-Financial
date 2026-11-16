@@ -1506,6 +1506,32 @@ function ruleLunchMoneyRecurringIds(rule) {
     .map(value => String(value).trim()).filter(Boolean)));
 }
 
+// Single-bill category identity (Grok rule 4, link order 3 of 3). A rule that
+// names lunchMoneyCategoryIds links a row whose Lunch Money category_id is one
+// of them, exactly. Opt-in and empty until Dale confirms each category; a
+// category id named by two rules is refused for both (the config test fails,
+// and at run time neither bill takes the doubly claimed row). Ids, not names:
+// a rename never moves a link, and a removed category links nothing.
+// Alongside, not instead: the rule's other link sources still apply.
+function ruleLunchMoneyCategoryIds(rule) {
+  const values = Array.isArray(rule && rule.lunchMoneyCategoryIds) ? rule.lunchMoneyCategoryIds : [];
+  return Array.from(new Set(values.filter(value => value != null)
+    .map(value => String(value).trim()).filter(Boolean)));
+}
+
+// Category ids that more than one rule names. Refused for every rule.
+function duplicatedRuleCategoryIds(rules) {
+  const seen = new Map();
+  for (const rule of rules || []) {
+    for (const id of ruleLunchMoneyCategoryIds(rule)) {
+      const owners = seen.get(id) || new Set();
+      owners.add(rule.eventId);
+      seen.set(id, owners);
+    }
+  }
+  return new Set([...seen].filter(([, owners]) => owners.size > 1).map(([id]) => id));
+}
+
 function ruleHasIdentity(rule, diagnostic) {
   // Also used directly as Array.filter's predicate, which passes its index.
   if (typeof diagnostic?.record !== 'function') diagnostic = null;
@@ -1518,6 +1544,7 @@ function ruleHasIdentity(rule, diagnostic) {
     return present;
   }
   if (ruleLunchMoneyRecurringIds(rule).length) return true;
+  if (ruleLunchMoneyCategoryIds(rule).length) return true;
   return rulePayeePatterns(rule).length > 0;
 }
 
@@ -1537,9 +1564,13 @@ function ruleMatchesTransactionIdentity(tx, rule) {
     return false;
   }
   const recurringIds = ruleLunchMoneyRecurringIds(rule);
+  const categoryIds = ruleLunchMoneyCategoryIds(rule);
+  if (categoryIds.length && tx.categoryId != null
+      && categoryIds.includes(String(tx.categoryId).trim())) return true;
   if (recurringIds.length) {
     return tx.recurringId != null && recurringIds.includes(String(tx.recurringId).trim());
   }
+  if (categoryIds.length && !rulePayeePatterns(rule).length) return false;
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
     if (!ruleCounterpartExternalId(rule)) return false;
@@ -5963,6 +5994,7 @@ const api = {
   countTransferCounterparts,
   ruleHasIdentity,
   ruleMatchesTransactionIdentity,
+  duplicatedRuleCategoryIds,
   stampIdentityDescriptors,
   ruleEarlyPayLookaheadDays,
   openingAsOfFromData,
