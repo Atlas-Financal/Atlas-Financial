@@ -4,7 +4,7 @@
  * category; duplicates refused; ids, never names. Invented bills, payees, ids and amounts only.
  * Each expected outcome is stated per row, not read back from the matcher.
  *
- * `node test/test-bill-link-recurring-alongside-payee.js`
+ * `node test/test-bill-link-single-bill-category.js`
  */
 const fs = require('fs');
 const path = require('path');
@@ -54,7 +54,7 @@ function payload(txs) {
     updated_at: '2026-11-03T15:55:00.000Z', balance_last_update: '2026-11-03T15:55:00.000Z' }));
   return Object.assign(base, {
     fetchedAt: '2026-11-03T16:00:00.000Z',
-    source: 'Invented recurring-link fixture. Not a live institution pull.',
+    source: 'Invented single-bill category fixture. Not a live institution pull.',
     transactionWindow: { startDate: '2026-10-25', endDate: '2026-11-03', complete: true, hasMore: false, truncated: false },
     transactions: txs,
   });
@@ -112,6 +112,29 @@ console.log('\n=== a rule never stamped from its rule set links by no category =
   const lonely = rule(POWER, [], { lunchMoneyCategoryIds: [CAT] });
   const tx = { payee: 'Renamed', originalName: 'X', categoryId: CAT, pending: false, savingsPostingEvidence: 'posted' };
   ok(O.ruleMatchesTransactionIdentity(tx, lonely) === false, 'unstamped rule: the category does not link (fail closed)');
+}
+
+console.log('\n=== Grok\'s order: recurring link, item note, category, payee last ===');
+{
+  // A recurring link to another bill outranks the category.
+  const r = identityWith({ lunchMoneyCategoryIds: [CAT] }, { lunchMoneyRecurringIds: ['5550001'] });
+  const a = observe([renamed({ category_id: CAT, recurring_id: '5550001' })], r);
+  ok(hits(a, WATER).length === 1 && hits(a, POWER).length === 0, 'recurring link beats a different bill\'s category');
+  // An item note naming another bill outranks the category.
+  const i = identityWith({ lunchMoneyCategoryIds: [CAT] }, { lunchMoneyItemNames: ['Acme Water'] });
+  const b = observe([renamed({ category_id: CAT, notes: 'item: Acme Water' })], i);
+  ok(hits(b, WATER).length === 1 && hits(b, POWER).length === 0, 'item note beats a different bill\'s category');
+  // The category outranks a different bill's payee rule (POWER's payee matches).
+  const c = identityWith({}, { lunchMoneyCategoryIds: [CAT] });
+  const d = observe([row({ category_id: CAT })], c);
+  ok(hits(d, WATER).length === 1 && hits(d, POWER).length === 0, 'category beats a different bill\'s payee match');
+  ok(((d.currentPeriodActuals || {}).transactions || []).filter(t => t.representedBill === true).length === 1,
+    'counted once');
+  // A refused (duplicated) category outranks nothing: the payee rule still applies.
+  const dup = identityWith({}, { lunchMoneyCategoryIds: [CAT] });
+  dup.rules.push(rule('invented-third', ['NOBODY'], { lunchMoneyCategoryIds: [CAT] }));
+  ok(hits(observe([row({ category_id: CAT })], dup), POWER).length === 1,
+    'a refused duplicate category blocks no payee link');
 }
 
 console.log('\n=== the shipped config starts empty ===');
