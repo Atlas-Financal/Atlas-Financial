@@ -379,6 +379,19 @@
     const b = MONTH_SHORT[me] + ' ' + de;
     return a + '–' + b;
   }
+  // #962 D3 / #965: the one test of whether a debit the observer named as a
+  // near-due bill candidate is held To confirm on that bill (the occurrence
+  // is in the debit's own spending cycle) or stays household Other spending
+  // (across a payday, or no resolvable cycle). The classifier and the bill
+  // detail both read this, so the detail never calls a counted debit a
+  // possible payment.
+  function nearDueBillCandidateHeld(plan, tx) {
+    const nearDue = tx && tx.nearDueBillCandidate;
+    if (!nearDue || typeof nearDue.id !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))) return false;
+    const cycle = spendingCycle(plan, tx.date);
+    return !!(cycle && nearDue.date >= cycle.start && nearDue.date <= cycle.end);
+  }
+
   function spendingCycle(plan, asOf) {
     const stream = seaspanPayroll(plan);
     const day = financialDate(asOf);
@@ -7337,9 +7350,7 @@
     // household spending in its own period, as without the flag, so it is
     // never deducted nowhere (#965 review 6717183500).
     const nearDue = tx.nearDueBillCandidate;
-    const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
-    if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
-      && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) {
+    if (nearDueBillCandidateHeld(plan, tx)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'near-due-bill-unconfirmed', includeReason: 'near-due-bill-unconfirmed',
@@ -12162,6 +12173,8 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  // #965: the classifier's own near-due hold test, read by the bill detail.
+  classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
