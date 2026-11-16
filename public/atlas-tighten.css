@@ -3,7 +3,7 @@
    Loaded last on Budget (index.html). It moves no figure, changes no
    wording or trust mark, shows or hides nothing, and holds no layout a
    script reads. Each block carries the id Dale reviewed it under (B1 to
-   B7), so one block can be dropped without touching the others. */
+   B6), so one block can be dropped without touching the others. */
 
 /* B1 the timeline card loses the stray tan line along its top edge. */
 body:has([data-budget-bento]) .budget-bento .t-river::before { background:transparent; }
@@ -27,14 +27,7 @@ body:has([data-budget-bento]) .blend-house-totals [data-budget-household-delta] 
    the pill instead of riding high. */
 body:has([data-budget-bento]) .budget-surface .budget-bento.atlas-g .blend-hero .blend-hero-foot > .blend-hero-pill { justify-content:center; }
 
-/* B6 keyboard focus: a rounded ring in the Budget accent, in place of the
-   square blue box. */
-body:has([data-budget-bento]) .budget-bento :focus-visible { outline-color:var(--blend-focus); }
-body:has([data-budget-bento]) .budget-bento .budget-step-summary:focus-visible {
-  outline:2px solid var(--blend-focus); outline-offset:5px; border-radius:10px;
-}
-
-/* B7 the "Now" badge gets a small live dot, the same green as the marker on
+/* B6 the "Now" badge gets a small live dot, the same green as the marker on
    the timeline. It breathes slowly unless the device asks for less motion. */
 body:has([data-budget-bento]) .budget-bento .blend-now { display:inline-flex; align-items:center; gap:6px; }
 body:has([data-budget-bento]) .budget-bento .blend-now::before {
