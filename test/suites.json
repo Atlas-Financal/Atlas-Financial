@@ -9,6 +9,7 @@
   ["public CI output and synthetic privacy canaries","test-ci-output.js"],
   ["dev preview binds 127.0.0.1 and stages invented data only","test-preview-localhost-synthetic.js"],
   ["serial runner, complete CI partition and aggregation contracts","test-ci-split.js"],
+  ["registered suites reach playwright only behind a skip guard","test-suites-playwright-reach.js"],
   ["annual savings expense excluded from payday Bills with one conserved draw","test-annual-savings-payperiod.js"],
   ["owner-approved streaming bills on the incumbent held-elsewhere Wise path","test-owner-streaming-bills.js"],
   ["selector locale formatter equivalence","test-selector-formatters.js"],
