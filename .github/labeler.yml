@@ -46,11 +46,6 @@ tests:
       - any-glob-to-any-file:
           - 'test/**'
 
-evidence-only:
-  - changed-files:
-      - any-glob-to-any-file:
-          - 'public/modellers.*'
-
 infrastructure:
   - changed-files:
       - any-glob-to-any-file:
