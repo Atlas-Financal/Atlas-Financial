@@ -205,5 +205,35 @@ console.log('\n=== (iii-b) with no plan opening date, a mismatched observation n
   ok(dated.observedAsOf === withOpening.plan.opening.asOf && dated.observedAsOf !== '2026-08-20', 'control: with an opening date it is that date, still never August 20', String(dated.observedAsOf));
 }
 
+// (iv) The chip's live dot. One element (.blend-now) reads "Now" or, with
+// data-blend-now-dated, "As of <day>". A stylesheet rule that draws a mark on it
+// (a ::before or ::after) or animates it must exclude the dated chip, or old figures
+// are dressed as live. Read from every stylesheet a page can load.
+{
+  const cssDir = path.join(ROOT, 'public');
+  const offenders = [];
+  let decorated = 0;
+  for (const file of fs.readdirSync(cssDir).filter(name => name.endsWith('.css')).sort()) {
+    const css = fs.readFileSync(path.join(cssDir, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const body = match[2];
+      for (const selector of match[1].split(',').map(part => part.trim())) {
+        if (!/\.blend-now(?![\w-])/.test(selector)) continue;
+        const marks = /\.blend-now(?![\w-])[^\s>+~]*::?(before|after)/.test(selector);
+        const moves = /(^|[;\s])animation(-name)?\s*:/.test(body);
+        if (!marks && !moves) continue;
+        decorated++;
+        if (!/\.blend-now:not\(\[data-blend-now-dated\]\)/.test(selector)) offenders.push(`${file}: ${selector}`);
+      }
+    }
+  }
+  ok(decorated > 0, 'control: a stylesheet draws a mark on the current-period chip', String(decorated));
+  ok(offenders.length === 0, 'every rule that draws on or animates the chip excludes the dated As of chip', offenders.join(' | '));
+  // The predicate itself: it must reject the unguarded form it exists to catch.
+  const guarded = sel => /\.blend-now:not\(\[data-blend-now-dated\]\)/.test(sel);
+  ok(!guarded('.budget-bento .blend-now::before') && guarded('.budget-bento .blend-now:not([data-blend-now-dated])::before'),
+    'control: an unguarded .blend-now::before is rejected and the guarded form is accepted');
+}
+
 if (failures) { console.log(`\n${failures} CHECK(S) FAILED`); process.exit(1); }
 console.log('\nALL CHECKS PASSED');
