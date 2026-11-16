@@ -65,7 +65,14 @@ async function session(server, width, steps, extras = true) {
     });
     const tap = locator => width < 400 ? locator.tap() : locator.click();
     const root = () => page.locator('[data-pay-period-swipe]');
-    const nativeFunding = () => body().locator('[data-budget-daily-funding-evidence]');
+    // 52acaa77 (owner decision, 2026-11-11) removed the old funding section
+    // and its [data-budget-daily-funding-evidence]. The same daily proposal
+    // still publishes in the Planned Savings step evidence, opened from its
+    // visible summary.
+    const nativeFunding = () => body().locator('[data-budget-daily-savings]');
+    const removedFunding = async () => assert.equal(await page.locator(
+      '[data-budget-funding-section], [data-budget-funding-evidence], [data-budget-daily-funding-evidence]').count(), 0,
+      'the removed funding section is absent');
     const waterfall = () => root().locator('[data-calendar-waterfall]');
     const overview = key => waterfall().locator(`[data-operating-question="${key}"] > details > summary`);
     const sheet = () => page.locator('[data-budget-detail-sheet]');
@@ -75,11 +82,22 @@ async function session(server, width, steps, extras = true) {
       await page.keyboard.press('Escape'); await sheet().waitFor({ state: 'hidden' });
       assert.equal(await trigger.evaluate(el => el === document.activeElement), true, 'native Info returns to its exact trigger');
     };
-    const fundingTrigger = () => page.locator('[data-budget-funding-evidence="today"]');
-    const openFunding = () => openSheet(fundingTrigger());
+    const fundingTrigger = () => page.locator('[data-operating-question="savings"] > details > summary');
+    const openFunding = async () => { await removedFunding(); return openSheet(fundingTrigger()); };
+    // #548: the visible Bills tile row and Household ring open the same
+    // native evidence as the off-screen roster rows.
+    const tileBill = (id, date) => page.locator(`[data-blend-bill="${id}:${date}"]`);
+    const ring = id => page.locator(`.blend-ring[data-blend-cat="${id}"]`);
+    const step = dir => page.evaluate(d => document.querySelector(`[data-budget-window-step="${d}"]`).click(), dir);
     const load = async input => {
       server.write(input);
-      if (page.url().startsWith(server.base)) await page.reload(); else await page.goto(server.base);
+      // budget-blend.js gives an open sheet a history entry and steps back off it
+      // (history.go) after it closes; let that land, or the reload is aborted.
+      // Settled = the sheet history depth matches whether a sheet is still open.
+      if (page.url().startsWith(server.base)) {
+        await page.waitForFunction(() => !!document.querySelector('dialog[open]') === !!(history.state && history.state.atlasSheet));
+        await page.reload();
+      } else await page.goto(server.base);
       await page.locator('[data-budget-surface]').waitFor();
       await page.waitForFunction(() => !!document.querySelector('[data-budget-browse="bills"] [data-budget-bill-open]'));
     };
@@ -99,23 +117,34 @@ async function session(server, width, steps, extras = true) {
         if (key === '06' && e.key === 'purchases') assert.match(actualText, /estimated/, 'included pending spending retains its qualification');
         assert.match(await overview(key).locator('[data-budget-ratio-plan]').innerText(), new RegExp(money(planned).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), key + ' original plan');
       }
-      for (const [key, value] of [['05', 880], ['07', e.periodResult]])
-        assert.equal(await overview(key).locator('.budget-step-value').innerText(), money(value), key);
-      assert.equal(summaryCents(await overview('05').locator('.budget-step-value').innerText())
-        - summaryCents(await overview('07').locator('.budget-step-value').innerText()), e.budgetHold * 100,
+      // The face prints Q07 a second time in whole dollars + cents; the
+      // print hook [data-budget-result-amount] carries the published money2 text.
+      const value07 = () => overview('07').locator('[data-budget-result-amount]').innerText();
+      // 80cf9cca moved Balance after bills (05) into the Period figures panel
+      // that the visible 07 result opens; its published value is unchanged.
+      const value05 = () => page.locator('[data-budget-period-info-body] [data-operating-question="05"] > details > summary .budget-step-value').textContent();
+      assert.equal(await value05(), money(880), '05');
+      assert.equal(await value07(), money(e.periodResult), '07');
+      assert.equal(summaryCents(await value05())
+        - summaryCents(await value07()), e.budgetHold * 100,
       'visible full-period deductions reconcile to the supplied protective reserve, not actual spending');
-      if (e.hold) assert.match(await page.locator('[data-budget-browse-remaining]').innerText(), /Unavailable/,
-        'unresolved pending/posting evidence withholds remaining capacity, while known posted spending remains visible');
+      // The face lifts Still planned out of the tile into the Household Info
+      // sheet, opened from the visible card title (budget-blend.js paintHousehold).
+      if (e.hold) {
+        const info = page.locator('[data-budget-browse-evidence="06"]');
+        await openSheet(info);
+        assert.match(await body().locator('[data-budget-browse-remaining]').innerText(), /Unavailable/,
+          'unresolved pending/posting evidence withholds remaining capacity, while known posted spending remains visible');
+        await closeSheet(info);
+      }
       await openSheet(overview('02'));
       const income = body().locator('[data-period-income="payroll"]');
       assert.equal(await income.count(), 1);
       assert.equal(await income.getAttribute('data-income-status'), 'received');
       await closeSheet(overview('02'));
       const bills = page.locator('[data-budget-browse="bills"]');
-      const bill = bills.locator('[data-budget-bill-open="shaw"][data-budget-bill-date="2026-08-16"]');
-      await bill.waitFor({ state: 'attached' });
-      if (!(await bill.isVisible())) await tap(bills.locator(`[data-budget-bill-filter="${e.billPaid ? 'paid' : 'not-paid'}"]`));
       assert.equal(await bills.locator('[data-budget-bill-bucket="paid"] [data-budget-bill-open="shaw"]').count(), e.billPaid ? 1 : 0);
+      const bill = tileBill('shaw', '2026-08-16');
       await openSheet(bill);
       const evidence = await body().innerText();
       if (e.billPaid) {
@@ -125,27 +154,40 @@ async function session(server, width, steps, extras = true) {
       assert.doesNotMatch(evidence, /9100|providerTransactionId|Shaw Cable synthetic/);
       await closeSheet(bill);
       for (const [id, planned, spent] of [['groceries', 300, e.groceries], ['restaurants', 100, e.dining]]) {
-        const trigger = page.locator(`[data-budget-category-open="${id}"][data-budget-browse-origin="spending"]`);
-        const meta = await trigger.locator('.budget-category-meta').innerText();
+        const row = page.locator(`[data-budget-category-open="${id}"][data-budget-browse-origin="spending"]`);
+        const trigger = ring(id);
+        const meta = await row.locator('.budget-category-meta').textContent();
         assert.ok(meta.includes(money(planned)) && meta.includes(money(spent)), id + ' actual/original');
-        assert.ok((await trigger.locator('.budget-category-status').innerText()).includes(money(planned - spent)), id + ' remaining');
+        assert.ok((await row.locator('.budget-category-status').textContent()).includes(money(planned - spent)), id + ' remaining');
+        assert.ok((await trigger.getAttribute('aria-label')).includes(money(planned - spent)), id + ' visible ring names the same remaining');
         if (spent) {
           await openSheet(trigger);
           const detail = body().locator('[data-budget-spent]');
-          assert.equal(await detail.locator(':scope > summary .household-budget-spent-amount').innerText(), money(spent));
+          // d7646367: an unresolved pending look-alike keeps the category
+          // Spent estimated (the hold step only); every other step is exact.
+          const spentText = (e.hold === 'pending-possible-replacement' && id === 'groceries' ? '≈ estimated ' : '') + money(spent);
+          assert.equal(await detail.locator(':scope > summary .household-budget-spent-amount').innerText(), spentText);
           assert.equal(await detail.evaluate(el => el.open), true, 'native category Info exposes its actual rows');
-          assert.equal(await detail.locator('[data-budget-spent-total]').innerText(), money(spent));
-          const amounts = await detail.locator('.household-budget-tx-amount').allTextContents();
-          const cents = amounts.map(s => Math.round(Number(s.replace(/[^\d.-]/g, '')) * 100));
+          assert.equal(await detail.locator('[data-budget-spent-total]').innerText(), spentText);
+          // d7646367: a pending look-alike stays listed, marked Possible
+          // duplicate, and is not counted in Spent; the sum excludes only it.
+          const duplicates = await detail.locator('.household-budget-tx:has([data-possible-duplicate]) .household-budget-tx-amount').allTextContents();
+          assert.equal(duplicates.length, e.hold === 'pending-possible-replacement' && id === 'groceries' ? 1 : 0, 'possible-duplicate rows');
+          const amounts = await detail.locator('.household-budget-tx:not(:has([data-possible-duplicate])) .household-budget-tx-amount').allTextContents();
+          assert.equal(amounts.length + duplicates.length, await detail.locator('.household-budget-tx-amount').count());
+          const cents = amounts.map(s => Math.round(Number(s.replace('−', '-').replace(/[^\d.-]/g, '')) * 100));
           assert.equal(cents.reduce((a, b) => a + b, 0), spent * 100, 'visible expanded rows sum to supplied ledger');
+          // G3a (5adf0e8b): the identified $20 Groceries refund nets as its
+          // own row (printed with U+2212, parsed above), from refund-transfer on.
           if (id === 'groceries') assert.equal(amounts.length,
-            e.key === 'purchases' || e.key === 'settlement' || e.key === 'refund-transfer' ? 2 : 3);
+            (e.key === 'purchases' || e.key === 'settlement' || e.key === 'refund-transfer' ? 2 : 3)
+            + (['refund-transfer', 'ambiguous', 'resolved'].includes(e.key) ? 1 : 0));
           assert.doesNotMatch(await detail.innerText(), /REFUND|TFR-|Shaw Cable/);
           await closeSheet(trigger);
         }
       }
       if (e.other) {
-        const trigger = page.locator('[data-budget-category-open="other-spending"][data-budget-browse-origin="spending"]');
+        const trigger = ring('other-spending');
         await openSheet(trigger);
         const other = body();
         assert.equal(await other.locator('[data-budget-spent-total]').innerText(), '$35.00');
@@ -159,8 +201,6 @@ async function session(server, width, steps, extras = true) {
       // server/Forecast numerical proof; existing daily browser fixtures prove
       // the separate configured positive and negative funding states.
       assert.equal(await nativeFunding().locator('[data-budget-daily-proposal]').innerText(), 'Unavailable');
-      assert.match(await nativeFunding().innerText(), /Configured purpose pools are required/);
-      assert.match(await nativeFunding().innerText(), /Starting assignments are unknown/);
       assert.doesNotMatch(await nativeFunding().innerText(), /\$/);
       await closeSheet(fundingTrigger());
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), width + 'px overflow');
@@ -188,16 +228,14 @@ async function session(server, width, steps, extras = true) {
           && !!document.querySelector('[data-budget-browse="bills"] [data-budget-bill-open]'));
         activePhase.usableAt = performance.now();
         assert.equal(await page.locator('[data-live-current-balance-amount]').first().innerText(), money(expected.a));
-        assert.equal(await waterfall().locator('[data-operating-question="07"] > details > summary .budget-step-value').innerText(), money(expected.periodResult));
-        const bill = page.locator('[data-budget-browse="bills"] [data-budget-bill-open="shaw"]');
-        if (!(await bill.isVisible())) await tap(page.locator('[data-budget-bill-filter="paid"]'));
+        assert.equal(await waterfall().locator('[data-operating-question="07"] > details > summary [data-budget-result-amount]').innerText(), money(expected.periodResult));
+        const bill = tileBill('shaw', '2026-08-16');
         await openSheet(bill);
         assert.match(await body().innerText(), /2026-08-16/);
         activePhase.firstDisclosureAt = performance.now();
         await closeSheet(bill);
         await openFunding();
         assert.equal(await nativeFunding().locator('[data-budget-daily-proposal]').innerText(), 'Unavailable');
-        assert.match(await nativeFunding().innerText(), /Configured purpose pools are required/);
         await closeSheet(fundingTrigger());
         await page.locator('[data-budget-surface]').waitFor();
         await check(expected);
@@ -265,12 +303,11 @@ async function session(server, width, steps, extras = true) {
       reordered.payload.transactions.reverse(); reordered.payload.accounts.reverse(); reordered.map.mappings.reverse();
       await load(reordered); await check(last);
       const move = async key => {
-        await page.locator('[data-budget-window-step="' + (key === 'ArrowRight' ? '1' : '-1') + '"]').focus();
-        await page.keyboard.press('Enter');
+        await step(key === 'ArrowRight' ? '1' : '-1');
       };
       await move('ArrowRight');
-      const futureBill = page.locator('[data-budget-browse="bills"] [data-budget-bill-open="shaw"]');
-      assert.equal(await futureBill.getAttribute('data-budget-bill-date'), '2026-08-30');
+      assert.equal(await page.locator('[data-budget-browse="bills"] [data-budget-bill-open="shaw"]').getAttribute('data-budget-bill-date'), '2026-08-30');
+      const futureBill = tileBill('shaw', '2026-08-30');
       await openSheet(futureBill);
       assert.doesNotMatch(await body().innerText(), /Transaction date|2026-08-16/);
       await closeSheet(futureBill);

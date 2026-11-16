@@ -174,8 +174,13 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
         `${label}: period income (available), bills and balance after bills stay published on every period`);
       ok(a.coverageEstimate && a.coverageEstimate.status === 'estimated' && a.coverageEstimate.reason.includes(`transaction coverage: ${mode === 'absent' ? 'not established' : mode}`),
         `${label}: the reason names the coverage state`, a.coverageEstimate && a.coverageEstimate.reason);
-      ok(a.majorPlans.length > 0 && a.majorPlans.every(r => r.verdictTrust === 'estimated' && r.estimateReason === a.coverageEstimate.reason),
-        `${label}: major plans are estimates carrying the reason, not certain verdicts`);
+      // With card purchase coverage also unknown (the fixture world), no verdict can be
+      // seeded at all: the cash held for the card is unknown, so every verdict is withheld.
+      ok(a.majorPlans.length > 0 && a.majorPlans.every(r => r.estimateReason === a.coverageEstimate.reason
+          && (alone ? r.verdictTrust === 'estimated' && r.verdict != null
+            : a.cardCoverageUnavailable === true && r.verdictTrust === 'unavailable' && r.verdict === null && r.fundingStatus === 'unavailable')),
+        `${label}: major plans are estimates carrying the reason (withheld when card coverage is also unknown), not certain verdicts`,
+        JSON.stringify(a.majorPlans.map(r => [r.verdict, r.verdictTrust])));
       // Guard (b): in the current view the estimated hold reaches no figure labelled calculated.
       const calculatedKeys = view => Object.keys(view).filter(k => /Trust$/.test(k) && view[k] === 'calculated');
       const independent = new Set(['incomeTrust', 'periodBillLoadTrust', 'afterBillsTrust', 'afterRemainingBillsTrust']);
@@ -225,8 +230,9 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
           `${label}: the page's Income step is visible on the ${name} period`);
       }
       const chips = pageCtx.futureGravityHtml(a);
-      ok(/≈ ON TRACK \(estimate\)/.test(chips) && !/>ON TRACK</.test(chips),
-        `${label}: the page labels the verdict an estimate (≈), never a bare ON TRACK`);
+      ok((alone ? /≈ ON TRACK \(estimate\)/.test(chips) : !/ON TRACK/.test(chips) && /VERDICT UNAVAILABLE/.test(chips))
+          && !/>ON TRACK</.test(chips),
+        `${label}: the page labels the verdict an estimate (≈), or prints none when card coverage is unknown; never a bare ON TRACK`);
     }
   }
   // A withheld future cost never prints as a zero set-aside.
