@@ -115,6 +115,26 @@ const Live = require('../scripts/live-plan');
     check(newReplay.data, newLive.data, 'replay serves the new observation');
     assert.notDeepEqual(newReplay.data, direct, 'old remembered result is never served for new evidence'); checks++;
     check((await load(canonical, {}, 'reuse of new observation')).data, newLive.data, 'reuse follows the new observation');
+    // Ledger-only edits (rule 17: Lunch Money owns category, note and tags):
+    // no balance moves, yet the next provider answer is new evidence, so the
+    // replay recomputes and never serves the earlier result.
+    for (const [label, edit] of [
+      ['category', p => { p.transactions[2].category_id = p.categories.find(c => c.id !== p.transactions[2].category_id).id; }],
+      ['note', p => { p.transactions[2].notes = 'Invented note'; }],
+      ['tag', p => { p.tags = [{ id: 901, name: 'Invented tag' }]; p.transactions[2].tags = [{ id: 901, name: 'Invented tag' }]; }],
+    ]) {
+      mock.payload({ ...Fixture.payload(), tags: [] });
+      await load(canonical, { forceRefresh: true }, label + ' baseline');
+      check((await load(canonical, {}, label + ' baseline replay')).workers, 1, label + ' baseline replay computes');
+      check((await load(canonical, {}, label + ' baseline reuse')).workers, 0, label + ' baseline reuses');
+      const edited = { ...Fixture.payload(), tags: [] };
+      edit(edited);
+      mock.payload(edited);
+      const editedLive = await load(canonical, { forceRefresh: true }, label + ' edit');
+      const editedReplay = await load(canonical, {}, label + ' edit replay');
+      check([editedReplay.workers, editedReplay.data], [1, editedLive.data],
+        'a ledger-only ' + label + ' edit recomputes and serves the new answer');
+    }
     mock.payload({ ...Fixture.payload(), tags: [] });
     await load(canonical, { forceRefresh: true }, 'restore observation');
 
