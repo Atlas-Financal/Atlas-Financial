@@ -101,9 +101,28 @@
       || !date(asOf) || overlay.effectiveAsOf !== asOf || overlay.observedAsOf !== asOf
       || (data.meta && data.meta.asOf !== asOf)
       || packet.schema !== 'atlas-current-period-actuals/v1' || packet.observationAsOf !== asOf) return [];
+    // Forecast.nearDueBillCandidateHeld is the one test of a hold. A debit it
+    // does not hold (across a payday) is Other spending: it is listed with
+    // its ledger category and a Lunch Money pointer, never as a possible
+    // payment. Without Forecast nothing is called a possible payment.
+    const F = forecast();
     return packet.transactions.filter(item => item && item.nearDueBillCandidate
       && item.nearDueBillCandidate.id === row.id && item.nearDueBillCandidate.date === row.date)
-      .map(item => transaction(item, asOf)).filter(Boolean);
+      .map(item => {
+        const projected = transaction(item, asOf);
+        if (!projected) return null;
+        const held = !!(F && typeof F.nearDueBillCandidateHeld === 'function'
+          && F.nearDueBillCandidateHeld(data.plan, item));
+        return held ? projected
+          : { ...projected, otherSpending: true, category: text(item.categoryLabel).trim() || 'Uncategorised' };
+      }).filter(Boolean);
+  }
+
+  function forecast() {
+    if (typeof module === 'object' && module.exports && typeof require === 'function') {
+      try { return require('./forecast'); } catch (e) { return null; }
+    }
+    return typeof globalThis === 'object' && globalThis.Forecast ? globalThis.Forecast : null;
   }
 
   function accountLabel(id, data) {
@@ -169,7 +188,9 @@
         + '</p><ul class="bill-detail-payments">' + payments + '</ul>'
         + signNote
       : '<p>' + missing + reason + ' Missing evidence does not mean unpaid.</p>';
-    const held = row.status === 'PAID' ? [] : candidates(row, data);
+    const listed = row.status === 'PAID' ? [] : candidates(row, data);
+    const held = listed.filter(payment => !payment.otherSpending);
+    const counted = listed.filter(payment => payment.otherSpending);
     const candidateProof = held.length
       ? '<p data-bill-payment-candidate>Possible payment — to confirm. A debit from this bill\u2019s payee was not matched to this due date. It does not settle this bill, which stays reserved until it is confirmed.</p><ul class="bill-detail-payments">'
         + held.map(payment => '<li><dl>'
@@ -178,6 +199,14 @@
           + fact('Transaction account', accountLabel(payment.account, data))
           + fact('Transaction state', payment.pending ? 'Pending — not a posted payment' : 'Posted')
           + '</dl></li>').join('') + '</ul>'
+      : '';
+    const otherProof = counted.length
+      ? '<ul class="bill-detail-payments" data-bill-other-spending>'
+        + counted.map(payment => '<li><dl>'
+          + fact('Transaction date', payment.date)
+          + fact('Transaction amount', money(payment.amount))
+          + fact('Category', payment.category)
+          + '</dl><p>Review in Lunch Money</p></li>').join('') + '</ul>'
       : '';
     const dateAttr = date(row.date) ? ' data-bill-date="' + escape(row.date) + '"' : '';
     return '<details class="bill-detail" data-bill-detail><summary class="operating-line"'
@@ -207,7 +236,7 @@
         ? fact('Paid over planned', money(row.excess) + ' excess · ' + row.excessTrust) : '')
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
       + fact('Published confidence', text(row.confidence) || 'Unavailable')
-      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + '</div></details>';
+      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + otherProof + '</div></details>';
   }
   const VISA_REASONS = {
     'payment-intent-unconfirmed': 'Link the Bills debit and confirm which purchases this payment covers. Amount and timing do not prove its purpose.',
