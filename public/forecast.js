@@ -20184,7 +20184,9 @@
     // negative, or the floor, whichever comes first. Topping up by the full gap
     // on that day lifts it and every later day to at least the buffer, so one
     // injection clears the rest of the window.
-    const firstNegative = zero.daily.find(p => p.balance < 0);
+    // Negative means the same half-cent below(x, 0) every overdraft flag
+    // uses (#914): float noise under zero is not an overdraft.
+    const firstNegative = zero.daily.find(p => below(p.balance, 0));
     const gapDate = firstNegative && firstNegative.date < zero.min.date
       ? firstNegative.date : zero.min.date;
     // Everything that must be paid before the first money arrives.

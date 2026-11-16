@@ -705,7 +705,7 @@ Provider-observe `firstNumber` turns a blank, `false` or non-numeric raw balance
 
 The bill detail still lists a cross-period debit as "Possible payment" while Forecast counts it as Other spending. Source: PR #965.
 
-`test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.
+~~`test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.~~ Done: it now opens Other spending from the visible ring.
 
 `firstDue` card-minimum stubs print the opening-row label but are not deducted. Source: PR #977 pre-review.
 
@@ -747,7 +747,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 ~~The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.~~ Struck 2026-11-16 (ALREADY FIXED): the sentence is no longer in `public/plan.js`, and `test-bad-full-period-bill-load.js` asserts it stays absent.
 
-`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
+~~`scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.~~ Fixed by `agent/positions-unknown-debt`.
 
 ~~The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Deep Dive page was removed (#822 slice 4, bc8aae3).
 
@@ -873,7 +873,7 @@ Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up
 
 ~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 
-Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
+~~Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.~~ Done: #914 moved the overdraft flags to `below(x, 0)`; the opening gap date and the forecast chart caption followed in `agent/overdraft-date-half-cent`.
 
 ~~Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.~~ Stale 2026-11-16: #919 closed unmerged, so main has no dated-latest-sync mode and no `post-balance-activity-unrepresented` reason to watch.
 
