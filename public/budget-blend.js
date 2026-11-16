@@ -1217,6 +1217,8 @@
     if (/^estimated\b/i.test(state)) return 'estimated';
     if (/^carried\b/i.test(state)) return 'carried';
     if (!state || /status unavailable|unknown|unavailable|not observed/i.test(state)) return 'unknown';
+    // A posted payment below plan is still to pay (budget-polish.js: Partly paid, never the Paid green).
+    if (/^partly paid\b/i.test(state)) return 'due';
     if (/paid/i.test(state) && !/not paid|unpaid|not confirmed/i.test(state)) return 'paid';
     if (/confirm|needs a date/i.test(state)) return 'confirm';
     if (/pending/i.test(state)) return 'pending';
