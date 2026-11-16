@@ -618,14 +618,19 @@ body:has([data-budget-bento]) .blend-house-totals [data-budget-household-delta] 
 body:has([data-budget-bento]) .budget-surface .budget-bento.atlas-g .blend-hero .blend-hero-foot > .blend-hero-pill { justify-content:center; }
 
 /* B6 the "Now" badge gets a small live dot, the same green as the marker on
-   the timeline. It breathes slowly unless the device asks for less motion. */
-body:has([data-budget-bento]) .budget-bento .blend-now { display:inline-flex; align-items:center; gap:6px; }
-body:has([data-budget-bento]) .budget-bento .blend-now::before {
+   the timeline. It breathes slowly unless the device asks for less motion.
+   Only a badge that reads "Now" gets it. The same element reads "As of
+   <date>" and carries data-blend-now-dated when the figures are dated,
+   retained, or the page was left open past the household day
+   (budget-blend.js paintHeroTop, app.js markPageDated); that badge gets no
+   dot and no motion, so old figures are never dressed as live. */
+body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated]) { display:inline-flex; align-items:center; gap:6px; }
+body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated])::before {
   content:""; flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:#2cdda0;
   box-shadow:0 0 0 0 rgba(44,221,160,.55);
 }
 @media (prefers-reduced-motion: no-preference) {
-  body:has([data-budget-bento]) .budget-bento .blend-now::before { animation:atlas-now-dot 2.6s ease-out infinite; }
+  body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated])::before { animation:atlas-now-dot 2.6s ease-out infinite; }
 }
 @keyframes atlas-now-dot {
   0% { box-shadow:0 0 0 0 rgba(44,221,160,.55); }
