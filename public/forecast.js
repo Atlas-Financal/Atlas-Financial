@@ -15468,14 +15468,19 @@
       const windowLoadUnknowns = scheduledLoadUnknowns.filter(u => u.dateUnknown
         ? !u.from || u.from <= window.end
         : u.date >= window.start && u.date <= window.end);
+      // A completed period reads the same dated scheduled unknowns its total
+      // and unconfirmedBills already withhold on (scheduledBillAmountUnknown
+      // below), so its load, remainder and everything built on them are
+      // unknown too, never a number beside an Unknown total.
+      const lookbackLoadUnknowns = lookback ? windowLoadUnknowns.filter(u => !u.dateUnknown) : [];
       const billLoadUnknown = !planUnavailable && ((!lookback && (unknownLoadRows.length > 0
-        || windowLoadUnknowns.length > 0)) || planBillAmountUnknown);
-      // What leaves an open period's bill load unknown, named by carrier and
-      // id (each once), so the withheld total says which bill or payment it is.
-      const billLoadUnknownFrom = !lookback && billLoadUnknown
+        || windowLoadUnknowns.length > 0)) || lookbackLoadUnknowns.length > 0 || planBillAmountUnknown);
+      // What leaves a period's bill load unknown, named by carrier and id
+      // (each once), so the withheld total says which bill or payment it is.
+      const billLoadUnknownFrom = billLoadUnknown
         ? [...new Map([
-          ...unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null })),
-          ...windowLoadUnknowns.map(u => ({ carrier: u.carrier, id: u.id || null })),
+          ...(lookback ? [] : unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null }))),
+          ...(lookback ? lookbackLoadUnknowns : windowLoadUnknowns).map(u => ({ carrier: u.carrier, id: u.id || null })),
           ...planBillAmountUnknownBills.map(b => ({ carrier: 'bill', id: b.id || null })),
         ].map(u => [u.carrier + ':' + u.id, u])).values()]
         : null;
@@ -15931,7 +15936,7 @@
         totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown)
           || (!lookback && billLoadUnknown) ? null : totalBillsThisPeriod,
         paidBills,
-        remainingBills: planUnavailable || (!lookback && billLoadUnknown) ? null : remainingBills,
+        remainingBills: planUnavailable || billLoadUnknown ? null : remainingBills,
         ...(billLoadUnknownFrom ? { billLoadUnknownFrom } : {}),
         // Completed periods only, so every other period's publication is
         // unchanged: bills the evidence does not prove paid.

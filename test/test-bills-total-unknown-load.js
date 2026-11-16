@@ -92,5 +92,39 @@ for (const v of hit.slice(0, 2)) {
     `${v.start}: no dollar figure is printed for the period total`);
 }
 
+console.log('\n=== 4. a completed period with the unknown obligation: no number over its Unknown total ===');
+{
+  const closed = advice => (advice.payPeriodViews || []).filter(v => v.lookback === true);
+  const controlClosed = closed(control.advice);
+  const unknownClosed = closed(unknown.advice);
+  const hitClosed = unknownClosed.filter(holdsDay5);
+  const missClosed = unknownClosed.filter(v => !holdsDay5(v));
+  ok(controlClosed.length > 2 && controlClosed.every(v => typeof v.periodBillLoad === 'number'
+      && typeof v.totalBillsThisPeriod === 'number' && typeof v.remainingBills === 'number'),
+    'control: every completed period publishes a load, a total and a remainder');
+  ok(hitClosed.length >= 2, 'the obligation falls in at least two completed periods (calendar)', hitClosed.map(v => v.start).join(', '));
+  ok(hitClosed.every(v => v.totalBillsThisPeriod === null && v.unconfirmedBills === null),
+    'precondition: those periods already withhold the total and the unconfirmed bills');
+  ok(hitClosed.every(v => v.periodBillLoad === null && v.periodBillLoadTrust === 'unavailable' && v.remainingBills === null),
+    'their load and remainder are Unknown too, never a number beside the Unknown total',
+    JSON.stringify(hitClosed.map(v => [v.start, v.periodBillLoad, v.remainingBills])));
+  ok(hitClosed.every(v => v.afterBills === null && v.balanceAfterDeductions === null),
+    'after bills and Balance After Deductions built on that load are Unknown',
+    JSON.stringify(hitClosed.map(v => [v.start, v.afterBills, v.balanceAfterDeductions])));
+  ok(hitClosed.every(v => JSON.stringify(v.billLoadUnknownFrom) === JSON.stringify([{ carrier: 'obligation', id: 'invented-unknown' }])),
+    'each names the unknown obligation as the reason');
+  ok(missClosed.length > 0 && missClosed.every(v => {
+    const c = controlClosed.find(x => x.start === v.start);
+    return c && v.periodBillLoad === c.periodBillLoad && v.remainingBills === c.remainingBills
+      && v.totalBillsThisPeriod === c.totalBillsThisPeriod && v.balanceAfterDeductions === c.balanceAfterDeductions;
+  }), 'completed periods the obligation does not reach keep their control figures');
+  for (const v of hitClosed.slice(0, 1)) {
+    const html = page('budgetBillsSectionHtml', v, { asOf: unknown.d.meta.asOf, advice: unknown.advice });
+    const footer = (html.match(/<footer>[\s\S]*?<\/footer>/) || [''])[0];
+    ok(/Unavailable/.test(footer) && !/\$[\d,]+\.\d\d/.test(footer),
+      `${v.start}: the Budget page's "The plan deducts" reads Unavailable, no dollar figure`, footer.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160));
+  }
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
