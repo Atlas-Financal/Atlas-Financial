@@ -5587,7 +5587,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       delete row.displayedNote;
     }
     delete row.bankDescription;
-    if (cls.kind === 'refund' && bankDescriptions.has(row.id)) row.bankDescription = bankDescriptions.get(row.id);
+    // Only a refund Forecast identifies as one named household category's refund (G3a). Any other credit,
+    // such as payroll, an e-transfer or an unclassified deposit, never carries the bank's text.
+    if (cls.kind === 'refund' && bankDescriptions.has(row.id)
+      && Forecast.classifyCurrentPeriodTransaction.identifiedCategoryRefund(row, cls, opts.plan,
+        { packet: classifyPacket, currentPeriodActuals: classifyPacket })) row.bankDescription = bankDescriptions.get(row.id);
   }
   // C1: a raw dated row with an unreadable amount that the collapsed pass
   // did not localise (or never saw) withholds coverage globally.

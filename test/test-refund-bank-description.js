@@ -5,7 +5,7 @@
  * category. Display only: nothing is written to the ledger and no figure moves.
  *
  * Lead conditions proved here:
- *   1. bankDescription is kept only on rows Forecast classifies as refunds:
+ *   1. bankDescription is kept only on a refund Forecast identifies as one named category's refund (G3a):
  *      original_name as written, control characters stripped, 60-character
  *      cap, no payee or category fallback;
  *   2. it never reaches the assistant / MCP current-state packet or the
@@ -86,6 +86,24 @@ console.log('A refund with no display name shows the bank description, marked as
   ok(payees(s.html).includes('Bank description: ' + DESC), 'the Spent list prints "Bank description: …"',
     JSON.stringify(payees(s.html)));
   ok(payees(s.html).includes('Invented diner'), 'positive control: the purchase keeps its payee');
+}
+
+console.log('Only a category refund keeps it: other credits never carry the bank text');
+{
+  // An uncategorised deposit (an e-transfer from a person, say) and a credit in a non-budget category are
+  // classified as refunds but are not a named category's refund: their bank text must never be published.
+  const s = run({ payee: '', original_name: DESC }, [
+    H.lm({ date: '2026-10-13', amount: -40, payee: '', raw: { original_name: 'INVENTED PERSON E-TRANSFER' } }),
+    H.lm({ date: '2026-10-13', amount: -9, category: 'Gifts', payee: '', raw: { original_name: 'INVENTED GIFT CREDIT' } }),
+  ]);
+  const deposit = s.r.packet.transactions.find(t => t.amount === -40);
+  const gift = s.r.packet.transactions.find(t => t.amount === -9);
+  ok(deposit && !('bankDescription' in deposit), 'an uncategorised deposit carries no bank description');
+  ok(gift && !('bankDescription' in gift), 'a credit in a non-budget category carries no bank description');
+  const blob = JSON.stringify(s.r.packet);
+  ok(!blob.includes('INVENTED PERSON E-TRANSFER') && !blob.includes('INVENTED GIFT CREDIT'),
+    'neither bank text appears anywhere in the packet');
+  ok(s.refund && s.refund.bankDescription === DESC, 'positive control: the category refund still carries it');
 }
 
 console.log('No bank description: Merchant unavailable, never the category');

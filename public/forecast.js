@@ -12214,6 +12214,9 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
+  // description on category refunds only.
+  classifyCurrentPeriodTransaction.identifiedCategoryRefund = identifiedCategoryRefund;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
