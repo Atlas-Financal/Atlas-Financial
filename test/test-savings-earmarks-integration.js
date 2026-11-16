@@ -1,5 +1,5 @@
 'use strict';
-// Real server and page mounts. All accounts, evidence and credentials are synthetic.
+// Real server and Budget page mount. All accounts, evidence and credentials are synthetic.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -24,19 +24,14 @@ function renderSurfaces(served) {
     vm.runInContext('App.boot = () => {};', context);
     vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', script), 'utf8'), context);
     context.served = served;
-    if (script === 'plan.js') {
-      vm.runInContext('Object.assign(state, served.plan.defaults, { debts: served.debts });', context);
-      // Focused mount only; a separate real browser run covers the full DOM.
-      try { vm.runInContext('renderPlan(served, null, null)', context); }
-      catch (error) { assert.match(error.message, /null/); }
-    } else vm.runInContext('renderPlanSpend(served, null)', context);
+    vm.runInContext('Object.assign(state, served.plan.defaults, { debts: served.debts });', context);
+    // Focused mount only; a separate real browser run covers the full DOM.
+    try { vm.runInContext('renderPlan(served, null, null)', context); }
+    catch (error) { assert.match(error.message, /null/); }
     assert.ok(inventory.innerHTML); assert.ok(advice);
     return { html: inventory.innerHTML, advice };
   };
-  const budget = build('plan.js'), spend = build('plan-spend.js');
-  assert.equal(budget.html, spend.html, 'both actual page mounts print identical inventory');
-  assert.deepEqual(budget.advice.savingsInventory, spend.advice.savingsInventory);
-  return budget;
+  return build('plan.js');
 }
 async function main() {
   await withServer(fixture(), async server => {

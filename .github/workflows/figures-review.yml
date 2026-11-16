@@ -327,8 +327,6 @@ jobs:
               'budget|public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml': [['asOf=str,advice=A', 'asOf=str,period=view'], ['A.savingsFunding', 'other-object', 'result'], ['object', 'null']],
               'budget|public/savings-inventory.js#html<public/plan.js#q': [['asOf=str,period=view'], ['A.savingsFunding'], ['object', 'null']],
               'budget|public/savings-inventory.js#html<public/plan.js#renderPlan': [['asOf=str,advice=A,plan=entry-plan'], ['A.savingsFunding'], ['object', 'null']],
-              'planSpend|public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
-              'planSpend|public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend': [['advice=A,plan=entry-plan,asOf=str'], ['A.savingsFunding'], ['object', 'null']],
             };
             // The one anchor that predicts an observation, by page, context shape and
             // source; byId, byView and rawPacket are per view, pass-through is result#k.
@@ -342,7 +340,6 @@ jobs:
               'budget|asOf=str,period=view|A.savingsFunding': 'byView',
               'budget|asOf=str,period=view|other-object': 'rawPacket',
               'budget|asOf=str,period=view|result': 'pass-through',
-              'planSpend|advice=A,plan=entry-plan,asOf=str|A.savingsFunding': 'topPlan',
             };
             // The per-state call roster, one table per state kind: [step, route,
             // context shape] in the page's fixed order. Which steps a state must
@@ -361,10 +358,6 @@ jobs:
                 ['I', 'public/plan.js#budgetDailySavingsFor<public/plan.js#budgetSavingsGoalsHtml', 'asOf=str,advice=A,periodId=str'],
                 ['J', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,period=view'],
                 ['K', 'public/savings-inventory.js#html<public/plan.js#budgetDailySavingsHtml', 'asOf=str,advice=A'],
-              ],
-              planSpend: [
-                ['P1', 'public/plan-spend.js#planSpendFundingSchedule<public/plan-spend.js#planSpendPageHtml', 'advice=A,plan=entry-plan,asOf=str'],
-                ['P2', 'public/savings-inventory.js#html<public/plan-spend.js#renderPlanSpend', 'advice=A,plan=entry-plan,asOf=str'],
               ],
             };
             // The gate-line vocabulary, per field of budget|state|calendar|dailyAsOf|
@@ -412,7 +405,7 @@ jobs:
                 let v = piece.slice(eq + 1);
                 if (/^"[^"]*"$/.test(v)) v = 'str';
                 else if (/^view:[^,]+$/.test(v)) v = 'view';
-                else if (/^(budget|planSpend)-advice#\d+$/.test(v)) { if (same.label && same.label !== v) return null; same.label = v; v = 'A'; }
+                else if (/^budget-advice#\d+$/.test(v)) { if (same.label && same.label !== v) return null; same.label = v; v = 'A'; }
                 else if (['null', 'undefined', 'entry-plan', 'string', 'number', 'boolean', 'object'].indexOf(v) < 0) return null;
                 out.push(name + '=' + v);
               }
@@ -420,7 +413,7 @@ jobs:
             };
             const sourceShape = (source, same, n) => {
               if (source === 'undefined' || source === 'null' || source === 'other-object') return source;
-              let m = /^((budget|planSpend)-advice#\d+)\.savingsFunding$/.exec(source);
+              let m = /^((budget)-advice#\d+)\.savingsFunding$/.exec(source);
               if (m) { if (same.label && same.label !== m[1]) return null; same.label = m[1]; return 'A.savingsFunding'; }
               m = /^result#(0|[1-9]\d*)$/.exec(source);
               return m && Number(m[1]) < n ? 'result' : null;
@@ -469,7 +462,6 @@ jobs:
               const owns = key => has(head, prefix + key);
               const ownKeys = Object.keys(head).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length));
               const unavail = owns('planning.operatingPlan');
-              const plansExist = ownKeys.some(key => /^planning\.(.+)\.verdict$/.test(key));
               const groups = new Map();
               for (const key of ownKeys) {
                 const gm = /^period\.([^.]+)\./.exec(key);
@@ -506,12 +498,11 @@ jobs:
                 if (!view) { expected = null; break; }
                 expected.push('budget|period:' + view(start) + '/lens:today', 'budget|period:' + view(start) + '/lens:payday');
               }
-              if (expected) expected.push('planSpend|default');
-              else invalid++;
+              if (!expected) invalid++;
               const declared = new Map();
               for (let i = 0; i < states; i++) {
                 const line = at('state.' + i);
-                const m = typeof line === 'string' && /^(budget|planSpend)\|([^|]+)\|calls=(0|[1-9]\d*)\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
+                const m = typeof line === 'string' && /^(budget)\|([^|]+)\|calls=(0|[1-9]\d*)\|error=(yes)?\|unfinished=(\d+)\|load=(\d+)$/.exec(line);
                 if (!m || m[4] === 'yes' || m[5] !== '0' || m[6] !== '0') { invalid++; continue; }
                 const id = m[1] + '|' + m[2];
                 if (declared.has(id) || (expected && expected[i] !== id)) invalid++;
@@ -545,7 +536,7 @@ jobs:
               for (let i = 0; i < advices; i++) {
                 const line = at('advice.' + i);
                 const f = typeof line === 'string' ? line.split('|') : [];
-                const lm = f.length === 9 ? /^(budget|planSpend)-advice#[1-9]\d*$/.exec(f[0]) : null;
+                const lm = f.length === 9 ? /^(budget)-advice#[1-9]\d*$/.exec(f[0]) : null;
                 const st = lm ? declared.get(f[1] + '|' + f[2]) : undefined;
                 if (!lm || lm[1] !== f[1] || !st || anchors.has(f[0]) || st.anchor || !/^(0|[1-9]\d{0,3})$/.test(f[5])) { invalid++; continue; }
                 const [label, page, state, funding, current, nviews, top, topNull, topPlan] = f;
@@ -602,7 +593,7 @@ jobs:
               for (let n = 0; n < count; n++) {
                 const line = at('o' + n);
                 const parts = typeof line === 'string' ? line.split('|') : [];
-                if (parts.length !== 8 || (parts[0] !== 'budget' && parts[0] !== 'planSpend') || parts[7] !== '') { invalid++; continue; }
+                if (parts.length !== 8 || parts[0] !== 'budget' || parts[7] !== '') { invalid++; continue; }
                 const [page, state, route, source, contextText, ref, type] = parts;
                 const st = declared.get(page + '|' + state);
                 if (!st) { invalid++; continue; }
@@ -739,14 +730,8 @@ jobs:
                 const top = a ? a.top : 'invalid', topNull = a ? a.topNull : 'invalid', topPlan = a ? a.topPlan : 'invalid';
                 const payPeriodState = id === 'budget|default' || /^budget\|period:.+\/lens:(?:today|payday)$/.test(id);
                 if (unavail) {
-                  // R-unavail: every Budget state only mounts the inventory and Plan
-                  // spend only renders it, each when funded.
-                  if (id === 'planSpend|default') { if (funded) push('planSpend', 'P2', A, topPlan); }
-                  else if (payPeriodState) { if (funded) push('budget', 'B0', A, topPlan); }
-                } else if (id === 'planSpend|default') {
-                  // R-noplans: the schedule call needs a plan; the render does not.
-                  if (funded && plansExist) push('planSpend', 'P1', A, topPlan);
-                  if (funded) push('planSpend', 'P2', A, topPlan);
+                  // R-unavail: every Budget state only mounts the inventory, when funded.
+                  if (payPeriodState) { if (funded) push('budget', 'B0', A, topPlan); }
                 } else if (payPeriodState) {
                   // The selected view: itemized (iv) and in the anchor (sv).
                   const selected = selectedView(id.slice('budget|'.length));

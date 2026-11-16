@@ -1,7 +1,9 @@
 'use strict';
-// Invented-only before/after proof for resolving a date once inside one hold
-// computation. The reference removes only that optimization, restoring the
-// incumbent per-transaction algorithm. No production test seam or cache flag.
+// Invented-only before/after proof for the one-pass hold computation: each
+// distinct receipt date is validated once and resolved to a pay period once.
+// The reference removes only those optimizations, restoring the incumbent
+// per-transaction algorithm (two passes; a date check and a period
+// resolution for every eligible row). No production test seam or cache flag.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,23 +16,52 @@ const END = '\n  // Machine-readable settlement fact';
 const begin = source.indexOf(BEGIN), end = source.indexOf(END, begin);
 assert.ok(begin >= 0 && end > begin, 'one bounded computation is instrumented');
 const body = source.slice(begin, end);
-const DATE_SET = '    const seenDates = new Set();\n';
-const DATE_SKIP = '      if (seenDates.has(tx.date)) continue;\n      seenDates.add(tx.date);\n';
-const CYCLE = '      const cycle = spendingCycle(plan, tx.date);';
-for (const anchor of [DATE_SET, DATE_SKIP, CYCLE]) {
+const ONE_PASS = [
+  '    const validDate = new Map();',
+  '    const unlinkedDates = new Set();',
+  '    let first = null;',
+  '    for (const tx of txs) {',
+  '      if (!tx) continue;',
+  '      let valid = validDate.get(tx.date);',
+  '      if (valid === undefined) {',
+  '        valid = savingsDate(tx.date);',
+  '        validDate.set(tx.date, valid);',
+  '      }',
+  '      if (!valid || (tx.id != null && linked.has(String(tx.id)))) continue;',
+  '      if (!first || tx.date < first) first = tx.date;',
+  '      unlinkedDates.add(tx.date);',
+  '    }',
+].join('\n') + '\n';
+const INCUMBENT_FIRST = [
+  '    let first = null;',
+  '    for (const tx of txs) {',
+  '      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;',
+  '      if (!first || tx.date < first) first = tx.date;',
+  '    }',
+].join('\n') + '\n';
+const DATE_LOOP = '    for (const date of unlinkedDates) {\n      const cycle = spendingCycle(plan, date);';
+const INCUMBENT_LOOP = '    for (const tx of txs) {\n'
+  + '      if (!tx || !savingsDate(tx.date) || (tx.id != null && linked.has(String(tx.id)))) continue;\n'
+  + '      const cycle = spendingCycle(plan, tx.date);';
+for (const anchor of [ONE_PASS, DATE_LOOP]) {
   assert.equal(body.split(anchor).length, 2, 'exactly one proof anchor');
 }
 function compile(mode) {
   let region = body;
-  if (mode === 'reference') region = region.replace(DATE_SET, '').replace(DATE_SKIP, '');
+  if (mode === 'reference') region = region.replace(ONE_PASS, INCUMBENT_FIRST).replace(DATE_LOOP, INCUMBENT_LOOP);
   if (mode === 'forget-windows') region = region.replace(
     "windows.push({ id: 'held-' + cycle.start, start: cycle.start, end: cycle.end });", '/* mutant drops every resolved window */');
-  region = region.replace(CYCLE, '      __dateProofCalls++;\n' + CYCLE);
-  let code = 'let __dateProofCalls = 0;\n' + source.slice(0, begin) + region + source.slice(end);
+  assert.equal(region.split('const cycle = spendingCycle(plan, ').length, 2, mode + ': one period resolution site');
+  region = region.replace('const cycle = spendingCycle(plan, ', '__dateProofCalls++;\n      const cycle = spendingCycle(plan, ');
+  // Count date checks made by this computation only (both modes alike).
+  region = region.split('savingsDate(').join('__countedSavingsDate(');
+  region = '  function __countedSavingsDate(value) { __dateCheckCalls++; return savingsDate(value); }\n' + region;
+  let code = 'let __dateProofCalls = 0, __dateCheckCalls = 0;\n' + source.slice(0, begin) + region + source.slice(end);
   code = code.replace('  const Forecast = {', '  const Forecast = {\n'
     + '    __heldKeys: computeHeldOtherIncomeKeys,\n'
-    + '    __resetDateCalls: () => { __dateProofCalls = 0; },\n'
-    + '    __dateCalls: () => __dateProofCalls,');
+    + '    __resetDateCalls: () => { __dateProofCalls = 0; __dateCheckCalls = 0; },\n'
+    + '    __dateCalls: () => __dateProofCalls,\n'
+    + '    __dateChecks: () => __dateCheckCalls,');
   const mod = new Module(FILE, module);
   mod.filename = FILE;
   mod.paths = Module._nodeModulePaths(path.dirname(FILE));
@@ -45,12 +76,14 @@ function keys(F, data, events = []) {
   F.__resetDateCalls();
   const opts = World.recommendOptions(data);
   const result = F.__heldKeys(data.plan, opts, AS_OF, events, opts.currentPeriodActuals.transactions);
-  return { result: { keys: [...result.keys].sort(), fromEvents: result.fromEvents }, calls: F.__dateCalls() };
+  return { result: { keys: [...result.keys].sort(), fromEvents: result.fromEvents }, calls: F.__dateCalls(),
+    checks: F.__dateChecks() };
 }
 function equalKeys(label, data, events = []) {
   const before = keys(reference, data, events), after = keys(candidate, data, events);
   assert.deepStrictEqual(after.result, before.result, label + ': hold keys and fallback unchanged');
   assert.ok(after.calls <= before.calls, label + ': no additional cycle resolutions');
+  assert.ok(after.checks <= before.checks, label + ': no additional date checks');
   console.log('PASS ' + label);
   return { before, after };
 }
@@ -71,6 +104,10 @@ packet.representedActuals = [{ transactionId: 'linked-only' }, { transactionId: 
 let comparison = equalKeys('unsorted duplicate dates across pay-period boundaries', boundary);
 assert.equal(comparison.after.calls, 5, 'exactly five valid unlinked dates resolved');
 assert.equal(comparison.before.calls, 13, 'incumbent resolves all thirteen eligible rows');
+// Sixteen non-null rows, checked once in each of two passes; seven distinct
+// date texts (five valid unlinked, one linked-only, one malformed).
+assert.equal(comparison.before.checks, 32, 'incumbent checks every row in both passes');
+assert.equal(comparison.after.checks, 7, 'each distinct date text is checked once');
 assert.ok(comparison.after.result.keys.includes('rebate@2026-11-12'), 'receipt actually holds the expected rebate');
 assert.notDeepStrictEqual(keys(mutant, boundary).result, comparison.before.result,
   'teeth: dropping resolved windows changes the held answer');
@@ -107,13 +144,14 @@ for (const [label, options] of worlds) {
   const data = World.build(options), untouched = structuredClone(data);
   reference.__resetDateCalls();
   const before = reference.recommend(data.plan, AS_OF, World.recommendOptions(data));
-  const beforeCalls = reference.__dateCalls();
+  const beforeCalls = reference.__dateCalls(), beforeChecks = reference.__dateChecks();
   candidate.__resetDateCalls();
   const after = candidate.recommend(data.plan, AS_OF, World.recommendOptions(data));
-  const afterCalls = candidate.__dateCalls();
+  const afterCalls = candidate.__dateCalls(), afterChecks = candidate.__dateChecks();
   assert.deepStrictEqual(after, before, label + ': complete recommendation unchanged');
   assert.deepStrictEqual(data, untouched, label + ': inputs unchanged');
   assert.ok(afterCalls < beforeCalls, label + ': actual recommendation resolves fewer dates');
-  console.log('PASS complete recommendation: ' + label + ' (' + beforeCalls + ' -> ' + afterCalls + ' date resolutions)');
+  assert.ok(afterChecks < beforeChecks, label + ': actual recommendation checks fewer dates');
+  console.log('PASS complete recommendation: ' + label + ' (' + beforeCalls + ' -> ' + afterCalls + ' date resolutions, ' + beforeChecks + ' -> ' + afterChecks + ' date checks)');
 }
 console.log('ALL CHECKS PASSED');

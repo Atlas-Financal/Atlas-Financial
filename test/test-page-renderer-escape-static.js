@@ -24,11 +24,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 
-// The renderers index.html loads, plus the legacy pages that share the helper.
+// The renderers index.html loads (the legacy pages that shared the helper were deleted 2026-11-16).
 const COVERED = ['app', 'plan', 'balance-history', 'bill-detail', 'budget-blend', 'budget-card-movements',
   'budget-polish', 'budget-river', 'budget-sheet-motion', 'budget-surface', 'forecast-card-period',
-  'forecast-chequing', 'household-view', 'savings-inventory', 'aurora',
-  'bills', 'subscriptions', 'credit'];
+  'forecast-chequing', 'household-view', 'savings-inventory', 'aurora'];
 
 // Property reads that hold markup a renderer built on purpose (formatted
 // money with trust marks, a nested section). Each is pinned to its exact

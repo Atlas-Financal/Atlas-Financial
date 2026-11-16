@@ -200,19 +200,18 @@ ok(near(mortgageDebt.cashPayment, mortgageObligation.amount),
 // `Forecast.renewal`'s now, so this is where the split has to hold — and the
 // engine derives the $0.00 from the obligation being non-cash rather than
 // reading a field, which `test-renewal.js` proves by making it cash.
-const modellers = read('public/modellers.js');
 const forecast = read('public/forecast.js');
 // Code, not prose. A comment explaining a defect must not read as the defect,
 // and a comment naming a rule must not stand in for the rule.
 const codeOnly = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-const forecastCode = codeOnly(forecast), modellersCode = codeOnly(modellers);
+const forecastCode = codeOnly(forecast);
 ok(/o\.nonCash/.test(forecastCode) && /cashPayment/.test(forecastCode),
   'the engine counts only cash obligations as household cash, including a capitalising cashPayment');
-ok(!/heloc\.payment/.test(forecastCode) && !/heloc\.payment/.test(modellersCode),
-  'and neither it nor the Modeller treats the capitalised charge as a payment');
+ok(!/heloc\.payment/.test(forecastCode),
+  'and it does not treat the capitalised charge as a payment');
 ok(/interestTreatment === 'capitalised'/.test(forecastCode),
   'it branches on the canonical fact rather than assuming');
-ok(/economic/i.test(modellers) && /helocEconomic/.test(forecastCode),
+ok(/helocEconomic/.test(forecastCode),
   'and the economic cost is labelled separately from household cash');
 
 // Deep Dive listed it among ordinary dated payments. After B74 that list is
@@ -548,14 +547,10 @@ ok(/owed \+= charge - helocCash/.test(forecastCode),
 // fixed renewal convention would invent a rate the facility does not carry.
 ok(/RATE_BASIS\.variable\(heloc \? heloc\.rate : 0\)/.test(forecastCode),
   'and on the HELOC\'s own variable convention, not the renewal\'s');
-ok(!/Math\.pow\(/.test(/\nfunction setupRenewal\(d\) \{[\s\S]*?\n\}\n/.exec(modellersCode)[0]),
-  'and the Modeller compounds nothing of its own');
 // The benefit of stopping capitalisation only exists after consolidating; the
 // row was shown in keep-separate mode, contradicting the note beneath it.
 ok(/id: consolidate \? 'stopped' : 'continues'/.test(forecastCode),
   'the stopped-capitalisation row is gated on actually consolidating');
-ok(/still capitalising/.test(modellers),
-  'and the keep-separate case says the opposite, as it should');
 {
   // At the default horizon the difference is not a rounding matter, and the
   // cadence matters too: monthly against annual is another $9,212.
@@ -1506,7 +1501,7 @@ ok((periods.monthly || []).length > 0, 'and a monthly series', `${periods.monthl
 
 // Every data.json key must be read by some page, or it is dead weight that
 // will drift out of date unnoticed.
-const allScripts = ['app', 'forecast', 'plan', 'modellers']
+const allScripts = ['app', 'forecast', 'plan']
   .map(f => read('public/' + f + '.js')).join('\n');
 // The Deep Dive and Records pages were removed under #822. They were the only
 // readers of the keys below. The keys stay in data.json until the owner
@@ -1515,7 +1510,9 @@ const allScripts = ['app', 'forecast', 'plan', 'modellers']
 // leaving data.json, still fails here.
 const RETAINED_WITHOUT_READER = ['upcomingNote', 'debtsNote', 'utilisationNote', 'assetsNote', 'netWorth',
   'helocSummary', 'helocUse', 'helocUseNote', 'helocChains', 'cashflow', 'cashflowNote', 'incomeWarning',
-  'incomeNote', 'spendingNote', 'counterparties', 'coachPayment', 'unexplained', 'questions'];
+  'incomeNote', 'spendingNote', 'counterparties', 'coachPayment', 'unexplained', 'questions',
+  // Its only reader (the Modeller page script) was deleted with the legacy pages.
+  'mortgage'];
 const orphans = Object.keys(data).filter(k => !new RegExp('\\.' + k + '\\b').test(allScripts));
 ok(JSON.stringify(orphans) === JSON.stringify(RETAINED_WITHOUT_READER),
   'no orphaned data.json keys beyond the exact retained list', orphans.join(', ') || 'all keys rendered');

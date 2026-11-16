@@ -1,6 +1,7 @@
 'use strict';
-// Every existing household and diagnostic route still renders when opened
-// by URL. Budget no longer has a page nav. The other pages keep theirs.
+// The Budget route (/ and /index.html) renders when opened by URL and has no
+// page nav. (The legacy household and diagnostic pages are deleted; server.js
+// redirects their URLs to /.)
 // CHROME_PATH=<Chromium> node test/browser-routes-render.js
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,12 +12,6 @@ const root = path.join(__dirname, '..');
 const routes = [
   { path: '/', kind: 'budget' },
   { path: '/index.html', kind: 'budget' },
-  { path: '/planning.html', kind: 'household', shell: 'planning' },
-  { path: '/bills.html', kind: 'household', shell: 'bills' },
-  { path: '/subscriptions.html', kind: 'household', shell: 'subscriptions' },
-  { path: '/credit.html', kind: 'household', shell: 'credit' },
-  { path: '/plan-spend.html', kind: 'household', shell: 'plan-spend' },
-  { path: '/modellers.html', kind: 'diagnostic' },
 ];
 
 (async () => {
@@ -57,25 +52,18 @@ const routes = [
         const headingText = heading ? (heading.innerText || '').trim() : '';
         return budgetText.length > 20 || headingText.length > 0;
       }, { timeout: 20000 });
-      const face = await page.evaluate(kind => {
+      const face = await page.evaluate(() => {
         const main = document.querySelector('#operating-surface, [data-page-shell], main, h1');
         return {
           text: main ? (main.innerText || '').trim().length : 0,
           nav: document.querySelectorAll('.sitenav, .sitenav-household').length,
-          shell: document.querySelector('[data-page-shell]')?.getAttribute('data-page-shell') || '',
           budget: !!document.querySelector('[data-budget-surface], #operating-surface'),
         };
-      }, route.kind);
+      });
       if (pageErrors.length) errors.push(`${route.path} threw ${pageErrors.join(' | ')}`);
       if (face.text < 1) errors.push(`${route.path} rendered no main content`);
       if (route.kind === 'budget' && (face.nav !== 0 || !face.budget)) {
         errors.push(`${route.path} budget shell ${JSON.stringify(face)}`);
-      }
-      if (route.kind === 'household' && (face.nav < 1 || face.shell !== route.shell)) {
-        errors.push(`${route.path} household shell ${JSON.stringify(face)}`);
-      }
-      if (route.kind === 'diagnostic' && face.nav < 1) {
-        errors.push(`${route.path} diagnostic nav missing ${JSON.stringify(face)}`);
       }
       console.log(`${route.path} text ${face.text} nav ${face.nav}`);
       await page.close();

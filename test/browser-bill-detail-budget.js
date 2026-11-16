@@ -190,8 +190,8 @@ function servedFixture() {
       if (output) { fs.mkdirSync(output, { recursive: true }); await page.screenshot({ path: path.join(output, `budget-bill-${width}.png`), fullPage: true }); }
 
       // Actual route navigation back to Budget gets a fresh packet.
-      await page.goto(new URL('/bills.html', base).href);
-      await page.waitForURL('**/bills.html');
+      await page.goto('about:blank');
+      await page.waitForURL('about:blank');
       data = servedFixture(); data.liveOverlay.currentPeriodActuals.representedActuals = [];
       await page.goto(base + '/');
       await page.waitForURL(base + '/');
