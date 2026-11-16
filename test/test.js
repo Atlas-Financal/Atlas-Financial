@@ -286,7 +286,7 @@ const SHARD_SECONDS = Object.freeze({
   'test-from-today-integration.js': 6,
   'test-fuel-effective-target.js': 6,
   'test-planned-savings-clarity.js': 6,
-  'test-privacy-guard.js': 6,
+  'test-privacy-guard.js': 13,
   'test-purpose-savings.js': 6,
   'test-savings-evidence.js': 6,
   'test-savings-paid-spend-once.js': 6,
