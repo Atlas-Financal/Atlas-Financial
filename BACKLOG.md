@@ -721,7 +721,9 @@ The automated pre-review `post` job withholds a valid record when the model's te
 
 ~~A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).~~ Struck 2026-11-16 (STALE-SUPERSEDED): no page control can set it. The only income-override inputs are for streams with `scenarioMonthly`, and no plan stream has one; the zero override that `incomeDeadline` passes stays inside its own walk and prints no Budget rows.
 
-Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
+~~Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.~~ Done (LEDGER A item 3, option A): only a ledger-linked refund (a Lunch Money group parent) nets; a standalone refund is listed as Refunds not linked.
+
+NEXT PR (LEDGER A item 3, option B): link a refund to its purchase through Lunch Money transaction groups. Fetch with `include_children=true` (GET only), allow and read `group_parent_id`, link only when a group holds exactly one refund and its purchase, both posted (Grok Bot's conditions), never count the group parent alongside its children, and revert a removed group to unlinked. Needs a private check of a live grouped pair's shape (children carry `group_parent_id`; the parent's amount and category) by Dale and Grok before it is built. Source: lead 2026-11-16.
 
 ~~"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.~~ Fixed: the from-today walk no longer replays an occurrence already in cash (agent/future-receipts-skip-arrived).
 
@@ -867,7 +869,7 @@ Card-to-card refunds are not exercised in the harness, and there is no label for
 
 Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
 
-An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.
+An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up. (LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot; the uncategorised zero-target half is still open.)
 
 Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
 

@@ -132,6 +132,8 @@ console.log('\n=== 2. ATM DEP never makes a categorised credit Other income ==='
   const credit = (id, extra) => Object.assign({
     id, date: '2026-08-31', amount: -25.00, pending: false,
     accountRole: 'household-cash', atlasAccountId: 'chequing-a',
+    // LEDGER A item 3: the ledger-linked form (a group parent) is the one that nets.
+    isGroup: true,
   }, extra || {});
   // 2a. Lunch Money filed a TD ATM deposit under Groceries: it is a grocery
   // refund (nets Groceries), not Other income. Groceries also has a 60.00
