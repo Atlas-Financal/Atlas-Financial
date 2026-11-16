@@ -15865,9 +15865,13 @@
           ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
         // A completed period's total withholds on the same in-window unknown
         // amount as unconfirmedBills: an unknown bill is never summed as 0.
-        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown) ? null : totalBillsThisPeriod,
+        // An open period whose bill load is unknown (a scheduled amount with
+        // no row, such as an unknown obligation) publishes no known total or
+        // remainder over it either.
+        totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown)
+          || (!lookback && billLoadUnknown) ? null : totalBillsThisPeriod,
         paidBills,
-        remainingBills: planUnavailable ? null : remainingBills,
+        remainingBills: planUnavailable || (!lookback && billLoadUnknown) ? null : remainingBills,
         // Completed periods only, so every other period's publication is
         // unchanged: bills the evidence does not prove paid.
         ...(lookback ? historicalUnconfirmedBillsPublication(bills, scheduledBillAmountUnknown) : {}),
