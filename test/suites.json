@@ -64,6 +64,7 @@
   ["bounded live refresh and client cancellation","test-live-refresh-deadline.js"],
   ["equivalent in-flight refresh sharing, caller isolation and sanitized timings","test-live-refresh-coalescing.js"],
   ["private qualified observation reuse, Manual Refresh, context and restart","test-server-observation-memory.js"],
+  ["replay result reuse: identical inputs skip Forecast; changed observation, plan, day, engine or write recompute (#822 c)","test-replay-result-reuse.js"],
   ["latest complete refresh retains one dated cohort and truthful failed attempt","test-latest-complete-refresh.js"],
   ["evidence dated before today shows as its own evidence day, whatever the clock or a restart (OD-2)","test-evidence-day-view.js"],
   ["latest complete refresh requires ENV origins and current mapping content","test-latest-complete-refresh-source-kind.js"],

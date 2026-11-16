@@ -215,7 +215,10 @@ if (require.main === module) (async () => {
     const survivor = Refresh.serve(canonical, env, { preferObservation: true });
     replayCancel.abort(); await cancelledReplay;
     check(await survivor, direct, 'one cancelled replay waiter cannot cancel its survivor'); await drain();
-    check(workers.length - replayBefore, 1, 'equivalent replay callers share an actual worker');
+    // Item c: the same retained observation was already evaluated above, so
+    // these replays reuse that remembered result and start no worker.
+    // test-replay-result-reuse.js proves concurrent first replays share one.
+    check(workers.length - replayBefore, 0, 'equivalent replay callers share one remembered result, no new worker');
     check(mock.calls.length, cachedCount, 'cancelled replay never starts provider work');
 
     for (const options of [{}, { preferObservation: true, forceRefresh: true }]) {
