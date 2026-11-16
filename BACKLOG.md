@@ -847,7 +847,7 @@ ATLAS-080 custody column UPDATE (A15). ATLAS-080 stays frozen.
 
 Offline utilities and latent helpers cleanup.
 
-Negative card balance interest (A7).
+~~Negative card balance interest (A7).~~ Already fixed by #966: the forecast walk accrues borrower interest only on money owed (`Math.max(0, balance)`); `test/test-card-credit-balance-no-interest.js`.
 
 Hidden-page-only defects: delete the legacy page code after 1.0.
 
