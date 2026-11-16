@@ -10578,10 +10578,12 @@
       ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
         .map(event => (event.id || event.label || '') + '@' + event.date))
       : null;
-    // A completed period's own settlement evidence keeps its ordinary row.
-    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
-      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
+    // Whatever the current period carries, the completed period lists as
+    // carried, so two periods never both claim it. On the once path only, a
+    // completed period's own settlement evidence keeps its ordinary row.
+    const carriedToOperating = (row, due) => carriedKeys.has((row.id || row.label || '') + '@' + due)
+      || (!calendarOccurrenceRepresented(represented, observed, row.id, due)
+        && !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
