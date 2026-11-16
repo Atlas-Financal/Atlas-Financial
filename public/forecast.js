@@ -11663,6 +11663,64 @@
   // reach this share of its planned amount, i.e. could be the paycheque.
   const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
 
+  // One recommend() derives calendarIncomeSections' packet facts (the
+  // pending/posted twin ids and the count of each transaction id) once per
+  // packet, instead of once per hold-set computation. Reuse needs a
+  // recommend() in progress, the same packet object and transactions array,
+  // the same row objects, and every field those facts read strictly equal,
+  // row by row, to when they were derived. Any difference, or a row or field
+  // that is not a plain value, derives them afresh. Nothing outlives the
+  // outermost recommend(); outside one they are derived on every call.
+  let incomeTxFactsDepth = 0;
+  let incomeTxFactsMemo = null;
+  const INCOME_TX_FACT_FIELDS = Object.freeze(['id', 'pendingPostedDuplicate', 'date', 'atlasAccountId',
+    'account', 'amount', 'originalMerchant', 'displayedPayee', 'payee', 'pending', 'pendingTreatment']);
+  function incomeTxFactValues(txs) {
+    const values = [];
+    for (const tx of txs) {
+      values.push(tx);
+      if (!tx) continue;
+      if (typeof tx !== 'object') return null;
+      for (const field of INCOME_TX_FACT_FIELDS) {
+        const value = tx[field];
+        if ((value !== null && typeof value === 'object') || typeof value === 'function') return null;
+        values.push(value);
+      }
+    }
+    return values;
+  }
+  function incomeTxFactValuesMatch(values, txs) {
+    let k = 0;
+    for (const tx of txs) {
+      if (values[k++] !== tx) return false;
+      if (!tx) continue;
+      for (const field of INCOME_TX_FACT_FIELDS) {
+        if (values[k++] !== tx[field]) return false;
+      }
+    }
+    return k === values.length;
+  }
+  function incomeTxIdCounts(packet) {
+    const idCounts = new Map();
+    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
+      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    }
+    return idCounts;
+  }
+  function calendarIncomeTxFacts(packet) {
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
+    const memo = incomeTxFactsDepth > 0 && txs ? incomeTxFactsMemo : null;
+    if (memo) {
+      const entry = memo.get(packet);
+      if (entry && entry.txs === txs && incomeTxFactValuesMatch(entry.values, txs)) return entry.facts;
+      memo.delete(packet);
+    }
+    const values = memo ? incomeTxFactValues(txs) : null;
+    const facts = { duplicateIds: pendingPostedDuplicateIdSet(packet), idCounts: incomeTxIdCounts(packet) };
+    if (memo && values) memo.set(packet, { txs, values, facts });
+    return facts;
+  }
+
   function calendarIncomeSections(plan, asOf, windows, opts) {
     const span = coveringSpan(windows);
     if (!span) return {};
@@ -11725,16 +11783,13 @@
       }
     }
     const packet = currentPeriodActualsPacket(opts);
-    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    // Read only below: the twin ids and, since a credit identity the packet
+    // carries more than once is conflicted evidence that never settles an
+    // expected row, the count of each identity.
+    const { duplicateIds, idCounts } = calendarIncomeTxFacts(packet);
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
     const settlementCredits = [];
-    // A credit identity the packet carries more than once is conflicted
-    // evidence: it never settles an expected row.
-    const idCounts = new Map();
-    for (const tx of (packet && Array.isArray(packet.transactions) ? packet.transactions : [])) {
-      if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
-    }
     const oneOffStreamIds = new Set(((plan && plan.income) || [])
       .filter(stream => stream && stream.id != null && stream.frequency === 'once')
       .map(stream => String(stream.id)));
@@ -20072,6 +20127,16 @@
   }
 
   function recommend(plan, asOf, opts) {
+    if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
+    incomeTxFactsDepth++;
+    try {
+      return recommendForecast(plan, asOf, opts);
+    } finally {
+      incomeTxFactsDepth--;
+      if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
+    }
+  }
+  function recommendForecast(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
     // One dated owner policy seeds the same native cash/funding publications.
     // The caller plan, observed balances and confirmation history stay immutable.
