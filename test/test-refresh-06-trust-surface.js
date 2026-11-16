@@ -118,7 +118,7 @@ function loadComposer() {
   // is the live composition: the Today card plus the compact pay-period content.
   const page = loadBudgetPage({ Forecast: Forecast, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
   return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx),
-    refreshTrustHtml: page.get('refreshTrustHtml'), betweenPaydaysOperatingHtml: page.get('betweenPaydaysOperatingHtml'), weeklyCapView: page.get('weeklyCapView'), paydayCoverageNote: page.get('paydayCoverageNote'), money2: page.get('money2') };
+    refreshTrustHtml: page.get('refreshTrustHtml'), weeklyCapView: page.get('weeklyCapView'), paydayCoverageNote: page.get('paydayCoverageNote'), money2: page.get('money2') };
 }
 
 function money2(n) {
@@ -361,10 +361,6 @@ console.log('\n=== F. HTML current / stale / incomplete / ambiguous render disti
     'usable current Plan does not render the large Current status card or an attention warning');
   ok(currentHtml.includes(composer.money2(100)),
     'usable current Plan still publishes the Forecast available-cash figure');
-  const remainingHtml = composer.betweenPaydaysOperatingHtml(
-    actionFrom({ categories: [sentinelCategory()] }), cap);
-  ok(remainingHtml.includes(composer.money2(SENTINEL_REMAINING)),
-    'current remaining cents remain available on the diagnostic between-paydays renderer');
   ok(!/waiting for approval/.test(currentHtml)
     && !/data-refresh-trust-owner-question/.test(currentHtml)
     && !/<dialog/.test(currentHtml)
