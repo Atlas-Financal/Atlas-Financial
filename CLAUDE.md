@@ -1,15 +1,30 @@
 # Atlas Financial — agent brief
 
-## Sprint to Atlas 1.0 (owner decision, Dale, 2026-11-02)
+## Atlas 1.0 shipped (2026-11-16); standing owner decisions
 
-Until #821 items 1–7 are done, this section overrides the process parts of
-this file. Where it and later process text conflict, this section wins until
-1.0. The safety, data, credential and owner-reserved rules below are unchanged
-and still bind.
+Atlas 1.0 (#821 items 1–7) shipped on 2026-11-16 (Dale, #821 6915593302). The
+sprint overrides of 2026-11-02 have lapsed: the finish line and its freeze on
+new foundations, the temporary suspension of review gates and frozen heads
+(#821 6901882923), and sprint rules 1–9 (one review then merge, merge-ref and
+up-to-date checks, owner-question and repair-round limits, Slack and
+weekly-report conventions). The review lanes, merge gate, merge policy,
+owner-reserved stops and data-safety rules below govern again, as written.
 
-**Finish line.** Atlas 1.0 = #821 items 1–7, frozen. Item 8 (#822) is optional
-and last. New ideas go to the "After 1.0" list in `BACKLOG.md`. No new
-foundations, governance or check machinery unless it blocks a 1.0 item.
+What stays in force below was a standing owner decision, not sprint
+scaffolding. The rule numbers are kept so existing references (for example
+"rule 17") still resolve; 1–9 are retired.
+
+- **Roles**: who builds, reviews and merges, including the backup-merger
+  clause and, in "Review routing and claims", the 10-minute Merge fallback.
+  This is Dale's division of labour. A role that names 1.0 as a time bound
+  (Codex and Astra "paused until 1.0") stands as written until Dale says
+  otherwise.
+- **Rule 10**: repository visibility (owner-reserved stop 4).
+- **Pace rules 11–16** (Dale, 2026-11-08 and 2026-11-09): each PR merges on its
+  own, one Merge line, frozen heads, the current address, the real page checked
+  privately, and rule 16's one owner-decided case. They narrow the review and
+  merge rules; they loosen nothing except rule 16's named case.
+- **Ledger rule 17** (Dale, 2026-11-11): Grok Bot owns the ledger-side work.
 
 **Roles**
 
@@ -35,30 +50,13 @@ foundations, governance or check machinery unless it blocks a 1.0 item.
   building it. Muse stays the default merger; Atlas never merges. (Muse itself
   merges as soon as the gate completes, #787 6630392842.)
 
-**Rules**
+**Visibility**
 
-1. Safety rules are unchanged (see "Absolute data safety", "What not to build"
-   and "Owner-reserved stops").
-2. A figure-moving change gets one independent review — by Atlas; if Atlas
-   built it, by Muse (or Claude Code if Muse built part of it; Dale,
-   2026-11-09, to save Claude usage) — with
-   factual findings on the exact head, then merges.
-3. Everything else gets one independent check, then merges on green.
-4. Before any merge, the PR merge-ref run (against current `main`) is green on
-   the exact head, and the PR is up to date with `main`.
-5. Do not merge while an owner question on that PR is open.
-6. One repair round after a blocker; if it is still blocked, the lead decides
-   scope or design. No loops.
-7. Owner questions go to Dale as one short message, one decision.
-8. The PR is the record. Slack only for "needs you" and "done". No claim
-   windows, adoption timers or sweep notices.
-9. A weekly plain-words owner report: what is new for Dale, and the steps
-   remaining per #821 item.
 10. Repository visibility stays public for now by owner decision; this does not
     relax the no-household-figures-in-GitHub rule.
 
 **Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
-blitz). Rules 11–15 narrow the rules above; they loosen nothing. Rule 16 is
+blitz). Rules 11–15 narrow the review and merge rules in this file; they loosen nothing. Rule 16 is
 the one owner-decided loosening, limited to exactly the case it names.
 
 11. **No bundles.** Each PR merges on its own through the merge queue after
