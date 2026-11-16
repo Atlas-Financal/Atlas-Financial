@@ -64,10 +64,11 @@ function input({ rules = [PAYROLL_RULE, PAYEE_RULE], billTx = true, billPending 
 }
 
 const capture = source => History.captureClosing(clone(source), { now: () => new Date(NEXT_START + 'T18:01:00Z') });
-function closedView(source, mutate) {
+function closedView(source, mutate, periodHistory) {
   const refreshed = Live.fromObservation(clone(source));
   const options = Operating.recommendOpts(refreshed.data, {});
   options.periods = [];
+  if (periodHistory) options.periodHistory = periodHistory;
   const packet = options.currentPeriodActuals;
   const entry = (packet.representedActuals || []).find(r => r.id === BILL_ID && r.date === BILL_DATE);
   if (mutate) mutate(packet, entry);
@@ -187,6 +188,39 @@ check('an entry with no transaction and no basis: carried from the closed period
   carriedOnce('unbacked entry', closedView(input({ billTx: false }), packet => {
     packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE });
   }));
+});
+// Saved closes (Grok Bot's condition 3, Plan #6 thread). A close saved before
+// this carry rule counted the 30.00 in its own total; it is reprinted exactly
+// as saved, and its row discloses the carry. A close saved under the rule
+// already lists the bill as carried and says nothing more.
+const savedClose = row => [{ schema: 'atlas-private-period-history-projection/v1', capturedAt: '2030-02-15T18:01:00.000Z',
+  content: { period: { start: START, end: '2030-02-14', timezone: 'America/Vancouver' }, kind: 'closing', asOf: '2030-02-14',
+    closingState: 'provisional', planBasis: 'see-baseline-revision', provenance: { policyFingerprint: null },
+    publication: { start: START, end: '2030-02-14', totalBillsThisPeriod: row.status === 'carried' ? 0 : BILL,
+      periodBillLoad: row.status === 'carried' ? 0 : BILL,
+      bills: [{ id: BILL_ID, label: 'Invented stream', kind: 'bill', date: BILL_DATE, planned: BILL, amount: BILL,
+        actual: null, confidence: 'confirmed', ...row }] } } }];
+const unbacked = packet => { packet.representedActuals.push({ id: BILL_ID, date: BILL_DATE, actual: BILL, postedOn: BILL_DATE }); };
+check('a close saved before the carry rule keeps its saved 30.00 and its row says the bill is also carried', () => {
+  const { view } = closedView(input({ billTx: false }), unbacked,
+    savedClose({ status: 'planned', settlement: 'unverified', remaining: BILL }));
+  assert.ok(view.capturedClose, 'control: the saved close is reprinted');
+  assert.equal(view.totalBillsThisPeriod, BILL, 'the saved total is exactly as saved');
+  assert.equal(view.periodBillLoad, BILL, 'the saved bill load is exactly as saved');
+  const row = view.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(row.date, BILL_DATE, 'the saved date is exactly as saved');
+  assert.equal(row.alsoCarriedToCurrent, true);
+  assert.match(billRowHtml(PAGE.bills(view)),
+    /This saved total includes this bill\. It's also carried to the current pay period, where it is to confirm\./);
+});
+check('a close saved under the carry rule lists the bill as carried, with no extra note', () => {
+  const { view } = closedView(input({ billTx: false }), unbacked,
+    savedClose({ status: 'carried', settlement: 'carried', remaining: 0, carriedToCurrentPeriod: true }));
+  assert.ok(view.capturedClose, 'control: the saved close is reprinted');
+  assert.equal(view.totalBillsThisPeriod, 0);
+  const row = view.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(row.alsoCarriedToCurrent, undefined);
+  assert.doesNotMatch(PAGE.bills(view), /also carried to the current pay period/);
 });
 check("control: the owner's mark (an opening represented event) with no transaction keeps the closed copy Paid, counted once", () => {
   const { row, view, advice } = closedView(input({ billTx: false, representedEvents: [{ id: BILL_ID, date: BILL_DATE }] }));

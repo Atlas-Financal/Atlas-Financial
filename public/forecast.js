@@ -16547,6 +16547,16 @@
       return;
     }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
+    // Occurrences the current period carries in from an earlier period (To
+    // confirm and counted there). A saved close captured before the #1156 /
+    // unbacked-entry carry rules may still count one of them in its saved
+    // total; that saved figure stays exactly as saved, and its row only
+    // discloses the carry (alsoCarriedToCurrent, display only; Grok Bot,
+    // Plan #6 thread). A close that already lists it as carried says nothing more.
+    const current = views.find(v => v && v.timelineRole === 'current') || null;
+    const carriedIntoCurrent = new Set(((current && current.bills) || [])
+      .filter(row => row && row.id && row.date && current.start && row.date < current.start && row.status !== 'PAID')
+      .map(row => row.id + '@' + row.date));
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
@@ -16571,8 +16581,16 @@
         const borrowed = row => Object.fromEntries(CAPTURED_ROW_DISPLAY_KEYS[key]
           .filter(field => row && Object.hasOwn(row, field) && typeof row[field] !== 'number')
           .map(field => [field, row[field]]));
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)),
-          ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
+        view[key] = pub[key].map(row => {
+          const copy = { ...borrowed(today.get(row.id)),
+            ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
+          delete copy.alsoCarriedToCurrent;
+          if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
+              && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
+            copy.alsoCarriedToCurrent = true;
+          }
+          return copy;
+        });
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
         if (!Object.hasOwn(pub, key)) view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
