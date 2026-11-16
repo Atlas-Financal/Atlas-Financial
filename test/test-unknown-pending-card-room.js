@@ -101,6 +101,31 @@ console.log('\n=== 2b. posted under the limit, posted + retained pending over it
   ok(proj.marks[0].overLimitCount === 0, 'card A is not counted as over its limit');
 }
 
+console.log('\n=== 2c. the unknown is named by card; an unknown count stays unknown ===');
+{
+  const util = F.utilisation(debts(true), [], plan);
+  ok(JSON.stringify(util.totalAvailableUnknownFrom) === JSON.stringify(['card-a']), 'credit left names card A as the unknown');
+  ok(F.utilisation(debts(false), [], plan).totalAvailableUnknownFrom === undefined, 'control: nothing is named when all room is known');
+  const proj = F.projectDebts(plan, debts(true), START, {});
+  ok(proj.marks.every(m => JSON.stringify(m.headroomUnknownFrom) === JSON.stringify(['card-a'])),
+    'every mark names card A as the source of the unknown headroom');
+  const known = F.projectDebts(plan, debts(false), START, {});
+  ok(proj.marks.every((m, i) => {
+    const b = m.debts.find(d => d.id === 'card-b'), kb = known.marks[i].debts.find(d => d.id === 'card-b');
+    return JSON.stringify(b) === JSON.stringify(kb);
+  }), 'card B\'s whole mark row (balance, room, over-limit, paid, interest) is identical to the control');
+  // A scheduled payment with no amount on card B (limit 1000) leaves the
+  // over-limit count unknown from its date; card A's unknown pending must not
+  // turn that back into a known count.
+  const taintPlan = { ...plan, obligations: [{ id: 'b-pay', label: 'Invented card B payment', debtId: 'card-b',
+    effect: 'payment', frequency: 'once', date: '2026-07-01', amount: null, confidence: 'estimated' }] };
+  const tainted = F.projectDebts(taintPlan, debts(true), START, {});
+  const later = tainted.marks.filter(m => m.date >= '2026-07-01');
+  ok(later.length > 0 && later.every(m => m.overLimitCount === null),
+    'with card B\'s payment unknown, the over-limit count stays unknown on every later mark',
+    JSON.stringify(tainted.marks.map(m => [m.date, m.overLimitCount])));
+}
+
 console.log('\n=== 3. publicationTotals: creditLeft ===');
 {
   const data = unknown => ({ plan, debts: debts(unknown), revolvingExtra: [], income: [], assets: [], commitments: [] });

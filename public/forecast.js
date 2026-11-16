@@ -22178,9 +22178,14 @@
             overLimitBy: posted == null ? null : publishedOverLimitBy(d.limit, posted, true) };
         });
         const roomUnknown = debts.some(d => d && d.pendingUnknown && d.limit != null && d.available == null);
+        // A count the scheduled-amount taint already left unknown stays unknown.
+        // The cards whose unknown pending leaves the room unknown are named.
+        const roomUnknownFrom = debts.filter(d => d && d.pendingUnknown && d.limit != null && d.available == null)
+          .map(d => d.id);
         return { ...mark, debts, consumer: null,
-          overLimitCount: debts.filter(d => d && d.overLimit === true).length,
-          ...(roomUnknown ? { headroom: null } : {}) };
+          overLimitCount: mark.overLimitCount == null ? null
+            : debts.filter(d => d && d.overLimit === true).length,
+          ...(roomUnknown ? { headroom: null, headroomUnknownFrom: roomUnknownFrom } : {}) };
       });
     }
     return {
@@ -23449,6 +23454,8 @@
       // null), which is unknown, not $0: the total is unknown then.
       totalAvailable: rows.some(r => r.pendingUnknown && r.available == null) ? null
         : rows.reduce((s, r) => s + (r.available || 0), 0),
+      ...(rows.some(r => r.pendingUnknown && r.available == null)
+        ? { totalAvailableUnknownFrom: rows.filter(r => r.pendingUnknown && r.available == null).map(r => r.id) } : {}),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
     };
