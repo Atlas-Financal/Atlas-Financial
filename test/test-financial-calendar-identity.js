@@ -56,44 +56,6 @@ const instants = [
 for (const [value, day] of instants) equal(Forecast.financialDate(value), day, value);
 equal(Forecast.financialDate(' 2026-03-08 '), '2026-03-08', 'literal day is not an instant');
 
-function fixture(day) {
-  return {
-    plan: { windowDays: 7, startingCash: { amount: 2000 },
-      opening: { asOf: day }, defaults: { targetBuffer: 500, extraDebtMonthly: 0, scenario: 'expected' },
-      nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
-      income: [], obligations: [], bills: [], commitments: [] },
-    debts: [{ id: 'synthetic-card', label: 'Synthetic card', balance: 800, pending: 0,
-      rate: 0, rateConvention: 'card', structure: 'Revolving - synthetic', secured: false, limit: 1200 }],
-  };
-}
-const input = { amount: 100, debtId: 'synthetic-card', nature: 'hypothetical' };
-for (const invalid of ['2026-02-30', '2025-02-29', '2026-04-31', '2026-02-30T12:00:00Z']) {
-  const { plan, debts } = fixture(invalid);
-  const before = JSON.stringify({ plan, debts });
-  const answer = Forecast.hypotheticalExtraPayment(plan, debts, invalid, input);
-  equal(answer.status, 'unavailable', 'hypothetical rejects impossible baseline ' + invalid);
-  equal(answer.productionWrite, false, 'rejection is read-only');
-  equal(JSON.stringify({ plan, debts }), before, 'no baseline mutation');
-}
-for (const day of ['2024-02-29', '2026-01-01', '2026-03-08', '2026-11-01']) {
-  const { plan, debts } = fixture(day);
-  const before = JSON.stringify({ plan, debts });
-  const answer = Forecast.hypotheticalExtraPayment(plan, debts, day, input);
-  equal(answer.status, 'ready', 'valid hypothetical ' + day);
-  if (answer.status !== 'ready') continue;
-  equal(answer.absorbed.amount, 100, 'whole requested payment absorbed');
-  equal(answer.absorbed.unabsorbed, 0, 'no lost payment');
-  equal(answer.delta.cash.ending, -100, 'cash falls by caller amount');
-  equal(answer.delta.debt.paid, 100, 'principal paid rises by caller amount');
-  equal(answer.delta.debt.ending, -100, 'zero-rate liability falls by caller amount');
-  equal(answer.delta.debt.interest, 0, 'zero-rate independent interest oracle');
-  for (const view of [answer.baseline, answer.scenario]) {
-    equal(view.debt.ending + view.debt.paid, 800, 'opening principal conserved');
-  }
-  equal(answer.scenario.cash.ending - answer.scenario.debt.ending,
-    answer.baseline.cash.ending - answer.baseline.debt.ending, 'payment preserves net cash less liability');
-  equal(JSON.stringify({ plan, debts }), before, 'valid calculation does not mutate baseline');
-}
 const mapped = Provider.REQUIRED_LIVE_CASH_IDS.flatMap((id, index) =>
   Provider.observationsFromMappedAccount(Provider.normalizeLunchMoneyAccount({
     id: 900 + index, name: 'Synthetic ' + id, balance: '100.00',

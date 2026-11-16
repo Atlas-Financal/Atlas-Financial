@@ -37,11 +37,13 @@ function diskRevision(file) {
 }
 function recordDiskReads(root) {
   const fs = require('node:fs'), path = require('node:path'), { fileURLToPath } = require('node:url');
-  const seen = new Map();
+  const seen = new Map(), descriptors = new Set();
   let complete = true;
   const note = target => {
     try {
-      if (typeof target === 'number') return; // A descriptor from a recorded open.
+      // A descriptor counts only when a recorded open returned it; any other
+      // descriptor names no path, so the witness is incomplete.
+      if (typeof target === 'number') { if (!descriptors.has(target)) complete = false; return; }
       if (target instanceof URL) target = fileURLToPath(target);
       else if (Buffer.isBuffer(target)) target = target.toString();
       if (typeof target !== 'string') { complete = false; return; }
@@ -53,16 +55,39 @@ function recordDiskReads(root) {
       }
     } catch (_) { complete = false; }
   };
+  const recorded = original => function (target, ...rest) { note(target); return original.call(this, target, ...rest); };
   const wrap = (owner, names) => {
     for (const name of names) {
       const original = owner[name];
       if (typeof original !== 'function') continue;
-      owner[name] = function (target, ...rest) { note(target); return original.call(this, target, ...rest); };
+      owner[name] = recorded(original);
+      // realpathSync.native and realpath.native are reads too.
+      if (typeof original.native === 'function') owner[name].native = recorded(original.native);
     }
   };
-  wrap(fs, ['readFileSync', 'existsSync', 'readdirSync', 'statSync', 'lstatSync', 'openSync', 'accessSync',
-    'readFile', 'readdir', 'stat', 'lstat', 'open', 'access', 'createReadStream', 'opendirSync', 'opendir']);
-  wrap(fs.promises, ['readFile', 'readdir', 'stat', 'lstat', 'open', 'access', 'opendir']);
+  wrap(fs, ['readFileSync', 'existsSync', 'readdirSync', 'statSync', 'lstatSync', 'accessSync',
+    'readFile', 'readdir', 'stat', 'lstat', 'access', 'createReadStream', 'opendirSync', 'opendir',
+    'realpathSync', 'realpath', 'readlinkSync', 'readlink', 'statfsSync', 'statfs', 'watch', 'watchFile',
+    'readSync', 'read', 'fstatSync', 'fstat']);
+  wrap(fs.promises, ['readFile', 'readdir', 'stat', 'lstat', 'open', 'access', 'opendir',
+    'realpath', 'readlink', 'statfs']);
+  // Opens are recorded by path, and the descriptor they return is known.
+  const openSync = fs.openSync, open = fs.open;
+  fs.openSync = function (target, ...rest) {
+    note(target);
+    const fd = openSync.call(this, target, ...rest);
+    descriptors.add(fd);
+    return fd;
+  };
+  fs.open = function (target, ...rest) {
+    note(target);
+    const done = rest.length && typeof rest[rest.length - 1] === 'function' ? rest.pop() : null;
+    if (!done) return open.call(this, target, ...rest);
+    return open.call(this, target, ...rest, (error, fd) => {
+      if (!error) descriptors.add(fd);
+      done(error, fd);
+    });
+  };
   return () => {
     // Repository modules this worker loaded are inputs too.
     for (const file of Object.keys(require.cache)) if (file.startsWith(root)) note(file);

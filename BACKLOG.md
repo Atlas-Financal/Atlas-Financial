@@ -695,11 +695,11 @@ A closed period whose bill occurrence has only an unbacked packet entry (no tran
 Forecast publishes no native trust tag for the weekly recommendation or for spendable household cash, so the assistant packet carries `unknown` with `trustSource: 'not-tagged-by-Forecast'` for both (finish-line audit finding 12, lead ruling (a)). Give Forecast native tags for those two figures so the page and the packet can both print them. Source: #821 finding 12, lead ruling (b).
 `Forecast` `planHasMortgagePayment` (#1071) gates the Mortgage-label exclusion on any planned mortgage obligation with a positive amount; tie it to an occurrence of that obligation in the debit's own spending cycle, so an unplanned period's Mortgage row is never excluded. Source: #1071 pre-review observation, lead ruling.
 
-`Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.
+~~`Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.~~ Retired with their helpers and suites (agent/retire-hypothetical-extra-payment).
 
-Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); whether its page-only reprint can go is still open (full lane). Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. `.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.
+Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); whether its page-only reprint can go is still open (full lane). Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. ~~`.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.~~ Dropped by `agent/labeler-drop-modellers`; `evidence-only` stays a manual category label.
 
-**Clean main view; explanations on tap** (owner direction, Dale, 2026-11-09). Every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
+**Clean main view; explanations on tap** · **DONE 2026-11-11** · *PR #1036* (owner direction, Dale, 2026-11-09). #1036 delivered the Savings goals card. Dale withdrew the app-wide extension (#821 comment 6786578829); no other card is in scope. Original item, kept as history: every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
 
 Provider-observe `firstNumber` turns a blank, `false` or non-numeric raw balance into $0 for any account. This is the root fix (full lane); resume parked #976 on top of it. Source: lead handoff 2026-11-09.
 
@@ -711,7 +711,7 @@ The bill detail still lists a cross-period debit as "Possible payment" while For
 
 A future-dated one-off settled by a #927 credit is still carried in the forward walk (pre-existing on main). Source: PR #857.
 
-Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.
+~~Add an inside-opening case to `test-bill-payment-excess`. Source: PR #920.~~ Done: the inside-opening case is in `test/test-bill-payment-excess.js`.
 
 ~~A stronger end-to-end HTTP test for Talk follow-ups. Source: PR #890.~~ Retired 2026-11-11 with Talk (B103).
 
@@ -719,37 +719,37 @@ The automated pre-review `post` job withholds a valid record when the model's te
 
 **Due before 2026-12-02, not after 1.0:** GitHub's new default event policy blocks `pull_request_target` in public repositories. It is enforced from 2026-12-02, with scheduled brownouts before then; one blocked every PR from about 14:00 to 18:00 UTC on 2026-11-09. `privacy-guard.yml` and `risk-label-gate.yml` depend on that trigger, so a repository Actions event policy that explicitly allows it is needed. That is an owner settings action (stop 4), asked in the Plan #6 thread on 2026-11-09. Startup-failure runs cannot be re-run; only a new push or a reopen re-triggers them. Source: run 42660316051 annotation; https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target.
 
-A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).
+~~A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).~~ Struck 2026-11-16 (STALE-SUPERSEDED): no page control can set it. The only income-override inputs are for streams with `scenarioMonthly`, and no plan stream has one; the zero override that `incomeDeadline` passes stays inside its own walk and prints no Budget rows.
 
 Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.
 
-"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.
+~~"Future receipts in this period" still lists a planned one-off that has already arrived. Source: PR #927.~~ Fixed: the from-today walk no longer replays an occurrence already in cash (agent/future-receipts-skip-arrived).
 
 Card inference can use a future-dated posted card balance (diagnostic only). Source: PR #924.
 
 Settlement-evidence relief with no transaction rows gets no E row. ATLAS-080-adjacent; stays frozen with ATLAS-080. Source: PR #930.
 
-The between-paydays operating renderer shows a pending row as "Status unresolved". Revisit the cutover assumption if provider balances turn out to exclude pending debits. Source: PR #907.
+~~The between-paydays operating renderer shows a pending row as "Status unresolved". Revisit the cutover assumption if provider balances turn out to exclude pending debits. Source: PR #907.~~ Struck 2026-11-16 (STALE-SUPERSEDED): `betweenPaydaysOperatingHtml` (public/plan.js) has no caller on any page; only tests call it. Retiring the renderer itself is dead-code work for the lead to route.
 
 ~~Talk maps null, empty or unknown confidence to calculated, and the covered answer hard-codes calculated. Fix with one shared weakest-trust helper for every Talk answer branch (named NEXT PR on #907). Source: PR #907.~~ Retired 2026-11-11 with Talk (B103).
 
 ~~A captured closed pay period keeps only a bill row's `date` (the period-history projection does not carry `scheduledDue`). A once row that stands in for a skipped recurring occurrence, captured after the #887 rebuild, therefore prints its real occurrence date in that closed view, not its scheduled due. Display only; no figure differs. Source: the #887 rebuild (`agent/one-off-bill-period`).~~ Fixed: the saved close borrows the printed due from today's row for the same occurrence (agent/closed-period-scheduled-due).
 
-`billIsOccurrenceStub` leaves any once bill whose id extends a recurring bill's id off the Bills and Subscriptions page rosters, whether or not it stands in for a skipped occurrence. It is the same id-prefix guess #1037 demoted to a printed label on the Budget page; no pay-period figure reads it. Source: PR #1037 review.
+~~`billIsOccurrenceStub` leaves any once bill whose id extends a recurring bill's id off the Bills and Subscriptions page rosters, whether or not it stands in for a skipped occurrence. It is the same id-prefix guess #1037 demoted to a printed label on the Budget page; no pay-period figure reads it. Source: PR #1037 review.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Bills and Subscriptions pages and `billIsOccurrenceStub` no longer exist.
 
 An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open after it: headroom / "credit left" counts that card's room as 0, and per-card mark balances still use posted plus retained pending. Source: PRs #926, #951.
 
-`test/browser/*.cjs` is not covered by the #904 browser-suite classification; owned by the #904 follow-up. Source: PR #904.
+~~`test/browser/*.cjs` is not covered by the #904 browser-suite classification; owned by the #904 follow-up. Source: PR #904.~~ Superseded: #904 closed unmerged, so there is no classification to extend (lead, 2026-11-16).
 
-When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.
+~~When #904 lands, the browser suite split out of #930's savings suite (`test/browser-savings-dated-balance-item-liability.js`) needs a RUN/NOT_RUN entry. Source: PRs #904, #930.~~ Superseded: #904 closed unmerged (lead, 2026-11-16).
 
-Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.
+~~Find other registered node suites that `require('playwright')` through the harness (#930's suite never passed hosted CI; #870 had the same issue), and consider a static check that registered suites do not reach playwright. Source: PRs #930, #870.~~ Done: none on main reaches it unguarded; `test/test-suites-playwright-reach.js` now fails any that does.
 
-The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.
+~~The legacy calendar sentence "excluding bills already settled in the opening" (`public/plan.js`, period bills note) goes stale after #923; follow-up PR after #923 merges. Source: PR #923.~~ Struck 2026-11-16 (ALREADY FIXED): the sentence is no longer in `public/plan.js`, and `test-bad-full-period-bill-load.js` asserts it stays absent.
 
 `scripts/positions-summary.js` sums debt balances and annual interest with `|| 0`, so a missing value counts as zero (`docs/positions.csv` only). Source: PR #901.
 
-The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.
+~~The Deep Dive interest note prints `money(null)` when mortgage interest is missing. Source: PR #901.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the Deep Dive page was removed (#822 slice 4, bc8aae3).
 
 `scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.
 
@@ -849,7 +849,7 @@ Offline utilities and latent helpers cleanup.
 
 Negative card balance interest (A7).
 
-Hidden-page-only defects: delete the legacy page code after 1.0.
+~~Hidden-page-only defects: delete the legacy page code after 1.0.~~ Struck 2026-11-16 (ALREADY FIXED): the six legacy pages were deleted on 2026-11-16.
 
 Merchant names in the test suites: revisit with the repo-private decision.
 
@@ -861,7 +861,7 @@ Card-to-card refunds are not exercised in the harness, and there is no label for
 
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
-Transitive npm advisories. Source: #900 follow-up.
+~~Transitive npm advisories. Source: #900 follow-up.~~ Cleared by `agent/npm-audit-transitive` (hono and @hono/node-server patch bumps; `npm audit` reports 0).
 
 `operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
 
@@ -871,15 +871,15 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 
 Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.
 
-Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.
+~~Closed trust vocabulary for `talkAnswerMetaText`. Source: #896 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): Talk was retired (B103); `talkAnswerMetaText` no longer exists.
 
 Sub-cent float noise below zero is still marked "negative". Source: #914 follow-up.
 
 Dated-mode NULL-opening trust tags (non-visible); watch `post-balance-activity-unrepresented`. Source: #919 follow-up.
 
-Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.
+~~Hidden page shows "Unknown" beside a VERIFIED chip. Source: #893 follow-up.~~ Struck 2026-11-16 (STALE-SUPERSEDED): the hidden pages (Records, Credit, Deep Dive, Planning) were deleted.
 
-Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.
+~~Stale `test/browser-savings-future-closing.js`. Source: #908 follow-up.~~ Already fixed: #1121 repaired it, and it passes on main `cae7b811` (all 14 modes at 3 widths).
 
 **Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
 
