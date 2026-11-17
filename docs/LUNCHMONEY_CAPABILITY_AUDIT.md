@@ -30,7 +30,7 @@ Code was required for exactly one of them (below).
 | Historical account balances | `GET /balance_history` (monthly) | **Implemented — see below** |
 | New/changed transaction reads | `GET /transactions` with `created_since` / `updated_since`, plus `recurring_id`, `tag_id`, `status` filters and `include_files` | Missing — NEXT PR candidate |
 | Budget summaries | `GET /summary`, `GET /budgets/settings` | Missing — Engine handoff (below); budgets themselves (`PUT`/`DELETE /budgets`) are a write and a Forecast-authority question, not plumbing |
-| Recurring-item reads | `GET /recurring_items`, `GET /recurring_items/{id}` | Missing — NEXT PR candidate (Atlas's `recurring-audit.js` derives candidates from transactions; it does not read provider recurring items) |
+| Recurring-item reads | `GET /recurring_items`, `GET /recurring_items/{id}` | Missing (the inert `provider-recurring-items.js` read and the `recurring-audit.js` discovery script were removed 2026-11-17 by owner decision, with Grok Bot's agreement) |
 | Receipt attachments | `POST /transactions/{id}/attachments`, `GET /transactions/attachments/{file_id}` (signed URL), `DELETE` | Missing — write path; reuse #560's safeguards when built |
 | Group workflows | `POST /transactions/group`, `DELETE /transactions/group/{id}`, `DELETE /transactions/split/{id}` (unsplit) | Missing — write path (split creation already exists via the bounded preview path) |
 | Card purchase/payment reconciliation | No dedicated endpoint; built from transaction reads + Forecast allocation | Engine handoff (below) |
