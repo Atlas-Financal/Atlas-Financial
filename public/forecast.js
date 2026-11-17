@@ -11247,6 +11247,44 @@
     return tx.tdCardPaymentIdentity === true;
   }
 
+  // Grok Bot ruling (Plan #6, rule 17, 2026-11-17): a credit on a mapped TD
+  // card whose ORIGINAL bank description is exactly "PAYMENT - THANK YOU"
+  // (case and surrounding spaces ignored) is a payment onto that card. The
+  // posted-only condition is applied where the leg is counted. A displayed
+  // payee, note or category cannot establish this; sanitized packets carry
+  // only the flag.
+  const TD_PAYMENT_CREDIT_CARD_IDS = new Set(['tdcc', 'cashback', 'travelvisa']);
+  function isTdCardPaymentCredit(tx) {
+    if (!tx || !(Number(tx.amount) < -EPSILON)) return false;
+    const ids = [tx.atlasAccountId, tx.accountId, tx.account].filter(Boolean);
+    if (!ids.length || !ids.every(id => id === ids[0]) || !TD_PAYMENT_CREDIT_CARD_IDS.has(ids[0])) return false;
+    const original = tx.original_name ?? tx.originalName;
+    if (original != null) {
+      return typeof original === 'string' && original.trim().toUpperCase() === 'PAYMENT - THANK YOU'
+        && (!Object.hasOwn(tx, 'tdCardPaymentCredit') || tx.tdCardPaymentCredit === true);
+    }
+    return tx.tdCardPaymentCredit === true;
+  }
+
+  // Grok Bot ruling: an existing "card payment: <card>" note on the debit wins.
+  // Lead-approved fixed name table (exact name, case-insensitive, trailing
+  // " ...NNNN" ignored, never matched by the digits). Any other named card is
+  // 'unknown' and pairs with nothing until its spelling is confirmed.
+  const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa' });
+  function cardPaymentNoteDestination(tx) {
+    const raw = tx && (tx.notes ?? tx.note);
+    if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
+    const found = new Set();
+    for (const segment of raw.split(/[;\n\r]/)) {
+      const m = /^\s*card payment:\s*(.*)$/i.exec(segment);
+      if (!m) continue;
+      const name = m[1].replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
+      found.add(Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown');
+    }
+    if (!found.size) return null;
+    return found.size === 1 ? [...found][0] : 'unknown';
+  }
+
   function householdCashLocationId(tx) {
     if (!tx) return null;
     if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') {
@@ -12351,6 +12389,8 @@
       amazonMerchant: false,
       cardPaymentIdentity: false,
       tdCardPaymentIdentity: false,
+      tdCardPaymentCredit: false,
+      cardPaymentNoteDestination: null,
       cardFinanceChargeIdentity: false,
       helocFinanceChargeIdentity: false,
       internalTransferIdentity: false,
@@ -12386,6 +12426,8 @@
       amazonMerchant,
       cardPaymentIdentity: isCanadianTireMastercardPayment(tx) || tdCardPaymentIdentity,
       tdCardPaymentIdentity,
+      tdCardPaymentCredit: isTdCardPaymentCredit(tx),
+      cardPaymentNoteDestination: cardPaymentNoteDestination(tx),
       cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
         && revolvingCardFinanceChargeEvidence(tx),
       helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
@@ -13893,12 +13935,17 @@
         if (typeof record[key] === 'string') confirmedMovementRefs.add(record[key]);
       }
     }
-    const paymentLike = tx => tx.cardPaymentIdentity === true || tx.kindHint === 'card-payment'
+    const recordedPaymentLike = tx => tx.cardPaymentIdentity === true || tx.kindHint === 'card-payment'
       || normalizeCategoryLabel(tx.categoryLabel) === 'credit card payment'
       || (confirmedMovementRefs.has(tx.coverageRef)
         && (TRANSFER_CATEGORY_LABELS.has(normalizeCategoryLabel(tx.categoryLabel))
           || ['payment', 'card-payment', 'bill-payment', 'transfer', 'internal-transfer']
             .includes(normalizeCategoryLabel(tx.kindHint))));
+    // A posted TD "PAYMENT - THANK YOU" card credit (Grok Bot ruling) is a
+    // payment leg on that card. Recognised by that alone, it pairs only
+    // with a TD "TFR-TO C/C" debit (see pairLegs).
+    const tdPaymentCreditOnly = tx => !recordedPaymentLike(tx) && tx.pending === false && isTdCardPaymentCredit(tx);
+    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx);
     for (const tx of input) {
       if (tx && (cardLike(tx) || paymentLike(tx)) && !savingsDate(tx.date)) issue('coverage-date-unconfirmed');
       // Under the aggregate rule every card row before the opening is
@@ -14053,7 +14100,9 @@
           const counted = leg.tx.date >= origin;
           // Owner rule (Dale, via the lead): money onto the card counts
           // whatever household account it comes from, Savings included.
-          const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other));
+          const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other)
+            && (!tdPaymentCreditOnly(leg.tx) || (other.tx.tdCardPaymentIdentity === true
+              && (other.tx.cardPaymentNoteDestination == null || other.tx.cardPaymentNoteDestination === leg.account))));
           const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
           if (cash.length === 1 && back.length === 1) {
             cash[0].paired = true;
