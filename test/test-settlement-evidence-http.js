@@ -10,6 +10,7 @@ const { createApplication, createPreactivationApplication } = require('../server
 const { createSettlementEvidenceStore } = require('../scripts/settlement-evidence-store');
 const Forecast = require('../public/forecast');
 const R = require('../scripts/settlement-evidence-resolver');
+const LmGroups = require('./lm-groups-fixture.js');
 const householdId = 'household-' + 'a'.repeat(32);
 const syntheticCredential = purpose => ['synthetic-only-http', purpose, crypto.randomBytes(24).toString('hex')].join('-');
 const env = { SITE_PASSWORD: syntheticCredential('password'), SESSION_SECRET: syntheticCredential('signature-secret') };
@@ -17,10 +18,10 @@ const op = n => 'operation-' + n.toString(16).padStart(32, '0');
 const clone = value => structuredClone(value);
 function acquisitionFor(base) {
   const packet = clone(base.liveOverlay.currentPeriodActuals);
-  packet.transactions = [{ id: 'synthetic-row', date: '2026-10-03', amount: 60,
+  packet.transactions = [LmGroups.groupTx({ id: 'synthetic-row', date: '2026-10-03', amount: 60,
     currency: 'cad', pending: false, categoryLabel: 'Groceries', merchantKnown: true,
     atlasAccountId: 'chequing-a', accountRole: 'household-cash',
-    displayedPayee: 'Synthetic recorded club payment' }];
+    displayedPayee: 'Synthetic recorded club payment' }, base.plan)];
   packet.transactionWindow = { startDate: '2026-10-02', endDate: '2026-10-05', complete: true, hasMore: false, truncated: false };
   return { packet, plan: clone(base.plan),
     join: [{ localId: 'synthetic-row', providerAccountId: 'SYNTHETIC-ACCOUNT', transactionId: 'SYNTHETIC-TRANSACTION' }],

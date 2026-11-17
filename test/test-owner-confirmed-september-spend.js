@@ -80,6 +80,8 @@ ok(near(JOINS_FUEL, 95) && near(JOINS_BILLS, 122.72) && near(LEAVES_OTHER, 217.7
 function liveData() {
   const data = load('data.json');
   data.plan = LmGroups.groupPlan(data.plan);
+  // Every grouped plan served here names the payload's invented "Fuel" category.
+  LmGroups.pointFuelAt(data.plan, [{ id: FUEL_CAT, name: 'Fuel' }]);
   return data;
 }
 

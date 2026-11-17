@@ -29,6 +29,7 @@ const { createSettlementEvidenceStore } = require('../scripts/settlement-evidenc
 const { createSettlementEvidenceResolver } = require('../scripts/settlement-evidence-resolver');
 const { createSettlementEvidenceConfirmation } = require('../scripts/settlement-evidence-confirmation');
 const { mountSettlementHttp } = require('../scripts/settlement-evidence-http');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const householdId = 'household-' + 'a'.repeat(32);
 const ACTOR = 'session-' + 'b'.repeat(64);   // recorded actor ("A")
@@ -161,10 +162,10 @@ function acquisitionFor(base) {
   packet.transactions = [];
   const join = [];
   for (let i = 1; i <= 10; i++) {
-    packet.transactions.push({ id: 'synthetic-row-' + i, date: '2026-10-03', amount: 60,
+    packet.transactions.push(LmGroups.groupTx({ id: 'synthetic-row-' + i, date: '2026-10-03', amount: 60,
       currency: 'cad', pending: false, categoryLabel: 'Groceries', merchantKnown: true,
       atlasAccountId: 'chequing-a', accountRole: 'household-cash',
-      displayedPayee: 'Synthetic recorded club payment ' + i });
+      displayedPayee: 'Synthetic recorded club payment ' + i }, base.plan));
     join.push({ localId: 'synthetic-row-' + i, providerAccountId: 'SYNTHETIC-ACCOUNT',
       transactionId: 'SYNTHETIC-TRANSACTION-' + i });
   }

@@ -1,6 +1,7 @@
 'use strict';
 // Independent invented ledger, wrapped for the real authenticated-page consumer.
 const fx = require('./savings-daily-allocation-contract');
+const LmGroups = require('../lm-groups-fixture.js');
 module.exports = function dailyConsumerData(mode = 'ready') {
   const input = fx.fixture();
   input.plan.savingsEarmarks.allocationPolicy = { order: 'due-date-first-combined-pool',
@@ -41,8 +42,10 @@ module.exports = function dailyConsumerData(mode = 'ready') {
   }
   const data = require('./budget-funding-data')();
   data.meta = { asOf: input.asOf, title: 'Invented daily Savings consumer review' };
-  data.plan = input.plan;
-  data.liveOverlay = { applied: true, operatingPlan: 'live', currentPeriodActuals: input.opts.currentPeriodActuals,
+  // Slice 1: the invented categories sit in invented Lunch Money groups.
+  data.plan = LmGroups.groupPlan(input.plan);
+  data.liveOverlay = { applied: true, operatingPlan: 'live',
+    currentPeriodActuals: LmGroups.groupPacket(input.opts.currentPeriodActuals, data.plan),
     observedCash: { asOf: input.asOf, complete: true, accounts: input.plan.startingCash.breakdown
       .filter(row => row.id.startsWith('chequing')).map(row => ({ ...row, evidenceDate: input.asOf })) } };
   return data;

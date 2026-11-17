@@ -1,6 +1,7 @@
 'use strict';
 // Invented balances/ledger. No household values, scaled data or provider IDs.
 const base = require('./budget-surface-data');
+const LmGroups = require('../lm-groups-fixture.js');
 const AS_OF = '2026-08-20';
 const START = '2026-08-14';
 const END = '2026-08-27';
@@ -11,7 +12,8 @@ function cardTx(id, account, date, amount, payee, kindHint) {
     categoryLabel: 'Groceries', kindHint, pending: false };
 }
 function fixture() {
-  const plan = base.canonical().plan;
+  // Slice 1: the invented categories sit in invented Lunch Money groups.
+  const plan = LmGroups.groupPlan(base.canonical().plan);
   // Explicit invented funding cutover. This is not a provider balance opening
   // and is never supplied to the movement publisher as one.
   plan.cardPurchaseCoverage.opening.asOf = AS_OF;
@@ -32,9 +34,10 @@ function fixture() {
     cardTx('amazon-a', 'mbna', '2026-08-16', 89, 'Example online store'),
     cardTx('amazon-refund', 'mbna', '2026-08-19', -45, 'Example return', 'refund'),
   ];
-  const packet = { schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
+  const packet = LmGroups.groupPacket({ schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
     coverageStart: START, coverageThrough: AS_OF, transactionCoverage: 'complete', pendingCoverage: 'complete',
-    cardCoverageRequired: true, cardCoverageUnconfirmed: [], currencyUnconfirmed: [], representedActuals: [], transactions };
+    cardCoverageRequired: true, cardCoverageUnconfirmed: [], currencyUnconfirmed: [], representedActuals: [],
+    transactions }, plan);
   const point = (id, date, amount, temporalClaim) => ({ confirmed: true, currency: 'CAD', date, amount,
     temporalClaim, evidenceRef: 'invented-' + id + '-' + date + '-' + temporalClaim });
   const card = (id, opening, closing) => ({ id,
@@ -76,7 +79,7 @@ function withHeloc(x) {
     cardTx('heloc-payment', 'heloc', '2026-08-18', -600, 'Example payment', 'payment'),
     cardTx('heloc-interest', 'heloc', '2026-08-19', 125.35, 'Example interest', 'interest'),
     { ...cardTx('heloc-pending', 'heloc', AS_OF, 900, 'Example pending'), pending: true }]
-    .map(tx => ({ ...tx, accountRole: 'heloc' })));
+    .map(tx => LmGroups.groupTx({ ...tx, accountRole: 'heloc' }, x.plan)));
   x.balanceEvidence.cards.push({ id: 'heloc', opening: { confirmed: true, currency: 'CAD', date: START,
     amount: 42000, temporalClaim: 'before-period-posted-movements', evidenceRef: 'invented-heloc-open' },
   closing: { confirmed: true, currency: 'CAD', date: AS_OF, amount: 42025.35,

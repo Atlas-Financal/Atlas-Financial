@@ -80,6 +80,7 @@ const FA = require(path.join(ROOT, 'scripts/settlement-evidence-file-adapter.js'
 const OA = require(path.join(ROOT, 'scripts/settlement-evidence-object-adapter.js'));
 const Assistant = require(path.join(ROOT, 'scripts/assistant-packet.js'));
 const fx = require('./fixtures/savings-daily-allocation-contract');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const servingModule = () => require(path.join(ROOT, 'scripts/settlement-evidence-serving.js'));
 
@@ -1128,10 +1129,11 @@ async function makeControllerFixture() {
   const resolveSelection = async input => {
     resolverCalls.push(input.selection);
     const transactionId = 'synthetic-provider-transaction';
+    const classifyPlan = LmGroups.groupPlan({ budget: { categories: [{ id: 'groceries', label: 'Groceries' }], excluded: [] } });
     input.classify(
-      { id: transactionId, date: '2026-10-03', amount: 60, categoryLabel: 'Groceries', merchantKnown: true },
-      { budget: { categories: [{ id: 'groceries', label: 'Groceries' }], excluded: [] } },
-      { currentPeriodActuals: { representedActuals: [], transactions: [] } });
+      LmGroups.groupTx({ id: transactionId, date: '2026-10-03', amount: 60, categoryLabel: 'Groceries', merchantKnown: true }, classifyPlan),
+      classifyPlan,
+      { currentPeriodActuals: LmGroups.groupPacket({ representedActuals: [], transactions: [] }, classifyPlan) });
     return {
       matchCount: 1,
       identity: { householdId, source: 'lunchmoney', providerAccountId: 'synthetic-provider-account', transactionId },
