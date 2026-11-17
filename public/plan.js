@@ -5827,10 +5827,12 @@ function budgetTodayCashCardHtml(ctx) {
     </div>` : '';
   // Owner decision (Dale, 2026-11-17): a Forecast-reported payday shortfall
   // (paydayAllocation obligations or essentials) is flagged on the closed
-  // face, not only inside the evidence panel. Marker only; no amount.
+  // face, not only inside the evidence panel. Marker only; no amount. Gated
+  // on the same ready/trusted funding as the other notices: a shortfall that
+  // rests on untrusted cash is not printed as a claim (unknown reads unknown).
   const shortfallReported = [alloc.obligations, alloc.essentials]
     .some(bucket => bucket && typeof bucket.shortfall === 'number' && bucket.shortfall > 0);
-  const shortfallMarker = shortfallReported
+  const shortfallMarker = ready && shortfallReported
     ? '<p class="budget-cash-notice has-gap" data-shortfall-reported>Payday shortfall reported</p>' : '';
   const notice = !ready ? '' : today.operatingShortfall > 0
     ? '<p class="budget-cash-notice has-gap">Operating cash shortfall ' + print(today.operatingShortfall, today.trust) + '</p>'
