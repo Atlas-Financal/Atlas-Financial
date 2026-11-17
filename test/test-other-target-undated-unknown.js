@@ -115,4 +115,24 @@ for (const undated of [false, true]) {
   eq(current.budgetProgress.household.actual.trust, 'estimated', `${label}: household actual stays estimated`);
 }
 
+// Both surfaces read the same undated Other target the same way (Grok's
+// condition for C4 with #1243): the pay-period view and the monthly Budget
+// (budgetBreakdown) both withhold it as target-undated, never a number. With a
+// valid date, both apply it.
+for (const [label, mutate] of [['missing', c => { delete c.targetEffectiveFrom; }],
+  ['not-a-date', c => { c.targetEffectiveFrom = 'not-a-date'; }], ['dated', null]]) {
+  const { f, current } = world(mutate);
+  const periodRow = otherRow(current);
+  const monthly = F.budgetBreakdown(f.plan, { periods: { ytd: { label: 'Invented', months: 1, spending: [] } } },
+    { asOf: f.date }).categories.find(c => c.id === 'other-spend');
+  if (label === 'dated') {
+    ok(periodRow.withheldReason == null && periodRow.planned != null, 'dated: pay-period view applies the Other target');
+    ok(monthly.withheldReason == null && monthly.target != null, 'dated: monthly Budget applies the Other target');
+  } else {
+    eq([periodRow.withheldReason, periodRow.planned], ['target-undated', null], `${label}: pay-period Other row is Unknown`);
+    eq([monthly.withheldReason, monthly.target, monthly.planned], ['target-undated', null, null],
+      `${label}: monthly Budget Other row is Unknown`);
+  }
+}
+
 console.log(`test-other-target-undated-unknown: ${checks} checks passed`);

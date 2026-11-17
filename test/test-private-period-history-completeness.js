@@ -223,10 +223,66 @@ try {
     // Even after restoring the old engine identity, new publication content
     // must conflict; never weaken the archive's financial equality rule.
     const legacyPublication = clone(regenerated.content.publication);
+    const v1Publication = record.content.publication;
+    // C4 (#1210, lead ruling 2026-11-17): the shared invented input declares an
+    // Other payday target with no effective date. v1 applied it as a known 20 in
+    // the household plan and dropped the Other row; under C4 it is Unknown. This
+    // is a CLOSED allow-list: each listed field must regenerate exactly as stated
+    // (Unknown / unavailable with the target-undated reason, or null) where v1 held
+    // a known value, then it is restored from v1 so the comparison below still
+    // fails on any other difference, and on any listed field regaining a number.
+    const UNDATED = 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.';
+    const pick = (o, at) => at.split('.').reduce((x, k) => (x == null ? x : x[k]), o);
+    const put = (o, at, v) => { const keys = at.split('.'), last = keys.pop(); const host = keys.reduce((x, k) => x[k], o);
+      if (v === undefined) delete host[last]; else host[last] = clone(v); };
+    const C4_UNKNOWN = [
+      ['budgetHold', null], ['afterHouseholdBudget', null], ['balanceAfterDeductions', null],
+      ['balanceAfterDeductionsTrust', 'unavailable'], ['predictedEndingBalance', null],
+      ['predictedEndingBalanceIdentity', null], ['predictedEndingBalanceTerms', null],
+      ['afterDebtRepayment', null], ['afterBigPurchases', null], ['projectedEnding', null],
+      ['operatingCashExplanation', null], ['leftover.afterHouseholdBudget', null],
+      ['leftover.afterDebtRepayment', null], ['leftover.afterBigPurchases', null],
+      ['householdActualsUnavailable', true],
+      ['billsAccountPeriodBalance.status', 'unavailable'], ['billsAccountPeriodBalance.trust', 'unknown'],
+      ['billsAccountPeriodBalance.amount', null], ['billsAccountPeriodBalance.household.target', null],
+      ['billsAccountPeriodBalance.household.remaining', null],
+      ['billsAccountPeriodBalance.issues', [{ code: 'household-actuals-incomplete', message: 'Household target and actual evidence is incomplete.' }]],
+      ['billsAccountPeriodBalance.reason', 'Household target and actual evidence is incomplete.'],
+      ['fromTodayFunding', { status: 'unavailable', asOf: '2030-02-01', source: 'Forecast.planSpendPaydayFunding',
+        basis: 'Budget-from-today', reason: UNDATED, contribution: null, trust: 'unavailable', actualSaved: null,
+        originalPaydayPlan: null, items: [], periods: [], evidenceFailures: [{ code: 'budget-category-amount-unavailable',
+          message: 'The household allowance or observed spending is unavailable for this category.', action: '',
+          categoryLabel: 'Other spending' }] }],
+      ['plannedCostFunding.reason', UNDATED],
+      ['budgetProgress.household.planned', { amount: null, trust: 'unavailable', completeness: 'unavailable',
+        reason: 'An original planned amount or its trust is unavailable.' }],
+    ];
+    for (const [at, expected] of C4_UNKNOWN) {
+      assert.deepEqual(pick(legacyPublication, at), expected, `C4: ${at} regenerates as Unknown`);
+      assert.notDeepEqual(pick(v1Publication, at), expected, `C4: frozen v1 held a known ${at}`);
+      put(legacyPublication, at, pick(v1Publication, at));
+    }
+    assert.equal(v1Publication.budgetHold, 80, 'C4: v1 held the invented 80 plan, Other 20 included');
+    assert.equal(v1Publication.budgetProgress.household.planned.amount, 80, 'C4: v1 original plan was a known 80');
+    // C4 adds the withheld Other row (v1 silently dropped it) and its evidence entry.
+    const otherRow = { id: 'other-spending', label: 'Other spending', note: 'Not yet assigned to a budget category',
+      monthly: null, plannedPayday: null, planned: null, spent: 0, remaining: null, overspend: null, hold: null,
+      targetEffectiveFrom: null, withheldReason: 'target-undated', needsConfirmation: true, otherSpending: true,
+      projected: false, recon: [], pendingRecon: [] };
+    assert.deepEqual(legacyPublication.householdBudget.filter(r => r.id === 'other-spending'), [otherRow],
+      'C4: the Other row is published as withheld, never dropped');
+    assert.ok(!v1Publication.householdBudget.some(r => r.id === 'other-spending'), 'C4: frozen v1 dropped the Other row');
+    legacyPublication.householdBudget = legacyPublication.householdBudget.filter(r => r.id !== 'other-spending');
+    const evidence = legacyPublication.budgetProgress.household.actual.evidence;
+    assert.deepEqual(evidence.filter(r => r.id === 'other-spending'),
+      [{ id: 'other-spending', spent: 0, otherSpending: true, recon: [] }], 'C4: Other evidence entry is published');
+    legacyPublication.budgetProgress.household.actual.evidence = evidence.filter(r => r.id !== 'other-spending');
+    // The additive Household comparison (post-v1) now regenerates as unavailable.
     assert.deepEqual(legacyPublication.budgetProgress.household.delta,
-      { amount: 67.66, trust: 'calculated', completeness: 'complete', reason: null,
-        magnitude: 67.66, direction: 'left' }, 'invented original plan 80 less observed 12.34');
-    assert.ok(!Object.hasOwn(record.content.publication.budgetProgress.household, 'delta'), 'frozen v1 predates the comparison');
+      { amount: null, trust: 'unavailable', completeness: 'unavailable',
+        reason: 'Complete original plan and incurred spending are needed for the combined difference.',
+        magnitude: null, direction: null }, 'C4: the combined difference is unavailable with the plan Unknown');
+    assert.ok(!Object.hasOwn(v1Publication.budgetProgress.household, 'delta'), 'frozen v1 predates the comparison');
     delete legacyPublication.budgetProgress.household.delta;
     // S1 supersession: the regenerated publication also carries the new
     // paydaySweep field, which the frozen v1 record predates. Sweeps
@@ -242,12 +298,16 @@ try {
     // is calculated and reconciles to its own published terms; validate it
     // concretely (invented 1500 opening + 200 income - 80 budget = 1620),
     // then exclude only those four fields.
-    assert.equal(legacyPublication.plannedPeriodCloseTrust, 'calculated');
-    assert.equal(legacyPublication.plannedPeriodCloseReason, null);
-    const pa4 = legacyPublication.plannedPeriodCloseTerms, cc = v => Math.round(v * 100);
-    assert.equal(cc(legacyPublication.plannedPeriodClose), 162000, 'PA-4: hand-derived planned close');
-    assert.equal(cc(legacyPublication.plannedPeriodClose), cc(pa4.opening) + cc(pa4.incomeAdded)
-      - cc(pa4.periodBillLoad) - cc(pa4.budgetHold) - cc(pa4.annualSavingsNeed), 'PA-4: close reconciles to its terms');
+    // Under C4 the close is Unknown (its budget deduction is Unknown); the v1-era
+    // hand derivation is pinned from the frozen record's own known budget hold.
+    const cc = v => Math.round(v * 100);
+    assert.equal(cc(1500) + cc(200) - cc(v1Publication.budgetHold), 162000,
+      'PA-4/C4: v1-era hand-derived close was 1620 from the frozen known hold');
+    assert.equal(legacyPublication.plannedPeriodClose, null, 'PA-4/C4: planned close regenerates as Unknown');
+    assert.equal(legacyPublication.plannedPeriodCloseTrust, 'unknown');
+    assert.equal(legacyPublication.plannedPeriodCloseTerms, null);
+    assert.equal(legacyPublication.plannedPeriodCloseReason,
+      'The planned period close is unavailable: its opening or a deduction is not known.');
     for (const key of ['plannedPeriodClose', 'plannedPeriodCloseTrust', 'plannedPeriodCloseTerms', 'plannedPeriodCloseReason']) {
       delete legacyPublication[key];
     }
