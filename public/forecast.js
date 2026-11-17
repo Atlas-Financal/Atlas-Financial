@@ -11292,6 +11292,7 @@
   // Grok Bot (Plan #6, 2026-11-17): "card payment: TD Personal Credit Card".
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
     'td personal credit card': 'tdcc' });
+  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -14152,8 +14153,21 @@
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
-      const paid = [...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed'), ...payDown]
-        .filter(billsLeg);
+      const creditPairs = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
+      // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
+      // exactly one card in the fixed table is a payment to that card on its
+      // own. A card credit that pairs with it (above) wins and is counted
+      // once; only a debit no card leg claimed is paid by its note here. A
+      // missing, unknown or two-card note is unchanged (destination unconfirmed).
+      const notePaid = [];
+      for (const leg of [...legs.cashDebit, ...legs.reserveDebit]) {
+        if (leg.paired || leg.tx.date < origin || leg.tx.pending !== false || leg.tx.tdCardPaymentIdentity !== true
+          || !CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)) continue;
+        leg.paired = true;
+        notePaid.push({ card: { tx: leg.tx, account: leg.tx.cardPaymentNoteDestination, cents: leg.cents }, cash: leg });
+      }
+      const paid = [...creditPairs, ...notePaid, ...payDown].filter(billsLeg);
       // A cash leg that already represents a scheduled occurrence (a card
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
