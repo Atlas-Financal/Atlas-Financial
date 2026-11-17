@@ -2319,10 +2319,17 @@ function householdBudgetMetric(label, amount, opts) {
       // Display-only (Forecast owns it): linked to one bill but doesn't fit
       // it; counted here once and the bill stays To confirm.
       const misfit = tx.linkedBillMisfit;
-      const misfitCheck = misfit && ['account', 'currency', 'direction', 'date', 'amount'].includes(misfit.check)
+      const misfitCheck = misfit && ['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category'].includes(misfit.check)
         ? misfit.check : null;
+      const billName = label => label ? esc(label) : 'a planned bill';
+      // The same one-line note: two bills when the links disagree; the category by name when it was renamed.
+      const misfitBills = misfitCheck === 'links disagree' ? `${billName(misfit.label)} and ${billName(misfit.otherLabel)}` : billName(misfit && misfit.label);
+      const misfitWhy = misfitCheck === 'category'
+        ? (misfit.categoryName ? `category &ldquo;${esc(misfit.categoryName)}&rdquo;`
+          : misfit.confirmedCategoryName ? `category &ldquo;${esc(misfit.confirmedCategoryName)}&rdquo; removed` : 'category removed')
+        : esc(misfitCheck || '');
       const linkedMisfit = misfitCheck && typeof misfit.id === 'string' && misfit.id
-        ? `<span class="household-budget-tx-note" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfit.label ? esc(misfit.label) : 'a planned bill'} but doesn't fit (${esc(misfitCheck)})</span>`
+        ? `<span class="household-budget-tx-note" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfitBills} but doesn't fit (${misfitWhy})</span>`
         : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
