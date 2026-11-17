@@ -31,6 +31,31 @@ function category(row) {
   if (Object.hasOwn(row, 'children')) out.children = row.children.map(category);
   return out;
 }
+// Lunch Money recurring items (S1): only the schedule fields the observer's
+// sanitizer reads (scripts/provider-observe.js sanitizedRecurringEvidence).
+// No description, payee, overrides, amount or provenance is retained.
+const RECURRING_CRITERIA = 'startDate endDate granularity quantity anchorDate currency plaidAccountId manualAccountId'.split(' ');
+function recurring(value) {
+  if (value?.status !== 'read') return { status: 'unavailable', reason: 'recurring-read-failed' };
+  const read = value.read;
+  if (!read || typeof read !== 'object' || !Array.isArray(read.items)) throw new Error('observation-input-invalid');
+  const strings = list => list === null ? null : list.map(entry => {
+    if (typeof entry !== 'string') throw new Error('observation-input-invalid');
+    return entry;
+  });
+  return { status: 'read', read: {
+    unexpectedPaginationEvidence: read.unexpectedPaginationEvidence,
+    requestedWindow: pick(read.requestedWindow, ['startDate', 'endDate', 'providerDefault']),
+    items: read.items.map(item => ({ ...pick(item, ['providerId', 'status']),
+      unavailableFields: strings(item.unavailableFields),
+      criteria: item.criteria === null ? null : pick(item.criteria, RECURRING_CRITERIA),
+      matches: item.matches === null ? null : {
+        expectedOccurrenceDates: Array.isArray(item.matches.expectedOccurrenceDates)
+          ? strings(item.matches.expectedOccurrenceDates) : null,
+        foundTransactions: Array.isArray(item.matches.foundTransactions)
+          ? item.matches.foundTransactions.map(found => pick(found, ['transactionId'])) : null,
+      } })) } };
+}
 function transaction(row) {
   const out = pick(row, TRANSACTION);
   for (const field of ['tags', 'tag_ids', 'tagIds']) if (Object.hasOwn(row, field)) {
@@ -60,7 +85,8 @@ function sourceInputs(payload) {
     categories: payload.categories.map(category), tags: payload.tags.map(tag),
     transactions: payload.transactions.map(transaction),
     transactionWindow: pick(payload.transactionWindow, WINDOW),
-    pendingCoverage: pick(payload.pendingCoverage, PENDING) };
+    pendingCoverage: pick(payload.pendingCoverage, PENDING),
+    ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}) };
   const numeric = value => typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()) && Number.isFinite(Number(value));
   const id = value => typeof value === 'string' && value.length > 0 || typeof value === 'number' && Number.isFinite(value);

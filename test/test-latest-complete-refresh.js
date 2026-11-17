@@ -296,7 +296,7 @@ async function controllerProof() {
       mock.mode('ok'); mock.payload(synced);
       at(3 * gap); const before = mock.calls.length;
       const loads = await Promise.all([1, 2, 3].map(() => read(env, { preferObservation: true })));
-      eq(mock.calls.length - before, 7, 'after recovery, concurrent ordinary loads share one coalesced provider check');
+      eq(mock.calls.length - before, 8, 'after recovery, concurrent ordinary loads share one coalesced provider check');
       for (const load of loads) {
         eq(load.check.qualified, true, 'after recovery an ordinary load shows the new qualified check');
         eq(load.data.liveOverlay.retainedRefresh, undefined, 'the new sync is current, not the retained cohort');

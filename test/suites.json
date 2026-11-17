@@ -531,6 +531,8 @@
   ["Merge Card primary-risk projection","test-atlas-primary-risk.js"],
   ["local main sync safety contract","test-sync-main.js"],
   ["read-only provider observation (connectivity spike)","test-provider-observe.js"],
+  ["Lunch Money recurring items read (provider evidence, never Forecast bills or proof of payment)","test-provider-recurring-items.js"],
+  ["Lunch Money reviewed recurring items: one GET, reviewed rule-named items as schedule fields only, absent from the assistant packet and figures snapshot (S1, foundation)","test-lunchmoney-recurring-read.js"],
   ["a stale Bills estimate tag is dropped only when the bank feed observed that balance fresh on this refresh","test-observed-bills-estimate.js"],
   ["provider balance that is blank, false or non-numeric is unknown, never $0","test-provider-balance-unknown-not-zero.js"],
   ["the diagnostic card inference never uses a posted card balance dated after the request day","test-card-inference-future-posted.js"],

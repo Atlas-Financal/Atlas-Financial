@@ -1,4 +1,7 @@
 'use strict';
+// The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
+// the windowed and pending transactions, and the recurring-items read (S1).
+const PROVIDER_GETS = 8;
 // OD-2 (#821, owner 2026-11-11): the same provider evidence gives the same
 // Budget whatever the request clock or a restart. Invented household only
 // (test/fixtures/budget-surface-data.js); the repository's loopback fake
@@ -96,7 +99,7 @@ const lastSync = mutate => {
 
     // 2. A restart, then the next day before the bank syncs again (audit F1 / S3).
     const cold = await serve(fresh(), lastSync(), NEXT + 'T18:00:00.000Z', { preferObservation: true });
-    eq(cold.calls, 7, 'cold process asks the provider');
+    eq(cold.calls, PROVIDER_GETS, 'cold process asks the provider');
     eq(cold.check.qualified, false, 'the dated view is never a qualified current check');
     eq(cold.data.meta.asOf, DAY, 'the view is as of the evidence day, never promoted to today');
     eq(cold.data.liveOverlay.retainedRefresh.attempt.reason, 'stale-live-cash-evidence', 'the view keeps the incumbent dated descriptor');
@@ -134,7 +137,7 @@ const lastSync = mutate => {
     const Cold = fresh();
     await serve(Cold, lastSync(), NEXT + 'T18:00:00.000Z', { preferObservation: true });
     const again = await serve(Cold, lastSync(), NEXT + 'T18:01:00.000Z', { preferObservation: true });
-    eq([again.calls, again.check.qualified], [7, false], 'the dated view is not replay or current evidence');
+    eq([again.calls, again.check.qualified], [PROVIDER_GETS, false], 'the dated view is not replay or current evidence');
 
     // 6. Rows dated after the evidence day did not exist as of that day.
     const withLater = await serve(fresh(), lastSync(p => p.transactions.push({ ...p.transactions[2], id: 92999, date: NEXT, amount: 55 })),
@@ -189,7 +192,7 @@ const lastSync = mutate => {
       const manual = await serve(await seeded(), payload, when, { forceRefresh: true });
       const coldSame = await serve(fresh(), payload, when, { preferObservation: true });
       for (const [mode, r] of [['warm normal load', normal], ['warm manual Refresh', manual], ['cold process', coldSame]]) {
-        eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], label + ', ' + mode + ': asks once, dated, never qualified');
+        eq([r.calls, r.check.qualified, r.data.meta.asOf], [PROVIDER_GETS, false, DAY], label + ', ' + mode + ': asks once, dated, never qualified');
       }
       eq([chequingA(normal), chequingA(manual)], [expectWarm, expectWarm], label + ': warm normal and manual show the newest evidence held');
       eq(chequingA(coldSame), 1515, label + ': cold process shows the only evidence it has');
@@ -208,7 +211,7 @@ const lastSync = mutate => {
       const R = fresh();
       for (const [i, clockAt] of [pinned, NEXT + 'T18:01:00.000Z', NEXT + 'T18:30:00.000Z'].entries()) {
         const r = await serveFixed(R, lastSync(), clockAt, pinned, { preferObservation: true });
-        eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], 'fixed context, load ' + (i + 1) + ': asks the provider, dated, never replayed');
+        eq([r.calls, r.check.qualified, r.data.meta.asOf], [PROVIDER_GETS, false, DAY], 'fixed context, load ' + (i + 1) + ': asks the provider, dated, never replayed');
         eq(basis(r.data), basis(cold.data), 'fixed context, load ' + (i + 1) + ': same plan as the restart case');
       }
       // Equal balance instants, later fetch: the later fetch wins (lead ruling 6788227366).
@@ -224,7 +227,7 @@ const lastSync = mutate => {
       for (const [i, [clockAt, options]] of [[pinned, { preferObservation: true }], [NEXT + 'T18:02:00.000Z', { preferObservation: true }],
         [NEXT + 'T18:03:00.000Z', { forceRefresh: true }], [NEXT + 'T18:04:00.000Z', { preferObservation: true }]].entries()) {
         const r = await serveFixed(W, newer, clockAt, pinned, options);
-        eq([r.calls, chequingA(r), r.check.qualified], [7, 1515, false], 'after supersession, repeat ' + (i + 1) + ': newest evidence, asks the provider');
+        eq([r.calls, chequingA(r), r.check.qualified], [PROVIDER_GETS, 1515, false], 'after supersession, repeat ' + (i + 1) + ': newest evidence, asks the provider');
       }
     }
 
@@ -245,7 +248,7 @@ const lastSync = mutate => {
         const coldOnly = await serveFixed(fresh(), answer, pinned, pinned, { preferObservation: true });
         eq(JSON.stringify(basis(coldOnly.data)) !== JSON.stringify(seedBasis), true, label + ': the change moves figures (non-vacuous)');
         for (const [mode, r] of [['warm normal load', normal], ['warm manual Refresh', manual]]) {
-          eq([r.calls, r.check.qualified, r.data.meta.asOf], [7, false, DAY], label + ', ' + mode + ': asks once, dated, unqualified');
+          eq([r.calls, r.check.qualified, r.data.meta.asOf], [PROVIDER_GETS, false, DAY], label + ', ' + mode + ': asks once, dated, unqualified');
           eq(basis(r.data), basis(coldOnly.data), label + ', ' + mode + ': same Budget as a restart given the same answer');
         }
         // Any supersession drops the superseded cohort (lead ruling 6788734379): an
