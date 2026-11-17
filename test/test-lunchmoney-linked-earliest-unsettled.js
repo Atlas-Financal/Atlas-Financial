@@ -15,7 +15,10 @@
  *      before the opening) still takes its one payment, so that payment is
  *      never reused (Codex P1 on #1282);
  *   4. Grok's guard: a second payment in a cycle reads To confirm and settles
- *      nothing; a missing earlier payment is filled first (bill stays reserved);
+ *      nothing; a missing earlier payment is filled first (bill stays reserved).
+ *      Grok's check (a): a payment is for the next occurrence due on or after
+ *      it, or (posted between two) the latest before it; when oldest-first
+ *      pairing would hand it to another occurrence, it reads To confirm;
  *   5. once a reviewed item moves the bill's day, an opening row under the old
  *      date names the nearest scheduled occurrence (within 14 days, one
  *      nearest), so a day move cannot strand a paid occurrence.
@@ -75,7 +78,11 @@ function serve({ asOf = '2026-10-14', payments = [], rule = RULE, represented = 
   const paidOn = new Set((packet.representedActuals || []).filter(row => row.id === 'band').map(row => row.date));
   const row = date => packet.transactions.find(t => t.date === date && t.amount === 80) || null;
   const opening = (r.data.plan.opening.representedEvents || []).filter(row => row.id === 'band').map(row => row.date);
-  return { applied: r.data.liveOverlay.applied, at, paidOn, row, opening, report: r.report, plan: r.data.plan,
+  const byTx = new Map();
+  for (const c of (r.report.representedEventCandidates || []).filter(c => c.id === 'band')) {
+    byTx.set(c.postingDate + '#' + c.providerTransactionId, (byTx.get(c.postingDate + '#' + c.providerTransactionId) || []).concat(c.date));
+  }
+  return { applied: r.data.liveOverlay.applied, at, paidOn, row, opening, report: r.report, plan: r.data.plan, byTx,
     period: start => periods.find(p => p.start === (start || periodStart)) || null };
 }
 const due = b => !!b && /still due/i.test(b.status);
@@ -227,7 +234,52 @@ console.log('8. Unchanged gates: an inconsistent amount, an unlinked payment and
   ok(!ahead.paidOn.has('2026-12-01'), 'with Nov 1 already named, Oct 12 does not settle Dec 1', list(ahead));
 }
 
-console.log('9. The assignment never reaches the served packet');
+// Grok's check (b): each payment settles at most one due date, each due date
+// is settled by at most one payment, and the pairing is exactly the
+// hand-derived one (posting date -> settled occurrence).
+const pairing = s => {
+  const out = {};
+  const dates = [];
+  for (const [key, list] of s.byTx) { out[key.split('#')[0]] = list.length === 1 ? list[0] : list; dates.push(...list); }
+  return { out, once: [...s.byTx.values()].every(list => list.length === 1) && new Set(dates).size === dates.length };
+};
+const expectPairs = (s, want, label) => {
+  const p = pairing(s);
+  ok(p.once && JSON.stringify(p.out) === JSON.stringify(want), label + ': each payment settles exactly one due date',
+    JSON.stringify(p.out));
+};
+
+console.log('9. Grok (b): early, late, duplicate, refund-then-repay and a gap month, one due date per payment');
+{
+  // Early: Sep 1 and Oct 1 keep their own (inside the opening); Oct 12 -> Nov 1.
+  expectPairs(serve({ payments: [pay('2026-09-01'), pay('2026-10-01'), pay('2026-10-12')] }),
+    { '2026-10-12': '2026-11-01' }, 'early');
+  // Late, as of Nov 10: Oct 1 keeps its own; Nov 5 -> Nov 1.
+  expectPairs(serve({ asOf: '2026-11-10', payments: [pay('2026-10-01'), pay('2026-11-05')] }),
+    { '2026-11-05': '2026-11-01' }, 'late');
+  // Duplicate, as of Nov 10: two payments on Nov 1. The first settles Nov 1;
+  // the second is the second in Nov 1's cycle and reads To confirm.
+  const dup = serve({ asOf: '2026-11-10', payments: [pay('2026-10-01'), pay('2026-11-01'), pay('2026-11-01')] });
+  expectPairs(dup, { '2026-11-01': '2026-11-01' }, 'duplicate');
+  ok(!dup.paidOn.has('2026-12-01'), 'duplicate: Dec 1 is not settled', list(dup));
+  // Refund then repay: Oct 10 -> Nov 1; the refund settles nothing; the repay
+  // (Oct 12) is To confirm.
+  expectPairs(serve({ payments: [pay('2026-09-01'), pay('2026-10-01'), pay('2026-10-10'), pay('2026-10-11', -80),
+    pay('2026-10-12')] }), { '2026-10-10': '2026-11-01' }, 'refund then repay');
+  // Gap month, as of Dec 10 (ledger Nov 1, Dec 1...; read from Oct 2). Nov 1
+  // was never paid; the Dec 1 payment is Dec 1's own, so oldest-first pairing
+  // (Nov 1) disagrees with its planned occurrence: To confirm, nothing settled
+  // (Grok's check (a)). Both occurrences stay unsettled.
+  const gap = serve({ asOf: '2026-12-10', payments: [pay('2026-12-01')] });
+  expectPairs(gap, {}, 'gap month');
+  ok(gap.row('2026-12-01') && gap.row('2026-12-01').representedBill === false, 'gap month: the Dec 1 payment is To confirm');
+  ok(!gap.paidOn.has('2026-11-01') && !gap.paidOn.has('2026-12-01'), 'gap month: neither Nov 1 nor Dec 1 is settled', list(gap));
+  // Control: with Nov 1 paid on Nov 1, the Dec 1 payment settles Dec 1.
+  expectPairs(serve({ asOf: '2026-12-10', payments: [pay('2026-11-01'), pay('2026-12-01')] }),
+    { '2026-11-01': '2026-11-01', '2026-12-01': '2026-12-01' }, 'gap month control');
+}
+
+console.log('10. The assignment never reaches the served packet');
 {
   const s = serve({ payments: [pay('2026-09-01'), pay('2026-10-01'), pay('2026-10-10'), pay('2026-10-12')] });
   const blob = JSON.stringify(s.row('2026-10-10')) + JSON.stringify(s.row('2026-10-12'));

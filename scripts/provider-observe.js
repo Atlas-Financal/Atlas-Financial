@@ -3080,7 +3080,9 @@ function linkedEarliestUnsettledRules(identityRules) {
 // yet. An occurrence Atlas already counts as paid (named by the plan
 // opening's representedEvents, or before the settlement opening boundary)
 // still takes its one payment, which then settles nothing new, so a payment
-// is never used twice (Codex P1 on #1282). Grok's guard: a payment that is the
+// is never used twice (Codex P1 on #1282). A payment handed to an occurrence
+// other than its own (the next due on or after it, or the latest before it)
+// reads To confirm (Grok's check (a)). Grok's guard: a payment that is the
 // second in its cycle (the run up to its next due occurrence) and would settle
 // an occurrence not yet due, or has nothing left, reads To confirm (toConfirm)
 // and settles nothing. When the transaction read does not reach the ledger's
@@ -3136,6 +3138,18 @@ function stampLinkedEarliestUnsettled(transactions, identityRules, plan, account
       const cycle = nextDue || 'after-' + tx.date;
       const prior = cycleCount.get(cycle) || 0;
       cycleCount.set(cycle, prior + 1);
+      // Grok's check (a): Dale's planned-period rule wins. A payment is for
+      // the next occurrence due on or after it (early or on time), or for the
+      // latest occurrence before it (late). When oldest-first pairing would
+      // hand it to any other occurrence (an older gap month), it reads To
+      // confirm and settles nothing; it is not picked silently.
+      // A payment on a due date is that occurrence's own; only one posted
+      // between two occurrences can be the earlier one's late payment.
+      const lateOwn = tx.date === nextDue ? null : [...ledger.all].reverse().find(date => date < tx.date) || null;
+      if (target && target !== nextDue && target !== lateOwn) {
+        tx.lmLinkedAssignment = { eventId: rule.eventId, date: target, toConfirm: true };
+        continue;
+      }
       if (target && alreadyPaid(target)) {
         // Its own payment: settles nothing new and cannot be reused.
         filled.add(target);
