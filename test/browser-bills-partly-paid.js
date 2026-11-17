@@ -39,6 +39,8 @@ const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category:
     await H.withBudget(world(pay(89.99)), async p => {
       const s = await H.snap(p); const line = H.bill(s, 'Invented hydro');
       ok(/Partly paid/.test(line) && /\$0\.01 still to pay/.test(line), 'one cent short: "Partly paid" with $0.01 still to pay (any shortfall)', line);
+      const state = await dot(p);
+      ok(state === 'due', 'one cent short keeps the still-to-pay dot, never the Paid green (boundary)', state);
     });
     await H.withBudget(world(pay(90, { pending: true })), async p => {
       const s = await H.snap(p); const line = H.bill(s, 'Invented hydro');

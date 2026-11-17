@@ -2316,6 +2316,14 @@ function householdBudgetMetric(label, amount, opts) {
       const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
         ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
         : '';
+      // Display-only (Forecast owns it): linked to one bill but doesn't fit
+      // it; counted here once and the bill stays To confirm.
+      const misfit = tx.linkedBillMisfit;
+      const misfitCheck = misfit && ['account', 'currency', 'direction', 'date', 'amount'].includes(misfit.check)
+        ? misfit.check : null;
+      const linkedMisfit = misfitCheck && typeof misfit.id === 'string' && misfit.id
+        ? `<span class="household-budget-tx-note" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfit.label ? esc(misfit.label) : 'a planned bill'} but doesn't fit (${esc(misfitCheck)})</span>`
+        : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
       const idAttr = tx.id ? ` data-tx-id="${esc(tx.id)}"` : '';
@@ -2331,7 +2339,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${linkedMisfit}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -2618,7 +2626,6 @@ function calendarPeriodBillsHtml(period) {
       ${visaPayments}
     </div>`;
   }
-  const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const lines = rows.map(periodBillLine).join('');
   const totals = [];
   // A bill with an unknown amount or unknown confidence makes Forecast's period
@@ -2644,14 +2651,13 @@ function calendarPeriodBillsHtml(period) {
     const estimated = period.unconfirmedBills != null && !loadUnavailable && period.unconfirmedBillsTrust === 'estimated';
     if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null || loadUnavailable ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null || loadUnavailable ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
   } else if (period && period.remainingBills != null && !loadUnavailable) {
-    totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>${feeAllowanceRetained ? 'Remaining bill reserve' : 'Remaining bills to pay'}</span><span>${money2(period.remainingBills)}</span></p>`);
+    totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>Remaining bills to pay</span><span>${money2(period.remainingBills)}</span></p>`);
   }
   return `<div class="payday-period-bills" data-payday-period-bills>
     <div class="operating-lines">${lines}</div>
     ${visaPayments}
     <p class="operating-note">The Bills deduction uses the assigned amounts of every bill in this period, paid or not. Paid bills shows the settled amounts displayed above.</p>
     ${totals.length ? `<div class="payday-totals">${totals.join('')}</div>` : ''}
-    ${feeAllowanceRetained ? '<p class="operating-note" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
   </div>`;
 }
 
@@ -6252,6 +6258,15 @@ function budgetSpendingSectionHtml(period, ctx) {
       <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
       ${reflected ? `<p>${reflected}</p>` : ''}</div>`;
   }
+  // LEDGER A item 3 (Grok Bot, rule 17): posted refunds the ledger does not link to a purchase. Forecast
+  // publishes them display-only; they are in no category, not in Other and not in any total.
+  function budgetUnlinkedRefundsBrowseHtml(period) {
+    const unlinked = period && period.unlinkedRefunds;
+    if (!unlinked || !Array.isArray(unlinked.recon) || !unlinked.recon.length || unlinked.trust !== 'calculated') return '';
+    const n = unlinked.recon.length;
+    return `<div class="budget-browse-note" data-budget-unlinked-refunds>
+      <p><strong>Refunds not linked</strong> <span>${budgetBrowseMoney(unlinked.total)}</span> <small>${n} ${n === 1 ? 'refund' : 'refunds'} · Review in Lunch Money</small></p></div>`;
+  }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}"${feed ? ' data-bank-feed="stale"' : ''} aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
@@ -6259,7 +6274,7 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
-    ${budgetSavingsPaidBrowseHtml(period)}
+    ${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
     <footer><button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }
@@ -6307,7 +6322,8 @@ function budgetBillPresentation(row) {
     const excessTrust = row.excessTrust === 'calculated' || row.excessTrust === 'estimated' ? row.excessTrust : null;
     return typeof row.excess === 'number' && row.excess > 0 && excessTrust
       ? { kind: 'paid', label: 'Paid', qualifier: excessTrust === 'estimated'
-        ? `≈ ${money2(row.excess)} over planned (estimated)` : `${money2(row.excess)} over planned` }
+        ? `≈ ${money2(row.excess)} over planned (estimated)${row.excessReview === true ? ' · Review in Lunch Money' : ''}`
+        : `${money2(row.excess)} over planned${row.excessReview === true ? ' · Review in Lunch Money' : ''}` }
       : { kind: 'paid', label: 'Paid' };
   }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
@@ -6393,7 +6409,6 @@ function budgetUpcomingAnnualBillRowHtml(entry) {
 function budgetBillsSectionHtml(period, ctx) {
   const progress = budgetProgressFor(period, ctx.asOf)?.bills;
   const rows = (period.bills || []).filter(Boolean);
-  const feeAllowanceRetained = rows.some(row => row.scheduledFeeAllowance?.remainingAllowance > 0);
   const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [], carried: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
   const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
@@ -6403,10 +6418,9 @@ function budgetBillsSectionHtml(period, ctx) {
     && (groups.check.length > 0 || groups.unknown.length > 0);
   const remainingHeading = historical
     ? 'Completed-period bills'
-    : `<span data-budget-browse-bills-remaining>${budgetBrowseMoney(period.remainingBills)}</span> ${feeAllowanceRetained ? 'still reserved for bills' : 'left to pay or confirm'}`;
+    : `<span data-budget-browse-bills-remaining>${budgetBrowseMoney(period.remainingBills)}</span> left to pay or confirm`;
   return `<section class="budget-browse-card budget-browse-bills" data-budget-browse="bills" data-budget-bills-remaining-scope="${historical ? withholdActionableRemaining ? 'historical-unconfirmed' : 'historical-settlement' : 'actionable'}" aria-labelledby="budget-bills-heading">
     <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills', { savedClose: !!budgetSavedClose(period) })}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
-    ${feeAllowanceRetained ? '<p class="budget-browse-sub" data-scheduled-fee-reserve>The unspent scheduled fee allowance stays reserved. The recorded fee is already settled; this is not another payment due.</p>' : ''}
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
       ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : [], ...groups.carried.length ? [['carried', 'Carried', groups.carried.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>

@@ -111,7 +111,9 @@ const scenarios = [
     // spent -20 there), inheriting its bucket.
     async run(H) {
       const w = historyWorld(H);
-      w.transactions.push(H.lm({ date: '2026-10-12', amount: -20, category: 'Groceries', payee: 'Invented grocer C' }));
+      // LEDGER A item 3 (Grok Bot, rule 17): only a ledger-linked refund nets; a Lunch Money grouped pair
+      // arrives as one group-parent row, so the refund here is that linked form (is_group_parent).
+      w.transactions.push(H.lm({ date: '2026-10-12', amount: -20, category: 'Groceries', payee: 'Invented grocer C', raw: { is_group_parent: true } }));
       await H.withBudget(w, async p => {
         const now = await H.snap(p);
         H.expectMatch(H.category(now, 'Groceries'), /Spent [−-]\$20\.00/, 'the refund is in the open period Groceries');

@@ -95,7 +95,9 @@ for (const payee of ['PAYMENT - THANK YOU REFUND', 'PAYMENT - THANK YOU REVERSAL
 }
 const refund = fixture();
 refund.payload.transactions.push({ id: 80004, account_id: 3004, date: refund.asOf,
-  amount: -20, currency: 'cad', payee: 'Invented grocer', category_name: 'Groceries', is_pending: false });
+  amount: -20, currency: 'cad', payee: 'Invented grocer', category_name: 'Groceries', is_pending: false,
+  // LEDGER A item 3: the ledger-linked form (a group parent) is the one that nets.
+  is_group_parent: true });
 refund.payload.accounts[3].balance = 380;
 const refunded = unconfirmed(refund);
 // G3a (acceptance 7.8; lead ruling 2026-11-06, disclosed in PR #856): the

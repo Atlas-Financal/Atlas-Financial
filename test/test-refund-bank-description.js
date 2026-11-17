@@ -56,7 +56,9 @@ function run(refundRaw, extra = []) {
   const w = H.baseWorld();
   w.transactions = [payroll(),
     H.lm({ date: '2026-10-10', amount: 60, category: 'Restaurants', payee: 'Invented diner' }),
-    H.lm({ date: '2026-10-12', amount: -25, category: 'Restaurants', raw: refundRaw }),
+    // The ledger-linked form (a Lunch Money group parent): since #1234 only a linked refund nets into its
+    // category and so prints in its Spent list; a standalone refund prints only on the "Refunds not linked" line.
+    H.lm({ date: '2026-10-12', amount: -25, category: 'Restaurants', raw: { is_group_parent: true, ...refundRaw } }),
     ...extra];
   const r = H.dataOf(w);
   if (r.error) throw r.error;

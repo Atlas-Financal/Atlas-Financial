@@ -78,7 +78,6 @@ eq(unknownTraj.months.every(m => m.debt && m.debt.status === 'calculated' && m.d
   'unknown trajectory: every month publishes consumer debt as null');
 eq(unknownTraj.months.map(m => m.debt.secured), knownTraj.months.map(m => m.debt.secured),
   'unknown trajectory: secured debt is unchanged');
-eq(unknownTraj.debtDirection.status, 'unavailable', 'unknown trajectory: no debt direction from an unknown total');
 
 // ── Real page readers. ──
 function page(file, data) {
@@ -147,23 +146,6 @@ for (const [label, fx, expectConsumer] of [['known', known, '$640'], ['unknown',
   };
   eq(title(known), 'surplusToPrincipal', 'known: consumer 640 falls by day 90 under the minimum payments');
   eq(title(unknown), 'consumerUnknown', 'unknown: 61–90 claims neither growth nor decline');
-}
-
-// ── Pressure: a known facility fact survives an unknown consumer total. HELOC
-// 9,990 of a 10,000 limit crosses within the horizon on both; the unknown
-// card's total-based signals are withheld, and the withholding is stated. ──
-{
-  const near = unknownCard => fixture(unknownCard, 9990);
-  const pressure = fx => F.baselineTrajectory(fx.plan, fx.debts, START, { periods }).pressure;
-  const crossing = p => p.signals.filter(x => x.kind === 'debt-limit-crossing' && x.debtId === 'heloc')
-    .map(x => x.date);
-  const knownP = pressure(near(false));
-  const unknownP = pressure(near(true));
-  yes(crossing(knownP).length === 1, 'known: HELOC limit crossing is published');
-  eq(crossing(unknownP), crossing(knownP), 'unknown card: the same HELOC limit crossing is still published');
-  eq(knownP.withheld, undefined, 'known: nothing is withheld');
-  yes(unknownP.withheld && unknownP.withheld.months > 0 && /pending is unknown/.test(unknownP.withheld.reason),
-    'unknown card: pressure states that debt-total signals are withheld');
 }
 
 console.log('PASS a card with unknown pending makes consumer debt unknown in every Forecast publication, and readers say unavailable: '

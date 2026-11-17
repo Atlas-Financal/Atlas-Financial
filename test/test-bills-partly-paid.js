@@ -5,7 +5,8 @@
  *   2. A linked payment that is still pending reads "Payment pending", never Paid.
  *   3. A late linked payment is counted once, in the period of the occurrence it settles (the bill's period convention).
  *   4. No new matching: every case links through the EXISTING identity rule; nothing here adds name or amount matching.
- *   5. The two-account settled-fee path (tdfees) is untouched (its own suites: test-scheduled-fee-routing.js).
+ *   5. The two-account settled-fee path (tdfees, LEDGER A item 1): a posted linked pair below its allowance reads Partly paid with
+ *      the rest estimated; above it, Paid with the excess and "Review in Lunch Money". Figures as on main (test-scheduled-fee-routing.js).
  *
  * Path: invented raw Lunch Money payload -> scripts/live-plan.js fromObservation -> Forecast.recommend calendar rows (what the
  * Bills section prints) -> the real printer (plan.js budgetBillPresentation / budgetBillBrowseRowHtml lifted by name).
@@ -131,21 +132,40 @@ console.log('Rule 3: a late linked payment is counted once, in the period of the
   ok(rows.length === 1, 'exactly one Paid hydro row exists across the published periods', String(rows.length));
 }
 
-console.log('Review repairs: no shortfall claim on the scheduled-fee allowance, nor on a row Forecast reset to unpaid');
+console.log('Scheduled fees (Grok Bot, rule 17, LEDGER A item 1), and no shortfall claim on a row Forecast reset to unpaid');
 {
-  // Scheduled fee (tdfees): 16 recorded against a 24 allowance leaves an unspent allowance, never money owed.
+  // Scheduled fee (tdfees), 24 allowance, the incumbent posted two-leg pair. Expected by hand from Grok's rule:
+  //   16 posted: Partly paid, counts at 16 (paid bills 16), the other 8 stays to confirm, estimated, in this period (remaining 8),
+  //              never Paid; period cost stays the 24 allowance.
+  //   24 posted: Paid, nothing else.
+  //   28 posted: counts at 28 (paid bills 28, period cost 28), Paid with "$4.00 over planned · Review in Lunch Money".
   const Live = require('../scripts/live-plan');
   const feeFixture = require('./fixtures/scheduled-fee-routing-data');
+  const expected = {
+    16: { state: 'partly-paid', shortfall: 8, printed: 'Partly paid · ≈ $8.00 still to pay (estimated)', paid: 16, remaining: 8, total: 24 },
+    24: { state: undefined, shortfall: undefined, printed: 'Paid', paid: 24, remaining: 0, total: 24 },
+    28: { state: undefined, shortfall: undefined, printed: 'Paid · $4.00 over planned · Review in Lunch Money', paid: 28, remaining: 0, total: 28 },
+  };
   for (const posted of [16, 24, 28]) {
+    const want = expected[posted];
     const x = feeFixture(posted);
     const live = Live.fromObservation(x);
     const packet = live.data.liveOverlay.currentPeriodActuals;
     const advice = F.recommend(live.data.plan, x.asOf, { debts: live.data.debts, currentPeriodActuals: packet });
     const period = advice.payPeriodViews.find(row => row.start <= x.asOf && row.end >= x.asOf);
     const fee = (period.bills || []).find(b => b.id === 'tdfees');
-    ok(fee && !('paymentState' in fee) && !('shortfall' in fee), `scheduled fee, ${posted} posted on a 24 allowance: no partly-paid or shortfall claim`,
-      fee && JSON.stringify({ s: fee.paymentState, sf: fee.shortfall }));
-    ok(fee && !/still to pay|Partly paid/.test(text(ctx.rowHtml(fee))), `and its row never prints "still to pay" (${posted})`, fee && text(ctx.rowHtml(fee)));
+    ok(fee && fee.paymentState === want.state && fee.shortfall === want.shortfall
+      && (want.shortfall ? fee.shortfallTrust === 'estimated' : !('shortfallTrust' in fee)),
+    `scheduled fee, ${posted} posted on a 24 allowance: payment state ${want.state || 'none'}, shortfall ${want.shortfall || 'none'}`,
+    fee && JSON.stringify({ s: fee.paymentState, sf: fee.shortfall, t: fee.shortfallTrust }));
+    ok(fee && (posted === 28) === (fee.excessReview === true), `review flag only above the allowance (${posted})`, fee && String(fee.excessReview));
+    const printed = text(ctx.rowHtml(fee));
+    ok(printed.includes(want.printed), `its row prints "${want.printed}" (${posted})`, printed);
+    if (posted === 16) ok(!/\bPaid\b/.test(printed.replace('Partly paid', '')), 'the 16 row is never called Paid', printed);
+    if (posted !== 28) ok(!/Review in Lunch Money/.test(printed), `no review pointer at or below the allowance (${posted})`, printed);
+    ok(period.paidBills === want.paid && period.remainingBills === want.remaining && period.totalBillsThisPeriod === want.total,
+      `figures as on main (${posted}): paid ${want.paid}, remaining ${want.remaining}, total ${want.total}`,
+      JSON.stringify({ paid: period.paidBills, remaining: period.remainingBills, total: period.totalBillsThisPeriod }));
   }
 }
 {

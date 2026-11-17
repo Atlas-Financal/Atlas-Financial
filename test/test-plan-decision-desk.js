@@ -8,7 +8,6 @@
 const { loadBudgetPage } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const { sourceText } = require('./test-source-text');
 
@@ -23,12 +22,6 @@ const ok = (cond, label, detail = '') => {
 };
 const read = file => sourceText(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'));
 const raw = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-
-function grab(src, re, label) {
-  const match = re.exec(src);
-  if (!match) throw new Error('missing ' + label);
-  return match[0];
-}
 
 function loadComposer() {
   // The real Budget page (test/lib/budget-page-harness.js). operatingSurfaceHtml

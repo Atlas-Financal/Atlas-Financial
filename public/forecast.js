@@ -118,6 +118,31 @@
   }
 
   function state(plan, asOf, occurrences, representedEffectiveBy, options) {
+    return evaluate(plan, asOf, occurrences, representedEffectiveBy, options).result;
+  }
+  // The owner export (desk 6893166367; Grok Bot, Plan #6): the debits this
+  // owner counts as card-minimum payments, keyed by recorded identity, never
+  // by category or payee. Only accepted, posted records are exported, durable
+  // and derived alike, after conflict rejection. An owner input that cannot
+  // be read (a malformed or conflicting record, an unconfirmed purpose, or a
+  // malformed derived packet) makes the whole export Unavailable rather than
+  // an empty set. Cash-inclusion and issuer-satisfaction gaps concern the
+  // amount, not which debit is owned, so they do not withhold the export.
+  // Internal only: the hashed identities never enter the publication.
+  const EXPORT_UNREADABLE = new Set(['invalid-sent-payment-input', 'payment-intent-unconfirmed',
+    'sent-payment-evidence-unconfirmed', 'sent-payment-allocated-more-than-once']);
+  function ownedDebits(plan, asOf, occurrences, representedEffectiveBy, options) {
+    const packet = plan?.cardMinimumCategoryEvidence;
+    if (packet != null && (packet.source !== 'lunchmoney-minimum-category'
+        || !date(packet.asOf) || !Array.isArray(packet.payments))) {
+      return { status: 'unavailable', debitIds: null };
+    }
+    const { result, owned } = evaluate(plan, asOf, occurrences, representedEffectiveBy, options);
+    if (result.issues.some(issue => EXPORT_UNREADABLE.has(issue))) return { status: 'unavailable', debitIds: null };
+    return { status: 'available', debitIds: Array.from(new Set(owned)).sort() };
+  }
+  function evaluate(plan, asOf, occurrences, representedEffectiveBy, options) {
+    const owned = [];
     const category = minimumCategoryEvidence(plan, asOf);
     const rows = (plan && plan.obligations || []).map(row => {
       const owner = Array.isArray(row.sentPayments) ? row.sentPayments : [];
@@ -125,8 +150,8 @@
         && !owner.some(o => o.scheduledDate === p.scheduledDate));
       return observed.length ? { ...row, sentPayments: owner.concat(observed) } : row;
     });
-    if (!rows.some(row => row && row.sentPayments != null)) return {
-      status: 'incumbent', asOf, source: 'Forecast.cardMinimumState', payments: [], issues: [], reason: null };
+    if (!rows.some(row => row && row.sentPayments != null)) return { owned, result: {
+      status: 'incumbent', asOf, source: 'Forecast.cardMinimumState', payments: [], issues: [], reason: null } };
     const payments = [], issues = [], used = new Set();
     // A reused bank debit cannot establish a household payment action. Inspect
     // all supplied records, including competing purpose or pending evidence;
@@ -172,6 +197,7 @@
         }
         used.add(record.debitId);
         if (record.postedOn > asOf) continue;
+        owned.push(record.debitId);
         const statement = statements.find(item => item.scheduledDate === record.scheduledDate);
         const dueDate = statement ? statement.dueDate : record.scheduledDate;
         // Receipt is independent. Existing explicit satisfaction evidence is
@@ -193,10 +219,10 @@
       }
     }
     // No raw evidence identifiers or source documents in the publication.
-    return { status: issues.length ? 'unavailable' : payments.length ? 'ready' : 'incumbent',
+    return { owned, result: { status: issues.length ? 'unavailable' : payments.length ? 'ready' : 'incumbent',
       asOf, source: 'Forecast.cardMinimumState', payments,
       issues: Array.from(new Set(issues)),
-      reason: issues.length ? 'Card payment sent; cash inclusion or issuer minimum satisfaction is unconfirmed. Additional cash is unknown.' : null };
+      reason: issues.length ? 'Card payment sent; cash inclusion or issuer minimum satisfaction is unconfirmed. Additional cash is unknown.' : null } };
   }
 
     function originalDate(plan, id, value, occurrences) {
@@ -207,7 +233,7 @@
     if (original) return original.scheduledDate;
     return records.find(item => item.dueDate === value)?.scheduledDate || value;
   }
-    return { resolveOccurrences, mappedDate, originalDate, state };
+    return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits };
   })();
   /* --------------------------------------------------------------- dates */
   // ISO date strings throughout; arithmetic in UTC so DST can never shift a
@@ -637,6 +663,9 @@
 
   function cardMinimumState(plan, asOf, opts) {
     return CardMinimumContract.state(plan, asOf, occurrences, representedEventEffectiveBy, opts);
+  }
+  function cardMinimumOwnedDebits(plan, asOf, opts) {
+    return CardMinimumContract.ownedDebits(plan, asOf, occurrences, representedEventEffectiveBy, opts);
   }
   function minimumCategoryAllocationConflict(plan, payment) {
     const target = (plan?.obligations || []).find(row => row?.id === payment?.id);
@@ -8214,6 +8243,24 @@
     return catId;
   }
 
+  // LEDGER A item 3 (Grok Bot, rule 17; lead option A, 2026-11-16): a refund nets
+  // against its category only when the ledger links it to its purchase. Lunch
+  // Money returns a grouped purchase and refund as one group-parent row
+  // (isGroup), so that row is the linked form and nets as before. A standalone
+  // refund is unlinked: it never nets, never joins Other, and is listed on its
+  // own (unlinkedCategoryRefundRows). identifiedCategoryRefund stays the
+  // classification (which category a refund belongs to), so an unlinked refund
+  // still never settles expected income.
+  function linkedCategoryRefund(tx, cls, plan, opts) {
+    if (!tx || tx.isGroup !== true) return null;
+    return identifiedCategoryRefund(tx, cls, plan, opts);
+  }
+
+  function unlinkedCategoryRefund(tx, cls, plan, opts) {
+    if (!tx || tx.isGroup === true) return false;
+    return !!identifiedCategoryRefund(tx, cls, plan, opts);
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -8267,7 +8314,7 @@
         // Signed: with no same-period spend to absorb it the category shows
         // negative spent. A refund dated after a period closes is outside
         // that period's window, so it never rewrites the closed period.
-        const refundCat = state === 'posted' ? identifiedCategoryRefund(tx, cls, plan, classifyOpts) : null;
+        const refundCat = state === 'posted' ? linkedCategoryRefund(tx, cls, plan, classifyOpts) : null;
         if (refundCat) {
           if (!out.byId.has(refundCat)) out.byId.set(refundCat, { posted: 0, pending: 0, count: 0 });
           const row = out.byId.get(refundCat);
@@ -10412,11 +10459,14 @@
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
-    // The scheduled-fee allowance (tdfees, scheduledFeeOccurrenceAmounts) is never a payment owed: a lower recorded expense
-    // leaves an unspent allowance, so it publishes no shortfall (partly-paid for scheduled fees is a separate, deferred design).
-    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && event.id !== 'tdfees' ? {
-      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100, shortfallTrust: excessTrust,
-      shortfallSource: 'Forecast.billPaymentState' } : null;
+    // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
+    // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
+    // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
+    // scheduledFeeOccurrenceAmounts publishes them. A fee above its allowance keeps its excess and is flagged for review.
+    const scheduledFee = event.id === 'tdfees';
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
+      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
+      shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = paid ? 'PAID'
       : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
@@ -10472,7 +10522,7 @@
       ...(trustedBasis ? trustWeakenedConfidence(event) : {}),
       // A schedule-trusted settlement saw no payment, so it has no excess.
       ...(excess != null && !sent && !minimumCovered && !trustedBasis
-        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
+        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState', ...(scheduledFee ? { excessReview: true } : {}) } : {}),
     };
   }
 
@@ -10523,7 +10573,7 @@
       actual: null, remaining: 0,
     });
     for (const key of ['settlementBasis', 'settlementEvidence', 'paymentState', 'shortfall', 'shortfallTrust',
-      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'scheduledFeeAllowance']) delete copy[key];
+      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'excessReview', 'scheduledFeeAllowance']) delete copy[key];
     return copy;
   }
   function isCarriedBillRow(row) {
@@ -10630,6 +10680,7 @@
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
+        delete row.excessReview;
         delete row.paymentState;
         delete row.shortfall;
         delete row.shortfallTrust;
@@ -12402,7 +12453,19 @@
         ? { possibleCardPaidBill: { id: tx.pendingPossibleCardPaidBill.id,
           label: reconIdentityField(tx.pendingPossibleCardPaidBill.label) } } : {}),
       ...(extra && extra.cardPurchaseCoverage ? { cardPurchaseCoverage: extra.cardPurchaseCoverage } : {}),
+      // Display-only: a posted row linked to one bill that doesn't fit it.
+      // It is counted here as ordinary money out and the bill stays To
+      // confirm; nothing reads this for math.
+      ...(linkedBillMisfitFrom(tx) ? { linkedBillMisfit: linkedBillMisfitFrom(tx) } : {}),
     };
+  }
+
+  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount'];
+  function linkedBillMisfitFrom(tx) {
+    const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
+    if (!misfit || typeof misfit.id !== 'string' || !misfit.id
+      || !LINKED_BILL_MISFIT_CHECKS.includes(misfit.check)) return null;
+    return { id: misfit.id, label: reconIdentityField(misfit.label), check: misfit.check };
   }
 
   // The category recon and the card-carry fallback use one membership rule.
@@ -12437,7 +12500,7 @@
       // as a negative amount; every other refund stays out.
       if (opts && opts.categoryRefunds === true && cls.kind === 'refund'
           && transactionPendingState(tx) === 'posted') {
-        const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
+        const refundCat = linkedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
         } else if (refundCat) {
@@ -12586,6 +12649,21 @@
         if (cls.kind !== 'savings-paid') continue;
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
         savingsPaidRows.push(reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate }));
+      }
+    }
+    // LEDGER A item 3: posted refunds the ledger does not link to a purchase.
+    // Display only: never in a category, Other spending, the hold or any total.
+    const unlinkedRefundRows = [];
+    if (actualsReady && windowStart && packet && Array.isArray(packet.transactions)) {
+      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      for (const tx of packet.transactions) {
+        if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
+          || skipSplitParent(tx, packet) || transactionPendingState(tx) !== 'posted') continue;
+        const amount = Number(tx.amount);
+        if (!isFinite(amount) || !(amount < 0)) continue;
+        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        if (cls.kind !== 'refund' || !unlinkedCategoryRefund(tx, cls, plan, classifyOpts)) continue;
+        unlinkedRefundRows.push(reconTxFrom(tx, { kind: 'refund', reason: 'refund-unlinked', includeReason: 'refund-unlinked' }));
       }
     }
     // G3a: an identified refund row is negative and nets, signed, within its
@@ -12803,6 +12881,9 @@
       // published for Paid from Savings. The display is withheld: Unavailable,
       // with the observed rows as a lower bound only. The cash accounting
       // (never a reserve, BAD, close or sweep deduction) is unchanged.
+      ...(unlinkedRefundRows.length ? { unlinkedRefunds: {
+        total: roundCent(unlinkedRefundRows.reduce((s, r) => s - (Number(r.amount) || 0), 0)),
+        trust: 'calculated', reason: 'refund-unlinked', recon: unlinkedRefundRows } } : {}),
       ...(savingsPaidRows.length ? { savingsPaid: { total: null,
         observedTotal: spentFromRecon(savingsPaidRows), complete: false,
         pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
@@ -16057,6 +16138,8 @@
         // Savings audit (PR 1): display only. Already in observed Savings;
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
+        // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
+        ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
         budgetHoldTrust: !planUnavailable && budget.holdUnproven === true ? 'unavailable'
           : !planUnavailable && budget.holdTrust === 'estimated' ? 'estimated' : null,
@@ -23809,1019 +23892,7 @@
       ranking: null,
       affordability: null,
       payPeriods: [],
-      pressure: trajectoryPressureUnavailable(reason),
-      debtDirection: trajectoryDebtDirectionUnavailable(reason),
       additionalCashRequired: additionalCashRequiredUnavailable(reason),
-    };
-  }
-
-  const TRAJECTORY_PRESSURE_KIND_ORDER = {
-    'lowest-projected-cash': 0,
-    'cash-trough': 1,
-    'cash-sign-change': 2,
-    'month-cash-decline': 3,
-    'outflow-exceeds-inflow': 4,
-    'dated-commitment': 5,
-    'debt-increase': 6,
-    'debt-not-declining-after-payment': 7,
-    'debt-limit-crossing': 8,
-  };
-
-  function trajectoryPressureUnavailable(reason) {
-    return {
-      status: 'unavailable',
-      reason: reason || 'Baseline trajectory unavailable.',
-      signals: [],
-      policyThresholds: 'none',
-      ranking: null,
-      recommendation: null,
-      affordability: null,
-    };
-  }
-
-  function trajectoryDebtDirectionUnavailable(reason) {
-    return {
-      status: 'unavailable',
-      reason: reason || 'Coupled debt walk was unavailable.',
-      debts: [],
-      declining: [],
-      persistent: [],
-      increasing: [],
-      anySupportedIncrease: false,
-      inventedBorrowing: false,
-      availableCreditIsNotCash: true,
-      unpublishedMonthsContribute: false,
-      policyThresholds: 'none',
-      ranking: null,
-      recommendation: null,
-      affordability: null,
-    };
-  }
-
-  function trajectoryBalanceDirection(fromAmount, toAmount) {
-    const opening = roundCent(fromAmount);
-    const ending = roundCent(toAmount);
-    return {
-      opening,
-      ending,
-      delta: roundCent(ending - opening),
-      direction: ending < opening ? 'declining'
-        : ending > opening ? 'increasing'
-        : 'persistent',
-    };
-  }
-
-  function trajectoryMonthHasPublishedCash(row) {
-    return !!(row && row.cash
-      && (row.cash.status === 'calculated' || row.cash.status === 'estimated')
-      && row.cash.amount != null && isFinite(row.cash.amount));
-  }
-
-  function trajectoryMonthHasPublishedDebt(row) {
-    return !!(row && row.debt && row.debt.status === 'calculated'
-      && row.debt.consumer != null && isFinite(row.debt.consumer)
-      && row.debt.secured != null && isFinite(row.debt.secured));
-  }
-
-  function trajectoryCashTrust(status) {
-    return status === 'estimated' ? 'estimated' : 'calculated';
-  }
-
-  // Signal trust is the weaker of its inputs. An estimated household
-  // input is never published as calculated.
-  function trajectoryInputTrust(confidence) {
-    return confidence === 'confirmed' ? 'calculated' : 'estimated';
-  }
-
-  function trajectoryWeakerTrust() {
-    for (let i = 0; i < arguments.length; i++) {
-      if (arguments[i] === 'estimated') return 'estimated';
-    }
-    return 'calculated';
-  }
-
-  function trajectoryDebtPendingUnknown(debts, debtId) {
-    if (!debtId || !Array.isArray(debts)) return false;
-    const debt = debts.find(row => row && row.id === debtId);
-    return pendingUnknown(debt);
-  }
-
-  function trajectoryDebtTotal(debt) {
-    return roundCent((Number(debt && debt.consumer) || 0) + (Number(debt && debt.secured) || 0));
-  }
-
-  function trajectoryPaidTotal(debt) {
-    return roundCent(((debt && debt.debts) || []).reduce((sum, row) => (
-      sum + (Number(row && row.paid) || 0)
-    ), 0));
-  }
-
-  const TRAJECTORY_DRIVER_CLASS_ORDER = {
-    'income-timing': 0,
-    'bonus-timing': 1,
-    'household-budget': 2,
-    'recurring-bills': 3,
-    'debt-payment': 4,
-    'debt-interest': 5,
-    'dated-commitment': 6,
-    'mortgage-or-major-obligation': 7,
-  };
-
-  function trajectoryAttributionUnavailable(reason, change) {
-    return {
-      status: 'unavailable',
-      reason: reason || 'Walk-derived drivers could not be established.',
-      change: change == null || !isFinite(change) ? null : roundCent(change),
-      drivers: [],
-      facts: [],
-    };
-  }
-
-  function trajectoryIsBonusIncome(event) {
-    if (!event || event.kind !== 'income') return false;
-    if (event.id === 'payrollBonus') return true;
-    return /bonus/i.test(`${event.id || ''} ${event.label || ''}`);
-  }
-
-  function trajectoryIsMortgageObligation(event) {
-    if (!event || event.kind !== 'obligation') return false;
-    if (event.debtId === 'mortgage' || event.id === 'mortgage') return true;
-    return /mortgage/i.test(`${event.id || ''} ${event.label || ''}`);
-  }
-
-  // Closed candidate classes only. An event the walk applied that does
-  // not map onto one of them is unmapped: attribution fails closed
-  // rather than inventing an "other" cause.
-  function trajectoryCashDriverClass(event) {
-    if (!event) return { skip: true, unmapped: false };
-    if (event.kind === 'noncash' || event.jointCash === false) {
-      return { skip: true, unmapped: false };
-    }
-    const amount = Number(event.amount) || 0;
-    if (!amount) return { skip: true, unmapped: false };
-    if (event.kind === 'income') {
-      return {
-        skip: false,
-        unmapped: false,
-        class: trajectoryIsBonusIncome(event) ? 'bonus-timing' : 'income-timing',
-      };
-    }
-    if (event.kind === 'bill') {
-      return { skip: false, unmapped: false, class: 'recurring-bills' };
-    }
-    if (event.kind === 'commitment' || isDatedReservePlanningEvent(event)) {
-      return { skip: false, unmapped: false, class: 'dated-commitment' };
-    }
-    if (event.kind === 'obligation') {
-      return {
-        skip: false,
-        unmapped: false,
-        class: trajectoryIsMortgageObligation(event)
-          ? 'mortgage-or-major-obligation'
-          : 'debt-payment',
-      };
-    }
-    if (event.kind === 'extra' || event.kind === 'planned-debt') {
-      return { skip: false, unmapped: false, class: 'debt-payment' };
-    }
-    return { skip: false, unmapped: true, class: null };
-  }
-
-  function trajectorySortDrivers(drivers) {
-    return (drivers || []).slice().sort((a, b) => {
-      const rankA = TRAJECTORY_DRIVER_CLASS_ORDER[a && a.class];
-      const rankB = TRAJECTORY_DRIVER_CLASS_ORDER[b && b.class];
-      const orderA = rankA == null ? 99 : rankA;
-      const orderB = rankB == null ? 99 : rankB;
-      if (orderA !== orderB) return orderA - orderB;
-      return String((a && a.class) || '').localeCompare(String((b && b.class) || ''));
-    });
-  }
-
-  function trajectoryReconcileDrivers(drivers, change) {
-    const rows = trajectorySortDrivers(drivers);
-    const target = roundCent(change);
-    const sum = roundCent(rows.reduce((s, row) => s + (Number(row && row.amount) || 0), 0));
-    if (sum === target) return rows;
-    const gap = roundCent(target - sum);
-    if (Math.abs(gap) > 0.01) return null;
-    const idx = rows.findIndex(row => row && row.class === 'household-budget');
-    if (idx < 0) return null;
-    rows[idx] = Object.assign({}, rows[idx], {
-      amount: roundCent((Number(rows[idx].amount) || 0) + gap),
-    });
-    const next = roundCent(rows.reduce((s, row) => s + (Number(row && row.amount) || 0), 0));
-    return next === target ? rows : null;
-  }
-
-  function trajectoryPaydayCadenceFact(incomeItems) {
-    if (!Array.isArray(incomeItems) || !incomeItems.length) return null;
-    const byId = new Map();
-    for (const item of incomeItems) {
-      if (!item) continue;
-      const id = item.id || item.label || '';
-      if (!byId.has(id)) byId.set(id, []);
-      byId.get(id).push(item);
-    }
-    const groups = Array.from(byId.entries()).map(([id, rows]) => ({
-      id,
-      count: rows.length,
-      label: (rows[0] && rows[0].label) || null,
-      payroll: id === 'payroll' || /seaspan/i.test(`${id} ${(rows[0] && rows[0].label) || ''}`),
-    }));
-    const payroll = groups.find(row => row.payroll && (row.count === 2 || row.count === 3));
-    const twoThree = groups.filter(row => row.count === 2 || row.count === 3);
-    const picked = payroll || (twoThree.length === 1 ? twoThree[0] : null);
-    if (!picked) return null;
-    return {
-      class: 'income-timing',
-      cadence: picked.count === 3 ? 'three-pay-month' : 'two-pay-month',
-      count: picked.count,
-      id: picked.id || null,
-      label: picked.label,
-    };
-  }
-
-  function trajectoryPayrollRegimeFacts(deposits, start, end) {
-    const facts = [];
-    if (!Array.isArray(deposits) || !start || !end) return facts;
-    const regular = deposits.filter(row => row && row.kind === 'regular' && row.date)
-      .slice()
-      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
-    for (let i = 1; i < regular.length; i++) {
-      const prior = regular[i - 1];
-      const curr = regular[i];
-      if (curr.date < start || curr.date > end) continue;
-      const gross = Number(curr.gross);
-      const priorGross = Number(prior.gross);
-      if (!isFinite(gross) || !isFinite(priorGross) || roundCent(gross) !== roundCent(priorGross)) {
-        continue;
-      }
-      const currDed = (Number(curr.tax) || 0) + (Number(curr.cpp) || 0)
-        + (Number(curr.cpp2) || 0) + (Number(curr.ei) || 0) + (Number(curr.pension) || 0);
-      const priorDed = (Number(prior.tax) || 0) + (Number(prior.cpp) || 0)
-        + (Number(prior.cpp2) || 0) + (Number(prior.ei) || 0) + (Number(prior.pension) || 0);
-      if (roundCent(currDed) === roundCent(priorDed)) continue;
-      const net = Number(curr.net);
-      const priorNet = Number(prior.net);
-      if (!isFinite(net) || !isFinite(priorNet) || roundCent(net) === roundCent(priorNet)) {
-        continue;
-      }
-      facts.push({
-        class: 'payroll-deduction-regime',
-        date: curr.date,
-        priorDate: prior.date,
-        gross: roundCent(gross),
-        net: roundCent(net),
-        priorNet: roundCent(priorNet),
-        deductionDelta: roundCent(currDed - priorDed),
-      });
-    }
-    return facts;
-  }
-
-  function trajectoryCollectCashDrivers(input) {
-    input = input || {};
-    const start = input.start;
-    const end = input.end;
-    const events = Array.isArray(input.events) ? input.events : [];
-    const walkStart = input.walkStart;
-    const weeklyVariable = Number(input.weeklyVariable) || 0;
-    const reservedDaily = Number(input.reservedDaily) || 0;
-    if (!start || !end || start > end) {
-      return { ok: false, reason: 'Attribution window is not a dated walk period.' };
-    }
-    const byClass = new Map();
-    const incomeItems = [];
-    let unmapped = false;
-    for (const event of events) {
-      const apply = cashWalkDate(event, walkStart);
-      if (!apply || apply < start || apply > end) continue;
-      const mapped = trajectoryCashDriverClass(event);
-      if (mapped.skip) continue;
-      if (mapped.unmapped || !mapped.class) {
-        unmapped = true;
-        continue;
-      }
-      const amount = Number(operatingEventAmount(event)) || 0;
-      const prev = byClass.get(mapped.class) || { class: mapped.class, amount: 0, count: 0 };
-      prev.amount += amount;
-      prev.count += 1;
-      byClass.set(mapped.class, prev);
-      if (mapped.class === 'income-timing') {
-        incomeItems.push({ id: event.id || null, label: event.label || null, date: apply });
-      }
-    }
-    if (unmapped) {
-      return {
-        ok: false,
-        reason: 'The walk includes a cash movement that is not a candidate driver class.',
-      };
-    }
-    const days = diffDays(start, end) + 1;
-    const budgetDrain = days > 0 ? days * ((weeklyVariable / 7) + reservedDaily) : 0;
-    if (budgetDrain) {
-      const prev = byClass.get('household-budget')
-        || { class: 'household-budget', amount: 0, count: 0 };
-      prev.amount -= budgetDrain;
-      prev.count += days;
-      byClass.set('household-budget', prev);
-    }
-    const drivers = [];
-    for (const row of byClass.values()) {
-      const amount = roundCent(row.amount);
-      if (!amount) continue;
-      const driver = { class: row.class, amount };
-      if (row.count) driver.count = row.count;
-      drivers.push(driver);
-    }
-    const facts = [];
-    const cadence = trajectoryPaydayCadenceFact(incomeItems);
-    if (cadence) facts.push(cadence);
-    for (const fact of trajectoryPayrollRegimeFacts(input.payrollDeposits, start, end)) {
-      facts.push(fact);
-    }
-    return { ok: true, drivers, facts };
-  }
-
-  function trajectoryCashWindowAttribution(change, window, ctx) {
-    const target = roundCent(change);
-    if (!window || !window.start || !window.end || window.start > window.end) {
-      return trajectoryAttributionUnavailable(
-        'No dated walk window isolates this trajectory change.', target);
-    }
-    const collected = trajectoryCollectCashDrivers({
-      start: window.start,
-      end: window.end,
-      events: ctx.events,
-      walkStart: ctx.walkStart,
-      weeklyVariable: ctx.weeklyVariable,
-      reservedDaily: ctx.reservedDaily,
-      payrollDeposits: ctx.payrollDeposits,
-    });
-    if (!collected.ok) {
-      return trajectoryAttributionUnavailable(collected.reason, target);
-    }
-    if (!collected.drivers.length && target !== 0) {
-      return trajectoryAttributionUnavailable(
-        'No walk-derived drivers reconcile to this trajectory change.', target);
-    }
-    const drivers = trajectoryReconcileDrivers(collected.drivers, target);
-    if (!drivers) {
-      return trajectoryAttributionUnavailable(
-        'Classified drivers do not reconcile to this trajectory change.', target);
-    }
-    if (!drivers.length && target === 0) {
-      return trajectoryAttributionUnavailable(
-        'No walk-derived cash change to attribute.', target);
-    }
-    return {
-      status: 'ready',
-      change: target,
-      drivers,
-      facts: collected.facts || [],
-    };
-  }
-
-  function trajectoryDebtMarkAttribution(signal, prev, curr) {
-    const change = signal && signal.delta != null
-      ? roundCent(signal.delta)
-      : roundCent(trajectoryDebtTotal(curr) - trajectoryDebtTotal(prev));
-    if (!prev || !curr) {
-      return trajectoryAttributionUnavailable(
-        'Coupled month-end debt marks are required to attribute this change.', change);
-    }
-    const interestDelta = roundCent(
-      (Number(curr.interestToDate) || 0) - (Number(prev.interestToDate) || 0));
-    const paidDelta = roundCent(trajectoryPaidTotal(curr) - trajectoryPaidTotal(prev));
-    const explained = roundCent(interestDelta - paidDelta);
-    if (explained !== change) {
-      return trajectoryAttributionUnavailable(
-        'Coupled debt marks do not isolate interest and payments for this change.',
-        change);
-    }
-    const drivers = [];
-    if (interestDelta) {
-      drivers.push({ class: 'debt-interest', amount: interestDelta });
-    }
-    if (paidDelta) {
-      drivers.push({ class: 'debt-payment', amount: roundCent(-paidDelta) });
-    }
-    const reconciled = trajectoryReconcileDrivers(drivers, change);
-    if (!reconciled || (!reconciled.length && change !== 0)) {
-      return trajectoryAttributionUnavailable(
-        'Classified debt drivers do not reconcile to this trajectory change.', change);
-    }
-    if (!reconciled.length && change === 0) {
-      return trajectoryAttributionUnavailable(
-        'No walk-derived debt change to attribute.', change);
-    }
-    return {
-      status: 'ready',
-      change,
-      drivers: reconciled,
-      facts: [],
-    };
-  }
-
-  function trajectoryPreviousClose(ctx, date) {
-    if (!date) return null;
-    if (ctx.walkStart && date === ctx.walkStart
-      && ctx.openingCash != null && isFinite(ctx.openingCash)) {
-      return { date: ctx.walkStart, amount: roundCent(ctx.openingCash), opening: true };
-    }
-    const prevDate = addDays(date, -1);
-    const prev = (ctx.publishedDaily || []).find(row => row && row.date === prevDate);
-    if (prev) return { date: prev.date, amount: prev.amount, opening: false };
-    return null;
-  }
-
-  function trajectorySignalAttribution(signal, ctx) {
-    if (!signal || !signal.kind) {
-      return trajectoryAttributionUnavailable('Pressure signal is missing.');
-    }
-    if (signal.kind === 'debt-limit-crossing') {
-      return trajectoryAttributionUnavailable(
-        'The walk does not isolate a candidate driver class for a facility limit crossing without inventing a daily interest split.');
-    }
-    if (signal.kind === 'dated-commitment') {
-      const amount = Number(signal.amount) || 0;
-      const change = roundCent(-amount);
-      if (!(amount > 0) || !signal.date) {
-        return trajectoryAttributionUnavailable(
-          'Dated commitment has no walk-derived amount to attribute.', change);
-      }
-      return {
-        status: 'ready',
-        change,
-        drivers: [{
-          class: 'dated-commitment',
-          amount: change,
-          count: 1,
-          id: signal.id || null,
-          label: signal.label || null,
-          date: signal.date,
-        }],
-        facts: [],
-      };
-    }
-    if (signal.kind === 'debt-increase'
-      || signal.kind === 'debt-not-declining-after-payment') {
-      const prev = (ctx.publishedDebtMonths || []).find(row =>
-        row && row.month === signal.fromMonth);
-      const curr = (ctx.publishedDebtMonths || []).find(row =>
-        row && row.month === signal.month);
-      return trajectoryDebtMarkAttribution(signal, prev && prev.debt, curr && curr.debt);
-    }
-    if (signal.kind === 'month-cash-decline') {
-      const curr = (ctx.publishedCashMonths || []).find(row =>
-        row && row.month === signal.month);
-      if (!curr) {
-        return trajectoryAttributionUnavailable(
-          'The declined month is not a published cash month.');
-      }
-      return trajectoryCashWindowAttribution(signal.delta, {
-        start: curr.start,
-        end: curr.end,
-      }, ctx);
-    }
-    if (signal.kind === 'outflow-exceeds-inflow') {
-      return trajectoryCashWindowAttribution(signal.net, {
-        start: signal.start,
-        end: signal.end,
-      }, ctx);
-    }
-    if (signal.kind === 'cash-sign-change') {
-      const change = roundCent((Number(signal.toAmount) || 0) - (Number(signal.fromAmount) || 0));
-      if (!signal.date) {
-        return trajectoryAttributionUnavailable(
-          'Sign-change has no dated walk window.', change);
-      }
-      // fromAmount is the last strictly positive observation: a published
-      // close, or the walk opening when later published closes are exact
-      // $0. The attributed change is the subsequent walk through
-      // toAmount. A published $0 row is not a last-positive match and
-      // must not block dating the opening window.
-      let windowStart = null;
-      const openingMatchesFrom = ctx.openingCash != null && isFinite(ctx.openingCash)
-        && roundCent(ctx.openingCash) === roundCent(signal.fromAmount);
-      const openingSameDay = ctx.walkStart === signal.date && openingMatchesFrom;
-      if (openingSameDay) {
-        windowStart = signal.date;
-      } else {
-        const lastPositive = (ctx.publishedDaily || []).slice()
-          .reverse()
-          .find(row => row && row.date < signal.date
-            && roundCent(row.amount) === roundCent(signal.fromAmount));
-        if (lastPositive) {
-          windowStart = addDays(lastPositive.date, 1);
-        } else if (openingMatchesFrom && ctx.walkStart && signal.date > ctx.walkStart) {
-          windowStart = ctx.walkStart;
-        }
-      }
-      if (!windowStart) {
-        return trajectoryAttributionUnavailable(
-          'The last positive close that this sign-change leaves could not be dated.',
-          change);
-      }
-      return trajectoryCashWindowAttribution(change, {
-        start: windowStart,
-        end: signal.date,
-      }, ctx);
-    }
-    if (signal.kind === 'lowest-projected-cash' || signal.kind === 'cash-trough') {
-      if (!signal.date || signal.amount == null || !isFinite(signal.amount)) {
-        return trajectoryAttributionUnavailable(
-          'This cash level has no dated walk amount to attribute.');
-      }
-      const previous = trajectoryPreviousClose(ctx, signal.date);
-      if (!previous) {
-        return trajectoryAttributionUnavailable(
-          'The prior published close for this cash level could not be dated.');
-      }
-      const change = roundCent(signal.amount - previous.amount);
-      if (change === 0) {
-        return trajectoryAttributionUnavailable(
-          'This cash level is the prior close or opening, not a walk-derived change.',
-          change);
-      }
-      return trajectoryCashWindowAttribution(change, {
-        start: signal.date,
-        end: signal.date,
-      }, ctx);
-    }
-    return trajectoryAttributionUnavailable(
-      'No candidate driver class is established for this pressure kind.');
-  }
-
-  // Objective pressure from the existing baselineTrajectory walk only.
-  // Describes mechanical facts the walk already established. Does not
-  // invent a household minimum, breathing-room, safe-to-spend, RYG,
-  // risk-score, affordability, or other owner-policy threshold.
-  // Unpublished cash or debt months fail closed: no invented signals.
-  // Cause attribution is the same helper: mechanical drivers from the
-  // same events, daily drain, and coupled debt marks. It fails closed
-  // when those drivers cannot be established or do not reconcile.
-  function baselineTrajectoryPressure(input) {
-    input = input || {};
-    const signals = [];
-    const daily = Array.isArray(input.daily) ? input.daily : [];
-    const events = Array.isArray(input.events) ? input.events : [];
-    const months = Array.isArray(input.months) ? input.months : [];
-    const crossings = Array.isArray(input.crossings) ? input.crossings : [];
-    const debts = Array.isArray(input.debts) ? input.debts : [];
-    const walkStart = input.walkStart || null;
-    const weeklyVariable = Number(input.weeklyVariable) || 0;
-    const reservedDaily = Number(input.reservedDaily) || 0;
-    const dailyVariable = weeklyVariable / 7;
-    const payrollDeposits = Array.isArray(input.payrollDeposits) ? input.payrollDeposits : [];
-    const publishedCashMonths = months.filter(trajectoryMonthHasPublishedCash);
-    const publishedDebtMonths = months.filter(trajectoryMonthHasPublishedDebt);
-    // Months whose walk is published but whose consumer total is unknown (a
-    // card's pending is unknown). Facility-level facts (limit crossings) stay
-    // knowable; total-based signals are withheld and the withholding is said.
-    const consumerUnknownMonths = months.filter(row => row && row.debt
-      && row.debt.status === 'calculated' && row.debt.consumer == null
-      && row.debt.secured != null && isFinite(row.debt.secured));
-
-    function monthForDate(date) {
-      if (!date) return null;
-      return months.find(row => row && date >= row.start && date <= row.end) || null;
-    }
-
-    function publishedCashMonthForDate(date) {
-      if (!date) return null;
-      return publishedCashMonths.find(row => date >= row.start && date <= row.end) || null;
-    }
-
-    const publishedDaily = [];
-    for (const row of daily) {
-      if (!row || !row.date || row.balance == null || !isFinite(row.balance)) continue;
-      const month = publishedCashMonthForDate(row.date);
-      if (!month) continue;
-      publishedDaily.push({
-        date: row.date,
-        amount: roundCent(row.balance),
-        month: month.month,
-        trust: trajectoryCashTrust(month.cash.status),
-      });
-    }
-
-    let lowest = null;
-    for (const point of publishedDaily) {
-      if (!lowest
-        || point.amount < lowest.amount
-        || (point.amount === lowest.amount && point.date < lowest.date)) {
-        lowest = point;
-      }
-    }
-    const walkMin = input.min;
-    if (walkMin && walkMin.date && walkMin.balance != null && isFinite(walkMin.balance)) {
-      const minMonth = publishedCashMonthForDate(walkMin.date);
-      if (minMonth) {
-        const amount = roundCent(walkMin.balance);
-        if (!lowest
-          || amount < lowest.amount
-          || (amount === lowest.amount && walkMin.date < lowest.date)) {
-          lowest = {
-            date: walkMin.date,
-            amount,
-            month: minMonth.month,
-            trust: trajectoryCashTrust(minMonth.cash.status),
-          };
-        }
-      }
-    }
-    if (lowest) {
-      signals.push({
-        kind: 'lowest-projected-cash',
-        date: lowest.date,
-        month: lowest.month,
-        amount: lowest.amount,
-        trust: lowest.trust,
-      });
-    }
-
-    for (const month of publishedCashMonths) {
-      const inMonth = publishedDaily.filter(point => point.month === month.month);
-      if (!inMonth.length) continue;
-      let trough = inMonth[0];
-      for (const point of inMonth) {
-        if (point.amount < trough.amount
-          || (point.amount === trough.amount && point.date < trough.date)) {
-          trough = point;
-        }
-      }
-      signals.push({
-        kind: 'cash-trough',
-        date: trough.date,
-        month: trough.month,
-        amount: trough.amount,
-        trust: trough.trust,
-      });
-    }
-
-    // Positive → negative even when intermediate published closes are
-    // exactly $0. Zero is the walk's sign identity, not a comfort
-    // threshold. Unpublished gaps fail closed: lastPositive is dropped.
-    const signSeries = [];
-    const openingCash = input.openingCash;
-    if (publishedDaily.length
-      && walkStart
-      && publishedDaily[0].date === walkStart
-      && openingCash != null && isFinite(openingCash)) {
-      signSeries.push({
-        date: walkStart,
-        amount: roundCent(openingCash),
-        month: publishedDaily[0].month,
-        trust: publishedDaily[0].trust,
-        opening: true,
-      });
-    }
-    for (const point of publishedDaily) signSeries.push(point);
-    let lastPositive = null;
-    let prevSign = null;
-    for (const curr of signSeries) {
-      if (prevSign) {
-        const sameDayOpeningToClose = !!prevSign.opening && curr.date === prevSign.date;
-        const consecutive = sameDayOpeningToClose
-          || (!prevSign.opening && diffDays(prevSign.date, curr.date) === 1);
-        if (!consecutive) lastPositive = null;
-      }
-      if (curr.amount > 0) {
-        lastPositive = curr;
-      } else if (curr.amount < 0 && lastPositive) {
-        signals.push({
-          kind: 'cash-sign-change',
-          date: curr.date,
-          month: curr.month,
-          fromAmount: lastPositive.amount,
-          toAmount: curr.amount,
-          trust: (lastPositive.trust === 'estimated' || curr.trust === 'estimated')
-            ? 'estimated' : 'calculated',
-        });
-        lastPositive = null;
-      }
-      prevSign = curr;
-    }
-
-    for (let i = 1; i < publishedCashMonths.length; i++) {
-      const prev = publishedCashMonths[i - 1];
-      const curr = publishedCashMonths[i];
-      if (diffDays(prev.end, curr.start) !== 1) continue;
-      const fromAmount = roundCent(prev.cash.amount);
-      const toAmount = roundCent(curr.cash.amount);
-      if (!(toAmount < fromAmount)) continue;
-      signals.push({
-        kind: 'month-cash-decline',
-        month: curr.month,
-        fromMonth: prev.month,
-        fromAmount,
-        toAmount,
-        delta: roundCent(toAmount - fromAmount),
-        trust: (prev.cash.status === 'estimated' || curr.cash.status === 'estimated')
-          ? 'estimated' : 'calculated',
-      });
-    }
-
-    for (const month of publishedCashMonths) {
-      let inflow = 0;
-      let outflow = 0;
-      for (const event of events) {
-        if (!event) continue;
-        const apply = cashWalkDate(event, walkStart);
-        if (!apply || apply < month.start || apply > month.end) continue;
-        if (event.kind === 'noncash' || event.jointCash === false) continue;
-        const amount = Number(operatingEventAmount(event)) || 0;
-        if (!amount) continue;
-        if (amount > 0) inflow += amount;
-        else outflow += -amount;
-      }
-      const days = diffDays(month.start, month.end) + 1;
-      if (days > 0) outflow += days * (dailyVariable + reservedDaily);
-      inflow = roundCent(inflow);
-      outflow = roundCent(outflow);
-      if (!(outflow > inflow)) continue;
-      signals.push({
-        kind: 'outflow-exceeds-inflow',
-        month: month.month,
-        start: month.start,
-        end: month.end,
-        inflow,
-        outflow,
-        net: roundCent(inflow - outflow),
-        trust: trajectoryCashTrust(month.cash.status),
-      });
-    }
-
-    for (const event of events) {
-      if (!event || event.kind !== 'commitment' || event.jointCash === false) continue;
-      const apply = cashWalkDate(event, walkStart);
-      const month = publishedCashMonthForDate(apply);
-      if (!month) continue;
-      const amount = roundCent(Math.abs(Number(event.amount) || 0));
-      if (!(amount > 0)) continue;
-      const day = publishedDaily.find(point => point.date === apply);
-      signals.push({
-        kind: 'dated-commitment',
-        date: apply,
-        month: month.month,
-        id: event.id || null,
-        label: event.label || null,
-        amount,
-        cashAfter: day ? day.amount : null,
-        trust: trajectoryWeakerTrust(
-          trajectoryInputTrust(event.confidence),
-          day ? day.trust : trajectoryCashTrust(month.cash.status)),
-      });
-    }
-
-    for (let i = 1; i < publishedDebtMonths.length; i++) {
-      const prev = publishedDebtMonths[i - 1];
-      const curr = publishedDebtMonths[i];
-      if (diffDays(prev.end, curr.start) !== 1) continue;
-      const fromTotal = trajectoryDebtTotal(prev.debt);
-      const toTotal = trajectoryDebtTotal(curr.debt);
-      const paidDelta = roundCent(trajectoryPaidTotal(curr.debt) - trajectoryPaidTotal(prev.debt));
-      const debtDelta = roundCent(toTotal - fromTotal);
-      if (toTotal > fromTotal) {
-        signals.push({
-          kind: 'debt-increase',
-          month: curr.month,
-          asOf: curr.debt.asOf || curr.end,
-          fromMonth: prev.month,
-          fromAsOf: prev.debt.asOf || prev.end,
-          fromTotal,
-          toTotal,
-          delta: debtDelta,
-          consumerDelta: roundCent(
-            (Number(curr.debt.consumer) || 0) - (Number(prev.debt.consumer) || 0)),
-          securedDelta: roundCent(
-            (Number(curr.debt.secured) || 0) - (Number(prev.debt.secured) || 0)),
-          helocDelta: roundCent(
-            (Number(curr.debt.heloc) || 0) - (Number(prev.debt.heloc) || 0)),
-        });
-      }
-      if (paidDelta > 0 && !(toTotal < fromTotal)) {
-        signals.push({
-          kind: 'debt-not-declining-after-payment',
-          month: curr.month,
-          asOf: curr.debt.asOf || curr.end,
-          fromMonth: prev.month,
-          paidDelta,
-          debtDelta,
-          fromTotal,
-          toTotal,
-        });
-      }
-    }
-
-    for (const crossing of crossings) {
-      if (!crossing || !crossing.date) continue;
-      const month = monthForDate(crossing.date);
-      if (!month || !(trajectoryMonthHasPublishedDebt(month) || consumerUnknownMonths.includes(month))) continue;
-      // A below-limit posted opening plus unknown pending is not a
-      // knowable crossing: pending may already put the account over.
-      // Posted already-over remains knowable regardless of pending.
-      const pendingUnknowable = crossing.pendingUnknown === true
-        || trajectoryDebtPendingUnknown(debts, crossing.id);
-      if (pendingUnknowable && !crossing.alreadyOver) continue;
-      signals.push({
-        kind: 'debt-limit-crossing',
-        date: crossing.date,
-        month: month.month,
-        debtId: crossing.id || null,
-        label: crossing.label || null,
-        limit: crossing.limit != null && isFinite(crossing.limit)
-          ? roundCent(crossing.limit) : null,
-        alreadyOver: !!crossing.alreadyOver,
-      });
-    }
-
-    function signalDate(signal) {
-      if (signal && signal.date) return signal.date;
-      const month = months.find(row => row && row.month === (signal && signal.month));
-      return (month && month.start) || (signal && signal.month) || '';
-    }
-    signals.sort((a, b) => {
-      const dateA = signalDate(a);
-      const dateB = signalDate(b);
-      if (dateA !== dateB) return dateA < dateB ? -1 : 1;
-      const rankA = TRAJECTORY_PRESSURE_KIND_ORDER[a.kind];
-      const rankB = TRAJECTORY_PRESSURE_KIND_ORDER[b.kind];
-      const orderA = rankA == null ? 99 : rankA;
-      const orderB = rankB == null ? 99 : rankB;
-      if (orderA !== orderB) return orderA - orderB;
-      return String(a.month || '').localeCompare(String(b.month || ''));
-    });
-
-    const attributionCtx = {
-      events,
-      publishedDaily,
-      publishedCashMonths,
-      publishedDebtMonths,
-      walkStart,
-      openingCash: input.openingCash,
-      weeklyVariable,
-      reservedDaily,
-      payrollDeposits,
-    };
-    for (const signal of signals) {
-      signal.attribution = trajectorySignalAttribution(signal, attributionCtx);
-    }
-
-    return {
-      status: 'ready',
-      signals,
-      ...(consumerUnknownMonths.length ? { withheld: {
-        reason: 'A card\'s current pending is unknown, so consumer debt is unknown: debt-total signals are not published for '
-          + consumerUnknownMonths.length + ' month' + (consumerUnknownMonths.length === 1 ? '' : 's') + '.',
-        months: consumerUnknownMonths.length,
-      } } : {}),
-      policyThresholds: 'none',
-      ranking: null,
-      recommendation: null,
-      affordability: null,
-    };
-  }
-
-  // Horizon debt direction / consequence from the same coupled
-  // projectDebts walk baselineTrajectory already publishes as
-  // month-end marks. As-of openingBalance versus last published
-  // month-end after whole-cent rounding — not a comfort band,
-  // ranking, or affordability score. Planned weeklyVariable is a
-  // cash instruction; it does not invent future card borrowing.
-  // Available credit / headroom is not cash and is not a direction
-  // input. Unpublished debt months contribute no invented direction.
-  // Payoff is the first published month-end at which a modelled
-  // balance is $0 after a positive opening — the engine's existing
-  // marks.
-  function baselineTrajectoryDebtDirection(months, debts, asOf) {
-    const published = (months || []).filter(trajectoryMonthHasPublishedDebt);
-    if (!published.length) {
-      return trajectoryDebtDirectionUnavailable(
-        'No coupled debt walk was available for published months.');
-    }
-    const last = published[published.length - 1];
-    const lastDebt = last.debt;
-    const openingRows = [];
-    let openingConsumer = 0;
-    let openingSecured = 0;
-    let openingHeloc = 0;
-    for (const d of debts || []) {
-      if (!d || !d.id) continue;
-      const opening = openingBalance(d);
-      if (!isFinite(opening)) continue;
-      const amount = roundCent(opening);
-      openingRows.push({
-        id: d.id,
-        label: d.label,
-        opening: amount,
-        secured: !!d.secured,
-      });
-      if (d.secured) openingSecured += amount;
-      else openingConsumer += amount;
-      if (d.id === 'heloc') openingHeloc = amount;
-    }
-    openingConsumer = roundCent(openingConsumer);
-    openingSecured = roundCent(openingSecured);
-    openingHeloc = roundCent(openingHeloc);
-    const household = trajectoryBalanceDirection(
-      roundCent(openingConsumer + openingSecured),
-      trajectoryDebtTotal(lastDebt));
-    household.consumer = trajectoryBalanceDirection(openingConsumer, lastDebt.consumer);
-    household.secured = trajectoryBalanceDirection(openingSecured, lastDebt.secured);
-    household.heloc = trajectoryBalanceDirection(openingHeloc, lastDebt.heloc);
-    household.paid = trajectoryPaidTotal(lastDebt);
-    if (lastDebt.interestToDate != null && isFinite(lastDebt.interestToDate)) {
-      household.interest = {
-        status: 'calculated',
-        amount: roundCent(lastDebt.interestToDate),
-      };
-    } else {
-      household.interest = {
-        status: 'unavailable',
-        reason: 'Interest was not established on the coupled walk.',
-      };
-    }
-
-    const lastById = new Map();
-    for (const row of lastDebt.debts || []) {
-      if (row && row.id) lastById.set(row.id, row);
-    }
-    const debtsOut = [];
-    const declining = [];
-    const persistent = [];
-    const increasing = [];
-    for (const row of openingRows) {
-      const closing = lastById.get(row.id);
-      if (!closing) continue;
-      if (closing.balance == null || !isFinite(closing.balance)) continue;
-      const picture = trajectoryBalanceDirection(row.opening, closing.balance);
-      let interest;
-      if (closing.interest != null && isFinite(closing.interest)) {
-        interest = { status: 'calculated', amount: roundCent(closing.interest) };
-      } else {
-        interest = {
-          status: 'unavailable',
-          reason: 'Interest was not established on the coupled walk.',
-        };
-      }
-      let milestone = null;
-      if (picture.opening > 0 && picture.ending === 0) {
-        for (const month of published) {
-          const mark = ((month.debt && month.debt.debts) || [])
-            .find(d => d && d.id === row.id);
-          if (!mark || mark.balance == null || !isFinite(mark.balance)) {
-            milestone = null;
-            break;
-          }
-          if (roundCent(mark.balance) === 0) {
-            milestone = {
-              kind: 'cleared-within-published-horizon',
-              month: month.month,
-              asOf: month.debt.asOf || month.end,
-            };
-            break;
-          }
-        }
-      }
-      const entry = {
-        id: row.id,
-        label: closing.label || row.label || row.id,
-        opening: picture.opening,
-        ending: picture.ending,
-        delta: picture.delta,
-        direction: picture.direction,
-        paid: closing.paid != null && isFinite(closing.paid)
-          ? roundCent(closing.paid) : null,
-        interest,
-        milestone,
-      };
-      debtsOut.push(entry);
-      if (picture.direction === 'declining') declining.push(row.id);
-      else if (picture.direction === 'increasing') increasing.push(row.id);
-      else persistent.push(row.id);
-    }
-
-    return {
-      status: 'ready',
-      source: 'projectDebts-coupled-marks',
-      from: asOf || null,
-      through: lastDebt.asOf || last.end,
-      household,
-      debts: debtsOut,
-      declining,
-      persistent,
-      increasing,
-      anySupportedIncrease: increasing.length > 0,
-      inventedBorrowing: false,
-      availableCreditIsNotCash: true,
-      unpublishedMonthsContribute: false,
-      policyThresholds: 'none',
-      ranking: null,
-      recommendation: null,
-      affordability: null,
     };
   }
 
@@ -28146,7 +27217,7 @@
     };
   }
 
-  // Household Road Ahead Month funding. Cash, debt, pressure, and the
+  // Household Road Ahead Month funding. Cash, debt, and the
   // pay-period series stay on the calendar walk. This replaces only the
   // month stage card: surplus becomes available in the month the Seaspan
   // cycle closes, and a dated requirement cannot use a close that is
@@ -28483,25 +27554,11 @@
   // ESTIMATED, not verified future pay, not $0, and not expandEvents-
   // carried 2026 post-CPP/EI-max net. After the authorized year the path
   // fails closed. Owner raise/bonus rates are read from the plan; they
-  // are not Forecast constants. pressure is derived only from that same
-  // walk: mechanical troughs, sign changes, month-over-month cash
-  // declines, outflow-versus-inflow, dated commitments (weaker of
-  // input confidence and cash walk), coupled debt direction, and
-  // incumbent projectDebts crossings when pending exposure is knowable.
-  // Each ready signal also carries walk-derived cause attribution
-  // that reconciles to that signal's trajectory change, or fails
-  // closed when candidate drivers cannot be established. It does not invent
-  // a household minimum, breathing-room, safe-to-spend, RYG, risk-score,
-  // or affordability threshold. debtDirection is the same coupled
-  // projectDebts walk read as a horizon picture: as-of openingBalance
-  // versus last published month-end. Which modelled debts decline,
-  // which stay persistent at whole-cent identity, whether any
-  // supported balance increases, interest the walk established, and
-  // first published month-end at which a modelled balance is $0.
-  // Planned weeklyVariable does not invent future card borrowing.
-  // Available credit is not cash. Unpublished debt months contribute
-  // no invented direction. Each published calendar month keeps cash,
-  // debt, and pressure on that window. Its Road Ahead stages sum the
+  // are not Forecast constants. It does not invent a household minimum,
+  // breathing-room, safe-to-spend, RYG, risk-score, or affordability
+  // threshold. Planned weeklyVariable does not invent future card
+  // borrowing. Available credit is not cash. Each published calendar
+  // month keeps cash and debt on that window. Its Road Ahead stages sum the
   // Seaspan pay periods whose cycle closes in the month. Stage 1 is
   // their standalone normal-life surplus. Stage 2 subtracts dated
   // planned spending. Its incumbent net result stays available to other
@@ -28693,20 +27750,6 @@
 
     applyRoadAheadMonthCloseFunding(series, payPeriods, events, day, plan);
 
-    const pressure = baselineTrajectoryPressure({
-      walkStart: day,
-      openingCash: startingCashAmount(plan),
-      min: sim.min,
-      daily: sim.daily,
-      events,
-      months: series,
-      crossings: (debtWalk && debtWalk.crossings) || [],
-      debts,
-      weeklyVariable: weekly,
-      reservedDaily: currentRegimeMonthly(plan) * 12 / 365.25,
-      payrollDeposits: (regime && regime.allDeposits) || (regime && regime.deposits) || [],
-    });
-    const debtDirection = baselineTrajectoryDebtDirection(series, walkOpts.debts, day);
 
     return {
       status: 'ready',
@@ -28771,8 +27814,6 @@
       savingsFundingTimeline: savingsFundingTimeline(plan, debts, day, opts),
       months: series,
       payPeriods,
-      pressure,
-      debtDirection,
       additionalCashRequired: additionalCashRequiredPacket(plan, sim.min && sim.min.balance),
       provenance: {
         calculator: 'Forecast',
@@ -28783,11 +27824,6 @@
         historicalActuals: recentBaseline ? 'recent-two-period-baseline' : 'excluded',
         recommendWeeklyCap: 'not-used',
         knowledgeHorizon: 'incumbent-unmodified',
-        pressure: 'walk-derived',
-        pressureAttribution: 'walk-derived-fail-closed',
-        pressurePolicyThresholds: 'none',
-        debtDirection: 'walk-derived-coupled-marks',
-        debtDirectionInventedBorrowing: false,
         availableCreditIsNotCash: true,
         fundingStages: 'walk-derived',
         fundingStagesPolicyThresholds: 'none',
@@ -28928,7 +27964,7 @@
     };
   }
 
-  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
