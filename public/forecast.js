@@ -12467,12 +12467,16 @@
     };
   }
 
-  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount'];
+  // 'links disagree' names both bills; 'category' names the claimed category as it now reads.
+  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category'];
   function linkedBillMisfitFrom(tx) {
     const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
     if (!misfit || typeof misfit.id !== 'string' || !misfit.id
       || !LINKED_BILL_MISFIT_CHECKS.includes(misfit.check)) return null;
-    return { id: misfit.id, label: reconIdentityField(misfit.label), check: misfit.check };
+    if (misfit.check === 'links disagree' && !(typeof misfit.otherId === 'string' && misfit.otherId)) return null;
+    return { id: misfit.id, label: reconIdentityField(misfit.label), check: misfit.check,
+      ...(misfit.check === 'links disagree' ? { otherId: misfit.otherId, otherLabel: reconIdentityField(misfit.otherLabel) } : {}),
+      ...(misfit.check === 'category' ? { categoryName: reconIdentityField(misfit.categoryName) } : {}) };
   }
 
   // The category recon and the card-carry fallback use one membership rule.

@@ -104,19 +104,65 @@ function hasBrowser() {
     H.expect(r.settled.length === 1 && r.settled[0].id === 'power', `power settles (got ${JSON.stringify(r.settled)})`);
     H.expect(r.txs.every(t => !t.linkedBillMisfit), 'no misfit marker');
   });
-  await report('engine: links naming different bills stay the consumed-twice path, with no misfit line', async () => {
+  // Grok Bot (after #1265) changed this case: it still settles neither bill (the consumed-twice
+  // path), and its line now names both bills instead of none.
+  await report('engine: links naming different bills stay the consumed-twice path, and the line names both', async () => {
     const w = world({ waterRule: { lunchMoneyItemNames: [] } });
     w.bills[0].rule = { lunchMoneyItemNames: ['Invented power'] };
     w.transactions[w.transactions.length - 1].notes = 'item: Invented power';
     const r = engine(w);
     H.expect(r.settled.length === 0, `neither bill settles (got ${JSON.stringify(r.settled)})`);
-    H.expect(r.txs.every(t => !t.linkedBillMisfit), 'no misfit marker');
+    H.expect(r.txs.some(t => t.linkedBillMisfit && t.linkedBillMisfit.check === 'links disagree'), 'a links-disagree marker');
   });
   await report('engine: a near-due linked row is named on its bill, not given a misfit line', async () => {
     const r = engine(world({ row: { date: '2026-10-14' } }));
     H.expect(r.txs.length === 1 && r.txs[0].nearDueBillCandidate && r.txs[0].nearDueBillCandidate.id === 'water',
       `held as water's to-confirm candidate (got ${JSON.stringify(r.txs.map(t => t.nearDueBillCandidate))})`);
     H.expect(r.txs.every(t => !t.linkedBillMisfit), 'no misfit marker');
+  });
+  // Grok Bot (after #1265): disagreeing links settle neither; the payment is money out to confirm,
+  // and its one line names both bills.
+  const crossLinked = () => {
+    const w = world({ waterRule: { lunchMoneyItemNames: [] }, row: { notes: 'item: Invented power' } });
+    w.bills[0].rule = { lunchMoneyItemNames: ['Invented power'] };
+    return w;
+  };
+  await report('engine: a recurring link and an item note naming different bills: counted once, neither settled, both named', async () => {
+    const w = crossLinked();
+    const none = engine(world({ noRow: true }));
+    const r = engine(w);
+    H.expect(r.settled.length === 0, `neither bill settles (got ${JSON.stringify(r.settled)})`);
+    const shown = powerRow(r);
+    H.expect(shown.length === 1, `the payment is listed once (got ${shown.length})`);
+    H.expect(near(none.bad - r.bad, 63.21), `the remainder drops by 63.21 exactly once (${none.bad} -> ${r.bad})`);
+    const m = shown[0].linkedBillMisfit;
+    H.expect(m && m.check === 'links disagree' && m.label === 'Invented water' && m.otherLabel === 'Invented power',
+      `the line names both bills (got ${JSON.stringify(m)})`);
+  });
+  // Grok Bot (after #1264): a renamed claimed category links nothing (no payee fallback) and its line names it.
+  const renamedCategory = () => {
+    const w = world({ noRow: true });
+    w.categories.push({ id: 9301, name: 'Invented utilities renamed' });
+    w.bills[0].rule = { lunchMoneyCategoryIds: [{ id: '9301', name: 'Invented utilities' }] };
+    w.transactions.push(H.lm({ date: '2026-10-12', amount: 63.21, account: 'chequing-a', payee: 'Invented power co', category: 9301 }));
+    return w;
+  };
+  await report('engine: a renamed claimed category: no link, no payee fallback, counted once, the category named', async () => {
+    const r = engine(renamedCategory());
+    const none = engine(world({ noRow: true }));
+    H.expect(r.settled.length === 0, `no bill settles (got ${JSON.stringify(r.settled)})`);
+    const shown = powerRow(r);
+    H.expect(shown.length === 1 && near(none.bad - r.bad, 63.21), `listed and counted once (${shown.length}; ${none.bad} -> ${r.bad})`);
+    const m = shown[0].linkedBillMisfit;
+    H.expect(m && m.check === 'category' && m.label === 'Invented power' && m.categoryName === 'Invented utilities renamed',
+      `the line names the category (got ${JSON.stringify(m)})`);
+  });
+  await report('engine: control: the confirmed category name links power, with no line', async () => {
+    const w = renamedCategory();
+    w.bills[0].rule = { lunchMoneyCategoryIds: [{ id: '9301', name: 'Invented utilities renamed' }] };
+    const r = engine(w);
+    H.expect(r.settled.length === 1 && r.settled[0].id === 'power', `power settles (got ${JSON.stringify(r.settled)})`);
+    H.expect(r.txs.every(t => !t.linkedBillMisfit), 'no line');
   });
   await report('engine: a pending linked row carries no misfit line', async () => {
     const r = engine(world({ waterRule: { atlasAccountId: 'chequing-b' }, row: { pending: true } }));
@@ -138,6 +184,18 @@ function hasBrowser() {
           H.expectMatch(H.bill(s, label), /To confirm/, `${label} reads To confirm`);
           H.expectNoMatch(H.bill(s, label), /\bPaid\b/, `${label} is not Paid`);
         }
+      }));
+    await report('page: the cross-linked payment names both bills in the same note', () =>
+      H.withBudget(crossLinked(), async p => {
+        const s = await H.snap(p);
+        H.expect(H.occurrences(s.household, "Linked to Invented water and Invented power but doesn't fit (links disagree)") === 1,
+          'one note naming both bills');
+      }));
+    await report('page: the renamed category is named in the same note', () =>
+      H.withBudget(renamedCategory(), async p => {
+        const s = await H.snap(p);
+        H.expect(H.occurrences(s.household, "Linked to Invented power but doesn't fit (category \u201cInvented utilities renamed\u201d)") === 1,
+          'one note naming the category');
       }));
     await report('page: control: a fitting row prints no misfit line', () =>
       H.withBudget(world(), async p => {

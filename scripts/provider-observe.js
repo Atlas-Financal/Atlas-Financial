@@ -5074,7 +5074,8 @@ function linkedBillMisfitIds(collapsed, opts, linkedLocalIds, existingLocalId) {
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
   const rules = stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
-    && (ruleLunchMoneyRecurringIds(rule).length || ruleLunchMoneyItemNames(rule).length)
+    && (ruleLunchMoneyRecurringIds(rule).length || ruleLunchMoneyItemNames(rule).length
+      || ruleCategoryClaims(rule).length)
     && isBillOrObligationEvent(plan, rule.eventId));
   if (!plan || !mapDoc || !rules.length) return out;
   const billLabel = id => {
@@ -5088,9 +5089,31 @@ function linkedBillMisfitIds(collapsed, opts, linkedLocalIds, existingLocalId) {
     if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
     const linkedTo = tx.recurringId == null ? '' : String(tx.recurringId).trim();
     const items = noteItemNames(tx.notes);
-    const owners = rules.filter(rule => (linkedTo && ruleLunchMoneyRecurringIds(rule).includes(linkedTo))
-      || (items.length === 1 && ruleLunchMoneyItemNames(rule).includes(items[0])));
+    const byRecurring = rules.filter(rule => linkedTo && ruleLunchMoneyRecurringIds(rule).includes(linkedTo));
+    const byItem = rules.filter(rule => items.length === 1 && ruleLunchMoneyItemNames(rule).includes(items[0]));
+    const owners = byRecurring.concat(byItem.filter(rule => !byRecurring.includes(rule)));
     const ids = Array.from(new Set(owners.map(rule => rule.eventId)));
+    // Grok Bot (after #1265): a recurring link and an item note naming different bills settle
+    // neither; the payment is money out to confirm, and its line names both bills.
+    const recurringIds = Array.from(new Set(byRecurring.map(rule => rule.eventId)));
+    const itemIds = Array.from(new Set(byItem.map(rule => rule.eventId)));
+    if (recurringIds.length === 1 && itemIds.length === 1 && recurringIds[0] !== itemIds[0]) {
+      out.set(localId, { id: recurringIds[0], label: billLabel(recurringIds[0]),
+        otherId: itemIds[0], otherLabel: billLabel(itemIds[0]), check: 'links disagree' });
+      continue;
+    }
+    if (!ids.length) {
+      // Grok Bot (after #1264): a claimed single-bill category renamed (or removed) since Dale
+      // confirmed it links nothing and reads To confirm; its line names the category.
+      const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
+      const claimants = categoryId ? rules.filter(rule => ruleCategoryClaims(rule).includes(categoryId)) : [];
+      if (claimants.length === 1 && !categoryNameConfirmed(claimants[0], categoryId, tx.categoryLabel)) {
+        const name = typeof tx.categoryLabel === 'string' && tx.categoryLabel.trim() ? tx.categoryLabel.trim() : null;
+        out.set(localId, { id: claimants[0].eventId, label: billLabel(claimants[0].eventId), check: 'category',
+          categoryName: name });
+      }
+      continue;
+    }
     if (ids.length !== 1) continue;
     const check = linkedBillFirstFailedCheck(tx, owners, plan, mapDoc);
     if (check) out.set(localId, { id: ids[0], label: billLabel(ids[0]), check });
