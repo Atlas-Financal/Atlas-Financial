@@ -105,9 +105,11 @@ console.log('\n=== 4. a completed period with the unknown obligation: no number 
   ok(hitClosed.length >= 2, 'the obligation falls in at least two completed periods (calendar)', hitClosed.map(v => v.start).join(', '));
   ok(hitClosed.every(v => v.totalBillsThisPeriod === null && v.unconfirmedBills === null),
     'precondition: those periods already withhold the total and the unconfirmed bills');
-  ok(hitClosed.every(v => v.periodBillLoad === null && v.periodBillLoadTrust === 'unavailable' && v.remainingBills === null),
-    'their load and remainder are Unknown too, never a number beside the Unknown total',
-    JSON.stringify(hitClosed.map(v => [v.start, v.periodBillLoad, v.remainingBills])));
+  ok(hitClosed.every(v => v.periodBillLoad === null && v.periodBillLoadTrust === 'unavailable'),
+    'their load is Unknown too, never a number beside the Unknown total',
+    JSON.stringify(hitClosed.map(v => [v.start, v.periodBillLoad])));
+  ok(hitClosed.every(v => v.remainingBills === 0),
+    'the completed-period remainder keeps its #931 contract (settlement evidence, 0); the unknown is carried by unconfirmedBills');
   ok(hitClosed.every(v => v.afterBills === null && v.balanceAfterDeductions === null),
     'after bills and Balance After Deductions built on that load are Unknown',
     JSON.stringify(hitClosed.map(v => [v.start, v.afterBills, v.balanceAfterDeductions])));

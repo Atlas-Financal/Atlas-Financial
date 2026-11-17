@@ -15936,7 +15936,10 @@
         totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown)
           || (!lookback && billLoadUnknown) ? null : totalBillsThisPeriod,
         paidBills,
-        remainingBills: planUnavailable || billLoadUnknown ? null : remainingBills,
+        // A completed period's remainder is settlement evidence, not an
+        // amount due: it stays 0 by contract (#931) and its unknown is carried
+        // by unconfirmedBills. Only an open period withholds it.
+        remainingBills: planUnavailable || (!lookback && billLoadUnknown) ? null : remainingBills,
         ...(billLoadUnknownFrom ? { billLoadUnknownFrom } : {}),
         // Completed periods only, so every other period's publication is
         // unchanged: bills the evidence does not prove paid.
