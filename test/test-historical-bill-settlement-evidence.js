@@ -268,6 +268,37 @@ check("control: the owner's mark (an opening represented event) with no transact
   assert.equal(current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE).length, 0, 'not carried');
   assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, '30 + 0 = 30 across both periods');
 });
+// Astra's audit of #1215 (#821 6934483625, finding 1), exact invented inputs:
+// a 30.00 bill due 2030-02-05, the opening dated 2030-02-15 naming that
+// occurrence in representedEvents (Dale's mark), plus an unbacked packet
+// entry for the same occurrence. The walk deducts nothing (the mark puts it
+// in opening cash), so the bills publication must not carry it either: the
+// current period lists none of it and counts 0. Hand-derived: 30 counted once,
+// in the closed period, exactly as before #1215 (its first parent). The
+// recurring bill is the same failure class through the #953 carry.
+for (const kind of ['once', 'monthly']) {
+  check(`the owner's mark plus an unbacked entry (${kind}): not carried, the walk and the bills agree`, () => {
+    const source = input({ billTx: false, representedEvents: [{ id: BILL_ID, date: BILL_DATE }] });
+    source.data.plan.opening.asOf = NEXT_START;
+    if (kind === 'once') {
+      const bill = source.data.plan.bills[0];
+      delete bill.day; bill.frequency = 'once'; bill.date = BILL_DATE;
+    }
+    const { view, advice } = closedView(source, unbacked);
+    const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+    const owned = current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE);
+    const walked = (advice.sim.events || []).filter(e => e.id === BILL_ID && e.date === BILL_DATE);
+    assert.equal(walked.length, 0, 'control: the walk deducts nothing for the marked occurrence');
+    assert.equal(owned.length, 0, 'the current period does not list it');
+    assert.equal(current.periodBillLoad, 0, 'current bill load 0');
+    assert.equal(current.totalBillsThisPeriod, 0, 'current bills total 0');
+    assert.equal(current.remainingBillsThisPeriod ?? 0, 0, 'current remaining bills 0');
+    const row = view.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+    assert.notEqual(row.status, 'carried', 'the closed copy is not carried');
+    assert.equal(view.periodBillLoad, BILL, 'the closed period counts it: 30 once overall');
+    assert.equal(view.totalBillsThisPeriod, BILL, 'the closed total stays 30');
+  });
+}
 console.log('\n=== the Forecast seam: every way the named evidence can be absent or contested ===');
 // Here the bank holds a posted 02-05 debit, so the walk does not carry the
 // occurrence: the closed period keeps it To confirm and counts it, and the
