@@ -396,7 +396,7 @@ async function controllerProof() {
     // Mapping is a display condition. No partial rows from a changed category
     // assignment can be blended into the former complete cohort.
     const changedMapCanonical = structuredClone(canonical);
-    changedMapCanonical.plan.budget.categories[0].from = ['Synthetic different category'];
+    changedMapCanonical.plan.budget.categories[0].lunchMoneyCategoryGroupId = 'synthetic-different-group';
     const incompatible = await Refresh.serve(changedMapCanonical, env); await drain();
     eq(incompatible.liveOverlay.retainedRefresh, undefined, 'changed category mapping refuses old cohort');
     // Only budget identity and mapping content gate same-process display.

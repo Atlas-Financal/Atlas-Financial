@@ -12,6 +12,15 @@ const fs = require('fs');
 const path = require('path');
 const { sourceText } = require('./test-source-text');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
+// Lay invented categories out in invented groups at the classifier boundary.
+const groupOpts = (opts, plan) => opts && typeof opts === 'object' ? Object.assign({}, opts,
+  opts.currentPeriodActuals ? { currentPeriodActuals: LmGroups.groupPacket(opts.currentPeriodActuals, plan) } : {},
+  opts.packet ? { packet: LmGroups.groupPacket(opts.packet, plan) } : {}) : opts;
+const classifyTx = (tx, plan, opts) => {
+  const grouped = LmGroups.groupPlan(plan);
+  return F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, grouped), grouped, groupOpts(opts, grouped));
+};
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe.js'));
 
 let failures = 0;
@@ -54,7 +63,7 @@ const SPENT_WITH_BILL = roundCent(GROCERY_INDEPENDENT + OTHER_AMT + GOOGLE_AMT);
 const SPENT_WITHOUT_BILL = roundCent(GROCERY_INDEPENDENT + OTHER_AMT);
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -93,7 +102,7 @@ function syntheticPlan() {
         why: 'Amanda coaching, not household',
       }],
     },
-  };
+  });
 }
 
 const debts = [
@@ -369,7 +378,7 @@ function recommend(packet, extraPlan, extraOpts) {
   return F.recommend(plan, AS_OF, Object.assign({
     targetBuffer: 500,
     debts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, plan),
     representedEvents: represented,
   }, extraOpts || {}));
 }
@@ -394,7 +403,7 @@ console.log('\n=== 1. unique represented Google bill is a bill, never Household 
       transactionId: 'tx-google',
     }],
   });
-  const googleCls = F.classifyCurrentPeriodTransaction(packet.transactions[0], plan, {
+  const googleCls = classifyTx(packet.transactions[0], plan, {
     currentPeriodActuals: packet,
   });
   ok(googleCls.kind === 'bill' && googleCls.householdSpending === false
@@ -446,7 +455,7 @@ console.log('\n=== 2. date + amount without unique linkage is not the Google bil
       postedOn: '2026-08-31',
     }],
   });
-  const cls = F.classifyCurrentPeriodTransaction(decoy, plan, {
+  const cls = classifyTx(decoy, plan, {
     currentPeriodActuals: packet,
   });
   ok(cls.kind !== 'bill' && cls.reason !== 'represented-bill',
@@ -475,9 +484,10 @@ console.log('\n=== Telephone is the Telecom bill category, not a broad merchant 
       { id: 92001, account_id: 3001, amount: 19, payee: 'Invented phone company', category_name: category },
       { id: 92002, account_id: 3002, amount: 7, payee: 'Invented unrelated store', category_name: 'Shopping' },
     ].map(tx => ({ ...tx, date: x.asOf, is_pending: false, currency: 'cad' }));
+    x.data.plan = LmGroups.groupPlan(x.data.plan);
     const before = JSON.stringify(x);
     const r = L.fromObservation(x);
-    const packet = r.report.currentPeriodActuals;
+    const packet = LmGroups.groupPacket(r.report.currentPeriodActuals, r.data.plan);
     const advice = F.recommend(r.data.plan, x.asOf, { debts: [], currentPeriodActuals: packet });
     const active = period(advice.defaultView, 'this-pay-period');
     ok(JSON.stringify(x) === before, 'Telephone observation leaves its invented inputs unchanged');
@@ -493,18 +503,18 @@ console.log('\n=== Telephone is the Telecom bill category, not a broad merchant 
     'independent ledger: with no planned phone bill, phone 19 + unrelated 7 = 26 is Other for either category');
   ok(telephone.r.data.plan.startingCash.breakdown.reduce((n, row) => n + row.value, 0) === 474,
     'independent cash: opening 500 minus phone 19 minus unrelated purchase 7, no extra deduction');
-  const reference = F.classifyCurrentPeriodTransaction({ categoryLabel: 'Telecom', amount: 19 }, syntheticPlan());
+  const reference = classifyTx({ categoryLabel: 'Telecom', amount: 19 }, syntheticPlan());
   for (const label of ['Telephone', 'telephone', ' TELEPHONE ']) {
-    const cls = F.classifyCurrentPeriodTransaction({ categoryLabel: label, amount: 19 }, syntheticPlan());
+    const cls = classifyTx({ categoryLabel: label, amount: 19 }, syntheticPlan());
     ok(JSON.stringify(cls) === JSON.stringify(reference) && cls.kind !== 'bill' && cls.householdSpending === true
         && cls.needsConfirmation === true,
       'exact normalized Telephone classification equals Telecom (unmatched: Other, needs confirmation)');
   }
   for (const categoryLabel of ['Telephone accessories', 'Telecommunications shop', 'Shopping']) {
-    const cls = F.classifyCurrentPeriodTransaction({ categoryLabel, payee: 'Telephone', amount: 19 }, syntheticPlan());
+    const cls = classifyTx({ categoryLabel, payee: 'Telephone', amount: 19 }, syntheticPlan());
     ok(cls.householdSpending === true, 'category substrings and a telephone payee do not become bills');
   }
-  ok(F.classifyCurrentPeriodTransaction({ categoryLabel: 'Telephone', accountRole: 'household-external', amount: 19 }, syntheticPlan()).kind === 'external',
+  ok(classifyTx({ categoryLabel: 'Telephone', accountRole: 'household-external', amount: 19 }, syntheticPlan()).kind === 'external',
     'Telephone preserves the external-account boundary');
 }
 
@@ -512,12 +522,12 @@ console.log('\n=== 3. Walmart is Groceries, never Other spending ===');
 {
   const plan = syntheticPlan();
   const tx = walmartTx();
-  const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+  const cls = classifyTx(tx, plan);
   ok(cls.kind === 'spend' && cls.categoryId === 'groceries'
       && cls.needsConfirmation !== true && cls.householdSpending === true,
     'Walmart with Shopping label classifies as Groceries',
     JSON.stringify(cls));
-  const walmartCa = F.classifyCurrentPeriodTransaction({
+  const walmartCa = classifyTx({
     date: '2026-08-31', amount: WALMART_AMT, categoryLabel: 'Shopping',
     displayedPayee: 'WALMARTCA', originalMerchant: 'WALMARTCA',
     accountRole: 'household-cash',
@@ -542,19 +552,19 @@ console.log('\n=== 4. Meridian Farm is Groceries, not Dog food, not confirmation
 {
   const plan = syntheticPlan();
   const tx = meridianTx();
-  const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+  const cls = classifyTx(tx, plan);
   ok(cls.kind === 'spend' && cls.categoryId === 'groceries'
       && cls.needsConfirmation !== true,
     'Meridian Farm classifies as Groceries without needsConfirmation',
     JSON.stringify(cls));
   ok(cls.categoryId !== 'pets' && cls.atlasRow === 'groceries',
     'Meridian Farm is not Dog food');
-  const petsLabel = F.classifyCurrentPeriodTransaction(Object.assign({}, tx, {
+  const petsLabel = classifyTx(Object.assign({}, tx, {
     categoryLabel: 'Pets',
   }), plan);
   ok(petsLabel.needsConfirmation === true && petsLabel.reason === 'payee-category-contradiction',
     'H1: a grocery merchant labelled Pets is not turned into Groceries');
-  const truncated = F.classifyCurrentPeriodTransaction({
+  const truncated = classifyTx({
     date: '2026-08-31', amount: MERIDIAN_AMT, categoryLabel: 'Shopping',
     displayedPayee: 'MERIDIANFARM', originalMerchant: 'MERIDIANFARM',
     accountRole: 'household-cash',
@@ -745,10 +755,10 @@ console.log('\n=== 7. provider identity uniquely links Google storage; amount is
     'only the unique identity hit is flagged representedBill');
   ok(decoyTx && decoyTx.representedBill !== true,
     'same-date same-amount decoy is not flagged representedBill');
-  const billCls = F.classifyCurrentPeriodTransaction(billTx, data.plan, {
+  const billCls = classifyTx(billTx, data.plan, {
     currentPeriodActuals: packet,
   });
-  const decoyCls = F.classifyCurrentPeriodTransaction(decoyTx, data.plan, {
+  const decoyCls = classifyTx(decoyTx, data.plan, {
     currentPeriodActuals: packet,
   });
   ok(billCls.kind === 'bill' && billCls.householdSpending === false
@@ -811,18 +821,18 @@ console.log('\n=== 7. provider identity uniquely links Google storage; amount is
 console.log('\n=== 8. Dale 2026-09-02 Iron Butcher groceries; Surrey Meat stays Dog food ===');
 {
   const plan = syntheticPlan();
-  const iron = F.classifyCurrentPeriodTransaction(ironButcherTx(), plan);
+  const iron = classifyTx(ironButcherTx(), plan);
   ok(iron.kind === 'spend' && iron.categoryId === 'groceries'
       && iron.needsConfirmation !== true && iron.householdSpending === true
       && iron.categoryId !== 'pets',
     'Iron Butcher classifies Groceries, not uncertain, not Dog food, no confirmation',
     JSON.stringify(iron));
-  const ironPets = F.classifyCurrentPeriodTransaction(
+  const ironPets = classifyTx(
     ironButcherTx({ categoryLabel: 'Pets' }), plan);
   ok(ironPets.needsConfirmation === true && ironPets.reason === 'payee-category-contradiction',
     'H1: a grocery merchant labelled Pets is not turned into Groceries',
     JSON.stringify(ironPets));
-  const ironOther = F.classifyCurrentPeriodTransaction(
+  const ironOther = classifyTx(
     ironButcherTx({ categoryLabel: 'Gifts', id: 'tx-iron-gifts' }), plan);
   ok(ironOther.needsConfirmation === true && ironOther.reason === 'unmapped-label',
     'H1: a grocery merchant labelled Gifts follows its Lunch Money category',
@@ -832,24 +842,24 @@ console.log('\n=== 8. Dale 2026-09-02 Iron Butcher groceries; Surrey Meat stays 
       && ironFlags.dogFood !== true,
     'Iron Butcher derived flags are confirmed grocery, not uncertain, not dog food',
     JSON.stringify(ironFlags));
-  const localMeatPets = F.classifyCurrentPeriodTransaction(otherMeatTx(), plan);
+  const localMeatPets = classifyTx(otherMeatTx(), plan);
   ok(localMeatPets.needsConfirmation === true && localMeatPets.kind !== 'spend'
       && localMeatPets.categoryId !== 'groceries'
       && (localMeatPets.reason === 'payee-category-contradiction'
         || localMeatPets.reason === 'pets-not-dog-food'),
     'Local Butcher is not the Iron Butcher rule; Pets stays confirmation, not Groceries',
     JSON.stringify(localMeatPets));
-  const localMeatGroc = F.classifyCurrentPeriodTransaction(
+  const localMeatGroc = classifyTx(
     otherMeatTx({ categoryLabel: 'Groceries', id: 'tx-other-meat-groc' }), plan);
   ok(localMeatGroc.kind === 'spend' && localMeatGroc.categoryId === 'groceries'
       && localMeatGroc.includeReason === 'groceries-category',
     'Local Butcher labelled Groceries still uses the category path, not Iron Butcher identity',
     JSON.stringify(localMeatGroc));
-  const meridian = F.classifyCurrentPeriodTransaction(meridianTx(), plan);
+  const meridian = classifyTx(meridianTx(), plan);
   ok(meridian.kind === 'spend' && meridian.categoryId === 'groceries'
       && meridian.needsConfirmation !== true,
     'Meridian Farm stays confirmed Groceries; Iron Butcher rule does not replace it');
-  const surrey = F.classifyCurrentPeriodTransaction({
+  const surrey = classifyTx({
     date: '2026-08-31', amount: 12, categoryLabel: 'Groceries',
     originalMerchant: 'SURREY MEAT PKR _F', displayedPayee: 'SURREY MEAT PKR _F',
   }, plan);
@@ -906,8 +916,8 @@ console.log('\n=== 9. excluded Business Walmart / Meridian Farm stay out of Hous
   });
   const householdWalmart = walmartTx();
   const householdMeridian = meridianTx();
-  const walmartCls = F.classifyCurrentPeriodTransaction(businessWalmart, plan);
-  const meridianCls = F.classifyCurrentPeriodTransaction(businessMeridian, plan);
+  const walmartCls = classifyTx(businessWalmart, plan);
+  const meridianCls = classifyTx(businessMeridian, plan);
   ok(walmartCls.kind === 'business' && walmartCls.householdSpending === false
       && walmartCls.reason === 'excluded' && walmartCls.categoryId !== 'groceries',
     'Business-category Walmart remains kind business, householdSpending false',
@@ -916,15 +926,15 @@ console.log('\n=== 9. excluded Business Walmart / Meridian Farm stay out of Hous
       && meridianCls.reason === 'excluded' && meridianCls.categoryId !== 'groceries',
     'Business-category Meridian Farm remains kind business, householdSpending false',
     JSON.stringify(meridianCls));
-  const walmartCaBiz = F.classifyCurrentPeriodTransaction({
+  const walmartCaBiz = classifyTx({
     date: '2026-08-31', amount: BUSINESS_WALMART_AMT, categoryLabel: 'Business',
     displayedPayee: 'WALMARTCA', originalMerchant: 'WALMARTCA',
     accountRole: 'household-cash',
   }, plan);
   ok(walmartCaBiz.kind === 'business' && walmartCaBiz.householdSpending === false,
     'Business-category WALMARTCA remains excluded non-household');
-  const eligibleWalmart = F.classifyCurrentPeriodTransaction(householdWalmart, plan);
-  const eligibleMeridian = F.classifyCurrentPeriodTransaction(householdMeridian, plan);
+  const eligibleWalmart = classifyTx(householdWalmart, plan);
+  const eligibleMeridian = classifyTx(householdMeridian, plan);
   ok(eligibleWalmart.kind === 'spend' && eligibleWalmart.categoryId === 'groceries'
       && eligibleWalmart.householdSpending === true && eligibleWalmart.needsConfirmation !== true,
     'eligible household Walmart still classifies as Groceries',
@@ -963,14 +973,16 @@ console.log('\n=== 9. excluded Business Walmart / Meridian Farm stay out of Hous
 console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amanda ===');
 {
   const forecastSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public/forecast.js'), 'utf8'));
-  const billSetStart = forecastSrc.indexOf('const BILL_CATEGORY_LABELS = new Set([');
-  const billSetEnd = forecastSrc.indexOf(']);', billSetStart);
-  const billSet = forecastSrc.slice(billSetStart, billSetEnd + 3);
-  ok(/'natural gas'/.test(billSet) && !/'other bank fees'/.test(billSet),
+  // Slice 1: the bill label set became the 'bill' group kind; fees are their own
+  // 'fee' kind, which reaches the visible to-confirm fallback, never a bill exclusion.
+  const kindsStart = forecastSrc.indexOf('const BUDGET_GROUP_KINDS = new Set([');
+  const kinds = forecastSrc.slice(kindsStart, forecastSrc.indexOf(']);', kindsStart) + 3);
+  ok(kindsStart >= 0 && /'bill'/.test(kinds) && /'fee'/.test(kinds) && !forecastSrc.includes('BILL_CATEGORY_LABELS'),
     'Other bank fees requires represented transaction linkage, not a blanket label exclusion');
-  ok(!/'interest charge'/.test(billSet) && !/'overdraft fees'/.test(billSet)
-      && !/'google pets'/.test(billSet),
-    'BILL_CATEGORY_LABELS source does not add Interest charge / Overdraft fees / Google Pets');
+  // Slice 1: no category-name list remains to fold these names into a bill.
+  ok(!/'interest charge'/.test(kinds) && !/'overdraft fees'/.test(kinds)
+      && !/'google pets'/.test(kinds) && !forecastSrc.includes('BILL_CATEGORY_LABELS'),
+    'no bill name list folds in Interest charge / Overdraft fees / Google Pets');
   ok(/function isRevolvingCardFinanceCharge\(/.test(forecastSrc)
       && /revolving-finance-charge/.test(forecastSrc)
       && /INTEREST CHARGE/.test(forecastSrc),
@@ -1003,8 +1015,8 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   const plan = syntheticPlan();
   const gas = naturalGasTx();
   const fee = bankFeeTx();
-  const gasCls = F.classifyCurrentPeriodTransaction(gas, plan);
-  const feeCls = F.classifyCurrentPeriodTransaction(fee, plan);
+  const gasCls = classifyTx(gas, plan);
+  const feeCls = classifyTx(fee, plan);
   // Budget audit: a bill-type label alone is not a bill. With no planned
   // bill match, Natural Gas stays household spending that needs
   // confirmation; matched to a planned bill it is that bill.
@@ -1012,7 +1024,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
       && gasCls.needsConfirmation === true,
     'unmatched Natural Gas stays visible in Other spending (needs confirmation), not a bill',
     JSON.stringify(gasCls));
-  const gasBillCls = F.classifyCurrentPeriodTransaction(naturalGasTx({ representedBill: true }), plan);
+  const gasBillCls = classifyTx(naturalGasTx({ representedBill: true }), plan);
   ok(gasBillCls.kind === 'bill' && gasBillCls.householdSpending === false
       && gasBillCls.reason === 'represented-bill',
     'Natural Gas matched to a planned bill is that bill, not household spending',
@@ -1068,13 +1080,13 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
     excludeFromTotals: true, kindHint: 'card-payment',
   };
 
-  const travelCls = F.classifyCurrentPeriodTransaction(amazonTravel, plan);
-  const mbnaCls = F.classifyCurrentPeriodTransaction(amazonMbna, plan);
-  const triangleCls = F.classifyCurrentPeriodTransaction(amazonTriangle, plan);
-  const primeTravelCls = F.classifyCurrentPeriodTransaction(primeTravel, plan);
-  const primeMbnaCls = F.classifyCurrentPeriodTransaction(primeMbna, plan);
-  const amandaNoteCls = F.classifyCurrentPeriodTransaction(amazonWithAmanda, plan);
-  const mbnaPayCls = F.classifyCurrentPeriodTransaction(mbnaPayment, plan);
+  const travelCls = classifyTx(amazonTravel, plan);
+  const mbnaCls = classifyTx(amazonMbna, plan);
+  const triangleCls = classifyTx(amazonTriangle, plan);
+  const primeTravelCls = classifyTx(primeTravel, plan);
+  const primeMbnaCls = classifyTx(primeMbna, plan);
+  const amandaNoteCls = classifyTx(amazonWithAmanda, plan);
+  const mbnaPayCls = classifyTx(mbnaPayment, plan);
   const travelFlags = F.classifyCurrentPeriodTransaction.derivedFlags(amazonTravel);
   const mbnaFlags = F.classifyCurrentPeriodTransaction.derivedFlags(amazonMbna);
   const triangleFlags = F.classifyCurrentPeriodTransaction.derivedFlags(amazonTriangle);
@@ -1101,24 +1113,24 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
     'MBNA payment is card-payment, not Amazon spend',
     JSON.stringify(mbnaPayCls));
 
-  const interestCls = F.classifyCurrentPeriodTransaction({
+  const interestCls = classifyTx({
     date: '2026-09-08', amount: CASHBACK_PURCHASE_INTEREST_AMT,
     categoryLabel: 'Interest charge',
     displayedPayee: 'INTEREST CHARGE -PURCHASE',
     originalMerchant: 'INTEREST CHARGE -PURCHASE',
     atlasAccountId: 'cashback', accountRole: 'revolving-credit',
   }, plan);
-  const chequingInterestCls = F.classifyCurrentPeriodTransaction({
+  const chequingInterestCls = classifyTx({
     date: '2026-08-31', amount: 5, categoryLabel: 'Interest charge',
     displayedPayee: 'INTEREST CHARGE', originalMerchant: 'INTEREST CHARGE',
     atlasAccountId: 'chequing-b', accountRole: 'household-cash',
   }, plan);
-  const overdraftCls = F.classifyCurrentPeriodTransaction({
+  const overdraftCls = classifyTx({
     date: '2026-08-31', amount: 5, categoryLabel: 'Overdraft fees',
     displayedPayee: 'OVERDRAFT FEE', originalMerchant: 'OVERDRAFT FEE',
     atlasAccountId: 'chequing-b', accountRole: 'household-cash',
   }, plan);
-  const googlePetsCls = F.classifyCurrentPeriodTransaction({
+  const googlePetsCls = classifyTx({
     date: '2026-08-31', amount: 3.13, categoryLabel: 'Pets',
     displayedPayee: 'Google', originalMerchant: 'Google',
     atlasAccountId: 'chequing-a', accountRole: 'household-cash',
@@ -1315,7 +1327,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
       && !Object.prototype.hasOwnProperty.call(taggedViaIds, 'tags')
       && !Object.prototype.hasOwnProperty.call(taggedViaIds, 'tag_ids'),
     'v2 tag_ids resolve to Amanda and stamp personalOwner before strip');
-  const taggedCls = F.classifyCurrentPeriodTransaction({
+  const taggedCls = classifyTx({
     id: taggedTravel.id, date: taggedTravel.date, amount: taggedTravel.amount,
     pending: true, categoryLabel: 'Shopping', accountRole: 'revolving-credit',
     atlasAccountId: 'travelvisa', personalOwner: taggedTravel.personalOwner,
@@ -1324,7 +1336,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
       && taggedCls.includeReason === 'owner-evidence-amanda',
     'explicit Amanda tag that survived strip still classifies amanda-guilt-free',
     JSON.stringify(taggedCls));
-  const strippedCls = F.classifyCurrentPeriodTransaction({
+  const strippedCls = classifyTx({
     id: strippedTravel.id, date: strippedTravel.date, amount: strippedTravel.amount,
     pending: true, categoryLabel: 'Shopping', accountRole: 'revolving-credit',
     atlasAccountId: 'travelvisa',
@@ -1339,7 +1351,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
       && publishedPrime.amazonMerchant === true
       && publishedPrime.subscriptionBill !== true && publishedPrime.kind !== 'bill',
     'Prime on Travel Visa stamps Amanda ownership, not a derived bill flag');
-  const primeStrippedCls = F.classifyCurrentPeriodTransaction({
+  const primeStrippedCls = classifyTx({
     id: publishedPrime.id, date: publishedPrime.date, amount: publishedPrime.amount,
     pending: false, categoryLabel: 'Shopping', accountRole: 'revolving-credit',
     atlasAccountId: 'travelvisa',
@@ -1352,11 +1364,11 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
     'Prime on Travel Visa classifies Amanda after merchant/tags are stripped, and is not a bill',
     JSON.stringify(primeStrippedCls));
   ok(publishedMbna && publishedMbna.personalOwner == null
-      && F.classifyCurrentPeriodTransaction(publishedMbna, plan).reason === 'personal-unassigned',
+      && classifyTx(publishedMbna, plan).reason === 'personal-unassigned',
     'MBNA Amazon without owner evidence does not stamp Amanda after overlay sanitizer');
   ok(publishedMbnaPay && publishedMbnaPay.kindHint === 'card-payment'
       && publishedMbnaPay.personalOwner == null
-      && F.classifyCurrentPeriodTransaction(publishedMbnaPay, plan).kind === 'card-payment',
+      && classifyTx(publishedMbnaPay, plan).kind === 'card-payment',
     'MBNA payment is card-payment after overlay strip',
     JSON.stringify(publishedMbnaPay));
 
@@ -1808,7 +1820,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   const googlePetsTx = (googlePetsOverlay.transactions || [])
     .find(tx => tx && near(tx.amount, GOOGLE_AMT));
   const googlePetsOverlayCls = googlePetsTx
-    ? F.classifyCurrentPeriodTransaction(googlePetsTx, plan) : null;
+    ? classifyTx(googlePetsTx, plan) : null;
   ok(googlePetsTx && googlePetsOverlayCls
       && googlePetsOverlayCls.kind !== 'bill'
       && googlePetsOverlayCls.reason === 'payee-category-contradiction'
@@ -1835,7 +1847,7 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
   const otherPetsTx = (otherPetsOverlay.transactions || [])
     .find(tx => tx && near(tx.amount, 12));
   const otherPetsCls = otherPetsTx
-    ? F.classifyCurrentPeriodTransaction(otherPetsTx, plan) : null;
+    ? classifyTx(otherPetsTx, plan) : null;
   ok(otherPetsTx && otherPetsCls
       && otherPetsCls.kind !== 'bill'
       && otherPetsCls.reason === 'pets-not-dog-food'
@@ -1847,18 +1859,18 @@ console.log('\n=== 10. Unmatched fees stay visible; Amazon + travelvisa is Amand
 console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is not ===');
 {
   const plan = syntheticPlan();
-  const cursor = F.classifyCurrentPeriodTransaction(cursorTx(), plan);
+  const cursor = classifyTx(cursorTx(), plan);
   ok(cursor.kind === 'spend' && cursor.categoryId === 'dale-guilt-free'
       && cursor.needsConfirmation !== true && cursor.householdSpending === true
       && cursor.categoryId !== 'amanda-guilt-free',
     'Cursor classifies Dale guilt-free, not Other, not Amanda, no confirmation',
     JSON.stringify(cursor));
-  const cursorGifts = F.classifyCurrentPeriodTransaction(
+  const cursorGifts = classifyTx(
     cursorTx({ categoryLabel: 'Gifts', id: 'tx-cursor-gifts' }), plan);
   ok(cursorGifts.needsConfirmation === true && cursorGifts.reason === 'unmapped-label',
     'H1: the Dale guilt-free merchant labelled Gifts follows its Lunch Money category',
     JSON.stringify(cursorGifts));
-  const cursorAmanda = F.classifyCurrentPeriodTransaction(
+  const cursorAmanda = classifyTx(
     cursorTx({
       id: 'tx-cursor-amanda-tag',
       personalOwner: 'amanda',
@@ -1873,14 +1885,14 @@ console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is no
   ok(cursorFlags.daleGuiltFreeMerchant === true && cursorFlags.personalOwner === 'dale',
     'Cursor derived flags stamp daleGuiltFreeMerchant and personalOwner dale',
     JSON.stringify(cursorFlags));
-  const openai = F.classifyCurrentPeriodTransaction(otherAiTx(), plan);
+  const openai = classifyTx(otherAiTx(), plan);
   const openaiFlags = F.classifyCurrentPeriodTransaction.derivedFlags(otherAiTx());
   ok(openai.reason === 'personal-unassigned' && openai.needsConfirmation === true
       && openai.categoryId !== 'dale-guilt-free' && openai.categoryId !== 'amanda-guilt-free'
       && openaiFlags.personalOwner == null && openaiFlags.daleGuiltFreeMerchant !== true,
     'OpenAI does not gain Dale from the Cursor rule',
     JSON.stringify({ openai, openaiFlags }));
-  const chatgpt = F.classifyCurrentPeriodTransaction({
+  const chatgpt = classifyTx({
     id: 'tx-chatgpt',
     date: '2026-08-31', amount: OTHER_AI_AMT, categoryLabel: 'Shopping',
     accountRole: 'revolving-credit',
@@ -1967,7 +1979,7 @@ console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is no
   ok(ironPub && ironPub.confirmedGrocery === true && ironPub.groceryUncertain !== true
       && ironPub.dogFood !== true,
     'overlay stamps Iron Butcher confirmedGrocery before strip; not uncertain');
-  const ironPubCls = F.classifyCurrentPeriodTransaction(ironPub, plan);
+  const ironPubCls = classifyTx(ironPub, plan);
   ok(ironPubCls.kind === 'spend' && ironPubCls.categoryId === 'groceries'
       && ironPubCls.needsConfirmation !== true,
     'stripped Iron Butcher packet still classifies Groceries');
@@ -1975,7 +1987,7 @@ console.log('\n=== 11. Dale 2026-09-02 Cursor is Dale guilt-free; other AI is no
       && cursorPub.daleGuiltFreeMerchant === true
       && !Object.prototype.hasOwnProperty.call(cursorPub, 'tags'),
     'overlay stamps Cursor personalOwner dale before Amanda tags are stripped');
-  const cursorPubCls = F.classifyCurrentPeriodTransaction(cursorPub, plan);
+  const cursorPubCls = classifyTx(cursorPub, plan);
   ok(cursorPubCls.kind === 'spend' && cursorPubCls.categoryId === 'dale-guilt-free'
       && cursorPubCls.categoryId !== 'amanda-guilt-free',
     'stripped Cursor packet still classifies Dale guilt-free');
@@ -1993,42 +2005,42 @@ console.log('\n=== 12. Dale 2026-09-02 CAN TIRE MC is the Canadian Tire Masterca
 
   // 1. Exact identity -> debt / card payment, whatever the provider label says.
   for (const label of ['Pets', 'Shopping', 'Household', 'Groceries', 'Credit Card Payment', null]) {
-    const cls = F.classifyCurrentPeriodTransaction(
+    const cls = classifyTx(
       canTireMcTx({ id: 'tx-ctmc-' + String(label), categoryLabel: label }), plan);
     ok(isCardPayment(cls) && cls.reason === 'debt-payment-identity',
       'CAN TIRE MC labelled ' + JSON.stringify(label) + ' is card-payment / debt servicing',
       JSON.stringify(cls));
   }
   for (const payee of ['Can Tire Mc', 'CAN TIRE MC _V', 'can tire mc']) {
-    const cls = F.classifyCurrentPeriodTransaction(
+    const cls = classifyTx(
       canTireMcTx({ id: 'tx-ctmc-' + payee, displayedPayee: payee, originalMerchant: payee }), plan);
     ok(isCardPayment(cls), 'payee casing / TD type code ' + JSON.stringify(payee) + ' is still the CAN TIRE MC identity');
   }
 
   // Amount and date are not part of the rule.
-  const otherAmount = F.classifyCurrentPeriodTransaction(
+  const otherAmount = classifyTx(
     canTireMcTx({ id: 'tx-ctmc-other-amount', amount: 5.55, date: '2026-08-29' }), plan);
   ok(isCardPayment(otherAmount), 'CAN TIRE MC at another amount and date is the same identity');
 
   // 4. The $271 screenshot-style fixture.
-  const fixture = F.classifyCurrentPeriodTransaction(canTireMcTx(), plan);
+  const fixture = classifyTx(canTireMcTx(), plan);
   ok(near(CAN_TIRE_MC_AMT, 271) && isCardPayment(fixture),
     'the $271 CAN TIRE MC fixture is debt servicing, not household consumption', JSON.stringify(fixture));
   ok(F.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(fixture) === false,
     'CAN TIRE MC is not eligible for any Household Budget supporting row');
 
   // 5. Ordinary Canadian Tire retail is NOT debt servicing.
-  const retail = F.classifyCurrentPeriodTransaction(canadianTireRetailTx(), plan);
+  const retail = classifyTx(canadianTireRetailTx(), plan);
   ok(retail.kind !== 'card-payment' && retail.reason === 'canadian-tire-unconfirmed'
       && retail.needsConfirmation === true,
     'ordinary Canadian Tire retail stays canadian-tire-unconfirmed, never card-payment', JSON.stringify(retail));
-  const retailStore = F.classifyCurrentPeriodTransaction(canadianTireRetailTx({
+  const retailStore = classifyTx(canadianTireRetailTx({
     id: 'tx-canadian-tire-store', displayedPayee: 'Canadian Tire Store #322',
     originalMerchant: 'Canadian Tire Store #322', categoryLabel: 'Shopping',
   }), plan);
   ok(retailStore.kind !== 'card-payment' && retailStore.needsConfirmation === true,
     'a Canadian Tire retail store labelled Shopping is not the card payment either');
-  const mastercardNote = F.classifyCurrentPeriodTransaction(canadianTireRetailTx({
+  const mastercardNote = classifyTx(canadianTireRetailTx({
     id: 'tx-canadian-tire-note', note: 'Canadian Tire Mastercard',
   }), plan);
   ok(mastercardNote.kind !== 'card-payment',
@@ -2042,7 +2054,7 @@ console.log('\n=== 12. Dale 2026-09-02 CAN TIRE MC is the Canadian Tire Masterca
   ok(retailFlags.cardPaymentIdentity !== true && retailFlags.canadianTire === true,
     'derived flags keep Canadian Tire retail as canadianTire, not cardPaymentIdentity',
     JSON.stringify(retailFlags));
-  const stripped = F.classifyCurrentPeriodTransaction({
+  const stripped = classifyTx({
     id: 'tx-ctmc-stripped', date: '2026-08-31', amount: CAN_TIRE_MC_AMT,
     categoryLabel: 'Pets', accountRole: 'household-cash', cardPaymentIdentity: true,
   }, plan);
@@ -2089,9 +2101,9 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   const shapeOf = cls => JSON.stringify({ kind: cls.kind, categoryId: cls.categoryId,
     needs: cls.needsConfirmation === true });
   for (const label of ['Sport & fitness', 'Shopping', 'Fuel', 'Groceries']) {
-    const cls = F.classifyCurrentPeriodTransaction(
+    const cls = classifyTx(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
-    const base = F.classifyCurrentPeriodTransaction(
+    const base = classifyTx(
       neutral({ id: 'tx-neutral-' + String(label), categoryLabel: label }), plan);
     ok(cls.includeReason !== 'fuel-merchant' && shapeOf(cls) === shapeOf(base),
       'H1: the fuel identity labelled ' + JSON.stringify(label) + ' follows its Lunch Money category',
@@ -2101,7 +2113,7 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
   // would drop the identity row from the household deduction, so it is held
   // for confirmation instead (the label still decides it is not Fuel).
   for (const label of ['Bills', 'Subscriptions', 'Bill']) {
-    const cls = F.classifyCurrentPeriodTransaction(
+    const cls = classifyTx(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
     // With #922 the classifier core already holds an unmatched bill label
     // for confirmation (unmapped-label / bills-only-unmatched), so H1's
@@ -2113,48 +2125,48 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
       'H1: the fuel identity labelled ' + JSON.stringify(label) + ' is held for confirmation, not dropped', shapeOf(cls));
   }
   for (const label of [null, 'Uncategorised']) {
-    const cls = F.classifyCurrentPeriodTransaction(
+    const cls = classifyTx(
       pittMeadowsCeTx({ id: 'tx-pmce-' + String(label), categoryLabel: label }), plan);
     ok(isFuel(cls) && cls.includeReason === 'fuel-merchant',
       'H1: the fuel identity left ' + JSON.stringify(label) + ' by Lunch Money is Fuel', JSON.stringify(cls));
   }
   for (const payee of ['PITTMEADOWSCE', 'Pitt Meadows CE', 'PITT MEADOWS CE _V']) {
-    const cls = F.classifyCurrentPeriodTransaction(
+    const cls = classifyTx(
       pittMeadowsCeTx({ id: 'tx-pmce-' + payee, displayedPayee: payee, originalMerchant: payee }), plan);
     ok(isFuel(cls), 'normalized identity ' + JSON.stringify(payee) + ' is Fuel');
   }
-  const otherAmount = F.classifyCurrentPeriodTransaction(
+  const otherAmount = classifyTx(
     pittMeadowsCeTx({ id: 'tx-pmce-other-amount', amount: 42.10, date: '2026-08-29' }), plan);
   ok(isFuel(otherAmount), 'PITT MEADOWS CE at another amount and date is still Fuel');
 
   // 9. The $100 screenshot-style fixture.
-  const fixture = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx(), plan);
+  const fixture = classifyTx(pittMeadowsCeTx(), plan);
   ok(near(PITT_MEADOWS_CE_AMT, 100) && isFuel(fixture),
     'the $100 PITT MEADOWS CE fixture is Fuel', JSON.stringify(fixture));
 
   // 10. Unrelated Pitt Meadows merchants do not inherit the rule.
-  const arena = F.classifyCurrentPeriodTransaction(pittMeadowsArenaTx(), plan);
+  const arena = classifyTx(pittMeadowsArenaTx(), plan);
   ok(arena.categoryId !== 'fuel' && arena.includeReason !== 'fuel-merchant',
     'PITT MEADOWS AR does not inherit Fuel', JSON.stringify(arena));
-  const arenaBills = F.classifyCurrentPeriodTransaction(
+  const arenaBills = classifyTx(
     pittMeadowsArenaTx({ id: 'tx-pmar-bills', categoryLabel: 'Bills' }), plan);
   ok(arenaBills.kind !== 'bill' && arenaBills.categoryId !== 'fuel'
       && arenaBills.includeReason !== 'fuel-merchant' && arenaBills.needsConfirmation === true,
     'PITT MEADOWS AR labelled Bills is not Fuel and, matching no planned bill, needs confirmation', JSON.stringify(arenaBills));
-  const gasBarSubs = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx({
+  const gasBarSubs = classifyTx(pittMeadowsCeTx({
     id: 'tx-pitt-meadows-gas-bar-subs', displayedPayee: 'Pitt Meadows Gas Bar',
     originalMerchant: 'PITT MEADOWS GAS BAR', categoryLabel: 'Subscriptions',
   }), plan);
   ok(gasBarSubs.kind !== 'bill' && gasBarSubs.categoryId !== 'fuel' && gasBarSubs.needsConfirmation === true,
     'an unrelated Pitt Meadows merchant labelled Subscriptions is not Fuel and, matching no planned bill, needs confirmation',
     JSON.stringify(gasBarSubs));
-  const generic = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx({
+  const generic = classifyTx(pittMeadowsCeTx({
     id: 'tx-pitt-meadows-generic', displayedPayee: 'Pitt Meadows Gas Bar',
     originalMerchant: 'PITT MEADOWS GAS BAR', categoryLabel: null,
   }), plan);
   ok(generic.categoryId !== 'fuel' && generic.needsConfirmation === true,
     'a generic Pitt Meadows merchant without the exact identity still fails closed', JSON.stringify(generic));
-  const centre = F.classifyCurrentPeriodTransaction(pittMeadowsCeTx({
+  const centre = classifyTx(pittMeadowsCeTx({
     id: 'tx-pitt-meadows-centre', displayedPayee: 'Pitt Meadows Central',
     originalMerchant: 'PITT MEADOWS CENTRAL', categoryLabel: null,
   }), plan);
@@ -2162,7 +2174,7 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'a longer Pitt Meadows name is not the truncated PITT MEADOWS CE key');
 
   // Incumbent Business exclusion still wins over the merchant identity.
-  const business = F.classifyCurrentPeriodTransaction(
+  const business = classifyTx(
     pittMeadowsCeTx({ id: 'tx-pmce-business', categoryLabel: 'Business' }), plan);
   ok(business.kind === 'business' && business.householdSpending === false,
     'excluded Business PITT MEADOWS CE stays out of Household Budget');
@@ -2172,12 +2184,12 @@ console.log('\n=== 13. Dale 2026-09-02 PITT MEADOWS CE is Fuel, never Other; oth
     'derived flags stamp confirmedFuel on PITT MEADOWS CE', JSON.stringify(flags));
   const arenaFlags = F.classifyCurrentPeriodTransaction.derivedFlags(pittMeadowsArenaTx());
   ok(arenaFlags.confirmedFuel !== true, 'derived flags do not stamp confirmedFuel on PITT MEADOWS AR');
-  const stripped = F.classifyCurrentPeriodTransaction({
+  const stripped = classifyTx({
     id: 'tx-pmce-stripped', date: '2026-08-31', amount: PITT_MEADOWS_CE_AMT,
     categoryLabel: null, accountRole: 'household-cash', confirmedFuel: true,
   }, plan);
   ok(isFuel(stripped), 'an uncategorised stripped tx carrying only confirmedFuel is still Fuel');
-  const strippedLabelled = F.classifyCurrentPeriodTransaction({
+  const strippedLabelled = classifyTx({
     id: 'tx-pmce-stripped-labelled', date: '2026-08-31', amount: 100,
     categoryLabel: 'Sport & fitness', accountRole: 'household-cash', confirmedFuel: true,
   }, plan);
@@ -2271,21 +2283,21 @@ console.log('\n=== 14. historical authority agrees; preserved rules; one bucket 
     'data.json fuel owner target records the Dale 2026-09-02 PITT MEADOWS CE rule');
 
   // 12–15. Preserved standing rules and fail-closed unresolved merchants.
-  const iron = F.classifyCurrentPeriodTransaction(ironButcherTx(), plan);
+  const iron = classifyTx(ironButcherTx(), plan);
   ok(iron.kind === 'spend' && iron.categoryId === 'groceries' && iron.needsConfirmation !== true,
     'Iron Butcher is still Groceries');
-  const cursor = F.classifyCurrentPeriodTransaction(cursorTx(), plan);
+  const cursor = classifyTx(cursorTx(), plan);
   ok(cursor.kind === 'spend' && cursor.categoryId === 'dale-guilt-free',
     'Cursor is still Dale guilt-free');
-  const surrey = F.classifyCurrentPeriodTransaction(surreyMeatTx(), plan);
+  const surrey = classifyTx(surreyMeatTx(), plan);
   ok(surrey.kind === 'spend' && surrey.categoryId === 'pets' && surrey.includeReason === 'dog-food-merchant',
     'Surrey Meat is still Dog food, never Groceries');
-  const meridian = F.classifyCurrentPeriodTransaction(meridianTx(), plan);
+  const meridian = classifyTx(meridianTx(), plan);
   ok(meridian.kind === 'spend' && meridian.categoryId === 'groceries', 'Meridian Farm is still Groceries');
-  const unresolved = F.classifyCurrentPeriodTransaction(otherTx(), plan);
+  const unresolved = classifyTx(otherTx(), plan);
   ok(unresolved.needsConfirmation === true && unresolved.kind === 'unclassified',
     'an unresolved merchant still fails closed to confirmation / Other');
-  const noMerchantFuel = F.classifyCurrentPeriodTransaction({
+  const noMerchantFuel = classifyTx({
     id: 'tx-fuel-no-merchant', date: '2026-08-31', amount: 40, categoryLabel: 'Fuel',
     accountRole: 'household-cash',
   }, plan);
@@ -2414,7 +2426,7 @@ console.log('\n=== 14. historical authority agrees; preserved rules; one bucket 
       && !Object.prototype.hasOwnProperty.call(ctmcPub, 'originalMerchant'),
     'overlay stamps cardPaymentIdentity on CAN TIRE MC before strip and drops its merchant text',
     JSON.stringify(ctmcPub));
-  const ctmcPubCls = F.classifyCurrentPeriodTransaction(ctmcPub, plan);
+  const ctmcPubCls = classifyTx(ctmcPub, plan);
   ok(ctmcPubCls.kind === 'card-payment' && ctmcPubCls.householdSpending === false,
     'stripped CAN TIRE MC packet still classifies card-payment');
   const retailPub = byAmt(CANADIAN_TIRE_RETAIL_AMT);
@@ -2423,13 +2435,13 @@ console.log('\n=== 14. historical authority agrees; preserved rules; one bucket 
   const pmcePub = byAmt(PITT_MEADOWS_CE_AMT);
   ok(pmcePub && pmcePub.confirmedFuel === true,
     'overlay stamps confirmedFuel on PITT MEADOWS CE before strip', JSON.stringify(pmcePub));
-  const pmcePubCls = F.classifyCurrentPeriodTransaction(pmcePub, plan);
+  const pmcePubCls = classifyTx(pmcePub, plan);
   ok(pmcePubCls.kind === 'spend' && pmcePubCls.categoryId === 'fuel',
     'stripped PITT MEADOWS CE packet still classifies Fuel');
   const pmarPub = byAmt(PITT_MEADOWS_ARENA_AMT);
   ok(pmarPub && pmarPub.confirmedFuel !== true, 'overlay does not stamp confirmedFuel on PITT MEADOWS AR');
   const withoutFlags = Object.assign({}, ctmcPub, { cardPaymentIdentity: false });
-  ok(F.classifyCurrentPeriodTransaction(withoutFlags, plan).kind !== 'card-payment',
+  ok(classifyTx(withoutFlags, plan).kind !== 'card-payment',
     'control: without the derived flag the stripped CAN TIRE MC row would not be recognised, so the flag is load-bearing');
 
   const overlayAdvice = recommend(overlay);
@@ -2470,7 +2482,7 @@ console.log('\n=== 15. CAN TIRE MC card-payment identity reaches unmatched-house
   ok(/function unmatchedHouseholdCash[\s\S]*cardPaymentIdentity/.test(observeSrc),
     'unmatchedHouseholdCash carries Forecast cardPaymentIdentity into classify');
   const flags = F.classifyCurrentPeriodTransaction.derivedFlags(canTireMcTx());
-  const viaFlag = F.classifyCurrentPeriodTransaction({
+  const viaFlag = classifyTx({
     date: '2026-08-31', amount: CAN_TIRE_MC_AMT, pending: false,
     categoryLabel: 'Pets', accountRole: 'household-cash',
     cardPaymentIdentity: flags.cardPaymentIdentity,
@@ -2478,7 +2490,7 @@ console.log('\n=== 15. CAN TIRE MC card-payment identity reaches unmatched-house
   ok(flags.cardPaymentIdentity === true && viaFlag.kind === 'card-payment'
       && viaFlag.householdSpending === false,
     'independent Forecast authority: derived cardPaymentIdentity classifies the $271 fixture as card-payment');
-  const unresolvedCls = F.classifyCurrentPeriodTransaction({
+  const unresolvedCls = classifyTx({
     date: '2026-08-31', amount: unresolvedAmt, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash',
     displayedPayee: 'Unknown Shop', originalMerchant: 'Unknown Shop',
@@ -2597,9 +2609,9 @@ console.log('\n=== 16. Issuer revolving finance charges are debt/interest cost o
     displayedPayee: 'ANNUAL FEE', originalMerchant: 'ANNUAL FEE',
   };
   const interest = cashbackPurchaseInterestTx();
-  const cls = F.classifyCurrentPeriodTransaction(interest, plan);
+  const cls = classifyTx(interest, plan);
   const flags = F.classifyCurrentPeriodTransaction.derivedFlags(interest);
-  const viaFlag = F.classifyCurrentPeriodTransaction({
+  const viaFlag = classifyTx({
     date: '2026-09-08', amount: CASHBACK_PURCHASE_INTEREST_AMT,
     pending: false, categoryLabel: 'Shopping',
     accountRole: 'revolving-credit', atlasAccountId: 'cashback',
@@ -2613,21 +2625,21 @@ console.log('\n=== 16. Issuer revolving finance charges are debt/interest cost o
   ok(flags.cardFinanceChargeIdentity === true && viaFlag.kind === 'interest'
       && viaFlag.householdSpending === false,
     'derived cardFinanceChargeIdentity reclassifies after merchant strip');
-  ok(F.classifyCurrentPeriodTransaction(cashAdvanceInterest, plan).kind === 'interest'
-      && F.classifyCurrentPeriodTransaction(btInterest, plan).kind === 'interest',
+  ok(classifyTx(cashAdvanceInterest, plan).kind === 'interest'
+      && classifyTx(btInterest, plan).kind === 'interest',
     'cash-advance and BT issuer interest on revolving cards are the same finance-charge path');
-  ok(F.classifyCurrentPeriodTransaction(purchase, plan).kind === 'spend'
-      && F.classifyCurrentPeriodTransaction(purchase, plan).categoryId === 'groceries'
-      && F.classifyCurrentPeriodTransaction(purchase, plan).householdSpending === true,
+  ok(classifyTx(purchase, plan).kind === 'spend'
+      && classifyTx(purchase, plan).categoryId === 'groceries'
+      && classifyTx(purchase, plan).householdSpending === true,
     'a real cashback grocery purchase is still Groceries spend');
-  ok(F.classifyCurrentPeriodTransaction(cardPay, plan).kind === 'card-payment'
-      && F.classifyCurrentPeriodTransaction(cardPay, plan).householdSpending === false,
+  ok(classifyTx(cardPay, plan).kind === 'card-payment'
+      && classifyTx(cardPay, plan).householdSpending === false,
     'card payments remain card-payment');
-  const furnitureCls = F.classifyCurrentPeriodTransaction(merchantInterestName, plan);
+  const furnitureCls = classifyTx(merchantInterestName, plan);
   ok(furnitureCls.kind !== 'interest' && furnitureCls.householdSpending === true,
     'a merchant whose name contains Interest is not a finance charge',
     JSON.stringify(furnitureCls));
-  const feeCls = F.classifyCurrentPeriodTransaction(annualFee, plan);
+  const feeCls = classifyTx(annualFee, plan);
   ok(feeCls.kind !== 'interest',
     'annual card fee is not folded into this finance-charge path',
     JSON.stringify(feeCls));
@@ -2642,7 +2654,7 @@ console.log('\n=== 16. Issuer revolving finance charges are debt/interest cost o
   const advice = F.recommend(plan, INTEREST_AS_OF, {
     targetBuffer: 500,
     debts: caseDebts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, plan),
   });
   const active = period(advice.defaultView, 'this-pay-period');
   const groceries = budgetRow(active, 'groceries');
@@ -2675,7 +2687,7 @@ console.log('\n=== 16. Issuer revolving finance charges are debt/interest cost o
 
   const action = F.currentPeriodAction(plan, INTEREST_AS_OF, {
     debts: caseDebts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, plan),
   });
   const independentInterest = roundCent(CASHBACK_PURCHASE_INTEREST_AMT + 18.20 + 9.11);
   ok(near(action.excluded.interest, independentInterest)
@@ -2722,7 +2734,7 @@ console.log('\n=== 16b. Exact plural issuer INTEREST CHARGES keeps the revolving
   });
   for (const account of ['cashback', 'tdcc', 'mbna', 'travelvisa', 'triangle']) {
     const tx = { ...plural, accountRole: null, atlasAccountId: account, account };
-    const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+    const cls = classifyTx(tx, plan);
     ok(cls.kind === 'interest' && cls.householdSpending === false
         && F.classifyCurrentPeriodTransaction.derivedFlags(tx).cardFinanceChargeIdentity === true,
       `exact plural without category/hint is finance cost on canonical ${account}`);
@@ -2731,31 +2743,31 @@ console.log('\n=== 16b. Exact plural issuer INTEREST CHARGES keeps the revolving
     ...plural, account: null, atlasAccountId: null,
     originalMerchant: null, displayedPayee: '  interest   charges  ',
   };
-  ok(F.classifyCurrentPeriodTransaction(normalized, plan).kind === 'interest',
+  ok(classifyTx(normalized, plan).kind === 'interest',
     'revolving-credit role and normalized displayed-payee fallback recognize exact plural');
   for (const account of ['chequing-a', 'heloc', 'mortgage', 'unknown-account', null]) {
     const tx = { ...plural, accountRole: null, atlasAccountId: account, account };
-    ok(F.classifyCurrentPeriodTransaction(tx, plan).kind !== 'interest'
+    ok(classifyTx(tx, plan).kind !== 'interest'
         && F.classifyCurrentPeriodTransaction.derivedFlags(tx).cardFinanceChargeIdentity === false,
       `exact plural does not create revolving identity for ${account || 'missing account'}`);
   }
   for (const merchant of ['INTEREST CHARGES BOOKSHOP', 'LOCAL INTEREST CHARGES', 'Interest Free Furniture']) {
     const tx = { ...plural, displayedPayee: merchant, originalMerchant: merchant };
-    const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+    const cls = classifyTx(tx, plan);
     ok(cls.kind !== 'interest' && cls.householdSpending === true,
       `ordinary merchant stays household spending: ${merchant}`);
   }
   const annualFee = {
     ...plural, displayedPayee: 'ANNUAL FEE', originalMerchant: 'ANNUAL FEE', representedBill: true,
   };
-  ok(F.classifyCurrentPeriodTransaction(annualFee, plan).kind === 'bill',
+  ok(classifyTx(annualFee, plan).kind === 'bill',
     'represented planned annual fee remains a bill');
   for (const merchant of ['OVERDRAFT INTEREST', 'OVERLIMIT FEE']) {
     const tx = {
       ...plural, accountRole: 'household-cash', atlasAccountId: 'chequing-a', account: 'chequing-a',
       categoryLabel: 'Household', displayedPayee: merchant, originalMerchant: merchant,
     };
-    const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+    const cls = classifyTx(tx, plan);
     ok(cls.kind === 'spend' && cls.categoryId === 'household',
       `${merchant} remains Household`);
   }
@@ -2765,12 +2777,12 @@ console.log('\n=== 16b. Exact plural issuer INTEREST CHARGES keeps the revolving
   });
   const withPlural = { ...without, transactions: [...without.transactions, plural] };
   const advice = packet => F.recommend(plan, '2026-09-08', {
-    debts, targetBuffer: 500, currentPeriodActuals: packet,
+    debts, targetBuffer: 500, currentPeriodActuals: LmGroups.groupPacket(packet, plan),
   });
   const before = advice(without);
   const after = advice(withPlural);
   const active = period(after.defaultView, 'this-pay-period');
-  const action = F.currentPeriodAction(plan, '2026-09-08', { debts, currentPeriodActuals: withPlural });
+  const action = F.currentPeriodAction(plan, '2026-09-08', { debts, currentPeriodActuals: LmGroups.groupPacket(withPlural, plan) });
   // Independent reconciliation: only $41.17 grocery + $7.50 gift = $48.67
   // is consumption; the invented $17 issuer charge is debt cost, not $65.67 spend.
   ok(near(householdSpent(active), 48.67) && near(otherRow(active).spent, 7.50)
@@ -2834,7 +2846,7 @@ console.log('\n=== 17. Overlay stamps revolving finance-charge identity before m
   const pluralPub = (overlay.transactions || []).find(tx => tx && near(tx.amount, 17));
   ok(pluralPub && pluralPub.cardFinanceChargeIdentity === true
       && !pluralPub.displayedPayee && !pluralPub.originalMerchant
-      && F.classifyCurrentPeriodTransaction(pluralPub, plan).kind === 'interest',
+      && classifyTx(pluralPub, plan).kind === 'interest',
     'uncategorized exact plural survives sanitization as finance-charge identity');
   ok(interestPub && interestPub.cardFinanceChargeIdentity === true
       && !interestPub.displayedPayee && !interestPub.originalMerchant,
@@ -2848,7 +2860,7 @@ console.log('\n=== 17. Overlay stamps revolving finance-charge identity before m
   ok(groceryPub && groceryPub.cardFinanceChargeIdentity !== true
       && groceryPub.displayedPayee,
     'overlay keeps merchant text on a real cashback grocery');
-  const strippedCls = F.classifyCurrentPeriodTransaction(interestPub, plan);
+  const strippedCls = classifyTx(interestPub, plan);
   ok(strippedCls.kind === 'interest' && strippedCls.householdSpending === false,
     'sanitized overlay interest row still classifies as finance charge',
     JSON.stringify(strippedCls));
@@ -2946,13 +2958,14 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
     { id: 93003, account_id: 3004, amount: -91, payee: 'Invented payment receipt', category_name: 'Payment, Transfer' },
     { id: 93004, account_id: 3002, amount: 7, payee: 'Invented unrelated store', category_name: 'Shopping' },
   ].map(tx => ({ ...tx, date: x.asOf, currency: 'cad', is_pending: false }));
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
   const before = JSON.stringify(x);
-  const r = L.fromObservation(x), packet = r.report.currentPeriodActuals;
+  const r = L.fromObservation(x), packet = LmGroups.groupPacket(r.report.currentPeriodActuals, r.data.plan);
   const action = F.currentPeriodAction(r.data.plan, x.asOf, { debts: r.data.debts, currentPeriodActuals: packet });
   const advice = F.recommend(r.data.plan, x.asOf, { debts: r.data.debts, currentPeriodActuals: packet });
   const active = period(advice.defaultView, 'this-pay-period');
   const interest = packet.transactions.find(tx => tx.amount === 83);
-  const cls = F.classifyCurrentPeriodTransaction(interest, r.data.plan);
+  const cls = classifyTx(interest, r.data.plan);
   ok(cls.kind === 'interest' && !cls.householdSpending && cls.reason === 'heloc-capitalised-interest'
       && !F.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls),
     'native HELOC payee-only evidence survives sanitization and is not Other-eligible');
@@ -2977,16 +2990,16 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
   const raw = { accountRole: 'heloc', atlasAccountId: 'heloc', categoryLabel: 'Interest charge',
     displayedPayee: 'INTEREST', amount: 83 };
   for (const accountRole of ['household-cash', 'mortgage', 'unknown', null]) {
-    ok(F.classifyCurrentPeriodTransaction({ ...raw, accountRole }, x.data.plan).kind !== 'interest',
+    ok(classifyTx({ ...raw, accountRole }, x.data.plan).kind !== 'interest',
       'HELOC canonical id without the exact native role does not earn interest exclusion');
   }
   for (const tx of [
     { ...raw, categoryLabel: 'Shopping', displayedPayee: 'Invented store' },
     { ...raw, accountRole: 'household-cash', atlasAccountId: 'chequing-b', displayedPayee: 'OVERDRAFT INTEREST' },
-  ]) ok(F.classifyCurrentPeriodTransaction(tx, x.data.plan).reason === 'unmapped-label',
+  ]) ok(classifyTx(tx, x.data.plan).reason === 'unmapped-label',
     'non-interest HELOC purchase and household overdraft interest retain Other treatment');
-  ok(F.classifyCurrentPeriodTransaction({ ...raw, amount: -83, isIncome: true }, x.data.plan).kind === 'income'
-      && F.classifyCurrentPeriodTransaction({ ...raw, amount: -83 }, x.data.plan).kind === 'refund',
+  ok(classifyTx({ ...raw, amount: -83, isIncome: true }, x.data.plan).kind === 'income'
+      && classifyTx({ ...raw, amount: -83 }, x.data.plan).kind === 'refund',
     'income and refund precedence is unchanged');
   // Compare the unchanged schedule against the independently loaded main engine.
   const Module = require('node:module');
@@ -2997,7 +3010,7 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
     { cwd: path.join(__dirname, '..'), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }), filename);
   const canonical = load('data.json').plan;
   const payment = { ...raw, amount: 91, categoryLabel: 'Payment, Transfer', displayedPayee: 'Invented payment' };
-  assert.deepEqual(F.classifyCurrentPeriodTransaction(payment, x.data.plan),
+  assert.deepEqual(classifyTx(payment, x.data.plan),
     base.exports.classifyCurrentPeriodTransaction(payment, x.data.plan));
   const start = canonical.opening.asOf, end = F.addDays(start, 91);
   assert.deepEqual(F.expandEvents(canonical, start, end), base.exports.expandEvents(canonical, start, end));
@@ -3006,13 +3019,13 @@ console.log('\n=== Native HELOC interest is liability cost; its Bills payment st
 
 console.log('\n=== HELOC finance-charge evidence survives the privacy boundary narrowly ===');
 {
-  const plan = { bills: [], obligations: [], budget: { categories: [] } };
+  const plan = LmGroups.groupPlan({ bills: [], obligations: [], budget: { categories: [] } });
   const makePacket = (atlasRole, change = {}) => O.sanitizedCurrentPeriodActuals({
     transactionWindow: { startDate: '2030-03-01', endDate: '2030-03-20', complete: true },
     pendingCoverage: { complete: true }, representedEventCandidates: [],
     collapsedTransactions: [{ providerAccountId: 'invented-line', providerTransactionId: 'invented-charge',
       date: '2030-03-20', amount: 83, pending: false, currency: 'cad',
-      payee: 'INTEREST', originalName: 'INTEREST', categoryLabel: null, ...change }],
+      ...LmGroups.groupTx({ payee: 'INTEREST', originalName: 'INTEREST', categoryLabel: null, ...change }, plan) }],
   }, { asOf: '2030-03-20', plan, accountMap: { schema: 'atlas-provider-account-map/v1',
     mappings: [{ providerAccountId: 'invented-line', canonical: { collection: 'debts', id: 'heloc' },
       atlasRole }] } });

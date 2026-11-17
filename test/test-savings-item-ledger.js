@@ -14,6 +14,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const F = require('../public/forecast');
 const O = require('../scripts/provider-observe');
+const LmGroups = require('./lm-groups-fixture.js');
 const renderer = require('../public/savings-inventory');
 const { fixture, observe, raw, link } = require('./test-savings-link-foundation');
 const root = path.resolve(__dirname, '..');
@@ -380,6 +381,8 @@ const base = baseEngine();
     const x = fixture();
     const near = x.plan.commitments.find(c => c.id === 'near');
     if (amount == null) delete near.amount; else near.amount = amount;
+    x.plan = LmGroups.groupPlan(x.plan);
+    x.opts = { ...x.opts, currentPeriodActuals: LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan) };
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)))).advice).advice;
     const then = trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts)))));
@@ -423,6 +426,35 @@ const withoutLinks = value => Array.isArray(value) ? value.map(withoutLinks)
 const live = (x, packet) => F.recommend(x.plan, x.asOf, { ...x.opts, currentPeriodActuals: packet, debts: [] });
 const backing = a => a.savingsFunding.backing.items.map(i => [i.key, i.needed, i.saved]);
 const unknownItems = a => a.savingsFunding.unresolved.map(i => [i.key, i.needed]);
+
+// Slice 1 intended outcome, Dale's (b) (lead ruling): the observed invented
+// goal category has a real Lunch Money id and sits in no group, so its charge
+// is Other spending, counted once, instead of to-confirm. The pre-A4a engine
+// predates that rule, so exactly these declared consequences are checked and
+// projected back before comparing; nothing else may differ:
+//   its recon reason, one 'uncategorised' Other-spending rollup entry (planned
+//   0), and the current shortfall that entry alone raises.
+function slice1Projection(pub, label) {
+  const out = JSON.parse(JSON.stringify(pub));
+  (function project(node) {
+    if (Array.isArray(node)) return node.forEach(project);
+    if (!node || typeof node !== 'object') return;
+    if (node.includeReason === 'ungrouped-category') node.includeReason = 'unmapped-label';
+    Object.values(node).forEach(project);
+  })(out);
+  const action = out.currentPeriodAction;
+  if (action && Array.isArray(action.categories)) {
+    const other = action.categories.filter(c => c.id === 'uncategorised');
+    if (other.length) {
+      assert.equal(other.length, 1, label + ': one Other-spending entry');
+      assert.ok(other[0].planned === 0 && other[0].committed > 0, label + ': the entry is the ungrouped charge against a zero plan');
+      action.categories = action.categories.filter(c => c.id !== 'uncategorised');
+      if (action.currentShortfall === true && !action.categories.some(c => c.overage > 0)) action.currentShortfall = false;
+    }
+  }
+  return out;
+}
+
 for (const [mutate, items, unknown, label] of [
   [x => { x.payload.transactions = [raw(), raw({ id: 'r1', amount: '-5.00', date: '2026-10-04' })]; },
     [['near@2026-10-21', 52.66, 52.66], ['home-cost@2026-10-25', 24, 24], ['far@2026-10-28', 170, 42.34]], [],
@@ -450,7 +482,7 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(restoreLegacyBadFamily(stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(live(x, plain)))).advice).advice), restoreLegacyBadFamily.frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+  assert.deepEqual(slice1Projection(restoreLegacyBadFamily(stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(live(x, plain)))).advice).advice), label), restoreLegacyBadFamily.frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
     { ...x.opts, currentPeriodActuals: plain, debts: [] })))))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));

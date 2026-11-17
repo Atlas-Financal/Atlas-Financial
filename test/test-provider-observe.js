@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const O = require('../scripts/provider-observe.js');
 const R = require('../scripts/reconcile.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const FIXTURE = path.join(ROOT, 'docs', 'connectivity', 'fixtures', 'lunchmoney-sample.json');
@@ -27,6 +28,7 @@ const clone = x => JSON.parse(JSON.stringify(x));
 const payload = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
 const accountMap = JSON.parse(fs.readFileSync(MAP, 'utf8'));
 const data = JSON.parse(fs.readFileSync(DATA, 'utf8'));
+data.plan = LmGroups.groupPlan(data.plan);
 
 console.log('=== A. fixture import is read-only ===');
 {
@@ -744,8 +746,10 @@ console.log('=== L5. ATLAS-067 tags: a /tags 404 fails the live fetch closed ===
     `const F = require(${JSON.stringify(path.join(ROOT, 'public', 'forecast.js'))});`,
     `const accountMap = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(ROOT, 'docs', 'connectivity', 'fixtures', 'provider-account-map.json'))}, 'utf8'));`,
     `const data = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(ROOT, 'data.json'))}, 'utf8'));`,
+    `const LmGroups = require(${JSON.stringify(path.join(__dirname, 'lm-groups-fixture.js'))});`,
+    'data.plan = LmGroups.groupPlan(data.plan);',
     "O.fetchLunchMoneyLive('test-token', '2026-08-16T18:00:00.000Z').then((payload) => {",
-    '  const report = O.observe({ provider: \'lunchmoney\', payload, accountMap, data });',
+    '  const report = O.observe({ provider: \'lunchmoney\', payload: LmGroups.groupPayload(payload, data.plan), accountMap, data });',
     '  const packet = report.currentPeriodActuals || {};',
     '  const rows = packet.transactions || [];',
     '  const byAmt = (a) => rows.find(r => r && r.amount === a) || null;',
@@ -835,7 +839,7 @@ console.log('=== L5. ATLAS-067 tags: a /tags 404 fails the live fetch closed ===
   const F = require('../public/forecast.js');
   const gateAccount = { id: 1001, name: 'Synthetic Chequing', type: 'cash', subtype: 'checking', institution_name: 'Synthetic Bank', balance: 1000, currency: 'cad', updated_at: '2026-08-16T17:55:00.000Z' };
   const gateTx = { id: 7005, account_id: 1001, date: '2026-08-14', amount: 80, currency: 'cad', payee: null, original_name: null, category_id: 901, is_pending: false, status: 'cleared', tags: [501] };
-  const gatePayload = (tags) => ({
+  const gatePayload = (tags) => LmGroups.groupPayload({
     provider: 'lunchmoney',
     fetchedAt: '2026-08-16T18:00:00.000Z',
     accounts: [gateAccount],
@@ -843,7 +847,7 @@ console.log('=== L5. ATLAS-067 tags: a /tags 404 fails the live fetch closed ===
     tags,
     transactions: [gateTx],
     transactionWindow: { startDate: '2026-08-02', endDate: '2026-08-16', complete: true, hasMore: false, truncated: false },
-  });
+  }, data.plan);
   const gateRun = (tags) => {
     const report = O.observe({ provider: 'lunchmoney', payload: gatePayload(tags), accountMap, data });
     const packet = report.currentPeriodActuals || {};
@@ -856,12 +860,16 @@ console.log('=== L5. ATLAS-067 tags: a /tags 404 fails the live fetch closed ===
     && gateHealthy.cls && gateHealthy.cls.kind === 'spend' && gateHealthy.cls.categoryId === 'fuel',
     'payload leg: a healthy tags list lets the bare-ID fuel tag open the missing-merchant gate',
     JSON.stringify(gateHealthy.cls));
+  // Slice 1 (lead ruling, provisional pending Grok Bot): Lunch Money filing the
+  // row in the Fuel row's GROUP is itself explicit fuel evidence, so with an
+  // empty tags list the row still counts as Fuel. Before slice 1 only a
+  // category named exactly "Fuel" was evidence, and this "Fuel & transport"
+  // row was held out of Fuel. The fetch-level tag pins above are unchanged.
   const gateSwallowed = gateRun([]);
-  ok(gateSwallowed.row && gateSwallowed.row.fuelEvidence === false
-    && gateSwallowed.cls && gateSwallowed.cls.kind === 'unclassified'
-    && gateSwallowed.cls.reason === 'fuel-merchant-missing'
+  ok(gateSwallowed.row && gateSwallowed.cls && gateSwallowed.cls.kind === 'spend'
+    && gateSwallowed.cls.categoryId === 'fuel' && gateSwallowed.cls.includeReason === 'fuel-category'
     && gateSwallowed.packet.transactionCoverage === 'complete',
-    'payload leg: the post-404 tags: [] outcome silently holds the same row out of Fuel while coverage claims complete',
+    'payload leg: with tags: [] the Fuel-group row is still Fuel, by its group alone (slice 1, intended)',
     JSON.stringify(gateSwallowed.cls));
 }
 
@@ -973,11 +981,11 @@ console.log('=== N. outgoing e-transfer identity boolean (SEND E-TFR, originalNa
   // sanitized packet from tx.originalName alone, anchored 'SEND E-TFR' with
   // an end/non-alphanumeric boundary after the channel token; SEND E-TFR FEE
   // is a fee, not a transfer. No raw descriptor ever enters the packet.
-  const mk = (id, extra) => O.normalizeLunchMoneyTransaction(Object.assign({
+  const mk = (id, extra) => LmGroups.groupTx(O.normalizeLunchMoneyTransaction(Object.assign({
     id, account_id: 1001, date: '2026-08-16', amount: 50 + id, currency: 'cad',
     is_pending: false, status: 'cleared', payee: 'Household recipient',
     category_name: 'Transfer',
-  }, extra));
+  }, extra)), data.plan);
   const cases = [
     ['SEND E-TFR', true, 'bare channel token'],
     ['send e-tfr', true, 'lowercase variant'],

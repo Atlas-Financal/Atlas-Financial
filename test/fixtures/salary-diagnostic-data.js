@@ -2,6 +2,7 @@
 // Reuses independently invented receipt ledgers, never live household cents.
 const fx = require('./budget-income-receipts');
 const clone = x => JSON.parse(JSON.stringify(x));
+const LmGroups = require('../lm-groups-fixture.js');
 function input(mode = 'matched') {
   const data = fx.data(), accountMap = clone(fx.accountMap), identityRules = clone(fx.rules);
   const rows = fx.transactions();
@@ -48,6 +49,10 @@ function input(mode = 'matched') {
   if (mode === 'incomplete-window') payload.transactionWindow.complete = false;
   if (mode === 'malformed-window') payload.transactionWindow.startDate = 'not-a-date';
   if (mode === 'missing-window') delete payload.transactionWindow;
-  return { provider: 'lunchmoney', data, accountMap, identityRules, payload };
+  // Real Lunch Money v2 shape (lead ruling, slice 1): every invented category
+  // carries an invented id and sits in an invented group, laid out the way the
+  // household lays out groups (test/lm-groups-fixture.js).
+  data.plan = LmGroups.groupPlan(data.plan);
+  return { provider: 'lunchmoney', data, accountMap, identityRules, payload: LmGroups.groupPayload(payload, data.plan) };
 }
 module.exports = { input };

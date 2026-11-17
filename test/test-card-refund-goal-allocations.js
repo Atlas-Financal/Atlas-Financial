@@ -1,4 +1,5 @@
 'use strict';
+const CARD_PAYMENT_CATEGORY = 111;
 // Root-cause pin for acceptance 2.14 (#962 D2). Invented numbers only; every
 // expected figure is hand-worked, not read back from Forecast.
 // A refund on a card row that the link publication attributes to a Savings
@@ -13,6 +14,9 @@ const F = require('../public/forecast');
 
 function build(refund) {
   const w = H.baseWorld();
+  // The card payment legs are filed under a card-payment category (they were the
+  // Transfer category renamed in the raw row; groups follow the category, not its name).
+  w.categories.push({ id: CARD_PAYMENT_CATEGORY, name: 'Credit Card Payment' });
   const pool = refund ? 790 : 770, payment = refund ? 60 : 80;
   w.accounts.find(a => a.id === 'savings').value = pool;
   w.commitments = [
@@ -32,10 +36,9 @@ function build(refund) {
     H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
     H.lm({ date: '2026-10-10', amount: 150, category: 'Trip', account: 'savings', payee: 'Invented airline' }),
     H.lm({ date: '2026-10-11', amount: 80, category: 'Trip', account: 'travelvisa', providerAccountId: 9004, payee: 'Invented airline' }),
-    H.lm({ date: '2026-10-13', amount: payment, account: 'savings', payee: 'Invented card payment', category: 'Transfer',
-      raw: { category_name: 'Credit Card Payment' } }),
+    H.lm({ date: '2026-10-13', amount: payment, account: 'savings', payee: 'Invented card payment', category: CARD_PAYMENT_CATEGORY }),
     H.lm({ date: '2026-10-13', amount: -payment, account: 'travelvisa', providerAccountId: 9004, payee: 'PAYMENT - THANK YOU',
-      raw: { category_name: 'Credit Card Payment' } })];
+      category: CARD_PAYMENT_CATEGORY })];
   if (refund) w.transactions.push(H.lm({ date: '2026-10-12', amount: -20, category: 'Trip',
     account: 'travelvisa', providerAccountId: 9004, payee: 'Invented airline' }));
   const { data } = H.dataOf(H.productionOpening(w));

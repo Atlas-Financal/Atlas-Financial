@@ -14,6 +14,7 @@
 // Forecast.savingsFundingPublication as plan.js calls them, and the rendered
 // Budget page for the two headline cases.
 const assert = require('node:assert/strict');
+const CARD_PAYMENT_CATEGORY = 111;
 const H = require('./acceptance/harness');
 const F = require('../public/forecast');
 
@@ -23,6 +24,9 @@ const TRIP_LINK = { categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }
 // A 600 trip (Nov 20, linked to the Trip category) and a 600 gift (Dec 10).
 function world(savings, balanceDate, purchases, { card = false, aggregate = true } = {}) {
   const w = H.baseWorld();
+  // The card payment legs are filed under a card-payment category (they were the
+  // Transfer category renamed in the raw row; groups follow the category, not its name).
+  w.categories.push({ id: CARD_PAYMENT_CATEGORY, name: 'Credit Card Payment' });
   const sav = w.accounts.find(a => a.id === 'savings');
   sav.value = savings;
   if (balanceDate) sav.balanceDate = balanceDate;
@@ -45,9 +49,8 @@ function world(savings, balanceDate, purchases, { card = false, aggregate = true
 }
 const cardCharge = (amount, date = '2026-10-11') => ({ date, amount, account: 'travelvisa', providerAccountId: 9004 });
 const savingsCardPayment = (amount, date) => [
-  { date, amount, account: 'savings', payee: 'Invented card payment', category: 'Transfer', raw: { category_name: 'Credit Card Payment' } },
-  { date, amount: -amount, account: 'travelvisa', providerAccountId: 9004, payee: 'PAYMENT - THANK YOU', category: 'Transfer',
-    raw: { category_name: 'Credit Card Payment' } }];
+  { date, amount, account: 'savings', payee: 'Invented card payment', category: CARD_PAYMENT_CATEGORY },
+  { date, amount: -amount, account: 'travelvisa', providerAccountId: 9004, payee: 'PAYMENT - THANK YOU', category: CARD_PAYMENT_CATEGORY }];
 
 function engine(w) {
   const { data, error } = H.dataOf(w);

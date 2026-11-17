@@ -72,6 +72,13 @@ if (require.main === module) {
   assert(O.currentPeriodActualsLooksSanitized(p));
   assert.doesNotMatch(JSON.stringify(p.savingsLinks), /invented-(?:category|tag|account|provider|merchant)|categoryId|tagId|amount|payee/i);
   assert.doesNotMatch(JSON.stringify(p.transactions), /categoryId|tagIds|providerTransactionId/);
+  // Slice 1 privacy pin: the only provider id a packet row may carry is a
+  // Lunch Money category GROUP id the served plan already names; anything else is null.
+  const planGroups = new Set([].concat(x.plan.budget?.categories || [], x.plan.budget?.excluded || [])
+    .map(row => row && row.lunchMoneyCategoryGroupId).filter(id => id != null).map(String));
+  assert.ok(p.transactions.every(t => t.categoryGroupId === null || planGroups.has(String(t.categoryGroupId))),
+    'packet rows carry only plan-named group ids');
+  assert.ok((p.categoryGroupIds || []).every(id => planGroups.has(String(id))), 'packet group list names only plan-named groups');
 }
 {
   const x = fixture(); x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28');
@@ -100,8 +107,10 @@ if (require.main === module) {
     assert.equal(packet.savingsLinks.evidence[0].state, 'unresolved');
     assert.equal(packet.savingsLinks.evidence[0].reason, 'conflicting-links');
     assert.equal(packet.savingsLinks.evidence[0].occurrenceKey, null);
+    // Slice 1 (b), intended: the row's category is outside every group, so it is
+    // Other spending ('spend', remainder) rather than to-confirm; still no item.
     assert.equal(F.classifyCurrentPeriodTransaction(packet.transactions[0], x.plan,
-      { packet, currentPeriodActuals: packet }).kind, 'unclassified', 'no item attribution is earned');
+      { packet, currentPeriodActuals: packet }).kind, 'spend', 'no item attribution is earned');
     const html = renderer.html(pub, { asOf: x.asOf, advice });
     const unresolvedRows = [...html.matchAll(/<li data-savings-unresolved-transaction="tx-1">([^<]*)<\/li>/g)];
     assert(unresolvedRows.length > 0, 'the real Forecast publication reaches the evidence display');
@@ -257,7 +266,26 @@ for (const mutate of [
     for (const tx of fresh[field] || []) {
       assert.ok(Object.hasOwn(tx, 'recurringId') && tx.recurringId === null, 'the authorized recurringId leaf is null here');
       delete tx.recurringId;
+      // Slice 1 authorized addition: the row's Lunch Money category group. This
+      // fixture's categories sit in no group, so every value is null.
+      assert.ok(Object.hasOwn(tx, 'categoryGroupId') && tx.categoryGroupId === null, 'the authorized categoryGroupId leaf is null here');
+      delete tx.categoryGroupId;
     }
+  }
+  // Slice 1 authorized additions: the report and packet list the groups Lunch
+  // Money returned (none here), and each packet row carries its (null) group.
+  const groupList = Array.isArray(input.payload.categories) ? [] : null;
+  assert.deepEqual(fresh.categoryGroupIds, groupList, 'the authorized categoryGroupIds leaf');
+  delete fresh.categoryGroupIds;
+  if (groupList) {
+    assert.deepEqual(fresh.currentPeriodActuals.categoryGroupIds, [], 'the authorized packet categoryGroupIds leaf');
+    delete fresh.currentPeriodActuals.categoryGroupIds;
+  }
+  for (const tx of fresh.currentPeriodActuals.transactions || []) {
+    assert.ok(Object.hasOwn(tx, 'categoryGroupId') && tx.categoryGroupId === null, 'the authorized packet categoryGroupId leaf is null here');
+    delete tx.categoryGroupId;
+    assert.equal(typeof tx.categorised, 'boolean', 'the authorized packet categorised flag');
+    delete tx.categorised;
   }
   assert.deepEqual(fresh, JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
     'no-link entire observer report retains the independently loaded pre-change shape');
@@ -277,7 +305,29 @@ for (const mutate of [
   assert.equal(F.classifyCurrentPeriodTransaction(p.transactions.find(t => t.id === 'tx-1'), x.plan,
     { packet: p, currentPeriodActuals: p }).kind, 'savings-item', 'exclusive item membership');
   // Bills audit of 57cb421: full-load BAD proved, then restored exactly.
-  assert.deepEqual(require('./bad-full-load-legacy')(stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })))).advice).advice),
+  // Slice 1 intended outcome, Dale's (b) (lead ruling): the invented goal
+  // category has a real Lunch Money id and sits in no group, so its 12.34
+  // charge is Other spending, counted once, instead of to-confirm. Exactly
+  // three declared consequences, each checked before it is projected back:
+  // its recon reason, one 'uncategorised' Other-spending rollup entry, and the
+  // current shortfall that entry raises against a zero plan. Nothing else moves.
+  const noLinkPub = JSON.parse(JSON.stringify(require('./bad-full-load-legacy')(stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, { ...opts, currentPeriodActuals: plain })))).advice).advice)));
+  let reasons = 0;
+  (function project(node) {
+    if (Array.isArray(node)) return node.forEach(project);
+    if (!node || typeof node !== 'object') return;
+    if (node.id === 'tx-1' && node.includeReason === 'ungrouped-category') { node.includeReason = 'unmapped-label'; reasons++; }
+    Object.values(node).forEach(project);
+  })(noLinkPub);
+  assert.ok(reasons > 0, 'the ungrouped charge carries the ungrouped-category reason');
+  const action = noLinkPub.currentPeriodAction;
+  const other = action.categories.filter(c => c.id === 'uncategorised');
+  assert.deepEqual(other.map(c => [c.committed, c.posted, c.pending, c.planned]), [[12.34, 12.34, 0, 0]],
+    'one Other-spending entry holds exactly the 12.34 charge, counted once');
+  action.categories = action.categories.filter(c => c.id !== 'uncategorised');
+  assert.equal(action.currentShortfall, true, 'that entry against a zero plan is the current shortfall');
+  action.currentShortfall = false;
+  assert.deepEqual(noLinkPub,
     require('./bad-full-load-legacy').frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(baseline))))), 'no-link publication byte shape unchanged');
   const publication = F.savingsFundingPublication(a.savingsFunding, { asOf: x.asOf, advice: a });
   assert(publication?.rows.some(row => row.savingsLinks), 'real Forecast goal rows must carry foundation evidence');
@@ -307,13 +357,15 @@ for (const mutate of [
   // never a guess and never zero; the known pool stays visible.
   for (const [mutate, kind, unknown] of [
     [x => { x.payload.transactions = [raw({ is_pending: true })]; }, 'savings-item', ['near@2026-10-21']],
-    [x => { x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28'); }, 'unclassified', ['near@2026-10-21', 'far@2026-10-28']],
+    // Slice 1, Dale's (b): an unresolved purchase in an ungrouped category is
+    // Other spending ('spend'), no longer to-confirm ('unclassified'); still no item.
+    [x => { x.map.savingsLinks.links[1] = link('tag', 'far', '2026-10-28'); }, 'spend', ['near@2026-10-21', 'far@2026-10-28']],
     [x => { x.payload.transactions = [raw({ kind: 'transfer' })]; }, 'transfer', ['near@2026-10-21']],
     // Atlas P1 on 4d90a156: an unconfirmed anchor resolves no link, so the
     // item the configured links name has Unknown P/U; its need and every
     // dependent share are withheld (not a precise allocation), and the
     // purchase stays a household row.
-    [x => { x.map.savingsLinks.anchorRevision = 2; }, 'unclassified', ['near@2026-10-21']],
+    [x => { x.map.savingsLinks.anchorRevision = 2; }, 'spend', ['near@2026-10-21']],
   ]) {
     const candidate = fixture(); mutate(candidate);
     const packet = observe(candidate);

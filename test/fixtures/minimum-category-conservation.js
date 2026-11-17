@@ -1,17 +1,24 @@
 'use strict';
 const assert = require('node:assert/strict');
 
-// These salary-only ledgers have no category IDs. Extend the immutable
+// These salary-only ledgers carry invented category ids (none of them a
+// minimum category) in invented groups (slice 1). Extend the immutable
 // pre-protocol expected report with exactly the declared schema additions;
 // never delete actual fields or relax comparison of any historical value.
 module.exports = function minimumCategoryExpectation(report, input, historicalObserver) {
   assert.ok(!Object.hasOwn(report, 'cardMinimumCategoryEvidence'),
     'historical baseline predates the minimum category packet');
   const expected = JSON.parse(JSON.stringify(report));
+  // Slice 1: the exact group each invented category sits in (null when none).
+  const groupOfCategory = id => {
+    const cat = (input.payload.categories || []).find(c => c && id != null && String(c.id) === String(id));
+    return cat && cat.group_id != null ? String(cat.group_id) : null;
+  };
   for (const field of ['transactions', 'collapsedTransactions']) {
     assert.ok(Array.isArray(expected[field]), field + ' remains part of whole-payload conservation');
     for (const tx of expected[field]) {
-      assert.equal(tx.categoryId, null, 'salary fixture cannot supply a minimum category ID');
+      assert.ok(tx.categoryId == null || String(tx.categoryId).startsWith('fixture-category:'),
+        'salary fixture supplies only invented, non-minimum category ids');
       assert.ok(!Object.hasOwn(tx, 'minimumCategoryDebt'), 'historical transaction predates the new leaf');
       tx.minimumCategoryDebt = null;
       const raw = input.payload.transactions.find(row => String(row.id) === tx.providerTransactionId);
@@ -23,8 +30,20 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
       assert.ok(!Object.hasOwn(tx, 'recurringId'), 'historical transaction predates the recurring leaf');
       assert.ok(raw.recurring_id == null, 'salary fixtures link no recurring item');
       tx.recurringId = null;
+      // Slice 1 addition (budget rows read Lunch Money category groups): the
+      // normalized row carries its category's group. These ledgers have no
+      // category IDs, so the exact expectation is null.
+      assert.ok(!Object.hasOwn(tx, 'categoryGroupId'), 'historical transaction predates the category-group leaf');
+      tx.categoryGroupId = groupOfCategory(tx.categoryId);
     }
   }
+  // Slice 1 addition: the report lists the category groups Lunch Money
+  // returned; null when the payload delivered no categories collection.
+  assert.ok(!Object.hasOwn(expected, 'categoryGroupIds'), 'historical report predates the category-group list');
+  const groupIds = Array.isArray(input.payload.categories)
+    ? input.payload.categories.filter(c => c && (c.is_group === true || c.is_group_parent === true)).map(c => String(c.id)).sort()
+    : null;
+  expected.categoryGroupIds = groupIds;
   expected.cardMinimumCategoryEvidence = {
     source: 'lunchmoney-minimum-category',
     asOf: historicalObserver.householdFinancialDate(input, report.observations),
@@ -45,7 +64,25 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     assert.ok(!Object.hasOwn(tx, 'outgoingETransferIdentity'),
       'historical packet row predates the identity boolean');
     tx.outgoingETransferIdentity = false;
+    assert.ok(!Object.hasOwn(tx, 'categoryGroupId'), 'historical packet row predates the category-group leaf');
+    assert.ok(!Object.hasOwn(tx, 'categorised'), 'historical packet row predates the categorised flag');
+    // Each invented category name is unique in these ledgers, so the packet
+    // row's raw rows are found by its published label; a raw row that names a
+    // category without an id (a fixture shorthand) publishes no id.
+    const catName = id => { const c = (input.payload.categories || []).find(k => k && String(k.id) === String(id)); return c ? c.name : null; };
+    const ids = [...new Set((input.payload.transactions || [])
+      .filter(row => tx.categoryLabel != null && (row.category_name || catName(row.category_id)) === tx.categoryLabel)
+      .map(row => row.category_id == null ? null : String(row.category_id)))];
+    const categoryId = ids.length === 1 ? ids[0] : null;
+    tx.categorised = categoryId != null;
+    tx.categoryGroupId = groupOfCategory(categoryId);
+    // Slice 1 intended change (lead ruling, provisional pending Grok Bot): a row
+    // in the Fuel row's group is explicit fuel evidence.
+    const fuelRow = ((input.data.plan.budget || {}).categories || []).find(c => c && c.id === 'fuel');
+    if (fuelRow && tx.categoryGroupId != null && String(fuelRow.lunchMoneyCategoryGroupId) === tx.categoryGroupId) tx.fuelEvidence = true;
   }
+  assert.ok(!Object.hasOwn(packet, 'categoryGroupIds'), 'historical packet predates the category-group list');
+  if (Array.isArray(groupIds)) packet.categoryGroupIds = groupIds.slice();
   const w = expected.transactionWindow || {};
   packet.transactionWindow = {
     startDate: w.startDate || null,

@@ -11,7 +11,24 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
+// Lay every plan and packet these checks pass to Forecast out in invented
+// Lunch Money category groups (slice 1 group routing) before use.
+const F = (Forecast => {
+  const groupOpts = (o, plan) => (o && o.currentPeriodActuals)
+    ? Object.assign({}, o, { currentPeriodActuals: LmGroups.groupPacket(o.currentPeriodActuals, plan) }) : o;
+  const classify = Object.assign((tx, plan, ...rest) => {
+    const grouped = LmGroups.groupPlan(plan);
+    return Forecast.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, grouped), grouped, ...rest.map(o => groupOpts(o, grouped)));
+  }, Forecast.classifyCurrentPeriodTransaction);
+  const withGroups = fn => (plan, asOf, o, ...rest) => {
+    const grouped = LmGroups.groupPlan(plan);
+    return fn(grouped, asOf, groupOpts(o, grouped), ...rest);
+  };
+  return Object.assign({}, Forecast, { classifyCurrentPeriodTransaction: classify,
+    currentPeriodAction: withGroups(Forecast.currentPeriodAction), recommend: withGroups(Forecast.recommend),
+    paydayAllocation: withGroups(Forecast.paydayAllocation) });
+})(require('../public/forecast.js'));
 const O = require('../scripts/provider-observe.js');
 const L = require('../scripts/live-plan.js');
 
@@ -69,7 +86,7 @@ function miniPeriods() {
 }
 
 function basePlan(extra) {
-  return Object.assign({
+  return LmGroups.groupPlan(Object.assign({
     windowDays: 40,
     defaults: { targetBuffer: 0 },
     startingCash: { amount: 4000 },
@@ -101,7 +118,7 @@ function basePlan(extra) {
       ],
       excluded: [{ from: 'Business', why: 'not household' }],
     },
-  }, extra || {});
+  }, extra || {}));
 }
 
 function packet(txs, extra) {
@@ -601,7 +618,8 @@ console.log('\n=== observer category identity passes through ===');
   const map = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', 'docs', 'connectivity', 'fixtures', 'provider-account-map.json'), 'utf8'));
   const data = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data.json'), 'utf8'));
-  const report = O.observe({ provider: 'lunchmoney', payload, accountMap: map, data });
+  data.plan = LmGroups.groupPlan(data.plan);
+  const report = O.observe({ provider: 'lunchmoney', payload: LmGroups.groupPayload(payload, data.plan), accountMap: map, data });
   const grocery = report.currentPeriodActuals.transactions.find(t => t.amount === 12.5);
   const transfer = report.currentPeriodActuals.transactions.find(t => t.amount === 40);
   ok(grocery && grocery.categoryLabel === 'Groceries' && grocery.accountRole === 'household-cash',
@@ -1086,7 +1104,7 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
         // LEDGER A item 3: the ledger-linked form (a group parent) is the one that nets.
         isGroup: true,
       },
-    ],
+    ].map(tx => LmGroups.groupTx(tx, LmGroups.groupPlan(plan))),
     representedEventCandidates: [{
       id: 'bcaa', date: PAYDAY, observedAmount: 103,
       providerTransactionId: 'bill-1', postingDate: PAYDAY,
@@ -1160,6 +1178,7 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
     const control = JSON.parse(JSON.stringify(packet));
     const ctlRefund = control.transactions.find(tx => tx && Number(tx.amount) === -12);
     ctlRefund.categoryLabel = null;
+    ctlRefund.categoryGroupId = null; // no category: no Lunch Money group either
     const ctl = cat(F.currentPeriodAction(plan, PAYDAY, opts({ currentPeriodActuals: control })), 'groceries');
     ok(ctl && near(ctl.committed, 18.56) && near(ctl.remaining, planned - 18.56),
       'negative control: the same -12 credit with no category stays excluded; committed stays 18.56',
@@ -1590,9 +1609,12 @@ console.log('\n=== ET. outgoing e-transfer review publication (additional visibi
   const coffeeNamedAction = F.currentPeriodAction(etPlan(), MID, opts({
     currentPeriodActuals: etPacket([groceryRow, coffeeNamedRow]),
   }));
-  ok(coffeeNamedAction.outgoingETransfers.count === 0
-    && !coffeeNamedAction.outgoingETransfers.items.some(i => i.id === 'ex-coffee-named'),
-    'a Coffee Shops-labelled row is a confirmed named category and is excluded from the e-transfer publication');
+  // Slice 1 intended outcome: a category is "named" only through a group the
+  // plan configures. This plan has no Eating out row, so Coffee Shops is no
+  // longer named by the retired eating-out label list; the row stays on the
+  // e-transfer review list (the cautious direction: it is shown, not hidden).
+  ok(coffeeNamedAction.outgoingETransfers.items.some(i => i.id === 'ex-coffee-named'),
+    'a Coffee Shops row with no configured Eating out group is not a named category and stays on the e-transfer review list');
 
   // Coverage states.
   const missing = F.currentPeriodAction(etPlan(), MID, opts());
