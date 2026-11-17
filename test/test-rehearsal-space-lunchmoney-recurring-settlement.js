@@ -26,9 +26,6 @@ const ID = 'rehearsal-space';
 const RECURRING = 3667755;
 const TX_ID = 2530010553;
 const DUE = '2026-11-01';
-// Owner fact 2026-11-17 (Dale): due on the 4th. A linked posting on Nov 1 settles
-// the Nov 4 occurrence early (covers-early-or-due-on-or-before-posting, 7 days).
-const OCC = '2026-11-04';
 const canonicalText = fs.readFileSync(path.join(ROOT, 'data.json'), 'utf8');
 const canonical = JSON.parse(canonicalText);
 const accountMap = load('docs/connectivity/fixtures/provider-account-map.json');
@@ -74,11 +71,11 @@ console.log('\n=== the recurring link settles the Nov occurrence ===');
 const linked = observe([row()]);
 {
   const h = hits(linked);
-  ok(h.length === 1 && h[0].date === OCC && h[0].providerTransactionId === String(TX_ID),
-    'tx 2530010553 with recurring 3667755 identifies the 2026-11-04 occurrence (posted Nov 1, three days early)', JSON.stringify(h.map(x => [x.date, x.providerTransactionId, x.identity])));
+  ok(h.length === 1 && h[0].date === DUE && h[0].providerTransactionId === String(TX_ID),
+    'tx 2530010553 with recurring 3667755 identifies the 2026-11-01 occurrence', JSON.stringify(h.map(x => [x.date, x.providerTransactionId, x.identity])));
   const result = Live.overlayLiveState({ data: clone(canonical), report: linked });
   const rep = ((result.data.plan.opening || {}).representedEvents || []).filter(e => e && e.id === ID);
-  ok(rep.some(e => e.date === OCC), 'live overlay marks rehearsal-space 2026-11-04 represented (Paid)', JSON.stringify(rep));
+  ok(rep.some(e => e.date === DUE), 'live overlay marks rehearsal-space 2026-11-01 represented (Paid)', JSON.stringify(rep));
   ok(fs.readFileSync(path.join(ROOT, 'data.json'), 'utf8') === canonicalText, 'canonical data.json is not mutated');
 }
 
@@ -91,7 +88,7 @@ console.log('\n=== nothing but the link settles it ===');
   ok(hits(observe([row({ recurring_id: null, notes: 'Band rehearsal space', payee: 'Band rehearsal space' })])).length === 0,
     'notes and a payee that read "Band rehearsal space" are ignored without the link');
   const noteVaried = hits(observe([row({ notes: 'anything else entirely' })]));
-  ok(noteVaried.length === 1 && noteVaried[0].date === OCC, 'with the link, notes text does not matter');
+  ok(noteVaried.length === 1 && noteVaried[0].date === DUE, 'with the link, notes text does not matter');
   ok(hits(observe([row({ is_pending: true })])).length === 0, 'a pending linked row does not settle it');
   ok(hits(observe([row({ account_id: 1002 })])).length === 0, 'a linked row on another account does not settle it');
   ok(hits(observe([row({ amount: -SCHEDULED })])).length === 0, 'a linked credit does not settle it');

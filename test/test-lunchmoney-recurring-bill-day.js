@@ -107,6 +107,20 @@ console.log('2a. Owner cross-check: an anchor day that differs from the plan\'s 
     'plan day 4 and anchor 4th agree: confirmed', JSON.stringify([agree.bill.day, agree.bill.dateConfidence]));
 }
 
+console.log('2a-ii. Owner fact (Dale 2026-11-17): due on the 1st; an item anchored on the 1st confirms it');
+{
+  // Plan day 1 (as data.json's rehearsal-space), firstDue Oct 1, reviewed item
+  // anchored on the 1st: the days agree, so the date is confirmed and nothing
+  // is withheld. Hand-derived: Nov 1 is the next occurrence, in Oct 23-Nov 5.
+  const s = serve(world({ bill: { day: 1 } }), read([readItem(ID, { criteria: { anchorDate: '2026-01-01', startDate: '2026-01-01' },
+    expected: ['2026-10-01'] })]));
+  ok(s.bill.day === 1 && s.bill.dateConfidence === 'confirmed' && s.bill.confidence === 'estimated',
+    'day 1 confirmed, amount still estimated', JSON.stringify([s.bill.day, s.bill.dateConfidence, s.bill.confidence]));
+  ok(s.scheduled.length === 1 && s.withheld.length === 0, 'scheduled, not withheld', JSON.stringify([s.scheduled, s.withheld]));
+  ok(s.current.length === 0 && s.next.length === 1 && s.next[0].date === '2026-11-01', '$80 on Nov 1, next period',
+    JSON.stringify(s.next.map(b => b.date)));
+}
+
 console.log('2b. A linked posted payment on the reviewed day settles THAT occurrence (Codex P1, #1281)');
 {
   // The $80 Bills debit linked to the recurring item posts on Oct 20, the

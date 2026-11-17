@@ -15,7 +15,7 @@ const rows = canonical.plan.bills.filter(row => row.id === ID);
 assert.equal(rows.length, 1, 'one canonical rehearsal-space bill');
 const row = rows[0];
 assert.deepEqual([row.frequency, row.day, row.firstDue, row.amount, row.payingAccount],
-  ['monthly', 4, '2026-11-01', 80, 'chequing-a'], 'authorized input routing only (owner fact 2026-11-17: due on the 4th)');
+  ['monthly', 1, '2026-11-01', 80, 'chequing-a'], 'authorized input routing only');
 assert.equal(row.confidence, 'estimated');
 assert.equal(row.dateConfidence, 'estimated');
 assert.match(row.label, /estimated timing/i, 'the date qualifier travels on every label consumer');
@@ -42,7 +42,7 @@ const data = { meta: { asOf: AS_OF }, accounts: [], debts: [], revolvingExtra: [
   income: [], obligations: [], commitments: [], bills: [bill], budget: { categories: [] },
 } };
 const unchanged = JSON.stringify(data);
-const dates = ['2038-11-04', '2038-12-04', '2039-01-04']; // the canonical day 4 (owner fact 2026-11-17)
+const dates = ['2038-11-01', '2038-12-01', '2039-01-01'];
 const events = F.expandEvents(data.plan, '2038-10-01', '2039-01-31');
 assert.deepEqual(events.map(event => [event.date, cents(-event.amount), event.confidence]),
   dates.map(date => [date, AMOUNT, 'estimated']));
