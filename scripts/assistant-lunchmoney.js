@@ -512,6 +512,9 @@ function createService(options = {}) {
           expectedDates: [...m.expectedOccurrenceDates].sort(),
           foundTransactions: found.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0),
           missingDates: [...m.missingTransactionDates].sort() };
+      } else if (!unavailable.includes('matches')) {
+        // A reviewed item with null matches supplied no window evidence: never complete.
+        unavailable.push('matches');
       }
       rows.push({ sortKey: id, recurringRef: alias('rec', id, auth.principal), status: 'reviewed',
         granularity: c.granularity ?? null, quantity: c.quantity ?? null, anchorDate: c.anchorDate ?? null,

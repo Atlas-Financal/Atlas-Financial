@@ -164,6 +164,10 @@ const ok = (cond, label, detail = '') => {
     const badFound = await read([{ ...reviewedMonthly, matches: { ...reviewedMonthly.matches, found_transactions: [{ date: '2026-10-13', transaction_id: 'x' }] } }]);
     ok(badFound.items[0].matches === null && badFound.items[0].unavailableFields.includes('matches'),
       'a malformed found transaction makes the matches unavailable as a whole');
+    const nullMatches = await read([{ ...reviewedMonthly, matches: null }]);
+    ok(nullMatches.items[0].matches === null && JSON.stringify(nullMatches.items[0].unavailableFields) === JSON.stringify(['matches'])
+      && nullMatches.coverage === 'incomplete-provider-response', 'a reviewed item with null matches is unavailable, never complete (Codex P2 on #1280)',
+    JSON.stringify(nullMatches.items[0].unavailableFields));
     const otherAccount = await read([criteria(reviewedMonthly, { plaid_account_id: 99 })]);
     ok(otherAccount.items[0].accountMapping === 'unavailable', 'an account not in the catalog maps to unavailable, never a guess');
     body = { recurring_items: [reviewedMonthly] };
