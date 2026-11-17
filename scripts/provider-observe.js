@@ -3111,10 +3111,26 @@ function representedEventHitGroups(input) {
   }
   const preferred = [];
   const droppedUpcoming = new Set();
+  // Grok Bot (#1206, 6928328181): a recurring link and an item note naming DIFFERENT bills leave
+  // neither the winner. That holds whatever their due dates: the outstanding-before-upcoming
+  // preference below must not pick one of them (Astra's audit, #821 6934483625, observation 2),
+  // so such a row goes on to the consumed-twice path (To confirm).
+  const txById = new Map((input.transactions || []).map(tx => [String(tx && tx.providerTransactionId), tx]));
+  const deliberateLinksDisagree = txId => {
+    const tx = txById.get(String(txId));
+    if (!tx) return false;
+    const linkedTo = tx.recurringId == null ? '' : String(tx.recurringId).trim();
+    const items = noteItemNames(tx.notes);
+    const byRecurring = new Set(rules.filter(rule => linkedTo
+      && ruleLunchMoneyRecurringIds(rule).includes(linkedTo)).map(rule => rule.eventId));
+    const byItem = new Set(rules.filter(rule => items.length === 1
+      && ruleLunchMoneyItemNames(rule).includes(items[0])).map(rule => rule.eventId));
+    return byRecurring.size > 0 && byItem.size > 0 && [...byRecurring].some(id => !byItem.has(id));
+  };
   for (const [txId, siblings] of byTx) {
     const outstanding = siblings.filter(hit => hit && hit.date <= hit.postingDate);
     const upcoming = siblings.filter(hit => hit && hit.date > hit.postingDate);
-    if (outstanding.length && upcoming.length) {
+    if (outstanding.length && upcoming.length && !deliberateLinksDisagree(txId)) {
       for (const hit of upcoming) {
         droppedUpcoming.add(hit.id + '@' + hit.date + '@' + txId);
       }
