@@ -300,6 +300,81 @@ for (const kind of ['once', 'monthly']) {
     assert.equal(view.totalBillsThisPeriod, BILL, 'the closed total stays 30');
   });
 }
+console.log('\n=== Dale marked it Paid at the close; a ledger entry appears later (Grok Bot, Plan #6; Dale OK on #821) ===');
+// Dale's mark (the opening representedEvents) settles the 30.00 due 02-05.
+// A saved close is never overwritten. An unbacked ledger entry for the same
+// occurrence that the close did not see is disclosed on the row, counted
+// nowhere again; one the close already saw stays To confirm, as saved.
+// Hand-derived: 30 counted once, in the closed period, in every case.
+const marked = (extra = {}) => input({ billTx: false, representedEvents: [{ id: BILL_ID, date: BILL_DATE }], ...extra });
+const LEDGER_NOTE = /A ledger entry may be for this bill\. It's already marked paid, and no bank payment backs it\./;
+const PAID_SAVED = { status: 'PAID', settlement: 'represented', remaining: 0 };
+const onceOverall = (name, view, advice) => {
+  const current = advice.payPeriodViews.find(p => p.start === NEXT_START);
+  assert.equal(current.bills.filter(r => r.id === BILL_ID && r.date === BILL_DATE).length, 0, name + ': not listed now');
+  assert.equal(current.periodBillLoad, 0, name + ': current bill load 0');
+  assert.equal(view.periodBillLoad, BILL, name + ': the saved load is exactly as saved');
+  assert.equal(view.totalBillsThisPeriod, BILL, name + ': the saved total is exactly as saved');
+  assert.equal(view.periodBillLoad + current.periodBillLoad, BILL, name + ': 30 + 0 = 30 overall');
+};
+check('entry after the close: the saved Paid stays Paid, counted once, and the row names the later entry', () => {
+  const atClose = capture(marked());
+  const savedRow = atClose.content.publication.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(savedRow.status, 'PAID', 'control: with no entry at the close, the mark saved it Paid');
+  const { view, advice, row } = closedView(marked(), unbacked, savedClose(PAID_SAVED));
+  assert.ok(view.capturedClose, 'control: the saved close is reprinted');
+  assert.equal(row.status, 'PAID', 'never overwritten');
+  assert.equal(row.ledgerEntryUnbacked, true);
+  onceOverall('after the close', view, advice);
+  const html = PAGE.bills(view);
+  assert.equal(bucketOf(html), 'paid');
+  assert.match(billRowHtml(html), />Paid</);
+  assert.match(billRowHtml(html), LEDGER_NOTE);
+});
+check('entry before the close: it saved To confirm, is reprinted To confirm, with no ledger note', () => {
+  // At the close the rebuild already held the unbacked entry: what it saved.
+  const { view: atCloseView } = closedView(marked(), unbacked);
+  const savedRow = atCloseView.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
+  assert.equal(savedRow.status, 'planned', 'control: the close saw the unbacked entry, so it is To confirm');
+  const { view, advice, row } = closedView(marked(), unbacked, savedClose({ status: 'planned', settlement: 'unverified',
+    remaining: BILL, settlementEvidence: 'not-established' }));
+  assert.ok(view.capturedClose, 'control: the saved close is reprinted');
+  assert.equal(row.status, 'planned', 'To confirm, as saved');
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  onceOverall('before the close', view, advice);
+  assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
+});
+check('control: a saved Paid with no later entry has no ledger note', () => {
+  const { view, row } = closedView(marked(), null, savedClose(PAID_SAVED));
+  assert.equal(row.status, 'PAID');
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
+});
+check('control: a later entry that a posted bank payment backs is no contest, so no ledger note', () => {
+  const { view, row } = closedView(marked({ billTx: true }), null, savedClose(PAID_SAVED));
+  assert.equal(row.status, 'PAID');
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
+});
+check('control: a close saved Paid on a bank payment (an amount on the row) gets no ledger note, so the note never says "no bank payment" about it', () => {
+  const { view, row } = closedView(marked(), unbacked, savedClose({ ...PAID_SAVED, actual: BILL }));
+  assert.equal(row.status, 'PAID');
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
+});
+check("no saved close (lead's ruling): the mark plus an unbacked entry stays To confirm, with no ledger note", () => {
+  const { view, row } = closedView(marked(), unbacked);
+  assert.equal(view.capturedClose, undefined, 'control: nothing saved');
+  assert.equal(row.status, 'planned', 'To confirm: nothing proves the entry came after the close');
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
+});
+check('the ledger note is derived at reprint, never saved: a saved flag is dropped when no entry contests it', () => {
+  const { row } = closedView(marked(), null, savedClose({ ...PAID_SAVED, ledgerEntryUnbacked: true }));
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  const candidate = capture(marked());
+  assert.ok(!JSON.stringify(candidate.content).includes('ledgerEntryUnbacked'), 'a capture carries no such field');
+});
 console.log('\n=== the Forecast seam: every way the named evidence can be absent or contested ===');
 // Here the bank holds a posted 02-05 debit, so the walk does not carry the
 // occurrence: the closed period keeps it To confirm and counts it, and the
