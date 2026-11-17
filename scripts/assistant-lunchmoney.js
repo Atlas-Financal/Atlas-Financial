@@ -53,6 +53,10 @@ function monthSpan(startMonth, endMonth) {
   return (ey - sy) * 12 + (em - sm);
 }
 const schemas = {
+  // Recurring-item schedule evidence (S0, LEDGER A; Dale 2026-11-17). Both dates
+  // set the provider's matches window; the span is capped like the transactions read.
+  recurring: z.object({ startDate: date, endDate: date }).strict()
+    .refine(v => v.startDate <= v.endDate && (Date.parse(v.endDate) - Date.parse(v.startDate)) <= 366 * 86400000),
   balanceHistory: z.object({ startMonth: month, endMonth: month }).strict()
     .refine(v => monthSpan(v.startMonth, v.endMonth) >= 0 && monthSpan(v.startMonth, v.endMonth) <= 119),
   cleanupInstruction: Cleanup.createSchema,
@@ -107,7 +111,7 @@ const READ_ERROR_CODES = new Set([
   'reference-expired-or-unavailable', 'category-evidence-unavailable',
   'account-evidence-unavailable', 'catalog-unavailable', 'coverage-unavailable',
   'duplicate-provider-identity',
-  'tag-evidence-unavailable', 'balance-history-unavailable',
+  'tag-evidence-unavailable', 'balance-history-unavailable', 'recurring-items-unavailable',
 ]);
 function readFailure(operation, error) {
   // Never expose error text, request URLs/headers, provider bodies or IDs.
@@ -123,7 +127,8 @@ function readFailure(operation, error) {
 function requiredScope(operation) {
   if (['prepareStanding', 'applyStanding', 'submitStandingEvidence', 'submitCleanupEvidence', 'standingAudit'].includes(operation)) return Standing.SCOPE;
   if (operation === 'prepare' || operation === 'apply') return WRITE_SCOPE;
-  if (operation === 'catalog' || operation === 'query' || operation === 'balanceHistory' || operation === 'cleanupInstruction') return READ_SCOPE;
+  if (operation === 'catalog' || operation === 'query' || operation === 'balanceHistory' || operation === 'recurring'
+    || operation === 'cleanupInstruction') return READ_SCOPE;
   return null;
 }
 function scopeDenial(operation, auth = {}) {
@@ -210,6 +215,7 @@ function createService(options = {}) {
   async function request(method, path, body, beforeSend) {
     const stage = path.startsWith('/transactions') ? 'transactions-request'
       : path.startsWith('/balance_history') ? 'balance-history-request'
+      : path.startsWith('/recurring_items') ? 'recurring-items-request'
         : path.startsWith('/categories') ? 'categories-request'
           : path.startsWith('/tags') ? 'tags-request'
             : path.startsWith('/plaid_accounts') ? 'synced-accounts-request' : 'manual-accounts-request';
@@ -428,6 +434,99 @@ function createService(options = {}) {
       accounts: rows.map(({ sortKey, ...row }) => row),
       accountCount: rows.length,
       entryCount: rows.reduce((total, row) => total + row.entries.length, 0) };
+  }
+  // GET /recurring_items (Lunch Money v2.11.1 getAllRecurring: one unpaginated
+  // response; start_date/end_date set each item's `matches` window and do not
+  // filter items; suggested items are excluded unless asked for, and are never
+  // asked for here). Reviewed items only. Schedule evidence only: no payee,
+  // description, notes, amount, currency conversion, category or creator
+  // leaves this read. Raw provider ids never cross: the item, its account and
+  // each found transaction are opaque references (a found transaction's
+  // reference is the same one get_lunchmoney_transactions returns for that row).
+  // A missing, invalid or duplicate item id fails the whole read; any other
+  // malformed field is reported unavailable for that item, never coerced.
+  async function recurring(input, auth) {
+    const { accounts } = await catalogData(auth.principal);
+    const params = new URLSearchParams({ start_date: input.startDate, end_date: input.endDate });
+    const data = await request('GET', '/recurring_items?' + params);
+    const items = Array.isArray(data) ? data : data && Array.isArray(data.recurring_items) ? data.recurring_items : null;
+    if (!items) throw new Error('recurring-items-unavailable');
+    // The endpoint documents no pagination; a paginated-looking envelope is never called complete.
+    const paged = !Array.isArray(data) && ['has_more', 'next', 'cursor', 'offset', 'limit'].some(key => Object.hasOwn(data, key));
+    const day = value => typeof value === 'string' && date.safeParse(value).success ? value : null;
+    const days = value => Array.isArray(value) && value.every(v => day(v) !== null) ? [...value].sort() : null;
+    const seen = new Set();
+    let suggestedExcluded = 0;
+    let malformedStatus = 0;
+    const rows = [];
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || !Number.isSafeInteger(item.id) || item.id < 1)
+        throw new Error('invalid-provider-identity');
+      if (seen.has(item.id)) throw new Error('duplicate-provider-identity');
+      seen.add(item.id);
+      if (item.status === 'suggested') { suggestedExcluded++; continue; }
+      // A missing or unknown status is never treated as reviewed.
+      if (item.status !== 'reviewed') { malformedStatus++; continue; }
+      const unavailable = [];
+      const criteria = item.transaction_criteria && typeof item.transaction_criteria === 'object'
+        ? item.transaction_criteria : null;
+      if (!criteria) unavailable.push('transactionCriteria');
+      const c = criteria || {};
+      const granularity = ['day', 'week', 'month', 'year'].includes(c.granularity) ? c.granularity : null;
+      if (criteria && granularity === null) unavailable.push('granularity');
+      const quantity = Number.isSafeInteger(c.quantity) && c.quantity > 0 ? c.quantity : null;
+      if (criteria && quantity === null) unavailable.push('quantity');
+      const anchorDate = day(c.anchor_date);
+      if (criteria && anchorDate === null) unavailable.push('anchorDate');
+      // start/end are documented nullable: null stays null; anything else malformed is unavailable.
+      const startDate = c.start_date == null ? null : day(c.start_date);
+      if (criteria && c.start_date != null && startDate === null) unavailable.push('startDate');
+      const endDate = c.end_date == null ? null : day(c.end_date);
+      if (criteria && c.end_date != null && endDate === null) unavailable.push('endDate');
+      if (startDate && endDate && startDate > endDate) unavailable.push('startDate', 'endDate');
+      const accountKind = c.plaid_account_id != null ? 'plaid' : c.manual_account_id != null ? 'manual' : null;
+      const accountId = accountKind === 'plaid' ? c.plaid_account_id : accountKind === 'manual' ? c.manual_account_id : null;
+      const account = accountKind && Number.isSafeInteger(accountId)
+        ? accounts.find(a => a.type === accountKind && a.providerId === accountId) : null;
+      const accountMapping = account ? 'catalog' : accountKind ? 'unavailable' : 'none';
+      let matches = null;
+      const m = item.matches;
+      if (m && typeof m === 'object') {
+        const expected = days(m.expected_occurrence_dates);
+        const missing = days(m.missing_transaction_dates);
+        let found = null;
+        if (Array.isArray(m.found_transactions)) {
+          found = [];
+          for (const f of m.found_transactions) {
+            if (!f || day(f.date) === null || !Number.isSafeInteger(f.transaction_id) || f.transaction_id < 1) { found = null; break; }
+            found.push({ date: f.date, transactionRef: alias('tx', f.transaction_id, auth.principal) });
+          }
+          if (found) found.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+        }
+        if (expected === null) unavailable.push('expectedDates');
+        if (missing === null) unavailable.push('missingDates');
+        if (found === null) unavailable.push('foundTransactions');
+        matches = { windowStart: day(m.request_start_date), windowEnd: day(m.request_end_date),
+          expectedDates: expected, foundTransactions: found, missingDates: missing };
+      } else {
+        unavailable.push('matches');
+      }
+      rows.push({ sortKey: item.id, recurringRef: alias('rec', item.id, auth.principal), status: 'reviewed',
+        granularity, quantity, anchorDate, startDate, endDate,
+        accountRef: account ? account.ref : null, accountMapping, matches,
+        ...(unavailable.length ? { unavailableFields: [...new Set(unavailable)] } : {}) });
+    }
+    rows.sort((a, b) => a.sortKey - b.sortKey);
+    const complete = !paged && malformedStatus === 0 && rows.every(row => !row.unavailableFields);
+    return { status: 'ok', source: 'Lunch Money v2', observedAt: new Date(now()).toISOString(),
+      window: { startDate: input.startDate, endDate: input.endDate },
+      coverage: complete ? 'complete-provider-response' : 'incomplete-provider-response',
+      writesAtlasState: false, providerWrite: false,
+      note: 'Lunch Money reviewed recurring items: schedule evidence only (granularity, quantity, anchor, start and end dates, the account reference, and the expected, found and missing dates Lunch Money reports for the requested window). Suggested items are excluded and counted. No payee, description, notes, amount or category is returned. A found transaction reference is the same reference get_lunchmoney_transactions returns for that row. An expected date with no found transaction is not evidence of an unpaid bill, and none of this is an Atlas bill, settlement or figure. Forecast remains the planner.',
+      referenceExpiresInSeconds: TTL / 1000,
+      items: rows.map(({ sortKey, ...row }) => row),
+      itemCount: rows.length, suggestedExcluded,
+      ...(malformedStatus ? { statusUnavailable: malformedStatus } : {}) };
   }
   async function query(input, auth) {
     const { categories, accounts } = await catalogData(auth.principal);
@@ -896,10 +995,10 @@ function createService(options = {}) {
     if (denied) return denied;
     const parsed = schemas[operation]?.safeParse(args);
     if (!parsed?.success) return fail('invalid-arguments');
-    try { return await ({ catalog, query, balanceHistory, prepare, apply, cleanupInstruction: Cleanup.create,
+    try { return await ({ catalog, query, balanceHistory, recurring, prepare, apply, cleanupInstruction: Cleanup.create,
       prepareStanding, applyStanding, submitStandingEvidence, submitCleanupEvidence, standingAudit })[operation](parsed.data, auth); }
     catch (error) {
-      return operation === 'catalog' || operation === 'query' || operation === 'balanceHistory'
+      return operation === 'catalog' || operation === 'query' || operation === 'balanceHistory' || operation === 'recurring'
         ? readFailure(operation, error) : fail('lunchmoney-operation-unavailable');
     }
   }
