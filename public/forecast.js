@@ -12336,6 +12336,9 @@
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
+  // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
+  // description on category refunds only.
+  classifyCurrentPeriodTransaction.identifiedCategoryRefund = identifiedCategoryRefund;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
@@ -12364,6 +12367,10 @@
       // classification reads it.
       ...(typeof tx.displayedNote === 'string' && tx.displayedNote.trim()
         ? { displayedNote: tx.displayedNote.trim() } : {}),
+      // Display-only (#962 C1): a refund's bank description. The observer keeps it on refunds only and the
+      // sanitizer allows it only on a credit; no math or classification reads it.
+      ...(Number(tx.amount) < 0 && typeof tx.bankDescription === 'string' && tx.bankDescription.trim()
+        ? { bankDescription: tx.bankDescription.trim() } : {}),
       atlasRow: (cls && (cls.atlasRow || cls.categoryId)) || null,
       includeReason: duplicate
         ? 'pending-posted-duplicate'
