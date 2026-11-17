@@ -66,7 +66,7 @@ function serve(w, recurringItems) {
   const periods = adv.defaultView.calendarPeriods;
   const band = p => (p.bills || []).filter(b => b.id === 'band' || /band room/i.test(b.label || ''));
   return { canonicalUnchanged: JSON.stringify(canonical) === before, bill: plan.bills.find(b => b.id === 'band'),
-    withheld: r.report.recurringBillSchedulesWithheld || [], scheduled: r.report.recurringBillSchedules || [],
+    noWithheldKey: !Object.hasOwn(r.report, 'recurringBillSchedulesWithheld'), scheduled: r.report.recurringBillSchedules || [],
     current: band(periods.find(p => p.start === '2026-10-09')), next: band(periods.find(p => p.start === '2026-10-23')),
     applied: r.data.liveOverlay.applied };
 }
@@ -85,7 +85,7 @@ planDay(serve(world(), undefined), 'no read');
 console.log('2. A reviewed item anchored on the plan\'s day (20th) confirms it; only the date tag changes');
 {
   const s = serve(world(), read([readItem(ID)]));
-  ok(s.bill.day === 20 && s.scheduled.length === 1 && s.withheld.length === 0, 'served day is the agreed anchor day',
+  ok(s.bill.day === 20 && s.scheduled.length === 1 && s.noWithheldKey, 'served day is the agreed anchor day',
     String(s.bill.day));
   ok(s.bill.dateConfidence === 'confirmed', 'the date tag is confirmed (reviewed confirms the schedule)');
   ok(s.bill.confidence === 'estimated', 'the amount tag stays estimated');
@@ -106,12 +106,12 @@ console.log('2a. Day leads: an anchor day that differs from the plan\'s day wins
   const s = serve(world(), read([readItem(ID, { criteria: { anchorDate: '2026-01-04' }, expected: ['2026-10-04'] })]));
   ok(s.bill.day === 4 && s.bill.dateConfidence === 'confirmed' && s.bill.confidence === 'estimated',
     'served day 4, date confirmed, amount still estimated', JSON.stringify([s.bill.day, s.bill.dateConfidence, s.bill.confidence]));
-  ok(s.scheduled.length === 1 && s.withheld.length === 0, 'applied, nothing withheld');
+  ok(s.scheduled.length === 1 && s.noWithheldKey, 'applied, nothing withheld');
   ok(s.current.length === 0 && s.next.length === 1 && s.next[0].date === '2026-11-04', '$80 on Nov 4, next period',
     JSON.stringify([s.current.map(b => b.date), s.next.map(b => b.date)]));
   // And the other way: plan day 4, anchor on the 4th, agrees and confirms.
   const agree = serve(world({ bill: { day: 4 } }), read([readItem(ID, { criteria: { anchorDate: '2026-01-04' }, expected: ['2026-10-04'] })]));
-  ok(agree.bill.day === 4 && agree.bill.dateConfidence === 'confirmed' && agree.withheld.length === 0,
+  ok(agree.bill.day === 4 && agree.bill.dateConfidence === 'confirmed' && agree.noWithheldKey,
     'plan day 4 and anchor 4th agree: confirmed', JSON.stringify([agree.bill.day, agree.bill.dateConfidence]));
 }
 
@@ -124,7 +124,7 @@ console.log('2a-ii. Owner fact (Dale 2026-11-17): due on the 1st; an item anchor
     expected: ['2026-10-01'] })]));
   ok(s.bill.day === 1 && s.bill.dateConfidence === 'confirmed' && s.bill.confidence === 'estimated',
     'day 1 confirmed, amount still estimated', JSON.stringify([s.bill.day, s.bill.dateConfidence, s.bill.confidence]));
-  ok(s.scheduled.length === 1 && s.withheld.length === 0, 'scheduled, not withheld', JSON.stringify([s.scheduled, s.withheld]));
+  ok(s.scheduled.length === 1 && s.noWithheldKey, 'scheduled, not withheld', JSON.stringify(s.scheduled));
   ok(s.current.length === 0 && s.next.length === 1 && s.next[0].date === '2026-11-01', '$80 on Nov 1, next period',
     JSON.stringify(s.next.map(b => b.date)));
 }
