@@ -12336,6 +12336,9 @@
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
+  // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
+  // description on category refunds only.
+  classifyCurrentPeriodTransaction.identifiedCategoryRefund = identifiedCategoryRefund;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
@@ -12364,6 +12367,10 @@
       // classification reads it.
       ...(typeof tx.displayedNote === 'string' && tx.displayedNote.trim()
         ? { displayedNote: tx.displayedNote.trim() } : {}),
+      // Display-only (#962 C1): a refund's bank description. The observer keeps it on refunds only and the
+      // sanitizer allows it only on a credit; no math or classification reads it.
+      ...(Number(tx.amount) < 0 && typeof tx.bankDescription === 'string' && tx.bankDescription.trim()
+        ? { bankDescription: tx.bankDescription.trim() } : {}),
       atlasRow: (cls && (cls.atlasRow || cls.categoryId)) || null,
       includeReason: duplicate
         ? 'pending-posted-duplicate'
@@ -14581,32 +14588,6 @@
     return reconcileCardPurchases(transactions, opts).publication;
   }
 
-  // Private foundation adapter. Existing reconciler and sealed movement gates
-  // decide qualification; this adds no matching, allocation or money calculation.
-  // Caller resolves references privately. Only sanitized preview facts return.
-  function validateCardPaymentDecision(input) {
-    const unavailable = { status: 'unavailable' };
-    try {
-      const { plan, debts, asOf, packet, record, retainedRecords = [] } = input;
-      if (!record || record.confirmed !== true || !Array.isArray(packet?.transactions)
-        || !Array.isArray(retainedRecords)) return unavailable;
-      const rows = packet.transactions.filter(tx => tx?.coverageRef === record.creditRef);
-      if (rows.length !== 1) return unavailable;
-      const credit = rows[0], selected = JSON.parse(JSON.stringify(plan));
-      const policy = selected.cardPurchaseCoverage || { payments: [], refunds: [], reversals: [] };
-      // Retained explicit intent participates in the incumbent's complete claim
-      // bounds even when a leg/purchase is absent or materially changed today.
-      policy.payments = [...(policy.payments || []), ...retainedRecords, record]; selected.cardPurchaseCoverage = policy;
-      const window = spendingCycle(selected, credit.date);
-      const publication = cardPeriodMovements(selected, debts, asOf, window, { currentPeriodActuals: packet });
-      const card = publication?.cards.find(row => row.id === credit.atlasAccountId);
-      const matches = card?.posted.filter(row => row.id === String(credit.id));
-      const allocation = matches?.length === 1 && matches[0].paymentAllocation;
-      return allocation?.status === 'reconciled' && allocation.kind === 'payment'
-        ? { status: 'ready', allocation } : unavailable;
-    } catch { return unavailable; }
-  }
-
   // The private identity bridge never leaves Forecast. No merchant, amount,
   // date or page-side comparison is allowed to assign coverage to a purchase.
   function cardCoverageAnnotation(tx, coverage) {
@@ -15561,14 +15542,19 @@
       const windowLoadUnknowns = scheduledLoadUnknowns.filter(u => u.dateUnknown
         ? !u.from || u.from <= window.end
         : u.date >= window.start && u.date <= window.end);
+      // A completed period reads the same dated scheduled unknowns its total
+      // and unconfirmedBills already withhold on (scheduledBillAmountUnknown
+      // below), so its load, remainder and everything built on them are
+      // unknown too, never a number beside an Unknown total.
+      const lookbackLoadUnknowns = lookback ? windowLoadUnknowns.filter(u => !u.dateUnknown) : [];
       const billLoadUnknown = !planUnavailable && ((!lookback && (unknownLoadRows.length > 0
-        || windowLoadUnknowns.length > 0)) || planBillAmountUnknown);
-      // What leaves an open period's bill load unknown, named by carrier and
-      // id (each once), so the withheld total says which bill or payment it is.
-      const billLoadUnknownFrom = !lookback && billLoadUnknown
+        || windowLoadUnknowns.length > 0)) || lookbackLoadUnknowns.length > 0 || planBillAmountUnknown);
+      // What leaves a period's bill load unknown, named by carrier and id
+      // (each once), so the withheld total says which bill or payment it is.
+      const billLoadUnknownFrom = billLoadUnknown
         ? [...new Map([
-          ...unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null })),
-          ...windowLoadUnknowns.map(u => ({ carrier: u.carrier, id: u.id || null })),
+          ...(lookback ? [] : unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null }))),
+          ...(lookback ? lookbackLoadUnknowns : windowLoadUnknowns).map(u => ({ carrier: u.carrier, id: u.id || null })),
           ...planBillAmountUnknownBills.map(b => ({ carrier: 'bill', id: b.id || null })),
         ].map(u => [u.carrier + ':' + u.id, u])).values()]
         : null;
@@ -16024,6 +16010,9 @@
         totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown)
           || (!lookback && billLoadUnknown) ? null : totalBillsThisPeriod,
         paidBills,
+        // A completed period's remainder is settlement evidence, not an
+        // amount due: it stays 0 by contract (#931) and its unknown is carried
+        // by unconfirmedBills. Only an open period withholds it.
         remainingBills: planUnavailable || (!lookback && billLoadUnknown) ? null : remainingBills,
         ...(billLoadUnknownFrom ? { billLoadUnknownFrom } : {}),
         // Completed periods only, so every other period's publication is
@@ -28919,7 +28908,7 @@
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
-    visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };
+    visaPaymentReconciliation, visaPaymentPublication };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it

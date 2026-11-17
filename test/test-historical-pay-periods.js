@@ -8,9 +8,9 @@
  *
  * `node test/test-historical-pay-periods.js`
  */
+const { loadBudgetPage } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const { sourceText } = require('./test-source-text');
 
@@ -42,75 +42,12 @@ function roundCent(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 const read = file => sourceText(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'));
-function grab(src, re, label) {
-  const match = re.exec(src);
-  if (!match) throw new Error('missing ' + label);
-  return match[0];
-}
 function loadComposer() {
-  const appSrc = read('public/app.js');
-  const planSrc = read('public/plan.js');
-  const source = [
-    grab(appSrc, /^const money = .*$/m, 'money'),
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-    grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-    grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
-    grab(planSrc, /^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
-    grab(planSrc, /^function paydayGlanceCashNote\([\s\S]*?\n\}$/m, 'paydayGlanceCashNote'),
-    grab(planSrc, /^function providerBalanceDate\([\s\S]*?\n\}$/m, 'providerBalanceDate'),
-    grab(planSrc, /^function glanceUpdatedNote\([\s\S]*?\n\}$/m, 'glanceUpdatedNote'),
-    grab(planSrc, /^function glanceSignedMoney\([\s\S]*?\n\}$/m, 'glanceSignedMoney'),
-    grab(planSrc, /^function glanceMoney\([\s\S]*?\n\}$/m, 'glanceMoney'),
-    grab(planSrc, /^function glanceLineLabel\([\s\S]*?\n\}$/m, 'glanceLineLabel'),
-    grab(planSrc, /^function cashGlanceHtml\([\s\S]*?\n\}$/m, 'cashGlanceHtml'),
-    grab(planSrc, /^function liveCurrentBalanceHtml\([\s\S]*?\n\}$/m, 'liveCurrentBalanceHtml'),
-    grab(planSrc, /^function runningLeftoverHtml\([\s\S]*?\n\}$/m, 'runningLeftoverHtml'),
-    grab(planSrc, /^function periodBillLine\([\s\S]*?\n\}$/m, 'periodBillLine'),
-    grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
-    grab(planSrc, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml'),
-    grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
-    grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-    grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml'),
-    grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
-    grab(planSrc, /^function calendarPeriodBillsHtml\([\s\S]*?\n\}$/m, 'calendarPeriodBillsHtml'),
-    grab(planSrc, /^function extraRepaymentHtml\([\s\S]*?\n\}$/m, 'extraRepaymentHtml'),
-    grab(planSrc, /^function calendarFromTodayEvidenceHtml\([\s\S]*?\n\}$/m, 'calendarFromTodayEvidenceHtml'),
-    grab(planSrc, /^function calendarWaterfallHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallHtml'),
-    grab(planSrc, /^function badTimelineHtml\([\s\S]*?\n\}$/m, 'badTimelineHtml'),
-    grab(planSrc, /^function paydayCarryoverHtml\([\s\S]*?\n\}$/m, 'paydayCarryoverHtml'),
-    grab(planSrc, /^function historicalPeriodHtml\([\s\S]*?\n\}$/m, 'historicalPeriodHtml'),
-    grab(planSrc, /^function calendarPickerHtml\([\s\S]*?\n\}$/m, 'calendarPickerHtml'),
-    grab(planSrc, /^function calendarWaterfallsHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallsHtml'),
-    grab(planSrc, /^function periodBillsHtml\([\s\S]*?\n\}$/m, 'periodBillsHtml'),
-    grab(planSrc, /^function householdBudgetHtml\([\s\S]*?\n\}$/m, 'householdBudgetHtml'),
-    grab(planSrc, /^function budgetDigestHtml\([\s\S]*?\n\}$/m, 'budgetDigestHtml'),
-    grab(planSrc, /^function firstCardHtml\([\s\S]*?\n\}$/m, 'firstCardHtml'),
-    grab(planSrc, /^function otherCardsHtml\([\s\S]*?\n\}$/m, 'otherCardsHtml'),
-    grab(planSrc, /^function bigPurchasesHtml\([\s\S]*?\n\}$/m, 'bigPurchasesHtml'),
-    grab(planSrc, /^function paydayAllocationSummaryHtml\([\s\S]*?\n\}$/m, 'paydayAllocationSummaryHtml'),
-    grab(planSrc, /^function selectedPlanView\([\s\S]*?\n\}$/m, 'selectedPlanView'),
-    grab(planSrc, /^function budgetPayPeriodContentHtml\([\s\S]*?\n\}$/m, 'budgetPayPeriodContentHtml'),
-    grab(planSrc, /^function currentPaydayShellHtml\([\s\S]*?\n\}$/m, 'currentPaydayShellHtml'),
-    grab(planSrc, /^function operatingSurfaceHtml\([\s\S]*?\n\}$/m, 'operatingSurfaceHtml'),
-    // AMANDA SLICE 14 — the same-input schedule chain read by operatingSurfaceHtml.
-    grab(planSrc, /^function budgetMonthPlanSpendSchedule\([\s\S]*?\n\}$/m, 'budgetMonthPlanSpendSchedule'),
-    grab(planSrc, /^function budgetMonthKnobOpts\([\s\S]*?\n\}/m, 'budgetMonthKnobOpts'),
-    grab(planSrc, /^function simOpts\([\s\S]*?\n\}/m, 'simOpts'),
-    grab(planSrc, /^function isValidIsoCalendarDate\([\s\S]*?\n\}/m, 'isValidIsoCalendarDate'),
-    grab(planSrc, /^const BUDGET_MONTH_NAMES = [\s\S]*?\];/m, 'BUDGET_MONTH_NAMES'),
-    grab(planSrc, /^function budgetMonthName\([\s\S]*?\n\}/m, 'budgetMonthName'),
-    grab(planSrc, /^function paydayInstructionShellHtml\([\s\S]*?\n\}$/m, 'paydayInstructionShellHtml'),
-    ...['payPeriodSelection', 'payPeriodRangeLabel', 'payPeriodStatusLabel',
-      'payPeriodNavigatorHtml', 'payPeriodCloseMonth', 'payPeriodMonths',
-      'payPeriodTimelineHtml', 'budgetPlanSpendEarmarkHtml'].map(name =>
-      grab(planSrc, new RegExp('^function ' + name + '\\([\\s\\S]*?\\n\\}', 'm'), name)),
-  ].join('\n');
-  return vm.runInNewContext(
-    `${source}\n({ operatingSurfaceHtml, selectedPlanView, historicalPeriodHtml, badTimelineHtml, money2 });`,
-    { Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } }
-  );
+  // The real Budget page (test/lib/budget-page-harness.js). operatingSurfaceHtml
+  // is the live composition: the Today card plus the compact pay-period content.
+  const page = loadBudgetPage({ Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
+  return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx),
+    selectedPlanView: page.get('selectedPlanView'), historicalPeriodHtml: page.get('historicalPeriodHtml'), badTimelineHtml: page.get('badTimelineHtml'), money2: page.get('money2') };
 }
 
 const ANCHOR = '2026-08-14';
@@ -436,7 +373,10 @@ console.log('\n=== 5. timeline replaces legacy past picker; historical rows stay
     'previous period renders as a completed-period sheet');
   ok(/data-payday-carryover/.test(prevHtml) && prevHtml.includes(composer.money2(CARRY)),
     'previous period prints Payday carryover $1,000');
-  ok(!/data-live-current-balance/.test(prevHtml),
+  // Live Budget: the Today card (current position) stays above every
+  // selected period; the completed-period sheet itself never reprints it.
+  const prevSheet = prevHtml.slice(prevHtml.indexOf('data-historical-plan'));
+  ok(prevHtml.indexOf('data-historical-plan') > 0 && !/data-live-current-balance/.test(prevSheet),
     'completed-period sheet does not reprint live Current Balance');
   ok(/Past gift/.test(prevHtml) && !/Live gift/.test(prevHtml),
     'previous-period print keeps Aug 20 actuals and omits Sep 4');

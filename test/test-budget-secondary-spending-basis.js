@@ -312,8 +312,13 @@ check('main operating publication and financial inputs stay unchanged after seco
   const ctx = Object.assign({}, s, { advice: main, planView: main.defaultView,
     planLook: 'this-period' });
   calls.length = 0;
-  const html = P.operatingSurfaceHtml(ctx);
-  assert(html.includes('data-current-payday-details'));
+  // The live Budget composition (budgetSurfaceParts, as
+  // test/lib/budget-page-harness.js composes it) in this suite's sandbox,
+  // which wraps Forecast to watch the spending basis. The current payday
+  // instructions ride in the Today card's evidence panel.
+  const parts = P.budgetSurfaceParts();
+  const html = parts.planUnavailable(ctx) ? parts.unavailableHtml(ctx) : parts.todayHtml(ctx) + parts.periodHtml(ctx);
+  assert(html.includes('data-budget-today-evidence'));
   for (const call of calls) assert.equal(call.weekly, 0, call.name);
 });
 
