@@ -3056,9 +3056,21 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       || new Set(missing).size !== missing.length || !missing.every(d => expected.includes(d))) continue;
     const matched = expected.filter(d => !missing.includes(d)).sort();
     const found = m.foundTransactions;
-    if (!found.every(f => f && f.transactionId != null && isDate(f.date))
-      || new Set(found.map(f => String(f.transactionId))).size !== found.length) continue;
+    if (!found.every(f => f && f.transactionId != null && isDate(f.date))) continue;
     const linked = (transactions || []).filter(tx => tx && ruleMatchesTransactionIdentity(tx, rule));
+    // Grok Bot's guard (LM-matched route): when Lunch Money lists one
+    // transaction more than once, it has matched it to several due dates.
+    // None of the matched dates reads Paid and no linked payment of the rule
+    // settles anything in this observation.
+    const ids = found.map(f => String(f.transactionId));
+    // The incumbent To confirm follows: each linked payment is the bill of no
+    // occurrence and its line names the bill (linkedBillMisfit), while every
+    // occurrence stays due and reserved.
+    if (new Set(ids).size !== ids.length) {
+      for (const tx of linked) LM_MATCHED.set(tx, { eventId: rule.eventId, date: null });
+      applied.push({ eventId: rule.eventId, reusedTransaction: true });
+      continue;
+    }
     const foundTx = found.map(f => {
       const rows = linked.filter(tx => String(tx.providerTransactionId) === String(f.transactionId));
       return rows.length === 1 ? rows[0] : null;

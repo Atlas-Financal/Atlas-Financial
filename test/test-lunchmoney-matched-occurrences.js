@@ -221,6 +221,28 @@ console.log('9. A day move cannot strand a paid occurrence: LM anchored on the 4
   ok(s.paidOn.has('2026-11-04') && !s.paidOn.has('2026-11-01'), 'Nov 4 is represented, not Nov 1', JSON.stringify([...s.paidOn]));
 }
 
+console.log('9b. Grok\'s guard: LM matched one transaction to two due dates, so neither reads Paid');
+{
+  // As of Nov 3 (period Oct 23-Nov 5). LM lists the Oct 28 payment for both
+  // Nov 1 and Dec 1, nothing missing. Neither occurrence is settled, the
+  // payment is the bill of no occurrence (To confirm). The incumbent 7-day
+  // rule alone would have settled Nov 1 (control).
+  const p = [pay('2026-10-28')];
+  const s = serve({ asOf: '2026-11-03', payments: p,
+    lm: lmRead({ expected: ['2026-11-01', '2026-12-01'], found: [p[0], p[0]] }) });
+  ok(!s.paidOn.has('2026-11-01') && !s.paidOn.has('2026-12-01'), 'neither Nov 1 nor Dec 1 is settled', JSON.stringify([...s.paidOn]));
+  ok(Object.keys(s.pairs).length === 0, 'no payment settles any due date', JSON.stringify(s.pairs));
+  ok(s.row(p[0]) && s.row(p[0]).representedBill === false, 'the Oct 28 payment is represented by no bill (To confirm)');
+  // To confirm, the incumbent meaning (test-bill-link-cross-date-conflict):
+  // the payment is the bill of no occurrence, and Nov 1 stays due, reserved.
+  ok(due(s.at('2026-11-01')) && s.at('2026-11-01').remaining === 80, 'Nov 1 still due, $80 reserved',
+    s.at('2026-11-01') && s.at('2026-11-01').status);
+  ok(s.row(p[0]).linkedBillMisfit && s.row(p[0]).linkedBillMisfit.id === 'band', 'its line names the band-room bill to confirm',
+    JSON.stringify(s.row(p[0]).linkedBillMisfit));
+  const control = serve({ asOf: '2026-11-03', payments: [pay('2026-10-28')] });
+  ok(control.paidOn.has('2026-11-01'), 'control: with no read, the incumbent rule settles Nov 1', JSON.stringify([...control.paidOn]));
+}
+
 console.log('10. The pairing marker never reaches the served document or the report');
 {
   const p = [pay('2026-09-01'), pay('2026-10-01'), pay('2026-10-12')];
