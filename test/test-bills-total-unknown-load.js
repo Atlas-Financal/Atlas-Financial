@@ -34,13 +34,14 @@ const page = (() => {
   return (fn, ...args) => { context.__args = args; return vm.runInContext(`${fn}(...__args)`, context); };
 })();
 
-function advise(unknownObligation) {
+function advise(unknownObligation, periodHistory) {
   const d = fx.served();
   if (unknownObligation) {
     d.plan.obligations = (d.plan.obligations || []).concat([{ id: 'invented-unknown', label: 'Invented obligation',
       amount: null, frequency: 'monthly', day: 5, confidence: 'estimated', payingAccount: 'chequing-a' }]);
   }
-  return { d, advice: F.recommend(d.plan, d.meta.asOf, { debts: d.debts, ...d.liveOverlay }) };
+  return { d, advice: F.recommend(d.plan, d.meta.asOf, { debts: d.debts, ...d.liveOverlay,
+    ...(periodHistory ? { periodHistory } : {}) }) };
 }
 const open = advice => (advice.payPeriodViews || []).filter(v => v.lookback !== true && v.timelineRole !== 'past');
 
@@ -126,6 +127,35 @@ console.log('\n=== 4. a completed period with the unknown obligation: no number 
     ok(/Unavailable/.test(footer) && !/\$[\d,]+\.\d\d/.test(footer),
       `${v.start}: the Budget page's "The plan deducts" reads Unavailable, no dollar figure`, footer.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 160));
   }
+}
+
+console.log('\n=== 5. a saved close is never overwritten (Grok Bot condition, Plan #6) ===');
+{
+  // A close saved before this rule shows numeric figures. Applying it keeps
+  // them exactly; only billLoadUnknownFrom (not part of the saved
+  // projection) names the payment beside them, as #1215 discloses a carry.
+  const SAVED_KEYS = ['totalBillsThisPeriod', 'paidBills', 'remainingBills', 'periodBillLoad', 'periodBillLoadTrust',
+    'afterBills', 'afterBillsTrust', 'balanceAfterDeductions', 'balanceAfterDeductionsTrust', 'incomeTotal', 'budgetHold'];
+  const target = (control.advice.payPeriodViews || []).filter(v => v.lookback === true).find(holdsDay5);
+  ok(!!target, 'a completed period the obligation reaches exists', target && target.start);
+  const publication = { start: target.start, end: target.end,
+    ...Object.fromEntries(SAVED_KEYS.filter(k => typeof target[k] === 'number' || typeof target[k] === 'string').map(k => [k, target[k]])) };
+  const saved = [{ schema: 'atlas-private-period-history-projection/v1', capturedAt: target.end + 'T23:00:00.000Z',
+    content: { period: { start: target.start, end: target.end, timezone: 'America/Vancouver' }, kind: 'closing',
+      asOf: target.end, closingState: 'provisional', planBasis: 'see-baseline-revision',
+      provenance: { policyFingerprint: null }, publication } }];
+  const withSaved = advise(true, saved);
+  const v = withSaved.advice.payPeriodViews.find(x => x.start === target.start && x.end === target.end);
+  ok(v && v.capturedClose && v.capturedClose.kind === 'closing', 'the period prints as its saved close');
+  ok(v && typeof publication.periodBillLoad === 'number' && typeof publication.balanceAfterDeductions === 'number'
+      && SAVED_KEYS.every(k => !Object.hasOwn(publication, k) || v[k] === publication[k]),
+    'every saved figure and tag stays exactly as saved (load, after bills, Balance After Deductions included)',
+    JSON.stringify(SAVED_KEYS.filter(k => Object.hasOwn(publication, k) && v[k] !== publication[k])));
+  ok(v && JSON.stringify(v.billLoadUnknownFrom) === JSON.stringify([{ carrier: 'obligation', id: 'invented-unknown' }]),
+    'the saved close names the payment that has no known amount, beside its saved figures');
+  const unsavedRow = withSaved.advice.payPeriodViews.filter(x => x.lookback === true && holdsDay5(x) && x !== v);
+  ok(unsavedRow.length > 0 && unsavedRow.every(x => !x.capturedClose && x.periodBillLoad === null),
+    'completed periods with no saved close still withhold (the rule applies only where nothing was saved)');
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nALL CHECKS PASSED');
