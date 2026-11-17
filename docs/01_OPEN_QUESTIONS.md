@@ -4,6 +4,10 @@
 the answer would change. Add new questions here as accounts are reviewed; move
 answered ones to the bottom with the answer recorded.
 
+**Check before asking.** Before any question to Dale, the asker checks
+[`OWNER_DECISIONS.md`](OWNER_DECISIONS.md) and the Answered section below,
+and says "no settled row" in the question.
+
 Status: `OPEN` · `ASKED` · `ANSWERED` · `BLOCKED`
 
 This file is the sole authority for those four statuses. Other documents and

@@ -262,6 +262,7 @@ the same number living in three files and drifting.
 | Balances, available credit | `docs/positions.csv` and `data.json` | `ACCOUNT_FACTS.md`. `positions.csv` is the account-row snapshot, **not** a universal fact database |
 | **Work still to do** | **`BACKLOG.md`** | a chat message |
 | **Things only a human can answer** | **`docs/01_OPEN_QUESTIONS.md`** | `BACKLOG.md` |
+| **Which owner decisions are settled, and where each rule lives** | **`docs/OWNER_DECISIONS.md`** (an index; the rule stays in its own file) | a re-asked question |
 | Narrative analysis | `docs/00_MASTER_PICTURE.md` | `data.json` |
 | Per-account depth | `docs/*_DEEP_DIVE.md` | the master picture |
 | **What one person said, attributed and dated** | **`docs/household_interviews/`** | `data.json`, a budget target, or joint policy |
