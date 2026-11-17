@@ -12382,7 +12382,19 @@
         ? { possibleCardPaidBill: { id: tx.pendingPossibleCardPaidBill.id,
           label: reconIdentityField(tx.pendingPossibleCardPaidBill.label) } } : {}),
       ...(extra && extra.cardPurchaseCoverage ? { cardPurchaseCoverage: extra.cardPurchaseCoverage } : {}),
+      // Display-only: a posted row linked to one bill that doesn't fit it.
+      // It is counted here as ordinary money out and the bill stays To
+      // confirm; nothing reads this for math.
+      ...(linkedBillMisfitFrom(tx) ? { linkedBillMisfit: linkedBillMisfitFrom(tx) } : {}),
     };
+  }
+
+  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount'];
+  function linkedBillMisfitFrom(tx) {
+    const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
+    if (!misfit || typeof misfit.id !== 'string' || !misfit.id
+      || !LINKED_BILL_MISFIT_CHECKS.includes(misfit.check)) return null;
+    return { id: misfit.id, label: reconIdentityField(misfit.label), check: misfit.check };
   }
 
   // The category recon and the card-carry fallback use one membership rule.

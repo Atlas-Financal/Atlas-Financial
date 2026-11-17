@@ -4938,6 +4938,79 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   return out;
 }
 
+// A payment linked to a bill that doesn't fit it (Grok, Plan #6, 2026-11-17).
+// A posted row whose recurring link or single "item:" note names exactly one
+// bill, but which that bill's rule rejected, stays counted once as ordinary
+// money out (no payee fallback; neither bill settles). This names, for the
+// row's display only, the linked bill and the first gate that failed:
+// account, currency, direction, date or amount. Nothing reads it for math.
+// A row whose two links name different bills is the consumed-twice path and
+// is not named here; nor is a row whose gates all pass (its occurrence was
+// left unsettled for another reason, so no single check can be named), nor
+// a near-due candidate, which is already named on its bill.
+function linkedBillMisfitIds(collapsed, opts, linkedLocalIds, existingLocalId) {
+  const out = new Map();
+  const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
+  const mapDoc = opts && opts.accountMap;
+  const rules = stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
+    && (ruleLunchMoneyRecurringIds(rule).length || ruleLunchMoneyItemNames(rule).length)
+    && isBillOrObligationEvent(plan, rule.eventId));
+  if (!plan || !mapDoc || !rules.length) return out;
+  const billLabel = id => {
+    const row = [].concat(plan.bills || [], plan.obligations || []).find(r => r && r.id === id);
+    return row && typeof row.label === 'string' && row.label.trim() ? row.label.trim() : null;
+  };
+  for (const tx of collapsed || []) {
+    if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
+    const localId = existingLocalId(tx.providerTransactionId);
+    if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+    const linkedTo = tx.recurringId == null ? '' : String(tx.recurringId).trim();
+    const items = noteItemNames(tx.notes);
+    const owners = rules.filter(rule => (linkedTo && ruleLunchMoneyRecurringIds(rule).includes(linkedTo))
+      || (items.length === 1 && ruleLunchMoneyItemNames(rule).includes(items[0])));
+    const ids = Array.from(new Set(owners.map(rule => rule.eventId)));
+    if (ids.length !== 1) continue;
+    const check = linkedBillFirstFailedCheck(tx, owners, plan, mapDoc);
+    if (check) out.set(localId, { id: ids[0], label: billLabel(ids[0]), check });
+  }
+  return out;
+}
+
+function linkedBillFirstFailedCheck(tx, rules, plan, mapDoc) {
+  const mapping = mappingFor(mapDoc, tx.providerAccountId);
+  const accountId = mapping && mapping.canonical && mapping.canonical.id;
+  const amount = lunchMoneyDebitAmount(tx.amount);
+  const order = ['account', 'currency', 'direction', 'date', 'amount'];
+  let best = null;
+  for (const rule of rules) {
+    let failed = null;
+    if (!accountId || (rule.atlasAccountId && accountId !== rule.atlasAccountId)) failed = 'account';
+    else if (!ruleCurrencyQualified(tx, rule)) failed = 'currency';
+    else if ((rule.direction === 'credit' && !(amount < 0)) || (rule.direction === 'debit' && !(amount > 0))) {
+      failed = 'direction';
+    } else {
+      const dates = coveringScheduledDates(plan, rule, tx.date)
+        .filter(date => postingDateRelation(date, tx.date, rule)
+          && scheduledOccurrence(plan, rule.eventId, date).length === 1);
+      if (!dates.length) failed = 'date';
+      else if (!dates.some(date => linkedBillAmountFits(rule, amount, scheduledOccurrence(plan, rule.eventId, date)))) {
+        failed = 'amount';
+      } else return null;
+    }
+    if (best == null || order.indexOf(failed) > order.indexOf(best)) best = failed;
+  }
+  return best;
+}
+
+function linkedBillAmountFits(rule, amount, scheduled) {
+  const need = Math.abs(Number(scheduled[0].amount));
+  if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST && !(Math.abs(amount) + IDENTITY_AMOUNT_EPSILON >= need)) return false;
+  if (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT
+    && !(isFinite(need) && isFinite(amount) && Math.abs(Math.abs(amount) - need) <= IDENTITY_AMOUNT_EPSILON)) return false;
+  return billDebitAmountConsistent(rule, amount, scheduled[0].amount);
+}
+
 function pendingOnlyBillActuals(collapsed, opts, representedActuals, existingLocalId) {
   const window = opts && opts.transactionWindow;
   if (window && window.complete === false) return [];
@@ -5541,11 +5614,21 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     asOf,
     ambiguousGroups: opts.ambiguousBillGroups,
   }, linkedLocalIds, existingLocalId, representedActuals);
+  const linkedMisfits = linkedBillMisfitIds(collapsed, {
+    identityRules: opts.identityRules,
+    planForIdentity: opts.planForIdentity,
+    plan: opts.plan,
+    accountMap: mapDoc,
+  }, linkedLocalIds, existingLocalId);
   for (const tx of txs) {
     if (tx && linkedLocalIds.has(tx.id)) tx.representedBill = true;
     else if (tx) tx.representedBill = false;
     if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
       tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+    }
+    // A near-due candidate is already named on its bill; one naming only.
+    if (tx && tx.representedBill !== true && !tx.nearDueBillCandidate && linkedMisfits.has(tx.id)) {
+      tx.linkedBillMisfit = { ...linkedMisfits.get(tx.id) };
     }
     if (tx) {
       tx.pendingMatchingCardPaidBill = tx.pending === true

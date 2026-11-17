@@ -2314,6 +2314,14 @@ function householdBudgetMetric(label, amount, opts) {
       const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
         ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
         : '';
+      // Display-only (Forecast owns it): linked to one bill but doesn't fit
+      // it; counted here once and the bill stays To confirm.
+      const misfit = tx.linkedBillMisfit;
+      const misfitCheck = misfit && ['account', 'currency', 'direction', 'date', 'amount'].includes(misfit.check)
+        ? misfit.check : null;
+      const linkedMisfit = misfitCheck && typeof misfit.id === 'string' && misfit.id
+        ? `<span class="household-budget-tx-alert" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfit.label ? esc(misfit.label) : 'a planned bill'} but doesn't fit (${esc(misfitCheck)})</span>`
+        : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
       const idAttr = tx.id ? ` data-tx-id="${esc(tx.id)}"` : '';
@@ -2329,7 +2337,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${linkedMisfit}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
