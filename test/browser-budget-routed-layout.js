@@ -134,7 +134,7 @@ fs.mkdirSync(screenshots, { recursive: true });
       // The Today card is always the dated current Bills position, whichever period is selected.
       assert.match(await page.locator('[data-budget-today-cash] .budget-cash-eyebrow').innerText(), /^(Today|Dated refresh)/);
       assert.match(await page.locator('[data-live-current-balance]').innerText(), /2,500\.00/);
-      const expected = { '02': '3,849.40', '04': '1,799.00', '05': '2,050.40', '07': '1,950.40' };
+      const expected = { '02': '3,860.69', '04': '1,799.00', '05': '2,061.69', '07': '1,961.69' };
       for (const [id, amount] of Object.entries(expected)) {
         // Some steps sit in a collapsed hero panel on the blend face; read the printed text, not the layout.
         const header = await printed(page.locator(`[data-operating-question="${id}"] .budget-step-summary`));

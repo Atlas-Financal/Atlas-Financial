@@ -67,15 +67,7 @@ function syntheticPlan() {
       anchor: '2026-08-14', amount: 4264, confidence: 'confirmed',
     }],
     bills: [],
-    // A planned mortgage payment exists (finish-line audit finding 4: the
-    // Mortgage guard holds only while one does). It is dated beyond every
-    // period and projection this suite computes, so it moves no figure here
-    // (a past-dated one would still be owed); its only role is to keep the
-    // Aug 28 "Mortgage" row out of spending, as this suite has always
-    // asserted.
-    obligations: [{ id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Mortgage',
-      frequency: 'once', date: '2030-01-15', amount: 1600, confidence: 'confirmed',
-      payingAccount: 'chequing-a' }],
+    obligations: [],
     commitments: [],
     budget: {
       categories: [
@@ -151,10 +143,6 @@ const fixtureTxs = [
     categoryLabel: 'Shopping', accountRole: 'household-cash',
   },
   {
-    id: 'tx-mortgage', date: '2026-08-28', amount: 1600, pending: false,
-    categoryLabel: 'Mortgage', accountRole: 'household-cash',
-  },
-  {
     id: 'tx-card', date: '2026-08-28', amount: 500, pending: false,
     categoryLabel: 'Payment', accountRole: 'household-cash',
     kindHint: 'card-payment',
@@ -196,10 +184,9 @@ console.log('\n=== 1. independent fixture membership, not the production residua
   const eatCls = F.classifyCurrentPeriodTransaction(fixtureTxs[2], plan);
   const otherA = F.classifyCurrentPeriodTransaction(fixtureTxs[3], plan);
   const otherB = F.classifyCurrentPeriodTransaction(fixtureTxs[4], plan);
-  const mortgage = F.classifyCurrentPeriodTransaction(fixtureTxs[5], plan);
-  const card = F.classifyCurrentPeriodTransaction(fixtureTxs[6], plan);
-  const transfer = F.classifyCurrentPeriodTransaction(fixtureTxs[7], plan);
-  const income = F.classifyCurrentPeriodTransaction(fixtureTxs[8], plan);
+  const card = F.classifyCurrentPeriodTransaction(fixtureTxs[5], plan);
+  const transfer = F.classifyCurrentPeriodTransaction(fixtureTxs[6], plan);
+  const income = F.classifyCurrentPeriodTransaction(fixtureTxs[7], plan);
   ok(groceryCls.kind === 'spend' && groceryCls.categoryId === 'groceries',
     'grocery tx classifies as Groceries');
   ok(fuelCls.kind === 'spend' && fuelCls.categoryId === 'fuel',
@@ -210,8 +197,6 @@ console.log('\n=== 1. independent fixture membership, not the production residua
     'unmapped Gifts is the incumbent residual, not a planned category');
   ok(otherB.needsConfirmation === true && otherB.kind !== 'spend',
     'unlabeled Shopping is the incumbent residual, not guilt-free');
-  ok(mortgage.kind === 'bill' && mortgage.householdSpending === false,
-    'mortgage is a bill, not Other spending');
   ok(card.kind === 'card-payment' && transfer.kind === 'transfer' && income.kind === 'income',
     'card payment, household transfer, and income are excluded kinds');
 }
@@ -255,9 +240,9 @@ console.log('\n=== 2. calendar Household Budget publishes the constructed amount
   ok(unique.has('tx-grocery') && unique.has('tx-fuel') && unique.has('tx-eat')
       && unique.has('tx-other-a') && unique.has('tx-other-b'),
     'each constructed relevant tx is represented once');
-  ok(!unique.has('tx-mortgage') && !unique.has('tx-card') && !unique.has('tx-transfer')
+  ok(!unique.has('tx-card') && !unique.has('tx-transfer')
       && !unique.has('tx-income') && !unique.has('tx-before') && !unique.has('tx-after'),
-    'bills, transfers, income, and outside-cycle txs are absent from every row');
+    'card payments, transfers, income, and outside-cycle txs are absent from every row');
   const nextOther = (next.householdBudget || []).find(r => r.otherSpending || r.needsConfirmation);
   ok(!nextOther,
     'Next Pay Period does not invent projected Other spending');

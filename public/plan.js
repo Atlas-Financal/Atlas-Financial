@@ -2174,7 +2174,8 @@ function calendarIncomeHtml(period) {
       const tx = recon[0] || {};
       const displayed = String(tx.displayedPayee || row.label || '').trim();
       const original = String(tx.originalMerchant || '').trim();
-      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original))
+        || (typeof tx.bankDescription === 'string' && tx.bankDescription.trim() ? 'Bank description: ' + tx.bankDescription.trim() : 'Merchant unavailable');
       const isReceived = row.status === 'received';
       // C3: an expectation beside an unlinked receipt is not counted.
       const toConfirm = !isReceived && row.toConfirm === true;
@@ -2290,7 +2291,8 @@ function householdBudgetMetric(label, amount, opts) {
       const original = String(tx.originalMerchant || '').trim();
       // A purchase marked with an "item:" note is shown by that item alone
       // (DisplayName, display only); the payee is not shown beside it.
-      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original)) || 'Merchant unavailable';
+      const payeeRaw = (typeof DisplayName !== 'undefined' ? DisplayName.displayName(tx, displayed || original) : (displayed || original))
+        || (typeof tx.bankDescription === 'string' && tx.bankDescription.trim() ? 'Bank description: ' + tx.bankDescription.trim() : 'Merchant unavailable');
       const pending = tx.pending === true
         ? '<span class="household-budget-tx-pending">Pending</span>'
         : '';
@@ -2309,6 +2311,11 @@ function householdBudgetMetric(label, amount, opts) {
       const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
         ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
         : '';
+      // Display-only (Forecast owns the date): a Mortgage-labelled row counted
+      // here while the plan's earlier mortgage occurrence is still To confirm.
+      const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
+        ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
+        : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
       const idAttr = tx.id ? ` data-tx-id="${esc(tx.id)}"` : '';
@@ -2324,7 +2331,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -6347,7 +6354,7 @@ function budgetBillBrowseRowHtml(row) {
   const dateEstimated = row.dateConfidence === 'estimated';
   return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
     <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span>${row.alsoCarriedToCurrent === true ? '<span class="budget-bill-when" data-budget-bill-also-carried>This saved total includes this bill. It\'s also carried to the current pay period, where it is to confirm.</span>' : ''}</span>
     <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${state.label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
@@ -7959,7 +7966,7 @@ function renderPlan(d, periods, history) {
   // the discretionary ones carry the reduction.
   if (budget) {
     const cats = budget.categories.filter(c =>
-      c.historical > 0 || c.dated > 0 || c.target != null || c.planned > 0);
+      c.historical > 0 || c.dated > 0 || c.target != null || c.planned > 0 || c.withheldReason);
     const max = Math.max(0, ...cats.map(c => c.historical));
     const chipFor = c =>
       c.class === 'essential' ? '<span class="chip">essential</span>'
@@ -7974,6 +7981,7 @@ function renderPlan(d, periods, history) {
         <span class="cat-bar"><span style="width:${max > 0 ? (c.historical / max) * 100 : 0}%"></span></span>
         <span class="cat-amt">${c.class === 'reserve'
           ? '<span class="mutedtext">reserve</span>'
+          : c.withheldReason ? '<span class="mutedtext">Unknown</span>'
           : c.planned > 0 ? est(money(c.planned)) : '<span class="mutedtext">$0</span>'}</span>
         <span class="cat-hist">${c.target != null
           ? `budgeted ${money(c.target)}, has been ${money(c.historical)}`

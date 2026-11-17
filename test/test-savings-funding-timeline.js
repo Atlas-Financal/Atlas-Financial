@@ -177,7 +177,10 @@ assert.equal(F.savingsFundingTimeline(legacyBonus, [], AS_OF, options).status, '
 // Real publication path and legacy safety: all prior baseline fields stay
 // identical against immutable merged main. Projection is a separate packet.
 const base = { module: { exports: {} }, console };
-vm.runInNewContext(execFileSync('git', ['show', 'b754ae1901609fce4b49a1bb3e0ad14ea17d1427:public/forecast.js'], { encoding: 'utf8' }), base);
+// The frozen engine carries one authorized later change: 2027 payroll uses
+// CRA's published 2027 contribution limits (test/lib/cra-2027-contributions.js).
+vm.runInNewContext(require('./lib/cra-2027-contributions').withCra2027Contributions(
+  execFileSync('git', ['show', 'b754ae1901609fce4b49a1bb3e0ad14ea17d1427:public/forecast.js'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })), base);
 // Required operating values are checked before any zero-coercing aggregate.
 // Conservation alone cannot detect a fabricated opening on both ledger sides.
 const cashCases = [

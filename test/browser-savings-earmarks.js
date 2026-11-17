@@ -21,10 +21,14 @@ async function main() {
           url: server.base, httpOnly: true, sameSite: 'Lax' }]);
         await context.route('**/*', route => new URL(route.request().url()).origin === server.base ? route.continue() : route.abort());
         const page = await context.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
-        for (const mode of ['backed', 'deficit', 'stale', 'pending', 'intent-unknown', 'setup-unknown', 'hostile']) {
+        for (const mode of ['backed', 'deficit', 'stale', 'object-update-only', 'pending', 'intent-unknown', 'setup-unknown', 'hostile']) {
           const input = fixture(), a = input.payload.accounts.find(row => row.id === 1003);
           if (mode === 'deficit') a.balance = 200;
-          if (mode === 'stale') a.updated_at = '2026-08-19T17:55:00.000Z';
+          // A pool balance is dated by its semantic balance date (balance_last_update here), never by
+          // the object update time (N1, 2b8b4ed7). 'stale' moves the date that counts; 'object-update-only'
+          // moves only updated_at, which must leave the balance current.
+          if (mode === 'stale') a.balance_last_update = '2026-08-19T17:55:00.000Z';
+          if (mode === 'object-update-only') a.updated_at = '2026-08-19T17:55:00.000Z';
           if (mode === 'pending') input.payload.transactions.push({ id: 95001, account_id: 1003, date: '2026-08-20', amount: 2.09, payee: 'Synthetic withdrawal', is_pending: true });
           if (mode === 'intent-unknown') input.data.plan.savingsEarmarks.history = [];
           if (mode === 'setup-unknown') { delete input.data.plan.savingsEarmarks; input.map.mappings.pop(); input.payload.accounts.pop(); }
@@ -43,7 +47,16 @@ async function main() {
             const text = (await inventory.textContent()).replace(/\s+/g, ' ');
             if (mode === 'backed') { assert.match(text, /\$53\.37/); assert.match(text, /Currently backed: \$169\.37/); }
             if (mode === 'deficit') { assert.match(text, /Pool deficit/); assert.match(text, /\$47\.80/); assert.match(text, /Currently backed: Unknown/); }
-            if (mode === 'stale') assert.match(text, /Stale balance/);
+            if (mode === 'stale') {
+              assert.match(text, /Stale balance/);
+              assert.match(text, /Balance evidence: 2026-08-19/);
+              assert.match(text, /Observed pool cashUnknown unknown/, 'a day-old pool balance is not shown as a current figure');
+              assert.doesNotMatch(text, /\$301\.17 verified/, 'a day-old pool balance is never verified-current');
+            }
+            if (mode === 'object-update-only') {
+              assert.doesNotMatch(text, /Stale balance/, 'the object update time does not date the balance');
+              assert.match(text, /Balance evidence: 2026-08-20 · CAD Observed pool cash\$301\.17 verified/);
+            }
             if (mode === 'pending') assert.match(text, /Pending evidence/);
             if (mode === 'setup-unknown') assert.match(text, /have not been confirmed/);
             if (mode === 'intent-unknown') assert.match(text, /Assignments unknown/);
@@ -57,6 +70,6 @@ async function main() {
       }
     } finally { await browser.close(); }
   });
-  console.log('PASS browser savings inventory: authenticated Budget, desktop/390/320px, backed/deficit/stale/pending/unknown/hostile states and no runtime errors; screenshots ' + shots);
+  console.log('PASS browser savings inventory: authenticated Budget, desktop/390/320px, backed/deficit/stale/object-update-only/pending/unknown/hostile states and no runtime errors; screenshots ' + shots);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

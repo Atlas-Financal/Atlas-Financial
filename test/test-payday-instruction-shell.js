@@ -468,8 +468,10 @@ check('C3: the 2027 Dale-payroll projection renders as estimate, not bare curren
     defaultView: { asOf },
   };
   const html = f.paydayInstructionShellHtml(advice, { id: 'x', start: asOf }, sched);
-  assert.match(html, /\$5,849\.40/);
-  assert.match(html, /5,849\.40 <span class="trust-tag trust-estimated">estimate<\/span>/);
+  // 2,000 cash + the 3,860.69 January 2027 estimated cheque (CRA's published
+  // 2027 contribution limits; tax on the 2026 table) = 5,860.69.
+  assert.match(html, /\$5,860\.69/);
+  assert.match(html, /5,860\.69 <span class="trust-tag trust-estimated">estimate<\/span>/);
   assert.doesNotMatch(html, /unavailable/);
 });
 
