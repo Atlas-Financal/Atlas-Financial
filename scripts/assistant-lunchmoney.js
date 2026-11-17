@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const z = require('zod/v4');
 const Provider = require('./provider-observe.js');
+const RecurringItems = require('./provider-recurring-items.js');
 const Credentials = require('./local-credentials.js');
 const Standing = require('./assistant-standing-corrections.js');
 const Cleanup = require('./assistant-cleanup-instructions.js');
@@ -215,7 +216,6 @@ function createService(options = {}) {
   async function request(method, path, body, beforeSend) {
     const stage = path.startsWith('/transactions') ? 'transactions-request'
       : path.startsWith('/balance_history') ? 'balance-history-request'
-      : path.startsWith('/recurring_items') ? 'recurring-items-request'
         : path.startsWith('/categories') ? 'categories-request'
           : path.startsWith('/tags') ? 'tags-request'
             : path.startsWith('/plaid_accounts') ? 'synced-accounts-request' : 'manual-accounts-request';
@@ -435,89 +435,95 @@ function createService(options = {}) {
       accountCount: rows.length,
       entryCount: rows.reduce((total, row) => total + row.entries.length, 0) };
   }
-  // GET /recurring_items (Lunch Money v2.11.1 getAllRecurring: one unpaginated
-  // response; start_date/end_date set each item's `matches` window and do not
-  // filter items; suggested items are excluded unless asked for, and are never
-  // asked for here). Reviewed items only. Schedule evidence only: no payee,
-  // description, notes, amount, currency conversion, category or creator
-  // leaves this read. Raw provider ids never cross: the item, its account and
-  // each found transaction are opaque references (a found transaction's
-  // reference is the same one get_lunchmoney_transactions returns for that row).
-  // A missing, invalid or duplicate item id fails the whole read; any other
-  // malformed field is reported unavailable for that item, never coerced.
+  // Reviewed recurring-item schedule evidence, read through the one reviewed
+  // reader (scripts/provider-recurring-items.js: GET /recurring_items, pinned to
+  // the v2.11.1 contract, fail-closed, presence checked separately from null).
+  // This projection publishes schedule fields only: no payee, description,
+  // notes, amount, currency, category, creator or source, and no raw provider
+  // id (items, accounts and found transactions are opaque references; a found
+  // transaction's reference is the one get_lunchmoney_transactions returns).
+  // Suggested items are never requested, and are excluded and counted if
+  // returned. An absent required key is unavailable; a documented null stays null.
+  const RECURRING_FIELDS = { 'criteria': 'transactionCriteria', 'criteria.startDate': 'startDate',
+    'criteria.endDate': 'endDate', 'criteria.granularity': 'granularity', 'criteria.quantity': 'quantity',
+    'criteria.anchorDate': 'anchorDate', 'criteria.plaidAccountId': 'account', 'criteria.manualAccountId': 'account',
+    matches: 'matches' };
+  // The reader's errors are plain messages; map them to this service's stage/code
+  // diagnostics without carrying any message text, URL, body or identity.
+  function recurringFailure(error) {
+    const message = String(error && error.message || '');
+    const status = message.match(/failed with HTTP (\d{3})\./);
+    if (status) return new ProviderRequestError('provider-request-failed', 'recurring-items-request', Number(status[1]));
+    if (/rejected the access token/.test(message)) return new ProviderRequestError('provider-request-failed', 'recurring-items-request');
+    if (/request timeout/.test(message)) return new ProviderRequestError('provider-request-timeout', 'recurring-items-request');
+    if (/request failed|exceeded the maximum size|cancelled/.test(message)) return new ProviderRequestError('provider-network-error', 'recurring-items-request');
+    if (/was not JSON/.test(message)) return new ProviderRequestError('provider-response-invalid-json', 'recurring-items-request');
+    if (/duplicate provider id/.test(message)) return new Error('duplicate-provider-identity');
+    if (/valid provider id|not an object/.test(message)) return new Error('invalid-provider-identity');
+    return new Error('recurring-items-unavailable');
+  }
+  // The reader returns ids as exact decimal strings; an alias needs a safe integer.
+  function safeId(value) {
+    const n = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN;
+    return Number.isSafeInteger(n) && n > 0 && String(n) === value ? n : null;
+  }
   async function recurring(input, auth) {
     const { accounts } = await catalogData(auth.principal);
-    const params = new URLSearchParams({ start_date: input.startDate, end_date: input.endDate });
-    const data = await request('GET', '/recurring_items?' + params);
-    const items = Array.isArray(data) ? data : data && Array.isArray(data.recurring_items) ? data.recurring_items : null;
-    if (!items) throw new Error('recurring-items-unavailable');
-    // The endpoint documents no pagination; a paginated-looking envelope is never called complete.
-    const paged = !Array.isArray(data) && ['has_more', 'next', 'cursor', 'offset', 'limit'].some(key => Object.hasOwn(data, key));
-    const day = value => typeof value === 'string' && date.safeParse(value).success ? value : null;
-    const days = value => Array.isArray(value) && value.every(v => day(v) !== null) ? [...value].sort() : null;
-    const seen = new Set();
+    let token, base;
+    try { token = await resolveToken(); }
+    catch (_) { throw new ProviderRequestError('credential-unavailable', 'recurring-items-request'); }
+    if (!token) throw new ProviderRequestError('credential-unavailable', 'recurring-items-request');
+    try { base = Provider.lunchMoneyApiBase(env); }
+    catch (_) { throw new ProviderRequestError('provider-configuration-invalid', 'recurring-items-request'); }
+    let read;
+    try {
+      read = await RecurringItems.fetchRecurringItems({ startDate: input.startDate, endDate: input.endDate,
+        includeSuggested: false, token, base, fetchOptions: { timeoutMs: 15000 } });
+    } catch (error) { throw recurringFailure(error); }
     let suggestedExcluded = 0;
     let malformedStatus = 0;
     const rows = [];
-    for (const item of items) {
-      if (!item || typeof item !== 'object' || !Number.isSafeInteger(item.id) || item.id < 1)
-        throw new Error('invalid-provider-identity');
-      if (seen.has(item.id)) throw new Error('duplicate-provider-identity');
-      seen.add(item.id);
+    for (const item of read.items) {
       if (item.status === 'suggested') { suggestedExcluded++; continue; }
       // A missing or unknown status is never treated as reviewed.
       if (item.status !== 'reviewed') { malformedStatus++; continue; }
-      const unavailable = [];
-      const criteria = item.transaction_criteria && typeof item.transaction_criteria === 'object'
-        ? item.transaction_criteria : null;
-      if (!criteria) unavailable.push('transactionCriteria');
-      const c = criteria || {};
-      const granularity = ['day', 'week', 'month', 'year'].includes(c.granularity) ? c.granularity : null;
-      if (criteria && granularity === null) unavailable.push('granularity');
-      const quantity = Number.isSafeInteger(c.quantity) && c.quantity > 0 ? c.quantity : null;
-      if (criteria && quantity === null) unavailable.push('quantity');
-      const anchorDate = day(c.anchor_date);
-      if (criteria && anchorDate === null) unavailable.push('anchorDate');
-      // start/end are documented nullable: null stays null; anything else malformed is unavailable.
-      const startDate = c.start_date == null ? null : day(c.start_date);
-      if (criteria && c.start_date != null && startDate === null) unavailable.push('startDate');
-      const endDate = c.end_date == null ? null : day(c.end_date);
-      if (criteria && c.end_date != null && endDate === null) unavailable.push('endDate');
-      if (startDate && endDate && startDate > endDate) unavailable.push('startDate', 'endDate');
-      const accountKind = c.plaid_account_id != null ? 'plaid' : c.manual_account_id != null ? 'manual' : null;
-      const accountId = accountKind === 'plaid' ? c.plaid_account_id : accountKind === 'manual' ? c.manual_account_id : null;
-      const account = accountKind && Number.isSafeInteger(accountId)
+      const id = safeId(item.providerId);
+      if (id === null) throw new Error('invalid-provider-identity');
+      // Only the fields this read publishes count toward its own completeness.
+      const unavailable = [...new Set(item.unavailableFields.map(field => RECURRING_FIELDS[field]).filter(Boolean))];
+      const c = item.criteria || {};
+      const accountKind = c.plaidAccountId != null ? 'plaid' : c.manualAccountId != null ? 'manual' : null;
+      const accountId = accountKind ? safeId(accountKind === 'plaid' ? c.plaidAccountId : c.manualAccountId) : null;
+      const account = accountKind && accountId !== null
         ? accounts.find(a => a.type === accountKind && a.providerId === accountId) : null;
-      const accountMapping = account ? 'catalog' : accountKind ? 'unavailable' : 'none';
+      const accountMapping = unavailable.includes('account') ? 'unavailable'
+        : account ? 'catalog' : accountKind ? 'unavailable' : 'none';
       let matches = null;
       const m = item.matches;
-      if (m && typeof m === 'object') {
-        const expected = days(m.expected_occurrence_dates);
-        const missing = days(m.missing_transaction_dates);
-        let found = null;
-        if (Array.isArray(m.found_transactions)) {
-          found = [];
-          for (const f of m.found_transactions) {
-            if (!f || day(f.date) === null || !Number.isSafeInteger(f.transaction_id) || f.transaction_id < 1) { found = null; break; }
-            found.push({ date: f.date, transactionRef: alias('tx', f.transaction_id, auth.principal) });
-          }
-          if (found) found.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+      if (m) {
+        let found = [];
+        for (const entry of m.foundTransactions) {
+          const txId = safeId(entry.transactionId);
+          if (txId === null) { found = null; break; }
+          found.push({ date: entry.date, transactionRef: alias('tx', txId, auth.principal) });
         }
-        if (expected === null) unavailable.push('expectedDates');
-        if (missing === null) unavailable.push('missingDates');
-        if (found === null) unavailable.push('foundTransactions');
-        matches = { windowStart: day(m.request_start_date), windowEnd: day(m.request_end_date),
-          expectedDates: expected, foundTransactions: found, missingDates: missing };
-      } else {
+        if (found === null) unavailable.push('matches');
+        else matches = { windowStart: m.requestStartDate, windowEnd: m.requestEndDate,
+          expectedDates: [...m.expectedOccurrenceDates].sort(),
+          foundTransactions: found.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0),
+          missingDates: [...m.missingTransactionDates].sort() };
+      } else if (!unavailable.includes('matches')) {
+        // A reviewed item with null matches supplied no window evidence: never complete.
         unavailable.push('matches');
       }
-      rows.push({ sortKey: item.id, recurringRef: alias('rec', item.id, auth.principal), status: 'reviewed',
-        granularity, quantity, anchorDate, startDate, endDate,
+      rows.push({ sortKey: id, recurringRef: alias('rec', id, auth.principal), status: 'reviewed',
+        granularity: c.granularity ?? null, quantity: c.quantity ?? null, anchorDate: c.anchorDate ?? null,
+        startDate: c.startDate ?? null, endDate: c.endDate ?? null,
         accountRef: account ? account.ref : null, accountMapping, matches,
         ...(unavailable.length ? { unavailableFields: [...new Set(unavailable)] } : {}) });
     }
     rows.sort((a, b) => a.sortKey - b.sortKey);
-    const complete = !paged && malformedStatus === 0 && rows.every(row => !row.unavailableFields);
+    const complete = !read.unexpectedPaginationEvidence && malformedStatus === 0 && rows.every(row => !row.unavailableFields);
     return { status: 'ok', source: 'Lunch Money v2', observedAt: new Date(now()).toISOString(),
       window: { startDate: input.startDate, endDate: input.endDate },
       coverage: complete ? 'complete-provider-response' : 'incomplete-provider-response',
