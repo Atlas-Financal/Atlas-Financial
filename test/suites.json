@@ -350,6 +350,7 @@
   ["Band rehearsal space settles from the Lunch Money recurring link alone","test-rehearsal-space-lunchmoney-recurring-settlement.js"],
   ["A bill's single-bill Lunch Money category sits alongside its payee rule","test-bill-link-single-bill-category.js"],
   ["A bill's Lunch Money item note sits alongside its payee rule","test-bill-link-item-note.js"],
+  ["A payment linked to a bill that doesn't fit it counts once, settles neither bill and names the bill and the failed check","test-linked-bill-misfit-named.js"],
   ["A bill's Lunch Money recurring link sits alongside its payee rule","test-bill-link-recurring-alongside-payee.js"],
   ["Household planned target removed","test-household-target-removed.js"],
   ["Household Budget Other spending residual","test-household-budget-other-spending.js"],

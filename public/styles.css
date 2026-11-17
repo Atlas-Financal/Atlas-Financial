@@ -1100,6 +1100,9 @@ footer strong { color:var(--text-secondary); font-weight:600; }
 .household-budget-tx-alert {
   display:block; margin-top:2px; color:var(--critical); font-size:.78rem; font-weight:650;
 }
+.household-budget-tx-note {
+  display:block; margin-top:2px; color:var(--text-secondary); font-size:.78rem; font-weight:500;
+}
 .household-budget-tx-amount {
   font-variant-numeric:tabular-nums; text-align:right; font-weight:500; white-space:nowrap;
 }
