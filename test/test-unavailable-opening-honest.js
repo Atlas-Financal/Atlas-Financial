@@ -11,23 +11,21 @@
  *
  *   node test/test-unavailable-opening-honest.js
  */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const Live = require('../scripts/live-plan.js');
 const shaw = require('./fixtures/shaw-posted-identity');
 const configured = require('../docs/connectivity/transaction-identity.json');
 
-// Reuse the page composer the existing unavailable-surface suite loads.
-const surfaceSrc = fs.readFileSync(path.join(__dirname, 'test-plan-unavailable-surface.js'), 'utf8');
-const pull = re => { const m = re.exec(surfaceSrc); if (!m) throw new Error('missing ' + re); return m[0]; };
-const { sourceText } = require('./test-source-text');
-const ROOT = path.join(__dirname, '..');
-const read = file => sourceText(fs.readFileSync(path.join(ROOT, file), 'utf8'));
-const grab = (src, re, label) => { const m = re.exec(src); if (!m) throw new Error('missing ' + label); return m[0]; };
-const composer = (new Function('fs', 'path', 'vm', 'F', 'read', 'grab', 'ROOT',
-  pull(/function loadComposer\(\) \{[\s\S]*?\n\}\n/) + '\nreturn loadComposer();'))(fs, path, vm, F, read, grab, ROOT);
+// The real Budget page (test/lib/budget-page-harness.js): operatingSurfaceHtml
+// is the live composition, the unavailable surface or the Today card plus the
+// compact pay-period content, with the same page state as
+// test-plan-unavailable-surface.js.
+const { loadBudgetPage } = require('./lib/budget-page-harness');
+const composer = (() => {
+  const page = loadBudgetPage({ Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0,
+    incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
+  return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx), money2: page.get('money2') };
+})();
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
