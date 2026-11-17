@@ -10446,11 +10446,14 @@
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
-    // The scheduled-fee allowance (tdfees, scheduledFeeOccurrenceAmounts) is never a payment owed: a lower recorded expense
-    // leaves an unspent allowance, so it publishes no shortfall (partly-paid for scheduled fees is a separate, deferred design).
-    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && event.id !== 'tdfees' ? {
-      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100, shortfallTrust: excessTrust,
-      shortfallSource: 'Forecast.billPaymentState' } : null;
+    // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
+    // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
+    // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
+    // scheduledFeeOccurrenceAmounts publishes them. A fee above its allowance keeps its excess and is flagged for review.
+    const scheduledFee = event.id === 'tdfees';
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
+      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
+      shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = paid ? 'PAID'
       : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
@@ -10506,7 +10509,7 @@
       ...(trustedBasis ? trustWeakenedConfidence(event) : {}),
       // A schedule-trusted settlement saw no payment, so it has no excess.
       ...(excess != null && !sent && !minimumCovered && !trustedBasis
-        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
+        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState', ...(scheduledFee ? { excessReview: true } : {}) } : {}),
     };
   }
 
@@ -10557,7 +10560,7 @@
       actual: null, remaining: 0,
     });
     for (const key of ['settlementBasis', 'settlementEvidence', 'paymentState', 'shortfall', 'shortfallTrust',
-      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'scheduledFeeAllowance']) delete copy[key];
+      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'excessReview', 'scheduledFeeAllowance']) delete copy[key];
     return copy;
   }
   function isCarriedBillRow(row) {
@@ -10664,6 +10667,7 @@
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
+        delete row.excessReview;
         delete row.paymentState;
         delete row.shortfall;
         delete row.shortfallTrust;

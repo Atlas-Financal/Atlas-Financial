@@ -77,18 +77,19 @@ const sourceHash=file=>crypto.createHash('sha256').update(fs.readFileSync(path.j
       if(!await figures.evaluate(node=>node.open)){await figures.locator('> summary').focus();await page.keyboard.press('Enter');}
       // The roster's own period figures, read while the roster is showing.
       const rosterText=await roster.innerText();
-      if(below)assert.match(rosterText,/8\.00 still reserved for bills/);
+      // LEDGER A item 1: the rest of a fee below its allowance is left to pay or confirm, never a reserve.
+      if(below)assert.match(rosterText,/8\.00 left to pay or confirm/);
       await roster.locator('[data-budget-browse-evidence="04"]').focus();await page.keyboard.press('Enter');
       // Why stacks the Bills deduction body over the (now hidden) roster in
       // the sheet body; read the deduction body itself.
       const body=page.locator('[data-budget-detail-body] > .budget-step-body');
       await body.waitFor({state:'visible'});
       const evidence=await body.locator('[data-budget-progress-evidence="bills"]').innerText();
+      // LEDGER A item 1 (Grok Bot, rule 17): the rest of a fee below its allowance is to confirm, never a reserve note.
+      assert.equal(await body.locator('[data-scheduled-fee-reserve]').count(),0);
+      assert.equal(await page.locator('[data-scheduled-fee-reserve]').count(),0);
       if(below) {
-        assert.match(await body.innerText(),/Remaining bill reserve/);
-        assert.match(await body.locator('[data-scheduled-fee-reserve]').innerText(),/not another payment due/);
-      } else if(state==='equal'||above) {
-        assert.equal(await body.locator('[data-scheduled-fee-reserve]').count(),0);
+        assert.doesNotMatch(await body.innerText(),/Remaining bill reserve/);
       }
       if(state==='coverage-withheld')assert.match(evidence,/Actual: Unavailable/);
       else assert.ok(evidence.includes('Actual: $'+posted.toFixed(2)),evidence);
