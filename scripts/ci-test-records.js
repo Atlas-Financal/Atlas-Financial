@@ -24,6 +24,19 @@ const coherent = r => r.status === 'pass'
     ? r.category !== 'signal-terminated'
     : r.category === 'signal-terminated' && r.exitCode === null);
 function emit(record) { fs.writeSync(1, JSON.stringify(record) + '\n'); }
+// Failing subtest names: re-checked here, independently of the capture
+// module, by the same rule. A name is kept only when it is a literal
+// substring of the suite's committed source, has at most 80 characters from
+// letters, digits, space and _ . : ( ) / -, and holds no amount-, date- or
+// time-like digits. Any other entry becomes '[redacted]'.
+function subtestNames(identity, names) {
+  if (installGroup || !Array.isArray(names) || names.length < 1 || names.length > 10) throw new Error('invalid-record');
+  let source = null;
+  try { source = fs.readFileSync(path.join(__dirname, '..', 'test', identity), 'utf8'); } catch { /* Redact all. */ }
+  return names.map(name => typeof name === 'string' && source !== null && name.length >= 1 && name.length <= 80
+    && name.trim() === name && /^[A-Za-z0-9 _.:()/-]+$/.test(name) && !/[0-9]{3}|\.[0-9]|[0-9]:[0-9]/.test(name)
+    && source.includes(name) ? name : '[redacted]');
+}
 try {
   if (!['standard', 'refresh-isolation', 'install-runtime', 'install-test'].includes(group) || !process.env.ATLAS_CI_BOOTSTRAP_DIR)
     throw new Error('invalid-configuration');
@@ -71,6 +84,10 @@ try {
         const vetted = { type: r.type, identity: r.identity, status: r.status, category: r.category,
           exitCode: r.exitCode, signal: r.signal, executed: r.executed,
           counts: { total: 1, passed: r.counts.passed, failed: r.counts.failed } };
+        if (r.failedSubtests !== undefined) {
+          if (r.status !== 'fail') throw new Error('invalid-record');
+          vetted.failedSubtests = subtestNames(r.identity, r.failedSubtests);
+        }
         if (r.status === 'pass' && r.identity === 'test-ci-output.js'
             && r.syntheticProof === 'stdout-stderr-annotations-formatter-and-exit-canaries') vetted.syntheticProof = r.syntheticProof;
         emit(vetted);

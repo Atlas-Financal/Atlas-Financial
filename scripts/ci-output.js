@@ -15,6 +15,34 @@ const SIGNALS = new Set(['SIGABRT', 'SIGALRM', 'SIGBUS', 'SIGHUP', 'SIGINT',
 const CATEGORIES = new Set(['none', 'capture-failed', 'invalid-configuration', 'missing-suite',
   'spawn-failed', 'signal-terminated', 'unsupported-platform', 'storage-failed',
   'assertion-failed', 'process-failed', 'private-artifact-blocked']);
+// Failing TAP subtest names (#1270 dispatch). The only child text ever made
+// public. A name is shown only when all of these hold, else '[redacted]':
+//  - it is a literal substring of the suite's own committed source, so it was
+//    already public and no runtime value (a figure, a date, data) built it;
+//  - it uses only letters, digits, space and _ . : ( ) / - and is at most
+//    NAME_MAX characters after clipping;
+//  - it has no run of three or more digits and no digit after a dot or around
+//    a colon, so nothing that reads as an amount, a date or a time.
+// Assertion messages, values, diffs and stack traces are never read for this.
+const NAME_MAX = 80, NAMES_MAX = 10, REDACTED = '[redacted]';
+function nameShapeOk(name) {
+  return typeof name === 'string' && name.length >= 1 && name.length <= NAME_MAX
+    && name.trim() === name && /^[A-Za-z0-9 _.:()/-]+$/.test(name)
+    && !/[0-9]{3}|\.[0-9]|[0-9]:[0-9]/.test(name);
+}
+function failedSubtestNames(stdoutText, sourceText) {
+  const names = [];
+  for (const raw of String(stdoutText).split('\n')) {
+    const match = /^ *not ok(?: [1-9][0-9]*)? - (.*)$/.exec(raw.replace(/\r$/, ''));
+    if (!match || /\s#\s*(?:TODO|SKIP)\b/i.test(match[1])) continue;
+    const full = match[1].trim();
+    const shown = full.slice(0, NAME_MAX).trim();
+    const name = full && String(sourceText).includes(full) && nameShapeOk(shown) ? shown : REDACTED;
+    if (!names.includes(name)) names.push(name);
+    if (names.length === NAMES_MAX) break;
+  }
+  return names;
+}
 function publicMode(env = process.env) {
   return env.GITHUB_ACTIONS === 'true' || env.ATLAS_PUBLIC_CI === '1';
 }
@@ -37,6 +65,9 @@ function publish(result) {
     signal: result.signal, executed: result.executed,
     counts: { total: 1, passed: result.status === 'pass' ? 1 : 0,
       failed: result.status === 'pass' ? 0 : 1 } };
+  if (result.status === 'fail' && Array.isArray(result.failedSubtests) && result.failedSubtests.length)
+    record.failedSubtests = result.failedSubtests.slice(0, NAMES_MAX)
+      .map(name => name === REDACTED || nameShapeOk(name) ? name : REDACTED);
   if (result.status === 'pass' && result.syntheticProofVerified)
     record.syntheticProof = 'stdout-stderr-annotations-formatter-and-exit-canaries';
   fs.writeSync(1, JSON.stringify(record) + '\n');
@@ -92,7 +123,11 @@ function runCaptured(command, args, options = {}) {
       if (env[key]) env[key] = path.join(dir, key.toLowerCase() + '.private');
     result.executed = true;
     try {
-      execFileSync(command, args, { cwd: options.cwd, env,
+      // A suite runs with node:test's TAP reporter so its private stdout holds
+      // "not ok <n> - <name>" lines for failedSubtestNames. Reporter only: the
+      // suite's tests, assertions and exit code are unchanged.
+      const runArgs = SUITE_FILE.test(identity) ? ['--test-reporter=tap', ...args] : args;
+      execFileSync(command, runArgs, { cwd: options.cwd, env,
         stdio: [0, outFd, errFd], windowsHide: true });
       Object.assign(result, { status: 'pass', category: 'none', exitCode: 0 });
       result.syntheticProofVerified = identity === 'test-ci-output.js';
@@ -101,6 +136,12 @@ function runCaptured(command, args, options = {}) {
         exitCode: Number.isInteger(error.status) ? error.status : null,
         signal: SIGNALS.has(error.signal) ? error.signal : null });
       if (result.category === 'spawn-failed') result.executed = false;
+      else if (SUITE_FILE.test(identity)) {
+        try {
+          result.failedSubtests = failedSubtestNames(fs.readFileSync(result.stdoutFile, 'utf8'),
+            fs.readFileSync(path.join(__dirname, '..', 'test', identity), 'utf8'));
+        } catch { /* No names; the outcome is unchanged. */ }
+      }
     }
   } catch (error) {
     if (result.diagnosticsDirectory) {
@@ -154,4 +195,4 @@ if (require.main === module) {
   try { process.exitCode = main(process.argv); }
   catch { fs.writeSync(2, 'CI output capture failed.\n'); process.exitCode = 1; }
 }
-module.exports = { publicMode, suiteIdentity, startSuite, runCaptured, publish, main };
+module.exports = { publicMode, suiteIdentity, startSuite, runCaptured, publish, main, failedSubtestNames };
