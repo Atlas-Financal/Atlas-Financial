@@ -242,7 +242,7 @@ if (!isMainThread) {
   function displayKey(canonical, env) {
     const map = Observer.loadLiveAccountMap(env, canonical);
     const categories = (canonical.plan?.budget?.categories || []).map(row => ({
-      id: row.id, from: row.from, class: row.class,
+      id: row.id, lunchMoneyCategoryGroupId: row.lunchMoneyCategoryGroupId, class: row.class,
     }));
     return { accountMap: map, categoryMapping: categories };
   }

@@ -6525,20 +6525,6 @@
     return out;
   }
 
-  // Closed labels from provider category identity, not merchant guessing.
-  // Lunch Money's transfer/payment category and equivalent names are
-  // account-to-account movement, not household category spending.
-  const TRANSFER_CATEGORY_LABELS = new Set([
-    'transfer',
-    'payment',
-    'payment, transfer',
-    'credit card payment',
-    'cc payment',
-  ]);
-  const DEBT_PAYMENT_CATEGORY_LABELS = new Set([
-    'personal loan payment',
-  ]);
-
   // Seaspan payday cycle is the operating payday. uniquePaydayDates of any
   // income ≥ floor is only the fallback when no Seaspan stream exists:
   // Amanda salary must not start payday mode or truncate nextPeriodView.
@@ -6610,14 +6596,7 @@
     /7[\s-]*eleven|\b7-11\b|\b7eleven\b|circle\s*k|mac'?s\s*(convenience)?|on\s*the\s*run/i;
   const FUEL_EVIDENCE_RE = /\b(fuel|gas|petrol|gasoline)\b/i;
   const CANADIAN_TIRE_RE = /canadian\s*tire/i;
-  const EATING_OUT_LABELS = new Set(['restaurants', 'fast food', 'food delivery', 'coffee shops']);
   const BILL_BUDGET_IDS = new Set(['subscriptions', 'insurance', 'telecom']);
-  const BILL_CATEGORY_LABELS = new Set([
-    'mortgage', 'bills', 'bill', 'subscription', 'subscriptions',
-    'insurance', 'telecom', 'telephone',
-    'natural gas',
-  ]);
-  const REFUND_LABELS = new Set(['refund', 'refunds', 'reimbursement']);
 
   function txTextBlob(tx) {
     if (!tx) return '';
@@ -6662,13 +6641,14 @@
     return CONVENIENCE_STORE_RE.test(txTextBlob(tx));
   }
 
-  function hasExplicitFuelEvidence(tx) {
+  function hasExplicitFuelEvidence(tx, plan) {
     if (tx && tx.fuelEvidence === true) return true;
-    // Dale 2026-10-14: an exact Lunch Money "Fuel" category is itself
+    // Dale 2026-10-14: Lunch Money filing the row as Fuel is itself
     // explicit fuel evidence. This supersedes the 2026-09-23 rule that
     // held a convenience-store Fuel row for confirmation unless a note,
-    // tag, MCC, or kind hint corroborated it.
-    if (normalizeCategoryLabel(tx && tx.categoryLabel) === 'fuel') return true;
+    // tag, MCC, or kind hint corroborated it. Fuel is the Fuel row's group
+    // (Dale, #821 6958331123), not a category name.
+    if (plan && lunchMoneyHouseholdCategory(tx, plan) === 'fuel') return true;
     const hint = normalizeCategoryLabel(tx && tx.kindHint);
     if (hint === 'gas' || hint === 'fuel' || hint === 'petrol') return true;
     const mcc = String((tx && tx.mcc) || '');
@@ -6886,24 +6866,14 @@
     return isAmazonMerchant(tx) && isTravelVisaAccount(tx);
   }
 
-  // Owner 2026-09-08: exact Lunch Money category names Dale and Amanda.
-  // Not a substring, not incidental Dale/Amanda tags, notes, or payees,
-  // and not the Atlas row labels. Additional aliases live only on the
-  // dale-guilt-free / amanda-guilt-free `from` arrays.
-  function lunchMoneyGuiltFreeCategoryOwner(label, plan) {
-    if (label === 'dale') return 'dale';
-    if (label === 'amanda') return 'amanda';
-    const cats = (plan && plan.budget && plan.budget.categories) || [];
-    let owner = null;
-    for (const c of cats) {
-      if (!c || (c.id !== 'dale-guilt-free' && c.id !== 'amanda-guilt-free')) continue;
-      const aliases = [].concat(c.from || []);
-      if (!aliases.some(a => normalizeCategoryLabel(a) === label)) continue;
-      const next = c.id === 'dale-guilt-free' ? 'dale' : 'amanda';
-      if (owner && owner !== next) return null;
-      owner = next;
-    }
-    return owner;
+  // Owner 2026-09-08, now by group (Dale, #821 6958331123): the Dale and
+  // Amanda guilt-free rows are Lunch Money category groups, read by group id.
+  // A name, tag, note or payee never decides.
+  function lunchMoneyGuiltFreeCategoryOwner(tx, plan) {
+    const route = lunchMoneyBudgetRoute(tx, plan);
+    if (route.rowId === 'dale-guilt-free') return 'dale';
+    if (route.rowId === 'amanda-guilt-free') return 'amanda';
+    return null;
   }
 
   function amountCents(value) {
@@ -7049,20 +7019,62 @@
     return latest && !settled.has(latest.key) ? latest.date : null;
   }
 
-  // The household budget category Lunch Money filed this row under, by the
-  // plan's own category ids, labels and `from` aliases; null when the label
-  // names no household category (uncategorised, transfer, income, Business).
+  // Owner decision (Dale, #821 6958331123; Grok Bot, Plan #6): Lunch Money's
+  // category GROUP decides where a row goes. A configured group id is
+  // identity; a category name never decides. Budget rows name theirs in
+  // plan.budget.categories[].lunchMoneyCategoryGroupId; groups that are not
+  // household spending name theirs in plan.budget.excluded[] with a kind.
+  //   { rowId }      one budget row owns the group
+  //   { excluded }   an excluded kind owns it (business, transfer, ...)
+  //   { ambiguous }  more than one owner, or an unknown kind: never chosen
+  //   { ungrouped }  a category outside every configured group (Dale (b):
+  //                  counted as Other spending, no hand-confirm)
+  //   { none }       Lunch Money left the row uncategorised
+  const BUDGET_GROUP_KINDS = new Set(['business', 'transfer', 'card-payment', 'debt-payment', 'mortgage',
+    'refund', 'interest', 'fee', 'bill']);
+  function budgetGroupIdOf(row) {
+    const id = row && row.lunchMoneyCategoryGroupId;
+    if (typeof id === 'number' && Number.isSafeInteger(id)) return String(id);
+    return typeof id === 'string' && id.trim() ? id.trim() : '';
+  }
+  function lunchMoneyBudgetRoute(tx, plan) {
+    const groupId = tx && tx.categoryGroupId != null ? String(tx.categoryGroupId).trim() : '';
+    if (!groupId) {
+      // Dale's (b) applies only to a real Lunch Money category (one with an id)
+      // that sits outside every group. A row with no category id (Lunch Money
+      // left it uncategorised, or only a name survived) fails closed: it is
+      // never routed to Other spending by a name (lead ruling, slice 1).
+      const categoryId = tx && tx.categoryId != null ? String(tx.categoryId).trim() : '';
+      return categoryId || (tx && tx.categorised === true) ? { ungrouped: true } : { none: true };
+    }
+    const budget = (plan && plan.budget) || {};
+    const excluded = (budget.excluded || []).filter(row => budgetGroupIdOf(row) === groupId);
+    const rows = (budget.categories || []).filter(row => row && row.id && budgetGroupIdOf(row) === groupId);
+    if (excluded.length + rows.length > 1) return { ambiguous: true };
+    if (excluded.length) {
+      const kind = excluded[0].kind == null ? 'business' : excluded[0].kind;
+      return BUDGET_GROUP_KINDS.has(kind) ? { excluded: kind } : { ambiguous: true };
+    }
+    if (rows.length) return { rowId: rows[0].id };
+    return { ungrouped: true };
+  }
+  // Budget rows whose configured group is absent from the observed packet's
+  // category groups. A packet that does not carry the groups proves nothing,
+  // so every configured row is withheld (fail closed).
+  function budgetRowsWithMissingGroup(plan, packet) {
+    if (!packet) return [];
+    const present = Array.isArray(packet.categoryGroupIds) ? new Set(packet.categoryGroupIds.map(String)) : null;
+    return ((plan && plan.budget && plan.budget.categories) || [])
+      .filter(row => row && row.id && budgetGroupIdOf(row) && !(present && present.has(budgetGroupIdOf(row))))
+      .map(row => row.id);
+  }
+  function lunchMoneyGroupKind(tx, plan) {
+    return lunchMoneyBudgetRoute(tx, plan).excluded || null;
+  }
+  // The household budget row Lunch Money's group files this row under; null
+  // when no row owns the group (excluded kinds, ungrouped, uncategorised).
   function lunchMoneyHouseholdCategory(tx, plan) {
-    const label = normalizeCategoryLabel(tx && tx.categoryLabel);
-    if (lunchMoneyLeftUncategorised(label)) return null;
-    for (const row of ((plan && plan.budget && plan.budget.excluded) || [])) {
-      if (normalizeCategoryLabel(row && (row.from || row.label)) === label) return null;
-    }
-    for (const c of ((plan && plan.budget && plan.budget.categories) || [])) {
-      if (!c || !c.id) continue;
-      if ([c.id, c.label].concat(c.from || []).some(a => normalizeCategoryLabel(a) === label)) return c.id;
-    }
-    return null;
+    return lunchMoneyBudgetRoute(tx, plan).rowId || null;
   }
 
   function merchantRuleMayAssignFuel(tx, label) {
@@ -7092,18 +7104,6 @@
   const REVOLVING_CARD_ACCOUNT_IDS = new Set([
     'cashback', 'tdcc', 'mbna', 'travelvisa', 'triangle',
   ]);
-  const REVOLVING_FINANCE_CHARGE_LABELS = new Set([
-    'interest charge',
-    'purchase interest',
-    'cash advance interest',
-    'cash-advance interest',
-    'balance transfer interest',
-    'bt interest',
-    'retail interest',
-    'cash interest',
-    'finance charge',
-  ]);
-
   function isRevolvingCardAccount(tx) {
     if (!tx) return false;
     if (tx.accountRole === 'revolving-credit') return true;
@@ -7120,14 +7120,14 @@
   // INTEREST CHARGE -PURCHASE / RETAIL INTEREST / CASH INTEREST / BT
   // interest. Exact merchant keys and closed labels only — not a
   // substring of ordinary merchants, not overdraft, not annual fee.
-  function revolvingCardFinanceChargeEvidence(tx) {
+  function revolvingCardFinanceChargeEvidence(tx, plan) {
     if (!tx) return false;
     const hint = normalizeCategoryLabel(tx.kindHint);
     if (hint === 'interest' || hint === 'finance-charge' || hint === 'interest-charge') {
       return true;
     }
-    const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (REVOLVING_FINANCE_CHARGE_LABELS.has(label)) return true;
+    // Lunch Money filing the row in an interest group (Interest charge, ...).
+    if (plan && lunchMoneyGroupKind(tx, plan) === 'interest') return true;
     const key = normalizeMerchantKey(txMerchantExact(tx));
     if (!key) return false;
     if (key === 'INTEREST CHARGES') return true;
@@ -7144,14 +7144,14 @@
     return key === 'INTEREST';
   }
 
-  function isRevolvingCardFinanceCharge(tx) {
+  function isRevolvingCardFinanceCharge(tx, plan) {
     if (tx && tx.cardFinanceChargeIdentity === true) return true;
-    return isRevolvingCardAccount(tx) && revolvingCardFinanceChargeEvidence(tx);
+    return isRevolvingCardAccount(tx) && revolvingCardFinanceChargeEvidence(tx, plan);
   }
 
-  function isHelocFinanceCharge(tx) {
+  function isHelocFinanceCharge(tx, plan) {
     return !!tx && tx.accountRole === 'heloc'
-      && (tx.helocFinanceChargeIdentity === true || revolvingCardFinanceChargeEvidence(tx));
+      && (tx.helocFinanceChargeIdentity === true || revolvingCardFinanceChargeEvidence(tx, plan));
   }
 
   function isCanadianTireMerchant(tx) {
@@ -7344,7 +7344,7 @@
   }
   function withMortgageDueNote(tx, plan, opts, cls) {
     if (!cls || cls.householdSpending !== true || !tx
-        || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
+        || lunchMoneyGroupKind(tx, plan) !== 'mortgage') return cls;
     const due = mortgageDueStillToConfirm(plan, tx.date, opts);
     return due ? Object.assign({}, cls, { mortgageDueToConfirm: due }) : cls;
   }
@@ -7443,13 +7443,13 @@
     // Dale 2026-09-09: issuer-posted revolving CC finance charges are
     // debt/interest cost. The provider Shopping / Pets label does not
     // decide. Chequing overdraft interest is not this identity.
-    if (isRevolvingCardFinanceCharge(tx)) {
+    if (isRevolvingCardFinanceCharge(tx, plan)) {
       return {
         kind: 'interest', categoryId: null, householdSpending: false,
         reason: 'revolving-finance-charge', includeReason: 'revolving-finance-charge',
       };
     }
-    if (isHelocFinanceCharge(tx)) {
+    if (isHelocFinanceCharge(tx, plan)) {
       return {
         kind: 'interest', categoryId: null, householdSpending: false,
         reason: 'heloc-capitalised-interest', includeReason: 'heloc-capitalised-interest',
@@ -7465,18 +7465,15 @@
     // no longer drops the row. A planned loan payment matches its represented
     // bill below; an unplanned one is Other spending, counted, because no
     // planned payment deducts its cash anywhere else.
-    if (TRANSFER_CATEGORY_LABELS.has(label)
-      || (tx.excludeFromTotals === true && TRANSFER_CATEGORY_LABELS.has(label))) {
+    // The row's route comes from its Lunch Money category group alone.
+    const route = lunchMoneyBudgetRoute(tx, plan);
+    if (route.excluded === 'transfer' || route.excluded === 'card-payment') {
       return { kind: 'transfer', categoryId: null, householdSpending: false, reason: 'transfer-label' };
     }
     // Incumbent plan.budget.excluded / Business wins before cancelled-service
     // merchant identity: a Business row is not household Other Spending.
-    const excludedEarly = ((plan && plan.budget && plan.budget.excluded) || []);
-    for (const row of excludedEarly) {
-      const from = normalizeCategoryLabel(row && (row.from || row.label));
-      if (from && from === label) {
-        return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-      }
+    if (route.excluded === 'business') {
+      return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
     }
     const cancelledService = cancelledServiceForTransaction(tx, plan);
     if (cancelledService) return cancelledServiceChargeResult(cancelledService);
@@ -7529,28 +7526,14 @@
     // corresponding guilt-free row. Fresh ingested categoryLabel wins over
     // incidental tag/note/personalOwner mapping and over Cursor /
     // Amazon+travelvisa merchant ownership when the two disagree.
-    const lunchMoneyGuiltFree = lunchMoneyGuiltFreeCategoryOwner(label, plan);
+    const lunchMoneyGuiltFree = lunchMoneyGuiltFreeCategoryOwner(tx, plan);
     if (lunchMoneyGuiltFree) {
-      const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-      for (const row of excluded) {
-        const from = normalizeCategoryLabel(row && (row.from || row.label));
-        if (from && from === label) {
-          return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-        }
-      }
       if (lunchMoneyGuiltFree === 'dale') {
         return spendResult('dale-guilt-free', 'lunchmoney-category-dale');
       }
       return spendResult('amanda-guilt-free', 'lunchmoney-category-amanda');
     }
     if (lunchMoneyLeftUncategorised(label) && isDaleGuiltFreeMerchant(tx)) {
-      const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-      for (const row of excluded) {
-        const from = normalizeCategoryLabel(row && (row.from || row.label));
-        if (from && from === label) {
-          return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-        }
-      }
       return spendResult('dale-guilt-free', 'dale-guilt-free-merchant');
     }
     // Dale 2026-09-03: Amazon + travelvisa is Amanda guilt-free. Incidental
@@ -7558,26 +7541,12 @@
     // Lunch Money category named Dale already returned above. Incumbent
     // plan.budget.excluded / Business still wins. Not a Prime bill.
     if (lunchMoneyLeftUncategorised(label) && isAmandaAmazonTravelVisa(tx)) {
-      const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-      for (const row of excluded) {
-        const from = normalizeCategoryLabel(row && (row.from || row.label));
-        if (from && from === label) {
-          return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-        }
-      }
       return spendResult('amanda-guilt-free', 'amanda-amazon-travelvisa');
     }
     // Dale 2026-09-02: PITT MEADOWS CE is Fuel.
     // H1: only for a row Lunch Money left uncategorised. Incumbent plan.budget.excluded / Business
     // still wins.
     if (merchantRuleMayAssignFuel(tx, label)) {
-      const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-      for (const row of excluded) {
-        const from = normalizeCategoryLabel(row && (row.from || row.label));
-        if (from && from === label) {
-          return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-        }
-      }
       return spendResult('fuel', 'fuel-merchant');
     }
     // Keep the incumbent issuer-fee classification on revolving cards.
@@ -7595,7 +7564,7 @@
     // finding 4, 3a). An issuer "Other Bank Fees" charge on a card is not a
     // planned bill unless it matched one above; it falls through to Other
     // spending like any unmatched bill-type label (3c).
-    if (label === 'mortgage' && planHasMortgagePayment(plan, tx && tx.date)) {
+    if (route.excluded === 'mortgage' && planHasMortgagePayment(plan, tx && tx.date)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
@@ -7608,39 +7577,19 @@
       return spendResult('pets', 'dog-food-merchant');
     }
     if (lunchMoneyLeftUncategorised(label) && isConfirmedGroceryMerchant(tx)) {
-      const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-      for (const row of excluded) {
-        const from = normalizeCategoryLabel(row && (row.from || row.label));
-        if (from && from === label) {
-          return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-        }
-      }
       return spendResult('groceries', 'grocery-merchant');
     }
     if (isCanadianTireMerchant(tx)) {
       return confirmationResult('canadian-tire-unconfirmed', 'canadian-tire-unconfirmed');
     }
-    if (EATING_OUT_LABELS.has(label)) {
+    if (route.rowId === 'restaurants') {
       return spendResult('restaurants', 'eating-out-category');
     }
-    const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-    for (const row of excluded) {
-      const from = normalizeCategoryLabel(row && (row.from || row.label));
-      if (from && from === label) {
-        return { kind: 'business', categoryId: null, householdSpending: false, reason: 'excluded' };
-      }
+    // One group configured for two owners is never chosen between.
+    if (route.ambiguous) {
+      return confirmationResult('ambiguous-category', 'ambiguous-category');
     }
-    const cats = (plan && plan.budget && plan.budget.categories) || [];
-    let matched = null;
-    for (const c of cats) {
-      if (!c || !c.id) continue;
-      const aliases = [c.id, c.label].concat(c.from || []);
-      if (!aliases.some(a => normalizeCategoryLabel(a) === label)) continue;
-      if (matched && matched.id !== c.id) {
-        return confirmationResult('ambiguous-category', 'ambiguous-category');
-      }
-      matched = c;
-    }
+    const matched = route.rowId ? { id: route.rowId } : null;
     // A bills-only budget category (Insurance, Subscriptions, Telecom) is
     // paid through planned bills. A row reaching here matched no planned
     // bill (represented-bill / pending card-paid bill returned above), so
@@ -7656,13 +7605,13 @@
       );
     }
     if (matched && matched.id === 'fuel') {
-      if (isConvenienceStoreMerchant(tx) && !hasExplicitFuelEvidence(tx)) {
+      if (isConvenienceStoreMerchant(tx) && !hasExplicitFuelEvidence(tx, plan)) {
         return confirmationResult(
           'convenience-store-unconfirmed-fuel',
           'convenience-store-unconfirmed-fuel'
         );
       }
-      if (!txHasMerchantIdentity(tx) && !hasExplicitFuelEvidence(tx)) {
+      if (!txHasMerchantIdentity(tx) && !hasExplicitFuelEvidence(tx, plan)) {
         return confirmationResult('fuel-merchant-missing', 'fuel-merchant-missing');
       }
       return spendResult('fuel', 'fuel-category');
@@ -7724,9 +7673,16 @@
         reason: 'exclude-from-totals',
       };
     }
+    // Dale (#821 6958331123, (b)): a category outside every configured group
+    // is Other spending, counted, with no hand-confirm.
+    if (route.ungrouped) return spendResult('uncategorised', 'ungrouped-category');
+    // An excluded kind no earlier owner claimed (an unplanned loan or mortgage
+    // payment, a debit in a refund or fee group) stays visible and counted, to
+    // confirm, exactly as its unmatched label did (finding 4, 3a-3c).
+    const blank = route.none && !normalizeCategoryLabel(tx.categoryLabel);
     return confirmationResult(
-      label ? 'unmapped-label' : 'no-category',
-      label ? 'unmapped-label' : 'no-category'
+      blank ? 'no-category' : 'unmapped-label',
+      blank ? 'no-category' : 'unmapped-label'
     );
   }
 
@@ -8051,46 +8007,27 @@
   // the classification the incumbent sumCategoryActuals loop already
   // computed. They never change a classification, a total, excluded.*,
   // unclassified.*, or categoryRemainingClaim.
-  function outgoingETransferCardPaymentIdentity(tx) {
+  function outgoingETransferCardPaymentIdentity(tx, plan) {
     if (!tx) return false;
     if (tx.cardPaymentIdentity === true) return true;
     if (isCanadianTireMastercardPayment(tx)) return true;
     const hint = normalizeCategoryLabel(tx.kindHint);
     if (hint === 'payment' || hint === 'card-payment' || hint === 'bill-payment') return true;
-    const label = normalizeCategoryLabel(tx.categoryLabel);
-    return DEBT_PAYMENT_CATEGORY_LABELS.has(label)
-      || label === 'credit card payment' || label === 'cc payment';
+    const kind = lunchMoneyGroupKind(tx, plan);
+    return kind === 'debt-payment' || kind === 'card-payment';
   }
 
-  // A confirmed named category (a plan budget category, an owner guilt-free
-  // label, or another closed named label set) excludes the row even when an
-  // early transfer return in classifyCurrentPeriodTransaction kept its kind
-  // transfer/unclassified: category resolution cannot be assumed from kind
-  // alone. The transfer labels themselves are the population's own labels
-  // and do not exclude.
+  // A confirmed named category (a budget row's group, or an excluded kind)
+  // excludes the row even when an early transfer return in
+  // classifyCurrentPeriodTransaction kept its kind transfer/unclassified:
+  // category resolution cannot be assumed from kind alone. The transfer and
+  // card-payment groups are the population's own and do not exclude.
   function outgoingETransferNamedCategory(tx, plan) {
-    const label = normalizeCategoryLabel(tx && tx.categoryLabel);
-    if (!label || TRANSFER_CATEGORY_LABELS.has(label)) return false;
+    const route = lunchMoneyBudgetRoute(tx, plan);
     // Canonical `uncategorised` is the remainder bucket, not a trusted named
-    // category (the same rule categoryRemainingClaimFrom states): the plan
-    // carries it as a category, so without this guard every flagged row the
-    // owner has not categorised would be excluded by its own bucket and
-    // vanish from the review list.
-    if (label === 'uncategorised') return false;
-    if (lunchMoneyGuiltFreeCategoryOwner(label, plan)) return true;
-    if (EATING_OUT_LABELS.has(label) || BILL_CATEGORY_LABELS.has(label)
-      || REFUND_LABELS.has(label) || DEBT_PAYMENT_CATEGORY_LABELS.has(label)) return true;
-    const excluded = ((plan && plan.budget && plan.budget.excluded) || []);
-    for (const row of excluded) {
-      if (normalizeCategoryLabel(row && (row.from || row.label)) === label) return true;
-    }
-    const cats = (plan && plan.budget && plan.budget.categories) || [];
-    for (const c of cats) {
-      if (!c) continue;
-      const aliases = [c.id, c.label].concat(c.from || []);
-      if (aliases.some(a => normalizeCategoryLabel(a) === label)) return true;
-    }
-    return false;
+    // category (the same rule categoryRemainingClaimFrom states).
+    if (route.rowId) return route.rowId !== 'uncategorised';
+    return !!route.excluded && route.excluded !== 'transfer' && route.excluded !== 'card-payment';
   }
 
   function outgoingETransferEligible(tx, cls, plan, classifyOpts) {
@@ -8111,7 +8048,7 @@
     // before ever evaluating the represented-bill and pending-card-paid-bill
     // rules, and a card payment can arrive classified as transfer.
     if (provenInternalMovementForTx(tx, classifyOpts)) return false;
-    if (outgoingETransferCardPaymentIdentity(tx)) return false;
+    if (outgoingETransferCardPaymentIdentity(tx, plan)) return false;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return false;
     if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) return false;
     if (outgoingETransferNamedCategory(tx, plan)) return false;
@@ -12441,7 +12378,7 @@
       groceryUncertain: !confirmedGrocery && isUncertainGroceryMerchant(tx),
       groceryMixed: hasGroceryMixedEvidence(tx),
       merchantKnown: txHasMerchantIdentity(tx),
-      fuelEvidence: hasExplicitFuelEvidence(tx),
+      fuelEvidence: hasExplicitFuelEvidence(tx, plan),
       confirmedGrocery,
       confirmedFuel: isConfirmedFuelMerchant(tx),
       daleGuiltFreeMerchant,
@@ -12452,8 +12389,8 @@
       tdRewardsRedemptionCredit: isTdRewardsRedemptionCredit(tx),
       cardPaymentNoteDestination: cardPaymentNoteDestination(tx),
       cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
-        && revolvingCardFinanceChargeEvidence(tx),
-      helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
+        && revolvingCardFinanceChargeEvidence(tx, plan),
+      helocFinanceChargeIdentity: isHelocFinanceCharge(tx, plan),
       internalTransferIdentity,
       externalCashDeposit,
       cashWithdrawalIdentity,
@@ -12664,6 +12601,9 @@
     const withheldCategories = new Set(actualsReady ? (coverage.droppedCategoryRows || [])
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
+    // Dale (#821 6958331123, (c)): a row whose configured Lunch Money group
+    // the ledger no longer returns reads Unknown, never an empty $0.
+    if (actualsReady) for (const id of budgetRowsWithMissingGroup(plan, currentPeriodActualsPacket(opts))) withheldCategories.add(id);
     // A pending row that only looks like a posted one (same date, account,
     // amount and merchant) may be a second real purchase. Spent still counts
     // the posted side once, but until the pair resolves the category's spent
@@ -13959,9 +13899,9 @@
       }
     }
     const recordedPaymentLike = tx => tx.cardPaymentIdentity === true || tx.kindHint === 'card-payment'
-      || normalizeCategoryLabel(tx.categoryLabel) === 'credit card payment'
+      || lunchMoneyGroupKind(tx, plan) === 'card-payment'
       || (confirmedMovementRefs.has(tx.coverageRef)
-        && (TRANSFER_CATEGORY_LABELS.has(normalizeCategoryLabel(tx.categoryLabel))
+        && (['transfer', 'card-payment'].includes(lunchMoneyGroupKind(tx, plan))
           || ['payment', 'card-payment', 'bill-payment', 'transfer', 'internal-transfer']
             .includes(normalizeCategoryLabel(tx.kindHint))));
     // A posted TD "PAYMENT - THANK YOU" card credit (Grok Bot ruling) is a
@@ -14013,7 +13953,7 @@
           pending: transactionPendingState(tx) === 'pending', covered: 0, refunded: 0, audit: [] });
       } else if (!['business', 'interest'].includes(cls.kind)
         && !(cls.kind === 'transfer' && tx.excludeFromTotals === true)
-        && !(cls.kind === 'bill' && normalizeCategoryLabel(tx.categoryLabel) === 'other bank fees')) {
+        && !(cls.kind === 'bill' && lunchMoneyGroupKind(tx, plan) === 'fee')) {
         issue('coverage-purchase-purpose-unconfirmed', tx.coverageRef);
       }
     }
@@ -14091,7 +14031,7 @@
           // A posted TD rewards redemption (Grok Bot ruling) is a known
           // non-payment credit: no refund, no coverage, no issue. A pending
           // one is unchanged.
-          else if (cents < 0 && counted && !isRevolvingCardFinanceCharge(tx)
+          else if (cents < 0 && counted && !isRevolvingCardFinanceCharge(tx, plan)
             && !(tx.pending === false && isTdRewardsRedemptionCredit(tx))) {
             // A refund reverses a household purchase: the same row as a
             // charge must classify as household spending. Any other card
@@ -14568,7 +14508,7 @@
       const account = cardId(tx), amount = money(tx);
       // An identified issuer interest credit moves debt; it does not refund
       // a purchase or create a cash-coverage allocation.
-      if (isRevolvingCardFinanceCharge(tx) && !paymentLike(tx)) continue;
+      if (isRevolvingCardFinanceCharge(tx, plan) && !paymentLike(tx)) continue;
       if (!used.has(tx.coverageRef) && ((account && amount < 0) || paymentLike(tx))) {
         issue('coverage-payment-or-credit-purpose-unconfirmed', tx.coverageRef);
         if (account && paymentLike(tx) && amount < 0) {
@@ -17998,9 +17938,9 @@
   // inside the payroll window is not ordinary either: the caller fails
   // that inflow closed. A proven household transfer stays ordinary inside
   // that window, because it is paired to another household cash account.
-  function sameDayRefundCategory(tx) {
+  function sameDayRefundCategory(tx, plan) {
     if (!tx) return false;
-    return REFUND_LABELS.has(normalizeCategoryLabel(tx.categoryLabel));
+    return lunchMoneyGroupKind(tx, plan) === 'refund';
   }
 
   function sameDayInflowPositivelyNonIncome(plan, mov, tx) {
@@ -18010,7 +17950,7 @@
       return true;
     }
     if (!tx || tx.isIncome === true) return false;
-    return sameDayRefundCategory(tx);
+    return sameDayRefundCategory(tx, plan);
   }
 
   // Posted chequing-a movements dated payday. Outflows are ordinary. An
@@ -18054,7 +17994,7 @@
       // A Refund label on a payroll-sized credit is not proof it is not
       // the deposit. Counting it and then adding planned payroll doubles
       // that cash. Proven household transfers are not this guard.
-      if (sameDayRefundCategory(tx)
+      if (sameDayRefundCategory(tx, plan)
           && plausibleUnrecognisedDaleDeposit(amt, payrollAmount)) {
         return null;
       }
@@ -21622,7 +21562,10 @@
     }
 
     const categories = (budget.categories || []).map(c => {
-      const historical = (c.from || []).reduce((s, label) =>
+      // historyCategories names the statement-history taxonomy behind the
+      // historical average only. It never routes a Lunch Money row: live
+      // routing is the row's lunchMoneyCategoryGroupId (slice 1b moves this too).
+      const historical = (c.historyCategories || []).reduce((s, label) =>
         s + (label === '@paypal' ? (opts.paypalPerMonth || 0) : perMonth(label)), 0);
       const dated = datedByCategory[c.id] || { total: 0, items: [] };
       // An owner target, when one exists, beats both a current-regime

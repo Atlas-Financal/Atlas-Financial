@@ -1113,7 +1113,8 @@
                     "id": "groceries",
                     "label": "Groceries",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Groceries"
                     ],
                     "plannedPayday": 900,
@@ -1126,7 +1127,8 @@
                     "id": "fuel",
                     "label": "Fuel & transport",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Fuel & transport"
                     ],
                     "plannedPayday": 555,
@@ -1148,7 +1150,8 @@
                     "id": "household",
                     "label": "Household supplies & utilities",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Household"
                     ],
                     "plannedMonthly": 0,
@@ -1160,7 +1163,8 @@
                     "id": "health",
                     "label": "Medical & health",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Health"
                     ],
                     "plannedMonthly": null,
@@ -1170,7 +1174,8 @@
                     "id": "telecom",
                     "label": "Phones & internet",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Telecom"
                     ],
                     "plannedMonthly": null,
@@ -1181,7 +1186,8 @@
                     "id": "insurance",
                     "label": "Insurance",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Insurance"
                     ],
                     "plannedMonthly": null,
@@ -1191,7 +1197,8 @@
                     "id": "pets",
                     "label": "Pets",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Pets"
                     ],
                     "plannedPayday": 100,
@@ -1219,7 +1226,8 @@
                     "id": "propertytax",
                     "label": "Property tax",
                     "class": "reserve",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Property tax"
                     ],
                     "plannedMonthly": null,
@@ -1232,7 +1240,8 @@
                     "id": "tax",
                     "label": "CRA instalments",
                     "class": "reserve",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Tax"
                     ],
                     "plannedMonthly": null,
@@ -1242,7 +1251,8 @@
                     "id": "restaurants",
                     "label": "Dining out & takeaway",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Restaurants",
                         "Fast Food",
                         "Food Delivery"
@@ -1257,7 +1267,8 @@
                     "id": "shopping",
                     "label": "Shopping",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Shopping",
                         "Personal"
                     ],
@@ -1268,7 +1279,8 @@
                     "id": "dale-guilt-free",
                     "label": "Dale guilt-free spending",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Dale"
                     ],
                     "plannedPayday": 150,
@@ -1281,7 +1293,8 @@
                     "id": "amanda-guilt-free",
                     "label": "Amanda guilt-free spending",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Amanda"
                     ],
                     "plannedPayday": 150,
@@ -1294,7 +1307,8 @@
                     "id": "other-spend",
                     "label": "Other spend",
                     "class": "essential",
-                    "from": [],
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [],
                     "plannedMonthly": null,
                     "ownerLine": "Other spend",
                     "targetSource": "owner-stated-2026-10-04",
@@ -1315,7 +1329,8 @@
                     "id": "travel",
                     "label": "Travel",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Travel"
                     ],
                     "plannedMonthly": null,
@@ -1325,7 +1340,8 @@
                     "id": "sport",
                     "label": "Children & sports",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Sport & fitness"
                     ],
                     "plannedMonthly": null,
@@ -1335,7 +1351,8 @@
                     "id": "entertainment",
                     "label": "Entertainment",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Entertainment"
                     ],
                     "plannedMonthly": null,
@@ -1345,7 +1362,8 @@
                     "id": "subscriptions",
                     "label": "Subscriptions",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Subscriptions"
                     ],
                     "plannedMonthly": null,
@@ -1355,7 +1373,8 @@
                     "id": "school",
                     "label": "School & clubs",
                     "class": "essential",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "School & clubs"
                     ],
                     "plannedMonthly": null,
@@ -1365,7 +1384,8 @@
                     "id": "paypal",
                     "label": "PayPal — online & app spend",
                     "class": "discretionary",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "@paypal"
                     ],
                     "plannedMonthly": null,
@@ -1375,7 +1395,8 @@
                     "id": "uncategorised",
                     "label": "Uncategorised",
                     "class": "unknown",
-                    "from": [
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": [
                         "Uncategorised"
                     ],
                     "plannedMonthly": null,
@@ -1384,7 +1405,9 @@
             ],
             "excluded": [
                 {
-                    "from": "Business",
+                    "kind": "business",
+                    "lunchMoneyCategoryGroupId": null,
+                    "historyCategories": ["Business"],
                     "why": "Amanda's coaching costs. Pass-through spending settled from her own account, not household money — counting it here would charge the household for a cost it does not pay."
                 }
             ]

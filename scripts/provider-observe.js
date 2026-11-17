@@ -367,10 +367,14 @@ function genericAccountEvidenceInstant(account) {
     || null;
 }
 
-function normalizeLunchMoneyCategory(raw) {
+// groupId: the Lunch Money category group this category sits in (v2 group_id,
+// or the group it is nested under in the categories payload); null when ungrouped.
+function normalizeLunchMoneyCategory(raw, parentGroupId) {
   if (!raw || raw.id == null) return null;
+  const groupId = raw.group_id != null ? String(raw.group_id) : parentGroupId || null;
   return {
     id: String(raw.id),
+    groupId,
     name: raw.name || raw.display_name || null,
     isIncome: raw.is_income === true,
     excludeFromTotals: raw.exclude_from_totals === true,
@@ -382,11 +386,11 @@ function normalizeLunchMoneyCategory(raw) {
 
 function categoryIndexFromPayload(payload) {
   const byId = new Map();
-  const add = raw => {
-    const cat = normalizeLunchMoneyCategory(raw);
+  const add = (raw, parentGroupId) => {
+    const cat = normalizeLunchMoneyCategory(raw, parentGroupId);
     if (!cat) return;
     byId.set(cat.id, cat);
-    for (const child of raw.children || []) add(child);
+    for (const child of raw.children || []) add(child, cat.isGroup ? cat.id : parentGroupId);
   };
   for (const raw of payload && payload.categories || []) add(raw);
   return byId;
@@ -469,6 +473,8 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     || (fromIndex && fromIndex.excludeFromTotals === true);
   const excludeFromBudget = raw.exclude_from_budget === true
     || (fromIndex && fromIndex.excludeFromBudget === true);
+  // The row's category group, from the category index only: a group id is identity, never a name.
+  const categoryGroupId = fromIndex && fromIndex.groupId ? fromIndex.groupId : null;
   const minimumCategoryDebt = fromIndex && categoryName === fromIndex.name && raw.is_pending === false
     ? MinimumCategory.categoryDebt(fromIndex) : null;
   return {
@@ -508,6 +514,7 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     mcc: raw.mcc || raw.plaid_mcc || null,
     categoryId,
     categoryLabel: categoryName,
+    categoryGroupId,
     minimumCategoryDebt,
     isIncome,
     excludeFromTotals,
@@ -557,6 +564,10 @@ function normalizeLunchMoneyPayload(payload, fetchedAt, opts) {
     // evidence that there were no transactions (A1).
     transactionsPresent: Array.isArray(payload.transactions),
     pendingCoverage: classifyPendingCoverage(payload),
+    // The category groups Lunch Money returned, by id; null when the
+    // categories collection itself was not delivered (unknown, not empty).
+    categoryGroupIds: Array.isArray(payload.categories)
+      ? Array.from(categoriesById.values()).filter(cat => cat.isGroup).map(cat => cat.id).sort() : null,
     transactionWindow: {
       savingsFetchCoverage,
       startDate: (txWindow && (txWindow.startDate || txWindow.start_date)) || null,
@@ -3594,6 +3605,7 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
       kind: tx.kind,
       mcc: tx.mcc,
       categoryLabel: tx.categoryLabel,
+      categoryGroupId: tx.categoryGroupId || null,
       categoryId: tx.categoryId,
       recurringId: tx.recurringId,
     }, plan);
@@ -3602,6 +3614,7 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
       amount,
       pending: false,
       categoryLabel: tx.categoryLabel || null,
+      categoryGroupId: tx.categoryGroupId || null,
       isIncome: tx.isIncome === true,
       excludeFromTotals: tx.excludeFromTotals === true,
       excludeFromBudget: tx.excludeFromBudget === true,
@@ -4270,6 +4283,7 @@ function observeCore(input, capture) {
     fetchedAt: normalized.fetchedAt,
     pendingCoverage: normalized.pendingCoverage,
     transactionWindow: normalized.transactionWindow,
+    categoryGroupIds: normalized.categoryGroupIds,
     mapped,
     unmapped,
     transactions: normalized.transactions,
@@ -4447,6 +4461,23 @@ function transactionLooksSanitized(tx) {
       || Array.from(text).length > DISPLAYED_NOTE_MAX_CHARS || !(Number(tx.amount) < 0)) return false;
   }
   return !RAW_TX_METADATA_KEY_RE.test(JSON.stringify(tx));
+}
+
+// Privacy (lead, slice 1): the served packet carries a Lunch Money group id
+// only when the plan already names it (plan.budget.categories / excluded
+// lunchMoneyCategoryGroupId), so the packet discloses no provider id the
+// served plan does not already hold. Any other group publishes null, which
+// Forecast reads exactly as an unconfigured group (ungrouped).
+function configuredBudgetGroupIds(plan) {
+  const budget = (plan && plan.budget) || {};
+  return new Set([].concat(budget.categories || [], budget.excluded || [])
+    .map(row => row && row.lunchMoneyCategoryGroupId)
+    .filter(id => (typeof id === 'string' && id.trim()) || (typeof id === 'number' && Number.isSafeInteger(id)))
+    .map(id => String(id).trim()));
+}
+function publishedBudgetGroupId(groupId, plan) {
+  const id = groupId == null ? '' : String(groupId).trim();
+  return id && configuredBudgetGroupIds(plan).has(id) ? id : null;
 }
 
 function currentPeriodActualsLooksSanitized(packet) {
@@ -5499,7 +5530,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     const asCharge = { payee: tx.payee, original_name: tx.originalName, originalName: tx.originalName,
       displayedPayee: tx.payee, originalMerchant: tx.originalName || tx.payee, notes: tx.notes,
       note: tx.notes || tx.note, tags: resolvedTags, tag: resolvedTags, kindHint: null, kind: tx.kind,
-      mcc: tx.mcc, categoryLabel: tx.categoryLabel, atlasAccountId, account: atlasAccountId,
+      mcc: tx.mcc, categoryLabel: tx.categoryLabel, categoryGroupId: tx.categoryGroupId || null, atlasAccountId, account: atlasAccountId,
       accountId: atlasAccountId, date: dateOnly(tx.date), amount: 1, ownerConfirmedFuel: tx.ownerConfirmedFuel === true };
     const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({ ...asCharge,
       categoryId: tx.categoryId, recurringId: tx.recurringId }, opts.plan);
@@ -5592,6 +5623,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       kind: tx.kind,
       mcc: tx.mcc,
       categoryLabel: tx.categoryLabel,
+      categoryGroupId: tx.categoryGroupId || null,
       // Preserve native HELOC evidence before non-spend merchant text is stripped.
       ...(atlasAccountRole(mapping) === 'heloc' ? { accountRole: 'heloc' } : {}),
       atlasAccountId,
@@ -5653,6 +5685,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       currency: tx.currency || null,
       pendingTreatment: treatment.treatment,
       categoryLabel: tx.categoryLabel || null,
+      // Whether Lunch Money filed the row under a category, and that category's
+      // group. Forecast routes a categorised row by its group and fails a row
+      // with no category closed. The category id itself stays private.
+      categorised: !!tx.categoryId,
+      categoryGroupId: publishedBudgetGroupId(tx.categoryGroupId, opts.plan),
       displayedPayee: sanitizedMerchantIdentity(tx.payee),
       ...(displayedNote ? { displayedNote } : {}),
       originalMerchant: sanitizedMerchantIdentity(tx.originalName || tx.payee),
@@ -6014,6 +6051,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    // Group ids only (no names): Forecast withholds a budget row whose
+    // configured group Lunch Money no longer returns (Dale, #821 6958331123 (c)).
+    ...(Array.isArray(report && report.categoryGroupIds) ? { categoryGroupIds: report.categoryGroupIds
+      .filter(id => configuredBudgetGroupIds(opts.plan).has(String(id))) } : {}),
     ...(savingsLinks ? { savingsLinks } : {}),
     // C1: present only when the sole coverage gap is dropped rows whose one
     // budget category is certain. Dates and category ids only: no amount,
