@@ -137,6 +137,8 @@ function actuals(transactions, extra) {
     transactionCoverage: 'complete',
     transactions: transactions || [],
     representedActuals: [],
+    // As the observer now writes it: the card-minimum owner export was read and owns none of these rows.
+    cardMinimumOwnership: 'available',
   }, extra || {});
 }
 

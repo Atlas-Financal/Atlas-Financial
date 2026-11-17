@@ -79,6 +79,19 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
   assert.ok(!Object.hasOwn(expected.currentPeriodActuals, 'savingsMovementUnconfirmed'),
     'historical actuals predate the account-scoped Savings provenance leaf');
   expected.currentPeriodActuals.savingsMovementUnconfirmed = [];
+  // Card-minimum owner export status (#1149, lead ruling (B)): the packet carries only the
+  // export's status, and no row is stamped owned. These salary-only ledgers have no durable
+  // card-minimum record, so the status follows the derived minimum packet alone: readable
+  // (a calendar asOf) is 'available'; a derivation the observer could not date (asOf null)
+  // cannot say which debits it owns, so it is 'unavailable' (Grok Bot (d)). The date is the
+  // expectation above, computed from the historical observer, not from the code under test.
+  assert.ok(!Object.hasOwn(expected.currentPeriodActuals, 'cardMinimumOwnership'),
+    'historical packet predates the card-minimum ownership status');
+  assert.ok(!(input.data.plan.obligations || []).some(row => row && row.sentPayments != null),
+    'salary ledgers carry no durable card-minimum record');
+  const derivedAsOf = expected.cardMinimumCategoryEvidence.asOf;
+  expected.currentPeriodActuals.cardMinimumOwnership = typeof derivedAsOf === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(derivedAsOf) ? 'available' : 'unavailable';
   const rawWindow = input.payload.transactionWindow || input.payload.transaction_window || {};
   const originalDate = keys => {
     const values = keys.filter(key => Object.hasOwn(rawWindow, key)).map(key => rawWindow[key]);
