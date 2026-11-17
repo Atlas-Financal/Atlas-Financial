@@ -224,9 +224,10 @@ try {
     // must conflict; never weaken the archive's financial equality rule.
     const legacyPublication = clone(regenerated.content.publication);
     const v1Publication = record.content.publication;
-    // C4 (#1210, lead ruling 2026-11-17): the shared invented input declares an
-    // Other payday target with no effective date. v1 applied it as a known 20 in
-    // the household plan and dropped the Other row; under C4 it is Unknown. This
+    // C4 (#1210, lead ruling 2026-11-17): this test's own invented input, built
+    // in-file by input() above, declares an Other payday target with no
+    // effective date. v1 applied it as a known 20 in the household plan and
+    // dropped the Other row; under C4 it is Unknown. This
     // is a CLOSED allow-list: each listed field must regenerate exactly as stated
     // (Unknown / unavailable with the target-undated reason, or null) where v1 held
     // a known value, then it is restored from v1 so the comparison below still
