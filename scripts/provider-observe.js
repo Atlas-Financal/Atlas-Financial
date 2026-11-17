@@ -4352,9 +4352,18 @@ function displayedItemNote(rawNote) {
 // when the row has no display name. Control characters stripped, capped like
 // the item note. No payee or category fallback. Kept only on rows Forecast
 // classifies as refunds; every other row strips it.
+// Invisible text-direction marks (ALM, LRM, RLM, the embeddings and overrides
+// U+202A-202E, the isolates U+2066-2069) and zero-width characters (U+200B-200D,
+// the word joiner U+2060, the BOM U+FEFF). They are removed outright, never
+// replaced, so the visible text stays exactly as the bank wrote it: case and
+// punctuation untouched (Grok Bot, rule 17, 2026-11-17).
+const BANK_DESCRIPTION_INVISIBLE_RE = /[\u061c\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g;
+const BANK_DESCRIPTION_INVISIBLE_TEST_RE = /[\u061c\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
+
 function bankDescriptionText(raw) {
   if (typeof raw !== 'string') return null;
-  const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const text = raw.replace(BANK_DESCRIPTION_INVISIBLE_RE, '')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!text) return null;
   const chars = Array.from(text);
   if (chars.length <= DISPLAYED_NOTE_MAX_CHARS) return text;
@@ -4383,10 +4392,11 @@ function transactionLooksSanitized(tx) {
     if (Object.prototype.hasOwnProperty.call(tx, key)) return false;
   }
   // #962 C1: a bank description survives only on a refund (a credit), bounded
-  // and free of control characters. Any other row carrying one is unsanitized.
+  // and free of control, invisible text-direction and zero-width characters. Any other row carrying one is unsanitized.
   if (Object.prototype.hasOwnProperty.call(tx, 'bankDescription')) {
     const text = tx.bankDescription;
     if (typeof text !== 'string' || !text || /[\u0000-\u001f\u007f]/.test(text)
+      || BANK_DESCRIPTION_INVISIBLE_TEST_RE.test(text)
       || Array.from(text).length > DISPLAYED_NOTE_MAX_CHARS || !(Number(tx.amount) < 0)) return false;
   }
   return !RAW_TX_METADATA_KEY_RE.test(JSON.stringify(tx));
