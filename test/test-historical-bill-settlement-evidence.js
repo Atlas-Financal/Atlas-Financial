@@ -292,7 +292,8 @@ for (const kind of ['once', 'monthly']) {
     assert.equal(owned.length, 0, 'the current period does not list it');
     assert.equal(current.periodBillLoad, 0, 'current bill load 0');
     assert.equal(current.totalBillsThisPeriod, 0, 'current bills total 0');
-    assert.equal(current.remainingBillsThisPeriod ?? 0, 0, 'current remaining bills 0');
+    assert.equal(typeof current.remainingBills, 'number', 'control: the view publishes remainingBills');
+    assert.equal(current.remainingBills, 0, 'current remaining bills 0');
     const row = view.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
     assert.notEqual(row.status, 'carried', 'the closed copy is not carried');
     assert.equal(view.periodBillLoad, BILL, 'the closed period counts it: 30 once overall');
