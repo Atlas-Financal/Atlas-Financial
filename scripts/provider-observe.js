@@ -5684,6 +5684,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // TD "PAYMENT - THANK YOU" card credit (Grok Bot ruling): only the
       // boolean enters the packet, never the bank description.
       ...(flags.tdCardPaymentCredit === true ? { tdCardPaymentCredit: true } : {}),
+      // The note's named card (Grok Bot ruling), never the note text itself.
+      ...(flags.cardPaymentNoteDestination ? { cardPaymentNoteDestination: flags.cardPaymentNoteDestination } : {}),
       // Card-specific payment identity from the existing payee identities
       // (MBNA, CAN TIRE MC) on a household cash or Savings (reserve) debit:
       // money onto the card counts from either (owner rule). The generic TD

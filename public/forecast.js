@@ -11266,6 +11266,25 @@
     return tx.tdCardPaymentCredit === true;
   }
 
+  // Grok Bot ruling: an existing "card payment: <card>" note on the debit wins.
+  // Lead-approved fixed name table (exact name, case-insensitive, trailing
+  // " ...NNNN" ignored, never matched by the digits). Any other named card is
+  // 'unknown' and pairs with nothing until its spelling is confirmed.
+  const CARD_PAYMENT_NOTE_CARDS = new Map([['td cash back visa', 'cashback'], ['travel visa', 'travelvisa']]);
+  function cardPaymentNoteDestination(tx) {
+    const raw = tx && (tx.notes ?? tx.note);
+    if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
+    const found = new Set();
+    for (const segment of raw.split(/[;\n\r]/)) {
+      const m = /^\s*card payment:\s*(.*)$/i.exec(segment);
+      if (!m) continue;
+      const name = m[1].replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
+      found.add(CARD_PAYMENT_NOTE_CARDS.get(name) || 'unknown');
+    }
+    if (!found.size) return null;
+    return found.size === 1 ? [...found][0] : 'unknown';
+  }
+
   function householdCashLocationId(tx) {
     if (!tx) return null;
     if (tx.accountRole === 'household-external' || tx.accountRole === 'unmapped') {
@@ -12371,6 +12390,7 @@
       cardPaymentIdentity: false,
       tdCardPaymentIdentity: false,
       tdCardPaymentCredit: false,
+      cardPaymentNoteDestination: null,
       cardFinanceChargeIdentity: false,
       helocFinanceChargeIdentity: false,
       internalTransferIdentity: false,
@@ -12407,6 +12427,7 @@
       cardPaymentIdentity: isCanadianTireMastercardPayment(tx) || tdCardPaymentIdentity,
       tdCardPaymentIdentity,
       tdCardPaymentCredit: isTdCardPaymentCredit(tx),
+      cardPaymentNoteDestination: cardPaymentNoteDestination(tx),
       cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
         && revolvingCardFinanceChargeEvidence(tx),
       helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
@@ -14080,7 +14101,8 @@
           // Owner rule (Dale, via the lead): money onto the card counts
           // whatever household account it comes from, Savings included.
           const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other)
-            && (!tdPaymentCreditOnly(leg.tx) || other.tx.tdCardPaymentIdentity === true));
+            && (!tdPaymentCreditOnly(leg.tx) || (other.tx.tdCardPaymentIdentity === true
+              && (other.tx.cardPaymentNoteDestination == null || other.tx.cardPaymentNoteDestination === leg.account))));
           const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
           if (cash.length === 1 && back.length === 1) {
             cash[0].paired = true;

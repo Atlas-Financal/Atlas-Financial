@@ -82,7 +82,27 @@ withheld(run(world([['card', 80, null, 'purchase'], ['card2', 40, null, 'purchas
 // 8. Two TD cards, one amount: ambiguous, never guessed.
 withheld(run(world([purchase, cashLeg(105), cardCredit(105), cashLeg(105, null, { payee: 'CD456 TFR-TO C/C', original_name: 'CD456 TFR-TO C/C' })])),
   'coverage-payment-pair-ambiguous', 'two candidate TFR-TO C/C debits for one credit');
-// 9. Control: the recorded convention (both legs "Credit Card Payment") is unchanged.
+// 9. Codex P1 on #1275 / Grok Bot: an existing "card payment: <card>" note on
+// the debit wins. Fixed name table: "TD Cash Back Visa" -> cashback, "Travel
+// Visa" -> travelvisa (the world's card is travelvisa); any other name is
+// unknown and pairs with nothing. Only the result enters the packet.
+{
+  const noted = note => run(world([purchase, cashLeg(105, null, { notes: note }), cardCredit(105)]));
+  const same = noted('card payment: Travel Visa ...9999');
+  ready(same, 'note names the credit\'s own card: pairs');
+  const debit = same.packet.transactions.find(t => t.amount === 105);
+  check(debit.cardPaymentNoteDestination === 'travelvisa', 'the observer stamps the named card');
+  check(!JSON.stringify(same.packet).includes('card payment:'), 'the note text never enters the packet');
+  ready(noted('  CARD PAYMENT: travel visa  '), 'note name is case-insensitive');
+  withheld(noted('card payment: TD Cash Back Visa ...9999'), 'coverage-payment-destination-unconfirmed',
+    'note names another card: the amount match does not override it');
+  withheld(noted('card payment: Invented Personal Card ...9999'), 'coverage-payment-destination-unconfirmed',
+    'note names a card outside the table: unknown, never guessed');
+  withheld(noted('card payment: Travel Visa; card payment: TD Cash Back Visa'), 'coverage-payment-destination-unconfirmed',
+    'two different named cards: unknown');
+  ready(noted('Invented memo'), 'a note that names no card leaves the pairing as without one');
+}
+// 10. Control: the recorded convention (both legs "Credit Card Payment") is unchanged.
 ready(run(world([purchase, ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']])), 'recorded category convention still pairs');
 
 console.log(`  PASS  TD "PAYMENT - THANK YOU" card credit pairs per Grok Bot's ruling (${checks} checks)`);
