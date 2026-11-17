@@ -44,7 +44,8 @@ function world(opts = {}) {
   const w = H.baseWorld();
   w.bills = [{ ...BILL, ...(opts.bill || {}) }];
   w.identityRules = w.identityRules.concat(opts.rules || [{ eventId: 'band', lunchMoneyRecurringIds: [ID],
-    atlasAccountId: 'chequing-a', direction: 'debit', relation: 'covers-early-or-due-on-or-before-posting' }]);
+    atlasAccountId: 'chequing-a', direction: 'debit', requiredCurrency: 'cad', requiredPostingEvidence: 'posted',
+    postingDateRule: 'covers-early-or-due-on-or-before-posting' }]);
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
     ...(opts.transactions || [])];
   return w;
@@ -103,6 +104,30 @@ console.log('2b. A linked posted payment on the reviewed day settles THAT occurr
   ok(s.current.length === 1 && row.date === '2026-10-20', 'one Oct 20 occurrence in the current period',
     JSON.stringify(s.current.map(b => [b.date, b.status])));
   ok(row && /paid/i.test(row.status) && !/still due/i.test(row.status), 'it reads paid, not still due', row && row.status);
+}
+
+console.log('2c. Grok Bot (c): an early linked payment, inside the existing early-pay window, settles that month');
+{
+  // rehearsal-space's real rule is covers-early-or-due-on-or-before-posting
+  // with no earlyPayLookaheadDays, so the window is the default 7 days: a
+  // posting settles the nearest due within 7 calendar days AFTER it.
+  // Scheduled day 20: Oct 14 is 6 days early (inside), Oct 12 is 8 days early
+  // (outside). With day 20 and firstDue Oct 1 there is no earlier due the
+  // Oct 12 posting could cover instead.
+  const early = date => {
+    const w = world({ transactions: [H.lm({ date, amount: 80, account: 'chequing-a', payee: 'Invented e-transfer',
+      raw: { recurring_id: Number(ID) } })] });
+    w.asOf = '2026-10-21';
+    return serve(w, read([readItem(ID)])).current;
+  };
+  const inside = early('2026-10-14');
+  ok(inside.length === 1 && inside[0].date === '2026-10-20' && /paid/i.test(inside[0].status)
+    && !/still due/i.test(inside[0].status), 'paid Oct 14, due Oct 20 (6 days early): that occurrence is paid, not reserved again',
+  JSON.stringify(inside.map(b => [b.date, b.status])));
+  const outside = early('2026-10-12');
+  ok(outside.length === 1 && outside[0].date === '2026-10-20' && /still due/i.test(outside[0].status)
+    && outside[0].amount === 80, 'paid Oct 12, due Oct 20 (8 days early, outside the 7-day window): still due, $80',
+  JSON.stringify(outside.map(b => [b.date, b.status, b.amount])));
 }
 
 console.log('3. Any doubt keeps the plan\'s day and tags');
