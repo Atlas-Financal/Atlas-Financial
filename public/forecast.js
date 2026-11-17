@@ -10623,6 +10623,11 @@
     let closedBacked = null;
     const settledInClosedPeriod = (row, due) => {
       if (!calendarOccurrenceRepresented(represented, observed, row.id, due)) return false;
+      // The cash walk's own settled set (`represented`, which holds Dale's
+      // opening mark) wins: the walk deducts nothing for that occurrence, so
+      // it is never carried, whatever an unbacked packet entry also says
+      // (Astra's audit of #1215, #821 6934483625; Grok Bot's condition 1).
+      if (represented.has(row.id + '@' + due)) return true;
       if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
       return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
     };
