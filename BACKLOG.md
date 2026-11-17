@@ -761,7 +761,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 "Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet). **Owner decision:** it adds a new visible ≈ mark, and Dale asked for no new ≈ marks without his OK (lead, 2026-11-16); not built until he says so.
 
-~~A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).~~ Done: #1170 (open periods) and the closed-period follow-up PR (`agent/closed-period-unknown-load`): an unknown load leaves the total, remainder and load Unknown in every period.
+~~A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).~~ Done: #1170 (open periods) and #1248 (closed periods): an unknown load leaves the total and load Unknown in every period. An open period's remainder is Unknown too; a closed period's remainder stays 0 as settlement evidence (#931), with the unknown carried by its unconfirmed bills, and its after-bills figures read Unknown.
 
 The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
 
