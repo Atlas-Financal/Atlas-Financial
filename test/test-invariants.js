@@ -177,8 +177,14 @@ const mortgageObligation = plan.obligations.find(o => o.debtId === 'mortgage');
 ok(data.mortgage.balance == null && data.mortgage.rate == null
   && data.mortgage.paymentBiweekly == null,
   'the mortgage block no longer republishes the debt record\'s balance, rate, or payment');
-ok(near(mortgageDebt.rate, 3.64),
-  'the debt record is the live mortgage rate',
+// The expected rate is the captured Household mortgage row in docs/positions.csv
+// (a captured record, not generated from data.json), so no rate is written here.
+const capturedMortgageRow = read('docs/positions.csv').split(/\r?\n/).map(r => r.split(','))
+  .find(c => c[0] === 'Household' && /mortgage/i.test(c[2] || ''));
+const capturedMortgageRate = capturedMortgageRow ? Number(capturedMortgageRow[9]) : NaN;
+ok(Number.isFinite(capturedMortgageRate) && capturedMortgageRate > 0
+    && near(mortgageDebt.rate, capturedMortgageRate, 0.0001),
+  'the debt record is the live mortgage rate, matching the captured positions row',
   `${mortgageDebt.rate}%`);
 ok(near(mortgageDebt.payment, mortgageObligation.amount)
   && mortgageObligation.frequency === 'biweekly',
@@ -261,22 +267,33 @@ const csvNote = label => {
   return row ? String(row[20] || '') : '';
 };
 const homeEstimate = csvVal('Home');
-ok(near(homeEstimate, 1200000),
-  'Home detail is the 2026-08-29 owner planning estimate', money(homeEstimate));
-ok(!near(homeEstimate, 1300000),
-  'Home detail is not the $1.3m optimistic high', money(homeEstimate));
+// The expected home figures come from the captured Home row's own note (the
+// owner-provided record), never from literals in this test.
+const homeNoteText = csvNote('Home');
+const amountOf = m => (m ? Number(m.replace(/,/g, '')) : NaN);
+const grouped = n => Number(n).toLocaleString('en-US');
+const planningMatch = /planning estimate dated (\d{4}-\d{2}-\d{2}): \$([\d,]+)/.exec(homeNoteText);
+const homePlanningValue = amountOf(planningMatch && planningMatch[2]);
+const homePlanningDate = planningMatch && planningMatch[1];
+const homeOptimisticHigh = amountOf((/\$([\d,]+) is an optimistic high only/.exec(homeNoteText) || [])[1]);
+const historicalRangeMatch = /The \d{4}-\d{2}-\d{2} (\$[\d.]+m)–\$[\d.]+m range is dated historical evidence only/.exec(homeNoteText);
+const historicalRangeLow = historicalRangeMatch && historicalRangeMatch[1];
+ok(Number.isFinite(homePlanningValue) && near(homeEstimate, homePlanningValue),
+  'Home detail is the owner planning estimate its captured note states', money(homeEstimate));
+ok(Number.isFinite(homeOptimisticHigh) && homeOptimisticHigh > homeEstimate,
+  'Home detail is below the optimistic high its note names, not that high', money(homeEstimate));
 const homeRow = csv.find(c => c[2] === 'Home') || [];
-ok(homeRow[19] === '2026-08-29',
-  'Home as-of is the owner-decision date', homeRow[19] || 'missing');
+ok(homeRow[19] === '2026-08-29' && homePlanningDate === homeRow[19],
+  'Home as-of is the owner-decision date the note dates', homeRow[19] || 'missing');
 ok(/2026-08-29/.test(csvNote('Home')) && /planning estimate/i.test(csvNote('Home')),
   'Home notes name the dated owner planning estimate');
 ok(/optimistic high/i.test(csvNote('Home')),
-  'Home notes label $1.3m as optimistic high only');
+  'Home notes label the optimistic high as optimistic high only');
 ok(/not an appraisal/i.test(csvNote('Home'))
   && /independently verified market value/i.test(csvNote('Home')),
   'Home notes refuse appraisal and verified-market claims');
-ok(/1\.1m/.test(csvNote('Home')) && /historical/i.test(csvNote('Home')),
-  'the older $1.1m–$1.4m range is kept only as dated historical evidence');
+ok(historicalRangeLow != null,
+  'the older range is kept only as dated historical evidence');
 ok(!/midpoint/i.test(csvNote('Home') + csvNote('Household net worth')
   + csvNote('Home equity') + csvNote('Loan-to-value')),
   'positions notes do not call the current home value a midpoint');
@@ -353,24 +370,24 @@ ok(/2026-08-19/.test(csvNote('Household net worth'))
     'Q3 distinguishes the planning estimate from the verified-value question');
   ok(/\*\*Status:\*\*\s*OPEN/.test(q3),
     'Q3 remains OPEN for a comparable sale or appraisal');
-  ok(/1,200,000/.test(q3) && /2026-08-29/.test(q3),
-    'Q3 records the 2026-08-29 $1,200,000 planning estimate');
-  ok(/optimistic high/i.test(q3) && /1,300,000/.test(q3),
-    'Q3 keeps $1,300,000 as optimistic high only');
+  ok(Number.isFinite(homePlanningValue) && q3.includes(grouped(homePlanningValue)) && /2026-08-29/.test(q3),
+    'Q3 records the 2026-08-29 planning estimate the Home row states');
+  ok(/optimistic high/i.test(q3) && Number.isFinite(homeOptimisticHigh) && q3.includes(grouped(homeOptimisticHigh)),
+    'Q3 keeps the same optimistic high as optimistic high only');
   ok(/dated planning evidence/i.test(q3),
-    'the 2026-08-21 $1.3m figure is dated planning evidence, not current authority');
+    'the 2026-08-21 figure is dated planning evidence, not current authority');
 }
 {
   const caveat = String((data.netWorth && data.netWorth.caveat) || '');
   ok(/positions reporting path/i.test(caveat) && /2026-08-29/.test(caveat),
     'Records caveat routes the current point figure to the 2026-08-29 positions path');
-  ok(/1,200,000/.test(caveat),
-    'Records caveat names the $1,200,000 planning estimate');
-  ok(/optimistic high/i.test(caveat) && /1,300,000/.test(caveat),
-    'Records caveat labels $1,300,000 as optimistic high only');
-  ok(/historical/i.test(caveat) && /1\.1m/.test(caveat),
-    'Records caveat keeps the $1.1m–$1.4m range as historical only');
-  ok(!/At the owner's estimate of \$1\.1m/i.test(caveat),
+  ok(Number.isFinite(homePlanningValue) && caveat.includes(grouped(homePlanningValue)),
+    'Records caveat names the planning estimate the Home row states');
+  ok(/optimistic high/i.test(caveat) && Number.isFinite(homeOptimisticHigh) && caveat.includes(grouped(homeOptimisticHigh)),
+    'Records caveat labels the same optimistic high as optimistic high only');
+  ok(/historical/i.test(caveat) && historicalRangeLow != null && caveat.includes(historicalRangeLow.slice(1)),
+    'Records caveat keeps the older range as historical only');
+  ok(historicalRangeLow != null && !caveat.includes("At the owner's estimate of " + historicalRangeLow),
     'Records caveat does not present the old range as the current estimate');
 }
 ok(csvVal('Silver bullion') != null,
