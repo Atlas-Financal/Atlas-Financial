@@ -19,7 +19,12 @@
 //  12  the Budget page shows a renamed category's debit on its row;
 //  13  a card-payment category inside a card-payment group is never spending,
 //      and the same category ungrouped is Other spending (why the group must exist);
-//  14  an interest group on a revolving card is interest, not spending.
+//  14  an interest group on a revolving card is interest, not spending;
+//  19  a Bills group (kind 'bill') keeps main's finding 4 (3c) (lead ruling,
+//      slice 1): (i) a payment in it matching no planned bill is counted once,
+//      to confirm, never dropped; (ii) one matching a planned bill on its due
+//      day is that bill, not spending; (iii) one near a bill's due date is
+//      held on that bill while the bill stays reserved, so it is deducted once.
 //
 // Invented household (test/acceptance/harness.js) through the real observer
 // and Forecast. Expectations are stated per case from the invented inputs.
@@ -32,7 +37,7 @@
 const H = require('./acceptance/harness.js');
 const F = require('../public/forecast.js');
 
-const G_GROC = 9100, G_REST = 9200, G_BIZ = 9300, G_CARD = 9400, G_INT = 9500;
+const G_GROC = 9100, G_REST = 9200, G_BIZ = 9300, G_CARD = 9400, G_INT = 9500, G_BILL = 9700;
 const near = (a, b) => a != null && b != null && Math.abs(a - b) < 0.005;
 
 function world({ categories, budget, excluded, txs } = {}) {
@@ -248,6 +253,49 @@ function hasBrowser() {
     const control = F.classifyCurrentPeriodTransaction(row, plan, {});
     H.expect(control.kind !== 'interest', `control: the same row with no group is not interest by its name (got ${JSON.stringify(control)})`);
     H.expect(c.kind === 'interest' && c.householdSpending === false, `interest (got ${JSON.stringify(c)})`);
+  });
+  // Bills group (lead ruling, slice 1; main's finding 4, 3c). Invented bill:
+  // phone 60.00 monthly, due Oct 11, paid from chequing-a by payee identity.
+  const PHONE = { id: 'phone', label: 'Invented phone', amount: 60, frequency: 'monthly', day: 11,
+    confidence: 'confirmed', payee: 'Invented phone co' };
+  const billsWorld = (txs, bills) => {
+    const w = world({ txs });
+    w.categories.push({ id: G_BILL, name: 'Invented bills group', is_group: true },
+      { id: 209, name: 'Invented phone bill', group_id: G_BILL });
+    w.budgetExcluded.push({ kind: 'bill', lunchMoneyCategoryGroupId: G_BILL, why: 'Invented bills' });
+    w.bills = bills || [{ ...PHONE }];
+    return w;
+  };
+  const billPay = (date, amount, payee) => H.lm({ date, amount, category: 209, account: 'chequing-a', payee });
+  const billOf = (r, id) => ((r.view.bills) || []).find(b => b && b.id === id) || null;
+  const clsAt = (r, date, amount) => {
+    const tx = ((r.packet && r.packet.transactions) || []).find(t => t.date === date && near(Math.abs(Number(t.amount)), amount));
+    return tx ? F.classifyCurrentPeriodTransaction(tx, r.plan, { packet: r.packet, currentPeriodActuals: r.packet }) : null;
+  };
+  await report('19(i): a Bills-group payment matching no planned bill is counted once, to confirm, never dropped', () => {
+    const none = engine(billsWorld([]));
+    const r = engine(billsWorld([billPay('2026-10-11', 45, 'Invented unknown biller')]));
+    const c = clsAt(r, '2026-10-11', 45);
+    H.expect(c && c.householdSpending === true && c.needsConfirmation === true && c.reason === 'unmapped-label',
+      `counted, to confirm (got ${JSON.stringify(c)})`);
+    H.expect(near(none.bad - r.bad, 45), `balance after deductions drops 45.00 once (${none.bad} -> ${r.bad})`);
+  });
+  await report('19(ii): a Bills-group payment matching the planned bill on its due day is that bill, not spending', () => {
+    const r = engine(billsWorld([billPay('2026-10-11', 60, 'Invented phone co')]));
+    const c = clsAt(r, '2026-10-11', 60);
+    H.expect(c && c.kind === 'bill' && c.householdSpending === false && c.reason === 'represented-bill',
+      `the planned bill (got ${JSON.stringify(c)})`);
+    H.expect((r.packet.representedActuals || []).some(a => a && a.id === 'phone'), 'the payment represents the phone bill');
+  });
+  await report('19(iii): a Bills-group payment near the bill\'s due date is held on the bill, deducted once', () => {
+    const none = engine(billsWorld([]));
+    const r = engine(billsWorld([billPay('2026-10-13', 60, 'Invented phone co')]));
+    const c = clsAt(r, '2026-10-13', 60);
+    H.expect(c && c.householdSpending === false && c.reason === 'near-due-bill-unconfirmed',
+      `held on the bill, not spending (got ${JSON.stringify(c)})`);
+    const b = billOf(r, 'phone');
+    H.expect(b && b.status !== 'PAID' && near(b.remaining, 60), `the bill stays reserved (got ${b && b.status}/${b && b.remaining})`);
+    H.expect(near(none.bad, r.bad), `balance after deductions unchanged: the reserve alone deducts it (${none.bad} -> ${r.bad})`);
   });
   await report('mutation guard: a name equal to a row label never routes (classifier, no group)', () => {
     const plan = engine(world()).plan;
