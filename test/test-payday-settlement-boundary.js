@@ -186,8 +186,11 @@ const originalMonth = JSON.parse(JSON.stringify(gapPlan));
 delete originalMonth.opening.priorAsOf;
 delete originalMonth.opening.paydaySnapshot;
 const original = active(originalMonth);
-ok(bill(original, 'gap-minimum') && bill(original, 'gap-minimum').settledInOpening === true,
-  'a skipped minimum in the original January opening month retains its historical disclosure');
+// #977 pre-review: a minimum before its own firstDue is no assigned
+// occurrence and is deducted nowhere, so the original opening month does not
+// list it either (it would sit in the printed total but not the deduction).
+ok(!bill(original, 'gap-minimum'),
+  'a skipped minimum in the original January opening month is not listed before its February firstDue');
 ok(income(original, 'gap-income') && income(original, 'gap-income').settlement === 'opening',
   'a skipped income occurrence preceding the original dated opening remains historical');
 

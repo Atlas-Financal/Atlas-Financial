@@ -50,6 +50,6 @@ for(const pending of [false,true]){
   publicationControls.push({purchasePending:pending,outgoingCents:1700,count:after.count,status:after.status,publicationChanged:false,cashCents:40300});
 }
 const files=new Set(Object.keys(require.cache).filter(file=>file.startsWith(root+path.sep)).map(file=>path.relative(root,file).replace(/\\/g,'/')));
-files.add('test/proof-card-purchase-posting.js');files.add('test/test-card-payment-decisions.js');files.add('public/forecast-card-period.js');
+files.add('test/proof-card-purchase-posting.js');files.add('public/forecast-card-period.js');
 const binding=captureSourceBinding(root,[...files],base);verifySourceBinding(root,binding);
 console.log(JSON.stringify({outcome:'PASS',base,executionBinding:binding,independentCents:{purchase:8000,payment:8000,postedCash:50000-8000,postedDebt:40000+8000-8000,pendingPurchasePostedDebt:40000-8000,pendingAuthorization:8000},before:{controls:40,pass:4,fail:36},after:{controls:40,pass:40,fail:0},cases,publicationControls,qualification:'Observed cash/debt, physical card movements and current-main outgoing e-transfer publication unchanged. Unqualified coverage/holds intentionally change; no claim of whole-Forecast equality.'},null,2));

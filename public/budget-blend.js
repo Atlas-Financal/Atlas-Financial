@@ -427,6 +427,7 @@
     guard('updated', () => paintUpdated());
     guard('badges', () => paintFaceBadges(bento));
     guard('quiet', () => paintQuiet(bento));
+    guard('tabstops', () => retireHiddenTabStops());
     guard('river', () => paintRiver(bento));
     guard('lift', () => liftFace(bento));
     if (activeRiver?.restoreFocus) {
@@ -658,7 +659,8 @@
     });
     if (savings && savings.parentElement !== foot) foot.appendChild(savings);
     if (afterBills) afterBills.classList.remove('blend-clip');
-    clip(closing && closing.querySelector('details > summary'));
+    // The closing card is moved into the Period figures sheet below (wirePeriodFigures), so its
+    // "How this estimate works" summary stays visible there; it is not clipped like a hero-face copy.
     hero.querySelectorAll('.budget-bills-closing > .operating-note').forEach(node => {
       if (/Latest recorded Bills balance/i.test(text(node))) {
         node.classList.add('blend-panel-note');
@@ -1217,6 +1219,8 @@
     if (/^estimated\b/i.test(state)) return 'estimated';
     if (/^carried\b/i.test(state)) return 'carried';
     if (!state || /status unavailable|unknown|unavailable|not observed/i.test(state)) return 'unknown';
+    // A posted payment below plan is still to pay (budget-polish.js: Partly paid, never the Paid green).
+    if (/^partly paid\b/i.test(state)) return 'due';
     if (/paid/i.test(state) && !/not paid|unpaid|not confirmed/i.test(state)) return 'paid';
     if (/confirm|needs a date/i.test(state)) return 'confirm';
     if (/pending/i.test(state)) return 'pending';
@@ -2864,6 +2868,21 @@
   }
 
   let provenanceFooter = null;
+  // Controls the face keeps off-screen must not be keyboard stops, or focus lands on
+  // something nobody can see. Each has a visible equivalent on the face (the attention
+  // badges on their rings and bill rows; the result row that opens Period figures), or
+  // opens nothing visible (the recorded-balances, Savings accounts and snapshot disclosures,
+  // clipped by budget-blend.css while no quiet section is open). Programmatic focus and clicks still work; nothing moves visually.
+  function retireHiddenTabStops() {
+    const nodes = [
+      ...document.querySelectorAll('[data-budget-browse="attention"].blend-offstage :is(a[href], button, summary, input, select, textarea, [tabindex])'),
+      ...document.querySelectorAll('.blend-hero-panel > summary.blend-clip'),
+    ];
+    if (!document.querySelector('.blend-quiet[open]'))
+      nodes.push(...document.querySelectorAll(':is(#recorded-balances, .budget-savings-accounts, #snapshot) > summary'));
+    nodes.forEach(node => node.setAttribute('tabindex', '-1'));
+  }
+
   function paintQuiet() {
     const footer = provenanceFooter || document.querySelector('.wrap > footer');
     if (!footer) return;
@@ -3042,6 +3061,13 @@
   }
   function wireBackClosesSheets() {
     if (typeof MutationObserver !== 'function' || !window.history || typeof history.pushState !== 'function') return;
+    // A reload keeps the current entry's state, so a page reloaded while a sheet was open
+    // boots on an entry that still claims one. Nothing is open at boot: clear the claim so
+    // the depth count and history agree (otherwise a later close steps back onto it).
+    if (sheetStateDepth() && !document.querySelector('dialog[open]')) {
+      const { [SHEET_STATE]: spent, ...rest } = history.state || {};
+      history.replaceState(Object.keys(rest).length ? rest : null, '');
+    }
     new MutationObserver(sheetSchedule).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] });
     window.addEventListener('popstate', event => {
       if (sheetPending) {

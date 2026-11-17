@@ -249,6 +249,13 @@
     body.querySelectorAll('[data-calendar-waterfall]').forEach(waterfall => {
       if (decorateWaterfall(doc, waterfall)) changed = true;
     });
+    // A bill opened in the detail sheet sits outside its waterfall. When the
+    // surface rerenders with the sheet open, the sheet holds the fresh bill
+    // line, so it takes the same badge its source row has.
+    const unavailable = body.querySelector('[data-calendar-waterfall][data-operating-plan="unavailable"]');
+    if (!unavailable) body.querySelectorAll('[data-budget-detail-body] [data-bill-status]').forEach(line => {
+      if (decorateBillLine(doc, line)) changed = true;
+    });
     const current = body.querySelector('[data-live-current-balance]');
     if (current) current.classList.add('atlas-current-balance-card');
     body.classList.add('atlas-budget-ui-ready');

@@ -826,8 +826,10 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
     amount: 30, confidence: 'confirmed', payingAccount: 'chequing-a' }];
   const xp = past(run(excluded));
   const stub = billRow(xp, 'opening-minimum');
-  ok(stub && stub.settledInOpening === true, 'true opening-settled minimum remains flagged');
-  ok(xp.periodBillLoad === 220, 'opening-settled minimum is excluded from assigned deduction (bills deducted at their above-plan actuals)');
+  // #977 pre-review: a minimum before its own firstDue is not listed, since
+  // it is deducted nowhere (it would sit in the printed total only).
+  ok(!stub, 'a minimum before its own firstDue is not listed');
+  ok(xp.periodBillLoad === 220, 'the minimum before its firstDue is not in the assigned deduction (bills deducted at their above-plan actuals)');
   const cadenceOpening = { plan: historyPlan(), packet: actualsPacket() };
   const cp = past(run(cadenceOpening));
   // Bills audit of 57cb421: the unproven recurring 120 before the dated

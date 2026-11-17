@@ -21,6 +21,8 @@ const world = (...txs) => {
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }), ...txs];
   return w;
 };
+// The Bills-tile dot state the face prints for the row (budget-blend.js billState -> data-s).
+const dot = p => p.page.locator('.blend-bill-item[data-blend-bill^="hydro:"]').first().getAttribute('data-s');
 const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro', ...extra });
 
 (async () => {
@@ -30,6 +32,8 @@ const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category:
       const s = await H.snap(p); const line = H.bill(s, 'Invented hydro');
       ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line), '40 posted on a 90 bill: "Partly paid" with $50.00 still to pay', line);
       ok(!/\bPaid\b(?! ?·)(?!.*Partly)/.test(line.replace(/Partly paid/g, '')), 'the row is not labelled plain Paid', line);
+      const state = await dot(p);
+      ok(state === 'due', 'its Bills-tile dot is the still-to-pay state, never the Paid green', state);
       ok(p.errors.length === 0, 'no page errors', p.errors.join('; '));
     });
     await H.withBudget(world(pay(89.99)), async p => {
@@ -43,6 +47,8 @@ const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category:
     await H.withBudget(world(pay(90)), async p => {
       const s = await H.snap(p); const line = H.bill(s, 'Invented hydro');
       ok(/\$90\.00\s*Paid/.test(line) && !/Partly|pending/i.test(line), 'an exact 90 is plain Paid (control)', line);
+      const state = await dot(p);
+      ok(state === 'paid', 'an exact 90 keeps the Paid dot (control)', state);
     });
     await H.withBudget(world(), async p => {
       const s = await H.snap(p); const line = H.bill(s, 'Invented hydro');

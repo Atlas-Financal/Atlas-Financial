@@ -24,7 +24,8 @@ const periods = require('../public/periods.json');
 let failures = 0;
 const ok = (cond, label, detail = '') => {
   if (!cond) failures++;
-  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
+  // Detail (often a household value) prints only on failure, never on a pass.
+  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? '  — ' + detail : ''}`);
 };
 const near = (a, b, eps = 0.01) => Math.abs(a - b) <= eps;
 const money = n => '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -177,8 +178,14 @@ const mortgageObligation = plan.obligations.find(o => o.debtId === 'mortgage');
 ok(data.mortgage.balance == null && data.mortgage.rate == null
   && data.mortgage.paymentBiweekly == null,
   'the mortgage block no longer republishes the debt record\'s balance, rate, or payment');
-ok(near(mortgageDebt.rate, 3.64),
-  'the debt record is the live mortgage rate',
+// The expected rate is the captured Household mortgage row in docs/positions.csv
+// (a captured record, not generated from data.json), so no rate is written here.
+const capturedMortgageRow = read('docs/positions.csv').split(/\r?\n/).map(r => r.split(','))
+  .find(c => c[0] === 'Household' && /mortgage/i.test(c[2] || ''));
+const capturedMortgageRate = capturedMortgageRow ? Number(capturedMortgageRow[9]) : NaN;
+ok(Number.isFinite(capturedMortgageRate) && capturedMortgageRate > 0
+    && near(mortgageDebt.rate, capturedMortgageRate, 0.0001),
+  'the debt record is the live mortgage rate, matching the captured positions row',
   `${mortgageDebt.rate}%`);
 ok(near(mortgageDebt.payment, mortgageObligation.amount)
   && mortgageObligation.frequency === 'biweekly',
@@ -188,7 +195,7 @@ ok(near(mortgageDebt.cashPayment, mortgageObligation.amount),
   'and the debt record agrees it is cash that leaves an account',
   money(mortgageDebt.cashPayment));
 
-// The Modeller added the $814.18 to the mortgage and called the total "today",
+// The Modeller added an amount to the mortgage and called the total "today",
 // which invented a household bill that nobody pays. The Modeller and the renewal
 // calculator are retired; what is held here is that the engine still counts only
 // cash obligations as household cash, deriving that from the obligation being
@@ -261,22 +268,33 @@ const csvNote = label => {
   return row ? String(row[20] || '') : '';
 };
 const homeEstimate = csvVal('Home');
-ok(near(homeEstimate, 1200000),
-  'Home detail is the 2026-08-29 owner planning estimate', money(homeEstimate));
-ok(!near(homeEstimate, 1300000),
-  'Home detail is not the $1.3m optimistic high', money(homeEstimate));
+// The expected home figures come from the captured Home row's own note (the
+// owner-provided record), never from literals in this test.
+const homeNoteText = csvNote('Home');
+const amountOf = m => (m ? Number(m.replace(/,/g, '')) : NaN);
+const grouped = n => Number(n).toLocaleString('en-US');
+const planningMatch = /planning estimate dated (\d{4}-\d{2}-\d{2}): \$([\d,]+)/.exec(homeNoteText);
+const homePlanningValue = amountOf(planningMatch && planningMatch[2]);
+const homePlanningDate = planningMatch && planningMatch[1];
+const homeOptimisticHigh = amountOf((/\$([\d,]+) is an optimistic high only/.exec(homeNoteText) || [])[1]);
+const historicalRangeMatch = /The \d{4}-\d{2}-\d{2} (\$[\d.]+m)–\$[\d.]+m range is dated historical evidence only/.exec(homeNoteText);
+const historicalRangeLow = historicalRangeMatch && historicalRangeMatch[1];
+ok(Number.isFinite(homePlanningValue) && near(homeEstimate, homePlanningValue),
+  'Home detail is the owner planning estimate its captured note states', money(homeEstimate));
+ok(Number.isFinite(homeOptimisticHigh) && homeOptimisticHigh > homeEstimate,
+  'Home detail is below the optimistic high its note names, not that high', money(homeEstimate));
 const homeRow = csv.find(c => c[2] === 'Home') || [];
-ok(homeRow[19] === '2026-08-29',
-  'Home as-of is the owner-decision date', homeRow[19] || 'missing');
+ok(homeRow[19] === '2026-08-29' && homePlanningDate === homeRow[19],
+  'Home as-of is the owner-decision date the note dates', homeRow[19] || 'missing');
 ok(/2026-08-29/.test(csvNote('Home')) && /planning estimate/i.test(csvNote('Home')),
   'Home notes name the dated owner planning estimate');
 ok(/optimistic high/i.test(csvNote('Home')),
-  'Home notes label $1.3m as optimistic high only');
+  'Home notes label the optimistic high as optimistic high only');
 ok(/not an appraisal/i.test(csvNote('Home'))
   && /independently verified market value/i.test(csvNote('Home')),
   'Home notes refuse appraisal and verified-market claims');
-ok(/1\.1m/.test(csvNote('Home')) && /historical/i.test(csvNote('Home')),
-  'the older $1.1m–$1.4m range is kept only as dated historical evidence');
+ok(historicalRangeLow != null,
+  'the older range is kept only as dated historical evidence');
 ok(!/midpoint/i.test(csvNote('Home') + csvNote('Household net worth')
   + csvNote('Home equity') + csvNote('Loan-to-value')),
   'positions notes do not call the current home value a midpoint');
@@ -353,24 +371,25 @@ ok(/2026-08-19/.test(csvNote('Household net worth'))
     'Q3 distinguishes the planning estimate from the verified-value question');
   ok(/\*\*Status:\*\*\s*OPEN/.test(q3),
     'Q3 remains OPEN for a comparable sale or appraisal');
-  ok(/1,200,000/.test(q3) && /2026-08-29/.test(q3),
-    'Q3 records the 2026-08-29 $1,200,000 planning estimate');
-  ok(/optimistic high/i.test(q3) && /1,300,000/.test(q3),
-    'Q3 keeps $1,300,000 as optimistic high only');
+  ok(Number.isFinite(homePlanningValue) && q3.includes(grouped(homePlanningValue)) && /2026-08-29/.test(q3),
+    'Q3 records the 2026-08-29 planning estimate the Home row states');
+  ok(/optimistic high/i.test(q3) && Number.isFinite(homeOptimisticHigh) && q3.includes(grouped(homeOptimisticHigh)),
+    'Q3 keeps the same optimistic high as optimistic high only');
   ok(/dated planning evidence/i.test(q3),
-    'the 2026-08-21 $1.3m figure is dated planning evidence, not current authority');
+    'the 2026-08-21 figure is dated planning evidence, not current authority');
 }
 {
   const caveat = String((data.netWorth && data.netWorth.caveat) || '');
   ok(/positions reporting path/i.test(caveat) && /2026-08-29/.test(caveat),
     'Records caveat routes the current point figure to the 2026-08-29 positions path');
-  ok(/1,200,000/.test(caveat),
-    'Records caveat names the $1,200,000 planning estimate');
-  ok(/optimistic high/i.test(caveat) && /1,300,000/.test(caveat),
-    'Records caveat labels $1,300,000 as optimistic high only');
-  ok(/historical/i.test(caveat) && /1\.1m/.test(caveat),
-    'Records caveat keeps the $1.1m–$1.4m range as historical only');
-  ok(!/At the owner's estimate of \$1\.1m/i.test(caveat),
+  ok(Number.isFinite(homePlanningValue) && caveat.includes(grouped(homePlanningValue)),
+    'Records caveat names the planning estimate the Home row states');
+  ok(/optimistic high/i.test(caveat) && Number.isFinite(homeOptimisticHigh) && caveat.includes(grouped(homeOptimisticHigh)),
+    'Records caveat labels the same optimistic high as optimistic high only');
+  ok(/historical/i.test(caveat) && historicalRangeLow != null && caveat.includes(historicalRangeLow.slice(1)),
+    'Records caveat keeps the older range as historical only');
+  ok(historicalRangeLow != null && !new RegExp("At the owner['’]s estimate of "
+      + historicalRangeLow.replace(/[.$]/g, '\\$&'), 'i').test(caveat),
     'Records caveat does not present the old range as the current estimate');
 }
 ok(csvVal('Silver bullion') != null,
@@ -859,7 +878,7 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
   // account: when that account is paid off the bank does not take it, and it
   // certainly does not move it to a different card. An extra payment is the
   // household choosing to put surplus at debt, and `plan.nextDollar` says where
-  // it goes next. Cascading the first paid $170 to the TD credit card on
+  // it goes next. Cascading the first paid minimum to the TD credit card on
   // 1 November for a Cash Back Visa at zero since 30 October — a decision
   // nobody made.
   {
@@ -881,10 +900,10 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
       'and no minimum is charged to it after it is paid off',
       cardMinimums.map(e => e.date).join(', ') || 'none');
     ok(!cardMinimums.some(e => e.date === '2026-11-01'),
-      'specifically, the 1 November $170 is not taken from cash at all');
+      'specifically, the 1 November minimum is not taken from cash at all');
     // The paid-off card's minimum must not turn up on another account either.
     // Extras may still cascade (they do — the next assertion); a redirected
-    // $170 November minimum is what this forbids, not a lower close.
+    // November minimum is what this forbids, not a lower close.
     ok(!adv.sim.events.some(e => {
       const o = (plan.obligations || []).find(x => x.id === e.id);
       return e.date === '2026-11-01' && e.kind === 'obligation' && o && o.debtId === 'cashback';
@@ -994,8 +1013,13 @@ ok(!/Tennis BC pay is also bi-weekly/i.test(accountFacts),
   'and no longer also claims it is bi-weekly');
 ok(!/Seaspan and Tennis BC both land the same day/i.test(dataStr),
   'data.json no longer claims her pay lands on the Seaspan payday');
-ok(!/\$?3,507/.test(master),
-  'the stale $3,507/month Tennis BC figure is gone from the master picture');
+// The stale figure is the captured Tennis BC row's payment amount, read here
+// rather than written as a literal.
+const tennisRow = csv.find(c => c[2] === 'Her employment - Tennis BC');
+const staleTennisMonthly = tennisRow ? Number(tennisRow[13]) : NaN;
+ok(Number.isFinite(staleTennisMonthly) && staleTennisMonthly > 0
+    && !master.includes(grouped(staleTennisMonthly)),
+  'the stale Tennis BC monthly figure is gone from the master picture');
 
 // F-15: Q5's ended garage/lab stream is not Amanda's modelled household
 // salary. Deep Dive must not make "the transfers stopped after May"
@@ -1006,9 +1030,17 @@ ok(!/\$?3,507/.test(master),
   const note = data.incomeNote || '';
   ok(!plan.income.some(s => s.id === 'amandaTransfer'),
     'retired amandaTransfer stream is not live household income');
-  ok(amanda15 && amandaEom
-      && Math.round((amanda15.amount + amandaEom.amount) * 100) === 455684,
-    'the two Tennis BC salary streams total $4,556.84/month');
+  // Expected total comes from the owner-observed salary deposits (the
+  // reconciliation record that is compared to Forecast income), not a
+  // literal: the arithmetic proof stays, no household figure is written here.
+  const observed = require('../docs/reconciliation/amanda-income-observations.json').observations || [];
+  const deposit = id => observed.find(o => o.observationId === id && o.fact === 'employment-deposit');
+  const mid = deposit('payday-amanda-salary-midmonth'), end = deposit('payday-amanda-salary-monthend');
+  ok(amanda15 && amandaEom && mid && end
+      && Number.isFinite(Number(mid.amount)) && Number.isFinite(Number(end.amount))
+      && Math.round((amanda15.amount + amandaEom.amount) * 100)
+        === Math.round((Number(mid.amount) + Number(end.amount)) * 100),
+    'the two Tennis BC salary streams total the owner-observed monthly deposits');
   ok(!/the transfers stopped after May 2026 while the income did not/.test(dataStr),
     'published data.json no longer claims the transfers stopped after May while the income did not');
   ok(/garage\/lab/i.test(note) && /amandaSalary15/.test(note) === false,
@@ -1264,8 +1296,6 @@ ok(liveCardConflicts.length === 0,
 const paymentCal = (accountFacts.match(/## Payment calendar[\s\S]*?(?=\n## )/) || [''])[0];
 const cashbackCalRow = paymentCal.split('\n').find(l => /TD Cash Back Visa minimum/.test(l)) || '';
 ok(!!cashbackCalRow, 'payment calendar still names the Cash Back Visa minimum');
-ok(!/\$762\.36/.test(cashbackCalRow),
-  'the retired $762.36 is not the current Cash Back calendar amount');
 ok(/see note/i.test(cashbackCalRow),
   'the Cash Back calendar row uses the existing see-note pattern');
 ok(!/\$\s*[\d,]/.test(cashbackCalRow),
@@ -1280,70 +1310,70 @@ ok(helocLive.length === 0,
 
 // Bite proof: the pre-change current-voice text must fail these same checks.
 const STALE_CASHBACK_LEAD = [
-  '### TD Cash Back Visa *(…0726)* — **the household\'s second-largest card**',
+  '### TD Cash Back Visa *(…0000)* — **the household\'s second-largest card**',
   '',
   '| | |',
   '|---|---|',
-  '| **Rate** | **26.99% purchases / 27.99% cash advances** — from the statement rate table |',
-  '| Credit limit | **$5,000.00** |',
-  '| Balance | $5,682.43 — **$682.43 OVER the limit** |',
+  '| **Rate** | **10.00% purchases / 12.00% cash advances** — from the statement rate table |',
+  '| Credit limit | **$1,234.00** |',
+  '| Balance | $1,345.00 — **$111.00 OVER the limit** |',
   '| Available credit | **$0.00** |',
-  '| Minimum payment | **$762.36**, due **1 Sep 2026** |',
+  '| Minimum payment | **$58.00**, due **1 Sep 2026** |',
   '| Statement cycle | 8th to 7th |',
-  '| Recent charges | Interest **$158.55/month**, plus a **$29.00 over-limit fee** |',
-  '| Cash Back Dollars | $47.21 |',
+  '| Recent charges | Interest **$19.00/month**, plus a **$31.00 over-limit fee** |',
+  '| Cash Back Dollars | $7.00 |',
   '',
   '**Position after that payment:**',
   '',
   '| | |',
   '|---|---|',
-  '| Balance | **~$5,612.43** [calculated, $5,682.43 − $70.00] |',
-  '| Credit limit | $5,000.00 |',
-  '| **Still over the limit by** | **~$612.43** |',
-  '| Over-limit fee | **$29.00/month, still accruing** until the balance is under $5,000 |',
-  '| Next minimum | **$762.36, due 1 Sep 2026** — unaffected by this payment |',
+  '| Balance | **~$1,287.00** [calculated, $1,345.00 − $58.00] |',
+  '| Credit limit | $1,234.00 |',
+  '| **Still over the limit by** | **~$53.00** |',
+  '| Over-limit fee | **$31.00/month, still accruing** until the balance is under $1,234 |',
+  '| Next minimum | **$43.00, due 1 Sep 2026** — unaffected by this payment |',
 ].join('\n');
 const STALE_TRAVEL_LEAD = [
-  '### Travel Visa *(…0870)* — **a Business Visa**',
+  '### Travel Visa *(…0000)* — **a Business Visa**',
   '',
   '| | |',
   '|---|---|',
-  '| **Rate** | **19.99% purchases / 22.99% cash** — the lowest card rate in the household |',
-  '| Balance | $1,078.31 · pending $165.13 |',
-  '| Available credit | **$0.00** |',
-  '| **Credit limit** | **$1,100.00** *(verified 2026-08-09 from the Manage tab)* |',
-  '| Minimum payment | $17.00, due **26 Aug 2026** |',
+  '| **Rate** | **10.00% purchases / 12.00% cash** — the lowest card rate in the household |',
+  '| Balance | $589.00 · pending $67.00 |',
+  '| Available credit | **$21.00** |',
+  '| **Credit limit** | **$610.00** *(verified 2026-08-09 from the Manage tab)* |',
+  '| Minimum payment | $26.00, due **26 Aug 2026** |',
   '',
-  '**The limit is $1,100.00 — by far the smallest in the household**, and the card',
-  'is at **98.0%** of it with $0.00 available. **The $165.13 of pending charges will',
-  'take it over.** $1,078.31 + $165.13 = **$1,243.44 against a $1,100 limit**, or',
-  '**$143.44 over** [calculated].',
+  '**The limit is $610.00 — by far the smallest in the household**, and the card',
+  'is at **96.6%** of it with $21.00 available. **The $67.00 of pending charges will',
+  'take it over.** $589.00 + $67.00 = **$656.00 against a $610 limit**, or',
+  '**$46.00 over** [calculated].',
 ].join('\n');
 const staleCashbackHits = competingCurrentState(
   STALE_CASHBACK_LEAD, utilById.cashback);
 const staleTravelHits = competingCurrentState(
   STALE_TRAVEL_LEAD, utilById.travelvisa);
 ok(staleCashbackHits.length > 0,
-  'stale Cash Back over-limit / $0 available / $762.36 minimum prose is a competing current-state copy',
+  'stale Cash Back over-limit / zero-available / minimum prose is a competing current-state copy',
   staleCashbackHits.join('; '));
 ok(staleTravelHits.length > 0,
   'stale Travel Visa pending-will-take-it-over prose is a competing current-state copy',
   staleTravelHits.join('; '));
 
 const COPIED_CURRENT_CASHBACK = [
-  '### TD Cash Back Visa *(…0726)* — **the household\'s second-largest card**',
+  '### TD Cash Back Visa *(…0000)* — **the household\'s second-largest card**',
   '',
   '| | |',
   '|---|---|',
-  '| **Rate** | **26.99% purchases / 27.99% cash advances** — from the statement rate table |',
-  '| Credit limit | **$5,000.00** |',
+  '| **Rate** | **10.00% purchases / 12.00% cash advances** — from the statement rate table |',
+  '| Credit limit | **$1,234.00** |',
   '| Statement cycle | 8th to 7th |',
   '| Due | 1st, monthly |',
   '',
   '**Canonical Forecast opening is the 2026-08-19 `data.json` record**,',
-  `not the 9 August snapshot. Posted **${money(utilById.cashback.posted)}**, pending **$0.00**,`,
+  `not the 9 August snapshot. Posted **${money(utilById.cashback.posted)}**, pending **$14.00**,`,
   'available credit is Forecast-derived (not household cash). Posted is',
-  'under the $5,000 limit; the card is not over limit on this opening.',
+  'under the $1,234 limit; the card is not over limit on this opening.',
 ].join('\n');
 const copiedCurrentHits = competingCurrentState(
   COPIED_CURRENT_CASHBACK, utilById.cashback);
@@ -1351,18 +1381,16 @@ ok(copiedCurrentHits.length > 0,
   'copying today\'s matching posted cents is still a competing current-state copy',
   copiedCurrentHits.join('; '));
 ok(leftoverCopies(
-  'Consolidation into the HELOC is not available. It is 99.5% drawn with $1,067.84 left.',
+  'Consolidation into the HELOC is not available. It is 99.0% drawn with $1,111.00 left.',
   utilById.heloc
 ).length > 0,
-  'stale present-tense HELOC $1,067.84 leftover is a current-state copy');
+  'stale present-tense HELOC leftover is a current-state copy');
 ok(leftoverCopies(
-  `On the current 2026-08-19 opening it has ${money(utilById.heloc.available)} left (the 9 August snapshot had $1,067.84).`,
+  `On the current 2026-08-19 opening it has ${money(utilById.heloc.available)} left (the 9 August snapshot had $1,212.00).`,
   utilById.heloc
 ).length > 0,
   'copying today\'s matching HELOC leftover is still a current-state copy');
-ok(/\$762\.36/.test('| **1st** | TD Cash Back Visa minimum | $762.36 | TD |'),
-  'the stale payment-calendar $762.36 row is the shape the live-row check would catch');
-ok(/\$\s*[\d,]/.test('| **1st** | TD Cash Back Visa minimum | ~$170 | TD — **see note** |'),
+ok(/\$\s*[\d,]/.test('| **1st** | TD Cash Back Visa minimum | ~$123 | TD — **see note** |'),
   'a replacement Cash Back calendar dollar amount is the shape the live-row check would catch');
 
 console.log('\n=== no financial event appears twice ===');

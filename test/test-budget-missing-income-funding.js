@@ -22,10 +22,11 @@ function state(bonusRate = .18, bonusBase = null, bonusDate = '2027-02-25') {
 }
 const run = (data, opts = {}) => F.recommend(data.plan, data.meta.asOf, opts);
 // Independently reconciled regime example: 28456.38 gross bonus less
-// 11581.75 tax, 1693.15 CPP and 463.84 EI = 14717.64 net. The first four
-// regular cheques are 3849.40; the fixture supplies 200 bills + 300 allowance.
-const BONUS = 28456.38 - 11581.75 - 1693.15 - 463.84;
-const REGULAR = 3849.40;
+// 11581.75 tax, 1636.24 CPP and 466.68 EI = 14771.71 net (CRA's published
+// 2027 contribution limits: CPP 5.75%, EI 1.64%). The first four regular
+// cheques are 3860.69; the fixture supplies 200 bills + 300 allowance.
+const BONUS = 28456.38 - 11581.75 - 1636.24 - 466.68;
+const REGULAR = 3860.69;
 const missing = state();
 const before = JSON.stringify(missing);
 const advice = run(missing);
