@@ -2325,7 +2325,8 @@ function householdBudgetMetric(label, amount, opts) {
       // The same one-line note: two bills when the links disagree; the category by name when it was renamed.
       const misfitBills = misfitCheck === 'links disagree' ? `${billName(misfit.label)} and ${billName(misfit.otherLabel)}` : billName(misfit && misfit.label);
       const misfitWhy = misfitCheck === 'category'
-        ? (misfit.categoryName ? `category &ldquo;${esc(misfit.categoryName)}&rdquo;` : 'category removed')
+        ? (misfit.categoryName ? `category &ldquo;${esc(misfit.categoryName)}&rdquo;`
+          : misfit.confirmedCategoryName ? `category &ldquo;${esc(misfit.confirmedCategoryName)}&rdquo; removed` : 'category removed')
         : esc(misfitCheck || '');
       const linkedMisfit = misfitCheck && typeof misfit.id === 'string' && misfit.id
         ? `<span class="household-budget-tx-note" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfitBills} but doesn't fit (${misfitWhy})</span>`

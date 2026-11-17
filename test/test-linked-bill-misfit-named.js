@@ -157,6 +157,29 @@ function hasBrowser() {
     H.expect(m && m.check === 'category' && m.label === 'Invented power' && m.categoryName === 'Invented utilities renamed',
       `the line names the category (got ${JSON.stringify(m)})`);
   });
+  // Lead (rule 13, after Grok Bot's answer): a removed claimed category names the last confirmed name.
+  const removedCategory = entry => {
+    const w = world({ noRow: true });
+    w.bills[0].rule = { lunchMoneyCategoryIds: [entry] };
+    w.transactions.push(H.lm({ date: '2026-10-12', amount: 63.21, account: 'chequing-a', payee: 'Invented power co', category: 9302 }));
+    return w;
+  };
+  await report('engine: a removed claimed category: no link, counted once, the last confirmed name carried', async () => {
+    const r = engine(removedCategory({ id: '9302', name: 'Invented natural gas' }));
+    const none = engine(world({ noRow: true }));
+    H.expect(r.settled.length === 0, `no bill settles (got ${JSON.stringify(r.settled)})`);
+    const shown = powerRow(r);
+    H.expect(shown.length === 1 && near(none.bad - r.bad, 63.21), `listed and counted once (${shown.length}; ${none.bad} -> ${r.bad})`);
+    const m = shown[0].linkedBillMisfit;
+    H.expect(m && m.check === 'category' && m.categoryName === null && m.confirmedCategoryName === 'Invented natural gas',
+      `the line carries the confirmed name (got ${JSON.stringify(m)})`);
+  });
+  await report('engine: a removed claimed category with no confirmed name carries none', async () => {
+    const r = engine(removedCategory('9302'));
+    const m = (powerRow(r)[0] || {}).linkedBillMisfit;
+    H.expect(m && m.check === 'category' && m.categoryName === null && m.confirmedCategoryName == null,
+      `no confirmed name (got ${JSON.stringify(m)})`);
+  });
   await report('engine: control: the confirmed category name links power, with no line', async () => {
     const w = renamedCategory();
     w.bills[0].rule = { lunchMoneyCategoryIds: [{ id: '9301', name: 'Invented utilities renamed' }] };
@@ -197,6 +220,18 @@ function hasBrowser() {
         H.expect(H.occurrences(s.household, "Linked to Invented power but doesn't fit (category \u201cInvented utilities renamed\u201d)") === 1,
           'one note naming the category');
       }));
+    await report('page: a removed category names the last confirmed name, else reads plainly removed', async () => {
+      await H.withBudget(removedCategory({ id: '9302', name: 'Invented natural gas' }), async p => {
+        const s = await H.snap(p);
+        H.expect(H.occurrences(s.household, "Linked to Invented power but doesn't fit (category \u201cInvented natural gas\u201d removed)") === 1,
+          'one note naming the removed category');
+      });
+      await H.withBudget(removedCategory('9302'), async p => {
+        const s = await H.snap(p);
+        H.expect(H.occurrences(s.household, "Linked to Invented power but doesn't fit (category removed)") === 1,
+          'one plain removed note');
+      });
+    });
     await report('page: control: a fitting row prints no misfit line', () =>
       H.withBudget(world(), async p => {
         const s = await H.snap(p);

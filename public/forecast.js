@@ -12467,7 +12467,8 @@
     };
   }
 
-  // 'links disagree' names both bills; 'category' names the claimed category as it now reads.
+  // 'links disagree' names both bills; 'category' names the claimed category as it now reads,
+  // or, once removed, the last name Dale confirmed for it.
   const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category'];
   function linkedBillMisfitFrom(tx) {
     const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
@@ -12476,7 +12477,8 @@
     if (misfit.check === 'links disagree' && !(typeof misfit.otherId === 'string' && misfit.otherId)) return null;
     return { id: misfit.id, label: reconIdentityField(misfit.label), check: misfit.check,
       ...(misfit.check === 'links disagree' ? { otherId: misfit.otherId, otherLabel: reconIdentityField(misfit.otherLabel) } : {}),
-      ...(misfit.check === 'category' ? { categoryName: reconIdentityField(misfit.categoryName) } : {}) };
+      ...(misfit.check === 'category' ? { categoryName: reconIdentityField(misfit.categoryName),
+        ...(misfit.categoryName ? {} : { confirmedCategoryName: reconIdentityField(misfit.confirmedCategoryName) }) } : {}) };
   }
 
   // The category recon and the card-carry fallback use one membership rule.

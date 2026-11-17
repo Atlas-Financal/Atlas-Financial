@@ -1574,6 +1574,15 @@ function categoryNameConfirmed(rule, categoryId, ledgerName) {
   return names.length > 0 && !!ledger && names.every(name => name === ledger);
 }
 
+// The one confirmed name recorded for that category id, as written; null when none or several.
+function confirmedCategoryName(rule, categoryId) {
+  const values = Array.isArray(rule && rule.lunchMoneyCategoryIds) ? rule.lunchMoneyCategoryIds : [];
+  const names = values.filter(value => value && typeof value === 'object' && categoryEntryId(value) === categoryId)
+    .map(value => typeof value.name === 'string' ? value.name.replace(/\s+/g, ' ').trim() : '').filter(Boolean);
+  const distinct = Array.from(new Set(names.map(normalizeCategoryName)));
+  return distinct.length === 1 ? names[0] : null;
+}
+
 // Category ids that more than one rule names. Refused for every rule.
 function duplicatedRuleCategoryIds(rules) {
   const seen = new Map();
@@ -5109,8 +5118,10 @@ function linkedBillMisfitIds(collapsed, opts, linkedLocalIds, existingLocalId) {
       const claimants = categoryId ? rules.filter(rule => ruleCategoryClaims(rule).includes(categoryId)) : [];
       if (claimants.length === 1 && !categoryNameConfirmed(claimants[0], categoryId, tx.categoryLabel)) {
         const name = typeof tx.categoryLabel === 'string' && tx.categoryLabel.trim() ? tx.categoryLabel.trim() : null;
+        // Removed (no ledger name): the last name Dale confirmed for that id, when exactly one is recorded.
+        const confirmed = name ? null : confirmedCategoryName(claimants[0], categoryId);
         out.set(localId, { id: claimants[0].eventId, label: billLabel(claimants[0].eventId), check: 'category',
-          categoryName: name });
+          categoryName: name, ...(confirmed ? { confirmedCategoryName: confirmed } : {}) });
       }
       continue;
     }
