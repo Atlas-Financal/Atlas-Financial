@@ -11270,7 +11270,9 @@
   // Lead-approved fixed name table (exact name, case-insensitive, trailing
   // " ...NNNN" ignored, never matched by the digits). Any other named card is
   // 'unknown' and pairs with nothing until its spelling is confirmed.
-  const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa' });
+  // Grok Bot (Plan #6, 2026-11-17): "card payment: TD Personal Credit Card".
+  const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
+    'td personal credit card': 'tdcc' });
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
