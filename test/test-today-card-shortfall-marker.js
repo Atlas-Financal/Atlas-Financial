@@ -57,12 +57,11 @@ for (const allocation of [
 ]) {
   eq(markers(card(ctx(allocation))), 0, 'no marker for ' + JSON.stringify(allocation));
 }
-eq(markers(card({ advice: {}, plan: {} })), 0, 'no paydayAllocation: no marker');
 
 // 4. A reported shortfall prints no marker when the card's own funding is not
-// ready or not trusted (lead ruling on #1268: unknown reads unknown). It shows
-// one neutral line instead (Dale, 2026-11-17): the muted notice style, no
-// amount, never with the marker.
+// ready or not trusted (lead ruling on #1268: unknown reads unknown). The card
+// shows one neutral line instead (Dale, 2026-11-17; lead on #1274), in the muted
+// notice style, with no amount and never with the marker.
 const NEUTRAL = /<p class="budget-cash-notice" data-shortfall-unavailable>Payday check unavailable<\/p>/;
 const neutrals = html => (html.match(/data-shortfall-unavailable/g) || []).length;
 const short = { obligations: { shortfall: 50 }, essentials: { shortfall: 25 } };
@@ -83,12 +82,24 @@ for (const [why, funding] of [
   ok(!/has-gap/.test(html), why + ': nothing in the red has-gap style');
 }
 
-// 5. No reported shortfall shows neither line, ready or not.
-for (const funding of [today(), null, today({ status: 'unavailable' }), today({ trust: 'unknown' })]) {
-  for (const allocation of [{}, { obligations: { shortfall: 0 }, essentials: { shortfall: 0 } }, { essentials: { shortfall: null } }]) {
+// 5. With no reported shortfall: a ready card shows neither line; a card that
+// is not ready shows the same one neutral line (lead on #1274: the flag rests
+// on untrusted cash there, so a blank must not read as "no shortfall").
+const notReady = [null, today({ status: 'unavailable' }), today({ trust: 'unknown' }), today({ trust: 'unavailable' }),
+  today({ basis: 'something-else' }), today({ contribution: null })];
+for (const allocation of [{}, { obligations: { shortfall: 0 }, essentials: { shortfall: 0 } }, { essentials: { shortfall: null } }]) {
+  const ready = card(ctx(allocation));
+  eq(markers(ready) + neutrals(ready), 0, 'ready, no shortfall: neither line for ' + JSON.stringify(allocation));
+  for (const funding of notReady) {
     const html = card(ctx(allocation, funding));
-    eq(markers(html) + neutrals(html), 0, 'no shortfall: neither line for ' + JSON.stringify([allocation, funding && funding.status]));
+    const why = 'not ready (' + JSON.stringify(funding && [funding.status, funding.trust, funding.basis]) + '), no shortfall ' + JSON.stringify(allocation);
+    eq(markers(html), 0, why + ': no marker');
+    eq(neutrals(html), 1, why + ': exactly one neutral line');
+    ok(NEUTRAL.test(closedFace(html)), why + ': the neutral line is on the closed face, muted style');
   }
 }
+const noAllocation = card({ advice: {}, plan: {} });
+eq(markers(noAllocation), 0, 'no Forecast output at all: no marker');
+eq(neutrals(noAllocation), 1, 'no Forecast output at all: the card is not ready, so one neutral line');
 
 console.log('PASS Today card flags a Forecast-reported payday shortfall on its closed face (marker when ready, neutral line when not): ' + checks + ' checks');
