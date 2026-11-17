@@ -4,13 +4,17 @@
  * and zero-width characters, and nothing else changes.
  *
  * Grok Bot's conditions proved here:
+ *   (1) the "Refunds not linked" line shows the count and "Review in Lunch
+ *       Money", and an unlinked refund is never netted into spending;
  *   (2) ONLY the invisible text-direction marks (ALM, LRM, RLM, U+202A-202E,
  *       U+2066-2069) and zero-width characters (U+200B-200D, U+2060, U+FEFF)
  *       are removed, outright and never replaced; case and punctuation stay
  *       exactly as the bank wrote them;
  *   (3) a ledger-linked refund that shows a name today shows exactly the same
  *       name, through the page's real DisplayName.
- * Plus the sanitizer boundary: a bank description carrying any of those
+ * Plus the lead's narrowing: the bank description is kept only on a
+ * ledger-linked category refund, the only refund the page lists by name; a
+ * standalone refund keeps none. And the sanitizer boundary: a bank description carrying any of those
  * characters, or sitting on a debit, is unsanitized; and no non-refund credit
  * ever carries one, whatever its bank text holds.
  *
@@ -51,19 +55,24 @@ const printer = vm.runInNewContext([
   grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
   grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
   grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-].join('\n') + '\n({ householdBudgetMetric, hasDisplayName: typeof DisplayName !== "undefined" });', { Forecast: F });
+  grab(planSrc, /^const budgetBrowseKnown = .*$/m, 'budgetBrowseKnown'),
+  grab(planSrc, /^function budgetBrowseMoney\([\s\S]*?\n\}$/m, 'budgetBrowseMoney'),
+  grab(planSrc, /^ {2}function budgetUnlinkedRefundsBrowseHtml\([\s\S]*?\n {2}\}$/m, 'budgetUnlinkedRefundsBrowseHtml'),
+].join('\n') + '\n({ householdBudgetMetric, budgetUnlinkedRefundsBrowseHtml,'
+  + ' hasDisplayName: typeof DisplayName !== "undefined" });', { Forecast: F });
+const text = html => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 const payees = html => [...html.matchAll(/household-budget-tx-payee">([^<]*)/g)].map(m => m[1]);
 const unescape = s => s.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 
 const payroll = (raw) => H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
   payee: 'Invented employer', raw });
 // The refund is the ledger-linked form (a Lunch Money group parent), the form that prints in a category's Spent list.
-function run(originalName, extra = [], payrollRaw) {
+function run(originalName, extra = [], payrollRaw, { linked = true } = {}) {
   const w = H.baseWorld();
   w.transactions = [payroll(payrollRaw),
     H.lm({ date: '2026-10-10', amount: 60, category: 'Restaurants', payee: 'Invented diner' }),
     H.lm({ date: '2026-10-12', amount: -25, category: 'Restaurants',
-      raw: { is_group_parent: true, payee: '', original_name: originalName } }),
+      raw: { ...(linked ? { is_group_parent: true } : {}), payee: '', original_name: originalName } }),
     ...extra];
   const r = H.dataOf(w);
   if (r.error) throw r.error;
@@ -73,7 +82,7 @@ function run(originalName, extra = [], payrollRaw) {
   const row = (period.householdBudget || []).find(b => b && b.id === 'restaurants');
   const recon = (row && row.recon) || [];
   const html = printer.householdBudgetMetric('Spent', 35, { recon, id: 'restaurants' });
-  return { r, refund, recon, html, names: payees(html).map(unescape) };
+  return { r, refund, recon, html, names: payees(html).map(unescape), period, row };
 }
 
 ok(printer.hasDisplayName === true, 'positive control: the printer runs with the real DisplayName loaded');
@@ -122,6 +131,26 @@ console.log('Grok (2): only invisible text-direction and zero-width characters a
   const capped = run(sixty.split('').join('​'));
   ok(capped.refund && capped.refund.bankDescription === sixty, 'the 60-character cap counts the text after removal',
     String(capped.refund && Array.from(capped.refund.bankDescription || '').length));
+}
+
+console.log('Narrowing and Grok (1): a standalone refund keeps no bank text and prints only on its own line');
+{
+  const s = run(PLAIN, [], undefined, { linked: false });
+  ok(s.refund && !('bankDescription' in s.refund), 'a standalone category refund carries no bank description',
+    JSON.stringify(s.refund && s.refund.bankDescription));
+  ok(!JSON.stringify(s.r.packet).includes('Invented Refund Co.'), 'its bank text appears nowhere in the packet');
+  ok(s.row && Math.abs(s.row.spent - 60) < 0.005, 'it is never netted: Restaurants spent stays 60',
+    String(s.row && s.row.spent));
+  ok(!s.recon.some(t => t.amount === -25), 'it is not in the Restaurants Spent list');
+  const u = s.period.unlinkedRefunds;
+  ok(u && Math.abs(u.total - 25) < 0.005 && u.recon.length === 1, 'it is listed once as not linked, total 25');
+  const line = text(printer.budgetUnlinkedRefundsBrowseHtml(s.period));
+  ok(line === 'Refunds not linked $25.00 1 refund · Review in Lunch Money',
+    'the line shows the total, the count and "Review in Lunch Money"', line);
+  ok(!/Bank description|Invented Refund/.test(line), 'the line prints no bank text');
+  const linked = run(PLAIN);
+  ok(linked.refund && linked.refund.bankDescription === PLAIN && !linked.period.unlinkedRefunds,
+    'positive control: the linked refund keeps its text and is not listed as not linked');
 }
 
 console.log('Sanitizer boundary');

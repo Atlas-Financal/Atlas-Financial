@@ -4351,7 +4351,7 @@ function displayedItemNote(rawNote) {
 // description of a refund, as written (Lunch Money original_name), shown only
 // when the row has no display name. Control characters stripped, capped like
 // the item note. No payee or category fallback. Kept only on rows Forecast
-// classifies as refunds; every other row strips it.
+// links to a named household category (#1234); every other row strips it.
 // Invisible text-direction marks (ALM, LRM, RLM, the embeddings and overrides
 // U+202A-202E, the isolates U+2066-2069) and zero-width characters (U+200B-200D,
 // the word joiner U+2060, the BOM U+FEFF). They are removed outright, never
@@ -5737,10 +5737,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       delete row.displayedNote;
     }
     delete row.bankDescription;
-    // Only a refund Forecast identifies as one named household category's refund (G3a). Any other credit,
-    // such as payroll, an e-transfer or an unclassified deposit, never carries the bank's text.
+    // Only a refund Forecast links to one named household category (#1234), the only refund the page lists
+    // by name. A standalone refund prints only in the "Refunds not linked" total, so it keeps no bank text;
+    // nor does any other credit, such as payroll, an e-transfer or an unclassified deposit.
     if (cls.kind === 'refund' && bankDescriptions.has(row.id)
-      && Forecast.classifyCurrentPeriodTransaction.identifiedCategoryRefund(row, cls, opts.plan,
+      && Forecast.classifyCurrentPeriodTransaction.linkedCategoryRefund(row, cls, opts.plan,
         { packet: classifyPacket, currentPeriodActuals: classifyPacket })) row.bankDescription = bankDescriptions.get(row.id);
   }
   // C1: a raw dated row with an unreadable amount that the collapsed pass

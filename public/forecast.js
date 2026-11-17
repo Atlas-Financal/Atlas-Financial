@@ -12386,6 +12386,8 @@
   // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
   // description on category refunds only.
   classifyCurrentPeriodTransaction.identifiedCategoryRefund = identifiedCategoryRefund;
+  // The observer keeps a refund's bank description only where it prints: a ledger-linked category refund.
+  classifyCurrentPeriodTransaction.linkedCategoryRefund = linkedCategoryRefund;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
