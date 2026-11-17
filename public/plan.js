@@ -5826,8 +5826,13 @@ function budgetTodayCashCardHtml(ctx) {
   // rests on untrusted cash is not printed as a claim (unknown reads unknown).
   const shortfallReported = [alloc.obligations, alloc.essentials]
     .some(bucket => bucket && typeof bucket.shortfall === 'number' && bucket.shortfall > 0);
-  const shortfallMarker = ready && shortfallReported
-    ? '<p class="budget-cash-notice has-gap" data-shortfall-reported>Payday shortfall reported</p>' : '';
+  // Not ready (Dale, 2026-11-17; lead on #1274): the shortfall flag itself
+  // rests on untrusted cash, so every not-ready card reads one neutral line,
+  // whatever the flag says. A blank never stands for "no shortfall".
+  const shortfallMarker = !ready
+    ? '<p class="budget-cash-notice" data-shortfall-unavailable>Payday check unavailable</p>'
+    : shortfallReported
+      ? '<p class="budget-cash-notice has-gap" data-shortfall-reported>Payday shortfall reported</p>' : '';
   const notice = !ready ? '' : today.operatingShortfall > 0
     ? '<p class="budget-cash-notice has-gap">Operating cash shortfall ' + print(today.operatingShortfall, today.trust) + '</p>'
     : today.gap && strict(today.gap.shortBy) && today.gap.shortBy > 0
