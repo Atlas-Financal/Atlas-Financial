@@ -1107,6 +1107,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       limit: money(row.limit),
       alreadyOver: row.alreadyOver === true,
       ...(row.pendingUnknown === true ? { pendingUnknown: true } : {}),
+      ...(row.onOrBefore === true ? { onOrBefore: true } : {}),
     }))
     : [];
   const debtSchedAmounts = scheduledAmountsOf(debtProj);

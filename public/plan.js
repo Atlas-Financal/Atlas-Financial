@@ -497,7 +497,7 @@ const RISK_WHAT = {
   estimatedCommitments: r => `${r.count} commitments totalling ${money(r.total)} are estimates`,
   helocDrawn: r => `The HELOC passes its own limit on ${fmtDateLong(r.date)}, and this plan draws ${money(r.drawn)} on it`,
   helocNoDraw: r => `The HELOC passes its own limit on ${fmtDateLong(r.date)} with no new borrowing`,
-  facilityCrossing: r => `${r.label} goes over its limit on ${fmtDateLong(r.date)}`,
+  facilityCrossing: r => `${r.label} goes over its limit ${r.onOrBefore ? 'by' : 'on'} ${fmtDateLong(r.date)}`,
   telecomUnrouted: r => `Card-paid Bell ${money(r.planned)}/month sits inside the cap — Shaw is dated; Telus is $0 forward`,
 };
 const RISK_CHANGE = {
