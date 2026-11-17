@@ -19,8 +19,9 @@ An older normalized row with explicit `pending: false` and no optional leaf
 remains valid. Confirmed opening purchase carry retains its existing independent
 compatibility path.
 
-`Forecast.validateCardPaymentDecision` and `Forecast.cardPeriodMovements` consume
-this existing reconciler. There is no second allocation calculator. Purchase
+`Forecast.validateCardPaymentDecision` (retired 2026-11-16; present at the
+exercised commit) and `Forecast.cardPeriodMovements` consume this existing
+reconciler. There is no second allocation calculator. Purchase
 counting, the shared pending classifier, payment-leg qualification, physical
 movements, cash/debt calculation, issuer satisfaction, and the private controller
 and store are unchanged. Unqualified coverage and its dependent holds are

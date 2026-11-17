@@ -15,8 +15,8 @@
  *
  * The cost of the old arrangement was two hand-maintained balance sheets, and
  * they had already diverged: the silver was added to data.json on 10 August
- * and never reached the CSV, so "total visible assets" read $34,607.66 against
- * a true $43,454.66, and both net-worth lines were wrong by the same $8,847.
+ * and never reached the CSV, so "total visible assets" read too low and both
+ * net-worth lines were wrong by the same amount, the silver's value.
  *
  * The `Household` detail rows are NOT generated. They carry rate basis,
  * structure, confidence and capture notes that data.json does not hold, so
@@ -265,7 +265,7 @@ function regenerateComputedRows(data, csvText, opts) {
     row[0] = 'Household'; row[1] = 'Physical'; row[2] = 'Silver bullion'; row[3] = 'Precious metal';
     row[4] = 'Asset'; row[5] = 'CAD'; row[6] = n2(SILVER.value); row[12] = 'Physical holding - no counterparty';
     row[18] = 'ESTIMATE'; row[19] = data.meta.asOf;
-    row[20] = '100 oz owner-stated 10 August 2026 valued at the C$88.47/oz spot price that day; a market price '
+    row[20] = 'Owner-stated 10 August 2026 holding valued at the C$88.47/oz spot price that day; a market price '
       + 'not a quote and dealers buy under spot; any gain over cost is a taxable capital gain';
     out.splice(idx >= 0 ? idx : out.length - 1, 0, line(row));
   }

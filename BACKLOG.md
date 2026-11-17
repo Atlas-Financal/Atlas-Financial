@@ -691,9 +691,11 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
-A closed period whose bill occurrence has only an unbacked packet entry (no transaction, no settlement basis) still lists it To confirm and counts it, while the current period also carries it (#1156 covers the unrepresented missed occurrence only). Make the closed copy carried after historical settlement qualification (`qualifyHistoricalBillSettlement` / `sealHistoricalBillRow`), not before it. Source: #1156 lead verification, `test-historical-bill-settlement-evidence` H2.
+~~A closed period whose bill occurrence has only an unbacked packet entry (no transaction, no settlement basis) still lists it To confirm and counts it, while the current period also carries it (#1156 covers the unrepresented missed occurrence only). Make the closed copy carried after historical settlement qualification (`qualifyHistoricalBillSettlement` / `sealHistoricalBillRow`), not before it. Source: #1156 lead verification, `test-historical-bill-settlement-evidence` H2.~~ Done in `agent/unbacked-closed-bill-carried` (the #1156 rule, on Grok Bot's conditions).
 Forecast publishes no native trust tag for the weekly recommendation or for spendable household cash, so the assistant packet carries `unknown` with `trustSource: 'not-tagged-by-Forecast'` for both (finish-line audit finding 12, lead ruling (a)). Give Forecast native tags for those two figures so the page and the packet can both print them. Source: #821 finding 12, lead ruling (b).
-`Forecast` `planHasMortgagePayment` (#1071) gates the Mortgage-label exclusion on any planned mortgage obligation with a positive amount; tie it to an occurrence of that obligation in the debit's own spending cycle, so an unplanned period's Mortgage row is never excluded. Source: #1071 pre-review observation, lead ruling.
+~~`Forecast` `planHasMortgagePayment` (#1071) gates the Mortgage-label exclusion on any planned mortgage obligation with a positive amount; tie it to an occurrence of that obligation in the debit's own spending cycle, so an unplanned period's Mortgage row is never excluded. Source: #1071 pre-review observation, lead ruling.~~ Done in `agent/mortgage-exclusion-own-cycle`.
+
+A late-posting bill can be deducted twice in the cash projection until its payment is linked or marked. Example: a mortgage payment that posts in the cycle after its due date is counted once on the Budget (Other spending, to confirm, with the line "Mortgage-labelled; the mortgage due <date> is still To confirm"), while the master cash walk still deducts the unconfirmed earlier occurrence and the debit is already out of the opening. Pre-existing; Atlas does not link the two (no date matching). Ledger-side (rule 17): routed to Grok Bot. Pinned by `test-unplanned-bill-label-counted` ("known limitation"). Source: #1211, Grok Bot via the lead.
 
 ~~`Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.~~ Retired with their helpers and suites (agent/retire-hypothetical-extra-payment).
 
@@ -757,9 +759,9 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 `majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
 
-"Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet).
+"Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet). **Owner decision:** it adds a new visible ≈ mark, and Dale asked for no new ≈ marks without his OK (lead, 2026-11-16); not built until he says so.
 
-A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).
+~~A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).~~ Done: #1170 (open periods) and #1248 (closed periods): an unknown load leaves the total and load Unknown in every period. An open period's remainder is Unknown too; a closed period's remainder stays 0 as settlement evidence (#931), with the unknown carried by its unconfirmed bills, and its after-bills figures read Unknown.
 
 The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
 
@@ -900,6 +902,11 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 ~~Seed the #1162 replay-reuse slot from the qualified live result, so the first replay after a live refresh also skips compute. Source: #1162 Additional findings.~~ Not built (lead ruling 2026-11-16): the live worker records no disk witness and its check differs from a replay's, so seeding needs a second recorder path and a hand-built replay-shaped check on the page-load publication path, for a gain of one Forecast run per live refresh.
 
 `test/road-ahead-mutation-check.js` fails on unchanged `main` (found 2026-11-16 while pruning baselineTrajectory). Repair it narrowly or record why it is retired. Source: #1198 card.
+
+**Declined for now by the owner** (Dale, 2026-11-16, recorded on #821). Not to be built unless Dale reopens them:
+- A Bank-check line on the Budget page (Forecast already publishes `bankCheck` on the current pay-period row; the page keeps not showing it).
+- Approximate (≈) marks on trusted totals.
+- Showing the hidden Savings accounts inventory.
 
 **Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
 

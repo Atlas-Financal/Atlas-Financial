@@ -6962,11 +6962,49 @@
     return !label || label === 'uncategorised' || label === 'uncategorized';
   }
 
-  // A planned mortgage payment the debt walk deducts: a plan obligation for
-  // the mortgage debt with a positive amount.
-  function planHasMortgagePayment(plan) {
+  // A planned mortgage payment the debt walk deducts in this debit's own
+  // spending cycle: a plan obligation for the mortgage debt with a positive
+  // amount and an occurrence dated inside the cycle that holds the debit's
+  // date. A debit in a cycle with no such occurrence (or with no resolvable
+  // cycle or date) is not that payment (#1071 follow-up, lead ruling).
+  function planHasMortgagePayment(plan, txDate) {
+    const day = financialDate(txDate);
+    const cycle = day ? spendingCycle(plan, day) : null;
+    if (!cycle || !cycle.start || !cycle.end) return false;
     return ((plan && plan.obligations) || []).some(o => o
-      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0);
+      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0
+      && obligationOccurrences(o, cycle.start, cycle.end)
+        .some(r => r && r.date >= cycle.start && r.date <= cycle.end));
+  }
+
+  // Display-only (Grok Bot, Plan #6 thread): a Mortgage-labelled debit in a
+  // cycle with no planned mortgage occurrence is Other spending, to confirm.
+  // When the plan's latest mortgage occurrence before the debit is not marked
+  // paid, the row names it ("the mortgage due <date> is still To confirm").
+  // No figure reads this, and it matches nothing: it only names a date the
+  // plan's own schedule holds.
+  function mortgageDueStillToConfirm(plan, txDate, opts) {
+    const day = financialDate(txDate);
+    if (!day) return null;
+    const from = addDays(day, -45), to = addDays(day, -1);
+    if (!from || !to) return null;
+    const packet = currentPeriodActualsPacket(opts) || ((opts && opts.packet && typeof opts.packet === 'object') ? opts.packet : null);
+    const settled = new Set();
+    for (const row of (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])) {
+      if (row && row.id && row.date && row.pending !== true) settled.add(row.id + '@' + row.date);
+    }
+    for (const row of ((plan && plan.opening && plan.opening.representedEvents) || [])) {
+      if (row && row.id && row.date) settled.add(row.id + '@' + row.date);
+    }
+    let latest = null;
+    for (const o of ((plan && plan.obligations) || [])) {
+      if (!o || !(o.debtId === 'mortgage' || o.id === 'mortgage') || !(Number(o.amount) > 0)) continue;
+      for (const r of obligationOccurrences(o, from, to)) {
+        if (!r || !r.date || r.date < from || r.date > to) continue;
+        if (!latest || r.date > latest.date) latest = { date: r.date, key: (o.id || '') + '@' + (r.scheduledDate || r.date) };
+      }
+    }
+    return latest && !settled.has(latest.key) ? latest.date : null;
   }
 
   // The household budget category Lunch Money filed this row under, by the
@@ -7247,7 +7285,8 @@
   // after the H1 label rule, so a Savings debit H1 sends to confirmation
   // (household spending) is still counted once.
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
-    const cls = merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts));
+    const cls = withMortgageDueNote(tx, plan, opts,
+      merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts)));
     if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
         && Number(tx.amount) > 0) {
       // Atlas finding on 89fbdff: keep the core's warnings (cancelled-service
@@ -7260,6 +7299,12 @@
         ...(cls.cancelledServiceLabel ? { cancelledServiceLabel: cls.cancelledServiceLabel } : {}) };
     }
     return cls;
+  }
+  function withMortgageDueNote(tx, plan, opts, cls) {
+    if (!cls || cls.householdSpending !== true || !tx
+        || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
+    const due = mortgageDueStillToConfirm(plan, tx.date, opts);
+    return due ? Object.assign({}, cls, { mortgageDueToConfirm: due }) : cls;
   }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
@@ -7501,14 +7546,14 @@
     // falls through to the ordinary category rules and, unmapped, stays
     // visible and deducted in Other spending (needs confirmation).
     // Mortgage keeps the incumbent exclusion only while the plan holds a
-    // planned mortgage payment: that cash is the secured-debt payment the
+    // planned mortgage payment in the debit's own spending cycle: that cash is the secured-debt payment the
     // debt walk already deducts, so counting the row again would deduct it
     // twice. With no planned mortgage payment nothing else deducts it, so it
     // falls through and is Other spending, counted (finish-line audit
     // finding 4, 3a). An issuer "Other Bank Fees" charge on a card is not a
     // planned bill unless it matched one above; it falls through to Other
     // spending like any unmatched bill-type label (3c).
-    if (label === 'mortgage' && planHasMortgagePayment(plan)) {
+    if (label === 'mortgage' && planHasMortgagePayment(plan, tx && tx.date)) {
       return {
         kind: 'bill', categoryId: null, householdSpending: false,
         reason: 'bill-label', includeReason: 'bill-label',
@@ -10506,10 +10551,34 @@
       ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
         .map(event => (event.id || event.label || '') + '@' + event.date))
       : null;
-    // A completed period's own settlement evidence keeps its ordinary row.
-    const carriedToOperating = (row, due) => !calendarOccurrenceRepresented(represented, observed, row.id, due)
-      && (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)));
+    // A completed period's own settlement evidence keeps its ordinary row,
+    // but only evidence that survives historical settlement qualification
+    // (qualifyHistoricalBillSettlement / sealHistoricalBillRow, the rule the
+    // completed period itself publishes): a posted, linked payment, the
+    // owner's mark or schedule-trust basis. A packet entry with neither
+    // posted backing nor provenance is no proof (#1156 lead verification,
+    // H2; Grok Bot's conditions on the Plan #6 thread), so that occurrence
+    // is carried like an unrepresented one and counted once, in the current
+    // period.
+    let closedBacked = null;
+    const settledInClosedPeriod = (row, due) => {
+      if (!calendarOccurrenceRepresented(represented, observed, row.id, due)) return false;
+      if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
+      return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
+    };
+    // The recurring carry (#953) and the overdue once carry both ignore an
+    // unbacked entry: the active loop below lists an overdue once row unless
+    // its settlement survives the same qualification (Codex P2 on #1215), so
+    // the closed copy, the current period and the cash walk agree.
+    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
+        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
+      && !settledInClosedPeriod(row, due);
+    const withoutKey = (collection, key) => {
+      if (!collection || !collection.has(key)) return collection;
+      const copy = collection instanceof Map ? new Map(collection) : new Set(collection);
+      copy.delete(key);
+      return copy;
+    };
     const pushRow = (due, row, hostWindow) => {
       const window = hostWindow || windowContainingDate(windows, due);
       if (!window || !row) return;
@@ -10617,14 +10686,25 @@
         represented, observed, event.id, event.date);
       // Passing payday does not drop an unresolved once cash obligation, and
       // does not rewrite its due date onto the new payday. Represented /
-      // settled once rows disappear rather than remaining reserved.
+      // settled once rows disappear rather than remaining reserved, but only
+      // when that settlement survives historical qualification: an entry with
+      // neither posted backing nor provenance is no proof, so the row stays
+      // owed here, built as if no entry named it (the cash walk owes it too).
       if (due < span.start && !overdueOnce) continue;
-      if (overdueOnce && paid) continue;
+      const occurrenceKey = event.id + '@' + event.date;
+      let unbackedOnce = false;
+      if (overdueOnce && paid) {
+        const probe = calendarBillRowFromEvent(
+          plan, event, asOf, represented, observed, cashAsOf, due, opts);
+        if (!probe || settledInClosedPeriod(probe, due)) continue;
+        unbackedOnce = true;
+      }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
       seen.add(key);
-      const row = calendarBillRowFromEvent(
-        plan, event, asOf, represented, observed, cashAsOf, due, opts);
+      const row = calendarBillRowFromEvent(plan, event, asOf,
+        unbackedOnce ? withoutKey(represented, occurrenceKey) : represented,
+        unbackedOnce ? withoutKey(observed, occurrenceKey) : observed, cashAsOf, due, opts);
       // Written here and read by the bill-row printers only. Nothing in
       // Forecast reads it back: a guessed stand-in decides no window, no
       // amount, and whether no other row is listed.
@@ -12260,6 +12340,9 @@
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
+  // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
+  // description on category refunds only.
+  classifyCurrentPeriodTransaction.identifiedCategoryRefund = identifiedCategoryRefund;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
@@ -12288,6 +12371,10 @@
       // classification reads it.
       ...(typeof tx.displayedNote === 'string' && tx.displayedNote.trim()
         ? { displayedNote: tx.displayedNote.trim() } : {}),
+      // Display-only (#962 C1): a refund's bank description. The observer keeps it on refunds only and the
+      // sanitizer allows it only on a credit; no math or classification reads it.
+      ...(Number(tx.amount) < 0 && typeof tx.bankDescription === 'string' && tx.bankDescription.trim()
+        ? { bankDescription: tx.bankDescription.trim() } : {}),
       atlasRow: (cls && (cls.atlasRow || cls.categoryId)) || null,
       includeReason: duplicate
         ? 'pending-posted-duplicate'
@@ -12297,6 +12384,7 @@
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
+      ...(cls && cls.mortgageDueToConfirm ? { mortgageDueToConfirm: cls.mortgageDueToConfirm } : {}),
       // Display-only: a pending card charge whose payee identifies a
       // still-due card-paid bill at a different amount. It is counted here
       // and the bill stays due; nothing reads this for math.
@@ -14492,32 +14580,6 @@
     return reconcileCardPurchases(transactions, opts).publication;
   }
 
-  // Private foundation adapter. Existing reconciler and sealed movement gates
-  // decide qualification; this adds no matching, allocation or money calculation.
-  // Caller resolves references privately. Only sanitized preview facts return.
-  function validateCardPaymentDecision(input) {
-    const unavailable = { status: 'unavailable' };
-    try {
-      const { plan, debts, asOf, packet, record, retainedRecords = [] } = input;
-      if (!record || record.confirmed !== true || !Array.isArray(packet?.transactions)
-        || !Array.isArray(retainedRecords)) return unavailable;
-      const rows = packet.transactions.filter(tx => tx?.coverageRef === record.creditRef);
-      if (rows.length !== 1) return unavailable;
-      const credit = rows[0], selected = JSON.parse(JSON.stringify(plan));
-      const policy = selected.cardPurchaseCoverage || { payments: [], refunds: [], reversals: [] };
-      // Retained explicit intent participates in the incumbent's complete claim
-      // bounds even when a leg/purchase is absent or materially changed today.
-      policy.payments = [...(policy.payments || []), ...retainedRecords, record]; selected.cardPurchaseCoverage = policy;
-      const window = spendingCycle(selected, credit.date);
-      const publication = cardPeriodMovements(selected, debts, asOf, window, { currentPeriodActuals: packet });
-      const card = publication?.cards.find(row => row.id === credit.atlasAccountId);
-      const matches = card?.posted.filter(row => row.id === String(credit.id));
-      const allocation = matches?.length === 1 && matches[0].paymentAllocation;
-      return allocation?.status === 'reconciled' && allocation.kind === 'payment'
-        ? { status: 'ready', allocation } : unavailable;
-    } catch { return unavailable; }
-  }
-
   // The private identity bridge never leaves Forecast. No merchant, amount,
   // date or page-side comparison is allowed to assign coverage to a purchase.
   function cardCoverageAnnotation(tx, coverage) {
@@ -15472,14 +15534,19 @@
       const windowLoadUnknowns = scheduledLoadUnknowns.filter(u => u.dateUnknown
         ? !u.from || u.from <= window.end
         : u.date >= window.start && u.date <= window.end);
+      // A completed period reads the same dated scheduled unknowns its total
+      // and unconfirmedBills already withhold on (scheduledBillAmountUnknown
+      // below), so its load, remainder and everything built on them are
+      // unknown too, never a number beside an Unknown total.
+      const lookbackLoadUnknowns = lookback ? windowLoadUnknowns.filter(u => !u.dateUnknown) : [];
       const billLoadUnknown = !planUnavailable && ((!lookback && (unknownLoadRows.length > 0
-        || windowLoadUnknowns.length > 0)) || planBillAmountUnknown);
-      // What leaves an open period's bill load unknown, named by carrier and
-      // id (each once), so the withheld total says which bill or payment it is.
-      const billLoadUnknownFrom = !lookback && billLoadUnknown
+        || windowLoadUnknowns.length > 0)) || lookbackLoadUnknowns.length > 0 || planBillAmountUnknown);
+      // What leaves a period's bill load unknown, named by carrier and id
+      // (each once), so the withheld total says which bill or payment it is.
+      const billLoadUnknownFrom = billLoadUnknown
         ? [...new Map([
-          ...unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null })),
-          ...windowLoadUnknowns.map(u => ({ carrier: u.carrier, id: u.id || null })),
+          ...(lookback ? [] : unknownLoadRows.map(row => ({ carrier: 'bill', id: row.id || null }))),
+          ...(lookback ? lookbackLoadUnknowns : windowLoadUnknowns).map(u => ({ carrier: u.carrier, id: u.id || null })),
           ...planBillAmountUnknownBills.map(b => ({ carrier: 'bill', id: b.id || null })),
         ].map(u => [u.carrier + ':' + u.id, u])).values()]
         : null;
@@ -15935,6 +16002,9 @@
         totalBillsThisPeriod: planUnavailable || (lookback && scheduledBillAmountUnknown)
           || (!lookback && billLoadUnknown) ? null : totalBillsThisPeriod,
         paidBills,
+        // A completed period's remainder is settlement evidence, not an
+        // amount due: it stays 0 by contract (#931) and its unknown is carried
+        // by unconfirmedBills. Only an open period withholds it.
         remainingBills: planUnavailable || (!lookback && billLoadUnknown) ? null : remainingBills,
         ...(billLoadUnknownFrom ? { billLoadUnknownFrom } : {}),
         // Completed periods only, so every other period's publication is
@@ -16602,6 +16672,16 @@
       return;
     }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
+    // Occurrences the current period carries in from an earlier period (To
+    // confirm and counted there). A saved close captured before the #1156 /
+    // unbacked-entry carry rules may still count one of them in its saved
+    // total; that saved figure stays exactly as saved, and its row only
+    // discloses the carry (alsoCarriedToCurrent, display only; Grok Bot,
+    // Plan #6 thread). A close that already lists it as carried says nothing more.
+    const current = views.find(v => v && v.timelineRole === 'current') || null;
+    const carriedIntoCurrent = new Set(((current && current.bills) || [])
+      .filter(row => row && row.id && row.date && current.start && row.date < current.start && row.status !== 'PAID')
+      .map(row => row.id + '@' + row.date));
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
@@ -16633,8 +16713,16 @@
           const same = key === 'bills' && todayRows.find(t => t.id === row.id && t.date === row.date);
           return same && typeof same.scheduledDue === 'string' ? { scheduledDue: same.scheduledDue } : {};
         };
-        view[key] = pub[key].map(row => ({ ...borrowed(today.get(row.id)), ...printedDue(row),
-          ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) }));
+        view[key] = pub[key].map(row => {
+          const copy = { ...borrowed(today.get(row.id)), ...printedDue(row),
+            ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
+          delete copy.alsoCarriedToCurrent;
+          if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
+              && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
+            copy.alsoCarriedToCurrent = true;
+          }
+          return copy;
+        });
       }
       for (const [key, value] of Object.entries(CAPTURED_WITHDRAWN_FIGURES)) {
         if (!Object.hasOwn(pub, key)) view[key] = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : value;
@@ -28812,7 +28900,7 @@
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
-    visaPaymentReconciliation, visaPaymentPublication, validateCardPaymentDecision };
+    visaPaymentReconciliation, visaPaymentPublication };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it
