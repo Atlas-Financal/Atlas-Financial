@@ -1065,7 +1065,6 @@ closed: `Forecast.expandEvents` is the one cash calendar.
 
 | Concept | Incumbent authority |
 |---|---|
-| Explicit private card-payment choice preview | `Forecast.validateCardPaymentDecision` delegates to the existing `reconcileCardPurchases` / `Forecast.cardPeriodMovements` qualification, including aggregate claim conflicts and complete provider evidence. It validates one privately resolved proposed declaration and returns sanitized allocation facts; it creates no matching policy, opening, available cash or issuer satisfaction. The inert `scripts/card-payment-decisions.js` foundation is its private caller. |
 | Expected active-period Bills closing balance | `Forecast.billsAccountPeriodBalance` derives a separate Bills-only estimate from dated posted `chequing-a` cash, qualified unreceived income, incumbent remaining occurrence cash, and the active Household Budget hold less proven Bills funding. Paired Weekly transfers/returns, eligible direct Bills purchases and explicitly reconciled current-Budget card backfills fulfill funding once. Existing pending Bills household cash and uncovered current-category card requirements floor the remaining estimate; earlier/noncategory card carry is protected separately once. Aggregate target attribution is estimated with a stated basis, never verified per-category allocation, implicit overdraft funding, or transfer permission. Eligible native remaining amounts are checked before lossy calendar/event projection: missing or nonfinite is unknown, not zero. Explicit other cash payers are excluded from Bills stock; unknown explicit payer ids withhold it. Unassigned household costs retain the disclosed owner Bills funding anchor. Incomplete/ambiguous native coverage withholds the projected total while known Bills stock survives. The Budget card renders this publication; old BAD, Month, Road Ahead, Savings and signed A+B planning contracts remain unchanged. |
 | Selected Seaspan pay-period liability movement — Travel, Cash Back, Emerald, Triangle, Amazon Mastercard and the recorded HELOC | `Forecast.cardPeriodMovements`, with the Forecast-owned `public/forecast-card-period.js` module. Read-only posted liability reporting from the incumbent sanitized `currentPeriodActuals`; canonical card identity or the existing native `heloc` account role, explicit CAD whole cents, selected Forecast payday boundaries, completed provider pagination and distinct pending evidence. Numeric net requires independently qualified posted balance endpoints in read-only `cardPeriodBalanceEvidence` (`atlas-card-period-balance-evidence/v1`), matching temporal claims and evidence references, and agreement with every posted charge/payment/refund/interest/fee/adjustment in that interval. A missing, null, object or other non-array `transactions` container is not an empty ledger and cannot claim complete reconciliation; only an explicit empty array may support a calculated zero when independently qualified endpoints agree. The same native source identity (`id` or `coverageRef`) cannot establish two card mappings or both a posted and a pending row; date eligibility does not prove independence, so a malformed, pre-window or post-through counterpart still withholds the affected cards. Conflicting `atlasAccountId`/`account` aliases withhold the affected cards while independent cards remain publishable. Missing endpoints, untrusted units/dates/identity, incomplete coverage or discrepancy withholds net rather than inventing an opening or balancing row. Current providers do not manufacture arbitrary payday openings; absence stays unavailable. Same-date balance history and card-purchase cash earmarks are not substitute openings. Manual Triangle/MBNA remain visible with their actual dated/unavailable evidence. Observed details can remain qualified without a net. Owner direction 2026-11-13 (#821 6851777327; Grok rule-17 reply 1794570038.258079): the separate `cards[].postedMovement` is the current pay period's posted signed transaction sum so far, calculated by this same Forecast authority without saved endpoints. It requires current observation, complete declared query and pending coverage, unique native row identity, explicit posted/pending evidence and positive own-account `syncEvidence`; absent or failed evidence is Unavailable, including an empty manual-card ledger without transaction-sync proof. Sync age alone stays informational under the 2026-11-10 owner rule; balance dates do not prove transaction coverage. Revised A1 (lead 1794659640.381499, owner amendment 6782285487): no age gate. A unique, applied, value-matching own-card balance overlay must supply a valid nonfuture observation date; a canonical fallback, a refusal without a matching value, or a MATCH with no published own date cannot establish that evidence and keeps the movement Unavailable. Forecast publishes that typed provider-balance date and requests a date label only when older than yesterday relative to the shown financial as-of. Budget prints "balance as of" so the date never claims successful-sync time or transaction coverage-through; known old evidence retains the same signed sum and calculated trust. HELOC keeps its exclusion from this separate credit-card metric and its native activity trigger says "Activity in details". Budget copies its magnitude, direction and calculated trust into the line under the card balance; endpoint reconciliation and drawer evidence retain their existing meaning. This neither settles household minimum allocations nor determines issuer treatment, adds expense/cash/debt deductions, publishes available cash or grants spending permission. `public/plan.js` copies this publication; Budget layout/style only place it after the period/current-position block and before Household Budget/Bills. |
 | Minimum-category sender ownership across identifier namespaces | `Forecast.minimumCategoryAllocationConflict` is the shared withholding guard consumed by observation and Forecast before a derived minimum receipt. Explicit movement references and verified distinct provider debit identities establish independence; compatible human-labeled owner allocations with unknown linkage withhold derived proof. Amount/date/account compatibility never establishes settlement, creates allocation or replays cash. Existing owner records and receipts remain authoritative. |
@@ -1794,66 +1793,14 @@ records the grants; it does not add a write seam.
 
 ## The secret boundary
 
-### Owner-dispatched private card-payment choice foundation (2026-10-12)
+### Owner-dispatched private card-payment choice foundation (2026-10-12) — retired
 
-**FOUNDATION - NOT COMPLETION.** Dale approved an explicit posted-payment
-purpose and exact purchase-selection workflow. The first bounded slice was
-a typed private intent store and its prepare/confirm/outcome controller; both
-were removed on 2026-11-16 by owner decision (no importer, route or UI ever
-used them).
-Injected adapters supply an authenticated household-session identity, existing
-provider evidence and explicitly resolved choices. They supply no matching policy.
-`Forecast.validateCardPaymentDecision` delegates qualification to the incumbent
-reconciler and card-movement publication; no second calculator is introduced.
-
-One explicit confirmation atomically records the choice and its operation
-receipt against the preview revision. Lost replies require outcome verification;
-unknown outcomes are never automatically retried. Revision/evidence changes
-reject instead of rebasing. Stored intent survives absent or changed evidence,
-which withholds current qualification. Private references never appear in previews
-or receipts. Evidence loss never retires payment-leg or purchase-cent claims.
-Preview, confirmation and current requalification validate the complete retained
-cohort through Forecast's incumbent aggregate bounds, including unavailable records;
-independent partial allocations remain permitted when their total fits.
-The inactive v2 store preserves immutable original and successor choices and
-operation receipts. Version-1 `replace` / `retract` commands name the exact
-current saved choice and preview revision; replacement keeps the same payment
-pair and revalidates the successor against every other effective retained claim.
-Retraction withdraws interpretation, never reverses bank money. Only an explicit
-confirmed correction/withdrawal releases its predecessor's claims; missing
-evidence never does. A withdrawn head may be restored only through a newly
-qualified replacement. Superseded heads cannot fork. Identical operation retries
-recover the original outcome; conflicting payloads cannot reuse an operation ID.
-An uncertain write retains its in-process preview for explicit retry after
-outcome lookup and fresh validation; a restart cannot reconstruct an unknown
-preview or automatically apply it.
-
-Existing v1 documents remain readable but cannot be written until an explicit
-revision-and-document-digest-bound migration atomically installs v2 with the exact
-original v1 bytes retained inside it. No household migration is performed by this
-foundation. Missing/corrupt/unsupported data is never treated as empty. A rollback
-reader that cannot read v2 must withhold the entire dependent input, never fall
-back to the preserved v1 bytes after newer operations. Orphan-lock recovery and
-restoration from backups require separately reviewed recovery; neither is automatic.
-Unknown historical opening stays unknown; another unresolved card
-keeps global coverage unavailable; household payment purpose does not establish
-issuer minimum satisfaction. Canonical data and financial providers are untouched.
-
-The explicit file adapter follows existing private POSIX conventions: a dedicated
-owner-private directory outside every repository/worktree/static path, no symlinks,
-exclusive locking, file sync and atomic replacement plus directory sync. Missing,
-corrupt, unsupported or locked state fails closed. It changes no permissions and
-does not reuse cleanup grants. Orphan locks require separately reviewed recovery.
-Windows filesystem security/durability and production Render storage are unqualified.
-Synthetic process-restart proof is not production restart/redeploy qualification.
-
-The next integration PR is the live consumer/closure step: default-disabled
-session routes, shared browser/assistant input revision before observer history
-selection, bounded saved-reference lookup, ordered refresh and a panel-body form.
-It must prove that path end to end. Production activation remains reserved until
-durable storage, single-writer operation and restart/redeploy behavior are qualified;
-this foundation grants no infrastructure, credentials, access, provider writes or
-generic canonical transaction store.
+Retired 2026-11-16 by owner decision. The typed private intent store, its
+prepare/confirm/outcome controller and the `Forecast.validateCardPaymentDecision`
+preview adapter were never wired to an importer, route or page, and all three
+are removed. Posted-payment purpose and purchase selection have no Atlas-side
+workflow; card coverage qualification stays with `reconcileCardPurchases` and
+`Forecast.cardPeriodMovements`. Git history keeps the original design.
 
 The line is between a secret that lets something **log in as the household** and
 a secret that lets a server **read data it has been granted**. "No credentials"
