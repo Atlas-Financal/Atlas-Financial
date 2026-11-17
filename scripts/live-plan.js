@@ -573,9 +573,10 @@ function markUnknownPending(data, report, liveAsOf) {
 
 // Owner policy is never rewritten by a refresh. One narrow exception (S2,
 // owner decision #821 6956651970): on a bill whose reviewed Lunch Money
-// recurring item supplied its schedule (`scheduledBills`), `dateConfidence`
-// may become 'confirmed'. Its day, every other field of that bill, and every
-// other bill must still match the canonical plan.
+// recurring item supplied its schedule (`scheduledBills`), its `day` may
+// differ (the item's day leads) and `dateConfidence` may become 'confirmed'.
+// Every other field of that bill, and every other bill, must still match the
+// canonical plan.
 function assertOwnerPolicyUntouched(before, after, scheduledBills) {
   const keys = ['income', 'bills', 'obligations', 'commitments', 'budget', 'actions', 'nextDollar', 'savingsEarmarks', 'cardPurchaseCoverage'];
   const scheduled = scheduledBills instanceof Set ? scheduledBills : new Set();
@@ -585,10 +586,10 @@ function assertOwnerPolicyUntouched(before, after, scheduledBills) {
     return afterBills.map((row, i) => {
       const was = beforeBills[i];
       if (!row || !was || row.id !== was.id || !scheduled.has(row.id)) return row;
-      // The product rule exactly (#1281 note): the day never moves (the
-      // mapper confirms only an anchor day equal to the plan's), and the date
-      // tag may only become 'confirmed'.
+      // The product rule exactly: the reviewed item's day leads (it may
+      // differ from the plan's), and the date tag may only become 'confirmed'.
       const out = { ...row };
+      if (Object.hasOwn(was, 'day')) out.day = was.day; else delete out.day;
       if (row.dateConfidence === 'confirmed') {
         if (Object.hasOwn(was, 'dateConfidence')) out.dateConfidence = was.dateConfidence; else delete out.dateConfidence;
       }

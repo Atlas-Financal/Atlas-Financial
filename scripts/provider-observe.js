@@ -4352,7 +4352,6 @@ function observeCore(input, capture) {
   // Internal to the report; never served.
   // Present only when a schedule applies, so every other report keeps its shape.
   if (recurringSchedules.length) assembled.recurringBillSchedules = recurringSchedules;
-  if (recurringReview.withheld.length) assembled.recurringBillSchedulesWithheld = recurringReview.withheld;
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
@@ -5348,17 +5347,17 @@ function sanitizedRecurringEvidence(raw, opts) {
 // rules, a bill named by several items, a bill that is not monthly, a paying
 // account whose role does not match, or expected dates that disagree with
 // the anchor day.
-// Owner cross-check (Dale 2026-11-17, via the lead, #1281): the reviewed
-// item confirms a bill's schedule only when its anchor day agrees with the
-// plan's own day. On a mismatch the plan's day and tags stand, and the bill
-// is listed as withheld with a fixed reason until the ledger item and the
-// plan agree. LM stays the source of the date; the plan only gates it.
+// Day leads (owner decision, Dale 2026-11-17: "no friction if the date
+// drifts"; "when we look forward the bills dates need to be as best as they
+// can be"): the reviewed item's anchor day leads every future occurrence,
+// tagged confirmed, even when it differs from the plan's day. The plan's day
+// is the fallback only, kept estimated, for every doubt case above. This
+// retires #1281's anchor-equals-plan cross-check.
 function recurringBillSchedules(block, identityRules, plan, asOf) {
   return recurringBillScheduleReview(block, identityRules, plan, asOf).schedules;
 }
 function recurringBillScheduleReview(block, identityRules, plan, asOf) {
-  const withheld = [];
-  const done = schedules => ({ schedules, withheld });
+  const done = schedules => ({ schedules });
   if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
   const bills = Array.isArray(plan.bills) ? plan.bills : [];
   const daysIn = iso => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).getUTCDate();
@@ -5387,10 +5386,6 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf) {
     const day = Number(item.anchorDate.slice(8, 10));
     if (!(day >= 1 && day <= 31)) continue;
     if (!item.expectedDates.every(date => Number(date.slice(8, 10)) === Math.min(day, daysIn(date)))) continue;
-    if (Number(bill.day) !== day) {
-      withheld.push({ billId, recurringId: item.recurringId, reason: 'anchor-day-differs-from-plan' });
-      continue;
-    }
     out.push({ billId, recurringId: item.recurringId, day, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
   return done(out);
