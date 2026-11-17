@@ -5826,8 +5826,11 @@ function budgetTodayCashCardHtml(ctx) {
   // rests on untrusted cash is not printed as a claim (unknown reads unknown).
   const shortfallReported = [alloc.obligations, alloc.essentials]
     .some(bucket => bucket && typeof bucket.shortfall === 'number' && bucket.shortfall > 0);
-  const shortfallMarker = ready && shortfallReported
-    ? '<p class="budget-cash-notice has-gap" data-shortfall-reported>Payday shortfall reported</p>' : '';
+  // Not ready (Dale, 2026-11-17, Grok Bot on #1268): the same reported
+  // shortfall reads as one neutral line, never the red claim. One line only.
+  const shortfallMarker = !shortfallReported ? '' : ready
+    ? '<p class="budget-cash-notice has-gap" data-shortfall-reported>Payday shortfall reported</p>'
+    : '<p class="budget-cash-notice" data-shortfall-unavailable>Payday check unavailable</p>';
   const notice = !ready ? '' : today.operatingShortfall > 0
     ? '<p class="budget-cash-notice has-gap">Operating cash shortfall ' + print(today.operatingShortfall, today.trust) + '</p>'
     : today.gap && strict(today.gap.shortBy) && today.gap.shortBy > 0
