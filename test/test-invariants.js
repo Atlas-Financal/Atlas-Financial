@@ -24,7 +24,8 @@ const periods = require('../public/periods.json');
 let failures = 0;
 const ok = (cond, label, detail = '') => {
   if (!cond) failures++;
-  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
+  // Detail (often a household value) prints only on failure, never on a pass.
+  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${!cond && detail ? '  — ' + detail : ''}`);
 };
 const near = (a, b, eps = 0.01) => Math.abs(a - b) <= eps;
 const money = n => '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -387,7 +388,8 @@ ok(/2026-08-19/.test(csvNote('Household net worth'))
     'Records caveat labels the same optimistic high as optimistic high only');
   ok(/historical/i.test(caveat) && historicalRangeLow != null && caveat.includes(historicalRangeLow.slice(1)),
     'Records caveat keeps the older range as historical only');
-  ok(historicalRangeLow != null && !caveat.includes("At the owner's estimate of " + historicalRangeLow),
+  ok(historicalRangeLow != null && !new RegExp("At the owner['’]s estimate of "
+      + historicalRangeLow.replace(/[.$]/g, '\\$&'), 'i').test(caveat),
     'Records caveat does not present the old range as the current estimate');
 }
 ok(csvVal('Silver bullion') != null,
@@ -876,7 +878,7 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
   // account: when that account is paid off the bank does not take it, and it
   // certainly does not move it to a different card. An extra payment is the
   // household choosing to put surplus at debt, and `plan.nextDollar` says where
-  // it goes next. Cascading the first paid $170 to the TD credit card on
+  // it goes next. Cascading the first paid minimum to the TD credit card on
   // 1 November for a Cash Back Visa at zero since 30 October — a decision
   // nobody made.
   {
@@ -898,10 +900,10 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
       'and no minimum is charged to it after it is paid off',
       cardMinimums.map(e => e.date).join(', ') || 'none');
     ok(!cardMinimums.some(e => e.date === '2026-11-01'),
-      'specifically, the 1 November $170 is not taken from cash at all');
+      'specifically, the 1 November minimum is not taken from cash at all');
     // The paid-off card's minimum must not turn up on another account either.
     // Extras may still cascade (they do — the next assertion); a redirected
-    // $170 November minimum is what this forbids, not a lower close.
+    // November minimum is what this forbids, not a lower close.
     ok(!adv.sim.events.some(e => {
       const o = (plan.obligations || []).find(x => x.id === e.id);
       return e.date === '2026-11-01' && e.kind === 'obligation' && o && o.debtId === 'cashback';
@@ -1011,8 +1013,13 @@ ok(!/Tennis BC pay is also bi-weekly/i.test(accountFacts),
   'and no longer also claims it is bi-weekly');
 ok(!/Seaspan and Tennis BC both land the same day/i.test(dataStr),
   'data.json no longer claims her pay lands on the Seaspan payday');
-ok(!/\$?3,507/.test(master),
-  'the stale $3,507/month Tennis BC figure is gone from the master picture');
+// The stale figure is the captured Tennis BC row's payment amount, read here
+// rather than written as a literal.
+const tennisRow = csv.find(c => c[2] === 'Her employment - Tennis BC');
+const staleTennisMonthly = tennisRow ? Number(tennisRow[13]) : NaN;
+ok(Number.isFinite(staleTennisMonthly) && staleTennisMonthly > 0
+    && !master.includes(grouped(staleTennisMonthly)),
+  'the stale Tennis BC monthly figure is gone from the master picture');
 
 // F-15: Q5's ended garage/lab stream is not Amanda's modelled household
 // salary. Deep Dive must not make "the transfers stopped after May"
@@ -1308,23 +1315,23 @@ const STALE_CASHBACK_LEAD = [
   '| | |',
   '|---|---|',
   '| **Rate** | **10.00% purchases / 12.00% cash advances** — from the statement rate table |',
-  '| Credit limit | **$1,000.00** |',
-  '| Balance | $1,100.00 — **$100.00 OVER the limit** |',
+  '| Credit limit | **$1,234.00** |',
+  '| Balance | $1,345.00 — **$111.00 OVER the limit** |',
   '| Available credit | **$0.00** |',
-  '| Minimum payment | **$50.00**, due **1 Sep 2026** |',
+  '| Minimum payment | **$58.00**, due **1 Sep 2026** |',
   '| Statement cycle | 8th to 7th |',
-  '| Recent charges | Interest **$15.00/month**, plus a **$25.00 over-limit fee** |',
-  '| Cash Back Dollars | $5.00 |',
+  '| Recent charges | Interest **$19.00/month**, plus a **$31.00 over-limit fee** |',
+  '| Cash Back Dollars | $7.00 |',
   '',
   '**Position after that payment:**',
   '',
   '| | |',
   '|---|---|',
-  '| Balance | **~$1,050.00** [calculated, $1,100.00 − $50.00] |',
-  '| Credit limit | $1,000.00 |',
-  '| **Still over the limit by** | **~$50.00** |',
-  '| Over-limit fee | **$25.00/month, still accruing** until the balance is under $1,000 |',
-  '| Next minimum | **$40.00, due 1 Sep 2026** — unaffected by this payment |',
+  '| Balance | **~$1,287.00** [calculated, $1,345.00 − $58.00] |',
+  '| Credit limit | $1,234.00 |',
+  '| **Still over the limit by** | **~$53.00** |',
+  '| Over-limit fee | **$31.00/month, still accruing** until the balance is under $1,234 |',
+  '| Next minimum | **$43.00, due 1 Sep 2026** — unaffected by this payment |',
 ].join('\n');
 const STALE_TRAVEL_LEAD = [
   '### Travel Visa *(…0000)* — **a Business Visa**',
@@ -1332,15 +1339,15 @@ const STALE_TRAVEL_LEAD = [
   '| | |',
   '|---|---|',
   '| **Rate** | **10.00% purchases / 12.00% cash** — the lowest card rate in the household |',
-  '| Balance | $480.00 · pending $60.00 |',
-  '| Available credit | **$20.00** |',
-  '| **Credit limit** | **$500.00** *(verified 2026-08-09 from the Manage tab)* |',
-  '| Minimum payment | $25.00, due **26 Aug 2026** |',
+  '| Balance | $589.00 · pending $67.00 |',
+  '| Available credit | **$21.00** |',
+  '| **Credit limit** | **$610.00** *(verified 2026-08-09 from the Manage tab)* |',
+  '| Minimum payment | $26.00, due **26 Aug 2026** |',
   '',
-  '**The limit is $500.00 — by far the smallest in the household**, and the card',
-  'is at **96.0%** of it with $20.00 available. **The $60.00 of pending charges will',
-  'take it over.** $480.00 + $60.00 = **$540.00 against a $500 limit**, or',
-  '**$40.00 over** [calculated].',
+  '**The limit is $610.00 — by far the smallest in the household**, and the card',
+  'is at **96.6%** of it with $21.00 available. **The $67.00 of pending charges will',
+  'take it over.** $589.00 + $67.00 = **$656.00 against a $610 limit**, or',
+  '**$46.00 over** [calculated].',
 ].join('\n');
 const staleCashbackHits = competingCurrentState(
   STALE_CASHBACK_LEAD, utilById.cashback);
@@ -1359,14 +1366,14 @@ const COPIED_CURRENT_CASHBACK = [
   '| | |',
   '|---|---|',
   '| **Rate** | **10.00% purchases / 12.00% cash advances** — from the statement rate table |',
-  '| Credit limit | **$1,000.00** |',
+  '| Credit limit | **$1,234.00** |',
   '| Statement cycle | 8th to 7th |',
   '| Due | 1st, monthly |',
   '',
   '**Canonical Forecast opening is the 2026-08-19 `data.json` record**,',
-  `not the 9 August snapshot. Posted **${money(utilById.cashback.posted)}**, pending **$10.00**,`,
+  `not the 9 August snapshot. Posted **${money(utilById.cashback.posted)}**, pending **$14.00**,`,
   'available credit is Forecast-derived (not household cash). Posted is',
-  'under the $1,000 limit; the card is not over limit on this opening.',
+  'under the $1,234 limit; the card is not over limit on this opening.',
 ].join('\n');
 const copiedCurrentHits = competingCurrentState(
   COPIED_CURRENT_CASHBACK, utilById.cashback);
@@ -1374,16 +1381,16 @@ ok(copiedCurrentHits.length > 0,
   'copying today\'s matching posted cents is still a competing current-state copy',
   copiedCurrentHits.join('; '));
 ok(leftoverCopies(
-  'Consolidation into the HELOC is not available. It is 99.0% drawn with $1,000.00 left.',
+  'Consolidation into the HELOC is not available. It is 99.0% drawn with $1,111.00 left.',
   utilById.heloc
 ).length > 0,
   'stale present-tense HELOC leftover is a current-state copy');
 ok(leftoverCopies(
-  `On the current 2026-08-19 opening it has ${money(utilById.heloc.available)} left (the 9 August snapshot had $1,000.00).`,
+  `On the current 2026-08-19 opening it has ${money(utilById.heloc.available)} left (the 9 August snapshot had $1,212.00).`,
   utilById.heloc
 ).length > 0,
   'copying today\'s matching HELOC leftover is still a current-state copy');
-ok(/\$\s*[\d,]/.test('| **1st** | TD Cash Back Visa minimum | ~$170 | TD — **see note** |'),
+ok(/\$\s*[\d,]/.test('| **1st** | TD Cash Back Visa minimum | ~$123 | TD — **see note** |'),
   'a replacement Cash Back calendar dollar amount is the shape the live-row check would catch');
 
 console.log('\n=== no financial event appears twice ===');
