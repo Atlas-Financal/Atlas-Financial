@@ -118,32 +118,6 @@ function independentMonthNet(events, start, spanStart, spanEnd, weeklyVariable, 
   };
 }
 
-function independentCardMonthEnd(opening, rate, paymentDay, paymentAmount, start, end, limit) {
-  let balance = opening;
-  let paid = 0;
-  let interest = 0;
-  let firstOver = null;
-  let date = start;
-  while (date <= end) {
-    const daily = balance * (rate / 100) / 365;
-    balance += daily;
-    interest += daily;
-    if (paymentAmount > 0 && Number(date.slice(8, 10)) === paymentDay && balance > 0) {
-      const take = Math.min(paymentAmount, balance);
-      balance -= take;
-      paid += take;
-    }
-    if (firstOver == null && limit != null && balance > limit) firstOver = date;
-    date = addDays(date, 1);
-  }
-  return {
-    balance: roundCent(balance),
-    paid: roundCent(paid),
-    interest: roundCent(interest),
-    firstOver,
-  };
-}
-
 function zeroSpendFixture(extraPlan, extraDebts) {
   return fixture(Object.assign({
     startingCash: { amount: 200 },
@@ -161,29 +135,6 @@ function zeroSpendFixture(extraPlan, extraDebts) {
     bills: [],
     commitments: [],
   }, extraPlan || {}), extraDebts);
-}
-
-function signalsOf(traj, kind) {
-  return ((traj && traj.pressure && traj.pressure.signals) || []).filter(s => s.kind === kind);
-}
-
-function hasPolicyLeak(pressure) {
-  const text = JSON.stringify(pressure || {});
-  return /targetBuffer|belowBuffer|riskScore|safeToSpend|breathingRoom|RYG|affordabilityThreshold/.test(text);
-}
-
-function attributionOf(signal) {
-  return signal && signal.attribution || null;
-}
-
-function driverOf(signal, cls) {
-  const attr = attributionOf(signal);
-  return ((attr && attr.drivers) || []).find(d => d && d.class === cls) || null;
-}
-
-function driversSum(signal) {
-  const attr = attributionOf(signal);
-  return roundCent(((attr && attr.drivers) || []).reduce((s, d) => s + (Number(d && d.amount) || 0), 0));
 }
 
 function independentBiweekly(anchor, start, end) {
@@ -338,7 +289,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
       src.indexOf('function baselineTrajectory('))),
     'the span helper reuses the monthly funding arithmetic');
   ok(!/function baselineTrajectoryPressure\(/.test(src) && !/function baselineTrajectoryDebtDirection\(/.test(src)
-    && !/\bpressure,/.test(body) && !/\bdebtDirection,/.test(body),
+    && !/\b(pressure|debtDirection)\b\s*[,:}]/.test(body),
     'baselineTrajectory publishes no pressure or debtDirection (no reader; retired)');
   ok(/payrollPlanningAssumptions/.test(src)
     && /readPayrollPlanningAssumptions\(/.test(src),
@@ -601,7 +552,6 @@ console.log('\n=== 7. Fail-closed and non-goals ===');
   const { plan, debts } = fixture();
   ok(F.baselineTrajectory(plan, debts, START, {}).status === 'unavailable',
     'missing periods/breakdown is unavailable, not a $0 weekly walk');
-  const missingPeriods = F.baselineTrajectory(plan, debts, START, {});
   const packetSrc = read('scripts/assistant-packet.js');
   ok(/Forecast\.baselineTrajectory\(/.test(packetSrc),
     'assistant packet calls Forecast.baselineTrajectory');
