@@ -188,7 +188,7 @@ ok(near(mortgageDebt.cashPayment, mortgageObligation.amount),
   'and the debt record agrees it is cash that leaves an account',
   money(mortgageDebt.cashPayment));
 
-// The Modeller added the an amount to the mortgage and called the total "today",
+// The Modeller added an amount to the mortgage and called the total "today",
 // which invented a household bill that nobody pays. The Modeller and the renewal
 // calculator are retired; what is held here is that the engine still counts only
 // cash obligations as household cash, deriving that from the obligation being
@@ -1006,9 +1006,17 @@ ok(!/\$?3,507/.test(master),
   const note = data.incomeNote || '';
   ok(!plan.income.some(s => s.id === 'amandaTransfer'),
     'retired amandaTransfer stream is not live household income');
-  ok(amanda15 && amandaEom
-      && Math.round((amanda15.amount + amandaEom.amount) * 100) === 455684,
-    'the two Tennis BC salary streams total the recorded monthly amount');
+  // Expected total comes from the owner-observed salary deposits (the
+  // reconciliation record that is compared to Forecast income), not a
+  // literal: the arithmetic proof stays, no household figure is written here.
+  const observed = require('../docs/reconciliation/amanda-income-observations.json').observations || [];
+  const deposit = id => observed.find(o => o.observationId === id && o.fact === 'employment-deposit');
+  const mid = deposit('payday-amanda-salary-midmonth'), end = deposit('payday-amanda-salary-monthend');
+  ok(amanda15 && amandaEom && mid && end
+      && Number.isFinite(Number(mid.amount)) && Number.isFinite(Number(end.amount))
+      && Math.round((amanda15.amount + amandaEom.amount) * 100)
+        === Math.round((Number(mid.amount) + Number(end.amount)) * 100),
+    'the two Tennis BC salary streams total the owner-observed monthly deposits');
   ok(!/the transfers stopped after May 2026 while the income did not/.test(dataStr),
     'published data.json no longer claims the transfers stopped after May while the income did not');
   ok(/garage\/lab/i.test(note) && /amandaSalary15/.test(note) === false,
@@ -1282,47 +1290,47 @@ const STALE_CASHBACK_LEAD = [
   '',
   '| | |',
   '|---|---|',
-  '| **Rate** | **1,137.13% purchases / 1,274.26% cash advances** — from the statement rate table |',
-  '| Credit limit | **$1,411.39** |',
-  '| Balance | $1,548.52 — **$1,685.65 OVER the limit** |',
-  '| Available credit | **$1,822.78** |',
-  '| Minimum payment | **$1,959.91**, due **1 Sep 2026** |',
+  '| **Rate** | **10.00% purchases / 12.00% cash advances** — from the statement rate table |',
+  '| Credit limit | **$1,000.00** |',
+  '| Balance | $1,100.00 — **$100.00 OVER the limit** |',
+  '| Available credit | **$0.00** |',
+  '| Minimum payment | **$50.00**, due **1 Sep 2026** |',
   '| Statement cycle | 8th to 7th |',
-  '| Recent charges | Interest **$2,097.04/month**, plus a **$2,234.17 over-limit fee** |',
-  '| Cash Back Dollars | $2,371.30 |',
+  '| Recent charges | Interest **$15.00/month**, plus a **$25.00 over-limit fee** |',
+  '| Cash Back Dollars | $5.00 |',
   '',
   '**Position after that payment:**',
   '',
   '| | |',
   '|---|---|',
-  '| Balance | **~$2,508.43** [calculated, $2,645.56 − $2,782.69] |',
-  '| Credit limit | $2,919.82 |',
-  '| **Still over the limit by** | **~$3,056.95** |',
-  '| Over-limit fee | **$3,194.08/month, still accruing** until the balance is under $700 |',
-  '| Next minimum | **$3,331.21, due 1 Sep 2026** — unaffected by this payment |',
+  '| Balance | **~$1,050.00** [calculated, $1,100.00 − $50.00] |',
+  '| Credit limit | $1,000.00 |',
+  '| **Still over the limit by** | **~$50.00** |',
+  '| Over-limit fee | **$25.00/month, still accruing** until the balance is under $1,000 |',
+  '| Next minimum | **$40.00, due 1 Sep 2026** — unaffected by this payment |',
 ].join('\n');
 const STALE_TRAVEL_LEAD = [
   '### Travel Visa *(…0000)* — **a Business Visa**',
   '',
   '| | |',
   '|---|---|',
-  '| **Rate** | **3,468.34% purchases / 3,605.47% cash** — the lowest card rate in the household |',
-  '| Balance | $3,742.60 · pending $3,879.73 |',
-  '| Available credit | **$4,016.86** |',
-  '| **Credit limit** | **$4,153.99** *(verified 2026-08-09 from the Manage tab)* |',
-  '| Minimum payment | $4,291.12, due **26 Aug 2026** |',
+  '| **Rate** | **10.00% purchases / 12.00% cash** — the lowest card rate in the household |',
+  '| Balance | $480.00 · pending $60.00 |',
+  '| Available credit | **$20.00** |',
+  '| **Credit limit** | **$500.00** *(verified 2026-08-09 from the Manage tab)* |',
+  '| Minimum payment | $25.00, due **26 Aug 2026** |',
   '',
-  '**The limit is $4,428.25 — by far the smallest in the household**, and the card',
-  'is at **13.5%** of it with $4,565.38 available. **The $4,702.51 of pending charges will',
-  'take it over.** $4,839.64 + $4,976.77 = **$5,113.90 against a $1,400 limit**, or',
-  '**$5,251.03 over** [calculated].',
+  '**The limit is $500.00 — by far the smallest in the household**, and the card',
+  'is at **96.0%** of it with $20.00 available. **The $60.00 of pending charges will',
+  'take it over.** $480.00 + $60.00 = **$540.00 against a $500 limit**, or',
+  '**$40.00 over** [calculated].',
 ].join('\n');
 const staleCashbackHits = competingCurrentState(
   STALE_CASHBACK_LEAD, utilById.cashback);
 const staleTravelHits = competingCurrentState(
   STALE_TRAVEL_LEAD, utilById.travelvisa);
 ok(staleCashbackHits.length > 0,
-  'stale Cash Back over-limit / $0 available / $5,388.16 minimum prose is a competing current-state copy',
+  'stale Cash Back over-limit / zero-available / minimum prose is a competing current-state copy',
   staleCashbackHits.join('; '));
 ok(staleTravelHits.length > 0,
   'stale Travel Visa pending-will-take-it-over prose is a competing current-state copy',
@@ -1333,15 +1341,15 @@ const COPIED_CURRENT_CASHBACK = [
   '',
   '| | |',
   '|---|---|',
-  '| **Rate** | **5,525.29% purchases / 5,662.42% cash advances** — from the statement rate table |',
-  '| Credit limit | **$5,799.55** |',
+  '| **Rate** | **10.00% purchases / 12.00% cash advances** — from the statement rate table |',
+  '| Credit limit | **$1,000.00** |',
   '| Statement cycle | 8th to 7th |',
   '| Due | 1st, monthly |',
   '',
   '**Canonical Forecast opening is the 2026-08-19 `data.json` record**,',
-  `not the 9 August snapshot. Posted **${money(utilById.cashback.posted)}**, pending **$5,936.68**,`,
+  `not the 9 August snapshot. Posted **${money(utilById.cashback.posted)}**, pending **$10.00**,`,
   'available credit is Forecast-derived (not household cash). Posted is',
-  'under the $2,100 limit; the card is not over limit on this opening.',
+  'under the $1,000 limit; the card is not over limit on this opening.',
 ].join('\n');
 const copiedCurrentHits = competingCurrentState(
   COPIED_CURRENT_CASHBACK, utilById.cashback);
@@ -1349,12 +1357,12 @@ ok(copiedCurrentHits.length > 0,
   'copying today\'s matching posted cents is still a competing current-state copy',
   copiedCurrentHits.join('; '));
 ok(leftoverCopies(
-  'Consolidation into the HELOC is not available. It is 16.5% drawn with $6,073.81 left.',
+  'Consolidation into the HELOC is not available. It is 99.0% drawn with $1,000.00 left.',
   utilById.heloc
 ).length > 0,
-  'stale present-tense HELOC $6,210.94 leftover is a current-state copy');
+  'stale present-tense HELOC leftover is a current-state copy');
 ok(leftoverCopies(
-  `On the current 2026-08-19 opening it has ${money(utilById.heloc.available)} left (the 9 August snapshot had $6,348.07).`,
+  `On the current 2026-08-19 opening it has ${money(utilById.heloc.available)} left (the 9 August snapshot had $1,000.00).`,
   utilById.heloc
 ).length > 0,
   'copying today\'s matching HELOC leftover is still a current-state copy');

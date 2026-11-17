@@ -265,7 +265,7 @@ function regenerateComputedRows(data, csvText, opts) {
     row[0] = 'Household'; row[1] = 'Physical'; row[2] = 'Silver bullion'; row[3] = 'Precious metal';
     row[4] = 'Asset'; row[5] = 'CAD'; row[6] = n2(SILVER.value); row[12] = 'Physical holding - no counterparty';
     row[18] = 'ESTIMATE'; row[19] = data.meta.asOf;
-    row[20] = '100 oz owner-stated 10 August 2026 valued at the C$88.47/oz spot price that day; a market price '
+    row[20] = 'Owner-stated 10 August 2026 holding valued at the C$88.47/oz spot price that day; a market price '
       + 'not a quote and dealers buy under spot; any gain over cost is a taxable capital gain';
     out.splice(idx >= 0 ? idx : out.length - 1, 0, line(row));
   }

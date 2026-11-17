@@ -10,6 +10,8 @@ are deliberately not repeated here.
 Every entry carries a **verified** date. Variable rates move with prime — treat
 anything older than a few months as needing re-checking, not as fact.
 
+The one-off analysis and statement-reader scripts named below (`scripts/mbna.js`, `scripts/pdfdecrypt.js` and the like) were removed on 2026-11-16 by owner decision; they remain in git history. `scripts/categorise-chequing.js` is kept.
+
 ---
 
 ## Household financial timezone *(owner-stated 2026-08-18)*
