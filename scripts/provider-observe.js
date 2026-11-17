@@ -5104,10 +5104,12 @@ function linkedBillMisfitIds(collapsed, opts, linkedLocalIds, existingLocalId) {
     const ids = Array.from(new Set(owners.map(rule => rule.eventId)));
     // Grok Bot (after #1265): a recurring link and an item note naming different bills settle
     // neither; the payment is money out to confirm, and its line names both bills.
+    // Lead (on #1267): the two naming notes below are for money out only; a refund gets neither.
+    const moneyOut = lunchMoneyDebitAmount(tx.amount) > 0;
     const recurringIds = Array.from(new Set(byRecurring.map(rule => rule.eventId)));
     const itemIds = Array.from(new Set(byItem.map(rule => rule.eventId)));
     if (recurringIds.length === 1 && itemIds.length === 1 && recurringIds[0] !== itemIds[0]) {
-      out.set(localId, { id: recurringIds[0], label: billLabel(recurringIds[0]),
+      if (moneyOut) out.set(localId, { id: recurringIds[0], label: billLabel(recurringIds[0]),
         otherId: itemIds[0], otherLabel: billLabel(itemIds[0]), check: 'links disagree' });
       continue;
     }
@@ -5116,7 +5118,7 @@ function linkedBillMisfitIds(collapsed, opts, linkedLocalIds, existingLocalId) {
       // confirmed it links nothing and reads To confirm; its line names the category.
       const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
       const claimants = categoryId ? rules.filter(rule => ruleCategoryClaims(rule).includes(categoryId)) : [];
-      if (claimants.length === 1 && !categoryNameConfirmed(claimants[0], categoryId, tx.categoryLabel)) {
+      if (moneyOut && claimants.length === 1 && !categoryNameConfirmed(claimants[0], categoryId, tx.categoryLabel)) {
         const name = typeof tx.categoryLabel === 'string' && tx.categoryLabel.trim() ? tx.categoryLabel.trim() : null;
         // Removed (no ledger name): the last name Dale confirmed for that id, when exactly one is recorded.
         const confirmed = name ? null : confirmedCategoryName(claimants[0], categoryId);

@@ -180,6 +180,21 @@ function hasBrowser() {
     H.expect(m && m.check === 'category' && m.categoryName === null && m.confirmedCategoryName == null,
       `no confirmed name (got ${JSON.stringify(m)})`);
   });
+  // Lead (on #1267): the naming notes are for money out only; a refund on either path gets no line.
+  await report('engine: a refund on the cross-linked or removed-category path carries no line', async () => {
+    const cross = crossLinked();
+    cross.transactions[cross.transactions.length - 1].amount = '-63.21';
+    const removed = removedCategory({ id: '9302', name: 'Invented natural gas' });
+    removed.transactions[removed.transactions.length - 1].amount = '-63.21';
+    const renamed = renamedCategory();
+    renamed.transactions[renamed.transactions.length - 1].amount = '-63.21';
+    for (const [what, w] of [['cross-linked', cross], ['removed category', removed], ['renamed category', renamed]]) {
+      const r = engine(w);
+      H.expect(r.settled.length === 0, `${what}: nothing settles (got ${JSON.stringify(r.settled)})`);
+      H.expect(r.txs.length === 1 && r.txs.every(t => !t.linkedBillMisfit),
+        `${what}: the refund is observed with no line (got ${JSON.stringify(r.txs.map(t => [t.amount, t.linkedBillMisfit]))})`);
+    }
+  });
   await report('engine: control: the confirmed category name links power, with no line', async () => {
     const w = renamedCategory();
     w.bills[0].rule = { lunchMoneyCategoryIds: [{ id: '9301', name: 'Invented utilities renamed' }] };
