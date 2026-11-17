@@ -11270,7 +11270,7 @@
   // Lead-approved fixed name table (exact name, case-insensitive, trailing
   // " ...NNNN" ignored, never matched by the digits). Any other named card is
   // 'unknown' and pairs with nothing until its spelling is confirmed.
-  const CARD_PAYMENT_NOTE_CARDS = new Map([['td cash back visa', 'cashback'], ['travel visa', 'travelvisa']]);
+  const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa' });
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -11279,7 +11279,7 @@
       const m = /^\s*card payment:\s*(.*)$/i.exec(segment);
       if (!m) continue;
       const name = m[1].replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
-      found.add(CARD_PAYMENT_NOTE_CARDS.get(name) || 'unknown');
+      found.add(Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown');
     }
     if (!found.size) return null;
     return found.size === 1 ? [...found][0] : 'unknown';
