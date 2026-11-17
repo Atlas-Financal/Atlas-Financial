@@ -194,13 +194,40 @@ console.log('5. The owner-policy guard: only day and dateConfidence, only on a s
   const before = { plan: { bills: [BILL, { ...BILL, id: 'other' }] } };
   const moved = patch => ({ plan: { bills: [{ ...BILL, ...patch }, { ...BILL, id: 'other' }] } });
   const throws = (after, set) => { try { Live.assertOwnerPolicyUntouched(before, after, set); return false; } catch (_) { return true; } };
-  ok(!throws(moved({ day: 4, dateConfidence: 'confirmed' }), new Set(['band'])), 'a scheduled bill\'s day and date tag may differ');
+  ok(!throws(moved({ dateConfidence: 'confirmed' }), new Set(['band'])), 'a scheduled bill\'s date tag may become confirmed');
+  ok(throws(moved({ dateConfidence: 'confirmed' }), new Set()), 'no schedule: the date tag may not differ');
+  ok(throws(moved({ day: 4, dateConfidence: 'confirmed' }), new Set(['band'])), 'a scheduled bill\'s day may not differ');
+  ok(throws(moved({ dateConfidence: 'verified' }), new Set(['band'])), 'the date tag may become nothing but confirmed');
   ok(throws(moved({ day: 4 }), new Set()), 'no schedule: the day may not differ');
   ok(throws(moved({ amount: 90 }), new Set(['band'])), 'the amount may not differ');
   ok(throws(moved({ confidence: 'confirmed' }), new Set(['band'])), 'the amount tag may not differ');
   ok(throws(moved({ firstDue: '2026-10-20' }), new Set(['band'])), 'firstDue may not differ');
   ok(throws({ plan: { bills: [BILL, { ...BILL, id: 'other', day: 9 }] } }, new Set(['band'])), 'another bill may not differ');
   ok(throws({ plan: { bills: [BILL] } }, new Set(['band'])), 'a bill may not be removed');
+}
+
+console.log('6. The schedule records stay internal: not served, not in the assistant packet or the figures snapshot');
+{
+  // One applied and one withheld schedule (#1281 note): the report carries
+  // both, and none of the served outputs does.
+  const two = world({ rules: [{ eventId: 'band', lunchMoneyRecurringIds: [ID], atlasAccountId: 'chequing-a', direction: 'debit' }] });
+  two.bills.push({ ...BILL, id: 'other', label: 'Invented other room', day: 9 });
+  two.identityRules.push({ eventId: 'other', lunchMoneyRecurringIds: ['7123459'], atlasAccountId: 'chequing-a', direction: 'debit' });
+  H.productionOpening(two);
+  const r = Live.fromObservation({ data: H.canonicalOf(two, H.planOf(two)),
+    payload: { ...H.rawPayload(two), recurringItems: read([readItem(ID), readItem('7123459', { criteria: { anchorDate: '2026-01-12' }, expected: ['2026-10-12'] })]) },
+    accountMap: H.accountMapOf(two), identity: H.identityOf(two) });
+  ok((r.report.recurringBillSchedules || []).length === 1 && (r.report.recurringBillSchedulesWithheld || []).length === 1,
+    'positive control: the report holds one applied and one withheld schedule');
+  const leak = blob => /recurringBillSchedules|anchor-day-differs-from-plan|lunchmoney-recurring"/.test(blob);
+  ok(!leak(JSON.stringify(r.data)), 'the served document carries neither');
+  const Assistant = require('../scripts/assistant-packet.js');
+  const Snapshot = require('../scripts/figures-snapshot.js');
+  let packet = null, snap = null;
+  try { packet = Assistant.buildPacket({ data: r.data, periods: [], questionsMarkdown: '' }); } catch (_) {}
+  try { snap = Snapshot.buildFiguresSnapshot(r.data, []); } catch (_) {}
+  ok(packet && !leak(JSON.stringify(packet)), 'the assistant packet builds and carries neither');
+  ok(snap && !leak(JSON.stringify(snap)), 'the figures snapshot builds and carries neither');
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
