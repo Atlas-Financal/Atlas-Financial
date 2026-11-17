@@ -3007,22 +3007,90 @@ function salaryReceiptTransferHits(input, rules) {
   return hits;
 }
 
+// Lead note 1 on #1283: once a reviewed Lunch Money item moves a bill's day,
+// an opening row recorded under the old date names the same occurrence. It
+// is re-dated to the scheduled occurrence nearest to it, within
+// REKEY_REPRESENTED_DAYS and only when exactly one is nearest; otherwise it
+// stays as dated (the occurrence stays reserved). Rows for other bills, and
+// rows already on a scheduled date, are untouched. Returns a new array.
+const REKEY_REPRESENTED_DAYS = 14;
+function rekeyRepresentedToSchedule(plan, rows, billIds) {
+  const ids = billIds instanceof Set ? billIds : new Set(billIds || []);
+  if (!ids.size || !Array.isArray(rows)) return rows;
+  const out = [];
+  const keys = new Set();
+  for (const row of rows) {
+    let next = row;
+    if (row && ids.has(row.id) && parseIsoDate(row.date)) {
+      const dates = scheduledEventsOnRange(plan, Forecast.addDays(row.date, -31), Forecast.addDays(row.date, 31))
+        .filter(event => event && event.id === row.id).map(event => event.date);
+      if (!dates.includes(row.date)) {
+        const near = [...new Set(dates)].map(date => ({ date, gap: Math.abs(calendarDaysBetween(row.date, date)) }))
+          .filter(d => d.gap <= REKEY_REPRESENTED_DAYS).sort((a, b) => a.gap - b.gap);
+        if (near.length && (near.length === 1 || near[1].gap > near[0].gap)) next = { ...row, date: near[0].date };
+      }
+    }
+    const key = next && next.id && next.date ? next.id + '@' + next.date : null;
+    if (key && keys.has(key)) continue;
+    if (key) keys.add(key);
+    out.push(next);
+  }
+  return out;
+}
+
+// S3 linked-occurrence ledger (Grok Bot, rule 17, Plan #6 LM thread
+// 2026-11-17; steps 1-4 of the rebuilt rule). For one opt-in rule, the
+// occurrences it can see: the last two due on or before the observation date
+// and every later one. A payment can belong to an occurrence when it posts
+// after the previous occurrence's due date and no more than
+// COVER_DUE_LOOKBACK_DAYS after its own. `fetchFrom` is the first posting
+// date any of them could take, so the transaction read must reach it.
+function linkedOccurrenceLedger(plan, rule, asOf) {
+  const observedOn = parseIsoDate(asOf);
+  if (!plan || !rule || !rule.eventId || !observedOn) return null;
+  const from = Forecast.addDays(observedOn, -RECONCILE_HISTORY_DAYS - 2 * COVER_DUE_LOOKBACK_DAYS);
+  const to = Forecast.addDays(observedOn, 2 * COVER_DUE_LOOKBACK_DAYS);
+  const events = scheduledEventsOnRange(plan, from, to).filter(event => event && event.id === rule.eventId && event.date);
+  const all = [...new Set(events.map(event => event.date))].sort();
+  const pastIdx = all.filter(date => date <= observedOn).length - 1;
+  if (pastIdx < 0) return null;
+  const firstIdx = Math.max(0, pastIdx - 1);
+  // Before a bill's first occurrence nothing is due, so the read reaches
+  // back one full lookback from it instead.
+  const fetchFrom = firstIdx > 0 ? Forecast.addDays(all[firstIdx - 1], 1)
+    : Forecast.addDays(all[0], -COVER_DUE_LOOKBACK_DAYS);
+  return {
+    all,
+    occurrences: all.slice(firstIdx),
+    previousOf: date => all[all.indexOf(date) - 1] || null,
+    amountOf: date => (events.find(event => event.date === date) || {}).amount,
+    fetchFrom,
+  };
+}
+
+function linkedEarliestUnsettledRules(identityRules) {
+  return (identityRules || []).filter(rule => rule && rule.postingDateRule === LM_LINKED_EARLIEST_UNSETTLED
+    && rule.eventId && rule.direction === 'debit' && ruleLunchMoneyRecurringIds(rule).length);
+}
+
 // The S3 one-pass assignment. For each opt-in rule, its linked posted debits
 // (identity, account, direction, currency and amount-consistency as the
-// incumbent matcher) are taken oldest first. Each settles the earliest
-// occurrence that is not yet settled, from one cycle (31 days) before its
-// posting up to the next occurrence due on or after it. Settled means: named
-// by the plan opening's representedEvents (effective by the observation),
-// dated before the settlement opening boundary (already inside the opening
-// cash), or taken by an earlier payment in this pass. A payment that is the
-// second in its cycle (the run up to that next due occurrence) and would
-// settle an occurrence not yet due, or has nothing left to settle, reads To
-// confirm (toConfirm) and settles nothing.
-function stampLinkedEarliestUnsettled(transactions, identityRules, plan, accountMap, asOf) {
-  const rules = (identityRules || []).filter(rule => rule && rule.postingDateRule === LM_LINKED_EARLIEST_UNSETTLED
-    && rule.eventId && rule.direction === 'debit' && ruleLunchMoneyRecurringIds(rule).length);
+// incumbent matcher) are taken oldest first, one payment per occurrence. Each
+// payment goes to the earliest occurrence it can belong to that has no payment
+// yet. An occurrence Atlas already counts as paid (named by the plan
+// opening's representedEvents, or before the settlement opening boundary)
+// still takes its one payment, which then settles nothing new, so a payment
+// is never used twice (Codex P1 on #1282). Grok's guard: a payment that is the
+// second in its cycle (the run up to its next due occurrence) and would settle
+// an occurrence not yet due, or has nothing left, reads To confirm (toConfirm)
+// and settles nothing. When the transaction read does not reach the ledger's
+// `fetchFrom`, or is incomplete, nothing is assigned (fail closed: the bill
+// stays reserved).
+function stampLinkedEarliestUnsettled(transactions, identityRules, plan, accountMap, asOf, window) {
+  const rules = linkedEarliestUnsettledRules(identityRules);
   for (const tx of transactions || []) if (tx && Object.hasOwn(tx, 'lmLinkedAssignment')) delete tx.lmLinkedAssignment;
   if (!rules.length || !plan) return;
+  if (!window || window.complete !== true || !parseIsoDate(window.startDate)) return;
   const opening = plan.opening || {};
   const observedOn = parseIsoDate(asOf);
   const settledBase = new Set();
@@ -3033,9 +3101,12 @@ function stampLinkedEarliestUnsettled(transactions, identityRules, plan, account
   }
   const boundary = parseIsoDate(opening.priorAsOf || opening.asOf);
   for (const rule of rules) {
+    const ledger = linkedOccurrenceLedger(plan, rule, observedOn);
+    if (!ledger || window.startDate > ledger.fetchFrom) continue;
     const seen = new Set();
     const txs = (transactions || []).filter(tx => {
       if (!tx || tx.pending !== false || tx.contradictoryEvidence === true || !tx.date) return false;
+      if (tx.date < ledger.fetchFrom) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
       if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
       if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) return false;
@@ -3046,33 +3117,33 @@ function stampLinkedEarliestUnsettled(transactions, identityRules, plan, account
       return true;
     }).sort((a, b) => String(a.date).localeCompare(String(b.date))
       || String(a.providerTransactionId).localeCompare(String(b.providerTransactionId)));
-    if (!txs.length) continue;
-    const from = Forecast.addDays(txs[0].date, -COVER_DUE_LOOKBACK_DAYS);
-    const to = Forecast.addDays(txs[txs.length - 1].date, 2 * COVER_DUE_LOOKBACK_DAYS);
-    const events = scheduledEventsOnRange(plan, from, to).filter(event => event && event.id === rule.eventId && event.date);
-    const occurrences = [...new Set(events.map(event => event.date))].sort();
-    const amountOf = date => (events.find(event => event.date === date) || {}).amount;
-    const taken = new Set();
+    const occurrences = ledger.occurrences;
+    const filled = new Set();
     const cycleCount = new Map();
-    const unsettled = date => !taken.has(date) && !settledBase.has(rule.eventId + '@' + date)
-      && !(boundary && date < boundary);
+    const alreadyPaid = date => settledBase.has(rule.eventId + '@' + date) || !!(boundary && date < boundary);
+    const eligible = (date, posted) => {
+      const previous = ledger.previousOf(date);
+      return (!previous || posted > previous) && posted <= Forecast.addDays(date, COVER_DUE_LOOKBACK_DAYS);
+    };
     for (const tx of txs) {
-      const nextDue = occurrences.find(date => date >= tx.date) || null;
-      const earliest = Forecast.addDays(tx.date, -COVER_DUE_LOOKBACK_DAYS);
-      const candidate = occurrences.find(date => date >= earliest && (!nextDue || date <= nextDue) && unsettled(date)) || null;
-      const beyond = candidate ? null : occurrences.find(date => nextDue && date > nextDue && unsettled(date)) || null;
+      const nextDue = ledger.all.find(date => date >= tx.date) || null;
+      const target = occurrences.find(date => !filled.has(date) && eligible(date, tx.date)) || null;
+      const beyond = target ? null : occurrences.find(date => nextDue && date > nextDue && !filled.has(date)) || null;
       // A payment outside the incumbent amount-consistency bound is no bill
       // payment at all: it settles nothing and does not count in its cycle.
-      const target = candidate || beyond;
-      if (target && !billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), amountOf(target))) continue;
+      const aim = target || beyond;
+      if (aim && !billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), ledger.amountOf(aim))) continue;
       const cycle = nextDue || 'after-' + tx.date;
       const prior = cycleCount.get(cycle) || 0;
       cycleCount.set(cycle, prior + 1);
-      if (candidate && !(prior >= 1 && candidate > tx.date)) {
-        taken.add(candidate);
-        tx.lmLinkedAssignment = { eventId: rule.eventId, date: candidate };
-      } else if (prior >= 1 && (candidate || beyond)) {
-        tx.lmLinkedAssignment = { eventId: rule.eventId, date: candidate || beyond, toConfirm: true };
+      if (target && alreadyPaid(target)) {
+        // Its own payment: settles nothing new and cannot be reused.
+        filled.add(target);
+      } else if (target && !(prior >= 1 && target > tx.date)) {
+        filled.add(target);
+        tx.lmLinkedAssignment = { eventId: rule.eventId, date: target };
+      } else if (prior >= 1 && aim) {
+        tx.lmLinkedAssignment = { eventId: rule.eventId, date: aim, toConfirm: true };
       }
     }
   }
@@ -3636,6 +3707,12 @@ function postedHistoryDaysForCarriedSettlement(opts) {
     const postingDate = earliestEligiblePostingDate(occurrence, opts && opts.identity, plan);
     if (!postingDate || postingDate >= ordinaryStart) continue;
     if (!earliest || postingDate < earliest) earliest = postingDate;
+  }
+  // S3: an opt-in linked bill's ledger must see every payment that could
+  // belong to its oldest visible occurrence (same read, wider date range).
+  for (const rule of linkedEarliestUnsettledRules(opts && opts.identity && opts.identity.rules)) {
+    const ledger = linkedOccurrenceLedger(plan, rule, asOf);
+    if (ledger && ledger.fetchFrom < ordinaryStart && (!earliest || ledger.fetchFrom < earliest)) earliest = ledger.fetchFrom;
   }
   const priorCycleStart = previousSeaspanCycleStart(plan, asOf);
   if (priorCycleStart && priorCycleStart < ordinaryStart) {
@@ -4231,6 +4308,11 @@ function observeCore(input, capture) {
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
       bill && byBill.has(bill.id) ? { ...bill, day: byBill.get(bill.id).day,
         dateConfidence: byBill.get(bill.id).dateConfidence } : bill) } } };
+    const opening = input.data.plan.opening;
+    if (opening && Array.isArray(opening.representedEvents)) {
+      input.data.plan.opening = { ...opening, representedEvents: rekeyRepresentedToSchedule(input.data.plan,
+        opening.representedEvents, new Set(byBill.keys())) };
+    }
   }
   const mapped = [];
   const unmapped = [];
@@ -4340,7 +4422,8 @@ function observeCore(input, capture) {
   const planForIdentity = Object.assign({}, (input.data && input.data.plan) || {}, {
     debts: (input.data && input.data.debts) || [],
   });
-  stampLinkedEarliestUnsettled(collapsed.transactions, identityRules, planForIdentity, mapDoc, dateOnly(normalized.fetchedAt));
+  stampLinkedEarliestUnsettled(collapsed.transactions, identityRules, planForIdentity, mapDoc,
+    dateOnly(normalized.fetchedAt), normalized.transactionWindow);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
@@ -6658,6 +6741,7 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  rekeyRepresentedToSchedule,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,

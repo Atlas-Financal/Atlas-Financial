@@ -1344,6 +1344,10 @@ function overlayLiveState(input) {
     bill.dateConfidence = schedule.dateConfidence;
     scheduledBills.add(bill.id);
   }
+  if (scheduledBills.size && next.plan.opening && Array.isArray(next.plan.opening.representedEvents)) {
+    next.plan.opening.representedEvents = O.rekeyRepresentedToSchedule(next.plan,
+      next.plan.opening.representedEvents, scheduledBills);
+  }
   const cutover = applyLiveCutover(next, report, historicalOpeningAsOf);
   // Rebuild from fresh evidence. Absence on a later fetch is not proof that
   // a previously observed receipt funds an additional future occurrence.
