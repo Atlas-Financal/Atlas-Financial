@@ -8230,6 +8230,24 @@
     return catId;
   }
 
+  // LEDGER A item 3 (Grok Bot, rule 17; lead option A, 2026-11-16): a refund nets
+  // against its category only when the ledger links it to its purchase. Lunch
+  // Money returns a grouped purchase and refund as one group-parent row
+  // (isGroup), so that row is the linked form and nets as before. A standalone
+  // refund is unlinked: it never nets, never joins Other, and is listed on its
+  // own (unlinkedCategoryRefundRows). identifiedCategoryRefund stays the
+  // classification (which category a refund belongs to), so an unlinked refund
+  // still never settles expected income.
+  function linkedCategoryRefund(tx, cls, plan, opts) {
+    if (!tx || tx.isGroup !== true) return null;
+    return identifiedCategoryRefund(tx, cls, plan, opts);
+  }
+
+  function unlinkedCategoryRefund(tx, cls, plan, opts) {
+    if (!tx || tx.isGroup === true) return false;
+    return !!identifiedCategoryRefund(tx, cls, plan, opts);
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -8283,7 +8301,7 @@
         // Signed: with no same-period spend to absorb it the category shows
         // negative spent. A refund dated after a period closes is outside
         // that period's window, so it never rewrites the closed period.
-        const refundCat = state === 'posted' ? identifiedCategoryRefund(tx, cls, plan, classifyOpts) : null;
+        const refundCat = state === 'posted' ? linkedCategoryRefund(tx, cls, plan, classifyOpts) : null;
         if (refundCat) {
           if (!out.byId.has(refundCat)) out.byId.set(refundCat, { posted: 0, pending: 0, count: 0 });
           const row = out.byId.get(refundCat);
@@ -12453,7 +12471,7 @@
       // as a negative amount; every other refund stays out.
       if (opts && opts.categoryRefunds === true && cls.kind === 'refund'
           && transactionPendingState(tx) === 'posted') {
-        const refundCat = identifiedCategoryRefund(tx, cls, plan, classifyOpts);
+        const refundCat = linkedCategoryRefund(tx, cls, plan, classifyOpts);
         if (refundCat && visibleCategories.has(refundCat)) {
           result.push({ tx, cls: Object.assign(spendResult(refundCat, 'category-refund'), { direction: 'refund' }), amount });
         } else if (refundCat) {
@@ -12602,6 +12620,21 @@
         if (cls.kind !== 'savings-paid') continue;
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
         savingsPaidRows.push(reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate }));
+      }
+    }
+    // LEDGER A item 3: posted refunds the ledger does not link to a purchase.
+    // Display only: never in a category, Other spending, the hold or any total.
+    const unlinkedRefundRows = [];
+    if (actualsReady && windowStart && packet && Array.isArray(packet.transactions)) {
+      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      for (const tx of packet.transactions) {
+        if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
+          || skipSplitParent(tx, packet) || transactionPendingState(tx) !== 'posted') continue;
+        const amount = Number(tx.amount);
+        if (!isFinite(amount) || !(amount < 0)) continue;
+        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        if (cls.kind !== 'refund' || !unlinkedCategoryRefund(tx, cls, plan, classifyOpts)) continue;
+        unlinkedRefundRows.push(reconTxFrom(tx, { kind: 'refund', reason: 'refund-unlinked', includeReason: 'refund-unlinked' }));
       }
     }
     // G3a: an identified refund row is negative and nets, signed, within its
@@ -12790,6 +12823,9 @@
       // published for Paid from Savings. The display is withheld: Unavailable,
       // with the observed rows as a lower bound only. The cash accounting
       // (never a reserve, BAD, close or sweep deduction) is unchanged.
+      ...(unlinkedRefundRows.length ? { unlinkedRefunds: {
+        total: roundCent(unlinkedRefundRows.reduce((s, r) => s - (Number(r.amount) || 0), 0)),
+        trust: 'calculated', reason: 'refund-unlinked', recon: unlinkedRefundRows } } : {}),
       ...(savingsPaidRows.length ? { savingsPaid: { total: null,
         observedTotal: spentFromRecon(savingsPaidRows), complete: false,
         pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
@@ -16044,6 +16080,8 @@
         // Savings audit (PR 1): display only. Already in observed Savings;
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
+        // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
+        ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
         budgetHoldTrust: !planUnavailable && budget.holdUnproven === true ? 'unavailable'
           : !planUnavailable && budget.holdTrust === 'estimated' ? 'estimated' : null,

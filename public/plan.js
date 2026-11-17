@@ -6252,6 +6252,15 @@ function budgetSpendingSectionHtml(period, ctx) {
       <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
       ${reflected ? `<p>${reflected}</p>` : ''}</div>`;
   }
+  // LEDGER A item 3 (Grok Bot, rule 17): posted refunds the ledger does not link to a purchase. Forecast
+  // publishes them display-only; they are in no category, not in Other and not in any total.
+  function budgetUnlinkedRefundsBrowseHtml(period) {
+    const unlinked = period && period.unlinkedRefunds;
+    if (!unlinked || !Array.isArray(unlinked.recon) || !unlinked.recon.length || unlinked.trust !== 'calculated') return '';
+    const n = unlinked.recon.length;
+    return `<div class="budget-browse-note" data-budget-unlinked-refunds>
+      <p><strong>Refunds not linked</strong> <span>${budgetBrowseMoney(unlinked.total)}</span> <small>${n} ${n === 1 ? 'refund' : 'refunds'} · Review in Lunch Money</small></p></div>`;
+  }
   return `<section class="budget-browse-card budget-browse-spending" data-budget-browse="spending" data-budget-spending-evidence="${historyEvidence}"${feed ? ' data-bank-feed="stale"' : ''} aria-labelledby="budget-spending-heading">
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
@@ -6259,7 +6268,7 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
-    ${budgetSavingsPaidBrowseHtml(period)}
+    ${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
     <footer><button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }

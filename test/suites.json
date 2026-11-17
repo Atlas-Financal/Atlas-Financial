@@ -18,6 +18,7 @@
   ["private pay-period history rollover closing capture seam (issue #818 slice 1)","test-private-period-history-closing-capture.js"],
   ["saved close keeps the two chequing balances with their evidence date and the period edge; unavailable with a reason, never guessed; closed projection; not served (bank check, PR 1)","test-period-bank-balances.js"],
   ["per-pay-period bank check: Forecast.periodBankCheck opening (saved) vs closing (observed) against what Forecast counted, unavailable cases, edge cut, identities (bank check, PR 2)","test-period-bank-check.js"],
+  ["refunds: a standalone (unlinked) refund never nets into its category or Other and is listed as Refunds not linked; a Lunch Money group-parent refund nets as before","test-refund-unlinked-own-line.js"],
   ["refunds: a refund with no display name shows its bank description (Bank description: …), else Merchant unavailable, never the category; kept on refunds only, absent from the assistant packet and figures snapshot","test-refund-bank-description.js"],
   ["bills: a linked payment below the plan reads Partly paid at any shortfall (a label, no figure moves); a pending linked payment reads Payment pending, never Paid; a late payment counts once; the fee path is untouched","test-bills-partly-paid.js"],
   ["completed pay periods take the identity-matched receipt for scheduled income; the closing is complete-at-capture","test-completed-period-income-received.js"],
