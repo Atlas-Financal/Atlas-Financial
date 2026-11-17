@@ -356,6 +356,12 @@ check('control: a later entry that a posted bank payment backs is no contest, so
   assert.equal(row.ledgerEntryUnbacked, undefined);
   assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
 });
+check('control: a close saved Paid on a bank payment (an amount on the row) gets no ledger note, so the note never says "no bank payment" about it', () => {
+  const { view, row } = closedView(marked(), unbacked, savedClose({ ...PAID_SAVED, actual: BILL }));
+  assert.equal(row.status, 'PAID');
+  assert.equal(row.ledgerEntryUnbacked, undefined);
+  assert.doesNotMatch(PAGE.bills(view), LEDGER_NOTE);
+});
 check("no saved close (lead's ruling): the mark plus an unbacked entry stays To confirm, with no ledger note", () => {
   const { view, row } = closedView(marked(), unbacked);
   assert.equal(view.capturedClose, undefined, 'control: nothing saved');

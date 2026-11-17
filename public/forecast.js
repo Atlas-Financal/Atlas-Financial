@@ -16856,13 +16856,15 @@
               && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
             copy.alsoCarriedToCurrent = true;
           }
-          // A close saved with the bill Paid is never overwritten. A ledger
+          // A close saved with the bill Paid on Dale's mark (no bank payment
+          // amount on the saved row) is never overwritten. A ledger
           // entry that today's rebuild finds for the same occurrence, with no
           // bank payment backing it, appeared after that close (the close
           // would otherwise have saved it To confirm). It is disclosed on the
           // row (display only, derived here, never saved) and counted nowhere
           // again (Grok Bot, Plan #6 thread; Dale's wording OK on #821).
           if (key === 'bills' && row && row.id && row.date && row.status === 'PAID'
+              && row.actual == null
               && todayRows.some(t => t.id === row.id && t.date === row.date
                 && t.settlementEvidence === 'not-established')) {
             copy.ledgerEntryUnbacked = true;
