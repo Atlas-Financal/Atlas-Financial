@@ -179,10 +179,14 @@ const tap = async (page, locator, touch) => {
         const sheetState = () => fresh.page.evaluate(() => Number(history.state && history.state.atlasSheet) || 0);
         await tap(fresh.page, fresh.page.locator('[data-blend-bills-open]').first(), touch);
         ok((await sheetState()) === 1, 'opening a sheet takes a history entry');
+        const lengthBefore = await fresh.page.evaluate(() => history.length);
         await fresh.page.reload(); await fresh.page.locator('[data-budget-surface]').waitFor(); await settle(fresh.page);
         let f = await facts(fresh.page);
         ok(f.open === 0 && (await sheetState()) === 0, 'after the reload no sheet is open and history claims none',
           `open ${f.open}, claimed ${await sheetState()}`);
+        const lengthAfter = await fresh.page.evaluate(() => history.length);
+        ok(lengthAfter === lengthBefore, 'clearing the stale claim at boot adds no history entry',
+          `history.length ${lengthBefore} -> ${lengthAfter}`);
         await tap(fresh.page, fresh.page.locator('[data-blend-bills-open]').first(), touch);
         await fresh.page.keyboard.press('Escape'); await settle(fresh.page);
         f = await facts(fresh.page);
