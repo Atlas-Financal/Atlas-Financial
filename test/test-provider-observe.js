@@ -860,16 +860,12 @@ console.log('=== L5. ATLAS-067 tags: a /tags 404 fails the live fetch closed ===
     && gateHealthy.cls && gateHealthy.cls.kind === 'spend' && gateHealthy.cls.categoryId === 'fuel',
     'payload leg: a healthy tags list lets the bare-ID fuel tag open the missing-merchant gate',
     JSON.stringify(gateHealthy.cls));
-  // Slice 1 (lead ruling, provisional pending Grok Bot): Lunch Money filing the
-  // row in the Fuel row's GROUP is itself explicit fuel evidence, so with an
-  // empty tags list the row still counts as Fuel. Before slice 1 only a
-  // category named exactly "Fuel" was evidence, and this "Fuel & transport"
-  // row was held out of Fuel. The fetch-level tag pins above are unchanged.
   const gateSwallowed = gateRun([]);
-  ok(gateSwallowed.row && gateSwallowed.cls && gateSwallowed.cls.kind === 'spend'
-    && gateSwallowed.cls.categoryId === 'fuel' && gateSwallowed.cls.includeReason === 'fuel-category'
+  ok(gateSwallowed.row && gateSwallowed.row.fuelEvidence === false
+    && gateSwallowed.cls && gateSwallowed.cls.kind === 'unclassified'
+    && gateSwallowed.cls.reason === 'fuel-merchant-missing'
     && gateSwallowed.packet.transactionCoverage === 'complete',
-    'payload leg: with tags: [] the Fuel-group row is still Fuel, by its group alone (slice 1, intended)',
+    'payload leg: the post-404 tags: [] outcome silently holds the same row out of Fuel while coverage claims complete',
     JSON.stringify(gateSwallowed.cls));
 }
 

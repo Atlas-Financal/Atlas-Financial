@@ -76,10 +76,6 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     const categoryId = ids.length === 1 ? ids[0] : null;
     tx.categorised = categoryId != null;
     tx.categoryGroupId = groupOfCategory(categoryId);
-    // Slice 1 intended change (lead ruling, provisional pending Grok Bot): a row
-    // in the Fuel row's group is explicit fuel evidence.
-    const fuelRow = ((input.data.plan.budget || {}).categories || []).find(c => c && c.id === 'fuel');
-    if (fuelRow && tx.categoryGroupId != null && String(fuelRow.lunchMoneyCategoryGroupId) === tx.categoryGroupId) tx.fuelEvidence = true;
   }
   assert.ok(!Object.hasOwn(packet, 'categoryGroupIds'), 'historical packet predates the category-group list');
   if (Array.isArray(groupIds)) packet.categoryGroupIds = groupIds.slice();

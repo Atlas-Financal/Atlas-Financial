@@ -6641,14 +6641,23 @@
     return CONVENIENCE_STORE_RE.test(txTextBlob(tx));
   }
 
+  function isLunchMoneyFuelCategory(tx, plan) {
+    const categoryId = tx && tx.categoryId != null ? String(tx.categoryId).trim() : '';
+    if (!categoryId) return false;
+    const fuel = ((plan && plan.budget && plan.budget.categories) || []).find(row => row && row.id === 'fuel');
+    const id = fuel && fuel.lunchMoneyFuelCategoryId;
+    return id != null && String(id).trim() !== '' && String(id).trim() === categoryId;
+  }
   function hasExplicitFuelEvidence(tx, plan) {
     if (tx && tx.fuelEvidence === true) return true;
     // Dale 2026-10-14: Lunch Money filing the row as Fuel is itself
     // explicit fuel evidence. This supersedes the 2026-09-23 rule that
     // held a convenience-store Fuel row for confirmation unless a note,
-    // tag, MCC, or kind hint corroborated it. Fuel is the Fuel row's group
-    // (Dale, #821 6958331123), not a category name.
-    if (plan && lunchMoneyHouseholdCategory(tx, plan) === 'fuel') return true;
+    // tag, MCC, or kind hint corroborated it. Slice 1 (Grok Bot, "partly";
+    // lead ruling): only the Fuel category itself, by its Lunch Money id held
+    // on the fuel row (lunchMoneyFuelCategoryId), never its group (which also
+    // holds parking, transit, tolls...) and never a name.
+    if (plan && isLunchMoneyFuelCategory(tx, plan)) return true;
     const hint = normalizeCategoryLabel(tx && tx.kindHint);
     if (hint === 'gas' || hint === 'fuel' || hint === 'petrol') return true;
     const mcc = String((tx && tx.mcc) || '');

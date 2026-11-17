@@ -1128,6 +1128,7 @@
                     "label": "Fuel & transport",
                     "class": "essential",
                     "lunchMoneyCategoryGroupId": null,
+                    "lunchMoneyFuelCategoryId": null,
                     "historyCategories": [
                         "Fuel & transport"
                     ],

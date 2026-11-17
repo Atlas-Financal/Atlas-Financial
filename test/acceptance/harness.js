@@ -191,7 +191,10 @@ function planOf(w) {
       { accountId: 'savings-dont-touch', value: sdt, currency: 'CAD', source: 'provider-observe:lunchmoney', evidenceDate: w.asOf, pendingState: 'clear' }] };
   }
   if (typeof w.planPatch === 'function') w.planPatch(plan);
-  return w.explicitGroups ? plan : LmGroups.groupPlan(plan);
+  if (w.explicitGroups) return plan;
+  const grouped = LmGroups.groupPlan(plan);
+  LmGroups.pointFuelAt(grouped, clone(w.categories || []));
+  return grouped;
 }
 
 function accountMapOf(w, { captureCash = false } = {}) {

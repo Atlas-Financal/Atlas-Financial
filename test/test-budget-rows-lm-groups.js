@@ -201,6 +201,23 @@ function hasBrowser() {
     H.expect(!JSON.stringify(r.packet).includes('9900'), 'the unconfigured group id appears nowhere in the packet');
     H.expect(r.cls[0].includeReason === 'ungrouped-category', `read as ungrouped (got ${JSON.stringify(r.cls[0])})`);
   });
+  // Grok Bot ("partly"; lead ruling): every category in the Fuel & transport
+  // group counts on the Fuel row, but only the Fuel category itself, by its id
+  // on the fuel row (lunchMoneyFuelCategoryId), is fuel evidence for the
+  // convenience-store gate. Not the group, not a name.
+  await report('18: only the Fuel category id is fuel evidence; another category in the Fuel group is not', () => {
+    const plan = { budget: { categories: [
+      { id: 'fuel', label: 'Fuel', class: 'essential', plannedPayday: 100, confidence: 'confirmed',
+        lunchMoneyCategoryGroupId: 9600, lunchMoneyFuelCategoryId: 240 }] } };
+    const row = (categoryId, name) => ({ date: '2026-10-11', amount: 40, categoryId, categoryGroupId: '9600', categoryLabel: name,
+      accountRole: 'household-cash', atlasAccountId: 'chequing-b', displayedPayee: '7-ELEVEN 4451', originalMerchant: '7-ELEVEN 4451' });
+    const fuel = F.classifyCurrentPeriodTransaction(row('240', 'Invented any name'), plan, {});
+    H.expect(fuel.kind === 'spend' && fuel.categoryId === 'fuel' && fuel.needsConfirmation === false,
+      `the Fuel category at a convenience store is Fuel (got ${JSON.stringify(fuel)})`);
+    const parking = F.classifyCurrentPeriodTransaction(row('241', 'Fuel'), plan, {});
+    H.expect(parking.needsConfirmation === true && parking.reason === 'convenience-store-unconfirmed-fuel',
+      `another category in the Fuel group, even one NAMED "Fuel", is not evidence (got ${JSON.stringify(parking)})`);
+  });
   await report('16: a row with no Lunch Money category id fails closed to confirmation, never Other spending', () => {
     const blank = engine(world({ txs: [H.lm({ date: '2026-10-11', amount: 14, account: 'chequing-b', payee: 'Invented blank' })] }));
     H.expect(blank.cls[0].needsConfirmation === true && blank.cls[0].includeReason === 'no-category',

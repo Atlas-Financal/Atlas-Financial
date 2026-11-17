@@ -27,6 +27,7 @@ const KIND_LABELS = Object.freeze({
 });
 const EATING_OUT = ['restaurants', 'fast food', 'food delivery', 'coffee shops'];
 const norm = v => String(v == null ? '' : v).trim().toLowerCase();
+const FUEL_CATEGORY_ID = 'fixture-category:fuel';
 const groupIdFor = key => 'fixture-group:' + key;
 const clone = v => JSON.parse(JSON.stringify(v));
 
@@ -37,7 +38,12 @@ function groupPlan(plan) {
   out.budget = out.budget || {};
   out.budget.categories = (out.budget.categories || []).map(row => (!row || !row.id
     || row.lunchMoneyCategoryGroupId != null) ? row
-    : { ...row, lunchMoneyCategoryGroupId: groupIdFor('row:' + row.id) });
+    : { ...row, lunchMoneyCategoryGroupId: groupIdFor('row:' + row.id) })
+    // Fuel evidence is the Fuel category's own id (Grok Bot, "partly"). The
+    // pre-slice-1 baseline treated a category named exactly "Fuel" as evidence;
+    // its invented id is FUEL_CATEGORY_ID unless a payload names another.
+    .map(row => row && row.id === 'fuel' && row.lunchMoneyFuelCategoryId == null
+      ? { ...row, lunchMoneyFuelCategoryId: FUEL_CATEGORY_ID } : row);
   const excluded = (out.budget.excluded || []).map((row, i) => (!row || row.lunchMoneyCategoryGroupId != null) ? row
     : { kind: 'business', ...row, lunchMoneyCategoryGroupId: groupIdFor('excluded:' + i) });
   for (const kind of Object.keys(KIND_LABELS)) {
@@ -85,9 +91,17 @@ function preGroupRouteBaseline(label, plan) {
 
 // A transaction with its invented group stamped (a declared one is kept).
 function groupTx(tx, plan) {
-  if (!tx || typeof tx !== 'object' || tx.categoryGroupId != null) return tx;
-  const groupId = groupForLabel(tx.categoryLabel, plan);
-  return groupId ? { ...tx, categoryGroupId: groupId } : tx;
+  if (!tx || typeof tx !== 'object') return tx;
+  let out = tx;
+  // A hand-built row named exactly "Fuel" is the invented Fuel category
+  // (fuel evidence before slice 1 was that exact name).
+  const fuelRow = ((plan && plan.budget && plan.budget.categories) || []).find(r => r && r.id === 'fuel');
+  if (fuelRow && fuelRow.lunchMoneyFuelCategoryId != null && out.categoryId == null && norm(out.categoryLabel) === 'fuel') {
+    out = { ...out, categoryId: fuelRow.lunchMoneyFuelCategoryId };
+  }
+  if (out.categoryGroupId != null) return out;
+  const groupId = groupForLabel(out.categoryLabel, plan);
+  return groupId ? { ...out, categoryGroupId: groupId } : out;
 }
 
 // Every invented group id the plan names: the groups "Lunch Money returned".
@@ -104,6 +118,15 @@ function groupPacket(packet, plan) {
   if (Array.isArray(packet.transactions)) out.transactions = packet.transactions.map(tx => groupTx(tx, plan));
   if (!Array.isArray(packet.categoryGroupIds)) out.categoryGroupIds = groupIdsOf(plan);
   return out;
+}
+
+// The plan's fuel row names the payload's own invented "Fuel" category (the
+// exact name that was fuel evidence before slice 1). The grouped plan passed
+// in is updated in place, so the plan and payload a test serves agree.
+function pointFuelAt(plan, categories) {
+  const fuelRow = ((plan && plan.budget && plan.budget.categories) || []).find(r => r && r.id === 'fuel');
+  const named = categories.find(c => c && !c.is_group && norm(c.name) === 'fuel');
+  if (fuelRow && named && fuelRow.lunchMoneyFuelCategoryId === FUEL_CATEGORY_ID) fuelRow.lunchMoneyFuelCategoryId = named.id;
 }
 
 // A raw Lunch Money payload (as fed to the observer) with its invented
@@ -132,9 +155,10 @@ function groupPayload(payload, plan) {
   for (const id of groupIdsOf(plan)) {
     if (!categories.some(c => c && String(c.id) === id)) categories.push({ id, name: 'Invented group ' + id, is_group: true });
   }
+  pointFuelAt(plan, categories);
   return { ...payload, categories, transactions };
 }
 
 const groupForLabel = preGroupRouteBaseline;
 
-module.exports = { groupPlan, groupTx, groupPacket, groupPayload, groupForLabel, groupIdsOf, KIND_LABELS };
+module.exports = { groupPlan, groupTx, groupPacket, groupPayload, groupForLabel, groupIdsOf, pointFuelAt, KIND_LABELS };
