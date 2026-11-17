@@ -18,15 +18,18 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-history-h1-'));
 const FIXTURE = path.join(__dirname, 'fixtures', 'private-period-history-v1');
 // Frozen legacy archive written by the pre-H1 module on base 5dceb7c6.
+// Re-sealed for slice 1 (lead ruling): the SAME 5dceb7c6 module re-captured
+// the grouped invented inputs (input() below), so the records stay genuine v1
+// output of that engine; only their input fingerprints moved. Old/new keys are on the PR.
 const V1 = [
-  { file: '00000001-d84b83847b86a9d7e946bd7181131e16a40404b842c7e8515f41409aafca3e96.json',
-    sha256: 'f0f000afe8c851a90f06c0052af54ce70251d6265b0bd7b2822f07547cc00233',
-    revisionId: 'd84b83847b86a9d7e946bd7181131e16a40404b842c7e8515f41409aafca3e96',
-    captureId: '971efea3d6365be079a0845a5e469ed0934bd9c307190053a04ae88c969a6cac', kind: 'original' },
-  { file: '00000002-00893c06c699d37c479f98f9cd6d35bb2c864870b62f504b55bf39cf297bd976.json',
-    sha256: '0b4519fbb605c96b2192c21885960f48455aa8284bfccafe9ac1c685abae3193',
-    revisionId: '00893c06c699d37c479f98f9cd6d35bb2c864870b62f504b55bf39cf297bd976',
-    captureId: '99cebf8d05a6afcc5695db7840e30c721245e705ceb62ecfd06ae80cc3d59290', kind: 'closing' },
+  { file: '00000001-4a709f49634a7c26beca09a586c8c213992af22faf07d75ce471c6730cb53073.json',
+    sha256: '322d706af7ddf3e97b4f5f99d453050960425a41cff37dd455a29a0a89a9bc8c',
+    revisionId: '4a709f49634a7c26beca09a586c8c213992af22faf07d75ce471c6730cb53073',
+    captureId: '03e738fc217734f71aa088355f784fb5728b7777340eec5c32ee6311edbc319c', kind: 'original' },
+  { file: '00000002-b06d347ac4b6397f1ec710e490279d32e4867860166d670430d6b5fe2a1b57dc.json',
+    sha256: 'e330da58711952e2c178a7b982737b18dd9f61c599af2e6328eb235615e07010',
+    revisionId: 'b06d347ac4b6397f1ec710e490279d32e4867860166d670430d6b5fe2a1b57dc',
+    captureId: '79ed141f3124d622dd0349b120a80e6bf30c40cb6930fc0a178a0cc42f9c7aa2', kind: 'closing' },
 ];
 function directory(name) { const dir = path.join(temporary, name); fs.mkdirSync(dir, { mode: 0o700 }); return dir; }
 function hash(file) { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); }
