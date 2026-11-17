@@ -3881,13 +3881,21 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const moneyOutSummary = period.moneyOutToConfirm && typeof period.moneyOutToConfirm === 'object' ? period.moneyOutToConfirm : null;
   const moneyOutPending = moneyOutSummary && numeric(moneyOutSummary.pending) && moneyOutSummary.pending > 0
     ? `<p class="operating-note" data-money-out-pending>Pending money out, to confirm: ${money2(moneyOutSummary.pending)}. Not counted until it posts.</p>` : '';
+  // Grok Bot (#1149): a card-minimum owner record and the ledger's link disagree about a debit counted above.
+  const moneyOutDisagree = moneyOutSummary && numeric(moneyOutSummary.disagreement) && moneyOutSummary.disagreement > 0
+    ? `<p class="operating-note" data-money-out-disagreement>Owner record and ledger link disagree (card or occurrence): ${money2(moneyOutSummary.disagreement)}</p>` : '';
+  // Unavailable only for an unreadable card-minimum owner record, naming it; never summed as 0.
+  const moneyOutUnreadable = moneyOutSummary && moneyOutSummary.unavailable === true
+    ? `<p class="operating-note" data-money-out-unavailable>Money out, to confirm: unavailable. Could not read ${(Array.isArray(moneyOutSummary.unreadable) && moneyOutSummary.unreadable.length
+      ? moneyOutSummary.unreadable.map(item => `${item.label ? escape(item.label) : 'a card minimum record'} (${escape(item.what)})`).join(', ')
+      : 'a card minimum record')}.</p>` : '';
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote}</p>` : ''}
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badMoneyOutPublished ? badTermRow('moneyOutToConfirm', 'Money out, to confirm (posted debits filed as Transfer or Payment, other side not proven)', 'estimated', false) + '\n    ' : ''}${moneyOutPending}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badMoneyOutPublished ? badTermRow('moneyOutToConfirm', 'Money out, to confirm (posted debits filed as Transfer or Payment, other side not proven)', 'estimated', false) + '\n    ' : ''}${moneyOutPending}${moneyOutDisagree}${moneyOutUnreadable}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);

@@ -274,6 +274,15 @@ for (const mutate of [
   assert.ok((fresh.currentPeriodActuals.transactions || []).every(tx => !Object.hasOwn(tx, 'cardMinimumOwned')),
     'no row is stamped owned without an owner record');
   delete fresh.currentPeriodActuals.cardMinimumOwnership;
+  // Grok Bot (#1149): the undated derived packet is named as unreadable; and the derived packet
+  // carries its (here empty) list of owner/ledger disagreements.
+  assert.deepEqual(fresh.currentPeriodActuals.cardMinimumUnreadable,
+    typeof derivedAsOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(derivedAsOf) ? undefined
+      : [{ label: null, what: 'ledger minimum links' }], 'the authorized unreadable naming');
+  delete fresh.currentPeriodActuals.cardMinimumUnreadable;
+  // (The derived packet's disagreements list comes from scripts/card-minimum-category.js, which the
+  // historical observer also loads, so both reports carry it; no owner record, so it is empty.)
+  assert.deepEqual(fresh.cardMinimumCategoryEvidence.disagreements, [], 'no owner record, so no disagreement');
   assert.deepEqual(fresh, historical,
     'no-link entire observer report retains the independently loaded pre-change shape');
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };

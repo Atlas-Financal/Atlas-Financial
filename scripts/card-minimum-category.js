@@ -32,7 +32,7 @@ function observe(input) {
   const { plan, accountMap, asOf, transactionWindow: window, pendingCoverage,
     transactions = [], matchesIdentity, matchesReversalIdentity, alreadyAllocated, cycleOpensOn,
     isExplicitlyPosted } = input;
-  const packet = { source: SOURCE, asOf, payments: [] };
+  const packet = { source: SOURCE, asOf, payments: [], disagreements: [] };
   if (!iso(asOf) || !window || window.complete !== true || window.hasMore === true
       || window.truncated === true || !iso(window.startDate) || !iso(window.endDate)
       || window.endDate < asOf || pendingCoverage?.complete !== true
@@ -44,6 +44,16 @@ function observe(input) {
   const events = Forecast.expandEvents(schedule, Forecast.addDays(asOf, -62), Forecast.addDays(asOf, 62));
   const ownerDebits = new Set((plan.obligations || []).flatMap(row =>
     Array.isArray(row.sentPayments) ? row.sentPayments.map(p => p?.debitId).filter(Boolean) : []));
+  // Owner allocations by debit, to compare with the ledger's own link (Grok Bot Q2, Plan #6,
+  // 2026-11-17): same debit and occurrence, the owner record wins; a different card or
+  // occurrence is a disagreement, so neither counts and the debit reads To confirm.
+  const ownerByDebit = new Map();
+  for (const row of plan.obligations || []) for (const owner of Array.isArray(row.sentPayments) ? row.sentPayments : []) {
+    if (!owner || typeof owner.debitId !== 'string') continue;
+    const list = ownerByDebit.get(owner.debitId) || [];
+    list.push({ id: row.id, scheduledDate: owner.scheduledDate });
+    ownerByDebit.set(owner.debitId, list);
+  }
   const verifiedIndependentOwnerDebitIds = [];
   for (const row of plan.obligations || []) for (const owner of Array.isArray(row.sentPayments) ? row.sentPayments : []) {
     if (owner?.confirmed !== true || owner.pending !== false || owner.currency !== 'cad'
@@ -74,7 +84,8 @@ function observe(input) {
     const debitId = crypto.createHash('sha256').update(SOURCE + ':' + tx.providerTransactionId).digest('hex');
     // Stable identity is consumed once across all owner allocations, not only
     // the occurrence currently selected by the provider lookup window.
-    if (ownerDebits.has(debitId) || alreadyAllocated?.(tx)) continue;
+    const owned = ownerDebits.has(debitId);
+    if (!owned && alreadyAllocated?.(tx)) continue;
     const rows = (plan.obligations || []).filter(r => r.debtId === debtId
       && r.effect === 'payment' && !r.nonCash && r.payingAccount === map.canonical.id
       && (r.sentPayments == null || Array.isArray(r.sentPayments)));
@@ -87,9 +98,17 @@ function observe(input) {
             || tx.date > Forecast.addDays(event.date, 7)) continue;
         const original = event.scheduledDate || event.date;
         // No owner confirmation is overridden or duplicated by provider intent.
-        if ((row.sentPayments || []).some(p => p.scheduledDate === original)) continue;
+        if (!owned && (row.sentPayments || []).some(p => p.scheduledDate === original)) continue;
         compatible.push({ row, event, original });
       }
+    }
+    if (owned) {
+      // The ledger names exactly one card occurrence for a debit the owner also records: agreement
+      // leaves the owner record alone; any other card or occurrence is a disagreement.
+      const records = ownerByDebit.get(debitId) || [];
+      if (compatible.length === 1 && !(records.length === 1 && records[0].id === compatible[0].row.id
+          && records[0].scheduledDate === compatible[0].original)) packet.disagreements.push(debitId);
+      continue;
     }
     if (compatible.length !== 1) continue;
     const target = compatible[0];

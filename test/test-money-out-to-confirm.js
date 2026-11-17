@@ -275,6 +275,40 @@ console.log('\n=== the card-minimum owner export decides (#1149 P1 6893020218; d
     'the packet carries no debit identity or 64-hex hash');
 }
 
+console.log('\n=== Grok Bot on #1149 (Plan #6, 2026-11-17): single-card categories, disagreements To confirm, Unavailable only when unreadable ===');
+{
+  const MIN = 60, CARDMIN = 'Minimum payment - TD Travel Visa';
+  const Category = require('../scripts/card-minimum-category.js');
+  const names = Object.keys(Category.CATEGORIES);
+  ok(names.length > 0 && names.every(name => typeof Category.CATEGORIES[name] === 'string' && Category.CATEGORIES[name])
+    && Object.isFrozen(Category.CATEGORIES),
+    '(1) every minimum category names exactly one card, and the mapping cannot be widened at run time');
+  const control = run([]);
+  const leg = [{ account: 1001, amount: MIN, kind: 'payment', payee: 'Synthetic card issuer', date: '2026-08-18', categoryName: CARDMIN }];
+  // (2) The owner record says this debit paid the Sep 22 occurrence; the ledger's category links it to Aug 22.
+  const disagree = run(leg, { minimumOwner: true, durableMinimum: { scheduledDate: '2026-09-22' } });
+  ok(cents(disagree.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions - MIN)
+    && disagree.terms?.moneyOutToConfirm === MIN && disagree.cur.moneyOutToConfirm?.disagreement === MIN
+    && disagree.cur.moneyOutToConfirm?.unavailable !== true,
+    '(2) owner record and ledger link disagree: the 60 counts once as Money out, to confirm, named as a disagreement, not Unavailable',
+    JSON.stringify([disagree.cur.balanceAfterDeductions, disagree.cur.moneyOutToConfirm]));
+  ok(/Owner record and ledger link disagree \(card or occurrence\): \$60\.00/.test(text(disagree.html)),
+    '(2) the page names it: "Owner record and ledger link disagree (card or occurrence)"');
+  const F2 = require('../public/forecast');
+  const disagreeData = world(leg, { minimumOwner: true, durableMinimum: { scheduledDate: '2026-09-22' } });
+  ok(F2.cardMinimumState(disagreeData.plan, '2026-08-20').payments.length === 0, '(2) neither minimum is marked sent');
+  // Agreement: the same debit and occurrence in both, the owner record wins and nothing is money out.
+  const agree = run(leg, { minimumOwner: true, durableMinimum: true });
+  ok(cents(agree.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions) && agree.cur.moneyOutToConfirm == null,
+    '(2) same debit and occurrence: the owner record wins, nothing is money out', JSON.stringify(agree.cur.moneyOutToConfirm));
+  // (3) An unreadable owner record is named on the page, and the term is never summed as 0.
+  const plain = [{ account: 1001, amount: MIN, kind: 'payment', payee: 'Synthetic card issuer', date: '2026-08-18' }];
+  const unreadable = run(plain, { durableMinimum: { intent: undefined } });
+  ok(unreadable.cur.moneyOutToConfirm?.unavailable === true && unreadable.cur.moneyOutToConfirm.posted == null
+    && /Money out, to confirm: unavailable\. Could not read .+ \(purpose\)\./.test(text(unreadable.html)),
+    '(3) Unavailable names the record and what could not be read; never 0', text(unreadable.html).match(/Money out, to confirm: unavailable[^.]*\.[^.]*\./)?.[0]);
+}
+
 console.log('\n=== the planned close and every dependent figure read estimated while a money-out term stands ===');
 {
   // Every input of this household is confirmed here, so nothing else can make a figure an estimate.
