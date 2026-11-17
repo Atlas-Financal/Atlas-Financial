@@ -177,7 +177,7 @@ async function withMcp(f, work) {
 
   const mcpFixture = fixture();
   await withMcp(mcpFixture, async client => {
-    const tools = await client.listTools(); assert.equal(tools.tools.length, 7);
+    const tools = await client.listTools(); assert.equal(tools.tools.length, 8);
     assert.equal(tools.tools.some(t => /standing/.test(t.name)), false);
     const descriptor = tools.tools.find(t => t.name === 'prepare_lunchmoney_cleanup_instruction');
     assert.equal(descriptor.annotations.readOnlyHint, true);
