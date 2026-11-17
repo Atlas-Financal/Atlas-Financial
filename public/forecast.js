@@ -118,6 +118,31 @@
   }
 
   function state(plan, asOf, occurrences, representedEffectiveBy, options) {
+    return evaluate(plan, asOf, occurrences, representedEffectiveBy, options).result;
+  }
+  // The owner export (desk 6893166367; Grok Bot, Plan #6): the debits this
+  // owner counts as card-minimum payments, keyed by recorded identity, never
+  // by category or payee. Only accepted, posted records are exported, durable
+  // and derived alike, after conflict rejection. An owner input that cannot
+  // be read (a malformed or conflicting record, an unconfirmed purpose, or a
+  // malformed derived packet) makes the whole export Unavailable rather than
+  // an empty set. Cash-inclusion and issuer-satisfaction gaps concern the
+  // amount, not which debit is owned, so they do not withhold the export.
+  // Internal only: the hashed identities never enter the publication.
+  const EXPORT_UNREADABLE = new Set(['invalid-sent-payment-input', 'payment-intent-unconfirmed',
+    'sent-payment-evidence-unconfirmed', 'sent-payment-allocated-more-than-once']);
+  function ownedDebits(plan, asOf, occurrences, representedEffectiveBy, options) {
+    const packet = plan?.cardMinimumCategoryEvidence;
+    if (packet != null && (packet.source !== 'lunchmoney-minimum-category'
+        || !date(packet.asOf) || !Array.isArray(packet.payments))) {
+      return { status: 'unavailable', debitIds: null };
+    }
+    const { result, owned } = evaluate(plan, asOf, occurrences, representedEffectiveBy, options);
+    if (result.issues.some(issue => EXPORT_UNREADABLE.has(issue))) return { status: 'unavailable', debitIds: null };
+    return { status: 'available', debitIds: Array.from(new Set(owned)).sort() };
+  }
+  function evaluate(plan, asOf, occurrences, representedEffectiveBy, options) {
+    const owned = [];
     const category = minimumCategoryEvidence(plan, asOf);
     const rows = (plan && plan.obligations || []).map(row => {
       const owner = Array.isArray(row.sentPayments) ? row.sentPayments : [];
@@ -125,8 +150,8 @@
         && !owner.some(o => o.scheduledDate === p.scheduledDate));
       return observed.length ? { ...row, sentPayments: owner.concat(observed) } : row;
     });
-    if (!rows.some(row => row && row.sentPayments != null)) return {
-      status: 'incumbent', asOf, source: 'Forecast.cardMinimumState', payments: [], issues: [], reason: null };
+    if (!rows.some(row => row && row.sentPayments != null)) return { owned, result: {
+      status: 'incumbent', asOf, source: 'Forecast.cardMinimumState', payments: [], issues: [], reason: null } };
     const payments = [], issues = [], used = new Set();
     // A reused bank debit cannot establish a household payment action. Inspect
     // all supplied records, including competing purpose or pending evidence;
@@ -172,6 +197,7 @@
         }
         used.add(record.debitId);
         if (record.postedOn > asOf) continue;
+        owned.push(record.debitId);
         const statement = statements.find(item => item.scheduledDate === record.scheduledDate);
         const dueDate = statement ? statement.dueDate : record.scheduledDate;
         // Receipt is independent. Existing explicit satisfaction evidence is
@@ -193,10 +219,10 @@
       }
     }
     // No raw evidence identifiers or source documents in the publication.
-    return { status: issues.length ? 'unavailable' : payments.length ? 'ready' : 'incumbent',
+    return { owned, result: { status: issues.length ? 'unavailable' : payments.length ? 'ready' : 'incumbent',
       asOf, source: 'Forecast.cardMinimumState', payments,
       issues: Array.from(new Set(issues)),
-      reason: issues.length ? 'Card payment sent; cash inclusion or issuer minimum satisfaction is unconfirmed. Additional cash is unknown.' : null };
+      reason: issues.length ? 'Card payment sent; cash inclusion or issuer minimum satisfaction is unconfirmed. Additional cash is unknown.' : null } };
   }
 
     function originalDate(plan, id, value, occurrences) {
@@ -207,7 +233,7 @@
     if (original) return original.scheduledDate;
     return records.find(item => item.dueDate === value)?.scheduledDate || value;
   }
-    return { resolveOccurrences, mappedDate, originalDate, state };
+    return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits };
   })();
   /* --------------------------------------------------------------- dates */
   // ISO date strings throughout; arithmetic in UTC so DST can never shift a
@@ -637,6 +663,9 @@
 
   function cardMinimumState(plan, asOf, opts) {
     return CardMinimumContract.state(plan, asOf, occurrences, representedEventEffectiveBy, opts);
+  }
+  function cardMinimumOwnedDebits(plan, asOf, opts) {
+    return CardMinimumContract.ownedDebits(plan, asOf, occurrences, representedEventEffectiveBy, opts);
   }
   function minimumCategoryAllocationConflict(plan, payment) {
     const target = (plan?.obligations || []).find(row => row?.id === payment?.id);
@@ -28896,7 +28925,7 @@
     };
   }
 
-  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
