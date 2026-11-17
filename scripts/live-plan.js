@@ -571,10 +571,31 @@ function markUnknownPending(data, report, liveAsOf) {
   return marked;
 }
 
-function assertOwnerPolicyUntouched(before, after) {
+// Owner policy is never rewritten by a refresh. One narrow exception (S2,
+// owner decision #821 6956651970): on a bill whose reviewed Lunch Money
+// recurring item supplied its schedule (`scheduledBills`), exactly `day` and
+// `dateConfidence` may differ. Every other field of that bill, and every
+// other bill, must still match the canonical plan.
+function assertOwnerPolicyUntouched(before, after, scheduledBills) {
   const keys = ['income', 'bills', 'obligations', 'commitments', 'budget', 'actions', 'nextDollar', 'savingsEarmarks', 'cardPurchaseCoverage'];
+  const scheduled = scheduledBills instanceof Set ? scheduledBills : new Set();
+  const canonicalTiming = (beforeBills, afterBills) => {
+    if (!scheduled.size || !Array.isArray(beforeBills) || !Array.isArray(afterBills)
+      || beforeBills.length !== afterBills.length) return afterBills;
+    return afterBills.map((row, i) => {
+      const was = beforeBills[i];
+      if (!row || !was || row.id !== was.id || !scheduled.has(row.id)) return row;
+      const out = { ...row };
+      for (const field of ['day', 'dateConfidence']) {
+        if (Object.hasOwn(was, field)) out[field] = was[field]; else delete out[field];
+      }
+      return out;
+    });
+  };
   for (const key of keys) {
-    if (JSON.stringify((before.plan || {})[key]) !== JSON.stringify((after.plan || {})[key])) {
+    const afterValue = key === 'bills'
+      ? canonicalTiming((before.plan || {}).bills, (after.plan || {}).bills) : (after.plan || {})[key];
+    if (JSON.stringify((before.plan || {})[key]) !== JSON.stringify(afterValue)) {
       fail(`Live overlay must not rewrite plan.${key}.`);
     }
   }
@@ -1307,6 +1328,18 @@ function overlayLiveState(input) {
   next.plan.cardMinimumCategoryEvidence = clone(report.cardMinimumCategoryEvidence
     || { source: 'lunchmoney-minimum-category', asOf: liveAsOf, payments: [] });
   if (Forecast.savingsEarmarksState(data.plan, liveAsOf).status !== 'setup-unknown') next.plan.savingsPoolObservation = report.savingsPools || { asOf: liveAsOf, accounts: [] };
+  // S2 (#821 6956651970): a reviewed Lunch Money recurring item's day for
+  // the bill it identifies, served plan only (data.json is never written).
+  // Amount, firstDue and the amount tag stay the plan's; with no schedule
+  // the plan's own day and tags stand.
+  const scheduledBills = new Set();
+  for (const schedule of Array.isArray(report.recurringBillSchedules) ? report.recurringBillSchedules : []) {
+    const bill = (next.plan.bills || []).find(row => row && row.id === schedule.billId);
+    if (!bill || bill.frequency !== 'monthly' || scheduledBills.has(bill.id)) continue;
+    bill.day = schedule.day;
+    bill.dateConfidence = schedule.dateConfidence;
+    scheduledBills.add(bill.id);
+  }
   const cutover = applyLiveCutover(next, report, historicalOpeningAsOf);
   // Rebuild from fresh evidence. Absence on a later fetch is not proof that
   // a previously observed receipt funds an additional future occurrence.
@@ -1333,7 +1366,7 @@ function overlayLiveState(input) {
   }
   markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   clearObservedBillsEstimate(next, report, liveAsOf);
-  assertOwnerPolicyUntouched(data, next);
+  assertOwnerPolicyUntouched(data, next, scheduledBills);
   const cash = Forecast.startingCashAmount(next.plan);
   if (!isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');
   const allRefused = refused.concat(postingRefused).sort((a, b) =>
@@ -1948,6 +1981,7 @@ const api = {
   sanitizeLiveFailureReason,
   proposeOverlay,
   overlayLiveState,
+  assertOwnerPolicyUntouched,
   paydayGapCashFromReport,
   collectObservedCash,
   fromObservation,

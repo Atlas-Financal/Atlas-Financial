@@ -904,6 +904,7 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
     token,
     options
   );
+  const recurringItems = await fetchRecurringEvidence(token, txUrl, base, options);
   return {
     provider: 'lunchmoney',
     fetchedAt: now,
@@ -929,7 +930,27 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
       endDate: null,
       truncated: pendingPage.truncated === true,
     },
+    recurringItems,
   };
+}
+
+// Lunch Money reviewed recurring items (owner, #821 6956651970): one GET of
+// /recurring_items for the transaction window, through the restored
+// fail-closed reader (scripts/provider-recurring-items.js), suggestions not
+// requested. FOUNDATION: nothing reads the result yet, so a failed read is
+// recorded as unavailable and never fails the observation. Cancellation
+// still cancels. Required lazily: that module requires this one.
+async function fetchRecurringEvidence(token, txUrl, base, options) {
+  try {
+    const read = await require('./provider-recurring-items.js').fetchRecurringItems({
+      startDate: txUrl.startDate, endDate: txUrl.endDate, includeSuggested: false, token, base,
+      fetchOptions: { signal: options && options.signal },
+    });
+    return { status: 'read', read };
+  } catch (err) {
+    if (options && options.signal && options.signal.aborted) throw err;
+    return { status: 'unavailable', reason: 'recurring-read-failed' };
+  }
 }
 
 function round2(v) {
@@ -4101,6 +4122,23 @@ function observeCore(input, capture) {
     { savingsLinks: input.accountMap?.savingsLinks?.links?.length > 0 });
   const mapDoc = input.accountMap;
   if (!mapDoc || mapDoc.provider !== 'lunchmoney') fail('Account map is missing or is not a lunchmoney map.');
+  // S2: reviewed recurring-item timing applies BEFORE any occurrence matching,
+  // so payment evidence and Forecast read the same occurrence dates (Codex P1,
+  // #1281). Only day and dateConfidence of a mapper-supplied bill change, on
+  // this observation's working copy of the plan; data.json is never written.
+  const recurringReview = recurringBillScheduleReview(
+    sanitizedRecurringEvidence(input.payload && input.payload.recurringItems,
+      { identityRules: input.identityRules || (input.identity && input.identity.rules) || [],
+        accountMap: mapDoc, existingLocalId: () => null }),
+    input.identityRules || (input.identity && input.identity.rules) || [],
+    input.data && input.data.plan, dateOnly(normalized.fetchedAt));
+  const recurringSchedules = recurringReview.schedules;
+  if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
+    const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
+    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
+      bill && byBill.has(bill.id) ? { ...bill, day: byBill.get(bill.id).day,
+        dateConfidence: byBill.get(bill.id).dateConfidence } : bill) } } };
+  }
   const mapped = [];
   const unmapped = [];
   const observations = [];
@@ -4320,9 +4358,15 @@ function observeCore(input, capture) {
     asOf: dateOnly(normalized.fetchedAt),
     // N2: account sync fields reach the coverage stamp without joining the public report.
     accounts: normalized.accounts,
+    recurringItems: input.payload && input.payload.recurringItems,
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
+  // S2: the timing applied above, for live-plan to apply to the served plan.
+  // Internal to the report; never served.
+  // Present only when a schedule applies, so every other report keeps its shape.
+  if (recurringSchedules.length) assembled.recurringBillSchedules = recurringSchedules;
+  if (recurringReview.withheld.length) assembled.recurringBillSchedulesWithheld = recurringReview.withheld;
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
@@ -4489,7 +4533,7 @@ function currentPeriodActualsLooksSanitized(packet) {
   if (Array.isArray(txs) && txs.some(tx => tx && !transactionLooksSanitized(tx))) {
     return false;
   }
-  return true;
+  return recurringEvidenceLooksSanitized(packet.lunchMoneyRecurring);
 }
 
 function householdCashIdsFromPlan(plan) {
@@ -5263,6 +5307,158 @@ function cardCoverageReference(tx) {
     .update('atlas-card-coverage/v1|' + tx.providerAccountId + '|' + source).digest('hex').slice(0, 24);
 }
 
+// Reviewed Lunch Money recurring items (owner, #821 6956651970), reduced to
+// schedule fields. FOUNDATION — NOT COMPLETION: no Forecast or page code reads
+// this block yet (consumer S2, which waits on Grok Bot under rule 17). Kept:
+// only status 'reviewed' items whose id a transaction-identity rule names in
+// lunchMoneyRecurringIds. Every other item is dropped and counted by reason
+// only. No payee, description, notes, category, amount or provider account id
+// leaves; found transactions are this packet's local ids, never provider ids.
+// An item whose schedule fields did not validate is dropped (fail closed).
+const RECURRING_ITEM_KEYS = Object.freeze(['recurringId', 'granularity', 'quantity', 'anchorDate',
+  'startDate', 'endDate', 'currency', 'accountRole', 'expectedDates', 'foundTransactionLocalIds']);
+const RECURRING_DROP_REASONS = Object.freeze(['not-reviewed', 'not-named', 'schedule-invalid']);
+const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.startDate', 'criteria.endDate',
+  'criteria.granularity', 'criteria.quantity', 'criteria.anchorDate', 'criteria.currency',
+  'criteria.plaidAccountId', 'criteria.manualAccountId', 'matches', 'matches.expectedOccurrenceDates',
+  'matches.foundTransactions']);
+function sanitizedRecurringEvidence(raw, opts) {
+  if (raw == null) return null;
+  // A response that claims to continue beyond what it returned (paging keys
+  // the contract does not have) may be missing items: the read is unavailable.
+  if (raw.status !== 'read' || !raw.read || !Array.isArray(raw.read.items)
+    || raw.read.unexpectedPaginationEvidence !== false) {
+    return { source: 'provider-observe:lunchmoney', status: 'unavailable', reason: 'recurring-read-failed' };
+  }
+  const named = new Set();
+  for (const rule of opts.identityRules || []) for (const id of ruleLunchMoneyRecurringIds(rule)) named.add(id);
+  const dropped = Object.fromEntries(RECURRING_DROP_REASONS.map(reason => [reason, 0]));
+  const items = [];
+  for (const item of raw.read.items) {
+    if (!item || item.status !== 'reviewed') { dropped['not-reviewed'] += 1; continue; }
+    if (!named.has(String(item.providerId))) { dropped['not-named'] += 1; continue; }
+    const c = item.criteria, m = item.matches;
+    const broken = (item.unavailableFields || []).some(field => RECURRING_SCHEDULE_FIELDS.has(field)
+      || [...RECURRING_SCHEDULE_FIELDS].some(prefix => field.startsWith(prefix + '.')));
+    const expected = m && Array.isArray(m.expectedOccurrenceDates) ? m.expectedOccurrenceDates : null;
+    const found = m && Array.isArray(m.foundTransactions) ? m.foundTransactions : null;
+    if (broken || !c || !c.granularity || !c.quantity || !c.anchorDate || !c.currency || !expected || !found
+      || !expected.every(d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d))) {
+      dropped['schedule-invalid'] += 1; continue;
+    }
+    const providerAccountId = c.plaidAccountId != null ? c.plaidAccountId : c.manualAccountId;
+    items.push({
+      recurringId: String(item.providerId),
+      granularity: c.granularity,
+      quantity: c.quantity,
+      anchorDate: c.anchorDate,
+      startDate: c.startDate == null ? null : c.startDate,
+      endDate: c.endDate == null ? null : c.endDate,
+      currency: c.currency.toLowerCase(),
+      accountRole: providerAccountId == null ? null : atlasAccountRole(mappingFor(opts.accountMap || {}, providerAccountId)),
+      expectedDates: expected.slice(),
+      // Only rows this packet carries: a found transaction outside it has no local id.
+      foundTransactionLocalIds: Array.from(new Set(found.map(f => f && f.transactionId != null
+        ? opts.existingLocalId(f.transactionId) : null).filter(Boolean))),
+    });
+  }
+  return { source: 'provider-observe:lunchmoney', status: 'read',
+    window: { startDate: raw.read.requestedWindow?.startDate ?? null, endDate: raw.read.requestedWindow?.endDate ?? null },
+    items, dropped };
+}
+
+// S2 (owner decision #821 6956651970 (a)/(b): a REVIEWED Lunch Money
+// recurring item is the authority for its bill's schedule, and "reviewed"
+// confirms the schedule only). For a monthly bill, the reviewed item's
+// anchor day replaces the estimated plan day and its date tag becomes
+// confirmed. The amount, firstDue and the amount tag stay the plan's.
+// Settlement is untouched: an occurrence still reads paid only through a
+// posted payment the incumbent identity rule links. Any doubt keeps the
+// plan's own day and tags: an unavailable read, an item that is not monthly
+// every month, ended or not yet started, an item named by zero or several
+// rules, a bill named by several items, a bill that is not monthly, a paying
+// account whose role does not match, or expected dates that disagree with
+// the anchor day.
+// Owner cross-check (Dale 2026-11-17, via the lead, #1281): the reviewed
+// item confirms a bill's schedule only when its anchor day agrees with the
+// plan's own day. On a mismatch the plan's day and tags stand, and the bill
+// is listed as withheld with a fixed reason until the ledger item and the
+// plan agree. LM stays the source of the date; the plan only gates it.
+function recurringBillSchedules(block, identityRules, plan, asOf) {
+  return recurringBillScheduleReview(block, identityRules, plan, asOf).schedules;
+}
+function recurringBillScheduleReview(block, identityRules, plan, asOf) {
+  const withheld = [];
+  const done = schedules => ({ schedules, withheld });
+  if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
+  const bills = Array.isArray(plan.bills) ? plan.bills : [];
+  const daysIn = iso => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).getUTCDate();
+  const byBill = new Map();
+  for (const item of block.items) {
+    if (item.granularity !== 'month' || item.quantity !== 1) continue;
+    if (item.endDate && item.endDate < asOf) continue;
+    if (item.startDate && item.startDate > asOf) continue;
+    const eventIds = new Set();
+    for (const rule of identityRules || []) {
+      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) eventIds.add(String(rule.eventId));
+    }
+    if (eventIds.size !== 1) continue;
+    const billId = [...eventIds][0];
+    byBill.set(billId, (byBill.get(billId) || []).concat([item]));
+  }
+  const out = [];
+  for (const [billId, items] of byBill) {
+    if (items.length !== 1) continue;
+    const item = items[0];
+    const matches = bills.filter(bill => bill && bill.id === billId);
+    if (matches.length !== 1 || matches[0].frequency !== 'monthly') continue;
+    const bill = matches[0];
+    const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
+    if (!cash || item.accountRole !== 'household-cash') continue;
+    const day = Number(item.anchorDate.slice(8, 10));
+    if (!(day >= 1 && day <= 31)) continue;
+    if (!item.expectedDates.every(date => Number(date.slice(8, 10)) === Math.min(day, daysIn(date)))) continue;
+    if (Number(bill.day) !== day) {
+      withheld.push({ billId, recurringId: item.recurringId, reason: 'anchor-day-differs-from-plan' });
+      continue;
+    }
+    out.push({ billId, recurringId: item.recurringId, day, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
+  }
+  return done(out);
+}
+
+// The structural check for that block: exact keys, value types and no
+// free text. Anything else marks the packet unsanitized.
+function recurringEvidenceLooksSanitized(block) {
+  if (block === undefined) return true;
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
+  const keysAre = (obj, keys) => obj && typeof obj === 'object' && !Array.isArray(obj)
+    && Object.keys(obj).length === keys.length && keys.every(key => Object.hasOwn(obj, key));
+  const date = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (block.source !== 'provider-observe:lunchmoney') return false;
+  if (block.status === 'unavailable') {
+    return keysAre(block, ['source', 'status', 'reason']) && block.reason === 'recurring-read-failed';
+  }
+  if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped'])) return false;
+  if (!keysAre(block.window, ['startDate', 'endDate'])
+    || !(block.window.startDate === null || date(block.window.startDate))
+    || !(block.window.endDate === null || date(block.window.endDate))) return false;
+  if (!keysAre(block.dropped, RECURRING_DROP_REASONS)
+    || !RECURRING_DROP_REASONS.every(r => Number.isSafeInteger(block.dropped[r]) && block.dropped[r] >= 0)) return false;
+  return Array.isArray(block.items) && block.items.every(item => keysAre(item, RECURRING_ITEM_KEYS)
+    && typeof item.recurringId === 'string' && /^\d+$/.test(item.recurringId)
+    && ['day', 'week', 'month', 'year'].includes(item.granularity)
+    && Number.isSafeInteger(item.quantity) && item.quantity >= 1
+    && date(item.anchorDate)
+    && (item.startDate === null || date(item.startDate)) && (item.endDate === null || date(item.endDate))
+    && typeof item.currency === 'string' && /^[a-z]{3}$/.test(item.currency)
+    && (item.accountRole === null || ['household-cash', 'household-reserve', 'revolving-credit', 'heloc',
+      'mortgage', EXTERNAL_LIVE_ROLE, 'unmapped'].includes(item.accountRole))
+    && Array.isArray(item.expectedDates) && item.expectedDates.every(date)
+    && Array.isArray(item.foundTransactionLocalIds)
+    && item.foundTransactionLocalIds.every(id => typeof id === 'string' && /^tx-\d+$/.test(id)));
+}
+
 function sanitizedCurrentPeriodActuals(report, opts) {
   return sanitizedCurrentPeriodActualsPass(report, opts).packet;
 }
@@ -6014,6 +6210,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }
   }
   const lastSyncedAt = lastSuccessfulSyncAt((opts && opts.accounts) || (report && report.accounts), mapDoc, report && report.fetchedAt);
+  let lunchMoneyRecurring = sanitizedRecurringEvidence(opts.recurringItems,
+    { identityRules: opts.identityRules, accountMap: mapDoc, existingLocalId });
+  // A block that fails its own structural check is replaced, so it can never
+  // empty the packet's transactions below.
+  if (lunchMoneyRecurring && !recurringEvidenceLooksSanitized(lunchMoneyRecurring)) {
+    lunchMoneyRecurring = { source: 'provider-observe:lunchmoney', status: 'unavailable', reason: 'recurring-read-failed' };
+  }
   const packet = {
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
@@ -6056,6 +6259,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     ...(Array.isArray(report && report.categoryGroupIds) ? { categoryGroupIds: report.categoryGroupIds
       .filter(id => configuredBudgetGroupIds(opts.plan).has(String(id))) } : {}),
     ...(savingsLinks ? { savingsLinks } : {}),
+    ...(lunchMoneyRecurring ? { lunchMoneyRecurring } : {}),
     // C1: present only when the sole coverage gap is dropped rows whose one
     // budget category is certain. Dates and category ids only: no amount,
     // payee, merchant or provider id.
@@ -6082,6 +6286,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pending: row.pending === true ? true : undefined,
     }));
     packet.transactionCoverage = 'incomplete';
+    delete packet.lunchMoneyRecurring;
     delete packet.coverageExceptCategories;
     delete packet.droppedCategoryRows;
     packet.paydayGapComplete = false;
@@ -6391,6 +6596,7 @@ const api = {
   observeWithSettlementCrosswalk,
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
+  recurringBillSchedules,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,

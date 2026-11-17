@@ -1,4 +1,7 @@
 'use strict';
+// The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
+// the windowed and pending transactions, and the recurring-items read (S1).
+const PROVIDER_GETS = 8;
 // Synthetic source inputs, actual worker/observer/LivePlan and authenticated
 // server routes. No household file edit, configured secret or provider write.
 const fs = require('node:fs');
@@ -216,7 +219,7 @@ if (require.main === module) (async () => {
       + independentlyEvaluated.plan.startingCash.breakdown.find(row => row.id === 'chequing-b').value, 1375, 'independent 1215 + 160 chequing proof');
     const firstCount = mock.calls.length; let firstCheck;
     check(await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { firstCheck = value; } }), direct, 'first browser miss equals independent evaluation');
-    await drain(); check(mock.calls.length - firstCount, 7, 'first browser read performs seven GETs');
+    await drain(); check(mock.calls.length - firstCount, PROVIDER_GETS, 'first browser read performs eight GETs (seven plus the recurring-items read)');
     check(firstCheck, { source: 'provider', qualified: true, checkedAt: CLOCK }, 'live check timestamp');
     const cachedCount = mock.calls.length, workerCount = workers.length, started = performance.now(); let reusedCheck;
     const reused = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { reusedCheck = value; } });
@@ -241,7 +244,7 @@ if (require.main === module) (async () => {
     for (const options of [{}, { preferObservation: true, forceRefresh: true }]) {
       const count = mock.calls.length;
       check(await Refresh.serve(canonical, env, options), direct, 'live and force consumers retain publication'); await drain();
-      check(mock.calls.length - count, 7, 'live/force consumers bypass completed evidence');
+      check(mock.calls.length - count, PROVIDER_GETS, 'live/force consumers bypass completed evidence');
     }
     // A forced live acquisition supersedes any pending older cached replay.
     const delayedEnv = { ...env, ATLAS_SYNTHETIC_REPLAY_DELAY_MS: '800',
@@ -266,7 +269,7 @@ if (require.main === module) (async () => {
     releaseSyntheticHold = true;
     await Refresh.serve(canonical, lateEnv, { preferObservation: true }); await drain();
     releaseSyntheticHold = false;
-    check(mock.calls.length - abandonedCount, 7, 'abandoned late worker cannot populate completed evidence');
+    check(mock.calls.length - abandonedCount, PROVIDER_GETS, 'abandoned late worker cannot populate completed evidence');
     for (const mode of ['failure', 'malformed', 'incomplete', 'optionalFailure']) {
       mock.mode(mode);
       await reject(Refresh.serve(canonical, env, { preferObservation: true, forceRefresh: true }), 'live-refresh-unavailable'); await drain();
@@ -290,7 +293,7 @@ if (require.main === module) (async () => {
     await reject(Refresh.serve(canonical, env, { forceRefresh: true }), 'live-refresh-unavailable'); await drain();
     const incompleteCount = mock.calls.length;
     await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
-    check(mock.calls.length - incompleteCount, 7, 'unqualified source response never enters completed memory');
+    check(mock.calls.length - incompleteCount, PROVIDER_GETS, 'unqualified source response never enters completed memory');
     mock.payload({ ...Fixture.payload(), tags: [] });
     const uncovered = structuredClone(canonical); delete uncovered.plan.cardPurchaseCoverage; let coveredCheck;
     const limited = await Refresh.serve(uncovered, env, { onCheck(value) { coveredCheck = value; } }); await drain();
@@ -304,11 +307,11 @@ if (require.main === module) (async () => {
     ]) {
       const count = mock.calls.length;
       await Refresh.serve(canonical, { ...env, ...change }, { preferObservation: true }); await drain();
-      check(mock.calls.length - count, 7, 'changed credential/household/runtime/map context misses');
+      check(mock.calls.length - count, PROVIDER_GETS, 'changed credential/household/runtime/map context misses');
     }
     const changedCanonical = structuredClone(canonical); changedCanonical.meta.syntheticRevision = 'new';
     const count = mock.calls.length; await Refresh.serve(changedCanonical, env, { preferObservation: true }); await drain();
-    check(mock.calls.length - count, 7, 'canonical revision misses');
+    check(mock.calls.length - count, PROVIDER_GETS, 'canonical revision misses');
     const stat = fs.statSync;
     try {
       fs.statSync = (file, ...args) => {
@@ -318,7 +321,7 @@ if (require.main === module) (async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         const opaqueCount = mock.calls.length;
         check(await Refresh.serve(canonical, env, { preferObservation: true }), direct, 'unreadable compatibility metadata retains incumbent live result'); await drain();
-        check(mock.calls.length - opaqueCount, 7, 'unreadable metadata never authorizes completed reuse');
+        check(mock.calls.length - opaqueCount, PROVIDER_GETS, 'unreadable metadata never authorizes completed reuse');
       }
     } finally { fs.statSync = stat; }
 
@@ -329,9 +332,9 @@ if (require.main === module) (async () => {
     await Refresh.withProviderWrite(async () => ({ status: 'write-unverified' }));
     const afterWriteCount = mock.calls.length;
     await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
-    check(mock.calls.length - afterWriteCount, 7, 'uncertain write invalidates completed evidence');
+    check(mock.calls.length - afterWriteCount, PROVIDER_GETS, 'uncertain write invalidates completed evidence');
     mock.hold(); const old = reject(Refresh.serve(canonical, env, { forceRefresh: true }), 'live-refresh-invalidated');
-    await until(() => mock.calls.length > afterWriteCount + 7, 'old provider job');
+    await until(() => mock.calls.length > afterWriteCount + PROVIDER_GETS, 'old provider job');
     let finishWrite; const write = Refresh.withProviderWrite(() => new Promise(resolve => { finishWrite = resolve; }));
     await old;
     await reject(Refresh.serve(canonical, env, { preferObservation: true }), 'live-refresh-invalidated');
@@ -344,7 +347,7 @@ if (require.main === module) (async () => {
     now = '2026-08-28T07:00:00.000Z'; const midnightCount = mock.calls.length;
     let rolledCheck = null;
     const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true, onCheck(value) { rolledCheck = value; } }); await drain();
-    check(mock.calls.length - midnightCount, 7, 'Pacific midnight/payday starts live acquisition');
+    check(mock.calls.length - midnightCount, PROVIDER_GETS, 'Pacific midnight/payday starts live acquisition');
     // OD-2 (#821): prior-day cash is shown as the dated view of its own day,
     // never as a new-day financial verdict or a current check.
     check(rolled.meta.asOf, '2026-08-27', 'prior-day cash stays dated on its own evidence day');
@@ -424,7 +427,7 @@ if (require.main === module) (async () => {
       mock.release();
       const [dataA, dataB] = await Promise.all([serveA, serveB]);
       await drain();
-      check(mock.calls.length - beforeCalls, 7, 'two concurrent serves share one seven-GET provider fetch');
+      check(mock.calls.length - beforeCalls, PROVIDER_GETS, 'two concurrent serves share one eight-GET provider fetch');
       check(checkA, checkB, 'coalesced waiters receive the identical check');
       check(receiptPacket(dataA, checkA, '2026-08-20T18:20:00.000Z').metadata.sourceCheck,
         receiptPacket(dataB, checkB, '2026-08-20T18:20:00.000Z').metadata.sourceCheck,
@@ -443,7 +446,7 @@ if (require.main === module) (async () => {
       let postWriteCheck;
       const postWriteData = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { postWriteCheck = value; } });
       await drain();
-      check(mock.calls.length - afterWrite, 7, 'first read after a write performs a fresh provider fetch');
+      check(mock.calls.length - afterWrite, PROVIDER_GETS, 'first read after a write performs a fresh provider fetch');
       check(receiptPacket(postWriteData, postWriteCheck, '2026-08-20T18:25:00.000Z').metadata.sourceCheck.source,
         'provider', 'first receipt after a write is a fresh provider check, never a pre-write replay');
       await Refresh.withProviderWrite(async () => ({ status: 'write-unverified' }));
@@ -451,7 +454,7 @@ if (require.main === module) (async () => {
       let uncertainCheck;
       const uncertainData = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { uncertainCheck = value; } });
       await drain();
-      check(mock.calls.length - afterUncertain, 7, 'uncertain write attempt still forces a fresh provider fetch');
+      check(mock.calls.length - afterUncertain, PROVIDER_GETS, 'uncertain write attempt still forces a fresh provider fetch');
       check(receiptPacket(uncertainData, uncertainCheck, '2026-08-20T18:26:00.000Z').metadata.sourceCheck.qualified,
         true, 'receipt after an uncertain write reflects the post-write check, not a stale qualified replay');
     }
@@ -490,7 +493,7 @@ if (require.main === module) (async () => {
           check(refreshed.status, 200, label + ': authenticated Refresh succeeds');
           check(refreshed.headers.get('X-Atlas-Observation-Source'), 'provider', label + ': Refresh re-reads provider');
           check(refreshed.headers.get('X-Atlas-Observation-Qualified'), 'true', label + ': fresh evidence qualifies');
-          check(mock.calls.length - beforeRefresh, 7, label + ': next Refresh performs a full provider read');
+          check(mock.calls.length - beforeRefresh, PROVIDER_GETS, label + ': next Refresh performs a full provider read');
           const fresh = await refreshed.json();
           const rows = fresh.liveOverlay.currentPeriodActuals.transactions.filter(row => row.displayedPayee === transaction.payee);
           check(rows.length, 1, label + ': same transaction is present');
@@ -526,7 +529,7 @@ if (require.main === module) (async () => {
         const routeCount = mock.calls.length;
         const live = await fetch(app.base + '/data.json', { headers: { cookie: app.cookie } });
         check(live.status, 200, 'authenticated first read succeeds'); check(await live.json(), direct, 'actual route publication conservation');
-        check(mock.calls.length - routeCount, 7, 'new server process has no restored evidence');
+        check(mock.calls.length - routeCount, PROVIDER_GETS, 'new server process has no restored evidence');
         const routeCachedCount = mock.calls.length;
         const cached = await fetch(app.base + '/data.json', { headers: { cookie: app.cookie } });
         check(await cached.json(), direct, 'actual browser route re-evaluates evidence');
@@ -535,7 +538,7 @@ if (require.main === module) (async () => {
         check(mock.calls.length, routeCachedCount, 'actual sequential browser route performs zero provider GETs');
         const assistantCount = mock.calls.length;
         check((await fetch(app.base + '/assistant/current', { headers: { authorization: 'Bearer ' + TOKEN } })).status, 200, 'assistant/current succeeds under dedicated Bearer');
-        check(mock.calls.length - assistantCount, 7, 'assistant/current remains live');
+        check(mock.calls.length - assistantCount, PROVIDER_GETS, 'assistant/current remains live');
         check((await fetch(app.base + '/assistant/current', { headers: { cookie: app.cookie } })).status, 401, 'session cannot unlock assistant/current');
         const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
         const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
@@ -546,7 +549,7 @@ if (require.main === module) (async () => {
           const mcpCount = mock.calls.length;
           const result = await client.callTool({ name: 'get_atlas_current', arguments: {} });
           check(result.isError === true, false, 'OAuth MCP current read succeeds');
-          check(mock.calls.length - mcpCount, 7, 'MCP current read remains live');
+          check(mock.calls.length - mcpCount, PROVIDER_GETS, 'MCP current read remains live');
         } finally { await client.close(); }
         mock.mode('failure');
         check((await fetch(app.base + '/data.json?refresh=force', { headers: { cookie: app.cookie } })).status, 503, 'actual force failure is explicit');
@@ -630,7 +633,7 @@ if (require.main === module) (async () => {
     let recoveredCheck;
     const recoveredCount = mock.calls.length;
     const recovered = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { recoveredCheck = value; } }); await drain();
-    check(mock.calls.length - recoveredCount, 7, 'after a failed revalidation the next load asks the recovered provider, never replays old evidence');
+    check(mock.calls.length - recoveredCount, PROVIDER_GETS, 'after a failed revalidation the next load asks the recovered provider, never replays old evidence');
     check(recoveredCheck, { source: 'provider', qualified: true, checkedAt: CLOCK }, 'recovered load is a new qualified provider check');
     check(recovered, direct, 'recovered provider check conserves the qualified publication');
     let retainedCheck;
@@ -642,17 +645,17 @@ if (require.main === module) (async () => {
     await Refresh.withProviderWrite(async () => ({ status: 'write-unverified' }));
     const retainedWriteCount = mock.calls.length;
     await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
-    check(mock.calls.length - retainedWriteCount, 7, 'a write still invalidates retained evidence');
+    check(mock.calls.length - retainedWriteCount, PROVIDER_GETS, 'a write still invalidates retained evidence');
     const retainedContextCount = mock.calls.length;
     await Refresh.serve(canonical, { ...env, LUNCHMONEY_ACCESS_TOKEN: 'SYNTHETIC-DIFFERENT-TOKEN' }, { preferObservation: true }); await drain();
-    check(mock.calls.length - retainedContextCount, 7, 'a changed credential context still misses retained evidence');
+    check(mock.calls.length - retainedContextCount, PROVIDER_GETS, 'a changed credential context still misses retained evidence');
     const superseded = { ...Fixture.payload(), tags: [] };
     superseded.accounts = superseded.accounts.filter(row => row.id !== 2001);
     mock.payload(superseded);
     await Refresh.serve(canonical, env); await drain();
     const supersededCount = mock.calls.length;
     await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
-    check(mock.calls.length - supersededCount, 7, 'a dated unqualified answer still supersedes retained evidence');
+    check(mock.calls.length - supersededCount, PROVIDER_GETS, 'a dated unqualified answer still supersedes retained evidence');
     mock.payload({ ...Fixture.payload(), tags: [] });
     await Refresh.serve(canonical, env); await drain();
 
@@ -687,7 +690,7 @@ if (require.main === module) (async () => {
       mock.mode('ok');
       const holdCount = mock.calls.length;
       await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
-      check(mock.calls.length - holdCount, 7, 'forced waiter timeout holds replay until a live completion');
+      check(mock.calls.length - holdCount, PROVIDER_GETS, 'forced waiter timeout holds replay until a live completion');
     }
     {
       // A forced waiter timeout that terminates the job still holds replay.
@@ -697,7 +700,7 @@ if (require.main === module) (async () => {
       mock.release(); await drain();
       const holdCount = mock.calls.length;
       await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
-      check(mock.calls.length - holdCount, 7, 'job terminated by forced timeout holds replay');
+      check(mock.calls.length - holdCount, PROVIDER_GETS, 'job terminated by forced timeout holds replay');
     }
     {
       // A worker-constructor failure on a forced refresh holds replay. The
@@ -732,7 +735,7 @@ if (require.main === module) (async () => {
       const dayCount = mock.calls.length;
       let rolledCheck = null;
       const rolled = await Refresh.serve(canonical, { ...dayEnv, ATLAS_LIVE_OVERLAY_NOW: now }, { preferObservation: true, onCheck(value) { rolledCheck = value; } }); await drain();
-      check(mock.calls.length - dayCount, 7, 'day rollover still invalidates retained evidence');
+      check(mock.calls.length - dayCount, PROVIDER_GETS, 'day rollover still invalidates retained evidence');
       check(rolledCheck && rolledCheck.qualified, false, 'prior-day retained cash cannot become a new-day verdict');
       check(rolled.meta.asOf, '2026-08-27', 'prior-day retained cash keeps its own evidence day');
       now = CLOCK; mock.payload({ ...Fixture.payload(), tags: [] });
