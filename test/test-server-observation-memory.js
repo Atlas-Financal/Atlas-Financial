@@ -35,7 +35,16 @@ if (!require('node:worker_threads').isMainThread
     const data = await apply(...args);
     if (!args[2]?.evidence && process.env.ATLAS_SYNTHETIC_LIVE_RESULT_DELAY_MS) {
       require('node:worker_threads').parentPort.postMessage({ syntheticAcquired: true });
-      await new Promise(resolve => setTimeout(resolve, Number(process.env.ATLAS_SYNTHETIC_LIVE_RESULT_DELAY_MS)));
+      // Hold the qualified result until the parent's cancellation reaches
+      // this worker (its abort signal), so the result is always delivered
+      // after the cancel. A fixed short delay let a loaded CI runner deliver
+      // it first. The env value is only an upper bound, never the ordering.
+      const signal = args[2]?.signal;
+      await new Promise(resolve => {
+        if (!signal || signal.aborted) return resolve();
+        signal.addEventListener('abort', resolve, { once: true });
+        setTimeout(resolve, Number(process.env.ATLAS_SYNTHETIC_LIVE_RESULT_DELAY_MS)).unref();
+      });
     }
     return data;
   };
@@ -143,10 +152,18 @@ if (require.main === module) (async () => {
   const threads = require('node:worker_threads');
   const workerExits = [], workers = [];
   const RealWorker = threads.Worker;
+  // When set, a worker held by the synthetic late-result hook is released at
+  // once (any parent message reaches its abort signal), for uncancelled runs
+  // that share the held run's environment and therefore its context key.
+  let releaseSyntheticHold = false;
   threads.Worker = class extends RealWorker {
     constructor(...args) { super(...args); workers.push(this); workerExits.push(new Promise(resolve => this.once('exit', resolve))); }
     emit(event, value, ...args) {
-      if (event === 'message' && value?.syntheticAcquired) { this.syntheticAcquired = true; return true; }
+      if (event === 'message' && value?.syntheticAcquired) {
+        this.syntheticAcquired = true;
+        if (releaseSyntheticHold) this.postMessage({ syntheticRelease: true });
+        return true;
+      }
       return super.emit(event, value, ...args);
     }
   };
@@ -239,14 +256,16 @@ if (require.main === module) (async () => {
     mock.payload({ ...Fixture.payload(), tags: [] }); await Refresh.serve(canonical, env); await drain();
     // A successfully evaluated result arriving after cancellation is abandoned,
     // not a completed check that may silently fill the private evidence slot.
-    const lateEnv = { ...env, ATLAS_SYNTHETIC_LIVE_RESULT_DELAY_MS: '35',
+    const lateEnv = { ...env, ATLAS_SYNTHETIC_LIVE_RESULT_DELAY_MS: '15000',
       NODE_OPTIONS: '--require "' + __filename.replace(/\\/g, '/') + '"' };
     const lateCancel = new AbortController();
     const abandoned = reject(Refresh.serve(canonical, lateEnv, { forceRefresh: true, signal: lateCancel.signal }), 'live-refresh-cancelled');
     await until(() => workers.at(-1).syntheticAcquired, 'qualified but not delivered worker result');
     lateCancel.abort(); await abandoned; await drain();
     const abandonedCount = mock.calls.length;
+    releaseSyntheticHold = true;
     await Refresh.serve(canonical, lateEnv, { preferObservation: true }); await drain();
+    releaseSyntheticHold = false;
     check(mock.calls.length - abandonedCount, 7, 'abandoned late worker cannot populate completed evidence');
     for (const mode of ['failure', 'malformed', 'incomplete', 'optionalFailure']) {
       mock.mode(mode);
