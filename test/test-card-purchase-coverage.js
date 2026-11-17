@@ -548,4 +548,64 @@ function refundClaim(x, amount, id = 80006) {
   }
 }
 
+// Posted-purchase qualification through the live reconciler (restored from the
+// matrix #1235 deleted with test-card-payment-decisions.js). A confirmed payment
+// allocation covers a card purchase only when that purchase is explicitly
+// posted: pending, malformed or unknown-provenance purchases stay counted and
+// uncovered. Invented data; cents are specified independently of the engine.
+{
+  const seed = () => {
+    const x = fixture('backfill');
+    delete x.data.plan.cardPurchaseCoverage.opening;
+    x.payload.transactions.slice(1).forEach(t => { t.category_name = 'Payment, Transfer'; t.notes = null; });
+    return x;
+  };
+  const record = (x, amount, otherAmount) => ({ id: 'decision-' + 'a'.repeat(32), confirmed: true,
+    debitRef: fixture.ref(x, 80002), creditRef: fixture.ref(x, 80003),
+    allocations: [{ purchaseRef: fixture.ref(x, 80001), amount }],
+    otherAmount, otherPurpose: otherAmount ? 'required-payment' : null });
+  const cases = [
+    ['posted', true], ['pending', false], ['raw-missing', false], ['raw-null', false],
+    ['raw-string-false', false], ['raw-string-true', false], ['raw-zero', false], ['raw-one', false], ['raw-object', false],
+    ['dto-missing', false], ['dto-null', false], ['dto-string-false', false], ['dto-zero', false], ['dto-object', false],
+    ['dto-source-unknown', false], ['dto-source-null', false], ['dto-source-pending', false],
+    ['pending-confirmed-treatment', false], ['pending-presumed-treatment', false], ['legacy-posted', true],
+  ];
+  const rawValues = { 'raw-null': null, 'raw-string-false': 'false', 'raw-string-true': 'true',
+    'raw-zero': 0, 'raw-one': 1, 'raw-object': {} };
+  const dtoValues = { 'dto-null': null, 'dto-string-false': 'false', 'dto-zero': 0, 'dto-object': {} };
+  let postingChecks = 0;
+  for (const [mode, ready] of cases) for (const allocated of [80, 40]) {
+    const x = seed(), raw = x.payload.transactions[0];
+    if (mode.startsWith('pending')) { raw.is_pending = true; x.payload.accounts[3].balance = 320; }
+    if (mode === 'raw-missing') delete raw.is_pending;
+    if (Object.hasOwn(rawValues, mode)) raw.is_pending = rawValues[mode];
+    const data = Live.fromObservation(x).data;
+    const original = JSON.stringify(data);
+    const packet = structuredClone(data.liveOverlay.currentPeriodActuals);
+    const purchaseRow = packet.transactions.find(tx => tx.atlasAccountId === x.cardId && tx.amount === 80);
+    if (mode === 'dto-missing') delete purchaseRow.pending;
+    if (Object.hasOwn(dtoValues, mode)) purchaseRow.pending = dtoValues[mode];
+    if (mode === 'dto-source-unknown') purchaseRow.savingsPostingEvidence = 'unknown';
+    if (mode === 'dto-source-null') purchaseRow.savingsPostingEvidence = null;
+    if (mode === 'dto-source-pending') purchaseRow.savingsPostingEvidence = 'pending';
+    if (mode === 'legacy-posted') delete purchaseRow.savingsPostingEvidence;
+    if (mode === 'pending-confirmed-treatment') purchaseRow.pendingTreatment = 'confirmed-settled';
+    if (mode === 'pending-presumed-treatment') purchaseRow.pendingTreatment = 'presumed-settled-for-current-forecast';
+    const plan = structuredClone(data.plan);
+    plan.cardPurchaseCoverage.payments.push(record(x, allocated, 80 - allocated));
+    const rows = F.recommend(plan, x.asOf, { debts: data.debts, currentPeriodActuals: packet }).cardPurchaseCoverage.purchases;
+    const label = mode + ' / ' + allocated * 100 + ' cents allocated';
+    assert.equal(rows.length, 1, label + ': posting qualification never removes the counted purchase');
+    assert.deepEqual([rows[0].amount, rows[0].covered, rows[0].remaining], [80, ready ? allocated : 0, ready ? 80 - allocated : 80],
+      label + ': 8000 purchase cents stay counted; only an explicitly posted purchase takes the confirmed allocation');
+    assert.deepEqual([F.startingCashAmount(plan), data.debts[0].balance, data.debts[0].pending],
+      [420, mode.startsWith('pending') ? 320 : 400, mode.startsWith('pending') ? 80 : 0],
+      label + ': cash 50000-8000; posted debt 40000 (+8000 posted purchase -8000 payment); pending authorization separate');
+    assert.equal(JSON.stringify(data), original, label + ': the reconciler leaves producer-shaped input immutable');
+    postingChecks += 4;
+  }
+  assert.equal(postingChecks, 160, 'all 40 posting cases ran');
+}
+
 console.log('PASS independent observed cash/debt/spending ledger: purchase, partial and combined backfill, pending, intent/currency unknown and directed replacement');
