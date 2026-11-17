@@ -129,7 +129,12 @@ const otherInputRevision=JSON.parse(execFileSync('git',['show','2bf14a2d8e3fc578
 const withoutOther=d=>{const copy=fx.clone(d);copy.plan.budget.categories=copy.plan.budget.categories.filter(c=>c.id!=='other-spend');return copy;};
 assert.deepEqual(withoutOther(otherInputRevision),withoutOther(before),'the immutable Other input revision changes no other canonical fields, including savings and opening assignments');
 const priorCsv=execFileSync('git',['show','8ce4e67915e41dbfaee55ad0d2c09ed74b4b4e9c:docs/positions.csv'],{encoding:'utf8'});
-const unchangedRows=s=>s.split(/\r?\n/).filter(line=>!line.includes('Essential spending estimate')&&!line.includes('Weeks of essentials covered'));
+// The known-debt note later dropped its Affirm amount (no household figures
+// in note text); only that number is normalised, every other byte still compares.
+const noteAmount=line=>line.replace(/Affirm final [0-9][0-9.,]* cash obligation/,'Affirm final cash obligation')
+  // The silver note later dropped its owner-stated quantity; only that phrase is normalised.
+  .replace(/,\d+(?:\.\d+)? oz owner-stated (\d+ \w+ \d{4}) valued at/,',Owner-stated $1 holding valued at');
+const unchangedRows=s=>s.split(/\r?\n/).filter(line=>!line.includes('Essential spending estimate')&&!line.includes('Weeks of essentials covered')).map(noteAmount);
 assert.deepEqual(unchangedRows(fs.readFileSync(path.join(__dirname,'../docs/positions.csv'),'utf8')),unchangedRows(priorCsv),
  'only the two derived essentials reporting rows may change; no other household evidence is edited');
 console.log('PASS owner Other target: below/at/above/zero, exact scope, unchanged recon, original denominator, once-only hold, future and unavailable evidence');

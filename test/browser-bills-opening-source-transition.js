@@ -34,8 +34,12 @@ function check(label, verify) {
 const states = [
   { name: 'known', amount: 200, proposal: 80 },
   { name: 'absent', amount: null, proposal: null },
-  { name: 'null', amount: null, proposal: null },
-  { name: 'empty', amount: null, proposal: null },
+  // A present Bills row with no numeric evidence makes the household
+  // chequing opening unknown: the whole current plan fails closed (3e19df30,
+  // pinned by browser-unknown-chequing-opening-budget.js). A removed row is
+  // not an unknown row, so 'absent' still publishes the plan.
+  { name: 'null', amount: null, proposal: null, withheld: true },
+  { name: 'empty', amount: null, proposal: null, withheld: true },
   { name: 'zero', amount: 0 }, // Known zero alone does not qualify every funding claim.
   { name: 'restored', amount: 200, proposal: 80 },
 ];
@@ -85,6 +89,19 @@ async function visibleText(locator, label) {
 async function inspect(page, state, width, phase, includeDetail = true) {
   const label = width + 'px ' + state.name + ' ' + phase;
   let hero;
+  if (state.withheld) {
+    const card = page.locator('[data-budget-surface="unavailable"] [data-budget-surface-section="unavailable"]');
+    hero = await visibleText(card, label + ' Current plan unavailable');
+    check(label + ' names the unknown chequing opening', () => assert.match(hero, /household chequing opening balance is unknown/));
+    const surface = await page.locator('[data-budget-surface]').evaluate(element => element.textContent);
+    check(label + ' no precise figure on the withheld surface', () => assert.doesNotMatch(surface, /[$]\s?\d/));
+    const heroCount = await page.locator('[data-budget-cash-hero]').count();
+    const savingsCount = await page.locator('[data-operating-question="savings"]').count();
+    check(label + ' no current balance is published', () => assert.equal(heroCount, 0));
+    check(label + ' no Savings step is published', () => assert.equal(savingsCount, 0));
+    receipt.observations.push({ width, state: state.name, phase, hero: 'Current plan unavailable', savings: null, proposal: null });
+    return;
+  }
   if (phase === 'next-period') {
     // budget-blend.css deliberately hides today's balance on a noncurrent
     // selection. Check that actual display rule, then the visible value on Back.
@@ -120,6 +137,10 @@ async function inspect(page, state, width, phase, includeDetail = true) {
     else if (state.proposal === 80) check(label + ' daily contribution is 80', () => assert.match(daily, /\$80\.00/));
     await page.keyboard.press('Escape');
     await dialog.waitFor({ state: 'hidden' });
+    // budget-blend.js gives an open sheet a history entry and steps back off
+    // it (history.go) after closing; let that traversal land before the
+    // caller reloads, or the reload navigation is aborted.
+    await page.waitForFunction(() => !(history.state && history.state.atlasSheet));
   }
   receipt.observations.push({ width, state: state.name, phase, hero, savings, proposal });
 }
@@ -180,6 +201,7 @@ async function stepPeriod(page, key, before) {
         await page.evaluate(() => App.rerender());
         await settle(page);
         await inspect(page, state, width, 'repeat');
+        if (!state.withheld) {
         await stepPeriod(page, 'ArrowRight', currentId);
         const nextId = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
         check(width + 'px ' + state.name + ' selected period changes', () => assert.notEqual(nextId, currentId));
@@ -188,10 +210,15 @@ async function stepPeriod(page, key, before) {
         const backId = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');
         check(width + 'px ' + state.name + ' returns to current period', () => assert.equal(backId, currentId));
         await inspect(page, state, width, 'back');
+        } else {
+          // The withheld surface prints no pay-period navigation to step.
+          const riverCount = await page.locator('.river').count();
+          check(width + 'px ' + state.name + ' withheld plan offers no period stepping', () => assert.equal(riverCount, 0));
+        }
         await page.reload(); // App.boot fetches this same source packet afresh.
         await settle(page);
         await inspect(page, state, width, 'reload');
-        await page.locator('[data-budget-today-cash]').screenshot({ path: path.join(output, state.name + '-' + width + '.png') });
+        await page.locator(state.withheld ? '[data-budget-surface]' : '[data-budget-today-cash]').screenshot({ path: path.join(output, state.name + '-' + width + '.png') });
         console.log('Checked ' + width + 'px ' + state.name + ': refresh, repeat, next/back, reload');
       }
       await context.close();
@@ -201,7 +228,9 @@ async function stepPeriod(page, key, before) {
   receipt.failures.push({ label: 'browser execution', message: error.stack || error.message });
   console.error(error);
 }).finally(() => {
-  check('all six source states complete five lifecycle checkpoints at three widths', () => assert.equal(receipt.observations.length, 90));
+  // Four published states x five checkpoints + two withheld states x three
+  // (refresh, repeat, reload; no period to step), at three widths.
+  check('all six source states complete their lifecycle checkpoints at three widths', () => assert.equal(receipt.observations.length, 78));
   check('no page errors', () => assert.deepEqual(receipt.pageErrors, []));
   check('no external requests', () => assert.deepEqual(receipt.external, []));
   check('no mutation requests', () => assert.deepEqual(receipt.mutations, []));

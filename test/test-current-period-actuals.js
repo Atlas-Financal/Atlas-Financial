@@ -1083,6 +1083,8 @@ console.log('\n=== R4. merchant identity stays off excluded kinds and accounts =
         date: PAYDAY, amount: -12, pending: false, savingsPostingEvidence: 'posted', currency: 'cad', categoryLabel: 'Groceries',
         payee: 'REFUND GROCER', originalName: 'REFUND GROCER',
         providerAccountId: '1001', providerTransactionId: 'ref-1',
+        // LEDGER A item 3: the ledger-linked form (a group parent) is the one that nets.
+        isGroup: true,
       },
     ],
     representedEventCandidates: [{
@@ -1959,17 +1961,24 @@ console.log('\n=== G3a. an identified refund nets signed against its category; a
   };
   const planned = plannedNeed(1800, MID, PERIOD_LAST);
   // Hand oracle: each expected figure below is written out, not derived.
-  const nets = run([row(), row({ amount: -10 })]);
+  // LEDGER A item 3 (Grok Bot, rule 17): only a ledger-linked refund nets. Lunch Money returns a grouped
+  // purchase and refund as one group-parent row, so these refunds carry is_group_parent; the same refund
+  // with no link never nets (below).
+  const linked = extra => row(Object.assign({ is_group_parent: true }, extra || {}));
+  const nets = run([row(), linked({ amount: -10 })]);
   ok(nets.row && near(nets.row.committed, 30) && near(nets.row.remaining, planned - 30)
     && nets.action.remainingClaim !== 'unavailable',
     'a posted 10 Groceries refund on 40 of groceries publishes 30 spent', nets.row && nets.row.committed);
   // Lead ruling (spec 5.6 wins): no floor; an identified refund nets signed.
-  const signed = run([row({ amount: 15 }), row({ amount: -25 })]);
+  const signed = run([row({ amount: 15 }), linked({ amount: -25 })]);
   ok(signed.row && near(signed.row.committed, -10) && near(signed.row.remaining, planned + 10),
     'a 25 refund on 15 of groceries nets signed to -10', signed.row && signed.row.committed);
-  const alone = run([row({ amount: -20 })]);
+  const alone = run([linked({ amount: -20 })]);
   ok(alone.row && near(alone.row.committed, -20),
     'a refund with no spend in the window shows -20 spent in its category', alone.row && alone.row.committed);
+  const unlinked = run([row(), row({ amount: -10 })]);
+  ok(unlinked.row && near(unlinked.row.committed, 40),
+    'an unlinked (standalone) 10 Groceries refund does not net: 40 spent', unlinked.row && unlinked.row.committed);
   const unidentified = run([row(), row({ amount: -10, category_id: null }), row({ amount: -10, category_id: 12 })]);
   ok(unidentified.row && near(unidentified.row.committed, 40),
     'an uncategorised or non-budget inbound credit does not net against Groceries', unidentified.row && unidentified.row.committed);

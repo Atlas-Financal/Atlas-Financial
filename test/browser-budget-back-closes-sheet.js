@@ -170,6 +170,32 @@ const tap = async (page, locator, touch) => {
         await fresh.context.close();
       }
 
+      console.log('  -- a reload while a sheet is open leaves no stale sheet entry');
+      {
+        // A reload keeps the current history entry's state. Before the fix the reloaded
+        // page booted on an entry still claiming an open sheet, so a later close stepped
+        // back onto it and history kept saying a sheet was open.
+        const fresh = await open(browser, width, touch);
+        const sheetState = () => fresh.page.evaluate(() => Number(history.state && history.state.atlasSheet) || 0);
+        await tap(fresh.page, fresh.page.locator('[data-blend-bills-open]').first(), touch);
+        ok((await sheetState()) === 1, 'opening a sheet takes a history entry');
+        const lengthBefore = await fresh.page.evaluate(() => history.length);
+        await fresh.page.reload(); await fresh.page.locator('[data-budget-surface]').waitFor(); await settle(fresh.page);
+        let f = await facts(fresh.page);
+        ok(f.open === 0 && (await sheetState()) === 0, 'after the reload no sheet is open and history claims none',
+          `open ${f.open}, claimed ${await sheetState()}`);
+        const lengthAfter = await fresh.page.evaluate(() => history.length);
+        ok(lengthAfter === lengthBefore, 'clearing the stale claim at boot adds no history entry',
+          `history.length ${lengthBefore} -> ${lengthAfter}`);
+        await tap(fresh.page, fresh.page.locator('[data-blend-bills-open]').first(), touch);
+        await fresh.page.keyboard.press('Escape'); await settle(fresh.page);
+        f = await facts(fresh.page);
+        ok(f.open === 0 && (await sheetState()) === 0, 'reopened and closed with Escape, history claims no open sheet',
+          `open ${f.open}, claimed ${await sheetState()}`);
+        ok(fresh.errors.length === 0, 'no page errors (reload case)');
+        await fresh.context.close();
+      }
+
       console.log('  -- Back keeps the opener in view');
       {
         const fresh = await open(browser, width, touch);

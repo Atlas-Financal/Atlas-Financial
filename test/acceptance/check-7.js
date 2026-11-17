@@ -149,7 +149,8 @@ const scenarios = [
       const w = txWorld(H);
       w.transactions.push(
         H.lm({ date: '2026-10-10', amount: 40, category: 'Groceries', payee: 'Invented grocer A' }),
-        H.lm({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer A' }));
+        // LEDGER A item 3 (Grok Bot, rule 17): only a ledger-linked refund nets (the group-parent form).
+        H.lm({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer A', raw: { is_group_parent: true } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectMatch(H.category(s, 'Groceries'), /Spent \$30\.00/, 'groceries spent is 40 - 10');
@@ -310,7 +311,8 @@ const scenarios = [
       w.budget.push({ id: 'fuel', label: 'Fuel', class: 'essential', plannedMonthly: 0, confidence: 'confirmed', from: ['Fuel'] });
       w.transactions.push(
         H.lm({ date: '2026-10-12', amount: 45, category: 'Fuel', payee: 'Invented fuel stop' }),
-        H.lm({ date: '2026-10-13', amount: -15, category: 'Fuel', payee: 'Invented fuel stop' }));
+        // LEDGER A item 3: the linked (group-parent) refund inherits its purchase's bucket.
+        H.lm({ date: '2026-10-13', amount: -15, category: 'Fuel', payee: 'Invented fuel stop', raw: { is_group_parent: true } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectMatch(H.category(s, 'Other spending'), /Other spending\$30\.00/, '7.15: Other spending nets 45 - 15 = 30');
@@ -413,7 +415,8 @@ const scenarios = [
       w.budget.push({ id: 'health', label: 'Health', class: 'essential', from: ['Health'] });
       w.transactions.push(
         H.lm({ date: '2026-10-12', amount: 40, payee: 'Invented clinic', raw: HEALTH }),
-        H.lm({ date: '2026-10-13', amount: -10, payee: 'Invented clinic', raw: HEALTH }));
+        // LEDGER A item 3: the linked (group-parent) refund inherits its purchase's bucket.
+        H.lm({ date: '2026-10-13', amount: -10, payee: 'Invented clinic', raw: { ...HEALTH, is_group_parent: true } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectMatch(H.category(s, 'Other spending'), /Other spending\$30\.00/, '7.20: Other spending nets 40 - 10 = 30');

@@ -164,10 +164,10 @@ const financialData = require('./fixtures/budget-layout-data')();
 const financialAdvice = F.recommend(financialData.plan, financialData.meta.asOf, { debts: [] });
 const projected = financialAdvice.payPeriodViews.find(p => p.start === '2027-01-01');
 assert.equal(projected.income[0].incomeRegime, '2027-estimated');
-assert.equal(projected.incomeTotal, 3849.40);
+assert.equal(projected.incomeTotal, 3860.69); // 2027 estimate on CRA's published 2027 contribution limits
 assert.equal(projected.periodBillLoad, 1600 + 199);
-assert.equal(projected.afterBills, 2050.40);
-assert.equal(projected.balanceAfterDeductions, 1950.40);
+assert.equal(projected.afterBills, 2061.69); // 3860.69 - 1799
+assert.equal(projected.balanceAfterDeductions, 1961.69); // 2061.69 - 100
 const projectedHtml = f.calendarWaterfallHtml(projected, null, null, financialData.plan);
 for (const id of ['02', '05', '07']) {
   assert.match(summary(projectedHtml, id), /≈ estimated/,

@@ -272,9 +272,10 @@ ok(mineItems.length > 0 && JSON.stringify(mineItems) === JSON.stringify(items(ma
 const adviceWith = row => ({ ...advice, payPeriodViews: views.map((v, i) => i === pastIndex ? row : v) });
 for (const a of [adviceWith(qualified), adviceWith(gated), adviceWith({ ...qualified, incomeTrust: 'unknown' })]) {
   const sealed = JSON.stringify(a);
+  // The live page prints the payday instruction shell only inside the Today
+  // cash card's evidence panel, so the Today card covers it.
   for (const [name, expr] of [
-    ['payday instruction shell', 'currentPaydayShellHtml({ advice: a, plan, planPayPeriodId: id })'],
-    ['Today cash card', 'budgetTodayCashCardHtml({ advice: a, plan, planPayPeriodId: id })'],
+    ['Today cash card (with the payday instruction shell)', 'budgetTodayCashCardHtml({ advice: a, plan, planPayPeriodId: id })'],
   ]) {
     for (const id of [current.id, base.id]) {
       const vars = { a, plan: f.plan, id };
@@ -297,8 +298,7 @@ ok(wordingUsed.size === WORDING.length,
     for (const compact of [true, false]) both('calendarWaterfallHtml(p,null,null,plan,c)', { p: row, plan: f.plan, c: compact });
   }
   for (const a of [adviceWith(qualified), adviceWith(gated), adviceWith({ ...qualified, incomeTrust: 'unknown' })]) {
-    for (const expr of ['currentPaydayShellHtml({ advice: a, plan, planPayPeriodId: id })',
-      'budgetTodayCashCardHtml({ advice: a, plan, planPayPeriodId: id })']) {
+    for (const expr of ['budgetTodayCashCardHtml({ advice: a, plan, planPayPeriodId: id })']) {
       for (const id of [current.id, base.id]) both(expr, { a, plan: f.plan, id });
     }
   }

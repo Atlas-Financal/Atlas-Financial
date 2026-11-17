@@ -100,7 +100,9 @@ function fixture(key = 'payday') {
   if (index >= 2) transactions.push(tx(91007, '2026-08-18', 2001, 52, 11, 'Synthetic grocer card',
     { plaid_metadata: { transaction_id: 'synthetic-posted-one', pending_transaction_id: 'synthetic-pending-one' } }));
   if (index >= 3) transactions.push(
-    tx(91008, '2026-08-19', 1002, -20, 11, 'Synthetic grocer REFUND'),
+    // LEDGER A item 3 (Grok Bot, rule 17): only a ledger-linked refund nets; the group-parent form keeps
+    // this invariant (net once). A standalone refund is test-refund-unlinked-own-line's.
+    tx(91008, '2026-08-19', 1002, -20, 11, 'Synthetic grocer REFUND', { is_group_parent: true }),
     tx(91009, '2026-08-19', 1001, 50, 15, 'AB123 TFR-TO synthetic weekly'),
     tx(91010, '2026-08-19', 1002, -50, 15, 'AB123 TFR-FR synthetic bills'),
   );

@@ -65,7 +65,7 @@ function run(bills, txs, asOf, planPatch) {
     return (r.packet.transactions || []).find(t => t.date === raw.date
       && Math.abs(Number(t.amount)) === Math.abs(Number(raw.amount))) || null;
   };
-  return { packet: r.packet, periods, period: current, other, txOf,
+  return { packet: r.packet, plan: r.plan, periods, period: current, other, txOf,
     bill: id => ((current && current.bills) || []).find(b => b.id === id) || null,
     classify: tx => F.classifyCurrentPeriodTransaction(tx, r.plan, { packet: r.packet, currentPeriodActuals: r.packet }) };
 }
@@ -226,27 +226,36 @@ console.log('Short-cycle cap: a bill never claims its neighbour');
 
 console.log('The bill detail names the held debit as a to-confirm candidate');
 {
-  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date };
+  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date, Forecast: F };
   ctx.window = ctx; ctx.self = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'bill-detail.js'), 'utf8'), ctx);
-  const data = { meta: { asOf: '2026-10-14' }, plan: { opening: { asOf: '2026-10-14' } },
-    liveOverlay: { applied: true, effectiveAsOf: '2026-10-14', observedAsOf: '2026-10-14', currentPeriodActuals: {
-      schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-14', representedActuals: [],
-      transactions: [{ id: 'tx-9', date: '2026-10-10', amount: 90, account: 'chequing-a', atlasAccountId: 'chequing-a',
-        pending: false, nearDueBillCandidate: { id: 'hydro', date: '2026-10-12', offsetDays: -2 } }] } } };
-  const html = ctx.BillDetail.html({ id: 'hydro', label: 'Invented hydro', status: 'still due', settlement: 'unverified',
-    date: '2026-10-12', planned: 90, remaining: 90 }, data, {});
+  // In-period: debit Oct 10, occurrence Oct 12, both in the Oct 9-22 period.
+  const res = run([{ ...HYDRO }], [debit('2026-10-10', 90, 'Invented hydro', 'Utilities')]);
+  const asOf = res.packet.observationAsOf;
+  const data = { meta: { asOf }, plan: res.plan, liveOverlay: { applied: true, effectiveAsOf: asOf,
+    observedAsOf: asOf, currentPeriodActuals: res.packet } };
+  data.plan.opening = { ...(data.plan.opening || {}), asOf };
+  const bill = { id: 'hydro', label: 'Invented hydro', status: 'still due', settlement: 'unverified',
+    date: '2026-10-12', planned: 90, remaining: 90 };
+  const html = ctx.BillDetail.html(bill, data, {});
   ok(/data-bill-payment-candidate>Possible payment — to confirm/.test(html) && /2026-10-10/.test(html),
     'the detail shows "Possible payment — to confirm" with the debit date');
+  ok(!/data-bill-other-spending/.test(html) && !/Review in Lunch Money/.test(html),
+    'a held debit carries no Other spending pointer');
   const stale = JSON.parse(JSON.stringify(data));
   stale.liveOverlay.observedAsOf = '2026-10-13';
-  ok(!/Possible payment/.test(ctx.BillDetail.html({ id: 'hydro', label: 'Invented hydro', status: 'still due',
-    settlement: 'unverified', date: '2026-10-12', planned: 90, remaining: 90 }, stale, {})),
-  'a stale overlay names no candidate');
-  const paid = ctx.BillDetail.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
-    date: '2026-10-12', planned: 90, remaining: 0 }, data, {});
+  ok(!/Possible payment/.test(ctx.BillDetail.html(bill, stale, {})), 'a stale overlay names no candidate');
+  const paid = ctx.BillDetail.html({ ...bill, status: 'PAID', settlement: 'represented', remaining: 0 }, data, {});
   ok(!/Possible payment/.test(paid), 'a Paid bill shows no candidate block');
+  // Without Forecast nothing is called a possible payment (fail closed).
+  const bare = { console, Intl, Number, Math, String, Object, Array, JSON, Date };
+  bare.window = bare; bare.self = bare;
+  vm.createContext(bare);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'bill-detail.js'), 'utf8'), bare);
+  const bareHtml = bare.BillDetail.html(bill, data, {});
+  ok(!/Possible payment/.test(bareHtml) && /Review in Lunch Money/.test(bareHtml),
+    'without Forecast the debit is never called a possible payment');
 }
 
 console.log('Across a payday the debit stays household spending in its own period (#965 review 6717183500)');
@@ -303,13 +312,14 @@ console.log('Across a payday the debit stays household spending in its own perio
 
 console.log('The bill detail never claims a counted debit is kept out of household spending');
 {
-  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date };
+  const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date, Forecast: F };
   ctx.window = ctx; ctx.self = ctx;
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'bill-detail.js'), 'utf8'), ctx);
   const detail = (res, bill) => {
     const asOf = res.packet.observationAsOf;
-    const data = { meta: { asOf }, plan: { opening: { asOf } }, liveOverlay: { applied: true, effectiveAsOf: asOf,
+    const plan = { ...res.plan, opening: { ...(res.plan.opening || {}), asOf } };
+    const data = { meta: { asOf }, plan, liveOverlay: { applied: true, effectiveAsOf: asOf,
       observedAsOf: asOf, currentPeriodActuals: res.packet } };
     return ctx.BillDetail.html({ id: bill.id, label: bill.label, status: 'still due', settlement: 'unverified',
       date: bill.date, planned: 90, remaining: 90 }, data, {});
@@ -318,10 +328,21 @@ console.log('The bill detail never claims a counted debit is kept out of househo
   const cross = run([{ ...HYDRO, day: 23 }], [debit('2026-10-20', 90, 'Invented hydro')], '2026-10-21');
   const crossCls = cross.classify(cross.txOf('Invented hydro'));
   const crossHtml = detail(cross, { id: 'hydro', label: 'Invented hydro', date: '2026-10-23' });
-  ok(crossCls.householdSpending === true && /data-bill-payment-candidate/.test(crossHtml)
-    && !/kept out of household spending/i.test(crossHtml),
-  'cross-period: the counted debit is listed as a candidate without a kept-out claim',
+  // #965 follow-up (Grok Bot, rule 17): the counted debit shows its ledger
+  // category and points only to Lunch Money. It is never a possible payment.
+  ok(crossCls.householdSpending === true && !/data-bill-payment-candidate/.test(crossHtml)
+    && !/Possible payment/.test(crossHtml) && !/kept out of household spending/i.test(crossHtml),
+  'cross-period: the counted debit is not called a possible payment',
   JSON.stringify({ hs: crossCls.householdSpending, block: /data-bill-payment-candidate/.test(crossHtml) }));
+  const otherBlock = (crossHtml.match(/<ul class="bill-detail-payments" data-bill-other-spending>[\s\S]*?<\/ul>/) || [''])[0];
+  ok(/2026-10-20/.test(otherBlock) && /\$90\.00/.test(otherBlock)
+    && /<dt>Category<\/dt><dd>Utilities<\/dd>/.test(otherBlock) && /Review in Lunch Money/.test(otherBlock),
+  'cross-period: it lists date, amount, the ledger category and "Review in Lunch Money"', otherBlock);
+  ok((crossHtml.match(/2026-10-20/g) || []).length === 1, 'cross-period: the debit is listed once');
+  const uncat = run([{ ...HYDRO, day: 23 }], [debit('2026-10-20', 90, 'Invented hydro', '')], '2026-10-21');
+  const uncatHtml = detail(uncat, { id: 'hydro', label: 'Invented hydro', date: '2026-10-23' });
+  ok(!!candidateOf(uncat, 'Invented hydro') && /<dt>Category<\/dt><dd>Uncategorised<\/dd>/.test(uncatHtml),
+    'cross-period, no ledger category: it reads Uncategorised', String(!!candidateOf(uncat, 'Invented hydro')));
   // Merchant identity (D3 follow-up): the in-period hold is kept by H1's
   // label rule, so the debit is held on the bill, not counted twice. The
   // block still makes no kept-out claim; its wording holds in every case.
@@ -329,7 +350,7 @@ console.log('The bill detail never claims a counted debit is kept out of househo
   const h1Tx = { ...h1.txOf('Invented hydro'), confirmedGrocery: true };
   const h1Cls = h1.classify(h1Tx);
   const h1Packet = { ...h1.packet, transactions: h1.packet.transactions.map(t => t === h1.txOf('Invented hydro') ? h1Tx : t) };
-  const h1Html = detail({ packet: h1Packet }, { id: 'hydro', label: 'Invented hydro', date: '2026-10-22' });
+  const h1Html = detail({ ...h1, packet: h1Packet }, { id: 'hydro', label: 'Invented hydro', date: '2026-10-22' });
   ok(h1Cls.householdSpending === false && h1Cls.reason === 'near-due-bill-unconfirmed'
     && /data-bill-payment-candidate/.test(h1Html) && !/kept out of household spending/i.test(h1Html),
   'merchant identity: the in-period debit is held on the bill and listed without a kept-out claim',

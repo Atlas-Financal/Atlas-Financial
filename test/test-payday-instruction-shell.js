@@ -361,21 +361,39 @@ check('B13: bills shortfall is disclosed, not hidden', () => {
   assert.match(html, /Shortfall of \$150\.00 — bills are not fully covered/);
 });
 
+// The live Budget composition (budgetSurfaceParts, as
+// test/lib/budget-page-harness.js composes it) in this suite's sandbox.
+const liveSurface = ctx => {
+  const parts = f.budgetSurfaceParts();
+  return parts.planUnavailable(ctx) ? parts.unavailableHtml(ctx) : parts.todayHtml(ctx) + parts.periodHtml(ctx);
+};
+const evidenceOf = html => {
+  const at = html.indexOf('data-budget-today-evidence');
+  return at < 0 ? '' : html.slice(at, html.indexOf('</section>', at));
+};
+
 check('B14: shell remains in current-payday details after the selected waterfall', () => {
+  // Live Budget: the current payday's instructions are the Today card's
+  // evidence panel (a closed disclosure), printed once beside the selected
+  // period's waterfall.
   const advice = adviceFixture();
-  const html = f.operatingSurfaceHtml({ advice, liveOverlay: null, planLook: 'this-period' });
+  const html = liveSurface({ advice, liveOverlay: null, planLook: 'this-period' });
   const shellAt = html.indexOf('data-payday-instruction-shell');
   const waterfallAt = html.indexOf('data-waterfall');
   assert.ok(shellAt >= 0, 'shell mounts on the default surface');
   assert.ok(waterfallAt >= 0, 'waterfall still renders');
-  assert.ok(shellAt > waterfallAt, 'selected waterfall leads and current-payday details follow');
-  assert.match(html, /<details[^>]*data-current-payday-details/);
+  assert.match(evidenceOf(html), /data-payday-instruction-shell/, 'shell is inside the Today card evidence panel');
+  assert.match(html, /data-budget-today-evidence[^>]* hidden/, 'evidence panel is closed by default');
+  assert.equal((html.match(/data-payday-instruction-shell/g) || []).length, 1);
 });
 
 check('B15: shell does not render on non-default looks', () => {
+  // Live Budget: the Today card (current payday) stays above every look; the
+  // shell never enters the selected look's own sheet.
   const advice = adviceFixture();
-  const html = f.operatingSurfaceHtml({ advice, liveOverlay: null, planLook: 'past:2026-08-01' });
-  assert.doesNotMatch(html, /data-payday-instruction-shell/);
+  const html = liveSurface({ advice, liveOverlay: null, planLook: 'past:2026-08-01' });
+  const outside = html.replace(evidenceOf(html), '');
+  assert.doesNotMatch(outside, /data-payday-instruction-shell/);
 });
 
 check('B16: extra-debt target object renders its label, never [object Object]', () => {
@@ -468,8 +486,10 @@ check('C3: the 2027 Dale-payroll projection renders as estimate, not bare curren
     defaultView: { asOf },
   };
   const html = f.paydayInstructionShellHtml(advice, { id: 'x', start: asOf }, sched);
-  assert.match(html, /\$5,849\.40/);
-  assert.match(html, /5,849\.40 <span class="trust-tag trust-estimated">estimate<\/span>/);
+  // 2,000 cash + the 3,860.69 January 2027 estimated cheque (CRA's published
+  // 2027 contribution limits; tax on the 2026 table) = 5,860.69.
+  assert.match(html, /\$5,860\.69/);
+  assert.match(html, /5,860\.69 <span class="trust-tag trust-estimated">estimate<\/span>/);
   assert.doesNotMatch(html, /unavailable/);
 });
 

@@ -356,5 +356,39 @@ console.log('\n=== G. due/settlement/scheduled dates are not observation times =
     'comparing the later limit observation to meta.asOf would have overclaimed freshness — that path is closed');
 }
 
+console.log('\n=== settledOn must be a real calendar day (A8 parity, #934) ===');
+{
+  // Expected validity is written by hand from the calendar, not derived
+  // from reconcile.js: 2024 is a leap year, 2026 and 2100 are not.
+  const run = (evidence, canonical) => R.reconcile({
+    data: {
+      meta: { asOf: '2026-08-09' },
+      plan: { startingCash: { breakdown: [], heldElsewhere: [] },
+        commitments: [{ id: 'synth-camp', amount: 100, settledOn: canonical }] },
+      debts: [],
+    },
+    map: { mappings: [] },
+    observations: [],
+    settlements: { observations: [{ observationId: 'synth-camp-paid', fact: 'settlement',
+      commitmentId: 'synth-camp', settledOn: evidence, amount: 100 }] },
+  }).rows.find(r => r.observationId === 'synth-camp-paid');
+
+  for (const bad of ['2026-02-29', '2026-02-30', '2026-04-31', '2026-06-31', '2026-09-31', '2026-11-31', '2100-02-29']) {
+    const row = run(bad, '2026-08-01');
+    ok(row && row.evidenceSettledOn === null && row.sourceMissing === true && row.status === 'MISSING',
+      `evidence settledOn ${bad} is not a date: MISSING, not compared`, row && `${row.status} ${row.evidenceSettledOn}`);
+    const canon = run('2026-08-01', bad);
+    ok(canon && canon.canonicalSettledOn === null && canon.status === 'CHANGE',
+      `canonical settledOn ${bad} reads as unset, so a real evidence date is a CHANGE`, canon && `${canon.status} ${canon.canonicalSettledOn}`);
+  }
+  const both = run('2026-02-30', '2026-02-30');
+  ok(both && both.status !== 'MATCH', 'the same impossible date on both sides never MATCHES', both && both.status);
+  for (const good of ['2024-02-29', '2026-02-28', '2026-04-30', '2026-12-31', '2000-02-29']) {
+    const row = run(good, good);
+    ok(row && row.evidenceSettledOn === good && row.canonicalSettledOn === good && row.status === 'MATCH',
+      `real day ${good} still MATCHES`, row && row.status);
+  }
+}
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

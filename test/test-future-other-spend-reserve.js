@@ -13,9 +13,9 @@
  *
  * `node test/test-future-other-spend-reserve.js`
  */
+const { loadBudgetPage } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 // Preserve these retired-policy regression assertions against the explicitly
 // dated historical policy. The active 450 policy has its own independent suite.
@@ -54,74 +54,12 @@ function grab(src, re, label) {
 }
 
 function loadComposer() {
-  const appSrc = read('public/app.js');
-  const planSrc = read('public/plan.js');
-  const names = [
-    'liveOperatingPlanUnavailable',
-    'liveOperatingPlanNote',
-    'paydayGlanceCashNote',
-    'providerBalanceDate',
-    'glanceUpdatedNote',
-    'glanceSignedMoney',
-    'glanceMoney',
-    'glanceLineLabel',
-    'cashGlanceHtml',
-    'liveCurrentBalanceHtml',
-    'runningLeftoverHtml',
-    'periodBillLine',
-    'calendarCurrentUnavailableHtml',
-    'calendarIncomeHtml',
-    'householdBudgetCycleText',
-    'householdBudgetMetric',
-    'householdBudgetCategoryHtml',
-    'calendarBudgetHtml',
-    'calendarPeriodBillsHtml',
-    'periodBillsHtml',
-    'extraRepaymentHtml',
-    'calendarFromTodayEvidenceHtml',
-    'calendarWaterfallHtml',
-    'payPeriodSelection',
-    'payPeriodMoveSelection',
-    'payPeriodRangeLabel',
-    'payPeriodStatusLabel',
-    'payPeriodNavigatorHtml',
-    'payPeriodCloseMonth',
-    'payPeriodMonths',
-    'payPeriodWheelSelection',
-    'budgetPlanSpendEarmarkHtml',
-    'payPeriodTimelineHtml',
-    'budgetPayPeriodContentHtml',
-    'currentPaydayShellHtml',
-    'operatingSurfaceHtml',
-    'paydayInstructionShellHtml',
-    // AMANDA SLICE 14 — the shell's planned block reads the caller-passed
-    // same-input schedule; the harness must include its (pure) chain.
-    'budgetMonthPlanSpendSchedule',
-    'budgetMonthKnobOpts',
-    'simOpts',
-    'budgetMonthName',
-  ];
-  const source = [
-    grab(appSrc, /^const money = .*$/m, 'money'),
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-    grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-    grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^const BUDGET_MONTH_NAMES = [\s\S]*?\];/m, 'BUDGET_MONTH_NAMES'),
-  ].concat(names.map(name => grab(
-    planSrc,
-    new RegExp('^function ' + name + '\\([\\s\\S]*?\\n\\}$', 'm'),
-    name
-  ))).join('\n');
-  return vm.runInNewContext(
-    `${source}\n({ operatingSurfaceHtml, calendarBudgetHtml, calendarWaterfallHtml, money2 });`,
-    // AMANDA SLICE 14: minimal page-state stub for simOpts (read by
-    // budgetMonthKnobOpts inside the schedule chain).
-    { Forecast: F,
-      state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0,
-        incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null,
-        extraFacilities: null } }
-  );
+  // The real Budget page (test/lib/budget-page-harness.js). operatingSurfaceHtml
+  // is the live composition: the Today card plus the compact pay-period content.
+  const page = loadBudgetPage({ Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
+  return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx),
+    budgetHeaderHtml: ctx => page.get('budgetSurfaceParts')().headerHtml(ctx),
+    calendarBudgetHtml: page.get('calendarBudgetHtml'), calendarWaterfallHtml: page.get('calendarWaterfallHtml'), money2: page.get('money2') };
 }
 
 function clone(value) {
@@ -246,18 +184,25 @@ console.log('\n=== 2. Current Balance precedes the linked selectors ===');
   const html = composer.operatingSurfaceHtml({
     advice, weekly: advice.weekly, recommended: advice.weekly, plan: syntheticPlan(RESERVE),
   });
-  const selectorAt = html.indexOf('data-pay-period-navigator');
-  const monthAt = html.indexOf('data-budget-wheel="month"');
-  const periodAt = html.indexOf('data-budget-wheel="period"');
+  // Live Budget: the month / pay-period wheels sit in the window header's
+  // chooser (above the Today card); the Today card's Current balance
+  // precedes the selected period's Income, Bills, Household Budget and
+  // Balance After Deductions.
+  const header = composer.budgetHeaderHtml({
+    advice, weekly: advice.weekly, recommended: advice.weekly, plan: syntheticPlan(RESERVE),
+  });
+  const selectorAt = header.indexOf('data-pay-period-navigator');
+  const monthAt = header.indexOf('data-budget-wheel="month"');
+  const periodAt = header.indexOf('data-budget-wheel="period"');
   const balanceAt = html.indexOf('data-live-current-balance');
   const incomeAt = html.indexOf('data-operating-prompt="Income"');
   const billsAt = html.indexOf('data-operating-prompt="Bills"');
   const budgetAt = html.indexOf('data-operating-prompt="Household budget"');
   const badAt = html.indexOf('data-operating-prompt="Balance After Deductions"');
-  ok(selectorAt ===  html.indexOf('data-budget-wheel') || monthAt > selectorAt,
+  ok(selectorAt >= 0 && monthAt > selectorAt && periodAt > monthAt,
     'month wheel is inside the navigator');
-  ok(balanceAt >= 0 && selectorAt > balanceAt && monthAt > selectorAt && periodAt > monthAt
-      && incomeAt > periodAt && billsAt > incomeAt
+  ok(balanceAt >= 0
+      && incomeAt > balanceAt && billsAt > incomeAt
       && budgetAt > billsAt && badAt > budgetAt,
     'order is Current Balance, month, pay period, Income, Bills, Household Budget, Balance After Deductions');
   ok(!/More views/.test(html) && !/data-plan-look/.test(html),

@@ -45,7 +45,11 @@ function close(change) {
 const txs = x => x.opts.currentPeriodActuals.transactions;
 const bills = (x, delta) => { x.plan.startingCash.breakdown[0].value = Math.round((x.plan.startingCash.breakdown[0].value + delta) * 100) / 100; };
 const buy = (id, amt, account = 'chequing-a', date = '2026-08-19') => fx.tx(id, account, date, amt, 'Groceries');
-const refund = (id, amt, account = 'chequing-a', date = '2026-08-20') => fx.tx(id, account, date, -amt, 'Groceries');
+// LEDGER A item 3 (Grok Bot, rule 17): only a ledger-linked refund nets. Lunch Money returns a grouped
+// purchase and refund as one group-parent row, so these refunds carry isGroup; section 7 proves the
+// unlinked (standalone) refund.
+const refund = (id, amt, account = 'chequing-a', date = '2026-08-20') => fx.tx(id, account, date, -amt, 'Groceries', { isGroup: true });
+const unlinkedRefund = (id, amt, account = 'chequing-a', date = '2026-08-20') => fx.tx(id, account, date, -amt, 'Groceries');
 
 console.log('=== 1. baseline and plain purchase ===');
 const base = close();
@@ -82,6 +86,17 @@ ok(near(weekly.amount, BASE_CLOSE), 'a Weekly purchase + refund leaves the Bills
 const card = close(x => { txs(x).push(buy('inv-buy', 50, 'travelvisa'), refund('inv-refund', 50, 'travelvisa')); });
 ok(card.amount === null && card.issues.some(i => i.code === 'card-coverage-unavailable'),
   'an unreconciled card purchase + refund still withholds (unchanged fail-closed)');
+
+console.log('\n=== 7. an unlinked refund never nets: its cash is back in Bills and the purchase stays spent ===');
+// Hand arithmetic: purchase 50 inside the 71.13 Groceries target, funded 50 from Bills; the unlinked
+// refund returns 50 to Bills (cash unchanged overall) and does not net, so Groceries keeps 21.13
+// remaining: close = 823.47 + 263.19 − 17.23 − 9.41 − (21.13 + 29.27) = 1009.62.
+const unlinkedRound = close(x => { txs(x).push(buy('inv-buy', 50), unlinkedRefund('inv-refund', 50)); });
+ok(near(unlinkedRound.amount, 1009.62) && near(unlinkedRound.household.funded, 50),
+  'purchase 50 + unlinked refund 50: funded 50, close 1009.62', `${unlinkedRound.amount} / ${unlinkedRound.household.funded}`);
+// An unlinked refund with no purchase: cash +20, the hold stays the 100.40 target: close 959.62 + 20.
+const unlinkedAlone = close(x => { txs(x).push(unlinkedRefund('inv-refund', 20)); bills(x, 20); });
+ok(near(unlinkedAlone.amount, 979.62), 'unlinked refund 20 into Bills, no purchase: close 979.62', String(unlinkedAlone.amount));
 
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All A18 Bills close refund conservation checks passed'));
 process.exit(failures ? 1 : 0);
