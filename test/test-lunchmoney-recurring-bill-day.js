@@ -44,8 +44,9 @@ function world(opts = {}) {
   const w = H.baseWorld();
   w.bills = [{ ...BILL, ...(opts.bill || {}) }];
   w.identityRules = w.identityRules.concat(opts.rules || [{ eventId: 'band', lunchMoneyRecurringIds: [ID],
-    atlasAccountId: 'chequing-a', direction: 'debit' }]);
-  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+    atlasAccountId: 'chequing-a', direction: 'debit', relation: 'covers-early-or-due-on-or-before-posting' }]);
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+    ...(opts.transactions || [])];
   return w;
 }
 function serve(w, recurringItems) {
@@ -86,6 +87,22 @@ console.log('2. A reviewed item anchored on the 20th sets the day; only the date
     '$80 on Oct 20, in the current period', JSON.stringify(s.current.map(b => [b.date, b.amount])));
   ok(s.current[0] && s.current[0].status === 'still due', 'still due: the read settles nothing', s.current[0] && s.current[0].status);
   ok(s.next.length === 0, 'no band-room bill in the next period');
+}
+
+console.log('2b. A linked posted payment on the reviewed day settles THAT occurrence (Codex P1, #1281)');
+{
+  // The $80 Bills debit linked to the recurring item posts on Oct 20, the
+  // reviewed day. Matching runs on the same timed plan Forecast reads, so the
+  // Oct 20 occurrence is paid; nothing is still due on the band room.
+  const paid = [H.lm({ date: '2026-10-20', amount: 80, account: 'chequing-a', payee: 'Invented e-transfer',
+    raw: { recurring_id: Number(ID) } })];
+  const w = world({ transactions: paid });
+  w.asOf = '2026-10-21';
+  const s = serve(w, read([readItem(ID)]));
+  const row = s.current[0];
+  ok(s.current.length === 1 && row.date === '2026-10-20', 'one Oct 20 occurrence in the current period',
+    JSON.stringify(s.current.map(b => [b.date, b.status])));
+  ok(row && /paid/i.test(row.status) && !/still due/i.test(row.status), 'it reads paid, not still due', row && row.status);
 }
 
 console.log('3. Any doubt keeps the plan\'s day and tags');

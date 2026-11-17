@@ -4109,6 +4109,22 @@ function observeCore(input, capture) {
     { savingsLinks: input.accountMap?.savingsLinks?.links?.length > 0 });
   const mapDoc = input.accountMap;
   if (!mapDoc || mapDoc.provider !== 'lunchmoney') fail('Account map is missing or is not a lunchmoney map.');
+  // S2: reviewed recurring-item timing applies BEFORE any occurrence matching,
+  // so payment evidence and Forecast read the same occurrence dates (Codex P1,
+  // #1281). Only day and dateConfidence of a mapper-supplied bill change, on
+  // this observation's working copy of the plan; data.json is never written.
+  const recurringSchedules = recurringBillSchedules(
+    sanitizedRecurringEvidence(input.payload && input.payload.recurringItems,
+      { identityRules: input.identityRules || (input.identity && input.identity.rules) || [],
+        accountMap: mapDoc, existingLocalId: () => null }),
+    input.identityRules || (input.identity && input.identity.rules) || [],
+    input.data && input.data.plan, dateOnly(normalized.fetchedAt));
+  if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
+    const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
+    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
+      bill && byBill.has(bill.id) ? { ...bill, day: byBill.get(bill.id).day,
+        dateConfidence: byBill.get(bill.id).dateConfidence } : bill) } } };
+  }
   const mapped = [];
   const unmapped = [];
   const observations = [];
@@ -4331,10 +4347,9 @@ function observeCore(input, capture) {
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
-  // S2: reviewed recurring-item timing for the bills it identifies. Internal
-  // to the report (live-plan applies it to the served plan); never served.
-  assembled.recurringBillSchedules = recurringBillSchedules(actualsPass.packet.lunchMoneyRecurring,
-    identityRules, input.data && input.data.plan, dateOnly(normalized.fetchedAt));
+  // S2: the timing applied above, for live-plan to apply to the served plan.
+  // Internal to the report; never served.
+  assembled.recurringBillSchedules = recurringSchedules;
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
