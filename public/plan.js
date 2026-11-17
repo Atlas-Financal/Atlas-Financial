@@ -5825,6 +5825,13 @@ function budgetTodayCashCardHtml(ctx) {
       ${today.operatingShortfall > 0 ? `<div class="budget-cash-warning"><span>Operating cash shortfall</span><strong>${print(today.operatingShortfall, today.trust)}</strong></div>` : ''}
       ${today.gap && strict(today.gap.shortBy) ? `<div class="budget-cash-warning"><span>Funding gap · ${escape(fmtDate(today.gap.payday))}</span><strong>${print(today.gap.shortBy, today.trust)}</strong></div>` : ''}
     </div>` : '';
+  // Owner decision (Dale, 2026-11-17): a Forecast-reported payday shortfall
+  // (paydayAllocation obligations or essentials) is flagged on the closed
+  // face, not only inside the evidence panel. Marker only; no amount.
+  const shortfallReported = [alloc.obligations, alloc.essentials]
+    .some(bucket => bucket && typeof bucket.shortfall === 'number' && bucket.shortfall > 0);
+  const shortfallMarker = shortfallReported
+    ? '<p class="budget-cash-notice has-gap" data-shortfall-reported>Payday shortfall reported</p>' : '';
   const notice = !ready ? '' : today.operatingShortfall > 0
     ? '<p class="budget-cash-notice has-gap">Operating cash shortfall ' + print(today.operatingShortfall, today.trust) + '</p>'
     : today.gap && strict(today.gap.shortBy) && today.gap.shortBy > 0
@@ -5852,7 +5859,7 @@ function budgetTodayCashCardHtml(ctx) {
       <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">${retained ? 'Dated balance and funding details' : 'Current balance and funding details'}</span></button><h2>${retained ? 'Balance at this refresh' : 'Current balance'}</h2></header>
     <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? `${balanceApprox ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}${publication.trust === 'estimated' ? '<span class="budget-cash-sr">estimated </span>' : ''}${money2(publication.amount)}` : 'Unavailable'}</p>
     <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${balanceKnown && publication.trust === 'estimated' ? ' · estimated, not provider-confirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
-    ${notice}${next}
+    ${shortfallMarker}${notice}${next}
     <section class="budget-today-evidence" id="budget-today-evidence" data-budget-today-evidence aria-label="Current balance and funding evidence"${evidenceOpen ? '' : ' hidden'}>
       <button type="button" class="budget-cash-back" data-budget-cash-back>‹ Back to overview</button>
       <div class="budget-cash-plan" data-budget-cash-detail><h3>Cash needed${today?.currentThrough ? " through " + escape(fmtDate(today.currentThrough)) : ""}</h3><p class="budget-cash-plan-scope">Across chequing accounts</p>${chart}${legend}${ready ? status : ""}</div>
