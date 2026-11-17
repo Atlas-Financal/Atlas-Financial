@@ -32,6 +32,8 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     // Grok Bot Q2 addition: debits the ledger link and an owner record disagree on. No owner
     // records in these ledgers, so exactly empty.
     disagreements: [],
+    // Pending debits recognised as pending minimums (#1149). Salary ledgers have none.
+    pending: [],
   };
   // Authorized addition (outgoing e-transfer review list): the sanitized
   // packet now stamps an identity boolean on every row and carries the

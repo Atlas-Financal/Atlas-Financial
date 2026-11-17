@@ -145,6 +145,7 @@
     const unknown = new Set(unreadable.map(item => item.debitId));
     const conflicts = new Set(disagreed);
     return { status: 'available',
+      pendingDebitIds: Array.from(new Set(minimumCategoryEvidence(plan, asOf)?.pending || [])).sort(),
       debitIds: Array.from(new Set(owned)).filter(id => !unknown.has(id) && !conflicts.has(id)).sort(),
       unknownDebitIds: Array.from(unknown).sort(), disagreementDebitIds: Array.from(conflicts).sort(),
       unreadable: names };
@@ -775,7 +776,10 @@
     // derived packet names them; identities only, validated as such).
     const disagreements = Array.isArray(packet.disagreements)
       ? packet.disagreements.filter(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) : [];
-    return { payments, receipts, disagreements };
+    // Pending debits the owner recognises as pending minimums (named, never confirmed).
+    const pending = Array.isArray(packet.pending)
+      ? packet.pending.filter(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) : [];
+    return { payments, receipts, disagreements, pending };
   }
   function statementOccurrenceDate(plan, id, date) {
     return CardMinimumContract.mappedDate(plan, id, date, occurrences);
@@ -8333,6 +8337,9 @@
       // read by the observer and carried as this boolean; desk 6893166367, lead ruling (B)) is
       // counted once, as the card minimum. Durable owner records and derived links alike.
       if (tx.cardMinimumOwned === true) continue;
+      // A pending debit the owner recognises as a pending card minimum is the minimum's, not
+      // pending money out (lead, #1149): it is never also listed here.
+      if (tx.cardMinimumPending === true && transactionPendingState(tx) === 'pending') continue;
       // An owner record of this debit cannot be read: whether it is a minimum is unknown.
       if (tx.cardMinimumUnknown === true && transactionPendingState(tx) !== 'pending') { unknownMinimum = true; continue; }
       if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) continue; // that card-paid bill

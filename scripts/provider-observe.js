@@ -5285,14 +5285,15 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       ? { cardMinimumCategoryEvidence: report.cardMinimumCategoryEvidence } : {}), asOf);
   const minimumSets = minimumOwned.status === 'available' ? {
     owned: new Set(minimumOwned.debitIds), unknown: new Set(minimumOwned.unknownDebitIds || []),
-    disagreed: new Set(minimumOwned.disagreementDebitIds || []) } : null;
+    disagreed: new Set(minimumOwned.disagreementDebitIds || []),
+    pending: new Set(minimumOwned.pendingDebitIds || []) } : null;
   // 'owned' | 'unknown' | 'disagreement' | null for one provider row (booleans only reach the packet).
   const cardMinimumMark = tx => {
     if (!minimumSets || !tx || !tx.providerTransactionId) return null;
     const id = require('crypto').createHash('sha256')
       .update(MinimumCategory.SOURCE + ':' + tx.providerTransactionId).digest('hex');
     return minimumSets.owned.has(id) ? 'owned' : minimumSets.unknown.has(id) ? 'unknown'
-      : minimumSets.disagreed.has(id) ? 'disagreement' : null;
+      : minimumSets.disagreed.has(id) ? 'disagreement' : minimumSets.pending.has(id) ? 'pending' : null;
   };
   const linkBlock = mapDoc?.savingsLinks;
   const privateLinks = (linkBlock?.links || []).map((link, i) => ({ ...link, ref: 'link-' + (i + 1),
@@ -5627,6 +5628,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // The minimum-payment owner's own exact category recognition (scripts/card-minimum-category.js categoryDebt, run on the
       // ledger category at normalization): the debt id of an exact household minimum category, else absent. Forecast reads it only.
       ...(tx.minimumCategoryDebt ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
+      ...(amount > 0 && tx.pending === true && cardMinimumMark(tx) === 'pending' ? { cardMinimumPending: true } : {}),
       ...(amount > 0 && tx.pending !== true ? (mark => mark === 'owned' ? { cardMinimumOwned: true }
         : mark === 'unknown' ? { cardMinimumUnknown: true }
         : mark === 'disagreement' ? { cardMinimumDisagreement: true } : {})(cardMinimumMark(tx)) : {}),

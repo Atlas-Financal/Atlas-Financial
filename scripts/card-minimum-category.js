@@ -32,7 +32,7 @@ function observe(input) {
   const { plan, accountMap, asOf, transactionWindow: window, pendingCoverage,
     transactions = [], matchesIdentity, matchesReversalIdentity, alreadyAllocated, cycleOpensOn,
     isExplicitlyPosted } = input;
-  const packet = { source: SOURCE, asOf, payments: [], disagreements: [] };
+  const packet = { source: SOURCE, asOf, payments: [], disagreements: [], pending: [] };
   if (!iso(asOf) || !window || window.complete !== true || window.hasMore === true
       || window.truncated === true || !iso(window.startDate) || !iso(window.endDate)
       || window.endDate < asOf || pendingCoverage?.complete !== true
@@ -143,6 +143,21 @@ function observe(input) {
       currency: 'cad', fundingAccountId: map.canonical.id, pending: false, cashIncludedAsOf: asOf,
       movementIdentity: { source: SOURCE, debitId },
       ...(verifiedIndependentOwnerDebitIds.length ? { verifiedIndependentOwnerDebitIds } : {}) });
+  }
+  // A PENDING debit in an exact single-card minimum category, from a household chequing account
+  // that pays that card's minimum obligation, is recognised as a pending minimum (lead, #1149,
+  // 2026-11-17): it is named here so the money-out term does not also list it as pending money out.
+  // It confirms nothing: the minimum stays unconfirmed until the debit posts.
+  for (const tx of transactions) {
+    if (!tx || tx.pending !== true || tx.contradictoryEvidence === true || tx.isGroup || tx.parentId
+        || tx.currency !== 'cad' || tx.isIncome === true || !(cents(tx.amount) > 0)) continue;
+    const debtId = Object.hasOwn(CATEGORIES, tx.categoryLabel || '') ? CATEGORIES[tx.categoryLabel] : null;
+    if (!debtId || tx.excludeFromBudget !== true || tx.excludeFromTotals !== true) continue;
+    const map = mapping(tx);
+    if (map?.atlasRole !== 'household-cash' || !['chequing-a', 'chequing-b'].includes(map.canonical?.id)) continue;
+    if (!(plan.obligations || []).some(r => r && r.debtId === debtId && r.effect === 'payment' && !r.nonCash
+        && r.payingAccount === map.canonical.id)) continue;
+    packet.pending.push(crypto.createHash('sha256').update(SOURCE + ':' + tx.providerTransactionId).digest('hex'));
   }
   return packet;
 }

@@ -301,6 +301,13 @@ console.log('\n=== Grok Bot on #1149 (Plan #6, 2026-11-17): single-card categori
   const agree = run(leg, { minimumOwner: true, durableMinimum: true });
   ok(cents(agree.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions) && agree.cur.moneyOutToConfirm == null,
     '(2) same debit and occurrence: the owner record wins, nothing is money out', JSON.stringify(agree.cur.moneyOutToConfirm));
+  // A pending payment the owner recognises as a pending minimum is not also pending money out (lead, #1149).
+  const pendingMin = run([{ ...leg[0], pending: true }], { minimumOwner: true });
+  ok(pendingMin.cur.moneyOutToConfirm == null && !/data-money-out-pending/.test(pendingMin.html),
+    'a pending minimum-category payment is the minimum\'s, not also listed as pending money out', JSON.stringify(pendingMin.cur.moneyOutToConfirm));
+  const pendingOther = run([{ ...leg[0], pending: true, categoryName: 'Minimum payment - Invented unconnected destination' }], { minimumOwner: true });
+  ok(pendingOther.cur.moneyOutToConfirm?.pending === MIN,
+    'control: a pending payment in no card\'s minimum category is still pending money out', JSON.stringify(pendingOther.cur.moneyOutToConfirm));
   // (3) An unreadable owner record is named on the page, and the term is never summed as 0.
   const plain = [{ account: 1001, amount: MIN, kind: 'payment', payee: 'Synthetic card issuer', date: '2026-08-18' }];
   const unreadable = run(plain, { durableMinimum: { intent: undefined } });
