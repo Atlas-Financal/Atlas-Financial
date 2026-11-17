@@ -15444,8 +15444,15 @@
       // wall-clock as-of. A later payday window whose opening was the
       // unavailable current period's ending is also not a normal
       // current-looking / future waterfall.
-      const planUnavailable = opts.operatingPlan === 'unavailable'
-        && (role === 'active' || (role === 'future' && unavailableOpeningLost));
+      // Owner decision (Dale, 2026-11-17, #821 6964438984): when today's
+      // cash cannot be confirmed, only the current period is withheld. A
+      // later period still publishes its own income, bills, Household and
+      // Balance After Deductions, none of which needs an opening, tagged
+      // estimated. Its opening stays unknown (openingChainLost), so every
+      // opening-dependent close, carry and sweep stays unknown with it.
+      const planUnavailable = opts.operatingPlan === 'unavailable' && role === 'active';
+      const unconfirmedOpeningFuture = opts.operatingPlan === 'unavailable'
+        && role === 'future' && unavailableOpeningLost;
       if (role === 'lookback') {
         if (window.cycle) budgetOpts.cycle = window.cycle;
       } else if (planUnavailable) {
@@ -15997,6 +16004,7 @@
       if (planUnavailable) {
         previousEnding = null;
         unavailableOpeningLost = true;
+        openingChainLost = true;
       } else if (role === 'active' || (role === 'future' && openingKnown)) {
         // The next period opens from this period's physical cash leftover
         // (availableRemainder) minus the published payday sweep, so the
@@ -16304,6 +16312,8 @@
                     ? 'Opening this pay period. Carried forward, not income.'
                     : null))))),
       });
+      if (unconfirmedOpeningFuture) estimateUnconfirmedOpeningPeriod(periods[periods.length - 1],
+        opts.operatingPlanNote || 'Current plan unavailable. The dated opening is stale.');
     }
     const active = periods.find(p => p.role === 'active') || periods[0] || null;
     if (active && active.role === 'active') {
@@ -19088,6 +19098,35 @@
     return result;
   }
 
+  // A later pay period while today's cash is unconfirmed (#821 6964438984).
+  // Its income, bills, Household and Balance After Deductions do not depend on
+  // the unknown opening, so they stay published, never more certain than
+  // estimated. Decision figures and anything built on the opening are withheld.
+  function estimateUnconfirmedOpeningPeriod(period, note) {
+    if (!period) return period;
+    const estimated = tag => tag === 'unavailable' ? 'unavailable' : 'estimated';
+    for (const key of ['incomeTrust', 'periodBillLoadTrust', 'afterBillsTrust', 'balanceAfterDeductionsTrust'])
+      period[key] = estimated(period[key]);
+    if (period.budgetHold != null) period.budgetHoldTrust = estimated(period.budgetHoldTrust);
+    // Each listed line is capped the same way, on a copy so no shared row changes.
+    const capRow = row => {
+      if (!row || typeof row !== 'object') return row;
+      const copy = { ...row };
+      for (const key of Object.keys(copy)) if (/Trust$/.test(key) && ['calculated', 'verified'].includes(copy[key])) copy[key] = 'estimated';
+      return copy;
+    };
+    for (const key of ['income', 'bills', 'householdBudget']) if (Array.isArray(period[key])) period[key] = period[key].map(capRow);
+    const reason = 'estimate \u2014 ' + note + ' Today\'s cash is not confirmed, so this later period is estimated from its own income, bills and Household budget.';
+    period.currentCashUnconfirmed = { status: 'estimated', reason };
+    period.extraDebt = { ...(period.extraDebt || {}), allocated: null, status: 'unavailable', reason: note };
+    for (const key of ['afterDebtRepayment', 'afterBigPurchases', 'projectedEnding', 'paydaySweep'])
+      if (Object.hasOwn(period, key)) period[key] = null;
+    if (period.leftover) for (const key of ['afterDebtRepayment', 'afterBigPurchases']) period.leftover[key] = null;
+    for (const row of Array.isArray(period.bigPurchases) ? period.bigPurchases : [])
+      if (row && Object.hasOwn(row, 'setAsideThisPayday')) row.setAsideThisPayday = null;
+    return period;
+  }
+
   function withholdCurrentOperatingClaims(result, opts, plan) {
     const cardUnknown = result && result.cardPurchaseCoverage?.status === 'unavailable';
     const scheduledUnknown = !!(opts && opts.scheduledAmounts
@@ -19177,8 +19216,19 @@
       // remainder cannot assert feasibility while this payment is unresolved.
       const views = new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
         ...(result.payPeriodViews || []), ...(income ? [result.nextPeriodView, ...(result.weekViews || [])] : [])]);
+      // An unknown opening alone does not reach a later period's own income,
+      // bills and Household (#821 6964438984): that period keeps Balance After
+      // Deductions, estimated, and loses only its decision figures. An
+      // unresolved income occurrence or card minimum still withholds it.
+      const openingOnly = !!openingCash && incomeState?.status !== 'unavailable'
+        && minimums?.status !== 'unavailable';
+      const openingAsOf = openingCash?.asOf || null;
       for (const view of views) {
         if (!view || view.end < (income?.asOf || minimums?.asOf)) continue;
+        if (openingOnly && openingAsOf && view.start > openingAsOf) {
+          estimateUnconfirmedOpeningPeriod(view, note);
+          continue;
+        }
         view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
         view.balanceAfterDeductionsTrust = 'unavailable';
         view.predictedEndingBalanceIdentity = null;
@@ -19230,6 +19280,12 @@
       result.bindingIsReal = result.holds = null;
       result.gap = null;
     }
+    // Re-cap every released later period on the final views, after every
+    // decorator has run, so no line added later reads more certain than estimated.
+    for (const view of new Set([...(result.defaultView?.calendarPeriods || []), ...(result.payPeriodViews || []),
+      result.nextPeriodView, ...(result.weekViews || [])])) {
+      if (view && view.currentCashUnconfirmed) estimateUnconfirmedOpeningPeriod(view, note);
+    }
     return result;
   }
 
@@ -19276,7 +19332,9 @@
         : invalidEvidence ? 'Transaction dates or amounts are not established.' : coverage.reason;
     const originalPlan = (rows, amountOf, trustOf) => {
       if (unavailable || !Array.isArray(rows)) return unknown('Original planned amounts are unavailable.');
-      let amount = 0, trust = 'calculated';
+      // A later period published while today's cash is unconfirmed is never
+      // more certain than estimated (#821 6964438984).
+      let amount = 0, trust = period && period.currentCashUnconfirmed ? 'estimated' : 'calculated';
       for (const row of rows) {
         const value = amountOf(row), rowTrust = trustOf(row);
         if (!finite(value) || value < 0 || !trusted(rowTrust)) return unknown('An original planned amount or its trust is unavailable.');
