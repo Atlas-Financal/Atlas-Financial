@@ -12,7 +12,6 @@ const { loadBudgetPage } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const vm = require('vm');
 const Live = require('../scripts/live-plan.js');
 const RT = require('../scripts/refresh-trust.js');
 const OA = require('../scripts/operating-answer.js');
@@ -105,12 +104,6 @@ function withOverlayActuals(actuals, extraOverlay) {
     currentPeriodActuals: actuals,
   }, extraOverlay || {});
   return data;
-}
-
-function grab(src, re, label) {
-  const match = re.exec(src);
-  if (!match) throw new Error('missing ' + label);
-  return match[0];
 }
 
 function loadComposer() {
