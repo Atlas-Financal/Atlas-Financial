@@ -15,8 +15,8 @@
  *
  * The cost of the old arrangement was two hand-maintained balance sheets, and
  * they had already diverged: the silver was added to data.json on 10 August
- * and never reached the CSV, so "total visible assets" read $34,607.66 against
- * a true $43,454.66, and both net-worth lines were wrong by the same $8,847.
+ * and never reached the CSV, so "total visible assets" read too low and both
+ * net-worth lines were wrong by the same amount, the silver's value.
  *
  * The `Household` detail rows are NOT generated. They carry rate basis,
  * structure, confidence and capture notes that data.json does not hold, so
