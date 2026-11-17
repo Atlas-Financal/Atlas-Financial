@@ -16851,9 +16851,21 @@
           const copy = { ...borrowed(today.get(row.id)), ...printedDue(row),
             ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
           delete copy.alsoCarriedToCurrent;
+          delete copy.ledgerEntryUnbacked;
           if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
               && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
             copy.alsoCarriedToCurrent = true;
+          }
+          // A close saved with the bill Paid is never overwritten. A ledger
+          // entry that today's rebuild finds for the same occurrence, with no
+          // bank payment backing it, appeared after that close (the close
+          // would otherwise have saved it To confirm). It is disclosed on the
+          // row (display only, derived here, never saved) and counted nowhere
+          // again (Grok Bot, Plan #6 thread; Dale's wording OK on #821).
+          if (key === 'bills' && row && row.id && row.date && row.status === 'PAID'
+              && todayRows.some(t => t.id === row.id && t.date === row.date
+                && t.settlementEvidence === 'not-established')) {
+            copy.ledgerEntryUnbacked = true;
           }
           return copy;
         });
