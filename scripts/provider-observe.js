@@ -4331,6 +4331,10 @@ function observeCore(input, capture) {
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
+  // S2: reviewed recurring-item timing for the bills it identifies. Internal
+  // to the report (live-plan applies it to the served plan); never served.
+  assembled.recurringBillSchedules = recurringBillSchedules(actualsPass.packet.lunchMoneyRecurring,
+    identityRules, input.data && input.data.plan, dateOnly(normalized.fetchedAt));
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
@@ -5312,6 +5316,52 @@ function sanitizedRecurringEvidence(raw, opts) {
   return { source: 'provider-observe:lunchmoney', status: 'read',
     window: { startDate: raw.read.requestedWindow?.startDate ?? null, endDate: raw.read.requestedWindow?.endDate ?? null },
     items, dropped };
+}
+
+// S2 (owner decision #821 6956651970 (a)/(b): a REVIEWED Lunch Money
+// recurring item is the authority for its bill's schedule, and "reviewed"
+// confirms the schedule only). For a monthly bill, the reviewed item's
+// anchor day replaces the estimated plan day and its date tag becomes
+// confirmed. The amount, firstDue and the amount tag stay the plan's.
+// Settlement is untouched: an occurrence still reads paid only through a
+// posted payment the incumbent identity rule links. Any doubt keeps the
+// plan's own day and tags: an unavailable read, an item that is not monthly
+// every month, ended or not yet started, an item named by zero or several
+// rules, a bill named by several items, a bill that is not monthly, a paying
+// account whose role does not match, or expected dates that disagree with
+// the anchor day.
+function recurringBillSchedules(block, identityRules, plan, asOf) {
+  if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return [];
+  const bills = Array.isArray(plan.bills) ? plan.bills : [];
+  const daysIn = iso => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).getUTCDate();
+  const byBill = new Map();
+  for (const item of block.items) {
+    if (item.granularity !== 'month' || item.quantity !== 1) continue;
+    if (item.endDate && item.endDate < asOf) continue;
+    if (item.startDate && item.startDate > asOf) continue;
+    const eventIds = new Set();
+    for (const rule of identityRules || []) {
+      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) eventIds.add(String(rule.eventId));
+    }
+    if (eventIds.size !== 1) continue;
+    const billId = [...eventIds][0];
+    byBill.set(billId, (byBill.get(billId) || []).concat([item]));
+  }
+  const out = [];
+  for (const [billId, items] of byBill) {
+    if (items.length !== 1) continue;
+    const item = items[0];
+    const matches = bills.filter(bill => bill && bill.id === billId);
+    if (matches.length !== 1 || matches[0].frequency !== 'monthly') continue;
+    const bill = matches[0];
+    const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
+    if (!cash || item.accountRole !== 'household-cash') continue;
+    const day = Number(item.anchorDate.slice(8, 10));
+    if (!(day >= 1 && day <= 31)) continue;
+    if (!item.expectedDates.every(date => Number(date.slice(8, 10)) === Math.min(day, daysIn(date)))) continue;
+    out.push({ billId, recurringId: item.recurringId, day, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
+  }
+  return out;
 }
 
 // The structural check for that block: exact keys, value types and no
@@ -6473,6 +6523,7 @@ const api = {
   observeWithSettlementCrosswalk,
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
+  recurringBillSchedules,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,
