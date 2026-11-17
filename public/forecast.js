@@ -8288,7 +8288,10 @@
       if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || normalizeCategoryLabel(tx.kindHint) === 'card-payment'
         || DEBT_PAYMENT_CATEGORY_LABELS.has(cardLabel)
         || cardLabel === 'credit card payment' || cardLabel === 'cc payment') continue;
-      if (typeof tx.minimumCategoryDebt === 'string') continue; // an exact household minimum category, as the minimum-payment owner recognises it: the card minimum counts it
+      // A debit the card-minimum owner counts (its own export, Forecast.cardMinimumOwnedDebits,
+      // read by the observer and carried as this boolean; desk 6893166367, lead ruling (B)) is
+      // counted once, as the card minimum. Durable owner records and derived links alike.
+      if (tx.cardMinimumOwned === true) continue;
       if (tx.pending === true && tx.pendingMatchingCardPaidBill === true) continue; // that card-paid bill
       const nearDue = tx.nearDueBillCandidate, nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
       if (nearDue && typeof nearDue.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(String(nearDue.date))
@@ -8296,6 +8299,12 @@
       if (pairedToCard(tx)) continue;
       if (transactionPendingState(tx) === 'pending') { out.pending = roundCent(out.pending + amt); out.pendingCount += 1; }
       else { out.posted = roundCent(out.posted + amt); out.count += 1; }
+    }
+    // Grok Bot (d): when the card-minimum owner's export cannot be read (or the packet
+    // predates it), a posted candidate may be a minimum the owner counts. The term is
+    // then Unavailable and adds nothing; it never guesses either way.
+    if (out.count > 0 && packet.cardMinimumOwnership !== 'available') {
+      return { ...out, posted: null, unavailable: true };
     }
     return out;
   }
@@ -15749,15 +15758,16 @@
       // proven other side leave the household remainder once, as their own term (never Other
       // spending). Same readiness rule as the item term: unproven coverage deducts nothing.
       const moneyOutCents = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
-        && budget.moneyOutToConfirm ? Math.round(budget.moneyOutToConfirm.posted * 100) : 0;
-      const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
+        && budget.moneyOutToConfirm ? (budget.moneyOutToConfirm.unavailable === true ? null
+          : Math.round(budget.moneyOutToConfirm.posted * 100)) : 0;
+      const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null && moneyOutCents != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - moneyOutCents / 100) : null;
       // The deducted money-out amount is a real cash movement, but whether it is spending is to
       // confirm: every figure that includes it reads estimated while it stands (more cautious,
       // never less). The one qualification rides the household deduction's trust, so the
       // remainder, the planned close and every carry that rebuilds them read the same word.
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
-        ? (budget.coverageLost === true ? 'unavailable'
+        ? (budget.coverageLost === true || moneyOutCents == null ? 'unavailable'
           : budget.holdTrust === 'estimated' || moneyOutCents > 0 ? 'estimated' : 'calculated') : 'unavailable';
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
@@ -15802,7 +15812,7 @@
         planUnavailable ? null : budget.hold,
         balanceAfterDeductions,
         itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0,
-        moneyOutCents / 100
+        moneyOutCents == null ? 0 : moneyOutCents / 100
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && closeBillLoad != null
@@ -15822,7 +15832,7 @@
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null && itemSpend != null && budget.hold != null
+        && earlierCardReserve != null && itemSpend != null && budget.hold != null && moneyOutCents != null
         ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100 - moneyOutCents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
@@ -16207,16 +16217,19 @@
         // Money out, to confirm: the posted term deducted above and, separately, any pending
         // debit of the same kind, which is shown but never added in.
         moneyOutToConfirm: (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
-          && budget.moneyOutToConfirm && (budget.moneyOutToConfirm.posted > 0 || budget.moneyOutToConfirm.pending > 0)
+          && budget.moneyOutToConfirm && (budget.moneyOutToConfirm.unavailable === true
+            || budget.moneyOutToConfirm.posted > 0 || budget.moneyOutToConfirm.pending > 0)
           ? { posted: budget.moneyOutToConfirm.posted, pending: budget.moneyOutToConfirm.pending,
-            count: budget.moneyOutToConfirm.count, pendingCount: budget.moneyOutToConfirm.pendingCount } : null,
+            count: budget.moneyOutToConfirm.count, pendingCount: budget.moneyOutToConfirm.pendingCount,
+            ...(budget.moneyOutToConfirm.unavailable === true ? { unavailable: true } : {}) } : null,
         ...plannedPeriodClosePublication(lookback ? null : plannedCloseCash, {
           // The close's own bill term (its opening exclusion), not BAD's.
           opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad: closeBillLoad,
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
-          ...(moneyOutCents > 0 ? { moneyOutToConfirm: moneyOutCents / 100 } : {}),
+          ...(moneyOutCents == null ? { moneyOutToConfirm: null }
+            : moneyOutCents > 0 ? { moneyOutToConfirm: moneyOutCents / 100 } : {}),
         }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'

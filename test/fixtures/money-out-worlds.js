@@ -41,9 +41,11 @@ function world(legs = [], { confirmed = false, refile = {}, card = null, minimum
   // to allocate that debit again, so it is owned by the durable record, not by new category evidence.
   if (durableMinimum) {
     const hash = require('node:crypto').createHash('sha256').update('lunchmoney-minimum-category:94001').digest('hex');
-    data.plan.obligations.find(row => row.id === 'card-minimum').sentPayments = [{ scheduledDate: '2026-08-22', confirmed: true,
+    // An object overrides fields of that record (a withdrawn or unreadable owner record).
+    data.plan.obligations.find(row => row.id === 'card-minimum').sentPayments = [Object.assign({ scheduledDate: '2026-08-22', confirmed: true,
       intent: 'minimum', debitId: hash, postedOn: '2026-08-18', amount: 60, currency: 'cad', fundingAccountId: 'chequing-a',
-      pending: false, cashIncludedAsOf: '2026-08-20', movementIdentity: { source: 'lunchmoney-minimum-category', debitId: hash } }];
+      pending: false, cashIncludedAsOf: '2026-08-20', movementIdentity: { source: 'lunchmoney-minimum-category', debitId: hash } },
+      typeof durableMinimum === 'object' ? durableMinimum : {})];
     data.plan.opening.representedEvents = [{ id: 'card-minimum', date: '2026-08-22', effectiveAsOf: '2026-08-20' }];
   }
   let id = 94000;

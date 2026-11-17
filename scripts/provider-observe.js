@@ -5192,6 +5192,18 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const tagsById = tagIndexFromPayload(report);
   const mapDoc = opts.accountMap;
   assertSavingsLinks(mapDoc);
+  // The card-minimum owner's export (Forecast.cardMinimumOwnedDebits, the one
+  // authority), read here so the debit identities stay server-side (lead
+  // ruling on #1149, 2026-11-17): a row the owner counts carries only the
+  // boolean cardMinimumOwned, and the packet carries the export's status.
+  // Refresh-time: a durable record added after this refresh is read on the next.
+  const minimumOwned = Forecast.cardMinimumOwnedDebits(Object.assign({}, opts.plan || {},
+    report && report.cardMinimumCategoryEvidence !== undefined
+      ? { cardMinimumCategoryEvidence: report.cardMinimumCategoryEvidence } : {}), asOf);
+  const minimumOwnedSet = minimumOwned.status === 'available' ? new Set(minimumOwned.debitIds) : null;
+  const isCardMinimumOwned = tx => !!(minimumOwnedSet && minimumOwnedSet.size && tx && tx.providerTransactionId
+    && minimumOwnedSet.has(require('crypto').createHash('sha256')
+      .update(MinimumCategory.SOURCE + ':' + tx.providerTransactionId).digest('hex')));
   const linkBlock = mapDoc?.savingsLinks;
   const privateLinks = (linkBlock?.links || []).map((link, i) => ({ ...link, ref: 'link-' + (i + 1),
     target: Forecast.savingsLinkTarget(opts.plan, link.goalRef, link.occurrenceDate, linkBlock.anchorRevision, asOf) }));
@@ -5525,6 +5537,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // The minimum-payment owner's own exact category recognition (scripts/card-minimum-category.js categoryDebt, run on the
       // ledger category at normalization): the debt id of an exact household minimum category, else absent. Forecast reads it only.
       ...(tx.minimumCategoryDebt ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
+      ...(amount > 0 && tx.pending !== true && isCardMinimumOwned(tx) ? { cardMinimumOwned: true } : {}),
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
       // Card-specific payment identity from the existing payee identities
@@ -5842,6 +5855,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    cardMinimumOwnership: minimumOwned.status === 'available' ? 'available' : 'unavailable',
     ...(savingsLinks ? { savingsLinks } : {}),
     // C1: present only when the sole coverage gap is dropped rows whose one
     // budget category is certain. Dates and category ids only: no amount,

@@ -230,9 +230,49 @@ console.log('\n=== a "minimum payment" label alone is not proof; only the minimu
   stays(run(leg(CARDMIN), { minimumOwner: true }), 'a minimum payment the category protocol accepted');
   // A minimum payment already owned by a durable sentPayments record (the incumbent owner): the same exact category, owned elsewhere.
   stays(run(leg(CARDMIN), { minimumOwner: true, durableMinimum: true }), 'a minimum payment already owned by a durable sentPayments record');
-  // NEXT PR (recorded on the card): an exact name WITH flags but owned by nothing (no obligation or identity rule) is also kept out here,
-  // because Forecast reads only the owner's category recognition, not whether the owner accepted the payment; closing that needs an
-  // owner-exported set of owned debits.
+  // The owner export (Forecast.cardMinimumOwnedDebits, read server-side and carried as a boolean) decides, not the category:
+  // an exact name WITH flags that the owner did not accept (no identity rule links it to the obligation) is counted here.
+  counts(run(leg(CARDMIN)), 'an exact owner category name the minimum-payment owner did not accept');
+}
+
+console.log('\n=== the card-minimum owner export decides (#1149 P1 6893020218; desk 6893166367; lead ruling (B)) ===');
+{
+  const MIN = 60;
+  // A generic provider 'payment' with NO minimum category: only a durable sentPayments record owns it.
+  const plain = [{ account: 1001, amount: MIN, kind: 'payment', payee: 'Synthetic card issuer', date: '2026-08-18' }];
+  const control = run([]);
+  const owned = run(plain, { durableMinimum: true });
+  ok(cents(owned.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions) && !owned.terms?.moneyOutToConfirm
+    && owned.cur.moneyOutToConfirm == null,
+    'P1: a debit owned by a durable sentPayments record with no category stamp is not also money out (the remainder stays 1,632.01)',
+    JSON.stringify([owned.cur.balanceAfterDeductions, owned.terms?.moneyOutToConfirm]));
+  const notOwned = run(plain);
+  ok(cents(notOwned.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions - MIN) && notOwned.terms?.moneyOutToConfirm === MIN,
+    'control: the same debit with no owner record counts once, as Money out, to confirm', JSON.stringify(notOwned.terms));
+  const other = 'f'.repeat(64);
+  const withdrawn = run(plain, { durableMinimum: { debitId: other, movementIdentity: { source: 'lunchmoney-minimum-category', debitId: other } } });
+  ok(cents(withdrawn.cur.balanceAfterDeductions) === cents(control.cur.balanceAfterDeductions - MIN) && withdrawn.terms?.moneyOutToConfirm === MIN,
+    'an owner record naming another debit does not own this one: it counts once, as Money out', JSON.stringify(withdrawn.terms));
+  const unreadable = run(plain, { durableMinimum: { intent: undefined } });
+  ok(unreadable.cur.balanceAfterDeductions == null && unreadable.cur.moneyOutToConfirm?.unavailable === true
+    && unreadable.cur.moneyOutToConfirm.posted == null && unreadable.cur.balanceAfterDeductionsTrust === 'unavailable',
+    'an unreadable owner record: the term reads Unavailable and the remainder is not computed (never a guess)',
+    JSON.stringify([unreadable.cur.balanceAfterDeductions, unreadable.cur.moneyOutToConfirm, unreadable.cur.balanceAfterDeductionsTrust]));
+  ok(unreadable.cur.plannedPeriodClose == null, 'the planned close is not computed either', String(unreadable.cur.plannedPeriodClose));
+  // With no candidate debit the money-out term has nothing to withhold. (The incumbent card-minimum owner
+  // already withholds the remainder itself for an unreadable record, as on main; that is its rule, not this term's.)
+  const quiet = run([], { durableMinimum: { intent: undefined } });
+  ok(quiet.cur.moneyOutToConfirm == null && !Object.hasOwn(quiet.terms || {}, 'moneyOutToConfirm'),
+    'an unreadable owner record with no candidate debit adds no money-out term', JSON.stringify(quiet.cur.moneyOutToConfirm));
+  // No debit identity reaches the served packet: only the boolean and the export status.
+  const served = world(plain, { durableMinimum: true });
+  const packet = served.liveOverlay && served.liveOverlay.currentPeriodActuals;
+  const blob = JSON.stringify(packet);
+  const hash = require('node:crypto').createHash('sha256').update('lunchmoney-minimum-category:94001').digest('hex');
+  ok(packet && packet.cardMinimumOwnership === 'available' && packet.transactions.some(tx => tx.cardMinimumOwned === true),
+    'the packet carries the export status and the boolean on the owned row');
+  ok(!blob.includes(hash) && !/"debitId"/.test(blob) && !/[a-f0-9]{64}/.test(blob),
+    'the packet carries no debit identity or 64-hex hash');
 }
 
 console.log('\n=== the planned close and every dependent figure read estimated while a money-out term stands ===');
