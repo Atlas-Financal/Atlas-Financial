@@ -131,6 +131,13 @@ function hasBrowser() {
         const s = await H.snap(p);
         H.expect(H.occurrences(s.household, "Linked to Invented water but doesn't fit (account)") === 1,
           'one neutral line on the row');
+        H.expect(await p.page.locator('[data-tx-linked-misfit="water"]').evaluate(e => e.className) === 'household-budget-tx-note',
+          'the line uses the neutral note style, not the alert style');
+        // Grok condition 2: both bills read To confirm while the misfit stands.
+        for (const label of ['Invented water', 'Invented power']) {
+          H.expectMatch(H.bill(s, label), /To confirm/, `${label} reads To confirm`);
+          H.expectNoMatch(H.bill(s, label), /\bPaid\b/, `${label} is not Paid`);
+        }
       }));
     await report('page: control: a fitting row prints no misfit line', () =>
       H.withBudget(world(), async p => {

@@ -2320,7 +2320,7 @@ function householdBudgetMetric(label, amount, opts) {
       const misfitCheck = misfit && ['account', 'currency', 'direction', 'date', 'amount'].includes(misfit.check)
         ? misfit.check : null;
       const linkedMisfit = misfitCheck && typeof misfit.id === 'string' && misfit.id
-        ? `<span class="household-budget-tx-alert" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfit.label ? esc(misfit.label) : 'a planned bill'} but doesn't fit (${esc(misfitCheck)})</span>`
+        ? `<span class="household-budget-tx-note" data-tx-linked-misfit="${esc(misfit.id)}">Linked to ${misfit.label ? esc(misfit.label) : 'a planned bill'} but doesn't fit (${esc(misfitCheck)})</span>`
         : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
