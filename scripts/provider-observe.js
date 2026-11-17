@@ -1543,17 +1543,45 @@ function noteItemNames(notes) {
     .map(part => normalizeItemName(part.slice(ITEM_NOTE_PREFIX.length)));
 }
 
+// Single-bill category identity (Grok rule 4, link order 3 of 3). A rule that
+// names lunchMoneyCategoryIds links a row whose Lunch Money category_id is one
+// of them, exactly. Opt-in and empty until Dale confirms each category; a
+// category id named by two rules is refused for both before any row is
+// matched (the config test also fails). Ids, not names: a rename never moves
+// a link, and a removed category links nothing.
+function ruleLunchMoneyCategoryIds(rule) {
+  const values = Array.isArray(rule && rule.lunchMoneyCategoryIds) ? rule.lunchMoneyCategoryIds : [];
+  return Array.from(new Set(values.filter(value => value != null)
+    .map(value => String(value).trim()).filter(Boolean)));
+}
+
+// Category ids that more than one rule names. Refused for every rule.
+function duplicatedRuleCategoryIds(rules) {
+  const seen = new Map();
+  for (const rule of rules || []) {
+    for (const id of ruleLunchMoneyCategoryIds(rule)) {
+      const owners = seen.get(id) || new Set();
+      owners.add(rule.eventId);
+      seen.set(id, owners);
+    }
+  }
+  return new Set([...seen].filter(([, owners]) => owners.size > 1).map(([id]) => id));
+}
+
 // Link sources claimed anywhere in the rule set a rule was read with (Grok,
 // Plan #6, 2026-11-16): the order is recurring link, then "item:" note, then
-// payee rule last, and each payment counts once against the winning bill. A
-// row whose recurring_id or single item name another rule names is not taken
-// by this rule's payee rule. Exception: a recurring link and an item note
+// single-bill category, then payee rule last, and each payment counts once
+// against the winning bill. A row whose recurring_id, single item name or
+// category another rule names is not taken by a lower-ranked source here. Exception: a recurring link and an item note
 // naming DIFFERENT bills both still match, so neither wins and the row is
 // held ambiguous (the incumbent consumed-twice path: To confirm).
 // Stamped on every rule each time a rule set is read; a rule read on a path
-// that never stamped it keeps its incumbent reading.
+// that never stamped it keeps its incumbent reading and links by no category
+// (fail closed). A rule's own usable category ids can only narrow.
 const RULE_SET_RECURRING_CLAIMS = Symbol('atlas.ruleSetRecurringClaims');
 const RULE_SET_ITEM_CLAIMS = Symbol('atlas.ruleSetItemClaims');
+const RULE_SET_CATEGORY_CLAIMS = Symbol('atlas.ruleSetCategoryClaims');
+const CATEGORY_CLAIMS = Symbol('atlas.categoryClaims');
 function stampRuleSetClaims(rules) {
   // A missing rule set reads as empty, as before; any other non-array is
   // returned untouched so malformed input keeps its incumbent failure.
@@ -1561,19 +1589,37 @@ function stampRuleSetClaims(rules) {
   if (!Array.isArray(rules)) return rules;
   const claimed = new Set();
   const claimedItems = new Set();
+  const claimedCategories = new Set();
+  const duplicated = duplicatedRuleCategoryIds(rules.filter(rule => rule && typeof rule === 'object'));
   for (const rule of rules) {
     if (!rule || typeof rule !== 'object') continue;
     ruleLunchMoneyRecurringIds(rule).forEach(id => claimed.add(id));
     ruleLunchMoneyItemNames(rule).forEach(name => claimedItems.add(name));
+    ruleLunchMoneyCategoryIds(rule).forEach(id => { if (!duplicated.has(id)) claimedCategories.add(id); });
   }
+  const set = (rule, key, value) => Object.defineProperty(rule, key,
+    { configurable: true, enumerable: true, writable: true, value });
   for (const rule of rules) {
     if (!rule || typeof rule !== 'object') continue;
-    Object.defineProperty(rule, RULE_SET_RECURRING_CLAIMS, { configurable: true, enumerable: true,
-      writable: true, value: claimed });
-    Object.defineProperty(rule, RULE_SET_ITEM_CLAIMS, { configurable: true, enumerable: true,
-      writable: true, value: claimedItems });
+    set(rule, RULE_SET_RECURRING_CLAIMS, claimed);
+    set(rule, RULE_SET_ITEM_CLAIMS, claimedItems);
+    set(rule, RULE_SET_CATEGORY_CLAIMS, claimedCategories);
+    // Only ever narrows: a later read of a subset cannot un-refuse a duplicate.
+    const prior = Array.isArray(rule[CATEGORY_CLAIMS]) ? new Set(rule[CATEGORY_CLAIMS]) : null;
+    set(rule, CATEGORY_CLAIMS, ruleLunchMoneyCategoryIds(rule)
+      .filter(id => !duplicated.has(id) && (!prior || prior.has(id))));
   }
   return rules;
+}
+function ruleCategoryClaims(rule) {
+  return rule && Array.isArray(rule[CATEGORY_CLAIMS]) ? rule[CATEGORY_CLAIMS] : [];
+}
+// The row's category is another rule's usable single-bill category: that
+// rule's category link outranks this rule's payee rule (Grok's order).
+function categoryClaimedElsewhere(rule, categoryId) {
+  const claimed = rule && rule[RULE_SET_CATEGORY_CLAIMS];
+  return !!(categoryId && claimed instanceof Set && claimed.has(categoryId)
+    && !ruleLunchMoneyCategoryIds(rule).includes(categoryId));
 }
 // The note's single deliberate item names another rule's bill: that rule's
 // item link outranks this rule's payee rule (Grok's order).
@@ -1601,6 +1647,7 @@ function ruleHasIdentity(rule, diagnostic) {
   }
   if (ruleLunchMoneyRecurringIds(rule).length) return true;
   if (ruleLunchMoneyItemNames(rule).length) return true;
+  if (ruleLunchMoneyCategoryIds(rule).length) return true;
   return rulePayeePatterns(rule).length > 0;
 }
 
@@ -1630,7 +1677,12 @@ function ruleMatchesTransactionIdentity(tx, rule) {
   // Either deliberate link elsewhere outranks this rule's payee rule.
   if (recurringLinkClaimedElsewhere(rule, linkedTo)) return false;
   if (itemNoteClaimedElsewhere(rule, items)) return false;
-  if ((recurringIds.length || itemNames.length) && !rulePayeePatterns(rule).length) return false;
+  // Single-bill category, below the recurring link and the item note.
+  const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
+  if (categoryId && ruleCategoryClaims(rule).includes(categoryId)) return true;
+  if (categoryClaimedElsewhere(rule, categoryId)) return false;
+  if ((recurringIds.length || itemNames.length || ruleLunchMoneyCategoryIds(rule).length)
+      && !rulePayeePatterns(rule).length) return false;
   if (rule.transactionKind === 'transfer') {
     if (!transactionIsTransfer(tx)) return false;
     if (!ruleCounterpartExternalId(rule)) return false;
@@ -4295,6 +4347,20 @@ function displayedItemNote(rawNote) {
   return chars.slice(0, DISPLAYED_NOTE_MAX_CHARS - 1).join('').trimEnd() + '\u2026';
 }
 
+// #962 C1 (Grok Bot, rule 17; lead conditions 2026-11-16): the bank's own
+// description of a refund, as written (Lunch Money original_name), shown only
+// when the row has no display name. Control characters stripped, capped like
+// the item note. No payee or category fallback. Kept only on rows Forecast
+// classifies as refunds; every other row strips it.
+function bankDescriptionText(raw) {
+  if (typeof raw !== 'string') return null;
+  const text = raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const chars = Array.from(text);
+  if (chars.length <= DISPLAYED_NOTE_MAX_CHARS) return text;
+  return chars.slice(0, DISPLAYED_NOTE_MAX_CHARS - 1).join('').trimEnd() + '\u2026';
+}
+
 function sanitizedMerchantIdentity(value) {
   if (value == null) return null;
   if (typeof value === 'number' && isFinite(value)) value = String(value);
@@ -4315,6 +4381,13 @@ function transactionLooksSanitized(tx) {
   if (!tx || typeof tx !== 'object') return false;
   for (const key of RAW_TX_METADATA_KEYS) {
     if (Object.prototype.hasOwnProperty.call(tx, key)) return false;
+  }
+  // #962 C1: a bank description survives only on a refund (a credit), bounded
+  // and free of control characters. Any other row carrying one is unsanitized.
+  if (Object.prototype.hasOwnProperty.call(tx, 'bankDescription')) {
+    const text = tx.bankDescription;
+    if (typeof text !== 'string' || !text || /[\u0000-\u001f\u007f]/.test(text)
+      || Array.from(text).length > DISPLAYED_NOTE_MAX_CHARS || !(Number(tx.amount) < 0)) return false;
   }
   return !RAW_TX_METADATA_KEY_RE.test(JSON.stringify(tx));
 }
@@ -5144,6 +5217,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
+  const bankDescriptions = new Map();
   const join = [];
   const currencyUnconfirmed = [];
   let droppedCoverageRows = 0;
@@ -5406,6 +5480,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         : (tx.tagIds || []).includes(String(link.tagId)))));
     // Bounded display-only note, computed before the raw note is stripped.
     const displayedNote = displayedItemNote(tx.notes || tx.note);
+    const bankDescription = bankDescriptionText(tx.originalName);
+    if (bankDescription) bankDescriptions.set(localId, bankDescription);
     const emittedRow = {
       id: localId,
       coverageRef: cardCoverageReference(tx),
@@ -5650,6 +5726,12 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       delete row.originalMerchant;
       delete row.displayedNote;
     }
+    delete row.bankDescription;
+    // Only a refund Forecast identifies as one named household category's refund (G3a). Any other credit,
+    // such as payroll, an e-transfer or an unclassified deposit, never carries the bank's text.
+    if (cls.kind === 'refund' && bankDescriptions.has(row.id)
+      && Forecast.classifyCurrentPeriodTransaction.identifiedCategoryRefund(row, cls, opts.plan,
+        { packet: classifyPacket, currentPeriodActuals: classifyPacket })) row.bankDescription = bankDescriptions.get(row.id);
   }
   // C1: a raw dated row with an unreadable amount that the collapsed pass
   // did not localise (or never saw) withholds coverage globally.
@@ -6058,6 +6140,7 @@ const api = {
   countTransferCounterparts,
   ruleHasIdentity,
   ruleMatchesTransactionIdentity,
+  duplicatedRuleCategoryIds,
   stampIdentityDescriptors,
   ruleEarlyPayLookaheadDays,
   openingAsOfFromData,

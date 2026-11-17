@@ -759,9 +759,9 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 `majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
 
-"Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet).
+"Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet). **Owner decision:** it adds a new visible ≈ mark, and Dale asked for no new ≈ marks without his OK (lead, 2026-11-16); not built until he says so.
 
-A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).
+~~A future period's bills total versus a null (unknown) bill load: the total should not print a known figure over an unknown load. Source: builder findings 2026-11-08 (no PR yet).~~ Done: #1170 (open periods) and the closed-period follow-up PR (`agent/closed-period-unknown-load`): an unknown load leaves the total, remainder and load Unknown in every period.
 
 The GitHub merge queue needs an organization-owned public repository or Enterprise for a private one; revisit only if the repository moves to an organization. Source: lead's findings 2026-11-08.
 
@@ -902,6 +902,11 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 ~~Seed the #1162 replay-reuse slot from the qualified live result, so the first replay after a live refresh also skips compute. Source: #1162 Additional findings.~~ Not built (lead ruling 2026-11-16): the live worker records no disk witness and its check differs from a replay's, so seeding needs a second recorder path and a hand-built replay-shaped check on the page-load publication path, for a gain of one Forecast run per live refresh.
 
 `test/road-ahead-mutation-check.js` fails on unchanged `main` (found 2026-11-16 while pruning baselineTrajectory). Repair it narrowly or record why it is retired. Source: #1198 card.
+
+**Declined for now by the owner** (Dale, 2026-11-16, recorded on #821). Not to be built unless Dale reopens them:
+- A Bank-check line on the Budget page (Forecast already publishes `bankCheck` on the current pay-period row; the page keeps not showing it).
+- Approximate (≈) marks on trusted totals.
+- Showing the hidden Savings accounts inventory.
 
 **Open issues parked until after 1.0** (lead issue sweep, 2026-11-11). None is a #821 item 1–7 blocker; each keeps its own holds as written on the issue.
 
