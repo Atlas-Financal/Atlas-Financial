@@ -8275,7 +8275,7 @@
     // classifier's own codes only: no amount, payee, description or note.
     // Off by default; the page and the figures snapshot never ask for it.
     const held = opts && opts.collectHeldTransactions === true ? [] : null;
-    const hold = (tx, cls) => {
+    const recordHeld = (tx, cls) => {
       if (!held) return;
       held.push({ id: tx.id != null ? String(tx.id) : null, date: tx.date,
         accountRole: typeof tx.accountRole === 'string' ? tx.accountRole : null,
@@ -8295,7 +8295,7 @@
       const amt = Number(tx.amount);
       if (!isFinite(amt) || amt === 0) {
         const clsZero = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
-        if (classificationIncompleteHouseholdSpend(clsZero)) { out.unclassified.count += 1; hold(tx, clsZero); }
+        if (classificationIncompleteHouseholdSpend(clsZero)) { out.unclassified.count += 1; recordHeld(tx, clsZero); }
         continue;
       }
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
@@ -8355,7 +8355,7 @@
       }
       if (cls.kind === 'unmapped') {
         out.unclassified.count += 1;
-        hold(tx, cls);
+        recordHeld(tx, cls);
         continue;
       }
       // Cash principal is independent of category capacity, including Other
@@ -8374,14 +8374,14 @@
         add(row, state, confirmedHouseholdAmount(tx, duplicateIds));
         if (cls.needsConfirmation || classificationIncompleteHouseholdSpend(cls)) {
           out.unclassified.count += 1;
-          hold(tx, Object.assign({}, cls, { atlasRow: OTHER_SPEND_ID }));
+          recordHeld(tx, Object.assign({}, cls, { atlasRow: OTHER_SPEND_ID }));
           add(out.unclassified, state, amt);
         }
         continue;
       }
       if (cls.needsConfirmation) {
         out.unclassified.count += 1;
-        hold(tx, cls);
+        recordHeld(tx, cls);
         add(out.unclassified, state, amt);
         continue;
       }
@@ -8392,7 +8392,7 @@
       add(row, state, amt);
       if (classificationIncompleteHouseholdSpend(cls)) {
         out.unclassified.count += 1;
-        hold(tx, cls);
+        recordHeld(tx, cls);
         add(out.unclassified, state, amt);
       }
     }
