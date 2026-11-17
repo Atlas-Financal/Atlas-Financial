@@ -12,6 +12,7 @@
 // no authorize and imports no session code. Case ids (AC-*, AD-*) name the
 // contract cases each test pins, as amended by the addendum and Atlas's GO.
 const test = require('node:test');
+const LmGroups = require('./lm-groups-fixture.js');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -50,15 +51,15 @@ const TUPLE_A = { providerAccountId: ACCT_A, transactionId: 'synthetic-provider-
 const TUPLE_B = { providerAccountId: ACCT_B, transactionId: 'synthetic-provider-transaction-2' };
 
 function spendRow(overrides = {}) {
-  return {
+  return LmGroups.groupTx({
     id: 'tx-1', coverageRef: null, date: '2026-10-19', amount: 60, currency: 'cad',
     pending: false, categoryLabel: 'Groceries', merchantKnown: true,
     atlasAccountId: 'chequing-a', accountRole: 'household-cash', representedBill: false,
     ...overrides,
-  };
+  }, standardPlan());
 }
 function standardPlan() {
-  return {
+  return LmGroups.groupPlan({
     commitments: [{ id: 'synthetic-trip', label: 'Synthetic Trip', amount: 300 }],
     budget: {
       categories: [
@@ -68,16 +69,16 @@ function standardPlan() {
       ],
       excluded: [],
     },
-  };
+  });
 }
 function standardPacket(rows, representedActuals = []) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-20',
     coverageStart: '2026-10-01', coverageThrough: '2026-10-20',
     transactionWindow: { startDate: '2026-10-01', endDate: '2026-10-20', complete: true, hasMore: false, truncated: false },
     pendingCoverage: 'complete', transactionCoverage: 'complete',
     representedActuals, transactions: rows,
-  };
+  }, standardPlan());
 }
 function standardMap() {
   return {
