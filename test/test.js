@@ -502,6 +502,8 @@ function outcomeFromWorker(file, { out, code, signal }) {
     syntheticProofVerified: record.syntheticProof ===
       'stdout-stderr-annotations-formatter-and-exit-canaries' };
   if (record.status === 'pass' && (code !== 0 || signal)) return failed;
+  // Failing subtest names: publish() re-checks each one before it is shown.
+  if (record.status === 'fail' && Array.isArray(record.failedSubtests)) result.failedSubtests = record.failedSubtests;
   return result;
 }
 

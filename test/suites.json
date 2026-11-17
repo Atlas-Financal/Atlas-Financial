@@ -7,6 +7,7 @@
   ["signed per-login session identity and legacy read compatibility","test-session-identity.js"],
   ["an undecodable session cookie is no session, not a 500 (A17)","test-malformed-session-cookie.js"],
   ["public CI output and synthetic privacy canaries","test-ci-output.js"],
+  ["public CI names failing subtests only, never their output","test-ci-failing-subtest-names.js"],
   ["dev preview binds 127.0.0.1 and stages invented data only","test-preview-localhost-synthetic.js"],
   ["serial runner, complete CI partition and aggregation contracts","test-ci-split.js"],
   ["registered suites reach playwright only behind a skip guard","test-suites-playwright-reach.js"],
