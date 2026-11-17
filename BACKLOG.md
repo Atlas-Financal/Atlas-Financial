@@ -46,11 +46,15 @@ Prime-like charge and ordinary Amazon shopping stay outside that row.
 Candidate promotion of the other merchants remains a later
 owner-confirmed one-outcome PR, not a silent follow-on from this filing.
 
-**Owner-instructed recurring card-charge audit** (2026-09-03). Discovery
+~~**Owner-instructed recurring card-charge audit** (2026-09-03). Discovery
 only: `scripts/recurring-audit.js` inspects mapped revolving-credit Lunch
 Money history and reports repeating merchants. It does not create or
 promote Forecast bills. Phoenix / Amazon household conclusions require a
-live GET-only run; synthetic tests are not household evidence.
+live GET-only run; synthetic tests are not household evidence.~~ Removed
+2026-11-17 by owner decision (group B), with Grok Bot's agreement (rule 17):
+no saved workflow called it. Its two standing rules keep their homes in
+`docs/ACCOUNT_FACTS.md` (Amazon on Travel Visa) and the `data.json`
+dale-guilt-free `why` (Cursor).
 
 **Follow-ups from the 2026-08-16 evidence pack** (not mixed into that
 facts PR; each needs its own independently provable outcome):
@@ -885,7 +889,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 
 `operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
 
-Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
+~~Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.~~ Stale: `scripts/recurring-audit.js` was removed 2026-11-17.
 
 An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up. (LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot; the uncategorised zero-target half is still open.)
 
