@@ -414,7 +414,7 @@ async function main() {
   const [ct, st] = InMemoryTransport.createLinkedPair(), client = new Client({ name: 'synthetic-routine', version: '1' });
   await server.connect(st); await client.connect(ct);
   try {
-    assert.equal((await client.listTools()).tools.length, 12);
+    assert.equal((await client.listTools()).tools.length, 13);
     const evidence = await client.callTool({ name: 'submit_lunchmoney_cleanup_evidence', arguments: { transactionRef: await m.ref(),
       grantRef: m.grant.grantRef, cleanupInstruction: instruction, review: m.review() } });
     assert.equal(evidence.structuredContent.status, 'evidence-recorded');

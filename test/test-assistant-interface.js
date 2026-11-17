@@ -1285,7 +1285,7 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
     try {
       await client.connect(transport);
       const listed = await client.listTools();
-      ok(listed.tools.length === 7 && listed.tools[0].name === AssistantMcp.TOOL_NAME
+      ok(listed.tools.length === 8 && listed.tools[0].name === AssistantMcp.TOOL_NAME
         && listed.tools.some(tool => tool.name === 'apply_lunchmoney_edit'),
         'official MCP client sees current state plus Lunch Money lookup/preview/edit tools');
       const listedTool = listed.tools[0];
@@ -1573,7 +1573,7 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
       'read-only token initialize is unchanged (200, no challenge)');
     const readList = await mcp(bearer(readToken), { jsonrpc: '2.0', id: 41, method: 'tools/list' });
     const readListBody = await readList.json();
-    ok(readList.status === 200 && readListBody.result.tools.length === 7,
+    ok(readList.status === 200 && readListBody.result.tools.length === 8,
       'read-only token tools/list is unchanged and still lists the write tools');
     const readCatalogRaw = await mcp(bearer(readToken), toolCall(42, 'get_lunchmoney_catalog'));
     const readCatalogBody = await readCatalogRaw.json();

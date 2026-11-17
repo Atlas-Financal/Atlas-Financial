@@ -58,7 +58,7 @@ async function main() {
     };
     try {
       const tools = (await client.listTools()).tools;
-      assert.equal(tools.length, 11);
+      assert.equal(tools.length, 12);
       const prepareDescription = tools.find(t => t.name === 'prepare_standing_lunchmoney_correction').description;
       assert.match(prepareDescription, /recorded delegated review/);
       assert.match(prepareDescription, /Notes and splits are unavailable/);
