@@ -7,7 +7,7 @@
  *
  * Independent of carriedUnresolvedJointCashOutflows: settlement is
  * YYYY-MM-DD comparison against the Forecast opening, then event
- * lists, with/without-row stage2 deltas, and pressure signal ids.
+ * lists and with/without-row stage2 deltas.
  * `node test/test-settled-commitment-priorasof.js`
  */
 const fs = require('fs');
@@ -271,14 +271,6 @@ console.log('\n=== 3. Synthetic trajectory: settled row contributes $0 to curren
   ok(near(delta, 0),
     'removing only the settled commitment changes September stage2 result by $0',
     String(delta));
-
-  ok(!(traj.pressure && Array.isArray(traj.pressure.signals)
-      && traj.pressure.signals.some(s => s && s.id === 'settled-once')),
-    'pressure does not publish the settled commitment as a current cause');
-  ok(traj.pressure && Array.isArray(traj.pressure.signals)
-    && traj.pressure.signals.some(s => s && s.kind === 'dated-commitment'
-      && s.id === 'future-unsettled'),
-    'pressure can still name an unsettled dated commitment on the walk');
 }
 
 console.log('\n=== 4. Live overlay: fusion-household-paid does not re-fund after 2026-09-10 ===');
@@ -356,11 +348,6 @@ console.log('\n=== 4. Live overlay: fusion-household-paid does not re-fund after
   ok(near(payDelta, 0),
     'removing only fusion-household-paid changes Sep 17–24 stage2 result by $0',
     String(payDelta));
-
-  const pressureHits = ((traj.pressure && traj.pressure.signals) || [])
-    .filter(s => s && s.id === 'fusion-household-paid');
-  ok(pressureHits.length === 0,
-    'pressure does not publish settled Fusion payment as a current cause');
 
   const historical = clone(live.plan);
   historical.opening = Object.assign({}, historical.opening, {

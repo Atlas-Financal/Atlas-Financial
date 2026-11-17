@@ -181,6 +181,20 @@ const base = { module: { exports: {} }, console };
 // CRA's published 2027 contribution limits (test/lib/cra-2027-contributions.js).
 vm.runInNewContext(require('./lib/cra-2027-contributions').withCra2027Contributions(
   execFileSync('git', ['show', 'b754ae1901609fce4b49a1bb3e0ad14ea17d1427:public/forecast.js'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })), base);
+// pressure, debtDirection and their five provenance keys were retired after
+// 1.0 (no reader). The legacy publication is compared without exactly those
+// keys; every other byte must still match.
+const legacyTrajectory = base.module.exports.baselineTrajectory;
+const RETIRED_PROVENANCE = ['pressure', 'pressureAttribution', 'pressurePolicyThresholds', 'debtDirection', 'debtDirectionInventedBorrowing'];
+base.module.exports.baselineTrajectory = (...args) => {
+  const publication = legacyTrajectory(...args);
+  if (publication && typeof publication === 'object') {
+    delete publication.pressure;
+    delete publication.debtDirection;
+    for (const key of RETIRED_PROVENANCE) if (publication.provenance) delete publication.provenance[key];
+  }
+  return publication;
+};
 // Required operating values are checked before any zero-coercing aggregate.
 // Conservation alone cannot detect a fabricated opening on both ledger sides.
 const cashCases = [
