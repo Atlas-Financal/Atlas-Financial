@@ -135,4 +135,57 @@ for (const [label, mutate] of [['missing', c => { delete c.targetEffectiveFrom; 
   }
 }
 
+// (d) Mixed reasons: an undated Other target alongside a non-numeric target
+// on another category. Both causes are listed; the published reason is the
+// general one, never the undated-only or invalid-only message, which would
+// each name only half the cause.
+{
+  const f = fx.build(137.26);
+  const cats = f.plan.budget.categories;
+  delete cats.find(row => row.id === 'other-spend').targetEffectiveFrom;
+  cats.find(row => row.id === 'fuel').plannedPayday = 'tbd';
+  const advice = F.recommend(f.plan, f.date, { ...f.plan.defaults, debts: [], currentPeriodActuals: f.packet });
+  const s = advice.scheduledAmounts;
+  eq(s.status, 'unavailable', 'mixed: scheduled amounts unavailable');
+  ok(s.unknowns.some(u => u.id === 'other-spend' && u.reason === 'plan-target-undated'), 'mixed: undated Other listed');
+  ok(s.unknowns.some(u => u.id === 'fuel' && u.reason === 'plan-amount-invalid'), 'mixed: invalid target listed');
+  eq([...s.issues].sort(), ['plan-amount-invalid', 'plan-target-undated'], 'mixed: both issues published');
+  eq(s.reason, 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.',
+    'mixed: the general reason, not a single-cause message');
+}
+
+// (e) A non-numeric Other payday target on the pay-period view: the Other row
+// is listed with the plan amounts unknown and withheld as target-invalid
+// (a valid date does not rescue an amount that is not a number).
+{
+  const { advice, current, next } = world(cat => { cat.plannedPayday = 'tbd'; });
+  ok(advice.scheduledAmounts.unknowns.some(u => u.id === 'other-spend' && u.reason === 'plan-amount-invalid'),
+    'invalid: the Other target is named as an invalid amount');
+  for (const [role, p] of [['current', current], ['next', next]]) {
+    const row = otherRow(p);
+    ok(row, `invalid ${role}: the Other row is listed, not dropped`);
+    eq([row.planned, row.plannedPayday, row.hold, row.remaining, row.overspend], [null, null, null, null, null],
+      `invalid ${role}: the Other plan, hold, remaining and overspend are unknown`);
+    eq(row.withheldReason, 'target-invalid', `invalid ${role}: withheld as target-invalid`);
+    eq(p.budgetHold, null, `invalid ${role}: the household hold is unknown`);
+    eq(p.budgetProgress.household.planned.amount, null, `invalid ${role}: the household plan is unknown`);
+  }
+  eq(otherRow(current).spent, 137.26, 'invalid: the observed Other actual stays published');
+}
+
+// (f) A dated targetHistory entry does not date the current target. The
+// fixture's prior entry carries effectiveThrough only: it says when the old
+// target ended, not when the current one began. Inferring "the day after"
+// would invent a date, so an undated top-level target stays Unknown even with
+// dated history. This is the intended, cautious reading (lead, 2026-11-17).
+{
+  const { f, current } = world(cat => { delete cat.targetEffectiveFrom; });
+  const cat = f.plan.budget.categories.find(row => row.id === 'other-spend');
+  ok(Array.isArray(cat.targetHistory) && cat.targetHistory.length === 1
+    && /^\d{4}-\d{2}-\d{2}$/.test(cat.targetHistory[0].effectiveThrough), 'history: a dated prior entry is present');
+  eq([otherRow(current).withheldReason, otherRow(current).planned], ['target-undated', null],
+    'history: the current Other target is still Unknown');
+  eq(current.budgetHold, null, 'history: the household hold is still unknown');
+}
+
 console.log(`test-other-target-undated-unknown: ${checks} checks passed`);
