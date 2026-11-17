@@ -2235,10 +2235,10 @@ console.log('\n=== 20. incomplete current cash still withholds a stale cycle as 
   ok(paydayFn && /currentOperatingUnavailableHtml\(/.test(paydayFn[0])
       && /liveOperatingPlanUnavailable\(/.test(paydayFn[0]),
     'paydayAnswerHtml withholds the current payday block while operatingPlan is unavailable');
-  const surfaceFn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const surfaceFn = /function budgetSurfaceParts\([\s\S]*?\n\}/.exec(planSrc);
   ok(surfaceFn && /liveOperatingPlanUnavailable/.test(surfaceFn[0])
       && /unavailableOperatingSurfaceHtml/.test(surfaceFn[0]),
-    'operatingSurfaceHtml fail-closes at the page when operatingPlan is unavailable');
+    'budgetSurfaceParts fail-closes at the page when operatingPlan is unavailable');
   const extraFn = /function extraRepaymentHtml\([\s\S]*?\n\}/.exec(planSrc);
   ok(extraFn && /operatingPlanUnavailable/.test(extraFn[0])
       && /data-operating-plan="unavailable"/.test(extraFn[0]),

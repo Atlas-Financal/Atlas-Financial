@@ -441,17 +441,6 @@ body:has(#operating-surface) .site-head-inner {
 }
 /* AMANDA SLICE 1 — payday instruction shell. Household-readable blocks that
  * reprint Forecast-owned figures. Reuses operating-* typography. */
-[data-current-payday-details] > summary {
-  min-height: 44px;
-  align-content: center;
-}
-[data-current-payday-details][data-shortfall-reported] {
-  border-color: var(--critical);
-}
-.budget-shortfall-summary {
-  color: var(--critical);
-  font-weight: 700;
-}
 .payday-instruction-shell {
   margin: 0 0 18px;
   padding: 16px 18px;

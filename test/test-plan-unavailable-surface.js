@@ -313,12 +313,12 @@ console.log('\n=== 6. page remains a renderer; Forecast is unchanged ===');
 {
   const planSrc = read('public/plan.js');
   const forecastSrc = read('public/forecast.js');
-  const surfaceFn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const surfaceFn = /function budgetSurfaceParts\([\s\S]*?\n\}/.exec(planSrc);
   const unavailableFn = /function unavailableOperatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
   ok(surfaceFn && /liveOperatingPlanUnavailable/.test(surfaceFn[0])
       && /unavailableOperatingSurfaceHtml/.test(surfaceFn[0])
       && !/\bForecast\.[A-Za-z]+\s*\(/.test(surfaceFn[0]),
-    'operatingSurfaceHtml uses one root-level unavailable branch and calls no Forecast function');
+    'budgetSurfaceParts uses one root-level unavailable branch and calls no Forecast function');
   ok(unavailableFn && /data-unavailable-primary/.test(unavailableFn[0])
       && /Last trusted opening/.test(unavailableFn[0])
       && /Dated balance — not current/.test(unavailableFn[0])

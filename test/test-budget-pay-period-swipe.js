@@ -1,4 +1,5 @@
 'use strict';
+const { liveBudgetComposerSource } = require('./lib/budget-page-harness');
 /* Budget pay-period navigation is presentation only. Synthetic rows prove
  * selection, one-step gesture/control movement, bounds, trust preservation,
  * and direct-row rendering without pinning live household cents.
@@ -178,7 +179,7 @@ ok(/addEventListener\('keydown'/.test(planSource)
     && /aria-label="Pay-period navigation/.test(planSource),
   '15. desktop keyboard and named button navigation are wired without touch');
 ok(!/value="next-period"|value="past:/.test(
-    (/function operatingSurfaceHtml\([\s\S]*?\n\}/m.exec(planSource) || [''])[0]),
+    (liveBudgetComposerSource(planSource) || [''])[0]),
   'legacy current/next/past selector choices are absent from the household surface');
 
 if (failures) {

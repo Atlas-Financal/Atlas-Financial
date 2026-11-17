@@ -3,7 +3,7 @@
  * plan.js prints the selected view, no invented bills, leftover identity
  * is the existing waterfall helper against the already-run walk.
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -323,10 +323,10 @@ console.log('\n=== 4. week views come from the Forecast walk; picker asks for th
 console.log('\n=== 5. page still does not subtract leftover ===');
 {
   const planSrc = read('public/plan.js');
-  const fn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const fn = liveBudgetComposerSource(planSrc);
   const content = /function budgetPayPeriodContentHtml\([\s\S]*?\n\}/.exec(planSrc);
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0]),
-    'operatingSurfaceHtml calls no Forecast function');
+    'the live Budget composer calls no Forecast function');
   ok(fn && !/view\.currentBalance\s*-|afterBills\s*-|allocatedObligations/.test(fn[0]),
     'the payday sheet does not subtract leftover');
   ok(content && /ctx\.planView \|\| advice\.defaultView/.test(content[0]),

@@ -3,7 +3,7 @@
 // loaded whole in a sandbox, composed exactly as the live surface composes
 // them (budgetSurfaceParts: the unavailable surface, or the Today card plus
 // the compact pay-period content). Replaces suite-local copies of plan.js
-// functions and the retired operatingSurfaceHtml harness. Invented data only.
+// functions and the retired operatingSurfaceHtml composer. Invented data only.
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -44,4 +44,13 @@ function loadBudgetPage({ Forecast = require(path.join(ROOT, 'public', 'forecast
     },
   };
 }
-module.exports = { loadBudgetPage };
+// Source text of the live Budget composer: budgetSurfaceParts (the one
+// unavailable branch and the part wiring), the Today card and the selected
+// pay-period content. Static "the page is a renderer" checks read this.
+// Returns [text] like RegExp#exec, or null when any part is missing.
+const LIVE_COMPOSER = ['budgetSurfaceParts', 'budgetTodayCashCardHtml', 'budgetPayPeriodContentHtml'];
+function liveBudgetComposerSource(planSrc) {
+  const bodies = LIVE_COMPOSER.map(name => new RegExp('function ' + name + '\\([\\s\\S]*?\\n\\}').exec(planSrc));
+  return bodies.every(Boolean) ? [bodies.map(body => body[0]).join('\n')] : null;
+}
+module.exports = { loadBudgetPage, liveBudgetComposerSource, LIVE_COMPOSER };

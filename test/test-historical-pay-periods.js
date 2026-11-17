@@ -8,7 +8,7 @@
  *
  * `node test/test-historical-pay-periods.js`
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -411,9 +411,9 @@ console.log('\n=== 5. timeline replaces legacy past picker; historical rows stay
   const pick = /function selectedPlanView\([\s\S]*?\n\}/.exec(planSrc);
   ok(pick && /advice\.pastPeriodViews/.test(pick[0]) && !/Forecast\./.test(pick[0]),
     'the picker selects a Forecast-published past view; it does not compute one');
-  const surface = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const surface = liveBudgetComposerSource(planSrc);
   ok(surface && !/\bForecast\.[A-Za-z]+\s*\(/.test(surface[0]),
-    'operatingSurfaceHtml still calls no Forecast function');
+    'the live Budget composer still calls no Forecast function');
 }
 
 console.log('\n=== 6. payday-morning carryover and unknown history stay honest ===');

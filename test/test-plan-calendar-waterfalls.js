@@ -11,7 +11,7 @@
  *
  * `node test/test-plan-calendar-waterfalls.js`
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -1258,9 +1258,9 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
 console.log('\n=== 14. page prints Forecast; leftover is not computed in plan.js ===');
 {
   const planSrc = read('public/plan.js');
-  const fn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const fn = liveBudgetComposerSource(planSrc);
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0]),
-    'operatingSurfaceHtml calls no Forecast function');
+    'the live Budget composer calls no Forecast function');
   const budgetFn = /function calendarBudgetHtml\([\s\S]*?\n\}/.exec(planSrc);
   ok(budgetFn && /householdBudgetCycleText/.test(budgetFn[0])
       && /cycleUnresolved/.test(budgetFn[0])

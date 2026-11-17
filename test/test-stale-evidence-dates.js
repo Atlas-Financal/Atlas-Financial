@@ -47,10 +47,7 @@ function page() {
   }
   // Charts need a real SVG DOM; they are not part of this surface.
   vm.runInContext('forecastChart = () => {}; renderCalendar = () => {};', context);
-  vm.runInContext(`globalThis.__retainedCalls = 0;
-    const __retained = operatingSurfaceHtml;
-    operatingSurfaceHtml = function (ctx) { globalThis.__retainedCalls++; return __retained(ctx); };
-    const __active = budgetSurfaceHtml;
+  vm.runInContext(`const __active = budgetSurfaceHtml;
     budgetSurfaceHtml = function (ctx) { globalThis.__ctx = ctx; return __active(ctx); };`, context);
   return {
     context,

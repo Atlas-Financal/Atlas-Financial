@@ -60,9 +60,7 @@ function page() {
   }
   // Charts need a real SVG DOM; they are not part of this surface.
   vm.runInContext('forecastChart = () => {}; renderCalendar = () => {};', context);
-  vm.runInContext(`globalThis.__retainedCalls = 0;
-    const __retained = operatingSurfaceHtml;
-    operatingSurfaceHtml = function (ctx) { globalThis.__retainedCalls++; return __retained(ctx); };
+  vm.runInContext(`globalThis.__retiredComposer = typeof operatingSurfaceHtml !== 'undefined';
     const __active = budgetSurfaceHtml;
     budgetSurfaceHtml = function (ctx) { globalThis.__ctx = ctx; return __active(ctx); };`, context);
   return {
@@ -133,8 +131,7 @@ const missingAsOf = vm.runInContext(`dateContext.advice.payPeriodViews[0].start 
 ok(/Date progress unavailable/.test(missingAsOf) && !/<b>Day /.test(missingAsOf),
   'an explicitly missing published as-of does not fall back to another date');
 ok(/data-budget-surface="pay-period"/.test(html), 'renderPlan mounts the active Budget surface in pay-period view');
-ok(p.context.__retainedCalls === 0, 'the retained operatingSurfaceHtml is not called on the page path',
-  `${p.context.__retainedCalls} call(s)`);
+ok(p.context.__retiredComposer === false, 'the retired operatingSurfaceHtml no longer exists, so the page path cannot reach it');
 ok(!/data-budget-more-views|data-current-payday-details/.test(html),
   'the old "More Budget views" and "Current payday details" disclosures are not rendered');
 ok((html.match(/data-calendar-waterfall="/g) || []).length === 1, 'exactly one pay-period waterfall is printed');

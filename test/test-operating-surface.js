@@ -2,7 +2,7 @@
 /* AF-OPERATE-02 — the homepage leads with five ordered operating answers,
  * composed from incumbent Forecast outputs. No page-side financial arithmetic.
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -231,7 +231,7 @@ console.log('\n=== Q4 follows the incumbent extra-debt allocation ===');
 console.log('\n=== page remains a renderer, not a financial authority ===');
 {
   const planSrc = read('public/plan.js');
-  const fn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const fn = liveBudgetComposerSource(planSrc);
   ok(!!fn, 'the operating-surface formatter is a bounded readable function');
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0]),
     'the formatter calls no Forecast function and consumes the one result passed to it');

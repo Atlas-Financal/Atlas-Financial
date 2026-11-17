@@ -13,7 +13,7 @@
  * extra-debt allocation implies no extra-principal payment; it does not
  * imply that required contractual `requiredDebtPayments` disappear.
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -393,8 +393,8 @@ console.log('\n=== live overlay cannot be authorized from committed git state ==
 console.log('\n=== the composed page remains a renderer ===');
 {
   const planSrc = read('public/plan.js');
-  const fn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
-  ok(!!fn, 'operatingSurfaceHtml remains a bounded formatter');
+  const fn = liveBudgetComposerSource(planSrc);
+  ok(!!fn, 'the live Budget composer remains a set of bounded formatters');
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0]),
     'the composed formatter calls no Forecast function');
   ok(fn && !/\.reduce\(|monthlyFromWeekly|projectDebts|fundingSequence/.test(fn[0]),

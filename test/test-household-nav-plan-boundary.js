@@ -12,7 +12,7 @@
  * The last section starts server.js with synthetic secrets so Budget is proved
  * served behind the session gate and a deleted legacy URL redirects to /.
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
@@ -193,10 +193,10 @@ console.log('\n=== 4 + 5. Plan waterfall keeps Balance After Deductions and stop
   const fn = /function calendarWaterfallHtml\([\s\S]*?\n\}/.exec(planSrc);
   ok(fn && !/'08'|'09'|'10'|'11'/.test(fn[0]) && !/projectedEnding|afterDebtRepayment/.test(fn[0]),
     'calendarWaterfallHtml stops at Q07 in source, not by CSS');
-  const surfaceFn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const surfaceFn = liveBudgetComposerSource(planSrc);
   ok(surfaceFn && !/data-operating-warnings/.test(surfaceFn[0])
       && !/operating-limit warn/.test(surfaceFn[0]),
-    'operatingSurfaceHtml stops emitting the advisory block in source, not by CSS');
+    'the live Budget composer emits no advisory block in source, not by CSS');
   ok(!/data-operating-warnings/.test(html)
       && !/There is no feasible weekly cap/.test(html)
       && !/stays unfunded/.test(html)

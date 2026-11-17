@@ -6,7 +6,7 @@
  * or publish leftover remainder as the next move. Synthetic cents are
  * unlike live household figures.
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -481,9 +481,9 @@ console.log('\n=== 6. operating-answer copies Forecast; page does not recalculat
     'operating-answer extra debt copies Forecast.paydayAllocation.extraDebt');
 
   const planSrc = read('public/plan.js');
-  const fn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const fn = liveBudgetComposerSource(planSrc);
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0]),
-    'operatingSurfaceHtml calls no Forecast function');
+    'the live Budget composer calls no Forecast function');
   ok(fn && !/\.reduce\(|monthlyFromWeekly|projectDebts|fundingSequence/.test(fn[0]),
     'the payday sheet does not total, convert, or walk debts');
 }
