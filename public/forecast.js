@@ -11266,6 +11266,25 @@
     return tx.tdCardPaymentCredit === true;
   }
 
+  // Grok Bot ruling (Plan #6, rule 17, 2026-11-17): a credit on a mapped TD
+  // card whose ORIGINAL bank description is exactly "REWARDS REDEMPTION" or
+  // "TD Points Redemption" (case and surrounding spaces ignored) is a known
+  // non-payment credit: it covers no purchase, pays no minimum and raises no
+  // coverage issue. The posted-only condition is applied where it is read.
+  // Sanitized packets carry only the flag.
+  const TD_REWARDS_REDEMPTION_DESCRIPTIONS = new Set(['REWARDS REDEMPTION', 'TD POINTS REDEMPTION']);
+  function isTdRewardsRedemptionCredit(tx) {
+    if (!tx || !(Number(tx.amount) < -EPSILON)) return false;
+    const ids = [tx.atlasAccountId, tx.accountId, tx.account].filter(Boolean);
+    if (!ids.length || !ids.every(id => id === ids[0]) || !TD_PAYMENT_CREDIT_CARD_IDS.has(ids[0])) return false;
+    const original = tx.original_name ?? tx.originalName;
+    if (original != null) {
+      return typeof original === 'string' && TD_REWARDS_REDEMPTION_DESCRIPTIONS.has(original.trim().toUpperCase())
+        && (!Object.hasOwn(tx, 'tdRewardsRedemptionCredit') || tx.tdRewardsRedemptionCredit === true);
+    }
+    return tx.tdRewardsRedemptionCredit === true;
+  }
+
   // Grok Bot ruling: an existing "card payment: <card>" note on the debit wins.
   // Lead-approved fixed name table (exact name, case-insensitive, trailing
   // " ...NNNN" ignored, never matched by the digits). Any other named card is
@@ -12390,6 +12409,7 @@
       cardPaymentIdentity: false,
       tdCardPaymentIdentity: false,
       tdCardPaymentCredit: false,
+      tdRewardsRedemptionCredit: false,
       cardPaymentNoteDestination: null,
       cardFinanceChargeIdentity: false,
       helocFinanceChargeIdentity: false,
@@ -12427,6 +12447,7 @@
       cardPaymentIdentity: isCanadianTireMastercardPayment(tx) || tdCardPaymentIdentity,
       tdCardPaymentIdentity,
       tdCardPaymentCredit: isTdCardPaymentCredit(tx),
+      tdRewardsRedemptionCredit: isTdRewardsRedemptionCredit(tx),
       cardPaymentNoteDestination: cardPaymentNoteDestination(tx),
       cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
         && revolvingCardFinanceChargeEvidence(tx),
@@ -14065,7 +14086,11 @@
           const account = cardId(tx);
           if (!account) continue; // coverage-account-unconfirmed already raised
           if (pay) (cents < 0 ? legs.cardCredit : legs.cardDebit).push({ tx, account, cents: Math.abs(cents) });
-          else if (cents < 0 && counted && !isRevolvingCardFinanceCharge(tx)) {
+          // A posted TD rewards redemption (Grok Bot ruling) is a known
+          // non-payment credit: no refund, no coverage, no issue. A pending
+          // one is unchanged.
+          else if (cents < 0 && counted && !isRevolvingCardFinanceCharge(tx)
+            && !(tx.pending === false && isTdRewardsRedemptionCredit(tx))) {
             // A refund reverses a household purchase: the same row as a
             // charge must classify as household spending. Any other card
             // credit has an unknown purpose and withholds.

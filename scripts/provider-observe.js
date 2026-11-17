@@ -5684,6 +5684,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // TD "PAYMENT - THANK YOU" card credit (Grok Bot ruling): only the
       // boolean enters the packet, never the bank description.
       ...(flags.tdCardPaymentCredit === true ? { tdCardPaymentCredit: true } : {}),
+      // TD rewards redemption card credit (Grok Bot ruling): only the boolean.
+      ...(flags.tdRewardsRedemptionCredit === true ? { tdRewardsRedemptionCredit: true } : {}),
       // The note's named card (Grok Bot ruling), never the note text itself.
       ...(flags.cardPaymentNoteDestination ? { cardPaymentNoteDestination: flags.cardPaymentNoteDestination } : {}),
       // Card-specific payment identity from the existing payee identities
