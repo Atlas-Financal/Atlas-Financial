@@ -1547,12 +1547,31 @@ function noteItemNames(notes) {
 // names lunchMoneyCategoryIds links a row whose Lunch Money category_id is one
 // of them, exactly. Opt-in and empty until Dale confirms each category; a
 // category id named by two rules is refused for both before any row is
-// matched (the config test also fails). Ids, not names: a rename never moves
-// a link, and a removed category links nothing.
+// matched (the config test also fails). Each entry is { id, name }: the id is
+// the identity and the name is the category as Dale confirmed it. Grok Bot
+// (recorded on #1207, 6927147873): a category renamed or removed in Lunch
+// Money makes its link read To confirm, never move to another bill. So a row
+// in the claimed id whose ledger category name is not the confirmed name links
+// nothing, and the claim still keeps every other rule off it. An entry with no
+// name cannot be checked, so it never links (fail closed).
+function categoryEntryId(value) {
+  const id = value && typeof value === 'object' ? value.id : value;
+  return id == null ? '' : String(id).trim();
+}
 function ruleLunchMoneyCategoryIds(rule) {
   const values = Array.isArray(rule && rule.lunchMoneyCategoryIds) ? rule.lunchMoneyCategoryIds : [];
-  return Array.from(new Set(values.filter(value => value != null)
-    .map(value => String(value).trim()).filter(Boolean)));
+  return Array.from(new Set(values.map(categoryEntryId).filter(Boolean)));
+}
+function normalizeCategoryName(value) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+}
+// True only when the row's ledger category name is the confirmed name for that id.
+function categoryNameConfirmed(rule, categoryId, ledgerName) {
+  const values = Array.isArray(rule && rule.lunchMoneyCategoryIds) ? rule.lunchMoneyCategoryIds : [];
+  const names = values.filter(value => value && typeof value === 'object' && categoryEntryId(value) === categoryId)
+    .map(value => normalizeCategoryName(value.name)).filter(Boolean);
+  const ledger = normalizeCategoryName(ledgerName);
+  return names.length > 0 && !!ledger && names.every(name => name === ledger);
 }
 
 // Category ids that more than one rule names. Refused for every rule.
@@ -1679,7 +1698,10 @@ function ruleMatchesTransactionIdentity(tx, rule) {
   if (itemNoteClaimedElsewhere(rule, items)) return false;
   // Single-bill category, below the recurring link and the item note.
   const categoryId = tx.categoryId == null ? '' : String(tx.categoryId).trim();
-  if (categoryId && ruleCategoryClaims(rule).includes(categoryId)) return true;
+  if (categoryId && ruleCategoryClaims(rule).includes(categoryId)) {
+    // Renamed (or unnamed) since Dale confirmed it: To confirm, no link and no payee fallback.
+    return categoryNameConfirmed(rule, categoryId, tx.categoryLabel);
+  }
   if (categoryClaimedElsewhere(rule, categoryId)) return false;
   if ((recurringIds.length || itemNames.length || ruleLunchMoneyCategoryIds(rule).length)
       && !rulePayeePatterns(rule).length) return false;
