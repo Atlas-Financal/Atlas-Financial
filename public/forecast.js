@@ -3474,9 +3474,20 @@
       if (planCategoryTargetInvalid(cat)) {
         unknowns.push({ carrier: 'target', id: cat.id || null, date: null,
           reason: 'plan-amount-invalid' });
+      } else if (otherSpendTargetUndated(cat)) {
+        unknowns.push({ carrier: 'target', id: cat.id, date: null,
+          reason: 'plan-target-undated' });
       }
     }
     return unknowns;
+  }
+  // #962 C4: an Other payday target is applied only from its
+  // targetEffectiveFrom (otherSpendPayPeriodTarget). Declared without a real
+  // date it can never apply, so it is unknown, never dropped as if absent.
+  // No date is assumed. A category with no plannedPayday has no target.
+  function otherSpendTargetUndated(cat) {
+    return !!cat && typeof cat === 'object' && cat.id === OTHER_SPEND_ID
+      && cat.plannedPayday != null && !savingsDate(cat.targetEffectiveFrom);
   }
   // True when a category declares a target (or a dated prior target) that is
   // not a real amount. Shared by the scheduled-amount gate and the household
@@ -3511,6 +3522,8 @@
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
         : unknowns.every(u => u.reason === 'plan-amount-invalid' && (u.carrier === 'buffer' || u.carrier === 'target'))
         ? 'A household budget target or the cash buffer is not a valid amount, so the totals and plan verdicts that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-target-undated')
+        ? 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.reason === 'plan-frequency-invalid' || u.reason === 'plan-amount-invalid')
         ? 'An income or obligation has a frequency or amount Forecast cannot read, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
@@ -12670,7 +12683,15 @@
     // no quantity. Its category row is printed with every amount unknown and
     // the household hold is stamped unavailable below; it never reads as a
     // $0 target (audit finding 17).
-    const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid);
+    // #962 C4: a declared Other payday target that cannot be applied (no
+    // real effective date, or not a real amount) prints its row with the
+    // plan amounts unknown and withholds the total, as above.
+    const otherCat = byId.get(OTHER_SPEND_ID);
+    const otherWithheldReason = otherCat && otherCat.plannedPayday != null
+      ? (!declaredPlanAmountOk(otherCat.plannedPayday) ? 'target-invalid'
+        : otherSpendTargetUndated(otherCat) ? 'target-undated' : null) : null;
+    const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid)
+      || otherWithheldReason != null;
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
       if (planCategoryTargetInvalid(byId.get(id))) {
         items.push({
@@ -12743,7 +12764,27 @@
     // after its posted mate classifies into a named row. That pending stays
     // recon-visible at $0 confirmed spent rather than disappearing.
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
-    if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
+    if (otherWithheldReason) {
+      items.push({
+        id: OTHER_SPENDING_ID,
+        label: 'Other spending',
+        note: 'Not yet assigned to a budget category',
+        monthly: null, plannedPayday: null, planned: null,
+        spent: actualsReady ? confirmationSpent : null,
+        remaining: null, overspend: null, hold: null,
+        targetEffectiveFrom: null,
+        withheldReason: otherWithheldReason,
+        // The observed actual keeps its possible-duplicate caution; withholding
+        // the target never makes the spent figure read as more certain.
+        ...(actualsReady && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true)
+          ? { trust: 'estimated', estimateReason: 'possible-duplicate' } : {}),
+        needsConfirmation: true,
+        otherSpending: true,
+        projected: role === 'future',
+        recon: actualsReady ? confirmationRecon : [],
+        pendingRecon: actualsReady ? confirmationRecon.filter(r => r.pending === true) : [],
+      });
+    } else if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
       const otherPossibleDuplicate = observed != null
         && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
@@ -12781,7 +12822,8 @@
     let holdTrust = null;
     if (role === 'future') {
       if (otherTarget != null) holdTrust = 'estimated';
-      const reserve = otherTarget == null ? futurePayPeriodOtherSpend(plan, windowStart) : null;
+      const reserve = otherTarget == null && !otherWithheldReason
+        ? futurePayPeriodOtherSpend(plan, windowStart) : null;
       if (reserve != null) {
         holdTrust = 'estimated';
         items.push({
@@ -19236,7 +19278,8 @@
     const cycle = period && period.spendingCycle;
     const householdScope = scope && cycle && cycle.start === period.start && cycle.end === period.end;
     const plannedCategories = Array.isArray(categories) ? categories.filter(row => row && !row.informational
-      && ((!row.otherSpending && !row.needsConfirmation) || (row.otherSpending
+      && ((!row.otherSpending && !row.needsConfirmation) || (row.otherSpending && row.withheldReason)
+        || (row.otherSpending
         && savingsDate(row.targetEffectiveFrom) && period.start >= row.targetEffectiveFrom && finite(row.planned)))) : null;
     // Historical category rows are regenerated from today's authored targets.
     // Their date scope establishes spending, not an original-plan snapshot.

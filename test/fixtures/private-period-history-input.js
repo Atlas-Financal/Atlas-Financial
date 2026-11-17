@@ -20,7 +20,7 @@ function input({ day = START, kind = 'original', periodStart = START, cash = [10
       income: [{ id: 'payroll', label: 'Invented income', frequency: 'biweekly', anchor: START, amount: 200, confidence: 'confirmed' }],
       bills, commitments: [], obligations: [], groups: [], funding: { options: [] },
       budget: { categories: [['groceries', 40], ['fuel', 15], ['restaurants', 10], ['dale-guilt-free', 5],
-        ['amanda-guilt-free', 5], ['pets', 5], ['other-spend', 20]].map(([id, plannedPayday]) =>
+        ['amanda-guilt-free', 5], ['pets', 5]].map(([id, plannedPayday]) =>
         ({ id, label: 'Invented ' + id, plannedPayday, class: 'essential', confidence: 'confirmed', from: [] })) },
     } },
     accountMap: { provider: 'lunchmoney', schema: 'atlas-provider-account-map/v1', scope: 'owner-observed', mappings: ids.map((id, i) =>
