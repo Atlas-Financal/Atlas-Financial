@@ -4113,12 +4113,13 @@ function observeCore(input, capture) {
   // so payment evidence and Forecast read the same occurrence dates (Codex P1,
   // #1281). Only day and dateConfidence of a mapper-supplied bill change, on
   // this observation's working copy of the plan; data.json is never written.
-  const recurringSchedules = recurringBillSchedules(
+  const recurringReview = recurringBillScheduleReview(
     sanitizedRecurringEvidence(input.payload && input.payload.recurringItems,
       { identityRules: input.identityRules || (input.identity && input.identity.rules) || [],
         accountMap: mapDoc, existingLocalId: () => null }),
     input.identityRules || (input.identity && input.identity.rules) || [],
     input.data && input.data.plan, dateOnly(normalized.fetchedAt));
+  const recurringSchedules = recurringReview.schedules;
   if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
     const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
@@ -4351,6 +4352,7 @@ function observeCore(input, capture) {
   // Internal to the report; never served.
   // Present only when a schedule applies, so every other report keeps its shape.
   if (recurringSchedules.length) assembled.recurringBillSchedules = recurringSchedules;
+  if (recurringReview.withheld.length) assembled.recurringBillSchedulesWithheld = recurringReview.withheld;
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
@@ -5346,8 +5348,18 @@ function sanitizedRecurringEvidence(raw, opts) {
 // rules, a bill named by several items, a bill that is not monthly, a paying
 // account whose role does not match, or expected dates that disagree with
 // the anchor day.
+// Owner cross-check (Dale 2026-11-17, via the lead, #1281): the reviewed
+// item confirms a bill's schedule only when its anchor day agrees with the
+// plan's own day. On a mismatch the plan's day and tags stand, and the bill
+// is listed as withheld with a fixed reason until the ledger item and the
+// plan agree. LM stays the source of the date; the plan only gates it.
 function recurringBillSchedules(block, identityRules, plan, asOf) {
-  if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return [];
+  return recurringBillScheduleReview(block, identityRules, plan, asOf).schedules;
+}
+function recurringBillScheduleReview(block, identityRules, plan, asOf) {
+  const withheld = [];
+  const done = schedules => ({ schedules, withheld });
+  if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
   const bills = Array.isArray(plan.bills) ? plan.bills : [];
   const daysIn = iso => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).getUTCDate();
   const byBill = new Map();
@@ -5375,9 +5387,13 @@ function recurringBillSchedules(block, identityRules, plan, asOf) {
     const day = Number(item.anchorDate.slice(8, 10));
     if (!(day >= 1 && day <= 31)) continue;
     if (!item.expectedDates.every(date => Number(date.slice(8, 10)) === Math.min(day, daysIn(date)))) continue;
+    if (Number(bill.day) !== day) {
+      withheld.push({ billId, recurringId: item.recurringId, reason: 'anchor-day-differs-from-plan' });
+      continue;
+    }
     out.push({ billId, recurringId: item.recurringId, day, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
-  return out;
+  return done(out);
 }
 
 // The structural check for that block: exact keys, value types and no
