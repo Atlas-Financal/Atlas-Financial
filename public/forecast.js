@@ -21304,7 +21304,7 @@
       if (funding.parts.some(p => p.debtId === option.debtId)) return no('alreadyFunded');
 
       const current = (debtProj.crossings || [])
-        .find(c => c.id === option.debtId && !c.alreadyOver) || null;
+        .find(c => c.id === option.debtId && !c.alreadyOver && !c.onOrBefore) || null;
       // No limit crossing to move. The alternative may still be worse, but
       // "brings the crossing forward" is not a thing that can be said about it.
       if (!current) return no('noCurrentCrossing');
@@ -21347,7 +21347,7 @@
         extraDebtTarget: base.extraDebtTarget,
       }));
       const crossing = (moved.crossings || [])
-        .find(c => c.id === option.debtId && !c.alreadyOver) || null;
+        .find(c => c.id === option.debtId && !c.alreadyOver && !c.onOrBefore) || null;
       // Borrowing on a facility can only bring its own crossing nearer or leave
       // it where it is. If it does not move it, there is no alternative date to
       // publish, and naming the same day as though it were news would be one.
@@ -21874,6 +21874,11 @@
         // breach in the wrong month and on the wrong side of the plan's own
         // deadline.
         firstOver: null,
+        // For a card whose pending is unknown: the day its POSTED position
+        // (the walked balance less the retained pending it opened with)
+        // crosses the limit. Pending only adds, so the card is over by then
+        // whatever the pending is; the exact day may be earlier.
+        firstOverPosted: null,
       };
       byId[x.id] = s;
       return s;
@@ -22261,6 +22266,8 @@
       }
       for (const s2 of state) {
         if (s2.firstOver == null && s2.limit != null && s2.balance > s2.limit) s2.firstOver = date;
+        if (s2.pendingUnknown && s2.firstOverPosted == null && s2.limit != null
+          && s2.balance - (s2.opening - s2.postedBalance) > s2.limit) s2.firstOverPosted = date;
       }
       const dayNo = i + 1;
       if (dayNo === 30 || dayNo === 60 || dayNo === 90 || dayNo === days) {
@@ -22272,11 +22279,25 @@
     // actually happens rather than at the next 30-day snapshot. A facility
     // already over the limit today is a different problem from one that
     // crosses on its own inside the window, so they are marked apart.
-    let crossings = state.filter(s => s.firstOver)
-      .map(s => ({ id: s.id, label: s.label, date: s.firstOver, limit: s.limit,
-        day: diffDays(start, s.firstOver),
-        alreadyOver: s.limit != null && s.opening > s.limit,
-        pendingUnknown: !!s.pendingUnknown }))
+    // A card whose current pending is unknown cannot establish a crossing
+    // from the retained pending the walk opened with: the opening mark
+    // already leaves its over-limit state unknown unless the card is over
+    // on posted alone. Over on posted alone today is known (already over).
+    // A later crossing the posted position alone reaches is known to happen
+    // on or before that day, and is published as such (onOrBefore). A
+    // crossing that needs the unknown pending is withheld and the card named.
+    const crossingUnknown = s => !s.secured && s.pendingUnknown && s.limit != null
+      && !(s.postedBalance > s.limit);
+    const crossingsUnknownFrom = state.filter(s => crossingUnknown(s) && !s.firstOverPosted).map(s => s.id);
+    let crossings = state.filter(s => crossingUnknown(s) ? s.firstOverPosted : s.firstOver)
+      .map(s => crossingUnknown(s)
+        ? { id: s.id, label: s.label, date: s.firstOverPosted, limit: s.limit,
+          day: diffDays(start, s.firstOverPosted), alreadyOver: false,
+          pendingUnknown: true, onOrBefore: true }
+        : { id: s.id, label: s.label, date: s.firstOver, limit: s.limit,
+          day: diffDays(start, s.firstOver),
+          alreadyOver: s.limit != null && s.opening > s.limit,
+          pendingUnknown: !!s.pendingUnknown })
       .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
     let pubMarks = marks, pubById = byId, pubExtraDebtAllocation = extraDebtAllocation;
     const pubUnabsorbed = unabsorbedUnknown ? null : unabsorbed;
@@ -22493,6 +22514,8 @@
           const s = byId[d.id];
           const posted = d.balance == null ? null : d.balance - (s.opening - s.postedBalance);
           return { ...d, balance: null,
+            ...(crossingUnknown(s) ? { firstOver: d.firstOver != null && s.firstOverPosted != null
+              && s.firstOverPosted <= mark.date ? s.firstOverPosted : null } : {}),
             available: posted == null ? null : publishedAvailable(d.limit, posted, true),
             overLimit: posted == null ? null : publishedOverLimit(d.limit, posted, true),
             overLimitBy: posted == null ? null : publishedOverLimitBy(d.limit, posted, true) };
@@ -22515,6 +22538,7 @@
       scheduledAmounts,
       extraDebtPriority: priority, extraDebtAllocation: pubExtraDebtAllocation,
       crossings,
+      ...(crossingsUnknownFrom.length ? { crossingsUnknownFrom } : {}),
       // Everything an extra payment did NOT reach, so an untargeted one is
       // visible rather than silently vanishing into cash.
       untargetedExtra: opts.extraDebtMonthly > 0 && !extraTarget,
@@ -23566,6 +23590,7 @@
         debtId: c.id,
         label: c.label,
         date: c.date,
+        ...(c.onOrBefore ? { onOrBefore: true } : {}),
       });
     }
 

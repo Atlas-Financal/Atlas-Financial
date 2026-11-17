@@ -321,6 +321,7 @@
   ["owner decision posture policy (Talk Slice 5)","test-decision-posture.js"],
   ["Forecast baseline trajectory (Financial Trajectory)","test-baseline-trajectory.js"],
   ["an unknown-pending card's room and own balance are unknown, never 0 or posted + retained pending","test-unknown-pending-card-room.js"],
+  ["an unknown pending cannot establish a limit crossing; the packet names the card","test-pending-unknown-crossings.js"],
   ["a card credit balance (overpayment or refund) earns no borrower interest","test-card-credit-balance-no-interest.js"],
   ["the opening gap date ignores sub-cent float noise under zero","test-gap-date-half-cent.js"],
   ["Forecast baseline trajectory three-stage funding decomposition","test-baseline-trajectory-funding-stages.js"],

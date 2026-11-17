@@ -1106,9 +1106,20 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       day: row.day,
       limit: money(row.limit),
       alreadyOver: row.alreadyOver === true,
+      ...(row.pendingUnknown === true ? { pendingUnknown: true } : {}),
+      ...(row.onOrBefore === true ? { onOrBefore: true } : {}),
     }))
     : [];
   const debtSchedAmounts = scheduledAmountsOf(debtProj);
+  // A card whose pending is unknown has an unknown crossing: Forecast
+  // withholds it and names the card. The packet carries that qualifier;
+  // an empty list is then unavailable, not a complete set of zero.
+  const crossingsUnknownFrom = debtProj && Array.isArray(debtProj.crossingsUnknownFrom)
+    && debtProj.crossingsUnknownFrom.length ? debtProj.crossingsUnknownFrom.slice() : null;
+  const crossingQualifiers = {
+    ...(debtSchedAmounts ? { scheduledAmounts: scheduledAmountsProjection(debtSchedAmounts) } : {}),
+    ...(crossingsUnknownFrom ? { pendingUnknownFrom: crossingsUnknownFrom } : {}),
+  };
   const action = advice.currentPeriodAction || null;
   return {
     status: 'ok',
@@ -1147,15 +1158,12 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
     // it must not be promoted to {ok, []}. Crossings the walk did
     // publish (all established before the first unknown) stay
     // published, with the named state carried as the qualifier.
-    facilityCrossings: debtSchedAmounts && !crossings.length
-      ? { status: 'unavailable', reason: debtSchedAmounts.reason || 'scheduled-amount-unknown',
-        source: 'Forecast.projectDebts',
-        scheduledAmounts: scheduledAmountsProjection(debtSchedAmounts) }
+    facilityCrossings: (debtSchedAmounts || crossingsUnknownFrom) && !crossings.length
+      ? { status: 'unavailable',
+        reason: debtSchedAmounts ? debtSchedAmounts.reason || 'scheduled-amount-unknown' : 'pending-unknown',
+        source: 'Forecast.projectDebts', ...crossingQualifiers }
       : crossings.length || (debtProj && Array.isArray(debtProj.crossings))
-      ? { status: 'ok', source: 'Forecast.projectDebts', items: crossings,
-        ...(debtSchedAmounts
-          ? { scheduledAmounts: scheduledAmountsProjection(debtSchedAmounts) }
-          : {}) }
+      ? { status: 'ok', source: 'Forecast.projectDebts', items: crossings, ...crossingQualifiers }
       : unavailable('debt-projection-unavailable'),
     majorPlanFunding: major.length
       ? { status: majorStatus, source: 'Forecast.majorPlans', ...majorReason, items: major }
