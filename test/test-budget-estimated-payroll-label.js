@@ -79,7 +79,7 @@ function loadComposer() {
 const ANCHOR = '2026-08-14';
 const AS_OF = '2026-10-09';
 const DALE = 4000;
-const DALE_2027 = 3849.40;
+const DALE_2027 = 3860.69;
 const OBSERVED = 4100;
 
 function timelinePlan(asOf) {
@@ -160,7 +160,7 @@ console.log('=== Forecast 2027 payroll keeps its estimate on the real timeline =
   ok(dale && dale.status === 'estimated' && dale.settlement === 'estimated'
       && dale.confidence === 'estimated' && dale.incomeRegime === '2027-estimated'
       && near(dale.amount, DALE_2027) && dale.amount !== DALE,
-    'Forecast January payroll stays estimated at 3849.40',
+    'Forecast January payroll stays estimated at 3860.69',
     dale && [dale.status, dale.settlement, dale.confidence, dale.incomeRegime, dale.amount].join(' '));
 
   const printed = '+' + composer.money2(dale.amount);
@@ -285,7 +285,7 @@ console.log('\n=== the marker reads Forecast trust fields, not a date ===');
     'calendarIncomeHtml reads Forecast status, settlement, and incomeRegime');
   ok(!/Date\.now|new Date|period\.start|getFullYear|2027-01-01/.test(incomeFn),
     'calendarIncomeHtml does not infer the estimate from a clock or a period date');
-  ok(!/3849\.40|4100|4000/.test(incomeFn),
+  ok(!/3860\.69|3849\.40|4100|4000/.test(incomeFn),
     'calendarIncomeHtml does not infer the estimate from an amount');
 }
 

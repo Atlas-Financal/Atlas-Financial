@@ -1,5 +1,0 @@
-﻿{
-  "_comment": "Copy to local-config.json and fill in. local-config.json is gitignored.",
-  "helocAccountFragment": "0000000",
-  "helocPaymentPrefix": "0000"
-}

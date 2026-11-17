@@ -75,8 +75,26 @@ function input(mode = 'valid-v2') {
   return { data, payload, accountMap };
 }
 
+// The source plan's own cycle ledger, as the provider reports it: the payday
+// opening of 20, plus the 200 payroll credit, less the 20 grocery debit, is
+// chequing 200 + 0. Only served() carries the source plan across the overlay,
+// so only it adds these rows; input() stays an empty window for callers that
+// swap in a world of their own.
+const LEDGER = [
+  { id: 'invented-payroll', account_id: '9001', date: '2026-10-02', amount: '-200', currency: 'cad',
+    is_pending: false, payee: 'Invented payroll', category_id: 901, is_income: true },
+  { id: 'invented-grocer', account_id: '9001', date: '2026-10-03', amount: '20', currency: 'cad',
+    is_pending: false, payee: 'Invented grocer', category_id: 902 },
+];
+const LEDGER_CATEGORIES = [{ id: 901, name: 'Payroll', is_income: true }, { id: 902, name: 'Groceries', is_income: false }];
+// The payroll credit is the plan's payroll occurrence, matched by payee identity.
+const IDENTITY = { rules: [{ eventId: 'payroll', payeePattern: 'Invented payroll', atlasAccountId: 'chequing-a', direction: 'credit' }] };
+
 function served(mode, observer) {
   const x = input(mode);
+  x.payload.transactions.unshift(...LEDGER.map(row => ({ ...row })));
+  x.payload.categories.push(...LEDGER_CATEGORIES.map(row => ({ ...row })));
+  x.identity = IDENTITY;
   const report = observer.observe({ provider: 'lunchmoney', ...x });
   // Both packets cross the actual overlay boundary without fixture replacement.
   const data = require('../../scripts/live-plan').overlayLiveState({ data: x.data, report }).data;

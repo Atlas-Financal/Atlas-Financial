@@ -304,7 +304,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'the shared walk helper is not a second exported engine');
   ok(/prepareBaselineTrajectoryWalk\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory composes the shared walk helper');
   ok(!/recommend\(/.test(body) && !/recommendWeekly\(/.test(body),
     'the boundary does not search Forecast.recommend for a weekly cap');
@@ -339,7 +339,7 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'the funding-stage helper is not a second exported engine');
   ok(/baselineTrajectorySpanPicture\(/.test(
     src.slice(src.indexOf('function baselineTrajectory('),
-      src.indexOf('function baselineTrajectoryScenario('))),
+      src.indexOf('function liveOperatingPlanUnavailable('))),
     'baselineTrajectory publishes month and pay-period funding from the shared span helper');
   ok(/baselineTrajectoryMonthFunding\(/.test(
     src.slice(src.indexOf('function baselineTrajectorySpanPicture('),
@@ -403,8 +403,8 @@ console.log('=== 1. Forecast is the sole calculator ===');
     'Forecast does not store owner raise/bonus policy as engine constants');
   ok(!/\b1\.04\b/.test(src) && !/\b0\.18\b/.test(src),
     'Forecast source has no duplicate 1.04 / 0.18 owner-policy values');
-  ok(/cra-2026-last-published-planning-assumption/.test(body),
-    '2027 statutory tables are last-published 2026 values, labelled as a planning assumption');
+  ok(/cra-2027-published-contributions;tax-cra-2026-last-published-planning-assumption/.test(body),
+    '2027 contributions are the published 2027 CRA table; 2027 tax stays the last-published 2026 table, labelled as a planning assumption');
   const expandBody = src.slice(src.indexOf('function expandEvents('),
     src.indexOf('\n  function simulate('));
   ok(!/2027-01-01/.test(expandBody) && !/year\s*>=\s*2027/.test(expandBody),

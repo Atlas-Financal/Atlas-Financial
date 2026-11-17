@@ -98,6 +98,45 @@ function mappedWorld(id, name, catId, pending) {
     account: 'chequing-a', payee: 'Invented ' + id + ' co', pending: pending === true }));
   return w;
 }
+const MORTGAGE = 116;
+function mortgageWorld(day) {
+  const w = world();
+  w.categories.push({ id: MORTGAGE, name: 'Mortgage' });
+  w.planPatch = plan => { plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage',
+    effect: 'payment', label: 'Invented mortgage', frequency: 'monthly', day, amount: 400, confidence: 'confirmed' }]); };
+  w.transactions.push(H.lm({ date: '2026-10-12', amount: 400, category: MORTGAGE, account: 'chequing-a', payee: 'Invented lender' }));
+  return w;
+}
+// Grok Bot (Plan #6 thread) on a mortgage payment that posts after its due
+// date's cycle: the mortgage is due Oct 22 (cycle Oct 9 - Oct 22) and the
+// Mortgage-labelled debit posts Oct 23 (cycle Oct 23 - Nov 5), as-of Oct 24.
+// No date matching: the debit is Other spending, to confirm, with a neutral
+// line naming the earlier mortgage still To confirm. Paid Oct 23 from
+// chequing-a, so the observed Bills account reads 2,000 - 400 = 1,600.
+function lateMortgageWorld({ debit = true, ownerMarked = false } = {}) {
+  const w = H.baseWorld('2026-10-24');
+  w.categories.push({ id: MORTGAGE, name: 'Mortgage' });
+  w.transactions = [H.lm({ date: '2026-10-23', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  if (debit) {
+    w.transactions.push(H.lm({ date: '2026-10-23', amount: 400, category: MORTGAGE, account: 'chequing-a', payee: 'Invented lender' }));
+    w.accounts.find(a => a.id === 'chequing-a').value -= 400;
+  }
+  w.planPatch = plan => {
+    plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
+      label: 'Invented mortgage', frequency: 'monthly', day: 22, amount: 400, confidence: 'confirmed', payingAccount: 'chequing-a' }]);
+    if (ownerMarked) plan.opening.representedEvents = (plan.opening.representedEvents || []).concat([{ id: 'mortgage', date: '2026-10-22' }]);
+  };
+  return w;
+}
+function lateEngine(w) {
+  const { data, packet, error } = H.dataOf(w);
+  H.expect(error == null, 'the observation is applied');
+  const advice = F.recommend(data.plan, '2026-10-24', { debts: data.debts, currentPeriodActuals: packet });
+  const view = advice.payPeriodViews.find(r => r.start === '2026-10-23');
+  const otherRow = view.householdBudget.find(r => r.id === 'other-spending') || {};
+  return { advice, bad: view.balanceAfterDeductions, other: otherRow,
+    lender: (otherRow.recon || []).find(t => t.displayedPayee === 'Invented lender') };
+}
 function other(s) { return (s.household.match(/Other spending.*?(?=Info: protective spending reserve|$)/) || [''])[0]; }
 
 // A case: build the invented world, the hand-derived BAD, the hand-derived
@@ -185,6 +224,24 @@ const cases = [
       H.expectExcludes(s.household, 'Invented insurance co', 'the bill payment is not also household spending');
     },
   },
+  // #1071 follow-up (lead ruling): the Mortgage exclusion holds only when
+  // the planned mortgage payment has an occurrence in the debit's own
+  // spending cycle (Oct 9 - Oct 22 here).
+  {
+    name: 'a Mortgage debit in a cycle where the planned mortgage falls due only in another cycle is visible and deducted',
+    world: () => mortgageWorld(25),
+    // Oct 25 is in the next cycle: no mortgage bill here, so 1,000 - 400.
+    bad: 600, other: 400, page: '$600.00',
+    async check(s) { H.expectMatch(other(s), /Invented lender/, 'the debit is listed in Other spending'); },
+  },
+  {
+    name: 'control: a Mortgage debit in the cycle of a planned mortgage occurrence is the mortgage, counted once',
+    world: () => mortgageWorld(12),
+    // The Oct 12 mortgage occurrence is the cycle's bill: 1,000 - 400, never
+    // also as spending.
+    bad: 600, other: null, page: '$600.00',
+    async check(s) { H.expectExcludes(s.household, 'Invented lender', 'the mortgage debit is not also household spending'); },
+  },
   ...BILLS_ONLY.flatMap(([id, name, catId]) => [false, true].map(pending => ({
     name: `a${pending ? ' pending' : 'n'} unplanned debit mapped to the bills-only ${name} budget category is visible and deducted`,
     world: () => mappedWorld(id, name, catId, pending),
@@ -230,14 +287,67 @@ function hasBrowser() {
   await report('engine: a Mortgage-labelled payment under a planned mortgage payment stays out of household spending (no double deduction)', async () => {
     const plan = H.planOf(world());
     plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
-      label: 'Mortgage', frequency: 'monthly', anchor: '2026-10-12', amount: 1600, confidence: 'confirmed' }]);
+      label: 'Mortgage', frequency: 'monthly', day: 12, amount: 1600, confidence: 'confirmed' }]);
     const cls = F.classifyCurrentPeriodTransaction(mortgageTx, plan);
     H.expect(cls.householdSpending === false && cls.kind === 'bill', `Mortgage is not household spending (got ${JSON.stringify(cls)})`);
   });
+  // #1071 follow-up: a planned mortgage payment with no occurrence in the
+  // debit's own cycle (Oct 9 - Oct 22) does not exclude the row, whether the
+  // payment is monthly in another cycle, a one-off in another cycle, or the
+  // debit has no readable date.
+  for (const [what, row, tx] of [
+    ['monthly, due only in the next cycle', { frequency: 'monthly', day: 25 }, mortgageTx],
+    ['one-off, due in the previous cycle', { frequency: 'once', date: '2026-10-05' }, mortgageTx],
+    ['one-off, due in the next cycle', { frequency: 'once', date: '2026-10-23' }, mortgageTx],
+    ['monthly in the cycle, but the debit has no date', { frequency: 'monthly', day: 12 }, { ...mortgageTx, date: undefined }],
+  ]) {
+    await report(`engine: a Mortgage-labelled payment whose planned mortgage is ${what} is counted (Other spending)`, async () => {
+      const plan = H.planOf(world());
+      plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
+        label: 'Mortgage', amount: 1600, confidence: 'confirmed', ...row }]);
+      const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+      H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
+        `the Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
+    });
+  }
   await report('engine: a Mortgage-labelled payment with no planned mortgage payment is counted (Other spending)', async () => {
     const cls = F.classifyCurrentPeriodTransaction(mortgageTx, H.planOf(world()));
     H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
       `an unplanned Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
+  });
+  await report('engine: a Mortgage debit posted after its due date\'s cycle is Other spending, naming the mortgage still To confirm', async () => {
+    const r = lateEngine(lateMortgageWorld());
+    // 1,400 - 400 (budget) - 400 (the debit, counted once) = 600.
+    H.expect(Math.abs(r.bad - 600) < 0.005, `BAD is 600 (got ${r.bad})`);
+    H.expect(Math.abs(r.other.spent - 400) < 0.005 && r.other.needsConfirmation === true, `Other spending is 400, to confirm (got ${r.other.spent})`);
+    H.expect(r.lender && r.lender.mortgageDueToConfirm === '2026-10-22', `the row names the Oct 22 mortgage (got ${JSON.stringify(r.lender)})`);
+  });
+  await report('engine: control: with the Oct 22 mortgage marked paid by the owner, the row carries no mortgage line', async () => {
+    const r = lateEngine(lateMortgageWorld({ ownerMarked: true }));
+    H.expect(r.lender && r.lender.mortgageDueToConfirm === undefined, `no line (got ${JSON.stringify(r.lender)})`);
+  });
+  // KNOWN LIMITATION, recorded not fixed (BACKLOG, routed to Grok Bot): the
+  // master cash walk still deducts the unconfirmed Oct 22 mortgage occurrence
+  // at its start, although the Oct 23 Mortgage debit is already out of the
+  // observed 1,600. This is the same on main, whatever the debit's category.
+  // Atlas does not link the debit to Oct 22 (that would be date matching,
+  // which Grok ruled out); confirming the Oct 22 payment in the ledger
+  // (a linked represented actual) clears it. This check pins the behaviour so
+  // a change to it is seen.
+  await report('engine: known limitation: the cash walk still deducts the unconfirmed Oct 22 mortgage beside the late debit', async () => {
+    const walk = w => {
+      const { data, packet } = H.dataOf(w);
+      return F.simulate(data.plan, '2026-10-24', { debts: data.debts, currentPeriodActuals: packet, weeklyVariable: 0 });
+    };
+    const paid = walk(lateMortgageWorld()), none = walk(lateMortgageWorld({ debit: false }));
+    for (const s of [paid, none]) {
+      H.expect((s.events || []).some(e => /mortgage/.test(e.id || '') && e.date === '2026-10-22'),
+        'the walk deducts the unconfirmed Oct 22 occurrence in both worlds');
+    }
+    // The debit is out of the opening (1,600 vs 2,000); both walks also deduct
+    // Oct 22, so the endings differ by exactly the 400 opening difference.
+    H.expect(Math.round((none.ending - paid.ending) * 100) === 40000,
+      `ending differs by exactly 400 (${none.ending} vs ${paid.ending})`);
   });
   for (const [id, name, catId] of BILLS_ONLY) {
     await report(`engine: a pending debit mapped to bills-only ${name} encumbers cash like the same debit labelled Shopping`, async () => {
@@ -252,6 +362,11 @@ function hasBrowser() {
   if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
     console.log('  SKIP  rendered-page cases: Playwright Chromium is not available here');
   } else {
+    await report('page: the late Mortgage debit prints the neutral mortgage line in Other spending', () => H.withBudget(lateMortgageWorld(), async p => {
+      const s = await H.snap(p);
+      H.expectMatch(other(s), /Invented lender/, 'the debit is listed in Other spending');
+      H.expectMatch(other(s), /Mortgage-labelled; the mortgage due Oct 22 is still To confirm/, 'the neutral line names the Oct 22 mortgage');
+    }));
     for (const c of cases) {
       await report('page: ' + c.name, () => H.withBudget(c.world(), async p => {
         const s = await H.snap(p);
