@@ -443,6 +443,7 @@
   ["Budget pay-period swipe navigation","test-budget-pay-period-swipe.js"],
   ["Budget synchronized month and pay-period wheels","test-budget-synchronized-wheels.js"],
   ["Budget stepped period layout and inline disclosures","test-budget-stepped-layout.js"],
+  ["Budget compact period face prints Forecast-published values, never detail sums (live face)","test-budget-compact-face-totals.js"],
   ["Today card flags a Forecast-reported payday shortfall on its closed face (marker only)","test-today-card-shortfall-marker.js"],
   ["Planned Savings compact status and evidence","test-planned-savings-clarity.js"],
   ["Savings exact category/tag attribution foundation","test-savings-link-foundation.js"],
