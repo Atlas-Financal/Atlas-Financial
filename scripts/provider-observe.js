@@ -4349,7 +4349,8 @@ function observeCore(input, capture) {
   assembled.currentPeriodActuals = actualsPass.packet;
   // S2: the timing applied above, for live-plan to apply to the served plan.
   // Internal to the report; never served.
-  assembled.recurringBillSchedules = recurringSchedules;
+  // Present only when a schedule applies, so every other report keeps its shape.
+  if (recurringSchedules.length) assembled.recurringBillSchedules = recurringSchedules;
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
