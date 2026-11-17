@@ -38,18 +38,11 @@ try{for(const width of [1440,390,320]){
  await page.evaluate(()=>{document.getElementById('road-ahead').hidden=false;});
  const details=note.locator('xpath=ancestor::details[1]');await details.locator(':scope > summary').focus();await page.keyboard.press('Enter');
  await note.screenshot({path:path.join(out,'budget-note-'+width+'.png'),animations:'disabled'});
- await page.goto('http://cash-scope.test/deepdive.html');await page.locator('#tiles .tile').first().waitFor();
- const tile=page.locator('#tiles .tile').first();assert.match(await tile.innerText(),/Spendable household cash/i);assert.match(await tile.innerText(),/Chequing A and Chequing B only/);assert.match(await tile.innerText(),/Designated Savings remains reserve evidence/);
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- await tile.screenshot({path:path.join(out,'deepdive-'+width+'.png'),animations:'disabled'});
- await page.goto('http://cash-scope.test/records.html');await page.locator('#assumptions li').first().waitFor();
- const assumptions=page.locator('#assumptions');assert.match(await assumptions.innerText(),/Chequing A and Chequing B \(designated Savings is reserve evidence/);assert.match(await assumptions.innerText(),/2026-08-20/);assert.doesNotMatch(await assumptions.innerText(),/Chequing A, Chequing B and Savings/);
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- await assumptions.screenshot({path:path.join(out,'records-notes-'+width+'.png'),animations:'disabled'});
+ // Deep Dive and Records were removed (#822 slice 4, bc8aae32); their checks went with them.
  missingHistory=true;await page.goto('http://cash-scope.test/');await page.locator('[data-budget-surface]').waitFor();
  await page.locator('#recorded-balances > summary').focus();await page.keyboard.press('Enter');
  assert.match(await page.locator('#balance-history').innerText(),/Dated openings are not available/);assert.equal(await page.locator('.recorded-cash-scope').count(),0);
- cases.push({width,datedMembership:true,longNamesRetained:true,keyboardOpenCloseFocus:true,noPageOverflow:true,currentNotesCorrect:true,recordsNotesCorrect:true,missingHistoryWithheld:true,inputsUnchanged:true});await page.close();console.log('PASS real browser cash scope '+width+'px');
+ cases.push({width,datedMembership:true,longNamesRetained:true,keyboardOpenCloseFocus:true,noPageOverflow:true,currentNotesCorrect:true,missingHistoryWithheld:true,inputsUnchanged:true});await page.close();console.log('PASS real browser cash scope '+width+'px');
  }assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(JSON.stringify(history),historyBefore);
  fs.writeFileSync(path.join(out,'browser.json'),JSON.stringify({head,fixtureOnly:true,cases,errors,external},null,2)+'\n');
 }finally{await browser.close();}})().catch(e=>{console.error(e.stack);process.exitCode=1;});

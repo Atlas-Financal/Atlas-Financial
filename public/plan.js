@@ -1343,152 +1343,10 @@ function currentPeriodConfidence(row) {
     : '';
 }
 
-function currentPeriodBillGroup(title, state, rows) {
-  const list = rows || [];
-  const body = list.length
-    ? list.map(row => {
-      const actual = row.actual != null
-        ? `<span>Observed ${money2(row.actual)}</span>`
-        : '<span>Observed amount unavailable</span>';
-      let amount;
-      if (state === 'represented') {
-        amount = `${actual}<span${row.confidence === 'estimated' ? ' class="est"' : ''}>Plan ${
-          row.planned != null ? money2(row.planned) : '—'
-        }${currentPeriodConfidence(row)}</span>`;
-      } else if (state === 'unverified') {
-        amount = `<span${row.confidence === 'estimated' ? ' class="est"' : ''}>Reserved ${
-          row.remaining != null ? money2(row.remaining) : '—'
-        }${currentPeriodConfidence(row)}</span>`;
-      } else if (state === 'upcoming') {
-        amount = `<span${row.confidence === 'estimated' ? ' class="est"' : ''}>Due ${
-          row.remaining != null ? money2(row.remaining) : '—'
-        }${currentPeriodConfidence(row)}</span>`;
-      } else {
-        amount = '<span>Amount unavailable</span>';
-      }
-      const status = state === 'represented'
-        ? 'Forecast says this occurrence is represented / handled.'
-        : state === 'unverified'
-          ? 'Settlement unverified. This is not a claim that the bill is unpaid.'
-          : state === 'upcoming'
-            ? 'Forecast says this item is still due in the current period.'
-            : 'Forecast returned an unresolved settlement state; no handled or due claim is made.';
-      return `<div class="current-period-row" data-current-bill-id="${escapeHtml(row.id)}" data-current-bill-state="${state}">
-        <div><b>${escapeHtml(row.label)}</b><span>${row.date ? fmtDate(row.date) : 'Date unavailable'} · ${status}</span></div>
-        <div class="current-period-values">${amount}</div>
-      </div>`;
-    }).join('')
-    : `<p class="current-period-empty">None reported by Forecast.currentPeriodAction.</p>`;
-  return `<div class="current-period-block" data-current-bill-group="${state}">
-    <h3>${title}</h3>${body}
-  </div>`;
-}
-
 /* Daily operating renderer. Every bill state, category amount, permission,
  * decision date and limitation is a field on Forecast.currentPeriodAction.
  * This groups and labels those fields; it does not settle a bill, classify a
  * transaction, calculate remaining spend, or call another planning authority. */
-function betweenPaydaysOperatingHtml(action, capView) {
-  if (!action || action.mode !== 'between-paydays') {
-    return `<div class="current-period-unavailable">
-      <p class="operating-lead">Between-paydays action unavailable.</p>
-      <p class="operating-note">No bill, spending or money-movement state is inferred.</p>
-    </div>`;
-  }
-
-  const bills = Array.isArray(action.bills) ? action.bills : [];
-  const represented = bills.filter(row => row && row.settlement === 'represented');
-  const upcoming = bills.filter(row => row && row.settlement === 'upcoming');
-  const unverified = bills.filter(row => row && row.settlement === 'unverified');
-  const unresolved = bills.filter(row => row && !['represented', 'upcoming', 'unverified'].includes(row.settlement));
-  const coverage = paydayCoverageNote(action);
-  const coverageUnavailable = action.remainingClaim === 'unavailable';
-  const postedOnly = action.remainingClaim === 'posted-only';
-  const classificationIncomplete = action.categoryRemainingClaim === 'classified-incomplete';
-  const categories = coverageUnavailable
-    ? []
-    : (action.categories || []).filter(row => row && row.committed != null);
-  const remainingHeading = classificationIncomplete
-    ? 'Remaining'
-    : postedOnly ? 'Observed remaining' : 'Remaining';
-  const categoryRows = categories.length
-    ? categories.map(row => {
-      const remaining = classificationIncomplete
-        ? '<span class="current-period-withheld">Not precise</span>'
-        : row.remaining != null ? money2(row.remaining) : 'Unavailable';
-      const pending = Number(row.pending) > 0
-        ? `<span>Includes observed pending ${money2(row.pending)}</span>`
-        : '';
-      return `<div class="current-period-category" data-current-category-id="${escapeHtml(row.id)}">
-        <div><b>${escapeHtml(row.label)}</b>${pending}</div>
-        <span data-current-category-used>${money2(row.committed)}</span>
-        <span data-current-category-remaining>${remaining}</span>
-      </div>`;
-    }).join('')
-    : '';
-  const categoryState = coverageUnavailable
-    ? `<p class="current-period-withheld">Exact category used and remaining amounts are unavailable. ${coverage}</p>`
-    : classificationIncomplete
-      ? `<p class="current-period-withheld">Named-category remaining is not precise while household spending is classification-incomplete. Used amounts remain observed; remaining amounts are withheld.</p>`
-      : postedOnly
-        ? `<p class="current-period-withheld">Remaining is based on posted and observed pending only. Additional unknown pending may exist.</p>`
-        : '<p class="operating-note">Used and remaining values come directly from Forecast.currentPeriodAction.</p>';
-  const unclassified = action.unclassified && Number(action.unclassified.count) > 0
-    ? `<p class="current-period-withheld">${escapeHtml(action.unclassified.count)} household-spend transaction${
-        action.unclassified.count === 1 ? '' : 's'
-      } remain unclassified. Posted ${money2(action.unclassified.posted)}; pending ${money2(action.unclassified.pending)}.</p>`
-    : '';
-  const categoryTable = categoryRows
-    ? `<div class="current-period-category-head"><span>Category</span><span>Used</span><span>${remainingHeading}</span></div>${categoryRows}`
-    : '';
-  const permission = capView && !capView.hasFeasibleCap
-    ? `<p class="payday-refuse">${capView.infeasible ? '<b>INFEASIBLE. </b>' : ''}${escapeHtml(capView.reason)}</p>`
-    : action.weeklyCap != null
-      ? `<span class="operating-amount" data-current-weekly-permission>${money(action.weeklyCap)} / week</span>`
-      : '<p class="current-period-withheld">Weekly spending permission unavailable.</p>';
-  const movement = action.noMovementToday
-    ? '<p class="operating-lead">No money movement is required today.</p>'
-    : (action.todayActions || []).length
-      ? `<div class="current-period-block"><h3>Do today</h3>${action.todayActions.map(row => `
-          <div class="current-period-row" data-current-today-action="${escapeHtml(row.id)}">
-            <div><b>${escapeHtml(row.label)}</b><span>${row.date ? fmtDate(row.date) : 'Date unavailable'} · Forecast current-day action.</span></div>
-            <div class="current-period-values"><span${row.confidence === 'estimated' ? ' class="est"' : ''}>${
-              row.amount != null ? money2(row.amount) : '—'
-            }${currentPeriodConfidence(row)}</span></div>
-          </div>`).join('')}</div>`
-      : '<p class="current-period-withheld">Current-day action state unavailable; no movement is inferred.</p>';
-  const shortfall = action.currentShortfall
-    ? '<p class="operating-limit warn">Forecast reports a current-period constraint. The amounts below are not a promise that the period is fully funded.</p>'
-    : '';
-  const decision = action.nextPayday
-    ? `<div class="current-period-quick-item"><span>Next decision point</span><b data-current-next-payday>${fmtDateLong(action.nextPayday)} payday</b></div>`
-    : '<p class="current-period-withheld">Next payday / decision date unavailable.</p>';
-  const periodRange = action.periodStart && action.periodEnd
-    ? `${fmtDateLong(action.periodStart)} → ${fmtDateLong(action.periodEnd)}`
-    : 'Current pay-period range unavailable';
-
-  return `<div class="current-period-card" data-current-period-action>
-    <div class="current-period-meta">
-      <span>Current pay period</span>
-      <b data-current-period-range>${periodRange}</b>
-    </div>
-    <div class="current-period-quick">
-      <div class="current-period-quick-item"><span>Weekly permission</span>${permission}</div>
-      ${decision}
-    </div>
-    <p class="operating-limit${coverageUnavailable || postedOnly || classificationIncomplete ? ' warn' : ''}" data-current-period-coverage>${coverage}</p>
-    ${shortfall}${movement}
-    ${currentPeriodBillGroup('Handled / represented', 'represented', represented)}
-    ${currentPeriodBillGroup('Still due', 'upcoming', upcoming)}
-    ${currentPeriodBillGroup('Settlement unverified', 'unverified', unverified)}
-    ${unresolved.length ? currentPeriodBillGroup('Status unresolved', 'unknown', unresolved) : ''}
-    <div class="current-period-block" data-current-category-block>
-      <h3>Category spending this period</h3>${categoryState}${categoryTable}${unclassified}
-    </div>
-    <p class="allocation-safety">Forecast evidence may say an occurrence is represented; this view does not infer or initiate a payment, transfer or card action.</p>
-  </div>`;
-}
-
 /* Compact future-cost publication. Forecast.majorPlans owns every verdict,
  * requirement, range, timing qualifier, remaining amount and flexibility.
  * The matching Forecast.paydayAllocation row owns any current-payday set-aside.
@@ -2451,6 +2309,11 @@ function householdBudgetMetric(label, amount, opts) {
       const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
         ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
         : '';
+      // Display-only (Forecast owns the date): a Mortgage-labelled row counted
+      // here while the plan's earlier mortgage occurrence is still To confirm.
+      const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
+        ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
+        : '';
       const dateAttr = tx.date ? ` datetime="${esc(tx.date)}"` : '';
       const dateText = tx.date ? fmtDate(tx.date) : '—';
       const idAttr = tx.id ? ` data-tx-id="${esc(tx.id)}"` : '';
@@ -2466,7 +2329,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -6480,7 +6343,7 @@ function budgetBillBrowseRowHtml(row) {
   const dateEstimated = row.dateConfidence === 'estimated';
   return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
     <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span></span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span>${row.alsoCarriedToCurrent === true ? '<span class="budget-bill-when" data-budget-bill-also-carried>This saved total includes this bill. It\'s also carried to the current pay period, where it is to confirm.</span>' : ''}</span>
     <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${state.label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
@@ -7975,7 +7838,7 @@ function renderPlan(d, periods, history) {
   forecastChart($('c-forecast'), sim);
   $('forecast-caption').innerHTML =
     `Filled dots are confirmed paydays, hollow dots estimated income, triangles payments of $500 or more. ` +
-    `Shaded weeks dip below the buffer${sim.daily.some(p => p.balance < 0) ? '; the red zone is a negative balance' : ''}. ` +
+    `Shaded weeks dip below the buffer${sim.daily.some(p => Forecast.below(p.balance, 0)) ? '; the red zone is a negative balance' : ''}. ` +
     `Every number is repeated in the table below — nothing here needs a hover.`;
 
   /* ---- weekly table (desktop) and cards (mobile) ---- */
@@ -8092,7 +7955,7 @@ function renderPlan(d, periods, history) {
   // the discretionary ones carry the reduction.
   if (budget) {
     const cats = budget.categories.filter(c =>
-      c.historical > 0 || c.dated > 0 || c.target != null || c.planned > 0);
+      c.historical > 0 || c.dated > 0 || c.target != null || c.planned > 0 || c.withheldReason);
     const max = Math.max(0, ...cats.map(c => c.historical));
     const chipFor = c =>
       c.class === 'essential' ? '<span class="chip">essential</span>'
@@ -8107,6 +7970,7 @@ function renderPlan(d, periods, history) {
         <span class="cat-bar"><span style="width:${max > 0 ? (c.historical / max) * 100 : 0}%"></span></span>
         <span class="cat-amt">${c.class === 'reserve'
           ? '<span class="mutedtext">reserve</span>'
+          : c.withheldReason ? '<span class="mutedtext">Unknown</span>'
           : c.planned > 0 ? est(money(c.planned)) : '<span class="mutedtext">$0</span>'}</span>
         <span class="cat-hist">${c.target != null
           ? `budgeted ${money(c.target)}, has been ${money(c.historical)}`
@@ -8359,7 +8223,7 @@ if (typeof App !== 'undefined') {
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    operatingSurfaceHtml, unavailableOperatingSurfaceHtml, betweenPaydaysOperatingHtml, paydayAnswerHtml, paydayActionRows, paydayOtherActionRows, paydayComingRows,
+    operatingSurfaceHtml, unavailableOperatingSurfaceHtml, paydayAnswerHtml, paydayActionRows, paydayOtherActionRows, paydayComingRows,
     paydayCashNote, currentCashScopeNote, weeklyCapView, futurePlanRequirement, futurePlanTiming, futureGravityHtml,
     refreshTrustHtml, applyUnavailableOperatingChrome,
     MISSION_PART, NEXT_MOVE, STATUS_BAND,

@@ -427,6 +427,7 @@
     guard('updated', () => paintUpdated());
     guard('badges', () => paintFaceBadges(bento));
     guard('quiet', () => paintQuiet(bento));
+    guard('tabstops', () => retireHiddenTabStops());
     guard('river', () => paintRiver(bento));
     guard('lift', () => liftFace(bento));
     if (activeRiver?.restoreFocus) {
@@ -658,7 +659,8 @@
     });
     if (savings && savings.parentElement !== foot) foot.appendChild(savings);
     if (afterBills) afterBills.classList.remove('blend-clip');
-    clip(closing && closing.querySelector('details > summary'));
+    // The closing card is moved into the Period figures sheet below (wirePeriodFigures), so its
+    // "How this estimate works" summary stays visible there; it is not clipped like a hero-face copy.
     hero.querySelectorAll('.budget-bills-closing > .operating-note').forEach(node => {
       if (/Latest recorded Bills balance/i.test(text(node))) {
         node.classList.add('blend-panel-note');
@@ -2864,6 +2866,21 @@
   }
 
   let provenanceFooter = null;
+  // Controls the face keeps off-screen must not be keyboard stops, or focus lands on
+  // something nobody can see. Each has a visible equivalent on the face (the attention
+  // badges on their rings and bill rows; the result row that opens Period figures), or
+  // opens nothing visible (the recorded-balances, Savings accounts and snapshot disclosures,
+  // clipped by budget-blend.css while no quiet section is open). Programmatic focus and clicks still work; nothing moves visually.
+  function retireHiddenTabStops() {
+    const nodes = [
+      ...document.querySelectorAll('[data-budget-browse="attention"].blend-offstage :is(a[href], button, summary, input, select, textarea, [tabindex])'),
+      ...document.querySelectorAll('.blend-hero-panel > summary.blend-clip'),
+    ];
+    if (!document.querySelector('.blend-quiet[open]'))
+      nodes.push(...document.querySelectorAll(':is(#recorded-balances, .budget-savings-accounts, #snapshot) > summary'));
+    nodes.forEach(node => node.setAttribute('tabindex', '-1'));
+  }
+
   function paintQuiet() {
     const footer = provenanceFooter || document.querySelector('.wrap > footer');
     if (!footer) return;

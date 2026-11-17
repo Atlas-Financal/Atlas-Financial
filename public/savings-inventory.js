@@ -105,7 +105,7 @@
     const refs = new Set(relevant.map(link => link.ref));
     const reasons = { 'conflicting-links': 'Conflicting item, occurrence or anchor links',
       nonconsumption: 'Transfer or other nonconsumption evidence', 'replacement-unresolved': 'Pending replacement unresolved',
-      'posting-unconfirmed': 'Posting status unconfirmed' };
+      'posting-unconfirmed': 'Posting status unconfirmed', 'refund-unlinked': 'Refund not linked' };
     const linkReasons = { 'native-target-unresolved': 'Savings item could not be identified', 'anchor-unconfirmed': 'Savings anchor not confirmed',
       'occurrence-unresolved': 'Occurrence not found' };
     // Display join only. The observer's generic conflict can also mean one

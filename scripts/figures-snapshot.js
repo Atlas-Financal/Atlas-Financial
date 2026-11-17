@@ -344,15 +344,17 @@ if (budget) {
   put('budget.basis', budget.basis);
   put('budget.essentialPerMonth', budget.essentialMonthly);
   put('budget.requiredPerMonth', budget.requiredMonthly);
-  put('budget.requiredPerWeek', budget.cap.essentialWeekly);
+  // A withheld category (unknown dated item or Other target) withholds the
+  // cap block; its figures are unknown, not a crash.
+  put('budget.requiredPerWeek', budget.cap ? budget.cap.essentialWeekly : null);
   put('budget.discretionaryPerMonth', budget.discretionaryMonthly);
   put('budget.reservePerMonth', budget.reserveMonthly);
   put('budget.datedPerMonth', budget.datedMonthly);
   const food = budget.categories.find(c => c.id === 'groceries');
   const fuel = budget.categories.find(c => c.id === 'fuel');
   if (food && fuel) {
-    put('budget.foodAndFuelPerMonth', budget.cap.foodFuelPlannedMonthly);
-    put('budget.foodAndFuelPerWeek', budget.cap.foodFuelPlannedWeekly);
+    put('budget.foodAndFuelPerMonth', budget.cap ? budget.cap.foodFuelPlannedMonthly : null);
+    put('budget.foodAndFuelPerWeek', budget.cap ? budget.cap.foodFuelPlannedWeekly : null);
   }
 }
 

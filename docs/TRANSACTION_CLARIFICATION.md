@@ -94,8 +94,8 @@ sessions need no new account platform. The decision controller requires an
 authenticated actor adapter; the existing ephemeral Talk session buffer is not
 decision storage.
 
-scripts/card-payment-decision-store.js and scripts/card-payment-decisions.js
-already supply a payment-specific revisioned intent/receipt foundation, exact
+The card-payment decision store and controller (removed 2026-11-16 by owner
+decision) supplied a payment-specific revisioned intent/receipt foundation, exact
 preview qualification, outcome lookup, replace/retract and retained-cohort
 validation through Forecast. They have no live session routes or environment
 activation on the inspected main. Reuse payment semantics there instead of

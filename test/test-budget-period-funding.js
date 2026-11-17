@@ -204,9 +204,9 @@ const yearAdvice = run(year);
 const january = selected(yearAdvice, '2027-01-01');
 assert.equal(january.end, '2027-01-14');
 assert.equal(january.plannedCostFunding.trust, 'estimated');
-assert.equal(january.plannedCostFunding.capacity, 3849.40 - 200 - 300,
+assert.equal(january.plannedCostFunding.capacity, 3860.69 - 200 - 300,
   'cash walk uses Budget\'s incumbent 2027 estimated income, not the old $1000 salary');
-assert.equal(january.plannedCostFunding.afterProposedFunding, 3849.40 - 200 - 300 - 600);
+assert.equal(january.plannedCostFunding.afterProposedFunding, 3860.69 - 200 - 300 - 600);
 assert.equal(selected(yearAdvice, '2026-12-18').plannedCostFunding.contribution, 0);
 assert.equal(selected(yearAdvice, '2026-12-18').plannedCostFunding.end, '2026-12-31');
 // Unsettled overdue required principal — point and dated-range forms — and
