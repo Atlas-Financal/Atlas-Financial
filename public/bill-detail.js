@@ -233,7 +233,8 @@
         ? fact('Partly paid', money(row.shortfall) + ' still to pay · ' + row.shortfallTrust) : '')
       + (typeof row.excess === 'number' && row.excess > 0
         && (row.excessTrust === 'calculated' || row.excessTrust === 'estimated')
-        ? fact('Paid over planned', money(row.excess) + ' excess · ' + row.excessTrust) : '')
+        ? fact('Paid over planned', money(row.excess) + ' excess · ' + row.excessTrust
+          + (row.excessReview === true ? ' · Review in Lunch Money' : '')) : '')
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
       + fact('Published confidence', text(row.confidence) || 'Unavailable')
       + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + otherProof + '</div></details>';

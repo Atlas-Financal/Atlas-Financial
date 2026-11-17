@@ -46,11 +46,15 @@ Prime-like charge and ordinary Amazon shopping stay outside that row.
 Candidate promotion of the other merchants remains a later
 owner-confirmed one-outcome PR, not a silent follow-on from this filing.
 
-**Owner-instructed recurring card-charge audit** (2026-09-03). Discovery
+~~**Owner-instructed recurring card-charge audit** (2026-09-03). Discovery
 only: `scripts/recurring-audit.js` inspects mapped revolving-credit Lunch
 Money history and reports repeating merchants. It does not create or
 promote Forecast bills. Phoenix / Amazon household conclusions require a
-live GET-only run; synthetic tests are not household evidence.
+live GET-only run; synthetic tests are not household evidence.~~ Removed
+2026-11-17 by owner decision (group B), with Grok Bot's agreement (rule 17):
+no saved workflow called it. Its two standing rules keep their homes in
+`docs/ACCOUNT_FACTS.md` (Amazon on Travel Visa) and the `data.json`
+dale-guilt-free `why` (Cursor).
 
 **Follow-ups from the 2026-08-16 evidence pack** (not mixed into that
 facts PR; each needs its own independently provable outcome):
@@ -699,7 +703,7 @@ A late-posting bill can be deducted twice in the cash projection until its payme
 
 ~~`Forecast.hypotheticalExtraPayment` and `Forecast.hypotheticalExtraPaymentComparison` have no live consumer since Talk was removed (#1048); decide whether to retire them (engine change, full lane). Source: item-8 prune record, #821 comment 6787577449.~~ Retired with their helpers and suites (agent/retire-hypothetical-extra-payment).
 
-Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); its page-only reprint: `pressure` (with attribution) and `debtDirection` were retired (agent/trajectory-unread-sections); `payPeriods`, `savingsFundingTimeline` and `additionalCashRequired` on the trajectory output still have no reader and are next. Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. ~~`.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.~~ Dropped by `agent/labeler-drop-modellers`; `evidence-only` stays a manual category label.
+Deleting the six legacy pages (2026-11-16) left Forecast functions with no live page consumer. #822 retired `householdBills`, `householdSubscriptions`, `creditAccounts`, `renewal`, `payoffDebts` / `payoffModel` / `paymentForMonths`, `planSpendCards` and `billIsSubscription`, with the helpers only they used, and the tests that called them. `utilisation` and `capitalisingCashMinimumOccurrences` stay (the engine and scripts still use them), and `baselineTrajectory` stays (the assistant packet and the figures snapshot call it); its page-only reprint: `pressure` (with attribution) and `debtDirection` were retired (agent/trajectory-unread-sections); `payPeriods`, `savingsFundingTimeline` and `additionalCashRequired` on the trajectory output stay: no page reads them, but `scripts/assistant-cleanup-effects.js` hashes the whole `baselineTrajectory` result as its metadata-neutrality digest for Lunch Money cleanup edits, so they are read by that digest; keep (lead ruling 2026-11-17). Narrowing that digest is a hard-gate change and a Grok Bot question (rule 17). Also lost with the pages and not re-homed: the printed Credit-card wording ("OVERDUE · TO CONFIRM vs CONFIRMED", and the rendered stock in the qualified vs unqualified credit-date case, both invented fixture values), the Plan spend per-member facts and "Funding requirement" label, the Forecast Road Ahead window and income-total print, and pre-boot focus restoration to a shell control. Source: the delete-switched-off-pages PR card. ~~`.github/labeler.yml` still maps `public/modellers.*` to `evidence-only`; drop that glob when `docs/RISK_LABELS.md` is next touched.~~ Dropped by `agent/labeler-drop-modellers`; `evidence-only` stays a manual category label.
 
 **Clean main view; explanations on tap** · **DONE 2026-11-11** · *PR #1036* (owner direction, Dale, 2026-11-09). #1036 delivered the Savings goals card. Dale withdrew the app-wide extension (#821 comment 6786578829); no other card is in scope. Original item, kept as history: every card in the app should be clean by default, with explanations moved behind a tap that opens a small window. The first target is the Savings goals card. Each row shows only the goal name, a progress bar, and how much is saved against the total needed. The status line, "Still to fund", and the "Estimate: Needed minus Saved… planning gap" sentence move into the tap-to-explain window. The trust contract still holds: a figure that is an estimate keeps a compact marker (for example ≈) on the main view, and its wording is in the window. Do the Savings goals card first, then apply the same pattern app-wide. Dale ranks it below the 1.0 money items. Source: Dale, lead session 2026-11-09.
 
@@ -885,7 +889,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 
 `operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
 
-Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.
+~~Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.~~ Stale: `scripts/recurring-audit.js` was removed 2026-11-17.
 
 An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up. (LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot; the uncategorised zero-target half is still open.)
 
@@ -924,7 +928,9 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 
 ---
 
-Partly-paid for scheduled fees (the two-account settled-fee path, `tdfees`): a settled fee that is posted but below its allowance. The existing path stays exactly as on main (only the fees it already covers, only posted linked fee rows count, pending stays separate, no name or amount matching). Design goes to Grok Bot first. Source: partly-paid bills build, lead 2026-11-15 (Grok rule 17 answer, bill-payment confirmation).
+~~Partly-paid for scheduled fees (the two-account settled-fee path, `tdfees`): a settled fee that is posted but below its allowance. The existing path stays exactly as on main (only the fees it already covers, only posted linked fee rows count, pending stays separate, no name or amount matching). Design goes to Grok Bot first. Source: partly-paid bills build, lead 2026-11-15 (Grok rule 17 answer, bill-payment confirmation).~~ Done (LEDGER A item 1, labels only).
+
+"Payment pending" for scheduled fees (`tdfees`): main's pending link skips the two-leg fee rules, so a pending fee reads To confirm, never Payment pending (it does not count either way). Building it is new linking in the observer; its design goes back to Grok Bot first (Grok agreed to defer it). Source: LEDGER A item 1, lead 2026-11-16.
 
 New bill-linking mechanisms from Grok's rule 4 (a payment links to a bill only by recurring link, item note or single-bill category, no name or amount matching): main links bills through the existing identity rules (37 of 46 use a payee pattern, 13 use an amount gate, one uses a Lunch Money recurring id; there is no item-note or single-bill-category linking). Building those mechanisms, or restricting the payee/amount rules, is new matching logic with its own design and review with Grok; the partly-paid PR adds none. Source: partly-paid bills build, lead 2026-11-15.
 

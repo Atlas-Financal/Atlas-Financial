@@ -226,8 +226,10 @@ function isolateGroceries(plan) {
       }
       // This synthetic fixture replaces each owner target with zero. Retained
       // historical owner rows must not restore a real budget into this oracle.
+      // Other spend has no target here (null): an undated declared Other
+      // target reads Unknown (#962 C4), which this oracle does not test.
       return Object.assign({}, cat, {
-        plannedPayday: 0, plannedWeekly: null, plannedMonthly: null,
+        plannedPayday: cat.id === 'other-spend' ? null : 0, plannedWeekly: null, plannedMonthly: null,
         targetEffectiveFrom: null, targetHistory: [],
       });
     }),

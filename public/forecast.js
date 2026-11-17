@@ -3501,9 +3501,20 @@
       if (planCategoryTargetInvalid(cat)) {
         unknowns.push({ carrier: 'target', id: cat.id || null, date: null,
           reason: 'plan-amount-invalid' });
+      } else if (otherSpendTargetUndated(cat)) {
+        unknowns.push({ carrier: 'target', id: cat.id, date: null,
+          reason: 'plan-target-undated' });
       }
     }
     return unknowns;
+  }
+  // #962 C4: an Other payday target is applied only from its
+  // targetEffectiveFrom (otherSpendPayPeriodTarget). Declared without a real
+  // date it can never apply, so it is unknown, never dropped as if absent.
+  // No date is assumed. A category with no plannedPayday has no target.
+  function otherSpendTargetUndated(cat) {
+    return !!cat && typeof cat === 'object' && cat.id === OTHER_SPEND_ID
+      && cat.plannedPayday != null && !savingsDate(cat.targetEffectiveFrom);
   }
   // True when a category declares a target (or a dated prior target) that is
   // not a real amount. Shared by the scheduled-amount gate and the household
@@ -3538,6 +3549,8 @@
         ? 'A dated commitment\u2019s remaining cost is uncertain on its settlement evidence, so the totals and spending claims that depend on it are unknown.'
         : unknowns.every(u => u.reason === 'plan-amount-invalid' && (u.carrier === 'buffer' || u.carrier === 'target'))
         ? 'A household budget target or the cash buffer is not a valid amount, so the totals and plan verdicts that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-target-undated')
+        ? 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.reason === 'plan-frequency-invalid' || u.reason === 'plan-amount-invalid')
         ? 'An income or obligation has a frequency or amount Forecast cannot read, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
@@ -10567,11 +10580,14 @@
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
-    // The scheduled-fee allowance (tdfees, scheduledFeeOccurrenceAmounts) is never a payment owed: a lower recorded expense
-    // leaves an unspent allowance, so it publishes no shortfall (partly-paid for scheduled fees is a separate, deferred design).
-    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && event.id !== 'tdfees' ? {
-      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100, shortfallTrust: excessTrust,
-      shortfallSource: 'Forecast.billPaymentState' } : null;
+    // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
+    // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
+    // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
+    // scheduledFeeOccurrenceAmounts publishes them. A fee above its allowance keeps its excess and is flagged for review.
+    const scheduledFee = event.id === 'tdfees';
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
+      paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
+      shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = paid ? 'PAID'
       : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
@@ -10627,7 +10643,7 @@
       ...(trustedBasis ? trustWeakenedConfidence(event) : {}),
       // A schedule-trusted settlement saw no payment, so it has no excess.
       ...(excess != null && !sent && !minimumCovered && !trustedBasis
-        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState' } : {}),
+        ? { excess, excessTrust, excessSource: 'Forecast.billPaymentState', ...(scheduledFee ? { excessReview: true } : {}) } : {}),
     };
   }
 
@@ -10678,7 +10694,7 @@
       actual: null, remaining: 0,
     });
     for (const key of ['settlementBasis', 'settlementEvidence', 'paymentState', 'shortfall', 'shortfallTrust',
-      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'scheduledFeeAllowance']) delete copy[key];
+      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'excessReview', 'scheduledFeeAllowance']) delete copy[key];
     return copy;
   }
   function isCarriedBillRow(row) {
@@ -10785,6 +10801,7 @@
         delete row.excess;
         delete row.excessTrust;
         delete row.excessSource;
+        delete row.excessReview;
         delete row.paymentState;
         delete row.shortfall;
         delete row.shortfallTrust;
@@ -12507,6 +12524,8 @@
   // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
   // description on category refunds only.
   classifyCurrentPeriodTransaction.identifiedCategoryRefund = identifiedCategoryRefund;
+  // The observer keeps a refund's bank description only where it prints: a ledger-linked category refund.
+  classifyCurrentPeriodTransaction.linkedCategoryRefund = linkedCategoryRefund;
   classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible =
     householdBudgetSupportingSpendEligible;
   // Presentation reuse only. Overlay Spent disclosure calls this same
@@ -12557,7 +12576,19 @@
         ? { possibleCardPaidBill: { id: tx.pendingPossibleCardPaidBill.id,
           label: reconIdentityField(tx.pendingPossibleCardPaidBill.label) } } : {}),
       ...(extra && extra.cardPurchaseCoverage ? { cardPurchaseCoverage: extra.cardPurchaseCoverage } : {}),
+      // Display-only: a posted row linked to one bill that doesn't fit it.
+      // It is counted here as ordinary money out and the bill stays To
+      // confirm; nothing reads this for math.
+      ...(linkedBillMisfitFrom(tx) ? { linkedBillMisfit: linkedBillMisfitFrom(tx) } : {}),
     };
+  }
+
+  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount'];
+  function linkedBillMisfitFrom(tx) {
+    const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
+    if (!misfit || typeof misfit.id !== 'string' || !misfit.id
+      || !LINKED_BILL_MISFIT_CHECKS.includes(misfit.check)) return null;
+    return { id: misfit.id, label: reconIdentityField(misfit.label), check: misfit.check };
   }
 
   // The category recon and the card-carry fallback use one membership rule.
@@ -12773,7 +12804,15 @@
     // no quantity. Its category row is printed with every amount unknown and
     // the household hold is stamped unavailable below; it never reads as a
     // $0 target (audit finding 17).
-    const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid);
+    // #962 C4: a declared Other payday target that cannot be applied (no
+    // real effective date, or not a real amount) prints its row with the
+    // plan amounts unknown and withholds the total, as above.
+    const otherCat = byId.get(OTHER_SPEND_ID);
+    const otherWithheldReason = otherCat && otherCat.plannedPayday != null
+      ? (!declaredPlanAmountOk(otherCat.plannedPayday) ? 'target-invalid'
+        : otherSpendTargetUndated(otherCat) ? 'target-undated' : null) : null;
+    const targetsInvalid = Array.from(byId.values()).some(planCategoryTargetInvalid)
+      || otherWithheldReason != null;
     for (const id of CALENDAR_PERIOD_BUDGET_IDS) {
       if (planCategoryTargetInvalid(byId.get(id))) {
         items.push({
@@ -12846,7 +12885,27 @@
     // after its posted mate classifies into a named row. That pending stays
     // recon-visible at $0 confirmed spent rather than disappearing.
     const otherTarget = cycleResolved ? otherSpendPayPeriodTarget(plan, windowStart) : null;
-    if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
+    if (otherWithheldReason) {
+      items.push({
+        id: OTHER_SPENDING_ID,
+        label: 'Other spending',
+        note: 'Not yet assigned to a budget category',
+        monthly: null, plannedPayday: null, planned: null,
+        spent: actualsReady ? confirmationSpent : null,
+        remaining: null, overspend: null, hold: null,
+        targetEffectiveFrom: null,
+        withheldReason: otherWithheldReason,
+        // The observed actual keeps its possible-duplicate caution; withholding
+        // the target never makes the spent figure read as more certain.
+        ...(actualsReady && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true)
+          ? { trust: 'estimated', estimateReason: 'possible-duplicate' } : {}),
+        needsConfirmation: true,
+        otherSpending: true,
+        projected: role === 'future',
+        recon: actualsReady ? confirmationRecon : [],
+        pendingRecon: actualsReady ? confirmationRecon.filter(r => r.pending === true) : [],
+      });
+    } else if (((actualsReady || coverageLost) && confirmationRecon.length > 0) || otherTarget != null) {
       const observed = actualsReady ? confirmationSpent : null;
       const otherPossibleDuplicate = observed != null
         && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
@@ -12884,7 +12943,8 @@
     let holdTrust = null;
     if (role === 'future') {
       if (otherTarget != null) holdTrust = 'estimated';
-      const reserve = otherTarget == null ? futurePayPeriodOtherSpend(plan, windowStart) : null;
+      const reserve = otherTarget == null && !otherWithheldReason
+        ? futurePayPeriodOtherSpend(plan, windowStart) : null;
       if (reserve != null) {
         holdTrust = 'estimated';
         items.push({
@@ -19373,7 +19433,8 @@
     const cycle = period && period.spendingCycle;
     const householdScope = scope && cycle && cycle.start === period.start && cycle.end === period.end;
     const plannedCategories = Array.isArray(categories) ? categories.filter(row => row && !row.informational
-      && ((!row.otherSpending && !row.needsConfirmation) || (row.otherSpending
+      && ((!row.otherSpending && !row.needsConfirmation) || (row.otherSpending && row.withheldReason)
+        || (row.otherSpending
         && savingsDate(row.targetEffectiveFrom) && period.start >= row.targetEffectiveFrom && finite(row.planned)))) : null;
     // Historical category rows are regenerated from today's authored targets.
     // Their date scope establishes spending, not an original-plan snapshot.
