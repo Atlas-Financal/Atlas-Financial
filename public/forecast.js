@@ -22267,7 +22267,15 @@
     // actually happens rather than at the next 30-day snapshot. A facility
     // already over the limit today is a different problem from one that
     // crosses on its own inside the window, so they are marked apart.
-    let crossings = state.filter(s => s.firstOver)
+    // A card whose current pending is unknown cannot establish a crossing
+    // from the retained pending the walk opened with: the opening mark
+    // already leaves its over-limit state unknown unless the card is over
+    // on posted alone. A crossing is then known only in that case (already
+    // over today); otherwise it is unknown, withheld, and the card is named.
+    const crossingUnknown = s => !s.secured && s.pendingUnknown && s.limit != null
+      && !(s.postedBalance > s.limit);
+    const crossingsUnknownFrom = state.filter(crossingUnknown).map(s => s.id);
+    let crossings = state.filter(s => s.firstOver && !crossingUnknown(s))
       .map(s => ({ id: s.id, label: s.label, date: s.firstOver, limit: s.limit,
         day: diffDays(start, s.firstOver),
         alreadyOver: s.limit != null && s.opening > s.limit,
@@ -22488,6 +22496,7 @@
           const s = byId[d.id];
           const posted = d.balance == null ? null : d.balance - (s.opening - s.postedBalance);
           return { ...d, balance: null,
+            ...(crossingUnknown(s) ? { firstOver: null } : {}),
             available: posted == null ? null : publishedAvailable(d.limit, posted, true),
             overLimit: posted == null ? null : publishedOverLimit(d.limit, posted, true),
             overLimitBy: posted == null ? null : publishedOverLimitBy(d.limit, posted, true) };
@@ -22510,6 +22519,7 @@
       scheduledAmounts,
       extraDebtPriority: priority, extraDebtAllocation: pubExtraDebtAllocation,
       crossings,
+      ...(crossingsUnknownFrom.length ? { crossingsUnknownFrom } : {}),
       // Everything an extra payment did NOT reach, so an untargeted one is
       // visible rather than silently vanishing into cash.
       untargetedExtra: opts.extraDebtMonthly > 0 && !extraTarget,
