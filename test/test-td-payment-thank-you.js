@@ -101,6 +101,23 @@ withheld(run(world([purchase, cashLeg(105), cardCredit(105), cashLeg(105, null, 
   withheld(noted('card payment: Travel Visa; card payment: TD Cash Back Visa'), 'coverage-payment-destination-unconfirmed',
     'two different named cards: unknown');
   ready(noted('Invented memo'), 'a note that names no card leaves the pairing as without one');
+  // Grok Bot: "card payment: TD Personal Credit Card" names the tdcc card.
+  {
+    const personal = 'card payment: TD Personal Credit Card ...9999';
+    const onTravel = noted(personal);
+    check(onTravel.packet.transactions.find(t => t.amount === 105).cardPaymentNoteDestination === 'tdcc',
+      'the personal card note stamps tdcc');
+    withheld(onTravel, 'coverage-payment-destination-unconfirmed', 'a TD Personal note never pairs with a Travel Visa credit');
+    const onTdcc = run(world([purchase, cashLeg(105, null, { notes: personal }), cardCredit(105)], { card: 'tdcc' }));
+    ready(onTdcc, 'the personal card note pairs with a credit on its own card (tdcc)');
+    check(onTdcc.coverage.payments.length === 1, 'tdcc: exactly one payment');
+    ready(run(world([purchase, cashLeg(105, null, { notes: '  CARD PAYMENT: td personal credit card ' }), cardCredit(105)],
+      { card: 'tdcc' })), 'the personal card name is case-insensitive');
+    for (const near of ['TD Personal Card', 'Personal Credit Card', 'TD Personal Credit Card Visa']) {
+      withheld(run(world([purchase, cashLeg(105, null, { notes: 'card payment: ' + near }), cardCredit(105)], { card: 'tdcc' })),
+        'coverage-payment-destination-unconfirmed', '"' + near + '" is not the confirmed spelling');
+    }
+  }
   // The name table is an own-key lookup: built-in object keys are not card names.
   for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
     const s = noted('card payment: ' + name);
