@@ -50,23 +50,34 @@ const advice = { defaultView: { asOf: '2026-09-30', liveCurrentBalance: 777 },
     asOf: '2026-09-30', lines: [], obligations: { shortfall: 0 }, essentials: { shortfall: 0 } } };
 const ctx = { advice, plan, asOf: '2026-09-30', weekly: 0, debts: [] };
 const before = JSON.stringify(ctx);
-const html = f.operatingSurfaceHtml(ctx);
-assert.ok(html.indexOf('data-live-current-balance') < html.indexOf('data-pay-period-navigator'));
-assert.ok(html.indexOf('data-live-current-balance') < html.indexOf('data-current-payday-details'));
+// The live Budget composition (budgetSurfaceParts): the window header with
+// the pay-period navigator, then the Today card, then the selected period.
+const parts = f.budgetSurfaceParts();
+const live = c => parts.planUnavailable(c) ? parts.unavailableHtml(c) : parts.todayHtml(c) + parts.periodHtml(c);
+const html = live(ctx);
+assert.match(parts.headerHtml(ctx), /data-pay-period-navigator/, 'the navigator lives in the window header');
+assert.ok(html.indexOf('data-live-current-balance') >= 0
+  && html.indexOf('data-live-current-balance') < html.indexOf('data-calendar-waterfall='),
+  'the Today card balance prints before the selected period waterfall');
 assert.match(html, /Bills account only/);
 assert.equal((html.match(/class="budget-step-details"/g) || []).length, 6);
 assert.doesNotMatch(html, /<details class="budget-step-details"[^>]* open/);
-assert.ok(html.indexOf('data-current-payday-details') > html.indexOf('data-calendar-waterfall='));
 
 const summary = (markup, number) => markup.split(`data-operating-question="${number}"`)[1].split('</summary>')[0];
+// The period waterfall component prints Forecast's published totals, never a
+// sum of its detail rows. The retired operatingSurfaceHtml printed this same
+// component (calendarWaterfallHtml, full summaries); the live page prints its
+// compact form. Same component output, same expected values as before.
+const waterfall = f.calendarWaterfallHtml(rows[1], null, null, plan);
 for (const [id, amount] of [['02', 1800], ['04', 300], ['05', 1500], ['06', 200], ['07', 1300]]) {
-  assert.match(summary(html, id), new RegExp(`\\$${amount}\\.00`));
+  assert.match(summary(waterfall, id), new RegExp(`\\$${amount}\\.00`));
 }
-assert.doesNotMatch(summary(html, '02'), /777\.00|999\.00/);
-assert.doesNotMatch(summary(html, '04'), /123\.00|390\.00/);
-assert.doesNotMatch(summary(html, '06'), /301\.00/);
-assert.match(html, /datetime="2026-09-25">2026-09-25 · received/);
+assert.doesNotMatch(summary(waterfall, '02'), /777\.00|999\.00/);
+assert.doesNotMatch(summary(waterfall, '04'), /123\.00|390\.00/);
+assert.doesNotMatch(summary(waterfall, '06'), /301\.00/);
+assert.match(waterfall, /datetime="2026-09-25">2026-09-25 · received/);
 assert.doesNotMatch(html, /not permission to spend/);
+assert.doesNotMatch(waterfall, /not permission to spend/);
 
 for (const amount of [undefined, null, false, '', '1800', NaN, Infinity]) {
   const p = Object.assign({}, rows[1], { available: amount });
@@ -235,17 +246,27 @@ assert.match(summary(withConsumption, 'reserve-use'), /\$600\.00/);
 assert.match(summary(withConsumption, "reserve-use"), /Earlier proposed funding for bills/);
 assert.doesNotMatch(withConsumption, /not extra income, observed saved cash or an actual withdrawal/);
 
+// A Forecast-reported payday shortfall is flagged on the Today card's closed
+// face (#1268), gated on ready, trusted from-today funding (invented row).
+const readyFunding = { basis: 'Budget-from-today', status: 'ready', trust: 'calculated', contribution: 0,
+  currentCash: 777, operatingBills: 100, remainingHousehold: 100, requiredOperatingCash: 200,
+  availableNow: 577, operatingShortfall: 0 };
+const withFunding = c => { c.advice.payPeriodViews[1].fromTodayFunding = readyFunding; return c; };
+const closedFace = markup => markup.slice(0, markup.indexOf('data-budget-today-evidence'));
 for (const bucket of ['obligations', 'essentials']) {
-  const short = JSON.parse(JSON.stringify(ctx));
+  const short = withFunding(JSON.parse(JSON.stringify(ctx)));
   short.advice.paydayAllocation[bucket].shortfall = 50;
   const original = JSON.stringify(short);
-  const printed = f.operatingSurfaceHtml(short);
-  assert.doesNotMatch(printed, /<details[^>]*data-current-payday-details[^>]*\bopen\b/);
-  assert.match(printed, /data-current-payday-details data-shortfall-reported/);
-  assert.match(printed, /<summary>Current payday details<span class="budget-shortfall-summary"> — shortfall reported<\/span><\/summary>/);
+  const printed = live(short);
+  assert.equal((printed.match(/data-shortfall-reported/g) || []).length, 1, bucket + ': one shortfall marker');
+  assert.match(closedFace(printed), /data-shortfall-reported>Payday shortfall reported</,
+    bucket + ': the marker is on the closed Today card face');
   assert.equal(JSON.stringify(short), original, 'the closed warning must not mutate Forecast output');
 }
-assert.doesNotMatch(f.operatingSurfaceHtml(ctx), /data-shortfall-reported|budget-shortfall-summary/);
+assert.doesNotMatch(live(withFunding(JSON.parse(JSON.stringify(ctx)))), /data-shortfall-reported/,
+  'no shortfall reported: no marker');
+assert.doesNotMatch(html, /data-current-payday-details|budget-shortfall-summary/,
+  'the retired Current payday details disclosure is not printed');
 const year = f.payPeriodNavigatorHtml(f.payPeriodSelection(advice, 'jan'));
 assert.match(year, /Jan 1, 2027 – Jan 14, 2027/);
 assert.equal(JSON.stringify(ctx), before, 'rendering must not mutate published data');

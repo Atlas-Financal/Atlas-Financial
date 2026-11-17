@@ -305,8 +305,7 @@ console.log('\n=== 7. Page prints confirmation Other spending, not planned Other
       && confirmBlock.includes(`>${composer.money2(GIFT)}<`),
     'confirmation Other spending still prints spent-only');
   const surfaceSrc = read('public/plan.js');
-  ok(/function operatingSurfaceHtml/.test(surfaceSrc)
-      && /calendarWaterfallsHtml/.test(surfaceSrc),
+  ok(/calendarWaterfallsHtml\(/.test((/function budgetPayPeriodContentHtml\([\s\S]*?\n\}/.exec(surfaceSrc) || [''])[0]),
     'Budget operating surface still consumes the calendar waterfall HTML');
 }
 

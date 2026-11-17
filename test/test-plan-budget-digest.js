@@ -10,7 +10,7 @@
  * Independent planned identity is monthly × spanDays / (365.25/12), not
  * live household cents (L-002 / L-006).
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -326,11 +326,11 @@ console.log('\n=== 5. page prints spent $X of $Y; does not subtract; no invented
     'only existing owner-target categories; current-regime telecom is omitted');
   const planSrc = read('public/plan.js');
   const digestFn = /function budgetDigestHtml\([\s\S]*?\n\}/.exec(planSrc);
-  const sheetFn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const sheetFn = liveBudgetComposerSource(planSrc);
   ok(digestFn && !/planned\s*-|spent\s*-|\.leftover/.test(digestFn[0]),
     'the digest printer does not subtract leftover');
   ok(sheetFn && !/\bForecast\.[A-Za-z]+\s*\(/.test(sheetFn[0]),
-    'operatingSurfaceHtml still calls no Forecast function');
+    'the live Budget composer still calls no Forecast function');
 }
 
 console.log('\n=== 6. live this-period eating out is not the monthly $ target ===');

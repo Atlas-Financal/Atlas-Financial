@@ -5354,11 +5354,10 @@ function wirePlanLookPicker(mount, ctx) {
       sheet.open(details.querySelector('.budget-step-body'), summary, prompt);
     });
   });
-  mount.querySelectorAll('[data-current-payday-details], [data-payday-breakdown]').forEach(details => {
+  mount.querySelectorAll('[data-payday-breakdown]').forEach(details => {
     details.addEventListener('toggle', () => {
       if (!details.isConnected) return;
-      const key = details.hasAttribute('data-current-payday-details')
-        ? 'current-payday' : details.getAttribute('data-payday-breakdown');
+      const key = details.getAttribute('data-payday-breakdown');
       if (details.open) paydayDisclosuresOpen.add(key);
       else paydayDisclosuresOpen.delete(key);
     });
@@ -5689,8 +5688,8 @@ function unavailableOperatingSurfaceHtml(ctx) {
 }
 
 /* The selected pay-period sheet: the pay-period timeline by default, or the
- * week / lookback / carryover printouts when a caller sets planLook. Shared
- * by the active Budget surface and the retained operatingSurfaceHtml. */
+ * week / lookback / carryover printouts when a caller sets planLook. Read
+ * by the active Budget surface. */
 function budgetPayPeriodContentHtml(ctx) {
   const advice = ctx.advice || {};
   const alloc = advice.paydayAllocation || null;
@@ -5761,18 +5760,6 @@ function budgetPayPeriodContentHtml(ctx) {
     ${question('05', 'Balance after household budget', runningLeftoverHtml(view.afterHouseholdBudget), 'ending')}
     ${budgetDigestHtml(view.budgetDigest)}`;
   return defaultWaterfalls || historical || carryoverTrend || `${picker}<div class="plan-sheet">${tenBlock}</div>`;
-}
-
-/* Today's money: the payday instruction shell for the current payday. It
- * always describes the current payday, never a selected lookback/future
- * period. AMANDA SLICE 14: its planned-cost funding block reads the
- * same-input regenerated schedule (active knobs included) — never the
- * advice copy alone. */
-function currentPaydayShellHtml(ctx) {
-  const advice = ctx.advice || {};
-  const payPeriodViews = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
-  const currentPeriod = payPeriodViews.find(entry => entry && entry.timelineRole === 'current') || null;
-  return paydayInstructionShellHtml(advice, currentPeriod, budgetMonthPlanSpendSchedule(ctx));
 }
 
 // Compact #480 Today overview. Reprint Forecast's dated current-cash proposal,
@@ -5881,43 +5868,9 @@ function budgetTodayCashCardHtml(ctx) {
   </div>`;
 }
 
-function operatingSurfaceHtml(ctx) {
-  const advice = ctx.advice || {};
-  if (liveOperatingPlanUnavailable(advice, ctx.liveOverlay)) {
-    return unavailableOperatingSurfaceHtml(ctx);
-  }
-  const alloc = advice.paydayAllocation || null;
-  const look = ctx.planLook || 'this-period';
-
-  // The usable Plan print stops at Balance After Deductions. Forecast
-
-  // still computes infeasible / unfunded / remaining-claim / paydayAllocation.risks
-  // and weeklyCapView still composes that copy for folded diagnostics. The
-  // large refresh-trust card remains on the fail-closed unavailable surface.
-  // Do not reintroduce an advisory block, a replacement warning, or a
-  // parallel warning authority on this sheet.
-
-  // In the default view the picker rides inside the pay-period switch row;
-  // the week and next-period printouts carry it at the top, held open.
-  // The payday instruction shell remains available below the selected
-  // period waterfall. It always describes the current payday
-  // (never a selected lookback/future period) and reprints Forecast-owned
-  // figures only.
-  const instructionShell = look === 'this-period' ? currentPaydayShellHtml(ctx) : '';
-  const payPeriodContent = budgetPayPeriodContentHtml(ctx);
-  const reportedShortfall = [alloc && alloc.obligations, alloc && alloc.essentials]
-    .some(bucket => bucket && typeof bucket.shortfall === 'number' && bucket.shortfall > 0);
-  const paydayDetails = instructionShell
-    ? `<details class="budget-secondary-details" data-current-payday-details${reportedShortfall ? ' data-shortfall-reported' : ''}${typeof paydayDisclosuresOpen !== 'undefined' && paydayDisclosuresOpen.has('current-payday') ? ' open' : ''}><summary>Current payday details${reportedShortfall ? '<span class="budget-shortfall-summary"> — shortfall reported</span>' : ''}</summary>${instructionShell}</details>` : '';
-  return `<div class="payday-operating-sheet budget-stepped-sheet" data-payday-sheet>
-    ${payPeriodContent}${paydayDetails}
-  </div>`;
-}
-
 /* The one active Budget renderer for #operating-surface-body. Layout lives
  * in public/budget-surface.js; every section is an incumbent component
- * here, rendered whole. operatingSurfaceHtml above is retained only until
- * its helper tests move to this surface. */
+ * here, rendered whole. */
 function budgetWindowModel(ctx) {
   const advice = ctx.advice || {};
   const asOf = advice.defaultView && Object.prototype.hasOwnProperty.call(advice.defaultView, 'asOf')
@@ -8255,7 +8208,7 @@ if (typeof App !== 'undefined') {
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    operatingSurfaceHtml, unavailableOperatingSurfaceHtml, paydayAnswerHtml, paydayActionRows, paydayOtherActionRows, paydayComingRows,
+    unavailableOperatingSurfaceHtml, paydayAnswerHtml, paydayActionRows, paydayOtherActionRows, paydayComingRows,
     paydayCashNote, currentCashScopeNote, weeklyCapView, futurePlanRequirement, futurePlanTiming, futureGravityHtml,
     refreshTrustHtml, applyUnavailableOperatingChrome,
     MISSION_PART, NEXT_MOVE, STATUS_BAND,

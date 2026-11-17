@@ -307,7 +307,9 @@ console.log('\n=== 7. authority boundaries remain intact ===');
     'function spendDecisionHtml',
     'function paydayAllocationSummaryHtml',
     'function futureGravityHtml',
-    'function operatingSurfaceHtml',
+    'function budgetSurfaceParts',
+    'function budgetTodayCashCardHtml',
+    'function budgetPayPeriodContentHtml',
     'function cashUnsafe',
   ];
   for (const name of helpers) {

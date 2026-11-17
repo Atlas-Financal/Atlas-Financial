@@ -5,7 +5,7 @@
  * Independent leftover identity uses paydayAllocation allocated amounts,
  * not the page and not live household cents (L-002 / L-006).
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -384,9 +384,9 @@ console.log('\n=== 6. big purchases print Forecast cost and $0 saved; page does 
   ok(camp && near(camp.cost, 500) && near(camp.savedSoFar, 0),
     'big purchase cost is Forecast need; saved so far is $0 when Forecast has no savings plan');
   const planSrc = read('public/plan.js');
-  const fn = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const fn = liveBudgetComposerSource(planSrc);
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0]),
-    'operatingSurfaceHtml calls no Forecast function');
+    'the live Budget composer calls no Forecast function');
   ok(fn && !/view\.currentBalance\s*-|afterBills\s*-|allocatedObligations/.test(fn[0]),
     'the payday sheet does not subtract leftover');
   const html = composer.operatingSurfaceHtml({

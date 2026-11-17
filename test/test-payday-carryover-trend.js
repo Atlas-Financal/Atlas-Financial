@@ -10,7 +10,7 @@
  *
  * `node test/test-payday-carryover-trend.js`
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -266,9 +266,9 @@ console.log('\n=== 3. Plan prints Forecast trend values; page does not compute t
   const pick = /function selectedPlanView\([\s\S]*?\n\}/.exec(planSrc);
   ok(pick && /payday-carryover/.test(pick[0]) && !/Forecast\./.test(pick[0]),
     'the picker does not compute a carryover series');
-  const surface = /function operatingSurfaceHtml\([\s\S]*?\n\}/.exec(planSrc);
+  const surface = liveBudgetComposerSource(planSrc);
   ok(surface && !/\bForecast\.[A-Za-z]+\s*\(/.test(surface[0]),
-    'operatingSurfaceHtml still calls no Forecast function');
+    'the live Budget composer still calls no Forecast function');
   const htmlFn = /function paydayCarryoverTrendHtml\([\s\S]*?\n\}/.exec(planSrc);
   ok(htmlFn && !/paydayBoundaryCash|establishPaydaySnapshot|recommend\(/.test(htmlFn[0]),
     'the trend printer copies Forecast fields and does not recalculate carryover');

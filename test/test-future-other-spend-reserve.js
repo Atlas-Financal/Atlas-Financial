@@ -13,7 +13,7 @@
  *
  * `node test/test-future-other-spend-reserve.js`
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -168,9 +168,9 @@ console.log('\n=== 1. Budget operating surface drops the header and More views =
   ok(!/data-nav="budget"/.test(page) && !/data-nav="forecast"/.test(page),
     'the Budget page does not carry the household nav links');
   const planSrc = read('public/plan.js');
-  const surface = grab(planSrc, /^function operatingSurfaceHtml\([\s\S]*?\n\}$/m, 'operatingSurfaceHtml');
+  const surface = (liveBudgetComposerSource(planSrc) || [''])[0];
   ok(!/More views/.test(surface) && !/data-plan-look/.test(surface),
-    'operatingSurfaceHtml does not build a More views control');
+    'the live Budget composer does not build a More views control');
   const timeline = grab(planSrc, /^function payPeriodTimelineHtml\([\s\S]*?\n\}$/m, 'payPeriodTimelineHtml');
   ok(timeline.indexOf('liveCurrentBalanceHtml') >= 0
       && timeline.indexOf('liveCurrentBalanceHtml') < timeline.indexOf('payPeriodNavigatorHtml')
