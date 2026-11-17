@@ -68,6 +68,7 @@ const summary = (markup, number) => markup.split(`data-operating-question="${num
 // sum of its detail rows. The retired operatingSurfaceHtml printed this same
 // component (calendarWaterfallHtml, full summaries); the live page prints its
 // compact form. Same component output, same expected values as before.
+// The compact live face has its own proof: test-budget-compact-face-totals.js.
 const waterfall = f.calendarWaterfallHtml(rows[1], null, null, plan);
 for (const [id, amount] of [['02', 1800], ['04', 300], ['05', 1500], ['06', 200], ['07', 1300]]) {
   assert.match(summary(waterfall, id), new RegExp(`\\$${amount}\\.00`));
