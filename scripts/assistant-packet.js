@@ -663,8 +663,11 @@ function forecastAdvice(data, periods, settlementEvidence) {
   const plan = data && data.plan;
   const asOf = Forecast.budgetAsOf(data);
   if (!plan || !asOf) return null;
-  return Forecast.recommend(plan, asOf,
-    Forecast.budgetRecommendInputs(data, { periods, settlementEvidence }));
+  // collectHeldTransactions only adds currentPeriodAction.heldTransactions
+  // (projected by heldCurrentPeriodProjection below); every figure is the page's.
+  return Forecast.recommend(plan, asOf, Object.assign(
+    Forecast.budgetRecommendInputs(data, { periods, settlementEvidence }),
+    { collectHeldTransactions: true }));
 }
 
 function projectDebtsFromAdvice(data, asOf, advice) {
@@ -1310,6 +1313,75 @@ function actualsBlock(data, periods, advice, settlement) {
   };
 }
 
+// Held current-period transactions: the to-do list behind
+// unclassified.count, so the morning Lunch Money sort can clear prompts.
+// Closed vocabulary only. Each item carries a packet-local key, its date,
+// its Atlas account role, its Atlas budget row (a plan category id or
+// 'uncategorised', else null), a coarse reason class, one fixed plain
+// sentence, and its place among rows with the same date and role. Never an
+// amount, payee, bank description, note, raw provider or category id, or
+// Forecast's raw reason code. Nothing here reaches the page or the snapshot:
+// only this packet asks Forecast for the list.
+const HELD_REASONS = {
+  'missing': ['data', 'Lunch Money gave Atlas too little about this transaction to place it.'],
+  'unmapped-account': ['account', 'It is on an account Atlas has no mapping for.'],
+  'unmapped-label': ['category', 'Its Lunch Money category matches no Atlas budget row.'],
+  'no-category': ['category', 'It has no Lunch Money category.'],
+  'ambiguous-category': ['category', 'Its Lunch Money category matches more than one Atlas budget row.'],
+  'lunchmoney-label-unbudgeted-merchant-row': ['category', 'Its category points to a row Atlas does not budget for.'],
+  'no-target-category-spend': ['category', 'It is filed to a category with no Atlas target.'],
+  'non-calendar-category-spend': ['category', 'It is filed to a category Atlas does not budget by pay period.'],
+  'no-row-category-refund': ['category', 'It looks like a refund but is not linked to a budget row.'],
+  'income-category-debit': ['category', 'It is filed as income, but money went out.'],
+  'payee-category-contradiction': ['merchant', 'Its payee and its Lunch Money category disagree.'],
+  'fuel-merchant-missing': ['merchant', 'It is filed as fuel but has no merchant to confirm it.'],
+  'convenience-store-unconfirmed-fuel': ['merchant', 'It is filed as fuel at a store that may not sell fuel.'],
+  'canadian-tire-unconfirmed': ['merchant', 'Atlas cannot tell which budget row this store purchase belongs to.'],
+  'grocery-merchant-missing': ['merchant', 'It is filed as groceries but has no merchant to confirm it.'],
+  'grocery-merchant-unconfirmed': ['merchant', 'It is filed as groceries at a store Atlas has not confirmed.'],
+  'pets-not-dog-food': ['merchant', 'It is filed as pets but is not from a confirmed pet-food store.'],
+  'personal-unassigned': ['owner', 'It is personal spending not yet assigned to one person.'],
+  'bills-only-unmatched': ['bill', 'It is filed to a bills-only category but matches no planned bill.'],
+  'possible-card-paid-bill-new-price': ['bill', 'It may be a card-paid bill at a new price.'],
+};
+const HELD_DEFAULT = ['other', 'Atlas could not place it in a budget row.'];
+const HELD_UNCATEGORISED = ['category', 'It is filed as uncategorised.'];
+const HELD_ROLES = new Set(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage',
+  'household-external', 'unmapped']);
+const HELD_MAX = 50;
+
+function heldCurrentPeriodProjection(data, advice) {
+  const action = advice && advice.currentPeriodAction;
+  const rows = action && Array.isArray(action.heldTransactions) ? action.heldTransactions : null;
+  if (!rows) return unavailable('held-transactions-unavailable');
+  const categories = data && data.plan && data.plan.budget && Array.isArray(data.plan.budget.categories)
+    ? data.plan.budget.categories : [];
+  const budgetRows = new Set(categories.map(row => row && row.id).filter(id => typeof id === 'string'));
+  const groups = new Map();
+  const items = rows.slice(0, HELD_MAX).map((row, index) => {
+    const date = typeof row.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date) ? row.date : null;
+    const accountRole = HELD_ROLES.has(row.accountRole) ? row.accountRole : null;
+    const budgetRow = row.budgetRow === 'uncategorised' || row.budgetRow === 'other-spend'
+      || budgetRows.has(row.budgetRow) ? row.budgetRow : null;
+    const [reasonClass, reason] = Object.hasOwn(HELD_REASONS, row.reason) ? HELD_REASONS[row.reason]
+      : row.reason == null && row.budgetRow === 'uncategorised' ? HELD_UNCATEGORISED : HELD_DEFAULT;
+    const group = date + '|' + accountRole;
+    groups.set(group, (groups.get(group) || 0) + 1);
+    return { key: 'held-' + (index + 1), date, accountRole, budgetRow, reasonClass, reason,
+      ordinal: groups.get(group), group };
+  });
+  return {
+    status: 'ok',
+    source: 'Forecast.currentPeriodAction (held rows behind unclassified.count)',
+    count: rows.length,
+    listed: items.length,
+    complete: action.unclassified ? items.length === action.unclassified.count : false,
+    lookup: 'Find each one with get_lunchmoney_transactions on its date and account; the ordinal tells rows on the same date and account apart.',
+    items: items.map(({ group, ordinal, ...item }) => ({ ...item,
+      ordinal: { n: ordinal, of: groups.get(group) } })),
+  };
+}
+
 function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
   const overlay = data && data.liveOverlay;
   const refused = Array.isArray(overlay && overlay.refused)
@@ -1357,6 +1429,7 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
         }
         : null,
       categoryRemainingClaim: action ? action.categoryRemainingClaim : null,
+      heldCurrentPeriod: heldCurrentPeriodProjection(data, advice),
     },
     providerGaps,
     liveOverlayFailed: overlay && overlay.applied === false
@@ -1501,6 +1574,8 @@ module.exports = {
   versionIdentifier,
   looksSanitized,
   projectDecisionPosture,
+  heldCurrentPeriodProjection,
+  HELD_REASONS,
   projectBaselineTrajectory,
   loadPeriods,
   tokenConfigured,
