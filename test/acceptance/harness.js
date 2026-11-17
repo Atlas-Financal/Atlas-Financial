@@ -17,6 +17,7 @@
 // date and identity is invented.
 const fs = require('node:fs');
 const path = require('node:path');
+const LmGroups = require('../lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
@@ -128,6 +129,35 @@ function lm(fields) {
   return raw;
 }
 
+// Invented Lunch Money category groups (slice 1; Dale, #821 6958331123).
+// A world's budget row lists the invented categories filed under it in
+// `from` (a fixture key; `historyCategories` also accepted). The fixture
+// lays those invented categories out in invented groups, the way the
+// household lays out groups in Lunch Money (test/lm-groups-fixture.js), and
+// the served plan names only group ids. Production never routes by name.
+// A row or category that already declares its group is left as declared.
+function groupedRows(w) {
+  return clone(w.budget || []).map(row => {
+    const { from, ...kept } = row;
+    return Array.isArray(from) && !kept.historyCategories ? { ...kept, historyCategories: from } : kept;
+  });
+}
+// The served categories, laid out against the world's final plan.
+function groupedCategories(w) {
+  const plan = planOf(w);
+  const categories = clone(w.categories || []).map(c => ({ ...c }));
+  if (w.explicitGroups) return categories;
+  for (const c of categories) {
+    if (c.is_group || c.group_id != null) continue;
+    const groupId = LmGroups.groupForLabel(c.name, plan);
+    if (groupId != null) c.group_id = groupId;
+  }
+  for (const id of LmGroups.groupIdsOf(plan)) {
+    if (!categories.some(c => String(c.id) === id)) categories.push({ id, name: 'Invented group ' + id, is_group: true });
+  }
+  return categories;
+}
+
 function planOf(w) {
   const plan = {
     opening: { asOf: w.asOf, priorAsOf: '2026-10-09', representedEvents: [] },
@@ -139,7 +169,7 @@ function planOf(w) {
     commitments: clone(w.commitments),
     groups: clone(w.groups),
     funding: { options: [] },
-    budget: { categories: clone(w.budget) },
+    budget: { categories: groupedRows(w), ...(w.budgetExcluded ? { excluded: clone(w.budgetExcluded) } : {}) },
   };
   if (w.savingsPool) {
     // One combined Savings pool backing every listed commitment in
@@ -161,7 +191,7 @@ function planOf(w) {
       { accountId: 'savings-dont-touch', value: sdt, currency: 'CAD', source: 'provider-observe:lunchmoney', evidenceDate: w.asOf, pendingState: 'clear' }] };
   }
   if (typeof w.planPatch === 'function') w.planPatch(plan);
-  return plan;
+  return w.explicitGroups ? plan : LmGroups.groupPlan(plan);
 }
 
 function accountMapOf(w, { captureCash = false } = {}) {
@@ -177,7 +207,7 @@ function accountMapOf(w, { captureCash = false } = {}) {
 
 function rawPayload(w, { captureCash = false } = {}) {
   return {
-    categories: w.categories,
+    categories: groupedCategories(w),
     tags: w.tags,
     plaid_accounts: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).filter(a => !a.unobserved).map(a => ({ id: a.providerId, name: a.label, type: a.role === 'revolving-credit' ? 'credit' : 'depository',
       balance: String(a.value), currency: 'cad', balance_last_update: (a.balanceDate || w.asOf) + 'T12:00:00.000Z' })),

@@ -16,6 +16,7 @@ const S = require('../scripts/settlement-evidence-store');
 const A = require('../scripts/settlement-evidence-file-adapter');
 const L = require('../scripts/settlement-evidence-loader');
 const { createSettlementEvidenceConfirmation } = require('../scripts/settlement-evidence-confirmation');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const householdId = 'household-' + 'a'.repeat(32);
 const actorId = 'session-' + 'b'.repeat(64);
@@ -340,7 +341,9 @@ function classificationFixture(kind = 'spend-groceries', transactionId = 'synthe
   if (kind === 'cancelled-service') {
     plan.cancelledServices = [{ id: 'synthetic-cancelled-service', label: 'Old Gym', confirmedCancelledAsOf: '2026-10-01', merchantKeys: ['old gym'] }];
   }
-  return { tx: txs[kind], plan, opts };
+  const grouped = LmGroups.groupPlan(plan);
+  return { tx: LmGroups.groupTx(txs[kind], grouped), plan: grouped,
+    opts: { ...opts, currentPeriodActuals: LmGroups.groupPacket(packet, grouped) } };
 }
 
 async function world(t) {

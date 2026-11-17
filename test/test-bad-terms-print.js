@@ -10,6 +10,7 @@
 // The identity is re-added here in integer cents from the printed strings.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const F=require('../public/forecast'),fx=require('./fixtures/other-period-target');
+const LmGroups=require('./lm-groups-fixture.js');
 const stub=()=>({innerHTML:'',value:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},
  addEventListener(){},querySelector(){return null},querySelectorAll(){return[]},appendChild(){},replaceChildren(){}});
 const context=vm.createContext({Forecast:F,console,setTimeout,clearTimeout,addEventListener(){},
@@ -45,6 +46,7 @@ const cents=text=>{const m=text.match(/^(?:≈ estimated )?(−?)\$([\d,]+)\.(\d
  return (m[1]?-1:1)*(Number(m[2].replace(/,/g,''))*100+Number(m[3]));};
 
 const f=fx.build(618.73);
+f.plan=LmGroups.groupPlan(f.plan);f.packet=LmGroups.groupPacket(f.packet,f.plan);
 f.plan.bills=[{id:'invented-rent',label:'Invented rent',frequency:'biweekly',anchor:'2026-09-30',amount:212.34,confidence:'confirmed',payingAccount:'chequing-a'},
  {id:'invented-hydro',label:'Invented hydro',frequency:'monthly',day:15,amount:88.21,confidence:'estimated',payingAccount:'chequing-a'}];
 const advice=F.recommend(f.plan,f.date,{...f.plan.defaults,debts:[],currentPeriodActuals:f.packet});

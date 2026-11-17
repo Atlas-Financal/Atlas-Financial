@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const Forecast = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('../scripts/provider-observe.js');
 const Live = require('../scripts/live-plan.js');
 
@@ -344,7 +345,8 @@ console.log('=== shared incumbent identity, one new posted alias ===');
       && once.sameAccountSplitLegs === true
       && !(once.payeePatterns || []).includes(LIVE_PAYEE),
     'September Bell stays the two-leg chequing identity');
-  const dog = Forecast.classifyCurrentPeriodTransaction({
+  const groupedPlan = LmGroups.groupPlan(canonical.plan);
+  const dog = Forecast.classifyCurrentPeriodTransaction(LmGroups.groupTx({
     date: '2026-09-18',
     amount: 18.18,
     categoryLabel: 'Pets',
@@ -352,7 +354,7 @@ console.log('=== shared incumbent identity, one new posted alias ===');
     originalMerchant: 'SURREY MEAT',
     accountRole: 'household-cash',
     atlasAccountId: 'chequing-b',
-  }, canonical.plan);
+  }, groupedPlan), groupedPlan);
   ok(dog.kind === 'spend' && dog.categoryId === 'pets',
     'Surrey Meat stays Dog food');
 }

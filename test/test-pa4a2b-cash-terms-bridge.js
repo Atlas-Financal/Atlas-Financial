@@ -10,6 +10,10 @@ const test = require('node:test'), assert = require('node:assert/strict');
 const path = require('node:path');
 const ROOT = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 const F = require(path.join(ROOT, 'public/forecast'));
+const LmGroups = require('./lm-groups-fixture.js');
+// Invented Lunch Money group layout for every plan and packet this file feeds Forecast.
+const recommendGrouped = (plan, asOf, opts) => { const grouped = LmGroups.groupPlan(plan);
+  return F.recommend(grouped, asOf, { ...opts, currentPeriodActuals: LmGroups.groupPacket(opts.currentPeriodActuals, grouped) }); };
 const { ledger } = require('./fixtures/chronological-savings-data');
 const closingInput = require('./fixtures/savings-future-closing-data');
 
@@ -52,7 +56,7 @@ function seedCase({ charge = 4250, pay = 0, payCard = 'tdcc', alloc = null, othe
   if (obligation) x.plan.obligations = [obligation];
   x.opts.currentPeriodActuals.transactions = (x.opts.currentPeriodActuals.transactions || []).concat(t);
   const before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
   assert.equal(JSON.stringify(x), before, 'no input mutation');
   const views = a.payPeriodViews.filter(p => p.role !== 'lookback');
   return { a, active: views[0], next: views[1] };
@@ -179,7 +183,7 @@ function b2Case({ obligations = [], bills = [], represented = [], extra = [], re
       accountRole: 'revolving-credit', categoryLabel: 'Credit Card Payment', coverageRef: 'pay-c' })].concat(extra);
   x.opts.currentPeriodActuals.representedActuals = represented;
   const before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
   assert.equal(JSON.stringify(x), before, 'no input mutation');
   const views = a.payPeriodViews.filter(v => v.role !== 'lookback');
   const est = v => v.cardMatchingEstimate && v.cardMatchingEstimate.trust === 'estimated' ? cents(v.cardMatchingEstimate.opening) : null;
@@ -315,7 +319,7 @@ test('C7: a hard card hold without a Savings policy feeds no numeric dependent o
   const pkt = { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-07', coverageStart: '2026-09-01',
     coverageThrough: '2026-10-07', pendingCoverage: 'complete', transactionCoverage: 'complete', representedActuals: [],
     transactions: [purchase(5000)] };
-  const a = F.recommend(p, '2026-10-07', { weeklyVariable: 0, debts: [], currentPeriodActuals: pkt });
+  const a = recommendGrouped(p, '2026-10-07', { weeklyVariable: 0, debts: [], currentPeriodActuals: pkt });
   const [active, next] = a.payPeriodViews.filter(v => v.role !== 'lookback');
   assert.equal(active.plannedPeriodClose, null);
   assert.equal(next.opening, null, 'never the -3500.00 carried from a withheld close');
@@ -333,7 +337,7 @@ test('hard holds stay hard: incomplete history gives no seed', () => {
   x.plan.budget = { categories: [{ id: 'groceries', label: 'Groceries', monthly: 0, essential: true }] };
   x.opts.currentPeriodActuals.transactions = [purchase(42.5)];
   x.opts.currentPeriodActuals.transactionCoverage = 'truncated';
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
   assert.ok(a.cardPurchaseCoverage.issues.some(i => i.code === 'coverage-history-incomplete'));
   assert.equal(a.payPeriodViews.filter(p => p.role !== 'lookback')[1].opening, null);
 });
@@ -352,7 +356,7 @@ function savingsCase({ charge = 0, movement = false } = {}) {
   if (charge) x.opts.currentPeriodActuals.transactions = (x.opts.currentPeriodActuals.transactions || [])
     .concat([purchase(charge / 100)]);
   const before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
   assert.equal(JSON.stringify(x), before, 'no input mutation');
   const closing = start => a.savingsFunding.periodViews.find(p => p.start === start).packet.forecastClosing;
   const published = start => {
@@ -411,7 +415,7 @@ test('a role-only card gives the same typed closes as a known card id', () => {
     date: '2026-10-09', amount: 400, confidence: 'confirmed' });
   x.opts.currentPeriodActuals.transactions = (x.opts.currentPeriodActuals.transactions || [])
     .concat([{ ...purchase(42.5), atlasAccountId: 'amexgold' }]);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
   const stock = s => cents(a.savingsFunding.periodViews.find(p => p.start === s).packet.forecastClosing.cardMatchingEstimate.stock);
   assert.deepEqual(FUTURE.map(stock), [47650, 155650, 255650]);
 });
@@ -451,7 +455,7 @@ test('ruling 8: the below-reserve branch is soft only on qualified operating cas
     const pkt = { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-07', coverageStart: '2026-09-01',
       coverageThrough: '2026-10-07', pendingCoverage: 'complete', transactionCoverage: 'complete', representedActuals: [],
       transactions: [purchase(5000)] };
-    const a = F.recommend(p, '2026-10-07', { weeklyVariable: 0, debts: [], currentPeriodActuals: pkt });
+    const a = recommendGrouped(p, '2026-10-07', { weeklyVariable: 0, debts: [], currentPeriodActuals: pkt });
     assert.ok(a.cardPurchaseCoverage.issues.some(i => i.code === 'coverage-bills-backing-unconfirmed'));
     return a.payPeriodViews.filter(v => v.role !== 'lookback')[0];
   };
@@ -477,7 +481,7 @@ function missingLaterSweep({ charge = 0, movement = false }) {
     [{ accountId: 'savings', reason: 'transaction-posting-status-unconfirmed' }];
   if (charge) x.opts.currentPeriodActuals.transactions = (x.opts.currentPeriodActuals.transactions || [])
     .concat([purchase(charge / 100)]);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
   return start => a.savingsFunding.periodViews.find(p => p.start === start).packet.forecastClosing;
 }
 
@@ -512,7 +516,7 @@ test('C1: a negative-pot card close withholds its gap, diagnostics and amounts b
       confidence: 'confirmed', sinkingFund: true });
     if (charge) x.opts.currentPeriodActuals.transactions = (x.opts.currentPeriodActuals.transactions || [])
       .concat([purchase(charge / 100)]);
-    const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
     return a.savingsFunding.periodViews.find(p => p.start === FUTURE[0]).packet.forecastClosing;
   };
   // Clean control: the published gap is 100 (one dollar short).
@@ -587,7 +591,7 @@ function inclusionCase({ source = 'snapshot', payDate = '2026-10-02', purchaseDa
       accountRole: 'revolving-credit', categoryLabel: 'Credit Card Payment', coverageRef: 'pay-c' })];
   packet.representedActuals = represented;
   const before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS });
   assert.equal(JSON.stringify(x), before, 'no input mutation');
   const views = a.payPeriodViews.filter(v => v.role !== 'lookback');
   const est = v => v.cardMatchingEstimate && v.cardMatchingEstimate.trust === 'estimated' ? cents(v.cardMatchingEstimate.opening) : null;
@@ -762,7 +766,7 @@ function shareCase({ source = 'snapshot', stock, purchases, settlements = [], bi
   packet.transactions = [].concat(purchases, ...sets.map(s => s.txs), extra);
   packet.representedActuals = represented;
   const before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS, ...(gap ? { paydayGapCash: gap } : {}) });
+  const a = recommendGrouped(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: DEBTS, ...(gap ? { paydayGapCash: gap } : {}) });
   assert.equal(JSON.stringify(x), before, 'no input mutation');
   const views = a.payPeriodViews.filter(v => v.role !== 'lookback');
   const est = v => v.cardMatchingEstimate && v.cardMatchingEstimate.trust === 'estimated' ? cents(v.cardMatchingEstimate.opening) : null;

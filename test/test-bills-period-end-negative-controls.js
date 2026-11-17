@@ -1,7 +1,10 @@
 'use strict';
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const { cases } = require('./test-bills-period-end-balance');
-const fx = require('./fixtures/bills-period-end-balance-data');
+const LmGroups = require('./lm-groups-fixture.js');
+const lmGrouped = x => { x.plan = x.data.plan = LmGroups.groupPlan(x.plan);
+  x.opts.currentPeriodActuals = x.data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan); return x; };
+const fx = (m => ({ ...m, requirementsFixture: (...a) => lmGrouped(m.requirementsFixture(...a)) }))(require('./fixtures/bills-period-end-balance-data'));
 const unknown = fx.requirementsFixture(); unknown.plan.bills[0].amount = null;
 const weekly = fx.requirementsFixture(); weekly.plan.bills[0].payingAccount = 'chequing-b';
 cases.push({ name: 'native amount erased by display projection', input: unknown, expected: null },

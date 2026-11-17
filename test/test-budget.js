@@ -345,7 +345,7 @@ console.log('\n=== current-regime outranks historical and loses to owner target 
       basis: 'ytd',
       categories: [{
         id: 'phones', label: 'Phones', class: 'essential',
-        from: ['Phones'], plannedMonthly: null, currentMonthly: 100,
+        historyCategories: ['Phones'], plannedMonthly: null, currentMonthly: 100,
       }],
     },
   };

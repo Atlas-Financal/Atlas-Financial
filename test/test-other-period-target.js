@@ -1,8 +1,10 @@
 'use strict';
 const assert=require('node:assert/strict'),F=require('../public/forecast'),fx=require('./fixtures/other-period-target');
+const LmGroups=require('./lm-groups-fixture.js');
+const build=(...a)=>{const f=fx.build(...a);f.plan=LmGroups.groupPlan(f.plan);f.packet=LmGroups.groupPacket(f.packet,f.plan);f.data={...f.data,plan:f.plan,liveOverlay:{...f.data.liveOverlay,currentPeriodActuals:f.packet}};return f;};
 function period(f){return F.recommend(f.plan,f.date,{...f.plan.defaults,debts:[],currentPeriodActuals:f.packet}).payPeriodViews.find(p=>p.timelineRole==='current');}
 for(const [spent,cents] of [[0,0],[137.26,13726],[450,45000],[618.73,61873]]){
- const f=fx.build(spent),before=JSON.stringify(f.packet),p=period(f),r=p.householdBudget.find(x=>x.id==='other-spending');
+ const f=build(spent),before=JSON.stringify(f.packet),p=period(f),r=p.householdBudget.find(x=>x.id==='other-spending');
  assert.ok(r);assert.equal(r.planned,450);assert.equal(r.spent,spent);
  assert.equal(r.hold,Math.max(45000,cents)/100,'consume once: no 450 + actual');
  assert.equal(r.remaining,(45000-cents)/100);assert.equal(r.overspend,Math.max(0,cents-45000)/100);
@@ -30,9 +32,9 @@ for(const [spent,cents] of [[0,0],[137.26,13726],[450,45000],[618.73,61873]]){
  assert.equal(otherAction.remaining,(45000-cents)/100);
  assert.equal(action.categories.some(row=>row.id==='uncategorised'),false,'the same residual is not charged under a second identity');
 }
-const old=fx.build(137.26,'2026-09-20'),r=period(old).householdBudget.find(x=>x.id==='other-spending');
+const old=build(137.26,'2026-09-20'),r=period(old).householdBudget.find(x=>x.id==='other-spending');
 assert.equal(r.planned,null);assert.equal(r.hold,137.26,'prior active period retains actual-only reserve');
-const current=fx.build(),advice=F.recommend(current.plan,current.date,{...current.plan.defaults,debts:[],currentPeriodActuals:current.packet});
+const current=build(),advice=F.recommend(current.plan,current.date,{...current.plan.defaults,debts:[],currentPeriodActuals:current.packet});
 const past=advice.payPeriodViews.find(p=>p.timelineRole==='past'&&p.start==='2026-09-11');
 assert.ok(past,'the covered prior completed Sep 11-24 period is exercised');
 const priorOther=past.householdBudget.find(x=>x.id==='other-spending');
@@ -43,7 +45,7 @@ for(const older of advice.payPeriodViews.filter(p=>p.timelineRole==='past'&&p.st
  assert.equal(older.budgetProgress.household.actual.amount,null,'uncovered historical actual remains unavailable, never zero');
 }
 for(const date of ['2026-09-24','2026-09-25']){
- const f=fx.build(137.26,date),r=period(f).householdBudget.find(x=>x.id==='other-spending');
+ const f=build(137.26,date),r=period(f).householdBudget.find(x=>x.id==='other-spending');
  assert.equal(r.planned,date<fx.effective?null:450,'target switches at the exact Sep 25 cycle boundary');
  const opts={...f.plan.defaults,debts:[],currentPeriodActuals:f.packet};
  const cash=F.paydayAllocation(f.plan,date,opts).essentials.items.find(row=>row.id==='other-spend');
@@ -57,7 +59,7 @@ for(const date of ['2026-09-24','2026-09-25']){
 // A prior-asOf cash walk must not acquire a present-day owner target.
 // Both plans and all observations here are independently invented.
 for(const date of ['2026-08-19','2026-09-24']){
- const f=fx.build(0,date),legacy=fx.clone(f.plan),cat=legacy.budget.categories.at(-1);
+ const f=build(0,date),legacy=fx.clone(f.plan),cat=legacy.budget.categories.at(-1);
  delete cat.plannedPayday;delete cat.targetEffectiveFrom;delete cat.targetHistory;cat.plannedMonthly=800;cat.futurePayPeriodReserve=400;
  const opts={debts:[],periods:{periods:{ytd:{months:1,spending:[]}},asOf:date},extraDebtMonthly:0,targetBuffer:0};
  const currentWalk=F.baselineTrajectory(f.plan,[],date,opts),oldWalk=F.baselineTrajectory(legacy,[],date,opts);
@@ -68,7 +70,7 @@ for(const date of ['2026-08-19','2026-09-24']){
  assert.deepEqual(currentWalk.weeklyVariable,oldWalk.weeklyVariable,'the walk starts with the retired monthly policy');
  assert.deepEqual(currentWalk.payPeriods.filter(row=>row.end<fx.effective),oldWalk.payPeriods.filter(row=>row.end<fx.effective));
 }
-const completed=fx.build(137.26,'2026-10-18'),completedAdvice=F.recommend(completed.plan,completed.date,{...completed.plan.defaults,debts:[],currentPeriodActuals:completed.packet});
+const completed=build(137.26,'2026-10-18'),completedAdvice=F.recommend(completed.plan,completed.date,{...completed.plan.defaults,debts:[],currentPeriodActuals:completed.packet});
 const completedOther=completedAdvice.payPeriodViews.find(p=>p.start===fx.effective).householdBudget.find(x=>x.id==='other-spending');
 assert.deepEqual([completedOther.planned,completedOther.spent,completedOther.hold,completedOther.remaining],[450,137.26,137.26,null],
  'after-policy completed periods retain dated plan but only deduct observed consumption, with no current reserve');
@@ -79,12 +81,12 @@ assert.equal(next.householdBudget.filter(x=>['other-spending','other-spend'].inc
 assert.equal(next.householdBudget.find(x=>x.id==='other-spending').hold,450);
 assert.equal(next.householdBudget.find(x=>x.id==='other-spending').trust,'estimated');
 assert.equal(next.budgetHoldTrust,'estimated');assert.equal(next.balanceAfterDeductionsTrust,'estimated','future target cannot lose estimated trust downstream');
-const unavailable=fx.build();unavailable.packet.transactionCoverage='truncated';
+const unavailable=build();unavailable.packet.transactionCoverage='truncated';
 const unknown=period(unavailable).householdBudget.find(x=>x.id==='other-spending');assert.equal(unknown.spent,null);assert.equal(unknown.planned,450);
 assert.equal(unknown.remaining,null,'missing observations do not prove 450 left');
 const unknownCash=F.paydayAllocation(unavailable.plan,unavailable.date,{currentPeriodActuals:unavailable.packet,debts:[]}).essentials.items.find(row=>row.id==='other-spend');
 assert.equal(unknownCash.posted,null,'missing cash-consumption evidence remains unknown, never zero');
-const pending=fx.build(),postedOther=pending.packet.transactions.find(tx=>tx.amount===137.26);
+const pending=build(),postedOther=pending.packet.transactions.find(tx=>tx.amount===137.26);
 assert.ok(postedOther,'the sanitized independent Other observation is present');
 const pendingTx={...postedOther,id:'invented-pending-other',amount:17.43,pending:true,pendingTreatment:'unresolved'};
 pending.packet.transactions.push(pendingTx);
@@ -112,7 +114,7 @@ assert.ok(forecastSource.includes('const Forecast = {'));
 vm.runInNewContext(forecastSource.replace('const Forecast = {','globalThis.otherSpanProof = { ownerTargetHoldForSpan, householdBudgetScaled }; const Forecast = {'),ctx);
 for(const [start,end,days,expected] of [['2026-09-11','2026-09-24',14,367.97],['2026-09-25','2026-10-08',14,450],
  ['2026-09-01','2026-09-30',30,1080.80],['2026-09-18','2026-10-01',14,633.98]]){
- const plan=fx.build().plan;
+ const plan=build().plan;
  const rows=ctx.otherSpanProof.ownerTargetHoldForSpan(plan,days,start,end);
  assert.equal(rows.find(row=>row.id==='other-spend').planned,expected,'span uses legacy monthly days before Sep 25 plus only authorized whole payday starts');
  const glance=ctx.otherSpanProof.householdBudgetScaled(plan,days,start,end);

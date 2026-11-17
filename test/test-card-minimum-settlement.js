@@ -9,6 +9,7 @@ const path = require('path');
 const Forecast = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
 const Live = require('../scripts/live-plan.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_PATH = path.join(ROOT, 'data.json');
@@ -654,7 +655,8 @@ console.log('\n=== represented payment is not Household Budget spending ===');
   ok(classified.kind === 'card-payment' && classified.householdSpending === false,
     'Triangle chequing payment is card-payment, not household spend',
     JSON.stringify(classified));
-  const mbnaClassified = Forecast.classifyCurrentPeriodTransaction({
+  const groupedPlan = LmGroups.groupPlan({});
+  const mbnaClassified = Forecast.classifyCurrentPeriodTransaction(LmGroups.groupTx({
     date: '2026-09-02',
     amount: MBNA_MIN,
     payee: 'MBNA M/C 5678',
@@ -664,7 +666,7 @@ console.log('\n=== represented payment is not Household Budget spending ===');
     categoryLabel: 'Credit Card Payment',
     atlasAccountId: 'chequing-a',
     accountRole: 'household-cash',
-  });
+  }, groupedPlan), groupedPlan);
   ok(mbnaClassified.householdSpending === false
       && mbnaClassified.kind !== 'spend'
       && mbnaClassified.kind !== 'unclassified',

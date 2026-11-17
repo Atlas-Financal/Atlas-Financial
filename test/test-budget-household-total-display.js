@@ -3,6 +3,8 @@
 // policy, not a copied observation. Exercise the active native sheet renderer.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const F=require('../public/forecast'),fx=require('./fixtures/other-period-target');
+const LmGroups=require('./lm-groups-fixture.js');
+const build=(...a)=>{const f=fx.build(...a);f.plan=LmGroups.groupPlan(f.plan);f.packet=LmGroups.groupPacket(f.packet,f.plan);f.data={...f.data,plan:f.plan,liveOverlay:{...f.data.liveOverlay,currentPeriodActuals:f.packet}};return f;};
 const stub=()=>({innerHTML:'',value:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},
  addEventListener(){},querySelector(){return null},querySelectorAll(){return[]},appendChild(){},replaceChildren(){}});
 const context=vm.createContext({Forecast:F,console,setTimeout,clearTimeout,addEventListener(){},
@@ -19,7 +21,7 @@ const total=html=>html.split('data-household-budget-progress-total>')[1].split('
 const money=n=>new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'}).format(n).replace(/^-/, '\u2212');
 for(const [spent,actual,remaining,hold] of [[0,110.37,450,925],[137.26,247.63,312.74,925],
  [450,560.37,0,925],[618.73,729.10,-168.73,1093.73],[1034.19,1144.56,-584.19,1509.19]]){
- const f=fx.build(spent),before=JSON.stringify(f),p=publish(f).payPeriodViews.find(p=>p.timelineRole==='current');
+ const f=build(spent),before=JSON.stringify(f),p=publish(f).payPeriodViews.find(p=>p.timelineRole==='current');
  const sealed=JSON.stringify(p),html=sheet(render(p,f.plan)),pair=total(html);
  assert.equal((html.match(/<h3>Household Budget Total<\/h3>/g)||[]).length,1);
  assert.match(html,/Actual \/ Planned/);assert.doesNotMatch(html,/Actual and original plan|Original plan:/);
@@ -34,7 +36,7 @@ for(const [spent,actual,remaining,hold] of [[0,110.37,450,925],[137.26,247.63,31
  assert.match(other,/<dt>Remaining<\/dt>/);assert.ok(other.includes(money(remaining)),`published signed Other remaining ${money(remaining)} survives: ${other.slice(other.indexOf('<dt>Remaining'))}`);
  assert.equal(JSON.stringify(p),sealed);assert.equal(JSON.stringify(f),before,'display cannot rewrite plans, observed cash or captured rows');
 }
-const missing=fx.build();missing.packet.transactionCoverage='truncated';
+const missing=build();missing.packet.transactionCoverage='truncated';
 const mp=publish(missing).payPeriodViews.find(p=>p.timelineRole==='current'),mh=sheet(render(mp,missing.plan));
 assert.match(total(mh),/data-budget-ratio-actual><span class="budget-v3-unknown">Unknown/);
 assert.ok(total(mh).includes(money(925)),'unknown actual retains original plan');
@@ -42,7 +44,7 @@ assert.match(mh.split('data-budget-category="other-spending"')[1],/<dt>Remaining
 // Real provider sanitization -> recommend -> sealed publication -> active
 // native household sheet. Do not inject or substitute a progress publication.
 for(const pendingCoverage of ['partial','unknown']){
- const f=fx.build(137.26,fx.asOf,{pendingCoverage}),input=JSON.stringify(f),p=publish(f).payPeriodViews.find(p=>p.timelineRole==='current');
+ const f=build(137.26,fx.asOf,{pendingCoverage}),input=JSON.stringify(f),p=publish(f).payPeriodViews.find(p=>p.timelineRole==='current');
  assert.equal(f.packet.pendingCoverage,pendingCoverage);
  assert.equal(p.budgetProgress.coverage.remainingClaim,'posted-only');
  assert.equal(p.budgetProgress.household.actual.completeness,'partial');
@@ -61,16 +63,16 @@ for(const pendingCoverage of ['partial','unknown']){
  assert.match(browse,/Remaining unavailable/);
  assert.equal(JSON.stringify(p),sealed);assert.equal(JSON.stringify(f),input);
 }
-const completePending=fx.build(137.26,fx.asOf,{pendingOther:17.43}),cp=publish(completePending).payPeriodViews.find(p=>p.timelineRole==='current');
+const completePending=build(137.26,fx.asOf,{pendingOther:17.43}),cp=publish(completePending).payPeriodViews.find(p=>p.timelineRole==='current');
 assert.equal(cp.budgetProgress.household.actual.completeness,'complete');assert.equal(cp.budgetProgress.household.actual.includesPending,true);
 assert.equal(cp.budgetProgress.household.actual.amount,265.06);assert.equal(cp.householdBudget.find(r=>r.id==='other-spending').remaining,295.31);
 const ch=sheet(render(cp,completePending.plan));assert.match(ch.split('data-budget-category="other-spending"')[1],/<dt>Remaining<\/dt>[\s\S]*295\.31/);
 assert.doesNotMatch(ch,/data-budget-remaining-info/,'fully covered observed pending does not lose its known Remaining');
-const historical=fx.build(137.26,'2026-10-18'),hp=publish(historical).payPeriodViews.find(p=>p.start===fx.effective);
+const historical=build(137.26,'2026-10-18'),hp=publish(historical).payPeriodViews.find(p=>p.start===fx.effective);
 const hh=sheet(render(hp,historical.plan));
 assert.ok(total(hh).includes(money(247.63)));assert.match(total(hh),/data-budget-ratio-plan><span class="budget-v3-unknown">Unknown/);
 assert.match(hh,/Historical original plan unavailable/);assert.doesNotMatch(hh.split('data-budget-category="other-spending"')[1].split('</dl>')[0],/<dt>Remaining<\/dt>/);
-const future=fx.build(),fp=publish(future).payPeriodViews.find(p=>p.timelineRole==='next'),fh=sheet(render(fp,future.plan));
+const future=build(),fp=publish(future).payPeriodViews.find(p=>p.timelineRole==='next'),fh=sheet(render(fp,future.plan));
 assert.match(total(fh),/data-budget-ratio-actual><span class="budget-v3-unknown">Unknown/);
 assert.ok(total(fh).includes(money(925)));assert.match(fh,/data-budget-hold-trust="estimated"/);
 const futureOther=fh.split('data-budget-category="other-spending"')[1].split('</dl>')[0];

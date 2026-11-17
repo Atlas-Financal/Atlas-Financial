@@ -21,13 +21,21 @@
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const fx = require('./fixtures/other-period-target');
+const LmGroups = require('./lm-groups-fixture.js');
+// The invented world with its invented categories laid out in invented groups.
+const build = (...args) => {
+  const f = fx.build(...args);
+  f.plan = LmGroups.groupPlan(f.plan);
+  f.packet = LmGroups.groupPacket(f.packet, f.plan);
+  return f;
+};
 
 let checks = 0;
 const eq = (a, b, label) => { assert.deepEqual(a, b, label); checks++; };
 const ok = (c, label) => { assert.ok(c, label); checks++; };
 
 function world(mutate) {
-  const f = fx.build(137.26);
+  const f = build(137.26);
   const cat = f.plan.budget.categories.find(row => row.id === 'other-spend');
   if (mutate) mutate(cat);
   const opts = { ...f.plan.defaults, debts: [], currentPeriodActuals: f.packet };
@@ -102,7 +110,7 @@ for (const [label, set] of [
 // the household actual estimated (never calculated) on the undated path,
 // as it is on the dated path.
 for (const undated of [false, true]) {
-  const f = fx.build(137.26, undefined, { pendingOther: 137.26 });
+  const f = build(137.26, undefined, { pendingOther: 137.26 });
   for (const t of f.packet.transactions) if (t.pending === true) t.pendingPostedDuplicate = true;
   const cat = f.plan.budget.categories.find(row => row.id === 'other-spend');
   if (undated) delete cat.targetEffectiveFrom;
@@ -140,7 +148,7 @@ for (const [label, mutate] of [['missing', c => { delete c.targetEffectiveFrom; 
 // general one, never the undated-only or invalid-only message, which would
 // each name only half the cause.
 {
-  const f = fx.build(137.26);
+  const f = build(137.26);
   const cats = f.plan.budget.categories;
   delete cats.find(row => row.id === 'other-spend').targetEffectiveFrom;
   cats.find(row => row.id === 'fuel').plannedPayday = 'tbd';

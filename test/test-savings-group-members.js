@@ -13,6 +13,7 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const F = require('../public/forecast');
 const contractFx = require('./fixtures/savings-daily-allocation-contract');
 const chronoFx = require('./fixtures/chronological-savings-data');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const stub = () => ({ innerHTML: '', value: '', dataset: {}, style: {}, classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; }, appendChild() {}, replaceChildren() {} });
 const ctx = vm.createContext({ Forecast: F, console, setTimeout, clearTimeout, addEventListener() {}, document: { getElementById: stub, querySelectorAll() { return []; }, addEventListener() {}, documentElement: { dataset: {}, style: {} } }, localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });
@@ -242,6 +243,8 @@ for (const [label, render] of [['sheet', checkSheet], ['tile', checkTile], ['inv
 const NAT_AS_OF = '2026-10-07';
 function nativeWorld() {
   const input = chronoFx.policy(contractFx.advance(contractFx.fixture(), NAT_AS_OF));
+  input.plan = LmGroups.groupPlan(input.plan);
+  input.opts = { ...input.opts, currentPeriodActuals: LmGroups.groupPacket(input.opts.currentPeriodActuals, input.plan) };
   input.plan.commitments.push({ id: 'third', label: 'Invented third club cost', group: 'club',
     date: '2026-11-04', amount: 90, confidence: 'confirmed', adjustable: false, sinkingFund: true });
   const advice = F.recommend(input.plan, input.asOf, { ...input.opts, weeklyVariable: 40, debts: [] });

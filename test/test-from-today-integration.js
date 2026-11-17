@@ -9,6 +9,7 @@ const path = require('node:path');
 const Live = require('../scripts/live-plan');
 const F = require('../public/forecast');
 const fixture = require('./fixtures/budget-funding-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const AS_OF = '2026-08-20';
 const data = fixture();
 data.plan.cardPurchaseCoverage = require('./fixtures/card-coverage-opening')('2026-08-14');
@@ -21,6 +22,7 @@ data.plan.startingCash.breakdown = [
 ];
 data.debts = [{ id: 'travelvisa', label: 'Synthetic card', structure: 'Revolving',
   secured: false, balance: 400, pending: 0, limit: 1000, rate: 20 }];
+data.plan = LmGroups.groupPlan(data.plan);
 const map = { schema: 'atlas-provider-account-map/v1', provider: 'lunchmoney', scope: 'fixture',
   mappings: [
     { providerAccountId: '1001', canonical: { collection: 'cash', id: 'chequing-a' }, atlasRole: 'household-cash' },
@@ -28,7 +30,7 @@ const map = { schema: 'atlas-provider-account-map/v1', provider: 'lunchmoney', s
     { providerAccountId: '1003', canonical: { collection: 'cash', id: 'savings' }, atlasRole: 'household-cash' },
     { providerAccountId: '2001', canonical: { collection: 'debts', id: 'travelvisa' }, atlasRole: 'revolving-credit' },
   ] };
-const payload = { provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
+const payload = LmGroups.groupPayload({ provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
   transactionWindow: { startDate: '2026-08-14', endDate: AS_OF, complete: true, hasMore: false, truncated: false },
   pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false, truncated: false },
   accounts: [
@@ -51,7 +53,7 @@ const payload = { provider: 'lunchmoney', fetchedAt: AS_OF + 'T18:00:00.000Z',
     // bill is already inside the 800 cash.
     { id: 91005, account_id: 1001, date: '2026-08-14', amount: 200, currency: 'cad',
       payee: 'Synthetic fixture bill', category_id: 13, is_pending: false, status: 'cleared' },
-  ] };
+  ] }, data.plan);
 const identity = { schema: 'atlas-provider-transaction-identity/v1', rules: [{
   eventId: 'synthetic-due', payeePattern: 'Synthetic due bill',
   atlasAccountId: 'chequing-a', direction: 'debit',
@@ -193,6 +195,7 @@ function reviewFixture() {
     debtId: 'travelvisa', effect: 'payment', frequency: 'once', date: '2026-08-25',
     amount: 25, confidence: 'confirmed' });
   canonical.debts = structuredClone(data.debts);
+  canonical.plan = LmGroups.groupPlan(canonical.plan);
   const source = structuredClone(payload);
   source.accounts[0].balance = 1000;
   return { canonical, source };

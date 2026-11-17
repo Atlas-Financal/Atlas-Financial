@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -56,7 +57,7 @@ function loadComposer() {
 const composer = loadComposer();
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -87,7 +88,7 @@ function syntheticPlan() {
         { id: 'shopping', label: 'Shopping', class: 'discretionary', from: ['Shopping', 'Personal'] },
       ],
     },
-  };
+  });
 }
 
 function block(html, id) {
@@ -157,7 +158,7 @@ const overlayTxs = [
     categoryLabel: 'Groceries', accountRole: 'household-cash',
     displayedPayee: 'Too Early', originalMerchant: 'Too Early',
   },
-];
+].map(tx => LmGroups.groupTx(tx, syntheticPlan()));
 
 function withheldPeriod(extraRows) {
   return {
@@ -312,23 +313,23 @@ console.log('\n=== 4. Forecast recon wins; empty overlay keeps the row flat ==='
 const PARENT = 70.10;
 const CHILD_A = 40.00;
 const CHILD_B = 30.10;
-const splitParent = {
+const splitParent = LmGroups.groupTx({
   id: 'tx-groc-parent', date: '2026-08-29', amount: PARENT, pending: false,
   isGroup: true, categoryLabel: 'Groceries', accountRole: 'household-cash',
   displayedPayee: 'Save-On-Foods group', originalMerchant: 'Save-On-Foods group',
-};
-const splitChildA = {
+}, syntheticPlan());
+const splitChildA = LmGroups.groupTx({
   id: 'tx-groc-child-a', date: '2026-08-29', amount: CHILD_A, pending: false,
   parentId: 'tx-groc-parent', categoryLabel: 'Groceries',
   accountRole: 'household-cash',
   displayedPayee: 'Save-On-Foods produce', originalMerchant: 'Save-On-Foods produce',
-};
-const splitChildB = {
+}, syntheticPlan());
+const splitChildB = LmGroups.groupTx({
   id: 'tx-groc-child-b', date: '2026-08-29', amount: CHILD_B, pending: false,
   parentId: 'tx-groc-parent', categoryLabel: 'Groceries',
   accountRole: 'household-cash',
   displayedPayee: 'Save-On-Foods dairy', originalMerchant: 'Save-On-Foods dairy',
-};
+}, syntheticPlan());
 const splitPacket = [splitParent, splitChildA, splitChildB];
 
 console.log('\n=== 5. split parent excluded; children stay overlay disclosure members ===');

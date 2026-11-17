@@ -15,6 +15,7 @@ const path = require('path');
 const vm = require('vm');
 const { sourceText } = require('./test-source-text');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe.js'));
 
 let failures = 0;
@@ -58,7 +59,7 @@ function loadComposer() {
 const composer = loadComposer();
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -83,7 +84,7 @@ function syntheticPlan() {
         { id: 'shopping', label: 'Shopping', class: 'discretionary', from: ['Shopping', 'Personal'] },
       ],
     },
-  };
+  });
 }
 
 const debts = [
@@ -143,7 +144,7 @@ function recommend(packet) {
   return F.recommend(syntheticPlan(), AS_OF, {
     targetBuffer: 500,
     debts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, syntheticPlan()),
     representedEvents: [],
   });
 }

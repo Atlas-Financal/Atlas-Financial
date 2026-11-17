@@ -8,7 +8,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const F = require('../public/forecast');
-const fx = require('./fixtures/budget-surface-data');
+const LmGroups = require('./lm-groups-fixture.js');
+const lmGrouped = d => { if (d && d.plan) { d.plan = LmGroups.groupPlan(d.plan); const o = d.liveOverlay;
+  if (o && o.currentPeriodActuals) o.currentPeriodActuals = LmGroups.groupPacket({ ...o.currentPeriodActuals, categoryGroupIds: undefined }, d.plan); } return d; };
+const fx = (m => ({ ...m, canonical: (...a) => lmGrouped(m.canonical(...a)), served: (...a) => lmGrouped(m.served(...a)),
+  historical: (...a) => lmGrouped(m.historical(...a)), fundingHistorical: (...a) => lmGrouped(m.fundingHistorical(...a)) }))(require('./fixtures/budget-surface-data'));
 
 const ROOT = path.join(__dirname, '..');
 let failures = 0;

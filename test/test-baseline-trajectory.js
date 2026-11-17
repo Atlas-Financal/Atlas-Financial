@@ -126,7 +126,7 @@ function zeroSpendFixture(extraPlan, extraDebts) {
       categories: [
         {
           id: 'groceries', label: 'Groceries', class: 'essential',
-          from: ['Groceries'], plannedWeekly: 0,
+          historyCategories: ['Groceries'], plannedWeekly: 0,
         },
       ],
     },
@@ -197,11 +197,11 @@ function fixture(extraPlan, extraDebts) {
       categories: [
         {
           id: 'groceries', label: 'Groceries', class: 'essential',
-          from: ['Groceries'], plannedWeekly: 140,
+          historyCategories: ['Groceries'], plannedWeekly: 140,
         },
         {
           id: 'travel', label: 'Travel', class: 'discretionary',
-          from: ['Travel'],
+          historyCategories: ['Travel'],
         },
       ],
     },

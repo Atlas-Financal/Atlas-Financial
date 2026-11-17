@@ -6,6 +6,7 @@ const F = require(path.join(process.env.ATLAS_TEST_APP_ROOT || path.resolve(__di
 const input = require('./fixtures/savings-future-closing-data');
 const ownerModel = require('./fixtures/savings-owner-closing-data');
 const deficitModel = require('./fixtures/savings-deficit-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const copy = x => JSON.parse(JSON.stringify(x));
 function advice(x) {
   const before = JSON.stringify(x), result = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
@@ -249,6 +250,8 @@ test('bills and household deductions consume each dollar once before surplus is 
   x.opts.currentPeriodActuals.transactions.push({ id: 'food-receipt', date: '2026-10-03', amount: 100,
     pending: false, currency: 'CAD', atlasAccountId: 'chequing-a', accountRole: 'household-cash',
     savingsPostingEvidence: 'posted', categoryId: 'groceries', categoryLabel: 'Groceries', displayedPayee: 'Invented Superstore' });
+  x.plan = LmGroups.groupPlan(x.plan);
+  x.opts.currentPeriodActuals = LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan);
   const p = closing(advice(x), '2026-10-30');
   assert.equal(p.status, 'ready', p.reason);
   // Only the first period's remainder has landed by this close; the second

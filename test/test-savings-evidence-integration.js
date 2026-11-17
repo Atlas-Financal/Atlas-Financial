@@ -12,6 +12,7 @@ const { once } = require('node:events');
 const { state, AS_OF, withoutDiagnostics } = require('./test-savings-evidence');
 const F = require('../public/forecast');
 const O = require('../scripts/provider-observe');
+const LmGroups = require('./lm-groups-fixture.js');
 const ROOT = path.join(__dirname, '..');
 const PASS = 'synthetic-savings-password';
 const SECRET = 'synthetic-savings-session-secret';
@@ -36,7 +37,8 @@ function fixture(sameDate = false) {
       payee: 'Synthetic grocer', category_id: 11, is_pending: true, status: 'unreviewed',
       plaid_metadata: { transaction_id: 'synthetic-pending-identity' } }],
   };
-  return { data, map, payload };
+  data.plan = LmGroups.groupPlan(data.plan);
+  return { data, map, payload: LmGroups.groupPayload(payload, data.plan) };
 }
 function addPair(payload, directed = false) {
   payload.transactions.push({ ...payload.transactions[0], id: 91002, is_pending: false, status: 'cleared',

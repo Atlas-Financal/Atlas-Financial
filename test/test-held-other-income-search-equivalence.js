@@ -35,6 +35,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Module = require('node:module');
 const World = require('./fixtures/held-other-income-search-world');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const FILE = path.join(ROOT, 'public', 'forecast.js');
@@ -150,6 +151,8 @@ let walkWorlds = 0, walkReuses = 0, walkNonEmptyReuses = 0, walkHeld = 0, walkFo
 for (const [label, world, extra, expectHeld] of CASES) {
   console.log('\n=== ' + label + ' ===');
   const data = World.build(Object.assign({ asOf: AS_OF }, world));
+  data.plan = LmGroups.groupPlan(data.plan);
+  data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(data.liveOverlay.currentPeriodActuals, data.plan);
   const before = outcome(reference, data, AS_OF, extra);
   const after = outcome(shipped, data, AS_OF, extra);
   const checked = outcome(checking, data, AS_OF, extra);
@@ -220,6 +223,8 @@ console.log('\n=== a call without a holder is untouched ===');
   // Forecast.simulate is not a payday search: no holder exists, so the walk
   // computes the hold set itself and equals the reference.
   const data = World.build({ asOf: AS_OF, rebate: REBATE, receipts: [{ id: 'gift', date: '2026-11-08', amount: 50 }] });
+  data.plan = LmGroups.groupPlan(data.plan);
+  data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(data.liveOverlay.currentPeriodActuals, data.plan);
   const walk = F => { reset(); const d = structuredClone(data);
     return [F.simulate(d.plan, AS_OF, { horizonDays: 28, weeklyVariable: 0,
       currentPeriodActuals: d.liveOverlay.currentPeriodActuals }), globalThis.__atlasHeldProof.fresh]; };

@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const Forecast = require('../public/forecast.js');
 const Observe = require('../scripts/provider-observe.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const DATA_PATH = path.join(ROOT, 'data.json');
@@ -60,22 +61,23 @@ ok(near(events.reduce((sum, event) => sum + event.amount, 0), -32.53),
 // candidate check below shows it can), it is that bill, counted once and
 // never household spending. With no represented match the label alone is
 // Other spending that needs confirmation, never nowhere.
-const affirmTx = {
+const groupedPlan = LmGroups.groupPlan(data.plan);
+const affirmTx = LmGroups.groupTx({
   id: 'tx-affirm-final',
   date: '2026-09-21',
   amount: 32.53,
   pending: false,
   categoryLabel: 'Personal loan payment',
   accountRole: 'household-cash',
-};
-const cls = Forecast.classifyCurrentPeriodTransaction(affirmTx, data.plan, {
+}, groupedPlan);
+const cls = Forecast.classifyCurrentPeriodTransaction(affirmTx, groupedPlan, {
   currentPeriodActuals: { transactions: [affirmTx],
     representedActuals: [{ id: 'affirm-final', date: '2026-09-21', transactionId: 'tx-affirm-final' }] },
 });
 ok(cls.kind === 'bill' && cls.householdSpending === false,
   'the represented final Affirm payment is its planned bill (debt service), not variable spending',
   JSON.stringify(cls));
-const bare = Forecast.classifyCurrentPeriodTransaction(affirmTx, data.plan);
+const bare = Forecast.classifyCurrentPeriodTransaction(affirmTx, groupedPlan);
 ok(bare.householdSpending === true && bare.needsConfirmation === true,
   'an unrepresented "Personal loan payment" row is Other spending needing confirmation, not dropped',
   JSON.stringify(bare));

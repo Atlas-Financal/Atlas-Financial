@@ -10,7 +10,8 @@
  * `node test/test-household-target-removed.js`
  */
 const F = require('../public/forecast.js');
-const liveData = require('../data.json');
+const LmGroups = require('./lm-groups-fixture.js');
+const liveData = (d => ({ ...d, plan: LmGroups.groupPlan(d.plan) }))(require('../data.json'));
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -104,7 +105,7 @@ function budgetCats(opts) {
     { id: 'fuel', label: 'Fuel', class: 'essential',
       plannedPayday: 325, plannedMonthly: null, ownerLine: 'Fuel' },
     { id: 'household', label: 'Household supplies & utilities', class: 'essential',
-      from: ['Household'], plannedMonthly: 0, ownerLine: 'Household',
+      historyCategories: ['Household'], plannedMonthly: 0, ownerLine: 'Household',
       targetSource: 'owner-stated-2026-09-04' },
     { id: 'pets', label: 'Pets', class: 'essential',
       plannedPayday: 100, plannedMonthly: null, ownerLine: 'Dog food',
@@ -132,7 +133,7 @@ function budgetCats(opts) {
 }
 
 function syntheticPlan(anchor, opts) {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500, windowDays: 91 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -148,7 +149,7 @@ function syntheticPlan(anchor, opts) {
     commitments: [],
     obligations: [],
     budget: { categories: budgetCats(opts) },
-  };
+  });
 }
 
 function recommendOn(plan, asOf) {
@@ -235,7 +236,7 @@ console.log('\n=== 6. Household historical/actual classification is intact ===')
     displayedPayee: 'DOLLARAMA',
     originalMerchant: 'DOLLARAMA',
   };
-  const cls = F.classifyCurrentPeriodTransaction(tx, noHold, {});
+  const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, noHold), noHold, {});
   ok(cls && cls.kind === 'spend' && cls.categoryId === 'household',
     'a Household-labelled tx still classifies as household',
     cls && `${cls.kind}/${cls.categoryId}/${cls.includeReason || cls.reason}`);
@@ -250,7 +251,7 @@ console.log('\n=== 6. Household historical/actual classification is intact ===')
     displayedPayee: 'DOLLARAMA',
     originalMerchant: 'DOLLARAMA',
   };
-  const liveCls = F.classifyCurrentPeriodTransaction(liveTx, liveData.plan, {});
+  const liveCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(liveTx, liveData.plan), liveData.plan, {});
   ok(liveCls && liveCls.kind === 'spend' && liveCls.categoryId === 'household',
     'live data.json still classifies Household actuals as household',
     liveCls && `${liveCls.kind}/${liveCls.categoryId}`);

@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const fixture = require('./fixtures/card-purchase-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 let checks = 0;
 const eq = (actual, expected, message) => { assert.deepEqual(actual, expected, message); checks++; };
 function seed() {
@@ -14,8 +15,9 @@ function seed() {
   return fixture.confirm(x, 'invented-explicit-allocation', 80002, 80003, [[80001, 80]]);
 }
 function run(x) {
+  x.data.plan = LmGroups.groupPlan(x.data.plan); x.payload = LmGroups.groupPayload(x.payload, x.data.plan);
   const before = JSON.stringify(x), observed = Live.fromObservation(x);
-  const data = observed.data, packet = data.liveOverlay.currentPeriodActuals;
+  const data = observed.data, packet = LmGroups.groupPacket({ ...data.liveOverlay.currentPeriodActuals, categoryGroupIds: undefined }, data.plan);
   const options = { debts: data.debts, currentPeriodActuals: packet };
   const advice = F.recommend(data.plan, x.asOf, options);
   const financialBefore = JSON.stringify(advice);

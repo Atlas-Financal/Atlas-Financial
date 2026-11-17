@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -67,7 +68,7 @@ const CASH_LOCATIONS = new Set(['chequing-a', 'chequing-b', 'savings']);
 const TFR_RE = /\b([A-Z]{2}\d{3})\s+TFR-(TO|FR)\b/i;
 
 function paydayPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 0 },
     startingCash: {
       amount: BILLS + WEEKLY + SAVINGS,
@@ -106,11 +107,11 @@ function paydayPlan() {
         },
       ],
     },
-  };
+  });
 }
 
 function packet(txs) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: PAYDAY,
     coverageStart: PAYDAY,
@@ -118,7 +119,7 @@ function packet(txs) {
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
     representedActuals: [],
-  };
+  }, paydayPlan());
 }
 
 function classifyOpts(txs) {
@@ -389,7 +390,7 @@ console.log('=== B. Internal movements explain location; leftover is unchanged =
   const mixed = billsToWeekly.concat([grocery]);
   const mixedAdvice = recommend(plan, mixed);
   const mixedExpl = mixedAdvice.defaultView.operatingCashExplanation;
-  const groceryCls = F.classifyCurrentPeriodTransaction(grocery, plan, classifyOpts(mixed));
+  const groceryCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(grocery, plan), plan, classifyOpts(mixed));
   const action = F.currentPeriodAction(plan, PAYDAY, classifyOpts(mixed));
   const groceryCat = (action.categories || []).find(c => c && c.id === 'groceries');
   ok(groceryCls.kind === 'spend' && groceryCls.categoryId === 'groceries'

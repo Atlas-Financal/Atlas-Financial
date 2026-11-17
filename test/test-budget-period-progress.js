@@ -9,7 +9,11 @@ const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice)
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const F=require('../public/forecast');
-const fx=require('./fixtures/budget-surface-data');
+const LmGroups=require('./lm-groups-fixture.js');
+const lmGrouped=d=>{if(d&&d.plan){d.plan=LmGroups.groupPlan(d.plan);const o=d.liveOverlay;
+  if(o&&o.currentPeriodActuals)o.currentPeriodActuals=LmGroups.groupPacket({...o.currentPeriodActuals,categoryGroupIds:undefined},d.plan);}return d;};
+const fx=(m=>({...m,canonical:(...a)=>lmGrouped(m.canonical(...a)),served:(...a)=>lmGrouped(m.served(...a)),
+  fundingHistorical:(...a)=>lmGrouped(m.fundingHistorical(...a))}))(require('./fixtures/budget-surface-data'));
 const clone=x=>JSON.parse(JSON.stringify(x));
 const asOf='2026-08-20',start='2026-08-14',end='2026-08-27';
 const observed={observationAsOf:asOf,coverageStart:start,coverageThrough:asOf,
@@ -310,7 +314,8 @@ const stripS1Sweep=(current,baseline)=>{
 const totalFixture=require('./fixtures/other-period-target');
 for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   [137.26,{pendingOther:17.43}],[137.26,{pendingCoverage:'unknown'}]]){
-  const x=totalFixture.build(spent,totalFixture.asOf,opts),input=JSON.stringify(x);
+  const x=totalFixture.build(spent,totalFixture.asOf,opts);x.plan=x.data.plan=LmGroups.groupPlan(x.plan);
+  x.packet=x.data.liveOverlay.currentPeriodActuals=LmGroups.groupPacket(x.packet,x.plan);const input=JSON.stringify(x);
   const args={debts:[],currentPeriodActuals:x.packet};
   const currentAdvice=stripPaydaySchedule(stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);

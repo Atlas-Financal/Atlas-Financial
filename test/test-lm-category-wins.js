@@ -31,6 +31,7 @@
  *      "bill-label" or "debt-payment" result with no planned coverage fails.
  */
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let checks = 0, failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -44,7 +45,7 @@ const roundCent = n => Math.round((Number(n) || 0) * 100) / 100;
 const AS_OF = '2026-09-01';
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }] },
     opening: { asOf: AS_OF, priorAsOf: '2026-08-28', representedEvents: [] },
@@ -63,8 +64,10 @@ function syntheticPlan() {
       ],
       excluded: [{ from: 'Business', why: 'invented business line' }],
     },
-  };
+  });
 }
+const classifyGrouped = (t, plan, ...rest) =>
+  F.classifyCurrentPeriodTransaction(LmGroups.groupTx(t, plan), plan, ...rest);
 
 const debts = [
   { id: 'cashback', label: 'Invented card', secured: false, structure: 'Revolving — test',
@@ -72,12 +75,12 @@ const debts = [
 ];
 
 function packet(txs) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF, coverageStart: '2026-07-01', coverageThrough: AS_OF,
     pendingCoverage: 'complete', transactionCoverage: 'complete',
     representedActuals: [], transactions: txs,
-  };
+  }, syntheticPlan());
 }
 function current(txs, plan) {
   const advice = F.recommend(plan || syntheticPlan(), AS_OF, {
@@ -211,7 +214,7 @@ console.log('\n=== 3. rows that used to vanish land in their row or in Other ===
     const plan = withMortgage(syntheticPlan());
     const tx = debit('tx-mort-planned', 'Mortgage', { amount: 1600 });
     const p = current([tx], plan);
-    const cls = F.classifyCurrentPeriodTransaction(tx, plan, { currentPeriodActuals: packet([tx]) });
+    const cls = classifyGrouped(tx, plan, { currentPeriodActuals: packet([tx]) });
     ok(rowsHolding(p, tx.id).length === 0 && cls.kind === 'bill',
       'a Mortgage row under a planned mortgage payment is that payment, not spending', cls.kind + '/' + cls.reason);
   }
@@ -225,7 +228,7 @@ console.log('\n=== 3. rows that used to vanish land in their row or in Other ===
     const tx = debit('tx-cardpay-' + what.slice(0, 6).replace(/\W/g, ''), 'x', extra);
     const plan = syntheticPlan();
     const p = current([tx], plan);
-    const cls = F.classifyCurrentPeriodTransaction(tx, plan, { currentPeriodActuals: packet([tx]) });
+    const cls = classifyGrouped(tx, plan, { currentPeriodActuals: packet([tx]) });
     ok(rowsHolding(p, tx.id).length === 0 && cls.kind === 'card-payment',
       what + ' stays a card payment, not spending', cls.kind + '/' + cls.reason);
   }
@@ -274,7 +277,7 @@ console.log('\n=== 4. conservation: every posted household debit lands in exactl
     for (const tx of txs) {
       total++;
       const rows = rowsHolding(p, tx.id);
-      const cls = F.classifyCurrentPeriodTransaction(tx, plan, opts);
+      const cls = classifyGrouped(tx, plan, opts);
       const owner = expectedOwner(tx, plan);
       const once = owner === null ? rows.length === 1 : (rows.length === 0 && cls.kind === owner);
       if (once) placedOnce++;

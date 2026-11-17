@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('../scripts/provider-observe.js');
 
 let failures = 0;
@@ -182,7 +183,7 @@ console.log('\n=== 4. note follows displayedPayee eligibility ===');
 
 console.log('\n=== 5. Forecast carries the field display-only; figures and classification do not move ===');
 {
-  const plan = {
+  const plan = LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }] },
     opening: { asOf: '2026-08-28', representedEvents: [] },
@@ -194,7 +195,7 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
       { id: 'amanda-guilt-free', label: 'Amanda guilt-free spending', class: 'discretionary', plannedPayday: 150, ownerLine: 'Amanda guilt-free spending' },
       { id: 'shopping', label: 'Shopping', class: 'discretionary', from: ['Shopping', 'Personal'] },
     ] },
-  };
+  });
   const mk = note => [
     { id: 'tx-a', date: '2026-08-29', amount: 84.32, pending: false, categoryLabel: 'Groceries',
       accountRole: 'household-cash', displayedPayee: 'Save-On-Foods', originalMerchant: 'Save-On-Foods', ...(note ? { displayedNote: note } : {}) },
@@ -203,8 +204,8 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
   ];
   const run = txs => F.recommend(plan, '2026-09-01', {
     targetBuffer: 500, debts: [],
-    currentPeriodActuals: { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-09-01',
-      coverageStart: '2026-07-01', coverageThrough: '2026-09-01', pendingCoverage: 'complete', transactionCoverage: 'complete', transactions: txs },
+    currentPeriodActuals: LmGroups.groupPacket({ schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-09-01',
+      coverageStart: '2026-07-01', coverageThrough: '2026-09-01', pendingCoverage: 'complete', transactionCoverage: 'complete', transactions: txs }, plan),
   });
   const strip = value => JSON.stringify(value, (k, v) => (k === 'displayedNote' ? undefined : v));
   const base = run(mk(null));
@@ -221,7 +222,7 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
   ok(r2 && r2.recon && r2.recon[0] && r2.recon[0].displayedNote === 'Disney+', 'recon row carries displayedNote through reconTxFrom');
   ok(groceryRow && groceryRow.recon[0] && !('displayedNote' in groceryRow.recon[0]),
     'recon row without a note has no displayedNote key');
-  const cls = n => F.classifyCurrentPeriodTransaction(mk(n)[0], plan);
+  const cls = n => F.classifyCurrentPeriodTransaction(LmGroups.groupTx(mk(n)[0], plan), plan);
   ok(JSON.stringify(cls(null)) === JSON.stringify(cls('amanda')) && JSON.stringify(cls(null)) === JSON.stringify(cls('Disney+')),
     'classification is unchanged by displayedNote, including an owner-tag value');
   const fsrc = read('public/forecast.js');
@@ -249,8 +250,8 @@ console.log('\n=== 6. rendering under the payee, escaped ===');
     grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
   ].join('\n');
   const composer = vm.runInNewContext(`${source}\n({ calendarBudgetHtml });`, { Forecast: F, DisplayName: require('../public/display-name.js') });
-  const plan = { defaults: { targetBuffer: 500 }, budget: { categories: [
-    { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } };
+  const plan = LmGroups.groupPlan({ defaults: { targetBuffer: 500 }, budget: { categories: [
+    { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } });
   const period = recon => ({
     id: 'this-pay-period', role: 'active', start: '2026-08-28', end: '2026-09-10',
     spendingCycle: { start: '2026-08-28', end: '2026-09-10', rangeLabel: '28 Aug – 10 Sep' },
@@ -280,7 +281,7 @@ console.log('\n=== 6. rendering under the payee, escaped ===');
   overlayPeriod.householdBudget[0].spent = null;
   overlayPeriod.householdBudget[0].recon = [];
   const overlayHtml = composer.calendarBudgetHtml(overlayPeriod,
-    { applied: true, currentPeriodActuals: { transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] } }, plan);
+    { applied: true, currentPeriodActuals: LmGroups.groupPacket({ transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] }, plan) }, plan);
   ok(/household-budget-tx-payee">Disney\+/.test(overlayHtml), 'overlay Spent drill-down shows the item too');
 }
 

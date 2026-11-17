@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const F = require('../public/forecast');
 const fx = require('./fixtures/bills-period-end-balance-data');
+const LmGroups = require('./lm-groups-fixture.js');
 let checks = 0;
 const cases = [];
 const check = (condition, label) => { assert(condition, label); checks++; };
@@ -13,6 +14,7 @@ const canonicalBefore = hash(require.resolve('../data.json'));
 const run = (name, change, expected, reason, alignCash = true) => {
   const x = fx.fixture(); if (change) change(x);
   if (alignCash) x.opts.observedCash.accounts.find(r => r.id === 'chequing-a').value = x.plan.startingCash.breakdown[0].value;
+  x.plan = LmGroups.groupPlan(x.plan); x.opts.currentPeriodActuals = LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan);
   const before = JSON.stringify(x);
   cases.push({ name, input: JSON.parse(before), expected });
   const result = F.billsAccountPeriodBalance(x.plan, x.asOf, x.opts);

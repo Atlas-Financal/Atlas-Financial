@@ -18,6 +18,7 @@
  */
 const F = require('../public/forecast');
 const fx = require('./fixtures/bills-period-end-balance-data');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -39,6 +40,8 @@ const OVER_CLOSE = (BILLS - 100) + INCOME - BILL - COMMIT - 29.27;   // 930.75
 function close(change) {
   const x = fx.requirementsFixture();
   if (change) change(x);
+  x.plan = LmGroups.groupPlan(x.plan);
+  x.opts.currentPeriodActuals = LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan);
   x.opts.observedCash.accounts.find(r => r.id === 'chequing-a').value = x.plan.startingCash.breakdown[0].value;
   return F.billsAccountPeriodBalance(x.plan, x.asOf, x.opts);
 }

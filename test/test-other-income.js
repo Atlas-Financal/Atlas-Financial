@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -97,7 +98,7 @@ const debts = [
 ];
 
 function paydayPlan(extraIncome) {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 0 },
     startingCash: {
       amount: OPENING_CASH,
@@ -134,7 +135,7 @@ function paydayPlan(extraIncome) {
         },
       ],
     },
-  };
+  });
 }
 
 function actualsPacket(txs, representedActuals) {
@@ -157,7 +158,7 @@ function recommend(plan, txs, extraOpts) {
   return F.recommend(plan, PAYDAY, Object.assign({
     targetBuffer: 0,
     debts,
-    currentPeriodActuals: actualsPacket(txs || []),
+    currentPeriodActuals: LmGroups.groupPacket(actualsPacket(txs || []), plan),
   }, extraOpts || {}));
 }
 
@@ -278,10 +279,10 @@ console.log('\n=== 4. Regular salary is not duplicated into Other Income ===');
       { id: 'payroll', date: PAYDAY },
       { id: 'amandaPayday', date: PAYDAY },
     ],
-    currentPeriodActuals: actualsPacket([seaspan, amandaXfer], [
+    currentPeriodActuals: LmGroups.groupPacket(actualsPacket([seaspan, amandaXfer], [
       { id: 'payroll', date: PAYDAY, actual: SALARY_DEPOSIT, transactionId: 'tx-seaspan', postedOn: PAYDAY },
       { id: 'amandaPayday', date: PAYDAY, actual: AMANDA, transactionId: 'tx-amanda-xfer', postedOn: PAYDAY },
-    ]),
+    ]), paydayPlan()),
   });
   const active = period(advice.defaultView, 'this-pay-period');
   const items = (active.otherIncome && active.otherIncome.items) || [];
@@ -395,7 +396,7 @@ console.log('\n=== 8. After cashAsOf advances, expected Other Income still count
     targetBuffer: 0,
     debts,
     paydaySnapshot: plan.opening.paydaySnapshot,
-    currentPeriodActuals: actualsPacket([observed]),
+    currentPeriodActuals: LmGroups.groupPacket(actualsPacket([observed]), plan),
   });
   const active = period(advice.defaultView, 'this-pay-period');
   const items = (active.otherIncome && active.otherIncome.items) || [];

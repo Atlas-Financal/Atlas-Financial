@@ -103,7 +103,7 @@ for (const id of RETIRED_HOLD_IDS) {
   ok(h && h.ownerLine === 'Household' && h.targetSource === 'owner-stated-2026-09-04',
     'household $0 baseline names the 2026-09-04 owner instruction',
     h ? `${h.ownerLine}/${h.targetSource}` : 'missing');
-  ok(h && Array.isArray(h.from) && h.from.indexOf('Household') >= 0,
+  ok(h && Array.isArray(h.historyCategories) && h.historyCategories.indexOf('Household') >= 0,
     'household still maps the Household classification label');
   ok(h && /plannedMonthly 0/.test(h.why || '')
       && /2026-09-04/.test(h.why || '')

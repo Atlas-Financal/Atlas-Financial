@@ -23,6 +23,15 @@ const ok = (cond, label, detail = '') => {
 const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const money = n => Number(n).toFixed(2);
 
+// Historical plan (28d08a12) predates the rename: its budget rows' `from`
+// alias list is now `historyCategories`, read by the historical average only.
+const renameFrom = row => {
+  if (!row || row.from === undefined) return row;
+  const { from, ...kept } = row;
+  return { ...kept, historyCategories: [].concat(from) };
+};
+data.plan.budget.categories = (data.plan.budget.categories || []).map(renameFrom);
+if (data.plan.budget.excluded) data.plan.budget.excluded = data.plan.budget.excluded.map(renameFrom);
 const plan = data.plan;
 const asOf = data.meta.asOf;
 const facts = sourceText(fs.readFileSync(path.join(__dirname, '..', 'docs/ACCOUNT_FACTS.md'), 'utf8'));

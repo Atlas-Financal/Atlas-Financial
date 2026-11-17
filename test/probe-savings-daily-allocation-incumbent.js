@@ -3,7 +3,14 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const F = require('../public/forecast');
-const { fixture, transfer, clone, monthBoundaryFixture } = require('./fixtures/savings-daily-allocation-contract');
+const LmGroups = require('./lm-groups-fixture.js');
+const Contract = require('./fixtures/savings-daily-allocation-contract');
+const lmGrouped = input => { input.plan = LmGroups.groupPlan(input.plan);
+  if (input.opts && input.opts.currentPeriodActuals) input.opts.currentPeriodActuals = LmGroups.groupPacket(input.opts.currentPeriodActuals, input.plan);
+  return input; };
+const { transfer, clone } = Contract;
+const fixture = (...a) => lmGrouped(Contract.fixture(...a));
+const monthBoundaryFixture = (...a) => lmGrouped(Contract.monthBoundaryFixture(...a));
 test('native Budget selectors publish 200 income once, 40 bills, 80 budget and 80 surplus', () => {
   const input = fixture(), before = JSON.stringify(input);
   const p = F.recommend(input.plan, input.asOf, input.opts).payPeriodViews.find(p => p.timelineRole === 'current');

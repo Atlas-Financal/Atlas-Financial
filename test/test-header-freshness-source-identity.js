@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -71,7 +72,7 @@ const GROCERY = 42.10;
 const GROCERY_PLANNED = 450;
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -89,10 +90,10 @@ function syntheticPlan() {
         { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 225, ownerLine: 'Groceries' },
       ],
     },
-  };
+  });
 }
 
-const septemberTx = {
+const septemberTx = LmGroups.groupTx({
   id: 'tx-groc-sep',
   date: '2026-09-12',
   amount: GROCERY,
@@ -101,7 +102,7 @@ const septemberTx = {
   accountRole: 'household-cash',
   displayedPayee: 'Save-On-Foods',
   originalMerchant: 'Save-On-Foods',
-};
+}, syntheticPlan());
 
 function mixedOverlay(extraActuals) {
   return {

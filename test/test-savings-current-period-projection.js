@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const F = require(path.join(process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..'), 'public/forecast'));
 const futureFixture = require('./fixtures/savings-future-closing-data');
+const LmGroups = require('./lm-groups-fixture.js');
 
 function fixture({ asOf = '2026-10-19', state = 'expected', spent = 0,
   budget = 0, primaryPayroll = false, goalDate = null } = {}) {
@@ -63,7 +64,9 @@ function fixture({ asOf = '2026-10-19', state = 'expected', spent = 0,
 }
 function advice(x) {
   const before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  const plan = LmGroups.groupPlan(x.plan);
+  const a = F.recommend(plan, x.asOf, { ...x.opts,
+    currentPeriodActuals: LmGroups.groupPacket(x.opts.currentPeriodActuals, plan), weeklyVariable: 0, debts: [] });
   assert.equal(JSON.stringify(x), before, 'no source balances, dates or actuals are rewritten');
   return a;
 }

@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -40,7 +41,7 @@ const CASH_LOCATIONS = new Set(['chequing-a', 'chequing-b', 'savings']);
 const TFR_RE = /\b([A-Z]{2}\d{3})\s+TFR-(TO|FR)\b/i;
 
 function paydayPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 0 },
     startingCash: {
       amount: 1000,
@@ -79,11 +80,11 @@ function paydayPlan() {
         },
       ],
     },
-  };
+  });
 }
 
 function packet(txs) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: PAYDAY,
     coverageStart: PAYDAY,
@@ -91,7 +92,7 @@ function packet(txs) {
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
     representedActuals: [],
-  };
+  }, paydayPlan());
 }
 
 function classifyOpts(txs) {
@@ -505,7 +506,7 @@ console.log('=== 8. Genuine merchant spending remains Household Budget / Other S
       id: 'tx-move-in', dir: 'FR', amount: BILLS_TO_WEEKLY,
       atlasAccountId: 'chequing-b', payee: 'ST010 TFR-FR BILLSA',
     }),
-    {
+    LmGroups.groupTx({
       id: 'tx-grocery',
       date: PAYDAY,
       amount: GROCERY,
@@ -515,7 +516,7 @@ console.log('=== 8. Genuine merchant spending remains Household Budget / Other S
       atlasAccountId: 'chequing-b',
       displayedPayee: 'Save-On-Foods',
       originalMerchant: 'Save-On-Foods',
-    },
+    }, paydayPlan()),
   ];
   const independentSpend = independentGrocerySpend(txs);
   const independentMove = independentPairs(txs);

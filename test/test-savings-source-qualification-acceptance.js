@@ -9,6 +9,7 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const F = require('../public/forecast');
 const O = require('../scripts/provider-observe');
 const fx = require('./fixtures/savings-v2-observation-data');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const DATE_HOLD = 'Both savings accounts require current, clear CAD cents evidence.';
 const PENDING_HOLD = 'Pending savings movement withholds backing and contributions; known posted stock is retained.';
@@ -18,9 +19,12 @@ function publish(input) {
   const before = JSON.stringify(input);
   const report = O.observe({ provider: 'lunchmoney', ...input });
   const reportBefore = JSON.stringify(report);
-  const plan = { ...input.data.plan, savingsPoolObservation: report.savingsPools };
+  const plan = { ...LmGroups.groupPlan(input.data.plan), savingsPoolObservation: report.savingsPools };
+  const overlay = input.data.liveOverlay && input.data.liveOverlay.currentPeriodActuals
+    ? { ...input.data.liveOverlay, currentPeriodActuals: LmGroups.groupPacket(input.data.liveOverlay.currentPeriodActuals, plan) }
+    : input.data.liveOverlay;
   const advice = F.recommend(plan, input.data.meta.asOf,
-    { weeklyVariable: 40, debts: input.data.debts, ...input.data.liveOverlay });
+    { weeklyVariable: 40, debts: input.data.debts, ...overlay });
   assert.equal(JSON.stringify(input), before, 'no source dates or financial inputs are rewritten');
   assert.equal(JSON.stringify(report), reportBefore, 'Forecast does not upgrade the observer packet');
   return { input, report, advice, funding: advice.savingsFunding };

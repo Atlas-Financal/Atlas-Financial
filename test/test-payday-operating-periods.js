@@ -8,6 +8,7 @@
  * `node test/test-payday-operating-periods.js`
  */
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -66,7 +67,7 @@ const debts = [
 ];
 
 function septemberPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{
@@ -128,7 +129,7 @@ function septemberPlan() {
         { id: 'fuel', label: 'Fuel', class: 'essential', plannedPayday: 325 },
       ],
     },
-  };
+  });
 }
 
 function period(view, id) {
@@ -335,14 +336,14 @@ console.log('\n=== 6. Current-period actuals stay inside the payday window ===')
   ];
   const advice = F.recommend(plan, AS_OF, {
     targetBuffer: 500, debts,
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       schema: 'atlas-current-period-actuals/v1',
       observationAsOf: AS_OF,
       coverageStart: '2026-08-01',
       coverageThrough: AS_OF,
       transactionCoverage: 'complete', pendingCoverage: 'complete',
       transactions: txs,
-    },
+    }, plan),
   });
   const active = period(advice.defaultView, 'this-pay-period');
   const groceries = (active.householdBudget || []).find(r => r.id === 'groceries');

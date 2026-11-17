@@ -6,7 +6,14 @@
 // 2026-09-18, Bills 500, card debt 400, groceries allowance 150, a 25 card
 // minimum due on the as-of.
 const assert = require('node:assert/strict');
-const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+const LmGroups = require('./lm-groups-fixture.js');
+const AggregateWorld = require('./fixtures/card-coverage-aggregate-world');
+const world = (...a) => { const x = AggregateWorld.world(...a); x.data.plan = LmGroups.groupPlan(x.data.plan);
+  x.payload = LmGroups.groupPayload(x.payload, x.data.plan); return x; };
+const run = (x, editPacket) => AggregateWorld.run(x, packet => {
+  Object.assign(packet, LmGroups.groupPacket({ ...packet, categoryGroupIds: undefined }, x.data.plan));
+  if (editPacket) editPacket(packet);
+});
 const ready = (state, reserve, why) => {
   assert.equal(state.coverage.status, 'ready', why + ': ' + JSON.stringify(state.coverage.issues));
   assert.equal(state.coverage.reservedCash, reserve, why + ': reserve');

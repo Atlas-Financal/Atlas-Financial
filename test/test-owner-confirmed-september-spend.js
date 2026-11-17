@@ -28,6 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe.js'));
 
 const ROOT = path.join(__dirname, '..');
@@ -77,7 +78,9 @@ ok(near(JOINS_FUEL, 95) && near(JOINS_BILLS, 122.72) && near(LEAVES_OTHER, 217.7
   'independent cents: fuel pair $95.00, Spotify+Noble $122.72, shared rows leave $36.83 in Other and $143.40 in Fuel under the 2026-10-14 rules');
 
 function liveData() {
-  return load('data.json');
+  const data = load('data.json');
+  data.plan = LmGroups.groupPlan(data.plan);
+  return data;
 }
 
 function identityDoc() {
@@ -95,7 +98,7 @@ function accountMap() {
 }
 
 function payload(asOf, txs) {
-  return {
+  return LmGroups.groupPayload({
     provider: 'lunchmoney',
     fetchedAt: asOf + 'T18:00:00.000Z',
     transactionWindow: {
@@ -134,7 +137,7 @@ function payload(asOf, txs) {
       { id: SHOP_CAT, name: 'Shopping', is_income: false, exclude_from_totals: false },
     ],
     transactions: txs || [],
-  };
+  }, liveData().plan);
 }
 
 function observeAt(asOf, txs) {

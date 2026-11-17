@@ -18,7 +18,14 @@
 // now = 395 - 0 (covered minimum, not deducted again) - 70 (groceries left)
 // - 0 (reserve) = 325. Exactly one payment is published.
 const assert = require('node:assert/strict');
-const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+const { world: rawWorld, run: rawRun } = require('./fixtures/card-coverage-aggregate-world');
+const LmGroups = require('./lm-groups-fixture.js');
+// The invented world with its invented categories laid out in invented groups.
+const world = (...args) => { const x = rawWorld(...args); x.data.plan = LmGroups.groupPlan(x.data.plan); return x; };
+const run = (x, editPacket) => rawRun(x, packet => {
+  Object.assign(packet, LmGroups.groupPacket(packet, x.data.plan));
+  if (editPacket) editPacket(packet);
+});
 
 const transfer = { category_name: 'Transfer' };
 const purchase = ['card', 80, null, 'purchase'];

@@ -21,6 +21,7 @@
  * `node test/test-lunchmoney-category-over-merchant.js`
  */
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -28,12 +29,19 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
 };
 
-const plan = { budget: { categories: [
+const plan = LmGroups.groupPlan({ budget: { categories: [
   { id: 'groceries', label: 'Groceries', from: ['Groceries'], plannedPayday: 100 },
   { id: 'fuel', label: 'Fuel', from: ['Fuel'], plannedPayday: 100 },
   { id: 'pets', label: 'Dog food', from: ['Pets'], plannedMonthly: 50 },
   { id: 'restaurants', label: 'Eating out', from: ['Restaurants', 'Fast Food'], plannedPayday: 100 },
-] } };
+] } });
+// Lay a requirements fixture's plan and packet out in invented groups, after
+// the test has finished building them.
+const lmGroup = x => {
+  x.plan = x.data.plan = LmGroups.groupPlan(x.plan);
+  x.opts.currentPeriodActuals = x.data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan);
+  return x;
+};
 
 function packetTx(categoryLabel, flags, over) {
   return Object.assign({
@@ -46,7 +54,7 @@ function packetTx(categoryLabel, flags, over) {
     confirmedFuel: false, ownerConfirmedFuel: false,
   }, flags || {}, over || {});
 }
-const classify = tx => F.classifyCurrentPeriodTransaction(tx, plan, {});
+const classify = tx => F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan), plan, {});
 const shape = cls => JSON.stringify({ kind: cls.kind, categoryId: cls.categoryId, needs: cls.needsConfirmation === true });
 
 console.log('=== 1. explicit Lunch Money categories are not turned into Fuel by merchant ===');
@@ -136,6 +144,7 @@ console.log('\n=== 7. an explicit label never drops a merchant-rule row from the
         fx.tx('inv-fuel-identity', 'chequing-b', '2026-08-19', 180.75, label, { confirmedFuel: true }));
     }
     x.opts.observedCash.accounts.find(r => r.id === 'chequing-a').value = x.plan.startingCash.breakdown[0].value;
+    lmGroup(x);
     return { x, r: F.billsAccountPeriodBalance(x.plan, x.asOf, x.opts) };
   };
   const near = (a, b) => typeof a === 'number' && Math.abs(a - b) < 0.005;
@@ -190,6 +199,7 @@ console.log('\n=== 8. lead ruling: Spent is conserved, no row is dropped, the ho
       x.opts.currentPeriodActuals.transactions.push(
         fx.tx('inv-fuel-identity', 'chequing-b', '2026-08-19', 180.75, label, { confirmedFuel: true }));
     }
+    lmGroup(x);
     const rec = F.recommend(x.plan, x.asOf, Object.assign({ targetBuffer: 0 }, x.opts));
     const period = (rec.defaultView.calendarPeriods || []).find(r => r.id === 'this-pay-period');
     const items = (period && period.householdBudget) || [];
@@ -247,6 +257,7 @@ console.log('\n=== 9. no visible Budget row: an explicit label still keeps the m
       x.opts.currentPeriodActuals.transactions.push(fx.tx('inv-no-row', account, '2026-08-19', 180.75, label, flags));
     }
     x.opts.observedCash.accounts.find(r => r.id === 'chequing-a').value = x.plan.startingCash.breakdown[0].value;
+    lmGroup(x);
     const rec = F.recommend(x.plan, x.asOf, Object.assign({ targetBuffer: 0 }, x.opts));
     const period = (rec.defaultView.calendarPeriods || []).find(r => r.id === 'this-pay-period');
     const items = (period && period.householdBudget) || [];

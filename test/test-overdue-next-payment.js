@@ -29,6 +29,7 @@ const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
 const Live = require('../scripts/live-plan.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const read = rel => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -227,7 +228,9 @@ console.log('\n=== 5. A past-due minimum the card ledger covered: paid, not over
   const { world, run } = require('./fixtures/card-coverage-aggregate-world');
   const purchase = ['card', 80, '2026-09-19', 'purchase'];
   const pay = [['bills', 25, '2026-09-19', 'cash'], ['card', -25, '2026-09-19', 'credit']];
-  const covered = run(world([purchase, ...pay], { minimumDate: '2026-09-19' }));
+  const x = world([purchase, ...pay], { minimumDate: '2026-09-19' });
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
+  const covered = run(x, packet => Object.assign(packet, LmGroups.groupPacket(packet, x.data.plan)));
   ok(covered.coverage.minimumCoverage[0].status === 'covered-by-payment', 'precondition: the card ledger covers the minimum',
     covered.coverage.minimumCoverage[0].status);
   const d = covered.observed.data;

@@ -6,13 +6,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const F = require('../public/forecast');
+const LmGroups = require('./lm-groups-fixture.js');
 const clone = value => JSON.parse(JSON.stringify(value));
 const round = value => Math.round(value * 100) / 100;
 const effective = '2026-10-09';
 const emptyHistory = { periods: { ytd: { months: 1, spending: [] } } };
 
 function fixture(date, spent = 31.47) {
-  const plan = {
+  const plan = LmGroups.groupPlan({
     opening: { asOf: date, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     startingCash: { breakdown: [{ id: 'chequing-a', value: 8000 }] },
@@ -28,16 +29,16 @@ function fixture(date, spent = 31.47) {
       { id: 'restaurants', label: 'Invented dining', class: 'discretionary', from: ['Restaurants'],
         plannedPayday: 60, plannedMonthly: null },
     ] },
-  };
+  });
   const cycle = F.spendingCycle(plan, date);
-  const packet = {
+  const packet = LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1', observationAsOf: date,
     coverageStart: '2026-09-01', coverageThrough: date, transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: [{ id: 'invented-fuel', date: cycle.start, amount: spent, pending: false,
       categoryLabel: 'Fuel & transport', originalMerchant: 'Invented fuel station',
       displayedPayee: 'Invented fuel station', merchantKnown: true,
       account: 'chequing-a', accountRole: 'household-cash' }],
-  };
+  }, plan);
   return { plan, packet, date };
 }
 function options(f) {

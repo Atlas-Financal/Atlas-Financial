@@ -14,6 +14,7 @@ const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -54,7 +55,7 @@ function loadComposer() {
 const composer = loadComposer();
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -85,7 +86,7 @@ function syntheticPlan() {
         { id: 'shopping', label: 'Shopping', class: 'discretionary', from: ['Shopping', 'Personal'] },
       ],
     },
-  };
+  });
 }
 
 const debts = [
@@ -95,14 +96,14 @@ const debts = [
 ];
 
 function actualsPacket(txs, asOf) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
     coverageStart: '2026-07-01',
     coverageThrough: asOf,
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
-  };
+  }, syntheticPlan());
 }
 
 function period(view, id) {
@@ -199,7 +200,7 @@ const fixtureTxs = [
     id: 'tx-after', date: '2026-09-11', amount: 77, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash',
   },
-];
+].map(tx => LmGroups.groupTx(tx, syntheticPlan()));
 
 function recommend(txs) {
   return F.recommend(syntheticPlan(), AS_OF, {
@@ -444,6 +445,7 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
 {
   const plan = syntheticPlan();
   plan.budget.excluded = [{ from: 'Business', why: 'not household' }];
+  const groupedPlan = LmGroups.groupPlan(plan);
   const packet = O.sanitizedCurrentPeriodActuals({
     fetchedAt: AS_OF + 'T18:00:00.000Z',
     transactionWindow: { startDate: '2026-08-28', endDate: AS_OF, complete: true },
@@ -464,11 +466,11 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
         payee: 'ACME CORP', originalName: 'ACME CORP',
         providerAccountId: '1001', providerTransactionId: 'biz-render',
       },
-    ],
+    ].map(tx => LmGroups.groupTx(tx, groupedPlan)),
     representedEventCandidates: [],
   }, {
     asOf: AS_OF,
-    plan,
+    plan: groupedPlan,
     accountMap: {
       mappings: [{
         providerAccountId: '1001',
@@ -487,10 +489,10 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
     'sanitizer keeps Save-On-Foods on the eligible grocery');
   ok(income && income.displayedPayee == null && business && business.displayedPayee == null,
     'sanitizer omits merchant identity on income and excluded business');
-  const advice = F.recommend(plan, AS_OF, {
+  const advice = F.recommend(groupedPlan, AS_OF, {
     targetBuffer: 500,
     debts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, groupedPlan),
   });
   const active = period(advice.defaultView, 'this-pay-period');
   const groceries = budgetRow(active, 'groceries');

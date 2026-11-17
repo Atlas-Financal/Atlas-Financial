@@ -12,6 +12,7 @@ const F = require('../public/forecast.js');
 const Live = require('../scripts/live-plan.js');
 const D = require('../public/display-name.js');
 const CardPeriod = require('../public/forecast-card-period.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const shaw = require('./fixtures/shaw-posted-identity');
 const configured = require('../docs/connectivity/transaction-identity.json');
 
@@ -90,8 +91,8 @@ const source = [
   grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
 ].join('\n');
 const composer = vm.runInNewContext(`${source}\n({ calendarBudgetHtml });`, { Forecast: F, DisplayName: D });
-const plan = { defaults: { targetBuffer: 500 }, budget: { categories: [
-  { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } };
+const plan = LmGroups.groupPlan({ defaults: { targetBuffer: 500 }, budget: { categories: [
+  { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } });
 const period = recon => ({
   id: 'this-pay-period', role: 'active', start: '2026-08-28', end: '2026-09-10',
   spendingCycle: { start: '2026-08-28', end: '2026-09-10', rangeLabel: '28 Aug – 10 Sep' },
@@ -126,7 +127,7 @@ const tx = (id, extra) => Object.assign({ id, date: '2026-08-29', amount: 20, pe
   const withheld = period([]);
   withheld.householdBudget[0].spent = null; withheld.householdBudget[0].recon = [];
   const ov = composer.calendarBudgetHtml(withheld,
-    { applied: true, currentPeriodActuals: { transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] } }, plan);
+    { applied: true, currentPeriodActuals: LmGroups.groupPacket({ transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] }, plan) }, plan);
   ok(/Disney\+/.test(ov) && !/PAYPAL/.test(ov), 'the withheld-Spent drill-down shows the item too');
 }
 

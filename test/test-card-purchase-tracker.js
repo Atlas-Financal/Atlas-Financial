@@ -4,6 +4,7 @@ const F = require('../public/forecast');
 const Detail = require('../public/bill-detail');
 const Live = require('../scripts/live-plan');
 const fixture = require('./fixtures/card-purchase-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -25,8 +26,9 @@ assert(!Detail.visaPaymentsHtml([], ledger).includes('$80.00 to cover'),
 
 function run(x) {
   const before = JSON.stringify(x), live = Live.fromObservation(x);
-  const advice = F.recommend(live.data.plan, x.asOf, {
-    debts: live.data.debts, currentPeriodActuals: live.data.liveOverlay.currentPeriodActuals
+  const plan = LmGroups.groupPlan(live.data.plan);
+  const advice = F.recommend(plan, x.asOf, {
+    debts: live.data.debts, currentPeriodActuals: LmGroups.groupPacket(live.data.liveOverlay.currentPeriodActuals, plan)
   });
   assert.equal(JSON.stringify(x), before, 'synthetic inputs remain immutable');
   const period = advice.payPeriodViews.find(p => p.start === '2026-09-18');

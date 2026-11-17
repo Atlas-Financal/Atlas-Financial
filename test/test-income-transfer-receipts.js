@@ -1,6 +1,8 @@
 'use strict';
 const assert=require('node:assert/strict'),F=require('../public/forecast'),O=require('../scripts/provider-observe');
-const fx=require('./fixtures/budget-income-receipts'),clone=x=>JSON.parse(JSON.stringify(x));
+const LmGroups=require('./lm-groups-fixture.js');
+const fx=(m=>({...m,build:(...a)=>{const b=m.build(...a);b.data.plan=LmGroups.groupPlan(b.data.plan);
+  b.packet=b.data.liveOverlay.currentPeriodActuals=LmGroups.groupPacket(b.packet,b.data.plan);return b;}}))(require('./fixtures/budget-income-receipts')),clone=x=>JSON.parse(JSON.stringify(x));
 const built=fx.build(),before=JSON.stringify(built.data.plan);
 const salary=built.candidates.find(x=>x.id==='amandaSalaryMonthEnd');
 assert.ok(salary,'early external payroll and later paired transfer earn the bracketed salary occurrence');

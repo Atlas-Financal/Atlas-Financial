@@ -25,9 +25,9 @@ function plan(other, groceries) {
   return { windowDays: 91, opening: { asOf: AS_OF }, bills: [], commitments: [],
     budget: { categories: [
       Object.assign({ id: 'groceries', label: 'Groceries', class: 'essential', plannedPayday: 200,
-        from: ['Invented groceries'] }, groceries || {}),
+        historyCategories: ['Invented groceries'] }, groceries || {}),
       Object.assign({ id: 'other-spend', label: 'Other spend', class: 'essential',
-        from: ['Invented other'] }, other),
+        historyCategories: ['Invented other'] }, other),
     ] } };
 }
 function breakdown(other, groceries) {

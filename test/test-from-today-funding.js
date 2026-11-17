@@ -4,6 +4,7 @@
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const fixture = require('./fixtures/budget-funding-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const AS_OF = '2026-08-20';
 function state() {
   const data = fixture();
@@ -30,8 +31,8 @@ function state() {
     ] };
   return { data, packet };
 }
-const run = (s, opts = {}) => F.recommend(s.data.plan, AS_OF,
-  { debts: s.data.debts, currentPeriodActuals: require('./fixtures/card-coverage-opening').packet(s.packet), ...opts });
+const run = (s, opts = {}) => { const plan = LmGroups.groupPlan(s.data.plan); return F.recommend(plan, AS_OF,
+  { debts: s.data.debts, currentPeriodActuals: LmGroups.groupPacket(require('./fixtures/card-coverage-opening').packet(s.packet), plan), ...opts }); };
 const current = a => a.payPeriodViews.find(p => p.start === '2026-08-14');
 const today = s => current(run(s)).fromTodayFunding;
 const s = state(), before = JSON.stringify(s), a = run(s), f = current(a).fromTodayFunding;
@@ -119,8 +120,9 @@ delete onPayday.data.plan.opening.priorAsOf;
 onPayday.packet.observationAsOf = onPayday.packet.coverageThrough = '2026-08-14';
 onPayday.packet.transactions = [];
 onPayday.data.debts[0].pending = 0;
-const paydayAdvice = F.recommend(onPayday.data.plan, '2026-08-14', {
-  debts: onPayday.data.debts, currentPeriodActuals: onPayday.packet });
+const paydayPlan = LmGroups.groupPlan(onPayday.data.plan);
+const paydayAdvice = F.recommend(paydayPlan, '2026-08-14', {
+  debts: onPayday.data.debts, currentPeriodActuals: LmGroups.groupPacket(onPayday.packet, paydayPlan) });
 const paydayFunding = current(paydayAdvice).fromTodayFunding;
 assert.equal(paydayFunding.currentCash, 1000);
 assert.equal(paydayFunding.futureIncomeThisPeriod, 0, 'same-day scheduled payroll is not added to observed cash');
@@ -256,8 +258,9 @@ for (const [name, change] of [
   assert.equal(got.status, 'unavailable', name);
   assert.equal(got.contribution, null, name);
 }
-const withheld = current(F.recommend(s.data.plan, AS_OF, { debts: s.data.debts,
-  currentPeriodActuals: s.packet, operatingPlan: 'unavailable' })).fromTodayFunding;
+const withheldPlan = LmGroups.groupPlan(s.data.plan);
+const withheld = current(F.recommend(withheldPlan, AS_OF, { debts: s.data.debts,
+  currentPeriodActuals: LmGroups.groupPacket(s.packet, withheldPlan), operatingPlan: 'unavailable' })).fromTodayFunding;
 assert.equal(withheld.contribution, null, 'stale operating plan cannot publish a current proposal');
 const estimatedCash = state(); estimatedCash.data.plan.startingCash.breakdown[0].confidence = 'estimated';
 assert.equal(today(estimatedCash).trust, 'estimated');

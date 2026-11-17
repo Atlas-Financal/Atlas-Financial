@@ -18,6 +18,7 @@ const Module = require('node:module');
 const Fixture = require('./fixtures/budget-surface-data');
 const Live = require('../scripts/live-plan');
 const F = require('../public/forecast');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let checks = 0;
 const eq = (actual, expected, label) => { assert.deepStrictEqual(actual, expected, label); checks++; };
@@ -42,7 +43,8 @@ function run({ paid = null, hydroAmount, pending = false } = {}) {
     currency: 'cad', payee: 'Synthetic hydro', category_id: 16, is_pending: pending, status: pending ? 'pending' : 'cleared' });
   const canonical = Fixture.canonical();
   if (hydroAmount !== undefined) canonical.plan.bills.find(b => b.id === 'hydro').amount = hydroAmount;
-  const data = quiet(() => Live.fromObservation({ data: canonical, payload, accountMap: Fixture.map, identity }).data);
+  canonical.plan = LmGroups.groupPlan(canonical.plan);
+  const data = quiet(() => Live.fromObservation({ data: canonical, payload: LmGroups.groupPayload(payload, canonical.plan), accountMap: Fixture.map, identity }).data);
   const view = F.recommend(data.plan, data.meta.asOf, { debts: data.debts, extraFacilities: data.revolvingExtra,
     currentPeriodActuals: data.liveOverlay.currentPeriodActuals, operatingPlan: data.liveOverlay.operatingPlan }).defaultView;
   const period = view.calendarPeriods[0];
@@ -166,6 +168,8 @@ eq(cents(pend.period.totalBillsThisPeriod), cents(1400 + 120 + 60 + 85),
         pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false },
       },
     };
+    source.data.plan = LmGroups.groupPlan(source.data.plan);
+    source.payload = LmGroups.groupPayload(source.payload, source.data.plan);
     const refreshed = quiet(() => Live.fromObservation(JSON.parse(JSON.stringify(source))));
     const options = Operating.recommendOpts(refreshed.data, {}); options.periods = [];
     const views = F.recommend(refreshed.data.plan, NEXT, options).payPeriodViews;

@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 // Preserve these retired-policy regression assertions against the explicitly
 // dated historical policy. The active 450 policy has its own independent suite.
 const canonical = require('../data.json');
@@ -158,10 +159,11 @@ function groceryTx() {
 }
 
 function recommend(plan, txs) {
-  return F.recommend(plan, AS_OF, {
+  const grouped = LmGroups.groupPlan(plan);
+  return F.recommend(grouped, AS_OF, {
     targetBuffer: 500,
     debts: [],
-    currentPeriodActuals: actualsPacket(txs || []),
+    currentPeriodActuals: LmGroups.groupPacket(actualsPacket(txs || []), grouped),
   });
 }
 
@@ -214,7 +216,7 @@ console.log('\n=== 3. Live JSON home is still plannedMonthly 800 with empty from
   const row = byId(live.plan, OTHER_ID);
   ok(row && row.plannedMonthly === OTHER_MONTHLY
       && row.plannedPayday == null && row.plannedWeekly == null
-      && Array.isArray(row.from) && row.from.length === 0
+      && Array.isArray(row.historyCategories) && row.historyCategories.length === 0
       && row.label === OTHER_LABEL,
     'live other-spend is still $800/month with empty from: []');
 }

@@ -11,6 +11,7 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ANCHOR = '2030-02-01';
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -34,7 +35,13 @@ function shift(iso, minutes) { return new Date(Date.parse(iso) + minutes * 60000
 
 // Byte-for-byte the invented shape of test-private-period-history.js by default, parameterized by
 // cycle start and source/capture clocks (needed for DST and 23:59 gates).
-function input(day, kind, { start = ANCHOR, incomeAnchor = ANCHOR, fetchedAt = day + 'T18:00:00Z', capturedAt, settleIncome = false } = {}) {
+function input(...args) {
+  const raw = rawInput(...args);
+  raw.data.plan = LmGroups.groupPlan(raw.data.plan);
+  raw.payload = LmGroups.groupPayload(raw.payload, raw.data.plan);
+  return raw;
+}
+function rawInput(day, kind, { start = ANCHOR, incomeAnchor = ANCHOR, fetchedAt = day + 'T18:00:00Z', capturedAt, settleIncome = false } = {}) {
   const ids = ['chequing-a', 'chequing-b', 'savings'];
   const stamp = shift(fetchedAt, -1);
   const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: day, confidence: 'confirmed' }));

@@ -2,6 +2,7 @@
 const F = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const make = require('./fixtures/pending-card-bill-data');
+const LmGroups = require('./lm-groups-fixture.js');
 let checks = 0, failures = 0;
 function ok(condition, label) {
   checks++; if (!condition) failures++;
@@ -14,7 +15,9 @@ function observe(input) {
   ok(JSON.stringify(input) === before, 'the invented observation remains immutable');
   ok(JSON.stringify(Live.fromObservation({ provider: 'lunchmoney', ...input }).data) === JSON.stringify(data),
     'repeated refresh cannot accumulate purchase or payment movements');
-  const packet = data.liveOverlay.currentPeriodActuals;
+  data.plan = LmGroups.groupPlan(data.plan);
+  const packet = data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(
+    { ...data.liveOverlay.currentPeriodActuals, categoryGroupIds: undefined }, data.plan);
   const opts = { debts: data.debts, currentPeriodActuals: packet };
   const simulate = (days, plan = data.plan) => F.simulate(plan, input.asOf, { ...opts,
     weeklyVariable: 0, viewDays: days, horizonDays: days, targetBuffer: 0 });

@@ -11,7 +11,15 @@ const path = require('node:path');
 const History = require('../scripts/private-period-history');
 const Pg = require('../scripts/private-period-history-postgres');
 const { createSettlementEvidencePostgresConnection: openOwner } = require('../scripts/settlement-evidence-postgres-connection');
-const { START, NEXT, input, capture } = require('./fixtures/private-period-history-input');
+const { START, NEXT, input: rawInput, capture } = require('./fixtures/private-period-history-input');
+const LmGroups = require('./lm-groups-fixture.js');
+// The invented capture input with its invented categories laid out in invented groups.
+const input = (...args) => {
+  const x = rawInput(...args);
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
+  x.payload = LmGroups.groupPayload(x.payload, x.data.plan);
+  return x;
+};
 const { pgWorld, URL_VALUE, CANARY, HOST, withClaims } = require('./fixtures/period-history-pg-double');
 
 const { digest, canonical } = History.contract;

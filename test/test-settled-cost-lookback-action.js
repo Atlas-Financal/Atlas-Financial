@@ -5,9 +5,10 @@
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const Assistant = require('../scripts/assistant-packet');
+const LmGroups = require('./lm-groups-fixture.js');
 const asOf = '2026-08-20';
 function fixture() {
-  return { meta: { asOf }, debts: [], revolvingExtra: [], plan: {
+  return { meta: { asOf }, debts: [], revolvingExtra: [], plan: LmGroups.groupPlan({
     windowDays: 42, defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     opening: { asOf, priorAsOf: '2026-08-14',
       representedEvents: [{ id: 'represented-bill', date: '2026-08-17' }] },
@@ -29,10 +30,10 @@ function fixture() {
       { id: 'invalid-settlement', date: '2026-08-18', amount: 30, settledOn: 'not-a-date' },
       { id: 'upcoming-sibling', date: '2026-08-25', amount: 60 },
     ].map(c => Object.assign({ label: c.id, confidence: 'confirmed' }, c)),
-  } };
+  }) };
 }
 function opts() {
-  return { debts: [], targetBuffer: 0, currentPeriodActuals: {
+  return { debts: [], targetBuffer: 0, currentPeriodActuals: LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
     coverageStart: '2026-08-14', coverageThrough: asOf, pendingCoverage: 'complete', transactionCoverage: 'complete',
     representedActuals: [{ id: 'represented-bill', date: '2026-08-17', actual: 80 }],
@@ -40,7 +41,7 @@ function opts() {
       categoryLabel: 'Groceries', account: 'chequing-a', accountRole: 'household-cash',
       displayedPayee: 'Save-On-Foods', originalMerchant: 'Save-On-Foods',
       pending: false }],
-  } };
+  }, fixture().plan) };
 }
 const satisfied = ['settled-cost', 'settled-today', 'prepaid-cost'];
 const remaining = ['unresolved-sibling', 'future-settlement', 'invalid-settlement', 'upcoming-sibling'];

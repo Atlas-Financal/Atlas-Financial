@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -56,7 +57,7 @@ const PLANNED_IDS = [
 const HOLD_TOTAL = roundCent(900 + 325 + 37.50 + 100 + 200 + 150 + 150);
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -83,7 +84,7 @@ function syntheticPlan() {
         { id: 'sport', label: 'Sport', class: 'discretionary', from: ['Sport & fitness'] },
       ],
     },
-  };
+  });
 }
 
 const debts = [
@@ -93,14 +94,14 @@ const debts = [
 ];
 
 function actualsPacket(txs, asOf, extra) {
-  return Object.assign({
+  return LmGroups.groupPacket(Object.assign({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
     coverageStart: '2026-07-01',
     coverageThrough: asOf,
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
-  }, extra || {});
+  }, extra || {}), syntheticPlan());
 }
 
 function period(view, id) {
@@ -179,14 +180,14 @@ console.log('\n=== 1. independent fixture membership, not the production residua
   ok(near(OTHER_TOTAL, 100) && near(RELEVANT_TOTAL, 275),
     'constructed Other spending is $40+$60=$100; relevant household spend is $275');
   const plan = syntheticPlan();
-  const groceryCls = F.classifyCurrentPeriodTransaction(fixtureTxs[0], plan);
-  const fuelCls = F.classifyCurrentPeriodTransaction(fixtureTxs[1], plan);
-  const eatCls = F.classifyCurrentPeriodTransaction(fixtureTxs[2], plan);
-  const otherA = F.classifyCurrentPeriodTransaction(fixtureTxs[3], plan);
-  const otherB = F.classifyCurrentPeriodTransaction(fixtureTxs[4], plan);
-  const card = F.classifyCurrentPeriodTransaction(fixtureTxs[5], plan);
-  const transfer = F.classifyCurrentPeriodTransaction(fixtureTxs[6], plan);
-  const income = F.classifyCurrentPeriodTransaction(fixtureTxs[7], plan);
+  const groceryCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[0], plan), plan);
+  const fuelCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[1], plan), plan);
+  const eatCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[2], plan), plan);
+  const otherA = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[3], plan), plan);
+  const otherB = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[4], plan), plan);
+  const card = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[5], plan), plan);
+  const transfer = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[6], plan), plan);
+  const income = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[7], plan), plan);
   ok(groceryCls.kind === 'spend' && groceryCls.categoryId === 'groceries',
     'grocery tx classifies as Groceries');
   ok(fuelCls.kind === 'spend' && fuelCls.categoryId === 'fuel',
@@ -352,8 +353,8 @@ console.log('\n=== 6. Other spending counts named non-calendar spend once; copy 
     },
   ];
   const plan = syntheticPlan();
-  const healthCls = F.classifyCurrentPeriodTransaction(hidden[0], plan);
-  const sportCls = F.classifyCurrentPeriodTransaction(hidden[1], plan);
+  const healthCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(hidden[0], plan), plan);
+  const sportCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(hidden[1], plan), plan);
   ok(healthCls.kind === 'spend' && healthCls.categoryId === 'health'
       && healthCls.needsConfirmation !== true,
     'Health classifies as a named non-calendar spend, not the unassigned residual');
@@ -398,15 +399,15 @@ console.log('\n=== 7. ATLAS-043: Coffee Shops is an Eating Out label alias, coun
     displayedPayee: 'Starbucks', originalMerchant: 'Starbucks',
   };
   const plan = syntheticPlan();
-  const coffeeCls = F.classifyCurrentPeriodTransaction(coffeeTx, plan);
-  const eatCls = F.classifyCurrentPeriodTransaction(fixtureTxs[2], plan);
+  const coffeeCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(coffeeTx, plan), plan);
+  const eatCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(fixtureTxs[2], plan), plan);
   ok(coffeeCls.kind === 'spend' && coffeeCls.categoryId === 'restaurants',
     'Coffee Shops tx classifies as Eating out');
   ok(JSON.stringify(coffeeCls) === JSON.stringify(eatCls),
     'Coffee Shops classification is identical to the Restaurants classification',
     JSON.stringify(coffeeCls));
   const variant = label => F.classifyCurrentPeriodTransaction(
-    Object.assign({}, coffeeTx, { categoryLabel: label }), plan);
+    LmGroups.groupTx(Object.assign({}, coffeeTx, { categoryLabel: label }), plan), plan);
   ok(variant(' Coffee Shops ').categoryId === 'restaurants'
       && variant('COFFEE SHOPS').categoryId === 'restaurants'
       && variant('coffee shops').categoryId === 'restaurants',

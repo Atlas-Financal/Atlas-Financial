@@ -10,6 +10,7 @@ const F = require('../public/forecast');
 const Detail = require('../public/bill-detail');
 const View = require('../public/budget-card-movements');
 const { fixture, copy, helocFixture } = require('./fixtures/card-period-movements-data');
+const LmGroups = require('./lm-groups-fixture.js');
 let checks = 0;
 const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
 
@@ -47,8 +48,8 @@ eq(planSource.includes('compactNote'), false, 'no compact step caption');
 
 // 4. The HELOC fallback label, amounts untouched; no card sign note.
 const fmt = { money: v => '$' + v.toFixed(2), date: v => v };
-const publish = x => F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
-  { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay || null });
+const publish = x => { const plan = LmGroups.groupPlan(x.plan); return F.cardPeriodMovements(plan, x.debts, x.asOf, x.window,
+  { currentPeriodActuals: LmGroups.groupPacket(x.packet, plan), cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay || null }); };
 const x = fixture(), pub = publish(x);
 const html = View.html(pub, fmt);
 eq(html.includes('data-card-movement-sign-note') || html.includes('raises the card balance'), false, 'no sign explainer in the card panels');

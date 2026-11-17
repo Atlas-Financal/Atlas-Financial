@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -35,7 +36,7 @@ const AMANDA_REMAINING = roundCent(AMANDA_PLANNED - AMANDA_AMT);
 const BOTH_SPENT = roundCent(DALE_AMT + AMANDA_AMT);
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -62,7 +63,7 @@ function syntheticPlan() {
       ],
       excluded: [{ from: 'Business', why: 'Amanda coaching, not household' }],
     },
-  };
+  });
 }
 
 const debts = [
@@ -85,20 +86,21 @@ function actualsPacket(txs, extra) {
 }
 
 function tx(extra) {
-  return Object.assign({
+  return LmGroups.groupTx(Object.assign({
     date: '2026-08-31',
     pending: false,
     accountRole: 'household-cash',
     displayedPayee: 'Store',
     originalMerchant: 'Store',
-  }, extra);
+  }, extra), syntheticPlan());
 }
 
 function recommend(packet) {
-  return F.recommend(syntheticPlan(), AS_OF, {
+  const plan = syntheticPlan();
+  return F.recommend(plan, AS_OF, {
     targetBuffer: 500,
     debts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, plan),
   });
 }
 
@@ -137,7 +139,7 @@ function overlayPacket(categoryLabel, extraTx) {
       complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false,
     },
     collapsedTransactions: [
-      Object.assign({
+      LmGroups.groupTx(Object.assign({
         date: '2026-08-31',
         amount: DALE_AMT,
         pending: false,
@@ -150,7 +152,7 @@ function overlayPacket(categoryLabel, extraTx) {
         tags: [{ name: 'Dale' }],
         providerAccountId: '1001',
         providerTransactionId: 'same-tx-1',
-      }, extraTx || {}),
+      }, extraTx || {}), syntheticPlan()),
     ],
     representedEventCandidates: [],
   }, { asOf: AS_OF, plan: syntheticPlan(), accountMap });
@@ -403,7 +405,7 @@ console.log('\n=== live plan maps Lunch Money Dale/Amanda onto existing guilt-fr
   const dale = cats.find(c => c && c.id === 'dale-guilt-free');
   const amanda = cats.find(c => c && c.id === 'amanda-guilt-free');
   const shopping = cats.find(c => c && c.id === 'shopping');
-  const aliases = row => (row && row.from || []).map(a => String(a || '').trim().toLowerCase());
+  const aliases = row => (row && row.historyCategories || []).map(a => String(a || '').trim().toLowerCase());
   ok(dale && aliases(dale).includes('dale') && !aliases(dale).includes('amanda'),
     'live dale-guilt-free from includes Dale and not Amanda');
   ok(amanda && aliases(amanda).includes('amanda') && !aliases(amanda).includes('dale'),

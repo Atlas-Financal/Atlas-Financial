@@ -32,6 +32,12 @@ const path = require('node:path');
 const ROOT = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 const F = require(path.join(ROOT, 'public/forecast'));
 const input = require('./fixtures/savings-future-closing-data');
+const LmGroups = require('./lm-groups-fixture.js');
+const recommendGrouped = x => {
+  const plan = LmGroups.groupPlan(x.plan);
+  return F.recommend(plan, x.asOf, { ...x.opts,
+    currentPeriodActuals: LmGroups.groupPacket(x.opts.currentPeriodActuals, plan), weeklyVariable: 0, debts: [] });
+};
 
 const row = o => Object.assign({ pending: false, currency: 'CAD', savingsPostingEvidence: 'posted' }, o);
 const cardRow = (id, date, amount, ref, extra) => row(Object.assign({ id, date, amount,
@@ -117,7 +123,7 @@ function build(c = {}) {
 }
 function run(c) {
   const x = build(c), before = JSON.stringify(x);
-  const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  const a = recommendGrouped(x);
   assert.equal(JSON.stringify(x), before, 'no input mutation');
   return a;
 }
@@ -314,7 +320,7 @@ test('a ready-ledger card purchase that pays a scheduled bill is withheld once, 
       P.representedActuals.push({ id: 'phone', date: '2026-10-05', actual: 50, transactionId: 'CASH-B' });
       x.plan.startingCash.breakdown[0].value = 30;
     }
-    const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    const a = recommendGrouped(x);
     return a;
   }
   const card = billCase(true), cash = billCase(false);
@@ -362,7 +368,7 @@ function representedBillCase({ openingAsOf, purchaseDate, billDate, backfill = 0
       allocations: [{ purchaseRef: 'cov-b', amount: backfill }], otherAmount: 0, otherPurpose: null });
   }
   x.plan.startingCash.breakdown[0].value = Math.round(stock * 100) / 100;
-  return F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+  return recommendGrouped(x);
 }
 const billChain = a => [cents(view(a, STARTS[0]).plannedPeriodClose), cents(view(a, STARTS[1]).opening),
   cents(view(a, STARTS[1]).paydaySweep)];
@@ -416,7 +422,7 @@ test('a represented bill naming a transaction absent from the packet is untraced
       amount: 61.37, covered: 0 });
     x.opts.currentPeriodActuals.representedActuals.push({ id: 'phone', date: '2026-10-03', actual: 61.37, transactionId: 'CARD-B' });
     x.plan.opening.representedEvents = (x.plan.opening.representedEvents || []).concat([{ id: 'phone', date: '2026-10-03' }]);
-    return F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    return recommendGrouped(x);
   }
   for (const policy of [true, false]) {
     const a = absentCase(policy), label = policy ? 'policy' : 'no policy';
@@ -554,7 +560,7 @@ test('A4b (lead note 6): a linked card charge with an unflagged pending twin is 
       P.savingsLinks.evidence.push({ transactionRef: 'tx-3', date: '2026-10-05', linkRefs: ['link-1'], direction: 'charge',
         state: 'pending', reason: null, occurrenceKey: 'a@2026-12-18' });
     }
-    const a = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [] });
+    const a = recommendGrouped(x);
     const t = view(a, STARTS[1]).cardMatchingEstimate;
     return [cents(view(a, STARTS[0]).plannedPeriodClose), t && cents(t.opening), t && cents(t.paydaySweep)];
   };

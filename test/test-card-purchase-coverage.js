@@ -8,10 +8,13 @@ const OA = require('../scripts/operating-answer');
 const RT = require('../scripts/refresh-trust');
 const Assistant = require('../scripts/assistant-packet');
 const fixture = require('./fixtures/card-purchase-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 function run(x) {
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
   const before = JSON.stringify(x);
   const r = Live.fromObservation(x);
   assert.equal(JSON.stringify(x),before,'inputs are immutable');
+  r.data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(r.data.liveOverlay.currentPeriodActuals, r.data.plan);
   const advice = F.recommend(r.data.plan,x.asOf,{debts:r.data.debts,
     currentPeriodActuals:r.data.liveOverlay.currentPeriodActuals});
   const period = advice.payPeriodViews.find(p=>p.start==='2026-09-18');
@@ -558,6 +561,7 @@ function refundClaim(x, amount, id = 80006) {
     const x = fixture('backfill');
     delete x.data.plan.cardPurchaseCoverage.opening;
     x.payload.transactions.slice(1).forEach(t => { t.category_name = 'Payment, Transfer'; t.notes = null; });
+    x.data.plan = LmGroups.groupPlan(x.data.plan);
     return x;
   };
   const record = (x, amount, otherAmount) => ({ id: 'decision-' + 'a'.repeat(32), confirmed: true,
@@ -582,7 +586,7 @@ function refundClaim(x, amount, id = 80006) {
     if (Object.hasOwn(rawValues, mode)) raw.is_pending = rawValues[mode];
     const data = Live.fromObservation(x).data;
     const original = JSON.stringify(data);
-    const packet = structuredClone(data.liveOverlay.currentPeriodActuals);
+    const packet = LmGroups.groupPacket(structuredClone(data.liveOverlay.currentPeriodActuals), data.plan);
     const purchaseRow = packet.transactions.find(tx => tx.atlasAccountId === x.cardId && tx.amount === 80);
     if (mode === 'dto-missing') delete purchaseRow.pending;
     if (Object.hasOwn(dtoValues, mode)) purchaseRow.pending = dtoValues[mode];

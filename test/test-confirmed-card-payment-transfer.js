@@ -15,9 +15,11 @@ function confirmed(category = 'Payment, Transfer', kind = null) {
   fixture.confirm(x, 'explicit-full', 80002, 80003, [[80001, 80]]);
   return x;
 }
+const LmGroups = require('./lm-groups-fixture.js');
 function run(x) {
   const before = JSON.stringify(x);
-  const observed = Live.fromObservation(x);
+  const plan = LmGroups.groupPlan(x.data.plan);
+  const observed = Live.fromObservation({ ...x, data: { ...x.data, plan }, payload: LmGroups.groupPayload(x.payload, plan) });
   const packet = observed.data.liveOverlay.currentPeriodActuals;
   const advice = F.recommend(observed.data.plan, x.asOf, { debts: observed.data.debts,
     currentPeriodActuals: packet });

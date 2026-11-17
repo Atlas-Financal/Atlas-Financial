@@ -9,7 +9,15 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const F = require('../public/forecast');
 const O = require('../scripts/provider-observe');
-const { fixture, transfer, clone } = require('./fixtures/savings-daily-allocation-contract');
+const { fixture: rawFixture, transfer, clone } = require('./fixtures/savings-daily-allocation-contract');
+const LmGroups = require('./lm-groups-fixture.js');
+// The invented ledger with its invented categories laid out in invented groups.
+function fixture() {
+  const input = rawFixture();
+  input.plan = LmGroups.groupPlan(input.plan);
+  input.opts.currentPeriodActuals = LmGroups.groupPacket(input.opts.currentPeriodActuals, input.plan);
+  return input;
+}
 
 const ALIAS_REASON = 'Transaction account aliases are missing or contradictory.';
 const IDENTITY_REASON = 'A transaction has unavailable date, currency, amount or account identity.';
@@ -166,7 +174,7 @@ test('7. real provider-observe packet -> Forecast: external null-alias row withh
     assert.ok(O.currentPeriodActualsLooksSanitized(packet));
     assert.equal(packet.transactionCoverage, 'complete');
     assert.equal(packet.pendingCoverage, 'complete');
-    input.opts.currentPeriodActuals = packet;
+    input.opts.currentPeriodActuals = LmGroups.groupPacket(packet, input.plan);
     return { packet, out: run(input) };
   };
   const without = forecastFor(false);

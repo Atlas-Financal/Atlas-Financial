@@ -20,6 +20,11 @@
 // covered only by the 105, and it is no Bills cash.
 const assert = require('node:assert/strict');
 const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+const LmGroups = require('./lm-groups-fixture.js');
+const groupedRun = x => {
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
+  return run(x, packet => Object.assign(packet, LmGroups.groupPacket(packet, x.data.plan)));
+};
 
 const transfer = { category_name: 'Payment, Transfer' };
 const purchase = ['card', 80, null, 'purchase'];
@@ -50,13 +55,13 @@ const withheld = (s, code, why) => {
 };
 
 // 0. Control: the pair alone.
-ruled(run(world(pair)), 'pair alone');
+ruled(groupedRun(world(pair)), 'pair alone');
 // 1. Today's behaviour without the ruling's wording: To confirm.
-withheld(run(world([...pair, rewards(30, { original_name: 'Invented credit' })])),
+withheld(groupedRun(world([...pair, rewards(30, { original_name: 'Invented credit' })])),
   'coverage-payment-or-credit-purpose-unconfirmed', 'an unruled card credit');
 // 2. Both ruled descriptions, case and surrounding spaces ignored.
 for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption', '  rewards redemption ', 'TD POINTS REDEMPTION']) {
-  const s = run(world([...pair, rewards(30, { original_name: original })]));
+  const s = groupedRun(world([...pair, rewards(30, { original_name: original })]));
   ruled(s, '"' + original + '"');
   const credit = s.packet.transactions.find(t => t.amount === -30);
   check(credit.tdRewardsRedemptionCredit === true, original + ': the observer stamps the flag');
@@ -66,27 +71,27 @@ for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption', '  rewards
 // 3. Nothing looser.
 for (const original of ['REWARDS REDEMPTION REVERSAL', 'REWARD REDEMPTION', 'REWARDS  REDEMPTION', 'TD POINTS',
   'POINTS REDEMPTION', 'PAYMENT - THANK YOU REWARDS REDEMPTION']) {
-  withheld(run(world([...pair, rewards(30, { original_name: original })])),
+  withheld(groupedRun(world([...pair, rewards(30, { original_name: original })])),
     'coverage-payment-or-credit-purpose-unconfirmed', '"' + original + '" is not a ruled description');
 }
 // 4. The displayed payee alone is not the bank description.
-withheld(run(world([...pair, rewards(30, { payee: 'REWARDS REDEMPTION', original_name: 'Invented credit' })])),
+withheld(groupedRun(world([...pair, rewards(30, { payee: 'REWARDS REDEMPTION', original_name: 'Invented credit' })])),
   'coverage-payment-or-credit-purpose-unconfirmed', 'payee wording over another bank description');
 // 5. Pending keeps today's behaviour (To confirm).
-withheld(run(world([...pair, rewards(30, { is_pending: true })])),
+withheld(groupedRun(world([...pair, rewards(30, { is_pending: true })])),
   'coverage-payment-or-credit-purpose-unconfirmed', 'a pending rewards redemption');
 // 6. A debit with either description is not covered: To confirm.
 for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption']) {
-  withheld(run(world([...pair, ['card', 30, null, 'purchase', { payee: 'Invented rewards', original_name: original, ...transfer }]])),
+  withheld(groupedRun(world([...pair, ['card', 30, null, 'purchase', { payee: 'Invented rewards', original_name: original, ...transfer }]])),
     'coverage-purchase-purpose-unconfirmed', 'a debit described "' + original + '"');
 }
 // 7. It is never a payment: equal to a TFR-TO C/C debit, it does not pair.
-withheld(run(world([purchase, cashLeg(105), rewards(105)])),
+withheld(groupedRun(world([purchase, cashLeg(105), rewards(105)])),
   'coverage-payment-destination-unconfirmed', 'a 105 rewards credit beside a 105 TFR-TO C/C debit');
 // 8. It pays no minimum: alone, the 25 minimum stays unpaid exactly as with no credit.
 {
-  const none = run(world([purchase]));
-  const withCredit = run(world([purchase, rewards(30)]));
+  const none = groupedRun(world([purchase]));
+  const withCredit = groupedRun(world([purchase, rewards(30)]));
   check(withCredit.coverage.status === none.coverage.status, 'status as with no credit: ' + none.coverage.status);
   check(JSON.stringify(withCredit.coverage.issues) === JSON.stringify(none.coverage.issues), 'issues as with no credit');
   check(withCredit.coverage.payments.length === 0, 'no payment published');
@@ -96,11 +101,11 @@ withheld(run(world([purchase, cashLeg(105), rewards(105)])),
   check(withCredit.period.householdBudget[0].spent === 80, 'no refund against groceries');
 }
 // 9. Only on a mapped TD card: the same credit on another card is To confirm.
-withheld(run(world([...pair, ['card2', 40, null, 'purchase'], rewards(30, {}, 'card2')], { twoCards: true })),
+withheld(groupedRun(world([...pair, ['card2', 40, null, 'purchase'], rewards(30, {}, 'card2')], { twoCards: true })),
   'coverage-payment-or-credit-purpose-unconfirmed', 'not a mapped TD card (invented mbna)');
 // 10. Every mapped TD card: the world's card mapped as tdcc and as cashback.
 for (const card of ['tdcc', 'cashback']) {
-  const s = run(world([purchase, rewards(30)], { card }));
+  const s = groupedRun(world([purchase, rewards(30)], { card }));
   check(!issues(s).includes('coverage-payment-or-credit-purpose-unconfirmed'), card + ': no purpose issue '
     + JSON.stringify(issues(s)));
   check(s.packet.transactions.find(t => t.amount === -30).tdRewardsRedemptionCredit === true, card + ': flag stamped');

@@ -1,7 +1,10 @@
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
-const F = require('../public/forecast'), fixture = require('./fixtures/savings-daily-consumer-data');
+const F = require('../public/forecast'), rawFixture = require('./fixtures/savings-daily-consumer-data');
+const LmGroups = require('./lm-groups-fixture.js');
+const fixture = mode => { const data = rawFixture(mode); data.plan = LmGroups.groupPlan(data.plan);
+  data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(data.liveOverlay.currentPeriodActuals, data.plan); return data; };
 const stub = () => ({ innerHTML: '', value: '', dataset: {}, style: {}, classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; }, appendChild() {}, replaceChildren() {} });
 const ctx = vm.createContext({ Forecast: F, console, setTimeout, clearTimeout, addEventListener() {}, document: { getElementById: stub, querySelectorAll() { return []; }, addEventListener() {}, documentElement: { dataset: {}, style: {} } }, localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });
 ctx.window = ctx; ctx.matchMedia = () => ({ matches: false, addEventListener() {} });
@@ -156,6 +159,7 @@ const evidence = (cents, reversals = []) => ({ commitments: cents == null ? [] :
 function costWorld(settlementEvidence, mutate = () => {}) {
   const fx = require('./fixtures/savings-daily-allocation-contract');
   const x = require('./fixtures/chronological-savings-data').policy(fx.advance(fx.fixture(), '2026-10-07'));
+  x.plan = LmGroups.groupPlan(x.plan); x.opts.currentPeriodActuals = LmGroups.groupPacket(x.opts.currentPeriodActuals, x.plan);
   x.plan.commitments = x.plan.commitments.filter(row => row.id === 'near');
   mutate(x.plan.commitments[0]);
   const advice = F.recommend(x.plan, x.asOf, { ...x.opts, weeklyVariable: 0, debts: [], settlementEvidence });

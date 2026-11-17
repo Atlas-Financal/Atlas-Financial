@@ -42,6 +42,7 @@
 //
 //   node test/test-unplanned-bill-label-counted.js
 const H = require('./acceptance/harness.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const F = require('../public/forecast.js');
 
 const INSURANCE = 111, SUBSCRIPTIONS = 112, SHOPPING = 113;
@@ -288,7 +289,7 @@ function hasBrowser() {
     const plan = H.planOf(world());
     plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
       label: 'Mortgage', frequency: 'monthly', day: 12, amount: 1600, confidence: 'confirmed' }]);
-    const cls = F.classifyCurrentPeriodTransaction(mortgageTx, plan);
+    const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(mortgageTx, plan), plan);
     H.expect(cls.householdSpending === false && cls.kind === 'bill', `Mortgage is not household spending (got ${JSON.stringify(cls)})`);
   });
   // #1071 follow-up: a planned mortgage payment with no occurrence in the
@@ -305,13 +306,13 @@ function hasBrowser() {
       const plan = H.planOf(world());
       plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
         label: 'Mortgage', amount: 1600, confidence: 'confirmed', ...row }]);
-      const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+      const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan), plan);
       H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
         `the Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
     });
   }
   await report('engine: a Mortgage-labelled payment with no planned mortgage payment is counted (Other spending)', async () => {
-    const cls = F.classifyCurrentPeriodTransaction(mortgageTx, H.planOf(world()));
+    const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(mortgageTx, H.planOf(world())), H.planOf(world()));
     H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
       `an unplanned Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
   });

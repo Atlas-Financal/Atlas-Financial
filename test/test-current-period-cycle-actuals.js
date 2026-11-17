@@ -5,9 +5,10 @@
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const Assistant = require('../scripts/assistant-packet');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const asOf = '2026-09-30';
-const plan = {
+const plan = LmGroups.groupPlan({
   windowDays: 91,
   defaults: { targetBuffer: 0 },
   startingCash: { amount: 10000 },
@@ -20,21 +21,21 @@ const plan = {
   budget: { categories: [{ id: 'groceries', label: 'Groceries', class: 'essential',
     from: ['Groceries'], plannedPayday: 500 },
   { id: 'fuel', label: 'Fuel', class: 'essential', plannedMonthly: 304.375 }] },
-};
+});
 const transactions = [
   { date: '2026-08-20', amount: 410, categoryLabel: 'Groceries', accountRole: 'household-cash' },
   { date: '2026-09-24', amount: 140, categoryLabel: 'Groceries', accountRole: 'household-cash' },
   { date: '2026-09-25', amount: 30, categoryLabel: 'Groceries', accountRole: 'household-cash' },
   { date: '2026-09-30', amount: 45, categoryLabel: 'Groceries', accountRole: 'household-cash' },
   { date: '2026-10-01', amount: 90, categoryLabel: 'Groceries', accountRole: 'household-cash' },
-].map(tx => Object.assign({ pending: false, displayedPayee: 'Save-On-Foods', originalMerchant: 'Save-On-Foods' }, tx));
+].map(tx => LmGroups.groupTx(Object.assign({ pending: false, displayedPayee: 'Save-On-Foods', originalMerchant: 'Save-On-Foods' }, tx), plan));
 function options(extra) {
   return Object.assign({ debts: [], targetBuffer: 0, weeklyVariable: 0,
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       schema: 'atlas-current-period-actuals/v1', observationAsOf: asOf,
       coverageStart: '2026-08-19', coverageThrough: asOf,
       pendingCoverage: 'complete', transactionCoverage: 'complete', transactions,
-    } }, extra);
+    }, plan) }, extra);
 }
 function checkAction(action) {
   assert.equal(action.periodStart, '2026-09-25', 'current action starts on Seaspan payday, not the 51-day opening');

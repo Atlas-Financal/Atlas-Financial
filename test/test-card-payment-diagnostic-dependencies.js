@@ -6,6 +6,7 @@ const F = require('../public/forecast');
 const View = require('../public/budget-card-movements');
 const Live = require('../scripts/live-plan');
 const fixture = require('./fixtures/card-purchase-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 function sharedDebit() {
   const x = fixture('backfill');
   x.payload.transactions[0].amount = 30; x.payload.transactions[1].amount = 30; x.payload.transactions[2].amount = -30;
@@ -75,6 +76,9 @@ function otherAllocationReversal(amount) {
 }
 function project(x) {
   const before = JSON.stringify(x), data = Live.fromObservation(x).data;
+  data.plan = LmGroups.groupPlan(data.plan);
+  data.liveOverlay.currentPeriodActuals = LmGroups.groupPacket(
+    { ...data.liveOverlay.currentPeriodActuals, categoryGroupIds: undefined }, data.plan);
   const opts = { debts: data.debts, currentPeriodActuals: data.liveOverlay.currentPeriodActuals };
   const financial = JSON.stringify(F.recommend(data.plan, x.asOf, opts));
   const pub = F.cardPeriodMovements(data.plan, data.debts, x.asOf, F.spendingCycle(data.plan, x.asOf), opts);

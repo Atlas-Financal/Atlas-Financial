@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const F = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const source = require('./fixtures/card-backfill-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const canonical = fs.readFileSync(require.resolve('../data.json'), 'utf8');
 let checks = 0;
 function eq(actual, expected, message) { assert.deepEqual(actual, expected, message); checks++; }
@@ -35,6 +36,7 @@ function fixture() {
   x.payload.accounts[0].balance = 400;
   x.payload.accounts[1].balance = 64.30;
   x.payload.accounts[3].balance = 400;
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
   return x;
 }
 function sent(x, changes = {}) {
@@ -49,7 +51,7 @@ function run(x) {
   const result = Live.fromObservation(x);
   eq(result.data.liveOverlay.applied, true);
   eq(JSON.stringify(x), original, 'input remains immutable');
-  const opts = { debts: result.data.debts, currentPeriodActuals: result.data.liveOverlay.currentPeriodActuals };
+  const opts = { debts: result.data.debts, currentPeriodActuals: LmGroups.groupPacket(result.data.liveOverlay.currentPeriodActuals, result.data.plan) };
   const advice = F.recommend(result.data.plan, x.asOf, opts);
   const bill = advice.defaultView.bills.find(row => row.id === 'triangle');
   const period = advice.payPeriodViews.find(row => row.start === '2026-10-02');

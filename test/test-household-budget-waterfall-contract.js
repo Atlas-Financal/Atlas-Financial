@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const liveData = require('../data.json');
 const { sourceText } = require('./test-source-text');
 
@@ -192,10 +193,11 @@ function isolatedPlan(extraCats) {
 }
 
 function recommend(plan, txs) {
-  return F.recommend(plan, MID, {
+  const grouped = LmGroups.groupPlan(plan);
+  return F.recommend(grouped, MID, {
     targetBuffer: 0,
     debts: [],
-    currentPeriodActuals: actualsPacket(txs || []),
+    currentPeriodActuals: LmGroups.groupPacket(actualsPacket(txs || []), grouped),
   });
 }
 
@@ -445,16 +447,17 @@ console.log('=== 8. Dog food first-Seaspan-of-month cadence is unchanged ===');
   };
   firstPlan.opening.asOf = '2026-08-16';
   firstPlan.income[0].anchor = '2026-08-14';
-  const firstAdvice = F.recommend(firstPlan, '2026-08-16', {
+  const firstGrouped = LmGroups.groupPlan(firstPlan);
+  const firstAdvice = F.recommend(firstGrouped, '2026-08-16', {
     targetBuffer: 0, debts: [],
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       schema: 'atlas-current-period-actuals/v1',
       observationAsOf: '2026-08-16',
       coverageStart: '2026-07-01',
       coverageThrough: '2026-08-16',
       transactionCoverage: 'complete', pendingCoverage: 'complete',
       transactions: [],
-    },
+    }, firstGrouped),
   });
   const first = period(firstAdvice.defaultView, 'this-pay-period');
   const firstPets = budgetRow(first, 'pets');

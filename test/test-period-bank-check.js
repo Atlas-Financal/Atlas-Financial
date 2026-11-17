@@ -17,6 +17,15 @@ const F = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const O = require('../scripts/provider-observe');
 const fx = require('./fixtures/budget-surface-data');
+const LmGroups = require('./lm-groups-fixture.js');
+// Observe with the plan's invented Lunch Money groups laid out in the payload and served packet.
+const observeGrouped = input => {
+  const data = { ...input.data, plan: LmGroups.groupPlan(input.data.plan) };
+  const live = Live.fromObservation({ ...input, data, payload: LmGroups.groupPayload(input.payload, data.plan) });
+  const o = live.data && live.data.liveOverlay;
+  if (o && o.currentPeriodActuals) o.currentPeriodActuals = LmGroups.groupPacket({ ...o.currentPeriodActuals, categoryGroupIds: undefined }, live.data.plan);
+  return live;
+};
 
 let checks = 0;
 const ok = (cond, label, detail) => { assert.ok(cond, label + (detail ? ' - ' + detail : '')); checks++; };
@@ -47,7 +56,7 @@ function world({ legs = [], block = SAVED(), history, cards = null, observed } =
     data.plan.startingCash.breakdown.find(row => row.id === ACCOUNT[leg.account || 1001]).value -= leg.pending ? 0 : leg.amount;
   }
   if (cards) cards(payload, data);
-  const served = Live.fromObservation({ data, payload, accountMap: fx.map, identity: fx.identity }).data;
+  const served = observeGrouped({ data, payload, accountMap: fx.map, identity: fx.identity }).data;
   const periodHistory = history === undefined ? (block ? [record(block)] : []) : history;
   const advice = F.recommend(served.plan, '2026-08-20', { ...served.plan.defaults, debts: served.debts || [],
     currentPeriodActuals: served.liveOverlay.currentPeriodActuals, representedEvents: served.liveOverlay.representedEvents,
@@ -264,7 +273,7 @@ const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, acco
     x.payload.transactions = [{ id: 98001, account_id: 3001, date: '2035-10-05', amount: 49.37, currency: 'cad', payee: 'CAN TIRE MC', category_id: 9001, is_pending: false, status: 'reviewed' }];
     x.asOf = MIN_NOW;
     if (edit) edit(x);
-    const live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
+    const live = observeGrouped(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
     const history = [{ schema: 'atlas-private-period-history-projection/v1', capturedAt: '2035-09-30T19:00:00.000Z', content: { period: { start: '2035-09-17', end: '2035-09-30', timezone: 'America/Vancouver' },
       kind: 'closing', closingState: 'complete-at-capture', publication: { start: '2035-09-17', end: '2035-09-30' },
       periodBankBalances: { status: 'saved', reason: null, edge: { rule: 'household-day', end: '2035-09-30', tz: 'America/Vancouver' },
@@ -295,7 +304,7 @@ const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, acco
     kind: 'closing', closingState: 'complete-at-capture', publication: { start: '2026-09-04', end: '2026-09-17' },
     periodBankBalances: { status: 'saved', reason: null, edge: { rule: 'household-day', end: '2026-09-17', tz: 'America/Vancouver' },
       accounts: [{ id: 'chequing-a', balance: a, evidenceDate: '2026-09-18' }, { id: 'chequing-b', balance: b, evidenceDate: '2026-09-18' }] } } });
-  const bankOf = x => { const live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
+  const bankOf = x => { const live = observeGrouped(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
     const advice = F.recommend(d.plan, x.asOf, { debts: d.debts, currentPeriodActuals: packet, observedCash: d.liveOverlay.observedCash, representedEvents: d.liveOverlay.representedEvents, periodHistory: [rec2026(500, 0)] });
     return advice.payPeriodViews.find(view => view.timelineRole === 'current').bankCheck; };
   const seedExplicit = () => { const x = cardFx('backfill'); x.payload.transactions.slice(1).forEach(tx => { tx.category_name = 'Payment, Transfer'; tx.notes = null; });
@@ -323,7 +332,7 @@ const noNumbers = bc => !/\d\.\d\d|"gap":-?\d/.test(JSON.stringify({ ...bc, acco
   const clashBank = bankOf(clash);
   eq([clashBank.gap, clashBank.lists.atTheBankNotCounted.map(row => row.amount).sort((x, y) => x - y)], [-60, [-20, 80]], '20.4: a reversal whose parent payment is not confirmed is not accepted: the payment and its cash return both stay in list A');
   const aggRows = [['card', 80, null, 'purchase'], ['bills', 25, null, 'cash'], ['card', -25, null, 'credit']];
-  const aggBank = rows => { const x = aggWorld.world(rows), live = Live.fromObservation(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
+  const aggBank = rows => { const x = aggWorld.world(rows), live = observeGrouped(x), d = live.data, packet = d.liveOverlay.currentPeriodActuals;
     const advice = F.recommend(d.plan, x.asOf, { debts: d.debts, currentPeriodActuals: packet, observedCash: d.liveOverlay.observedCash, representedEvents: d.liveOverlay.representedEvents, periodHistory: [rec2026(500, 0)] });
     return { bc: advice.payPeriodViews.find(view => view.timelineRole === 'current').bankCheck, coverage: advice.cardPurchaseCoverage }; };
   const unlinked = (res, label) => { eq([res.bc.status, res.bc.reasonCode, res.bc.gap], ['unavailable', 'card-reversal-unlinked', null], label); ok(noNumbers(res.bc), label + ': no figure anywhere'); };

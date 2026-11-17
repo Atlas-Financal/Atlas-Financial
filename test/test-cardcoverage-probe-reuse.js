@@ -15,6 +15,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { sourceText } = require('./test-source-text');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const SRC_PATH = path.join(__dirname, '..', 'public', 'forecast.js');
 const SOURCE = sourceText(fs.readFileSync(SRC_PATH, 'utf8'));
@@ -24,6 +25,8 @@ const clone = v => structuredClone(v);
 // search (maxFeasiblePaydayRemoval) probe instead of fitting on the first try.
 const BASE = (() => {
   const i = structuredClone(INPUTS);
+  i.plan = LmGroups.groupPlan(i.plan);
+  i.opts.currentPeriodActuals = LmGroups.groupPacket(i.opts.currentPeriodActuals, i.plan);
   const d = new Date(i.asOf + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 20);
   i.plan.commitments.push({ id: 'synthetic-near-commitment', label: 'Synthetic near commitment',
     date: d.toISOString().slice(0, 10), amount: 2500, confidence: 'confirmed' });

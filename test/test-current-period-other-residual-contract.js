@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { sourceText } = require('./test-source-text');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe.js'));
 
 let failures = 0;
@@ -45,7 +46,7 @@ const AMANDA_AMAZON = roundCent(AMAZON_TRAVEL + PRIME_TRAVEL);
 const OTHER_RESIDUAL = roundCent(AMAZON_MBNA + AMAZON_TRIANGLE + OPENAI_TRAVEL + OTHER_GIFT + CONTRADICTION);
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -81,8 +82,10 @@ function syntheticPlan() {
       ],
       excluded: [{ from: 'Business', why: 'Amanda coaching, not household' }],
     },
-  };
+  });
 }
+const classifyGrouped = (t, plan, ...rest) =>
+  F.classifyCurrentPeriodTransaction(LmGroups.groupTx(t, plan), plan, ...rest);
 
 const debts = [
   { id: 'tdcc', label: 'TD personal Visa', secured: false, structure: 'Revolving', balance: 90, rate: 24.99, payment: 94.03, pending: 0 },
@@ -112,7 +115,7 @@ function amazonTravel(extra) {
 }
 
 function actualsPacket(txs, extra) {
-  return Object.assign({
+  return LmGroups.groupPacket(Object.assign({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF,
     coverageStart: '2026-07-01',
@@ -121,7 +124,7 @@ function actualsPacket(txs, extra) {
     transactionCoverage: 'complete',
     representedActuals: [],
     transactions: txs,
-  }, extra || {});
+  }, extra || {}), syntheticPlan());
 }
 
 function period(view, id) {
@@ -154,7 +157,7 @@ function recommend(packet, extraPlan) {
   return F.recommend(plan, AS_OF, {
     targetBuffer: 500,
     debts,
-    currentPeriodActuals: packet,
+    currentPeriodActuals: LmGroups.groupPacket(packet, plan),
     representedEvents: represented,
   });
 }
@@ -185,7 +188,7 @@ console.log('\n=== 1–8 Amazon / ownership ===');
 {
   const plan = syntheticPlan();
   const travel = amazonTravel();
-  const travelCls = F.classifyCurrentPeriodTransaction(travel, plan);
+  const travelCls = classifyGrouped(travel, plan);
   const travelFlags = F.classifyCurrentPeriodTransaction.derivedFlags(travel);
   ok(travelCls.kind === 'spend' && travelCls.categoryId === 'amanda-guilt-free'
       // H1: an explicit Lunch Money Shopping label wins; the personal-shopping
@@ -227,13 +230,13 @@ console.log('\n=== 1–8 Amazon / ownership ===');
     displayedPayee: 'Amazonia Coffee', originalMerchant: 'Amazonia Coffee',
   });
 
-  const mbnaCls = F.classifyCurrentPeriodTransaction(mbna, plan);
-  const triangleCls = F.classifyCurrentPeriodTransaction(triangle, plan);
-  const openaiCls = F.classifyCurrentPeriodTransaction(openai, plan);
-  const primeCls = F.classifyCurrentPeriodTransaction(prime, plan);
-  const noTagCls = F.classifyCurrentPeriodTransaction(noTag, plan);
-  const daleCls = F.classifyCurrentPeriodTransaction(daleLabel, plan);
-  const amazonianCls = F.classifyCurrentPeriodTransaction(amazonian, plan);
+  const mbnaCls = classifyGrouped(mbna, plan);
+  const triangleCls = classifyGrouped(triangle, plan);
+  const openaiCls = classifyGrouped(openai, plan);
+  const primeCls = classifyGrouped(prime, plan);
+  const noTagCls = classifyGrouped(noTag, plan);
+  const daleCls = classifyGrouped(daleLabel, plan);
+  const amazonianCls = classifyGrouped(amazonian, plan);
   const mbnaFlags = F.classifyCurrentPeriodTransaction.derivedFlags(mbna);
   const triangleFlags = F.classifyCurrentPeriodTransaction.derivedFlags(triangle);
 
@@ -321,7 +324,7 @@ console.log('\n=== 9–16 known rules beat Other ===');
     'tx-cursor': 'dale-guilt-free',
   };
   for (const row of known) {
-    const cls = F.classifyCurrentPeriodTransaction(row, plan, {
+    const cls = classifyGrouped(row, plan, {
       currentPeriodActuals: actualsPacket(known, {
         representedActuals: [{
           id: 'google-storage-100gb', date: '2026-08-31', actual: GOOGLE,
@@ -391,7 +394,7 @@ console.log('\n=== 17–21 financial non-consumption ===');
   ];
   const kinds = ['card-payment', 'transfer', 'income', 'refund', 'bill'];
   rows.forEach((row, i) => {
-    const cls = F.classifyCurrentPeriodTransaction(row, plan);
+    const cls = classifyGrouped(row, plan);
     ok(cls.kind === kinds[i] && cls.householdSpending === false
         && cls.needsConfirmation !== true,
       (17 + i) + '. ' + kinds[i] + ' is excluded from Household Budget / Other',
@@ -573,7 +576,7 @@ console.log('\n=== sanitized live-overlay Amazon + Travel Visa ===');
     amazonMerchant: true,
     personalOwner: null,
   };
-  const strippedCls = F.classifyCurrentPeriodTransaction(strippedNoText, plan);
+  const strippedCls = classifyGrouped(strippedNoText, plan);
   ok(strippedCls.kind === 'spend' && strippedCls.categoryId === 'amanda-guilt-free'
       && strippedCls.includeReason === 'owner-evidence-amanda'
       && strippedCls.needsConfirmation !== true,

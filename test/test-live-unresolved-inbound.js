@@ -13,6 +13,7 @@ const Live = require('../scripts/live-plan.js');
 const OA = require('../scripts/operating-answer.js');
 const Assistant = require('../scripts/assistant-packet.js');
 const Forecast = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const DATA = path.join(ROOT, 'data.json');
@@ -535,6 +536,7 @@ console.log('\n=== 8. Actual spending does not double-count ===');
   ok(near(remaining, 550), 'independent grocery remaining is $550');
   const canonical = clone(liveData);
   isolateGroceries(canonical.plan);
+  canonical.plan = LmGroups.groupPlan(canonical.plan);
   const extra = {
     fetchedAt: '2026-08-31T18:00:00.000Z',
     tweaks: Object.assign({
@@ -547,7 +549,7 @@ console.log('\n=== 8. Actual spending does not double-count ===');
   const advice = Forecast.recommend(result.data.plan, '2026-08-31', {
     debts: result.data.debts,
     operatingPlan: result.data.liveOverlay.operatingPlan,
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       observationAsOf: '2026-08-31',
       coverageStart: '2026-08-14',
       coverageThrough: '2026-08-31',
@@ -559,7 +561,7 @@ console.log('\n=== 8. Actual spending does not double-count ===');
         displayedPayee: 'Save-On-Foods', originalMerchant: 'Save-On-Foods',
         merchantKnown: true,
       }],
-    },
+    }, result.data.plan),
   });
   const p2 = activePeriod(advice);
   const groceries = (p2.householdBudget || []).find(row => row && row.id === 'groceries');

@@ -108,7 +108,7 @@ function syntheticPlan() {
           id: OTHER_ID,
           label: OTHER_LABEL,
           class: 'essential',
-          from: [],
+          historyCategories: [],
           plannedMonthly: OTHER_MONTHLY,
           ownerLine: OTHER_LABEL,
           targetSource: 'owner-stated-2026-09-18',
@@ -117,7 +117,7 @@ function syntheticPlan() {
           id: 'travel',
           label: 'Travel',
           class: 'discretionary',
-          from: ['Travel'],
+          historyCategories: ['Travel'],
         },
       ],
     },
@@ -156,7 +156,7 @@ console.log('=== 1. Live JSON home is other-spend.plannedMonthly 800 ===');
       && row.targetSource === 'owner-stated-2026-09-18'
       && row.label === OTHER_LABEL,
     'ownerLine / targetSource / label are owner-stated Other spend this turn');
-  ok(row && Array.isArray(row.from) && row.from.length === 0,
+  ok(row && Array.isArray(row.historyCategories) && row.historyCategories.length === 0,
     'other-spend has no Lunch Money from-mapping; it is a planning home, not a classification bucket');
   ok(uncat && uncat.plannedMonthly == null && uncat.id === 'uncategorised',
     'uncategorised remains the unmatched-merchant remainder, not the $800 home');

@@ -18,8 +18,9 @@
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
-const live = require('./fixtures/retired-fuel-policy')(
-  require('./fixtures/retired-other-policy')(require('../data.json')));
+const LmGroups = require('./lm-groups-fixture.js');
+const live = (d => Object.assign({}, d, { plan: LmGroups.groupPlan(d.plan) }))(require('./fixtures/retired-fuel-policy')(
+  require('./fixtures/retired-other-policy')(require('../data.json'))));
 const periods = require('../public/periods.json');
 
 let failures = 0;
@@ -119,7 +120,7 @@ function groceryEssential(alloc) {
 }
 
 function syntheticPlan(payday) {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500, windowDays: 91 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -167,7 +168,7 @@ function syntheticPlan(payday) {
         },
       ],
     },
-  };
+  });
 }
 
 function groceryTx(amount, date) {
@@ -185,14 +186,14 @@ function groceryTx(amount, date) {
 }
 
 function actuals(txs) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF,
     coverageStart: '2026-09-01',
     coverageThrough: AS_OF,
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
-  };
+  }, syntheticPlan(GROCERY_PAYDAY));
 }
 
 const debts = [
@@ -211,7 +212,7 @@ console.log('\n=== 1. Live JSON home is groceries plannedPayday 900, plannedMont
   const row = byId(live.plan, 'groceries');
   ok(!!row && row.id === 'groceries' && row.label === 'Groceries'
       && row.class === 'essential' && row.ownerLine === 'Groceries'
-      && Array.isArray(row.from) && row.from.length === 1 && row.from[0] === 'Groceries',
+      && Array.isArray(row.historyCategories) && row.historyCategories.length === 1 && row.historyCategories[0] === 'Groceries',
     'Groceries stays the same category and Groceries classification');
   ok(row && row.plannedPayday === GROCERY_PAYDAY && row.plannedMonthly == null
       && row.plannedWeekly == null,
@@ -495,7 +496,7 @@ console.log('\n=== 7. Month and trajectory consume the payday authority, not a s
     'published food-and-fuel weekly is $612.50 from the same calendar conversion',
     `${foodFuelMonthly} → ${independentFoodFuelWeekly}`);
 
-  const monthOnly = {
+  const monthOnly = LmGroups.groupPlan({
     windowDays: 91,
     startingCash: { amount: 8000 },
     defaults: { targetBuffer: 200, extraDebtMonthly: 0, scenario: 'expected' },
@@ -510,15 +511,15 @@ console.log('\n=== 7. Month and trajectory consume the payday authority, not a s
       categories: [
         {
           id: 'groceries', label: 'Groceries', class: 'essential',
-          from: ['Groceries'], plannedPayday: GROCERY_PAYDAY, plannedMonthly: null,
+          historyCategories: ['Groceries'], plannedPayday: GROCERY_PAYDAY, plannedMonthly: null,
           ownerLine: 'Groceries',
         },
         {
-          id: 'travel', label: 'Travel', class: 'discretionary', from: ['Travel'],
+          id: 'travel', label: 'Travel', class: 'discretionary', historyCategories: ['Travel'],
         },
       ],
     },
-  };
+  });
   const trajDebts = [{
     id: 'card', label: 'Synthetic card', balance: 600, pending: 0, rate: 19.99,
     rateConvention: 'card', structure: 'Revolving — synthetic', secured: false, limit: 1500,
@@ -565,7 +566,7 @@ console.log('\n=== 8. Classification of a Groceries transaction is unchanged ===
     date: '2026-09-12', amount: 42.15, categoryLabel: 'Groceries',
     displayedPayee: 'SAVE ON FOODS', originalMerchant: 'SAVE ON FOODS',
   };
-  const cls = F.classifyCurrentPeriodTransaction(tx, live.plan, {});
+  const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, live.plan), live.plan, {});
   ok(cls && cls.kind === 'spend' && (cls.categoryId === 'groceries' || cls.atlasRow === 'groceries'),
     'a Groceries-labelled transaction still classifies as groceries',
     cls ? `${cls.kind}/${cls.categoryId || cls.atlasRow}` : 'missing');

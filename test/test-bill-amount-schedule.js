@@ -39,8 +39,8 @@ const mkPlan = (bills, asOf) => ({
   windowDays: 91, opening: { asOf: asOf || '2027-01-01' },
   commitments: [], obligations: [], income: [], bills,
   budget: { basis: 'ytd', categories: [
-    { id: 'subs', label: 'Subs', class: 'discretionary', from: ['Subs'] },
-    { id: 'other', label: 'Other', class: 'discretionary', from: ['Other'] },
+    { id: 'subs', label: 'Subs', class: 'discretionary', historyCategories: ['Subs'] },
+    { id: 'other', label: 'Other', class: 'discretionary', historyCategories: ['Other'] },
   ] },
 });
 const PERIODS = { periods: { ytd: { months: 6, spending: [{ label: 'Subs', total: 600 }, { label: 'Other', total: 300 }] } } };

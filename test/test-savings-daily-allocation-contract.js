@@ -4,11 +4,18 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const F = require('../public/forecast');
-const { fixture, transfer, advance, clone, monthBoundaryFixture } = require('./fixtures/savings-daily-allocation-contract');
+const LmGroups = require('./lm-groups-fixture.js');
+const lmGrouped = input => { input.plan = LmGroups.groupPlan(input.plan);
+  input.opts.currentPeriodActuals = LmGroups.groupPacket(input.opts.currentPeriodActuals, input.plan); return input; };
+const { transfer, advance, clone } = require('./fixtures/savings-daily-allocation-contract');
+const fixture = () => lmGrouped(require('./fixtures/savings-daily-allocation-contract').fixture());
+const monthBoundaryFixture = () => lmGrouped(require('./fixtures/savings-daily-allocation-contract').monthBoundaryFixture());
 const cents = value => { assert.equal(typeof value, 'number'); return Math.round(value * 100); };
 function run(input = fixture()) {
   assert.equal(typeof F.savingsDailyFunding, 'function',
     'Forecast.savingsDailyFunding must publish the approved contract');
+  // Rows a check added after the fixture was built are laid out in groups too.
+  if (input.opts && input.opts.currentPeriodActuals) lmGrouped(input);
   const before = JSON.stringify(input);
   const out = F.savingsDailyFunding(input.plan, input.debts || [], input.asOf, input.opts);
   assert.equal(JSON.stringify(input), before, 'no confirmation, baseline or observed cash mutation');

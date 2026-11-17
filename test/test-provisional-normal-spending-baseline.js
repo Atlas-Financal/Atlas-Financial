@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const crypto = require('crypto');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const DATA = path.join(ROOT, 'data.json');
@@ -44,7 +45,7 @@ const liveTargetsBefore = JSON.stringify(require(DATA).plan.budget.categories.ma
 })));
 
 function undatedPlanFixture() {
-  return {
+  return LmGroups.groupPlan({
     opening: { asOf: AS_OF },
     startingCash: { amount: 8000 },
     windowDays: 91,
@@ -111,7 +112,7 @@ function undatedPlanFixture() {
         },
       ],
     },
-  };
+  });
 }
 
 // Counterfactual dates are invented inputs only; the original unresolved
@@ -259,7 +260,7 @@ function packetFrom(rows, coverage) {
     }
     return tx(row, { categoryLabel: 'Groceries', payee: 'MERIDIAN FARM', originalMerchant: 'MERIDIAN FARM' });
   });
-  return Object.assign({
+  return LmGroups.groupPacket(Object.assign({
     schema: 'atlas-current-period-actuals/v1',
     coverageStart: PREV_START,
     coverageThrough: AS_OF,
@@ -271,7 +272,7 @@ function packetFrom(rows, coverage) {
       { id: 'hydro', date: '2026-09-05', transactionId: 'bill-1', actual: 88 },
       { id: 'christmas', date: '2026-12-15', transactionId: 'xmas-1', actual: 250 },
     ],
-  }, coverage || {});
+  }, coverage || {}), planFixture());
 }
 
 function ask(plan, packet, extra) {

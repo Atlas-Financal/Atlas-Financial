@@ -34,9 +34,10 @@
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
-const plan = JSON.parse(fs.readFileSync(path.join(ROOT, 'data.json'), 'utf8')).plan;
+const plan = LmGroups.groupPlan(JSON.parse(fs.readFileSync(path.join(ROOT, 'data.json'), 'utf8')).plan);
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -76,10 +77,10 @@ function packetTx(over) {
 }
 
 function classify(tx) {
-  return F.classifyCurrentPeriodTransaction(tx, plan, {});
+  return F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan), plan, {});
 }
 function classifyWith(tx, p) {
-  return F.classifyCurrentPeriodTransaction(tx, p, {});
+  return F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, p), p, {});
 }
 function isFuel(cls) {
   return !!cls && cls.kind === 'spend' && cls.categoryId === 'fuel';
@@ -128,7 +129,8 @@ console.log('\n=== the Fuel label is explicit fuel evidence (retained) ===');
   ok(isFuel(ownerExact) && ownerExact.includeReason === 'fuel-merchant',
     'control: the exact owner-confirmed September 2026 transaction still classifies by identity first',
     describe(ownerExact));
-  const flags = F.classifyCurrentPeriodTransaction.derivedFlags(rawTx({}));
+  // Slice 1: Fuel is the Fuel row's group, so the flag reads the (grouped) plan.
+  const flags = F.classifyCurrentPeriodTransaction.derivedFlags(LmGroups.groupTx(rawTx({}), plan), plan);
   ok(flags.fuelEvidence === true && flags.convenienceStore === true,
     'derivedFlags: the observer now stamps fuelEvidence for an exact Fuel category',
     JSON.stringify({ fuelEvidence: flags.fuelEvidence, convenienceStore: flags.convenienceStore }));

@@ -16,6 +16,7 @@ const path = require('node:path');
 const ROOT = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 const F = require(path.join(ROOT, 'public/forecast'));
 const deficitModel = require('./fixtures/savings-deficit-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 
 // Ledger (as of 2026-10-07, current period Oct 2 - Oct 15):
 //   Bills payday opening 20; a 100 receipt lands on Oct 6, so Bills holds 120.
@@ -76,9 +77,9 @@ function read(x) {
 // Savings account changes kind. Movements, refunds and chequing spend keep
 // their own classification.
 {
-  const plan = { budget: { categories: [{ id: 'groceries', label: 'Groceries', plannedPayday: 300 }] } };
+  const plan = LmGroups.groupPlan({ budget: { categories: [{ id: 'groceries', label: 'Groceries', plannedPayday: 300 }] } });
   const base = { date: '2026-10-06', currency: 'CAD', pending: false };
-  const cls = tx => F.classifyCurrentPeriodTransaction({ ...base, ...tx }, plan, {});
+  const cls = tx => F.classifyCurrentPeriodTransaction(LmGroups.groupTx({ ...base, ...tx }, plan), plan, {});
   const reserve = cls({ id: 's1', amount: 40, accountRole: 'household-reserve', atlasAccountId: 'savings', categoryLabel: 'Gifts' });
   assert.equal(reserve.kind, 'savings-paid');
   assert.equal(reserve.householdSpending, false, 'never in the household reserve');

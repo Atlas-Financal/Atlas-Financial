@@ -118,7 +118,7 @@ function classificationProblems({
   sourceAmbiguous = SOURCE_AMBIGUOUS,
 }) {
   const problems = [];
-  const excludedLabels = new Set((excluded || []).map(e => e.from));
+  const excludedLabels = new Set((excluded || []).flatMap(e => e.historyCategories || []));
 
   const bizLib = libraryTypes(library, 'Business');
   const bizHist = periodTypes(periods, 'Business');
@@ -130,13 +130,13 @@ function classificationProblems({
     problems.push('business-not-excluded');
   }
   for (const c of categories || []) {
-    if ((c.from || []).includes('Business') && COMPARABLE.has(c.class)) {
+    if ((c.historyCategories || []).includes('Business') && COMPARABLE.has(c.class)) {
       problems.push(`business-as-household:${c.id}`);
     }
   }
 
   for (const c of categories || []) {
-    for (const label of c.from || []) {
+    for (const label of c.historyCategories || []) {
       if (label === PAYPAL_CHANNEL) continue;
 
       const libTypes = libraryTypes(library, label);
@@ -197,11 +197,11 @@ function classificationProblems({
   }
 
   for (const label of unresolved) {
-    const cat = (categories || []).find(c => (c.from || []).includes(label));
+    const cat = (categories || []).find(c => (c.historyCategories || []).includes(label));
     if (!cat) problems.push(`unresolved-missing-category:${label}`);
   }
   for (const label of sourceAmbiguous) {
-    const cat = (categories || []).find(c => (c.from || []).includes(label));
+    const cat = (categories || []).find(c => (c.historyCategories || []).includes(label));
     if (!cat) problems.push(`source-ambiguous-missing-category:${label}`);
   }
 
@@ -230,7 +230,7 @@ ok(liveProblems.length === 0,
 
 const overlapRows = [];
 for (const c of budget.categories) {
-  for (const label of c.from || []) {
+  for (const label of c.historyCategories || []) {
     if (label === PAYPAL_CHANNEL) {
       overlapRows.push({
         id: c.id, label, forward: c.class, historical: '(paypal channel)',
@@ -283,7 +283,7 @@ console.log('\n=== named non-comparable semantics ===');
 const business = overlapRows.find(r => r.label === 'Business');
 ok(!business,
   'Business is not a forward budget category');
-ok((budget.excluded || []).some(e => e.from === 'Business'),
+ok((budget.excluded || []).some(e => (e.historyCategories || []).includes('Business')),
   'Business is explicitly excluded from the household cap');
 ok(one(libraryTypes(library, 'Business')) === 'business'
   && one(periodTypes(periods, 'Business')) === 'business',
@@ -429,8 +429,8 @@ function healthOrder(events) {
     { pattern: 'H' + i, category: 'Health', type: t }
   ));
   const fixture = {
-    categories: [{ id: 'health', class: 'essential', from: ['Health'] }],
-    excluded: [{ from: 'Business' }],
+    categories: [{ id: 'health', class: 'essential', historyCategories: ['Health'] }],
+    excluded: [{ historyCategories: ['Business'] }],
     library: lib,
     periods: { periods: { ytd: { spending: [{ label: 'Health', total: 10, type: published }] } } },
   };
@@ -476,8 +476,8 @@ ok(essentialFirst.published !== discretionaryFirst.published
   'source-mix detection is independent of which Health event is encountered first');
 
 const honestPublished = {
-  categories: [{ id: 'health', class: 'essential', from: ['Health'] }],
-  excluded: [{ from: 'Business' }],
+  categories: [{ id: 'health', class: 'essential', historyCategories: ['Health'] }],
+  excluded: [{ historyCategories: ['Business'] }],
   library: [
     { pattern: 'H0', category: 'Health', type: 'discretionary' },
     { pattern: 'H1', category: 'Health', type: 'essential' },
@@ -534,7 +534,7 @@ ok(classificationProblems(coerceBusiness).includes('business-coerced'),
   'coercing Business into essential fails; business is not flattened');
 const budgetBusiness = clone(live);
 budgetBusiness.categories = clone(live.categories).concat([{
-  id: 'biz', class: 'discretionary', from: ['Business'],
+  id: 'biz', class: 'discretionary', historyCategories: ['Business'],
 }]);
 ok(classificationProblems(budgetBusiness).some(p => p.startsWith('business-as-household')),
   'putting Business into a discretionary budget category fails');
@@ -569,7 +569,7 @@ invent.library = clone(library).concat([{ pattern: 'FAKE', category: 'GhostSpend
 invent.periods = clone(periods);
 invent.periods.periods.ytd.spending.push({ label: 'GhostSpend', total: 1, type: 'discretionary' });
 invent.categories = clone(live.categories).concat([{
-  id: 'ghost', class: 'essential', from: ['GhostSpend'],
+  id: 'ghost', class: 'essential', historyCategories: ['GhostSpend'],
 }]);
 ok(classificationProblems(invent).some(p =>
   p === 'contradiction:GhostSpend:forward=essential:historical=discretionary'),
@@ -585,7 +585,7 @@ ok(markSchoolUnresolved.some(p => p === 'stale-unresolved:School & clubs'),
 console.log('\n=== generator: library type matches published periods.json ===');
 const mappedLabels = new Set();
 for (const c of budget.categories) {
-  for (const label of c.from || []) {
+  for (const label of c.historyCategories || []) {
     if (label !== PAYPAL_CHANNEL) mappedLabels.add(label);
   }
 }

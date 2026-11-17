@@ -9,6 +9,7 @@ const Module = require('node:module');
 const { execFileSync } = require('node:child_process');
 const F = require('../public/forecast');
 const fixture = require('./fixtures/budget-funding-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const AS_OF = '2026-08-20';
 const ROOT = path.join(__dirname, '..');
 function state() {
@@ -33,10 +34,11 @@ function state() {
       { id: 'synthetic-payroll', date: '2026-08-14', amount: -1000, account: 'chequing-a',
         accountRole: 'household-cash', categoryLabel: 'Income', kindHint: 'income', pending: false },
     ] };
+  data.plan = LmGroups.groupPlan(data.plan);
   return { data, packet, asOf: AS_OF, opts: {} };
 }
 const options = s => ({ ...s.data.plan.defaults, debts: s.data.debts,
-  currentPeriodActuals: require('./fixtures/card-coverage-opening').packet(s.packet), ...s.opts });
+  currentPeriodActuals: LmGroups.groupPacket(require('./fixtures/card-coverage-opening').packet(s.packet), s.data.plan), ...s.opts });
 const current = a => a.payPeriodViews.find(p => p.fromTodayFunding);
 const run = (s, engine = F) => engine.recommend(s.data.plan, s.asOf, options(s));
 const withoutDiagnostics = value => JSON.parse(JSON.stringify(value, (key, v) => key === 'evidenceFailures' ? undefined : v));

@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const Assistant = require('../scripts/assistant-packet.js');
 const { sourceText } = require('./test-source-text');
 
@@ -199,11 +200,14 @@ function fixturePlan(extra) {
 }
 
 function recommend(plan, txs, extraOpts) {
-  return F.recommend(plan, extraOpts && extraOpts.asOf || AS_OF, Object.assign({
+  const grouped = LmGroups.groupPlan(plan);
+  const opts = Object.assign({
     targetBuffer: 0,
     debts: extraOpts && extraOpts.debts || [],
     currentPeriodActuals: actuals(txs, extraOpts && extraOpts.actualsExtra),
-  }, extraOpts || {}));
+  }, extraOpts || {});
+  if (opts.currentPeriodActuals) opts.currentPeriodActuals = LmGroups.groupPacket(opts.currentPeriodActuals, grouped);
+  return F.recommend(grouped, extraOpts && extraOpts.asOf || AS_OF, opts);
 }
 
 function activeOf(advice) {

@@ -10,6 +10,7 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const START = '2030-02-01', END = '2030-02-14';
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -19,7 +20,7 @@ function directory(name) { const dir = path.join(temporary, name); fs.mkdirSync(
 function input(day = START, kind = 'original') {
   const ids = ['chequing-a', 'chequing-b', 'savings'];
   const cash = ids.map((id, i) => ({ id, label: 'Invented cash ' + i, value: [1000, 500, 100][i], evidenceDate: day, confidence: 'confirmed' }));
-  return {
+  const x = {
     kind, capturedAt: day + 'T18:01:00Z', periodStart: START, periods: [],
     ...(kind === 'actual-correction' ? { reason: 'invented source revision' } : {}),
     data: { meta: { asOf: day }, accounts: [], debts: [], revolvingExtra: [], plan: {
@@ -45,6 +46,9 @@ function input(day = START, kind = 'original') {
       pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false },
     },
   };
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
+  x.payload = LmGroups.groupPayload(x.payload, x.data.plan);
+  return x;
 }
 function capture(data = input()) {
   const clean = clone(data), time = clean.capturedAt; delete clean.capturedAt;

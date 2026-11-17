@@ -38,9 +38,9 @@ const FIXTURE_PLAN = {
   budget: {
     basis: 'ytd',
     categories: [
-      { id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedMonthly: 1200 },
-      { id: 'fuel', label: 'Fuel', class: 'essential', from: ['Fuel'], plannedMonthly: 800 },
-      { id: 'dining', label: 'Dining', class: 'discretionary', from: ['Dining'], plannedMonthly: 400 },
+      { id: 'groceries', label: 'Groceries', class: 'essential', historyCategories: ['Groceries'], plannedMonthly: 1200 },
+      { id: 'fuel', label: 'Fuel', class: 'essential', historyCategories: ['Fuel'], plannedMonthly: 800 },
+      { id: 'dining', label: 'Dining', class: 'discretionary', historyCategories: ['Dining'], plannedMonthly: 400 },
     ],
   },
 };
@@ -95,8 +95,8 @@ const noTargetPlan = {
   budget: {
     basis: 'ytd',
     categories: [
-      { id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedMonthly: null },
-      { id: 'fuel', label: 'Fuel', class: 'essential', from: ['Fuel'] },
+      { id: 'groceries', label: 'Groceries', class: 'essential', historyCategories: ['Groceries'], plannedMonthly: null },
+      { id: 'fuel', label: 'Fuel', class: 'essential', historyCategories: ['Fuel'] },
     ],
   },
 };
@@ -116,8 +116,8 @@ const zeroPlan = {
   budget: {
     basis: 'ytd',
     categories: [
-      { id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedMonthly: 0 },
-      { id: 'fuel', label: 'Fuel', class: 'essential', from: ['Fuel'], plannedMonthly: 800 },
+      { id: 'groceries', label: 'Groceries', class: 'essential', historyCategories: ['Groceries'], plannedMonthly: 0 },
+      { id: 'fuel', label: 'Fuel', class: 'essential', historyCategories: ['Fuel'], plannedMonthly: 800 },
     ],
   },
 };

@@ -4,11 +4,12 @@
 const assert = require('assert/strict');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const START = '2026-08-28';
 const AS_OF = '2026-09-04';
 
 function plan(cash = 5000, mixed = false) {
-  return {
+  return LmGroups.groupPlan({
     windowDays: 14, defaults: { targetBuffer: 0 },
     startingCash: { amount: cash },
     opening: {
@@ -28,17 +29,20 @@ function plan(cash = 5000, mixed = false) {
           from: ['Restaurants'], plannedPayday: 200 },
       ] : []),
     ] },
-  };
+  });
 }
+// Every invented group the packets below can name (the rows any case adds).
+const ALL_GROUPS = LmGroups.groupPlan({ budget: { categories: [
+  ...plan(5000, true).budget.categories, { id: 'dining' }, { id: 'supplies' }] } });
 function tx(amount, extra = {}) {
   return { id: 'grocery', coverageRef: 'grocery', currency: 'cad', date: '2026-09-01', amount, pending: false,
     categoryLabel: 'Groceries', confirmedGrocery: true,
     accountRole: 'household-cash', atlasAccountId: 'chequing-a', ...extra };
 }
 function packet(transactions, extra = {}) {
-  return { schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
+  return LmGroups.groupPacket({ schema: 'atlas-current-period-actuals/v1', observationAsOf: AS_OF,
     coverageStart: START, coverageThrough: AS_OF, pendingCoverage: 'complete',
-    transactionCoverage: 'complete', transactions, ...extra };
+    transactionCoverage: 'complete', transactions, ...extra }, ALL_GROUPS);
 }
 function options(transactions, extra = {}) {
   return { debts: [], targetBuffer: 0, weeklyVariable: 0,
@@ -54,8 +58,9 @@ for (const [name, category] of [
 ]) {
   for (const destination of ['debt', 'optional', 'unallocated', 'mixed']) {
     for (const settled of [false, true]) {
-      const p = plan(settled ? 4750 : 5000);
+      let p = plan(settled ? 4750 : 5000);
       if (category) p.budget.categories.push(category);
+      p = LmGroups.groupPlan(p);
       p.nextDollar = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' };
       if (destination === 'optional' || destination === 'mixed') {
         p.commitments.push({ id: 'optional', label: 'Optional purchase', flexibility: 'optional',
@@ -66,7 +71,7 @@ for (const [name, category] of [
           balance: destination === 'mixed' ? 1000 : 10000, pending: 0, limit: 20000 }] : [];
       const spending = tx(250, { id: 'b102', pending: !settled, confirmedGrocery: false,
         categoryLabel: category ? category.label : 'Gifts' });
-      const classification = F.classifyCurrentPeriodTransaction(spending, p, options([spending]));
+      const classification = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(spending, p), p, options([spending]));
       assert.equal(classification.categoryId, category ? category.id : 'uncategorised', name + ': incumbent category');
       const a = F.paydayAllocation(p, AS_OF, options([spending], { debts }));
       const optional = a.optional.reduce((sum, row) => sum + row.allocated, 0);
@@ -240,8 +245,8 @@ function observed(rows) {
     pendingCoverage: { complete: true }, transactions: rows,
   }, { plan: plan(), accountMap: mapping, asOf: AS_OF });
 }
-const before = observed([rawPending]);
-const after = observed([rawPending, rawPosted]);
+const before = LmGroups.groupPacket(observed([rawPending]), ALL_GROUPS);
+const after = LmGroups.groupPacket(observed([rawPending, rawPosted]), ALL_GROUPS);
 assert.equal(before.transactions.length, 1);
 assert.equal(after.transactions.length, 1, 'directed link collapses the pending identity');
 assert.equal(before.transactions[0].accountRole, 'household-cash');

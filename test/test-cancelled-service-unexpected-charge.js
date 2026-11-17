@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe.js'));
 
 let failures = 0;
@@ -28,7 +29,7 @@ function clone(value) {
 }
 
 function planFixture() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     cancelledServices: clone(data.plan.cancelledServices),
     startingCash: {
@@ -59,11 +60,11 @@ function planFixture() {
       ],
       excluded: [{ from: 'Business', why: 'not household' }],
     },
-  };
+  });
 }
 
 function tx(id, merchant, amount, extra) {
-  return Object.assign({
+  return LmGroups.groupTx(Object.assign({
     id,
     date: AS_OF,
     amount,
@@ -74,7 +75,7 @@ function tx(id, merchant, amount, extra) {
     account: 'travelvisa',
     displayedPayee: merchant,
     originalMerchant: merchant,
-  }, extra || {});
+  }, extra || {}), planFixture());
 }
 
 function packet(transactions) {

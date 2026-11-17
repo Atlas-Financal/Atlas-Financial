@@ -4,6 +4,7 @@
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const fixture = require('./fixtures/budget-funding-data');
+const LmGroups = require('./lm-groups-fixture.js');
 const AS_OF = '2026-08-20';
 
 function state(pending = true, account = 'travelvisa', role = 'revolving-credit', amount = 50) {
@@ -30,6 +31,7 @@ function run(s) {
   x.data.plan.cardPurchaseCoverage={ opening:{asOf:'2026-08-14',confirmed:true,
     currency:'cad',fundingAccountId:'chequing-a',purchases:[]},payments:[],refunds:[],reversals:[] };
   for (const tx of x.packet.transactions || []) { tx.currency='cad';tx.coverageRef='synthetic-ref-'+tx.id; }
+  x.data.plan = LmGroups.groupPlan(x.data.plan); x.packet = LmGroups.groupPacket(x.packet, x.data.plan);
   return F.recommend(x.data.plan, AS_OF, { debts: x.debts, currentPeriodActuals: x.packet });
 }
 const period = (advice, start) => advice.payPeriodViews.find(p => p.start === start);
@@ -213,8 +215,9 @@ const excludedResults = [];
 for (const [name, fields, kind] of excludedDebitCases) {
   for (const exposure of [50, 124.99]) {
     const s = excludedDebit(exposure, fields);
-    assert.equal(F.classifyCurrentPeriodTransaction(s.packet.transactions[1], s.data.plan,
-      { currentPeriodActuals: s.packet }).kind, kind, name + ' uses the incumbent classification');
+    const groupedPlan = LmGroups.groupPlan(s.data.plan), groupedPacket = LmGroups.groupPacket(s.packet, groupedPlan);
+    assert.equal(F.classifyCurrentPeriodTransaction(groupedPacket.transactions[1], groupedPlan,
+      { currentPeriodActuals: groupedPacket }).kind, kind, name + ' uses the incumbent classification');
     const result = nextFunding(run(s));
     excludedResults.push([name, exposure, result.status, result.contribution]);
   }

@@ -7,6 +7,15 @@ const Live = require('../scripts/live-plan');
 const seed = require('./fixtures/card-purchase-coverage-data');
 const fixture = require('./fixtures/scheduled-fee-routing-data');
 const internetFixture = fixture.internet;
+const LmGroups = require('./lm-groups-fixture.js');
+// Observe with the plan's invented Lunch Money groups laid out in the payload and served packet.
+const observeGrouped = input => {
+  const data = { ...input.data, plan: LmGroups.groupPlan(input.data.plan) };
+  const live = Live.fromObservation({ ...input, data, payload: LmGroups.groupPayload(input.payload, data.plan) });
+  const o = live.data && live.data.liveOverlay;
+  if (o && o.currentPeriodActuals) o.currentPeriodActuals = LmGroups.groupPacket({ ...o.currentPeriodActuals, categoryGroupIds: undefined }, live.data.plan);
+  return live;
+};
 const clone = value => JSON.parse(JSON.stringify(value));
 const cases = [];
 function check(name, fn) {
@@ -15,7 +24,7 @@ function check(name, fn) {
 }
 function run(x) {
   const before = JSON.stringify(x);
-  const live = Live.fromObservation(x);
+  const live = observeGrouped(x);
   const packet = live.data.liveOverlay.currentPeriodActuals;
   const advice = F.recommend(live.data.plan,x.asOf,
     {debts:live.data.debts,currentPeriodActuals:packet});

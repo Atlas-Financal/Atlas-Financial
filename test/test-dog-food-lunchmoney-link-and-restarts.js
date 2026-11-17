@@ -26,6 +26,7 @@
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
 const liveData = require('../data.json');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -36,7 +37,7 @@ const near = (a, b, eps = 0.005) => Math.abs((Number(a) || 0) - (Number(b) || 0)
 const roundCent = n => Math.round((Number(n) || 0) * 100) / 100;
 const clone = v => JSON.parse(JSON.stringify(v));
 
-const livePlan = liveData.plan;
+const livePlan = LmGroups.groupPlan(liveData.plan);
 const livePets = (livePlan.budget.categories || []).find(c => c && c.id === 'pets');
 const RECURRING_ID = '3169453';
 const CATEGORY_ID = '3237238';
@@ -49,7 +50,7 @@ function addDays(iso, n) {
   return [dt.getUTCFullYear(), String(dt.getUTCMonth() + 1).padStart(2, '0'),
     String(dt.getUTCDate()).padStart(2, '0')].join('-');
 }
-const cls = (tx, plan) => F.classifyCurrentPeriodTransaction(tx, plan || livePlan, {});
+const cls = (tx, plan) => F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan || livePlan), plan || livePlan, {});
 const why = c => c && `${c.kind}/${c.categoryId}/${c.includeReason || c.reason}`;
 
 console.log('\n=== config: ids live in data.json pets, not in forecast.js ===');

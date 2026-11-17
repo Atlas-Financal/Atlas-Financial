@@ -20,6 +20,7 @@ const vm = require('vm');
 const Forecast = require('../public/forecast.js');
 const Live = require('../scripts/live-plan.js');
 const { sourceText } = require('./test-source-text');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const ROOT = path.join(__dirname, '..');
 const DATA = path.join(ROOT, 'data.json');
@@ -154,7 +155,7 @@ function canonicalPlan() {
   return {
     meta: { asOf: OPENING_AS_OF },
     debts: [],
-    plan: {
+    plan: LmGroups.groupPlan({
       defaults: { targetBuffer: 500 },
       startingCash: {
         breakdown: [
@@ -169,7 +170,7 @@ function canonicalPlan() {
       obligations: [],
       commitments: [],
       budget: { categories: [] },
-    },
+    }),
   };
 }
 
@@ -196,7 +197,7 @@ function gapTransactions(extra) {
 
 function actualsPacket(opts) {
   opts = opts || {};
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     coverageStart: opts.coverageStart || GAP_START,
     coverageThrough: opts.coverageThrough || PAYDAY,
@@ -204,7 +205,7 @@ function actualsPacket(opts) {
     transactionCoverage: opts.transactionCoverage || 'complete',
     pendingCoverage: opts.pendingCoverage || 'complete',
     transactions: opts.transactions || gapTransactions(),
-  };
+  }, canonicalPlan().plan);
 }
 
 function cashEvidence(id, canonicalValue, evidenceValue, evidenceDate) {

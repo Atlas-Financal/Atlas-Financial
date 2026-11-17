@@ -14,6 +14,7 @@ const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -72,7 +73,7 @@ const RESTAURANT_SPENT = 41.20;
 const GROCERY_SPENT = 18.40;
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 0 },
     startingCash: { amount: 4000 },
     nextDollar: {
@@ -96,7 +97,7 @@ function syntheticPlan() {
         { id: 'telecom', label: 'Phones & internet', class: 'essential', currentMonthly: 121 },
       ],
     },
-  };
+  });
 }
 
 const debts = [{
@@ -112,14 +113,14 @@ function periods(asOf) {
 }
 
 function packet(txs, extra) {
-  return Object.assign({
+  return LmGroups.groupPacket(Object.assign({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF,
     coverageStart: PAYDAY,
     coverageThrough: AS_OF,
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
-  }, extra || {});
+  }, extra || {}), syntheticPlan());
 }
 
 function recommendOpts(extra) {
@@ -146,7 +147,7 @@ function independentSpent(txs, plan, start, end) {
     if (!tx || !tx.date) continue;
     if (start && tx.date < start) continue;
     if (end && tx.date > end) continue;
-    const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+    const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan), plan);
     if (cls.kind === 'spend' && cls.categoryId === 'restaurants') {
       spent += Number(tx.amount) || 0;
     }

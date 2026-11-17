@@ -8,6 +8,7 @@ const Live = require('../scripts/live-plan');
 const Detail = require('../public/bill-detail');
 const source = require('./fixtures/card-backfill-data');
 const coverageFixture = require('./fixtures/card-purchase-coverage-data');
+const LmGroups = require('./lm-groups-fixture.js');
 function fixture(...args) {
   const x=source(...args);
   x.data.plan.cardPurchaseCoverage=coverageFixture('before').data.plan.cardPurchaseCoverage;
@@ -23,6 +24,9 @@ function run(x) {
   const result = Live.fromObservation(x);
   assert.equal(result.data.liveOverlay.applied, true);
   assert.equal(JSON.stringify(x), before, 'observation and inputs remain immutable');
+  const plan = LmGroups.groupPlan(result.data.plan);
+  const packet = LmGroups.groupPacket(result.data.liveOverlay.currentPeriodActuals, plan);
+  result.data = { ...result.data, plan, liveOverlay: { ...result.data.liveOverlay, currentPeriodActuals: packet } };
   const advice = F.recommend(result.data.plan, x.asOf, { debts: result.data.debts,
     currentPeriodActuals: result.data.liveOverlay.currentPeriodActuals });
   const period = advice.payPeriodViews.find(row => row.start === '2026-09-18');

@@ -15,6 +15,7 @@ const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -118,14 +119,14 @@ function spendOn(txs, label, start, through) {
   return roundCent(spent);
 }
 function actualsPacket(txs, asOf) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
     coverageStart: '2026-07-01',
     coverageThrough: asOf,
     transactionCoverage: 'complete', pendingCoverage: 'complete',
     transactions: txs,
-  };
+  }, syntheticPlan());
 }
 
 const HOLD_IDS = [
@@ -195,7 +196,7 @@ function syntheticPlanWithBell(asOf) {
 }
 
 function syntheticPlan(asOf) {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -330,8 +331,10 @@ function syntheticPlan(asOf) {
         { id: 'telecom', label: 'Telecom', class: 'essential', from: ['Telecom'], plannedMonthly: null },
       ],
     },
-  };
+  });
 }
+const classifyGrouped = (t, plan, ...rest) =>
+  F.classifyCurrentPeriodTransaction(LmGroups.groupTx(t, plan), plan, ...rest);
 
 const debts = [
   { id: 'triangle', label: 'Triangle', secured: false, structure: 'Revolving', balance: 100, rate: 21.99, payment: 250, pending: 0 },
@@ -413,12 +416,12 @@ console.log('\n=== 2. Paid bills are not deducted twice ===');
   const plan = syntheticPlan('2026-08-20');
   const advice = F.recommend(plan, '2026-08-20', {
     targetBuffer: 500, debts,
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-08-20',
       coverageStart: '2026-08-14', coverageThrough: '2026-08-20',
       pendingCoverage: 'complete', transactionCoverage: 'complete', transactions: [],
       representedActuals: [{ id: 'netflix', date: '2026-08-17', actual: 26.87, postedOn: '2026-08-17' }],
-    },
+    }, plan),
   });
   const p1 = period(advice.defaultView, 'this-pay-period');
   const netflix = billsOf(p1).find(r => r.id === 'netflix');
@@ -1137,11 +1140,11 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
     'SURREY MEAT PAC _F',
   ];
   for (const name of variants) {
-    const grocCls = F.classifyCurrentPeriodTransaction({
+    const grocCls = classifyGrouped({
       date: '2026-08-28', amount: 40, categoryLabel: 'Groceries',
       originalMerchant: name, displayedPayee: name,
     }, syntheticPlan());
-    const petsCls = F.classifyCurrentPeriodTransaction({
+    const petsCls = classifyGrouped({
       date: '2026-08-28', amount: 40, categoryLabel: 'Pets',
       originalMerchant: name, displayedPayee: name, dogFood: true,
     }, syntheticPlan());
@@ -1152,19 +1155,19 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
     ok(petsCls.kind === 'spend' && petsCls.categoryId === 'pets',
       `${name} as Pets classifies as Dog food`);
   }
-  const meridian = F.classifyCurrentPeriodTransaction({
+  const meridian = classifyGrouped({
     date: '2026-08-28', amount: 10, categoryLabel: 'Groceries',
     originalMerchant: 'Meridian Farm', displayedPayee: 'Meridian Farm',
   }, syntheticPlan());
   ok(meridian.kind === 'spend' && meridian.categoryId === 'groceries'
       && meridian.needsConfirmation !== true && meridian.atlasRow === 'groceries',
     'Meridian Farm is Groceries, not Dog food, and does not need confirmation');
-  ok(F.classifyCurrentPeriodTransaction({
+  ok(classifyGrouped({
     date: '2026-08-28', amount: 10, categoryLabel: 'Pets',
     originalMerchant: 'Meridian Farm', displayedPayee: 'Meridian Farm',
   }, syntheticPlan()).reason === 'payee-category-contradiction',
     'H1: an explicit Pets label at the grocery merchant is held for confirmation, not turned into Groceries');
-  const iron = F.classifyCurrentPeriodTransaction({
+  const iron = classifyGrouped({
     date: '2026-08-28', amount: 10, categoryLabel: 'Groceries',
     originalMerchant: 'Iron Butcher', displayedPayee: 'Iron Butcher',
   }, syntheticPlan());
@@ -1172,30 +1175,30 @@ console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, 
       && iron.needsConfirmation !== true && iron.categoryId !== 'pets',
     'Iron Butcher is Groceries, not Dog food, and does not need confirmation');
   const eat = ['Restaurants', 'Fast Food', 'Food Delivery'].map(label =>
-    F.classifyCurrentPeriodTransaction({
+    classifyGrouped({
       date: '2026-08-28', amount: 10, categoryLabel: label, accountRole: 'household-cash',
     }, syntheticPlan()));
   ok(eat.every(c => c.kind === 'spend' && c.categoryId === 'restaurants'),
     'Restaurants, Fast Food, and Food Delivery map to Eating out');
-  const tire = F.classifyCurrentPeriodTransaction({
+  const tire = classifyGrouped({
     date: '2026-08-28', amount: 78.38, categoryLabel: 'Household',
     displayedPayee: 'Canadian Tire', originalMerchant: 'Canadian Tire',
   }, syntheticPlan());
   ok(tire.needsConfirmation && tire.categoryId !== 'household',
     'Canadian Tire is needs confirmation, not Household');
-  const bill = F.classifyCurrentPeriodTransaction({
+  const bill = classifyGrouped({
     date: '2026-08-28', amount: 11.54, categoryLabel: 'Subscriptions',
     accountRole: 'household-cash',
   }, syntheticPlan());
   ok(bill.kind !== 'bill' && bill.householdSpending === true && bill.needsConfirmation === true,
     'an unmatched Subscriptions row is not silently a bill: Other spending, needs confirmation (Budget audit #922)');
-  const repBill = F.classifyCurrentPeriodTransaction({
+  const repBill = classifyGrouped({
     date: '2026-08-28', amount: 11.54, categoryLabel: 'Subscriptions',
     accountRole: 'household-cash', representedBill: true,
   }, syntheticPlan());
   ok(repBill.kind === 'bill' && repBill.householdSpending === false,
     'a Subscriptions row matched to a planned bill is that bill, not Household Budget spent');
-  const seven = F.classifyCurrentPeriodTransaction({
+  const seven = classifyGrouped({
     date: '2026-08-28', amount: 40, categoryLabel: 'Fuel',
     displayedPayee: '7-Eleven', originalMerchant: '7-Eleven',
   }, syntheticPlan());
@@ -1393,7 +1396,7 @@ console.log('\n=== 15. weekend posting keeps 15 August bills in Period 1, paid =
   const advice = F.recommend(plan, asOf, {
     targetBuffer: 500, debts,
     representedEvents,
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       schema: 'atlas-current-period-actuals/v1',
       observationAsOf: asOf,
       coverageStart: '2026-08-01',
@@ -1401,7 +1404,7 @@ console.log('\n=== 15. weekend posting keeps 15 August bills in Period 1, paid =
       transactionCoverage: 'complete', pendingCoverage: 'complete',
       representedActuals,
       transactions: [],
-    },
+    }, plan),
   });
   const p1 = period(advice.defaultView, 'this-pay-period');
   const p2 = period(advice.defaultView, 'next-pay-period');
@@ -1460,7 +1463,7 @@ console.log('\n=== 16. paid bills use scheduled due, not post date ===');
   ];
   const view = F.recommend(plan, asOf, {
     targetBuffer: 500, debts, representedEvents,
-    currentPeriodActuals: {
+    currentPeriodActuals: LmGroups.groupPacket({
       schema: 'atlas-current-period-actuals/v1',
       observationAsOf: asOf,
       coverageStart: '2026-08-01',
@@ -1474,7 +1477,7 @@ console.log('\n=== 16. paid bills use scheduled due, not post date ===');
         { id: 'netflix', date: '2026-08-17', actual: 26.87, postedOn: '2026-08-18' },
       ],
       transactions: [],
-    },
+    }, plan),
   }).defaultView;
   const paid = [];
   for (const p of view.calendarPeriods) {

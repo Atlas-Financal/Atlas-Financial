@@ -8,11 +8,14 @@
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
 const { world, run } = require('./fixtures/card-coverage-aggregate-world');
+const LmGroups = require('./lm-groups-fixture.js');
 
 const purchase = ['card', 80, null, 'purchase'];
 const pay = (from, amount) => [[from, amount, null, 'cash'], ['card', -amount, null, 'credit']];
 const close = rows => {
-  const s = run(world(rows, rows.some(r => r[0] === 'savings') ? { savingsOpening: 1000 } : {}));
+  const x = world(rows, rows.some(r => r[0] === 'savings') ? { savingsOpening: 1000 } : {});
+  x.data.plan = LmGroups.groupPlan(x.data.plan);
+  const s = run(x, packet => Object.assign(packet, LmGroups.groupPacket(packet, x.data.plan)));
   const bills = s.advice.defaultView.billsAccountPeriodBalance;
   assert.equal(bills.status, 'ready', JSON.stringify(bills.issues));
   return { s, bills };

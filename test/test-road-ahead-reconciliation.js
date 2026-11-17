@@ -3,6 +3,7 @@
 // from Forecast's schedule, budget, spendingCycle, cash or debt helpers.
 const assert = require('assert/strict');
 const F = require('../public/forecast');
+const LmGroups = require('./lm-groups-fixture.js');
 const cents = n => Math.round(n * 100);
 const clone = x => JSON.parse(JSON.stringify(x));
 const day = s => Date.parse(s + 'T00:00:00Z') / 86400000;
@@ -223,7 +224,10 @@ function syntheticLedger(p, end, fortnightCents) {
   return out;
 }
 function ask(p, ds = debt, extra = {}) {
-  return F.baselineTrajectory(p, ds, p.opening.asOf, { periods, extraDebtTarget: 'card', ...extra });
+  const grouped = LmGroups.groupPlan(p);
+  const actuals = Object.hasOwn(extra, 'currentPeriodActuals')
+    ? { currentPeriodActuals: LmGroups.groupPacket(extra.currentPeriodActuals, grouped) } : {};
+  return F.baselineTrajectory(grouped, ds, p.opening.asOf, { periods, extraDebtTarget: 'card', ...extra, ...actuals });
 }
 
 // Explicit scalar proof catches the current-main defect before broad assertions.

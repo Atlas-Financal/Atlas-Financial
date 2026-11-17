@@ -33,7 +33,10 @@ const vm = require('node:vm');
 const F = require('../public/forecast');
 const History = require('../scripts/private-period-history');
 const Pg = require('../scripts/private-period-history-postgres');
-const { START, END, NEXT, input } = require('./fixtures/private-period-history-input');
+const { START, END, NEXT, input: rawInput } = require('./fixtures/private-period-history-input');
+const LmGroups = require('./lm-groups-fixture.js');
+const input = opts => { const raw = rawInput(opts); raw.data.plan = LmGroups.groupPlan(raw.data.plan);
+  raw.payload = LmGroups.groupPayload(raw.payload, raw.data.plan); return raw; };
 
 let checks = 0;
 const ok = (value, label) => { assert.ok(value, label); checks++; };

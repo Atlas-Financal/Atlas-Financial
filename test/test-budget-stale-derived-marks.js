@@ -3,6 +3,7 @@
 // policy, not a copied observation. Exercise the active native sheet renderer.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const F=require('../public/forecast'),fx=require('./fixtures/other-period-target');
+const LmGroups=require('./lm-groups-fixture.js');
 const stub=()=>({innerHTML:'',value:'',dataset:{},style:{},classList:{add(){},remove(){},toggle(){}},
  addEventListener(){},querySelector(){return null},querySelectorAll(){return[]},appendChild(){},replaceChildren(){}});
 const context=vm.createContext({Forecast:F,console,setTimeout,clearTimeout,addEventListener(){},
@@ -16,6 +17,8 @@ for(const name of ['bill-detail','savings-inventory','budget-surface','plan'])vm
 // No money or trust field in the publication may change during rendering.
 const build = (...args) => {
  const f = fx.build(...args);
+ f.plan = LmGroups.groupPlan(f.plan); f.data.plan = f.plan;
+ f.packet = LmGroups.groupPacket(f.packet, f.plan); f.data.liveOverlay.currentPeriodActuals = f.packet;
  f.data.liveOverlay.observedCash = {asOf:f.date,complete:true,accounts:fx.clone(f.plan.startingCash.breakdown)};
  return f;
 };

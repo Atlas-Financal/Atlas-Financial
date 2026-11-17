@@ -15,6 +15,7 @@ const E = require('../scripts/assistant-cleanup-effects');
 const S = require('../scripts/assistant-standing-store');
 const Live = require('../scripts/live-plan');
 const F = require('../public/forecast');
+const LmGroups = require('./lm-groups-fixture.js');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
 const clone = x => JSON.parse(JSON.stringify(x));
@@ -377,6 +378,8 @@ async function main() {
   for (const name of ['Transfer', 'Payment']) {
     const danger = household(); danger.payload.categories.push({ id: 16, name, is_income: false,
       exclude_from_budget: false, exclude_from_totals: false });
+    danger.data.plan = LmGroups.groupPlan(danger.data.plan);
+    danger.payload = LmGroups.groupPayload(danger.payload, danger.data.plan);
     const proof = E.evaluate({ inputs: danger, tx: danger.payload.transactions.find(t=>t.id===91004),
       body: { category_id: 16 }, parserRevision: 'synthetic' });
     assert.equal(proof.metadataNeutral, true);

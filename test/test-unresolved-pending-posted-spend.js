@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { sourceText } = require('./test-source-text');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const O = require('./fixtures/native-cad-observation')(require('../scripts/provider-observe.js'));
 
 let failures = 0;
@@ -43,7 +44,7 @@ const TWO_SHOPIFY = roundCent(SHOPIFY_AMT + SHOPIFY_AMT);
 const AMAZON_NEAR_TOTAL = roundCent(AMAZON_NEAR_AMT + AMAZON_NEAR_AMT);
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
@@ -68,7 +69,7 @@ function syntheticPlan() {
         { id: 'shopping', label: 'Shopping', class: 'discretionary', from: ['Shopping', 'Personal'] },
       ],
     },
-  };
+  });
 }
 
 const debts = [
@@ -94,7 +95,7 @@ const map = {
 };
 
 function actualsPacket(txs, extra) {
-  return Object.assign({
+  return LmGroups.groupPacket(Object.assign({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF,
     coverageStart: '2026-07-01',
@@ -103,7 +104,7 @@ function actualsPacket(txs, extra) {
     transactionCoverage: 'complete',
     representedActuals: [],
     transactions: txs,
-  }, extra || {});
+  }, extra || {}), syntheticPlan());
 }
 
 function recommend(packet) {
@@ -137,7 +138,7 @@ function confirmedFromRecon(row) {
   }, 0));
 }
 function twin(id, merchant, amount, pending, extra) {
-  return Object.assign({
+  return LmGroups.groupTx(Object.assign({
     id,
     date: '2026-09-01',
     amount,
@@ -149,10 +150,10 @@ function twin(id, merchant, amount, pending, extra) {
     account: 'travelvisa',
     displayedPayee: merchant,
     originalMerchant: merchant,
-  }, extra || {});
+  }, extra || {}), syntheticPlan());
 }
 function sanitizedFrom(collapsed, extra) {
-  return O.sanitizedCurrentPeriodActuals({
+  return LmGroups.groupPacket(O.sanitizedCurrentPeriodActuals({
     fetchedAt: '2026-09-01T18:00:00.000Z',
     transactionWindow: { startDate: '2026-08-28', endDate: '2026-09-01', complete: true },
     pendingCoverage: {
@@ -160,7 +161,7 @@ function sanitizedFrom(collapsed, extra) {
     },
     collapsedTransactions: collapsed,
     representedEventCandidates: [],
-  }, Object.assign({ asOf: AS_OF, plan: syntheticPlan(), accountMap: map }, extra || {}));
+  }, Object.assign({ asOf: AS_OF, plan: syntheticPlan(), accountMap: map }, extra || {})), syntheticPlan());
 }
 
 ok(near(AICHAT_DOUBLE, 89.98) && near(CALENDLY_DOUBLE, 38.34)

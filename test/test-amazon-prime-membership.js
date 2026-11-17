@@ -15,6 +15,7 @@ const { sourceText } = require('./test-source-text');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
 const Live = require('../scripts/live-plan.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -42,7 +43,9 @@ const MBNA_PROVIDER_ID = 2005;
 const EXACT = 'exact-scheduled-amount';
 
 function liveData() {
-  return load('data.json');
+  const data = load('data.json');
+  data.plan = LmGroups.groupPlan(data.plan);
+  return data;
 }
 
 function identityDoc() {
@@ -148,7 +151,7 @@ function liveOverlay(asOf, txs) {
     data,
     accountMap: liveAccountMap(),
     identity: identityDoc(),
-    payload: {
+    payload: LmGroups.groupPayload({
       provider: 'lunchmoney',
       fetchedAt: asOf + 'T18:00:00.000Z',
       source: 'Synthetic Amazon Prime live-cutover fixture. Not a live institution pull.',
@@ -170,7 +173,7 @@ function liveOverlay(asOf, txs) {
         { id: 11, name: 'Shopping', is_income: false, exclude_from_totals: false },
       ],
       transactions: txs || [],
-    },
+    }, data.plan),
   });
 }
 
@@ -192,7 +195,7 @@ function planWithoutPrime(plan) {
 }
 
 function payload(asOf, txs) {
-  return {
+  return LmGroups.groupPayload({
     provider: 'lunchmoney',
     fetchedAt: asOf + 'T18:00:00.000Z',
     transactionWindow: {
@@ -228,7 +231,7 @@ function payload(asOf, txs) {
       { id: 11, name: 'Shopping', is_income: false, exclude_from_totals: false },
     ],
     transactions: txs || [],
-  };
+  }, liveData().plan);
 }
 
 function tx(id, date, amount, payee, accountId, extra) {

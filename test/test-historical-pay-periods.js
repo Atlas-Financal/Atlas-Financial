@@ -12,6 +12,7 @@ const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -72,7 +73,7 @@ const debts = [
 
 function historyPlan() {
   const current = independentCycle(AS_OF);
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 500 },
     startingCash: {
       breakdown: [{
@@ -128,11 +129,11 @@ function historyPlan() {
         },
       ],
     },
-  };
+  });
 }
 
 function actualsPacket() {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF,
     coverageStart: '2026-07-31',
@@ -179,7 +180,7 @@ function actualsPacket() {
       },
     ],
     representedActuals: [],
-  };
+  }, historyPlan());
 }
 
 function recommend(plan) {

@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -69,7 +70,7 @@ const CASH_LOCATIONS = new Set(['chequing-a', 'chequing-b', 'savings']);
 
 function fixturePlan(extra) {
   const opts = extra || {};
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 0 },
     startingCash: {
       amount: BILLS_OPENING + WEEKLY_OPENING + SAVINGS_OPENING,
@@ -105,12 +106,12 @@ function fixturePlan(extra) {
         },
       ],
     },
-  };
+  });
 }
 
 function packet(txs, extra) {
   const opts = extra || {};
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: PAYDAY,
     coverageStart: opts.coverageStart || PAYDAY,
@@ -119,11 +120,11 @@ function packet(txs, extra) {
     transactionCoverage: opts.transactionCoverage || 'complete',
     representedActuals: opts.representedActuals || [],
     transactions: txs,
-  };
+  }, fixturePlan());
 }
 
 function tx(opts) {
-  return {
+  return LmGroups.groupTx({
     id: opts.id,
     date: Object.prototype.hasOwnProperty.call(opts, 'date') ? opts.date : PAYDAY,
     amount: opts.amount,
@@ -143,7 +144,7 @@ function tx(opts) {
     representedBill: opts.representedBill === true,
     tfrReference: opts.tfrReference || null,
     tfrDirection: opts.tfrDirection || null,
-  };
+  }, fixturePlan());
 }
 
 function tfrLeg(opts) {

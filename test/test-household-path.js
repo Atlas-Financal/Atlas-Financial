@@ -9,6 +9,13 @@ const O = require('../scripts/provider-observe');
 const Detail = require('../public/bill-detail');
 const { fixture, variant, ledger } = require('./fixtures/household-path-data');
 const { withServer, renderer } = require('./test-savings-evidence-integration');
+const LmGroups = require('./lm-groups-fixture.js');
+// Lay the invented categories out in the plan's invented groups.
+function grouped(input) {
+  input.data.plan = LmGroups.groupPlan(input.data.plan);
+  input.payload = LmGroups.groupPayload(input.payload, input.data.plan);
+  return input;
+}
 
 function assertHousehold(served, result, e) {
   const { row, proposal: p } = result, packet = served.liveOverlay.currentPeriodActuals;
@@ -122,10 +129,10 @@ function assertRefundOnce(steps) {
 async function main() {
   const render = renderer();
   const steps = new Map();
-  await withServer(fixture(), async server => {
+  await withServer(grouped(fixture()), async server => {
     for (const e of ledger) {
       for (const reordered of [false, true]) {
-        const input = fixture(e.key);
+        const input = grouped(fixture(e.key));
         if (reordered) {
           input.payload.transactions.reverse(); input.payload.accounts.reverse();
           input.payload.categories.reverse(); input.map.mappings.reverse();
@@ -148,12 +155,12 @@ async function main() {
     assertRefundOnce(steps);
     console.log('PASS household refund once: the $20 Groceries refund adds $20 cash and $20 budget room once; available now is unchanged.');
     for (const mode of ['missing', 'stale', 'floor']) {
-      server.write(variant(mode)); assertVariant(render(await server.get()), mode);
+      server.write(grouped(variant(mode))); assertVariant(render(await server.get()), mode);
       console.log('PASS household ' + mode + ': savings fail closed with the specific evidence or $205 operating shortfall.');
     }
   });
   // A new authenticated process, not a renderer reset or a retained packet.
-  await withServer(fixture('resolved'), async server => {
+  await withServer(grouped(fixture('resolved')), async server => {
     const served = await server.get();
     assertHousehold(served, render(served), ledger.find(r => r.key === 'resolved'));
     const trajectory = F.baselineTrajectory(served.plan, served.debts, served.meta.asOf, {

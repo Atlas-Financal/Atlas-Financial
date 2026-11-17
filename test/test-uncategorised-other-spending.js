@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -70,7 +71,7 @@ const BLANK_REMAINDER = roundCent(CONTROL_REMAINDER - BLANK);
 const BOTH_REMAINDER = roundCent(CONTROL_REMAINDER - UNCAT - BLANK_WITH_UNCAT);
 
 function syntheticPlan() {
-  return {
+  return LmGroups.groupPlan({
     defaults: { targetBuffer: 0 },
     startingCash: {
       breakdown: [
@@ -112,11 +113,11 @@ function syntheticPlan() {
         },
       ],
     },
-  };
+  });
 }
 
 function packet(txs) {
-  return {
+  return LmGroups.groupPacket({
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: AS_OF,
     coverageStart: PAYDAY,
@@ -125,7 +126,7 @@ function packet(txs) {
     transactionCoverage: 'complete',
     representedActuals: [],
     transactions: txs,
-  };
+  }, syntheticPlan());
 }
 
 function debit(extra) {
@@ -190,7 +191,7 @@ console.log('\n=== 1. the $40 debit stays spend / uncategorised ===');
     'independent remainder is $2,000 − $400 − $450 = $1,150, then − $40 = $1,110');
   const tx = debit();
   const plan = syntheticPlan();
-  const cls = F.classifyCurrentPeriodTransaction(tx, plan, { packet: packet([tx]) });
+  const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan), plan, { packet: packet([tx]) });
   ok(cls.kind === 'spend' && cls.categoryId === 'uncategorised'
       && cls.needsConfirmation === false && cls.atlasRow === 'uncategorised',
     'Lunch Money Uncategorised stays the incumbent remainder category as spend');
@@ -250,7 +251,7 @@ console.log('\n=== 3. a blank category still enters Other Spending once ===');
   const tx = debit({ id: 'tx-blank', amount: BLANK });
   delete tx.categoryLabel;
   const plan = syntheticPlan();
-  const cls = F.classifyCurrentPeriodTransaction(tx, plan);
+  const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, plan), plan);
   ok(cls.needsConfirmation === true && cls.kind === 'unclassified'
       && cls.kind !== 'spend',
     'a blank category stays the incumbent needsConfirmation residual');
@@ -303,8 +304,8 @@ console.log('\n=== 5. non-calendar and $0-target spend lands in Other once ===')
     displayedPayee: 'Hardware', originalMerchant: 'Hardware',
   });
   const plan = syntheticPlan();
-  const healthCls = F.classifyCurrentPeriodTransaction(health, plan);
-  const householdCls = F.classifyCurrentPeriodTransaction(household, plan);
+  const healthCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(health, plan), plan);
+  const householdCls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(household, plan), plan);
   ok(healthCls.kind === 'spend' && healthCls.categoryId === 'health',
     'Health stays a named non-calendar spend');
   ok(householdCls.kind === 'spend' && householdCls.categoryId === 'household',

@@ -11,6 +11,7 @@
  * `node test/test-dog-food-monthly-cadence.js`
  */
 const F = require('../public/forecast.js');
+const LmGroups = require('./lm-groups-fixture.js');
 const liveData = require('../data.json');
 
 let failures = 0;
@@ -513,8 +514,9 @@ console.log('\n=== 7. Surrey Meat classification is unchanged ===');
   ];
   // H1 (lead decision 2026-11-07): the explicit Lunch Money category wins;
   // a Groceries label stays Groceries, a Pets label is Dog food.
+  const groupedPlan = LmGroups.groupPlan(livePlan);
   for (const tx of txs) {
-    const cls = F.classifyCurrentPeriodTransaction(tx, livePlan, {});
+    const cls = F.classifyCurrentPeriodTransaction(LmGroups.groupTx(tx, groupedPlan), groupedPlan, {});
     const want = tx.categoryLabel === 'Pets' ? 'pets' : 'groceries';
     ok(cls && cls.kind === 'spend' && cls.categoryId === want,
       `${tx.originalMerchant} labelled ${tx.categoryLabel} classifies as ${want}`,
