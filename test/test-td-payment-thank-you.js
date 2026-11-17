@@ -101,6 +101,12 @@ withheld(run(world([purchase, cashLeg(105), cardCredit(105), cashLeg(105, null, 
   withheld(noted('card payment: Travel Visa; card payment: TD Cash Back Visa'), 'coverage-payment-destination-unconfirmed',
     'two different named cards: unknown');
   ready(noted('Invented memo'), 'a note that names no card leaves the pairing as without one');
+  // The name table is an own-key lookup: built-in object keys are not card names.
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    const s = noted('card payment: ' + name);
+    check(s.packet.transactions.find(t => t.amount === 105).cardPaymentNoteDestination === 'unknown', name + ' stamps unknown');
+    withheld(s, 'coverage-payment-destination-unconfirmed', 'note naming "' + name + '" never pairs');
+  }
 }
 // 10. Control: the recorded convention (both legs "Credit Card Payment") is unchanged.
 ready(run(world([purchase, ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']])), 'recorded category convention still pairs');
