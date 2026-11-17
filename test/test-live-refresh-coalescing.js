@@ -1,4 +1,7 @@
 'use strict';
+// The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
+// the windowed and pending transactions, and the recurring-items read (S1).
+const PROVIDER_GETS = 8;
 // Real workers and loopback provider calls. Every input is synthetic; no live
 // credential, household file edit, provider write or completed response cache.
 const threads = require('node:worker_threads');
@@ -163,7 +166,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       mock.release();
       const expected = await Live.applyForServer(canonical, env);
       check(expected.liveOverlay.applied, true, 'reference is a qualified live publication');
-      check(mock.calls.length, 7, 'reference performs all seven provider GETs');
+      check(mock.calls.length, PROVIDER_GETS, 'reference performs all eight provider GETs (seven plus the recurring-items read)');
       mock.hold();
       const before = workers.length, callsBefore = mock.calls.length, original = structuredClone(canonical);
       const inputs = [canonical, structuredClone(canonical), structuredClone(canonical), canonical];
@@ -182,7 +185,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       check(results[1], expected, 'result mutation cannot affect another caller');
       check(canonical, original, 'canonical input unchanged');
       await drain();
-      check(mock.calls.length - callsBefore, 7, 'one complete seven-GET observation serves all callers');
+      check(mock.calls.length - callsBefore, PROVIDER_GETS, 'one complete eight-GET observation serves all callers');
       const sharedTiming = timings.at(-1);
       check(sharedTiming.waiterCount, 4, 'sanitized lifecycle counts shared callers');
       check(sharedTiming.outcome, 'completed', 'timing describes worker completion');
@@ -191,7 +194,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       check(await Refresh.serve(canonical, env), expected, 'sequential request retains publication');
       await drain();
       check(workers.length - sequentialBefore, 1, 'sequential request starts another real worker');
-      check(mock.calls.length - sequentialCalls, 7, 'no completed observation cache');
+      check(mock.calls.length - sequentialCalls, PROVIDER_GETS, 'no completed observation cache');
 
       // The preserved real-worker race: posted transactions have been fetched,
       // pending coverage is held, then an authorized adapter invocation changes
@@ -230,7 +233,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
         const afterBefore = workers.length, callsBeforeEditRead = mock.calls.length;
         const afterWrite = await Refresh.serve(canonical, env); await drain();
         check(workers.length - afterBefore, 1, 'post-edit reader starts a new real worker');
-        check(mock.calls.length - callsBeforeEditRead, 7, 'post-edit reader performs a complete fresh observation');
+        check(mock.calls.length - callsBeforeEditRead, PROVIDER_GETS, 'post-edit reader performs a complete fresh observation');
         assert.notDeepEqual(afterWrite.liveOverlay.currentPeriodActuals, expected.liveOverlay.currentPeriodActuals, 'post-edit actuals cannot equal the captured pre-edit window'); checks++;
         check(afterWrite, await Live.applyForServer(canonical, env), 'post-edit whole publication equals an independent fresh execution');
         check(invoked, 1, 'ambiguous/unavailable/error outcome never retries the edit');
@@ -457,7 +460,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       }
       assert.ok(!/SYNTHETIC|token|secret|canonical|provider|key|generation|\/|\\/i.test(JSON.stringify(timings))); checks++;
       check(canonical, original, 'all paths preserve canonical input');
-      originalLog('MEASURED ' + JSON.stringify({ equivalentCallers: 4, actualWorkers: 1, providerGETs: 7,
+      originalLog('MEASURED ' + JSON.stringify({ equivalentCallers: 4, actualWorkers: 1, providerGETs: PROVIDER_GETS,
         lifecycle: sharedTiming, testedJobs: timings.length }));
       originalLog('PASS live refresh coalescing: ' + checks + ' checks; real workers/provider calls, publication conservation, caller isolation, deadlines, cancellation races, context/day separation, failure eviction and sanitized timings');
     } finally {
