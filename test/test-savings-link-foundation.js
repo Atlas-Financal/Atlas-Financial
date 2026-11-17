@@ -260,7 +260,21 @@ for (const mutate of [
       delete tx.recurringId;
     }
   }
-  assert.deepEqual(fresh, JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
+  const historical = JSON.parse(JSON.stringify(oldObserver.exports.observe(input)));
+  // Third exact authorized addition (#1149, lead ruling (B)): the packet carries the card-minimum
+  // owner export's status. This fixture has no durable card-minimum record, so the status follows
+  // the derived minimum packet alone, read from the independently loaded observer's own report:
+  // a calendar-dated packet is 'available', an undated one 'unavailable' (Grok Bot (d)).
+  assert.ok(!(noLink.data.plan.obligations || []).some(row => row && row.sentPayments != null),
+    'this fixture carries no durable card-minimum record');
+  const derivedAsOf = historical.cardMinimumCategoryEvidence && historical.cardMinimumCategoryEvidence.asOf;
+  assert.equal(fresh.currentPeriodActuals.cardMinimumOwnership,
+    typeof derivedAsOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(derivedAsOf) ? 'available' : 'unavailable',
+    'the authorized card-minimum ownership status matches the derived packet');
+  assert.ok((fresh.currentPeriodActuals.transactions || []).every(tx => !Object.hasOwn(tx, 'cardMinimumOwned')),
+    'no row is stamped owned without an owner record');
+  delete fresh.currentPeriodActuals.cardMinimumOwnership;
+  assert.deepEqual(fresh, historical,
     'no-link entire observer report retains the independently loaded pre-change shape');
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };
   const a = F.recommend(x.plan, x.asOf, opts);
