@@ -212,5 +212,30 @@ console.log('9. One bad plan id fails only its own entry, never the whole block 
   'a served entry with that id is still rejected');
 }
 
+console.log('10. The observer\'s codes and the packet\'s sentences are one closed list (#1300 follow-up)');
+{
+  const codes = [...O.RECURRING_REFUSAL_CODES].sort();
+  const sentences = Object.keys(Assistant.RECURRING_REFUSALS).sort();
+  ok(same(codes, sentences), 'every served code has exactly one sentence, and every sentence a served code',
+    JSON.stringify({ onlyServed: codes.filter(c => !sentences.includes(c)), onlySentence: sentences.filter(c => !codes.includes(c)) }));
+  const texts = Object.values(Assistant.RECURRING_REFUSALS).map(([, text]) => text);
+  ok(texts.every(t => typeof t === 'string' && t.trim().length > 0) && new Set(texts).size === texts.length,
+    'each sentence is non-empty and distinct');
+}
+
+console.log('11. An entry without a closed code is left out; the rest of the block is served (#1311 follow-up)');
+{
+  const raw = read([item()]);
+  const block = O.sanitizedRecurringEvidence(raw, { identityRules: [rule('band', [ID])], accountMap: { provider: 'lunchmoney', mappings: [] },
+    existingLocalId: () => null, refused: [
+      { billId: 'band', obligationId: null, reasonCode: 'PLANTED unknown code' },
+      { billId: 'band', obligationId: null },
+      { billId: 'band', obligationId: null, reasonCode: 'cadence-unmapped' }] });
+  ok(block.status === 'read' && block.items.length === 1, 'the block is still read and its item served');
+  ok(same(block.refused, [{ billId: 'band', obligationId: null, reasonCode: 'cadence-unmapped' }]),
+    'only the entry with a closed code is served', JSON.stringify(block.refused));
+  ok(!JSON.stringify(block).includes('PLANTED'), 'nothing from the dropped entry is served');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll Lunch Money recurring refusal checks passed.');
