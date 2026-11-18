@@ -188,10 +188,14 @@
       const share = paid && peak > 0 ? Math.max(4, Math.round(m.total / peak * 100)) : 0;
       const label = monthLabel(m.month);
       // One payment: its date (the amount is the bar's). Several: each date and amount.
-      const detail = !paid ? 'No payment identified'
+      // A month where a shared-payee row was left out says so, never "No payment identified".
+      const left = m.leftOut === true;
+      const detail = (!paid ? (left ? 'Payment left out (shared payee)' : 'No payment identified')
         : m.payments.length === 1 ? m.payments[0].date
-          : m.payments.map(p => p.date + ' ' + money(p.amount)).join(', ');
+          : m.payments.map(p => p.date + ' ' + money(p.amount)).join(', '))
+        + (paid && left ? ' · a payment left out (shared payee)' : '');
       return '<li data-bill-history-month="' + escape(m.month) + '" data-bill-history-paid="' + (paid ? 'true' : 'false') + '"'
+        + (left ? ' data-bill-history-left-out="true"' : '')
         + ' style="--bill-history-share:' + share + '%"'
         + ' aria-label="' + escape(label + ': ' + (paid ? money(m.total) + ' paid, ' + detail : detail)) + '">'
         + '<span class="bill-history-bar" aria-hidden="true"></span>'
@@ -212,7 +216,7 @@
       + '<ol class="bill-history-months">' + bars + '</ol>'
       + '<p data-bill-history-stats>' + escape(stats) + ' · calculated · Lunch Money, read ' + read + '.</p>'
       + leftNote
-      + '<p>An empty month means no payment was identified for this bill, not that $0 was paid.</p></section>';
+      + '<p>An empty month means no payment was identified for this bill, not that $0 was paid. A month marked left out had a payment that also matched another bill.</p></section>';
   }
 
   // summary contains only plain display strings from the incumbent row printer

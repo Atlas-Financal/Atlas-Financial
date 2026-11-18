@@ -4967,7 +4967,10 @@ function observeCore(input, capture) {
   // The bill sheet's payment history (Dale, 2026-11-18), from the same read and
   // identification; a replay carries the live series through its clean record.
   if (input.payload && input.payload.amountHistory !== undefined) {
+    // Anchored on this observation's own as-of, never the request clock: the same
+    // evidence publishes the same series whenever it is read.
     assembled.billPaymentHistory = billPaymentHistory(input.payload.amountHistory, {
+      asOf: assembled.currentPeriodActuals && assembled.currentPeriodActuals.observationAsOf,
       plan: input.data && input.data.plan, debts: input.data && input.data.debts, accountMap: mapDoc, identityRules,
       categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
   } else if (input.payload && input.payload.billPaymentHistory !== undefined) {
@@ -5788,21 +5791,30 @@ function billPaymentHistory(history, opts) {
     if (window && (window.truncated === true || window.hasMore === true || window.complete === false)) out.reason = 'history-incomplete';
     return out;
   }
-  const months = billPaymentHistoryMonths(found.end);
+  // The six months end with the observation's own as-of (opts.asOf), not the
+  // history read's end, which follows the request clock. A read that ends before
+  // that day is incomplete for it; payments after it are not shown.
+  const asOf = parseIsoDate(opts && opts.asOf);
+  if (!asOf || asOf > found.end) { out.reason = 'history-incomplete'; return out; }
+  const months = billPaymentHistoryMonths(asOf);
   const from = months[0] + '-01';
   if (parseIsoDate(window.startDate) > from) { out.reason = 'history-too-short'; return out; }
   out.status = 'complete';
   delete out.reason;
-  out.asOf = found.end;
+  out.asOf = asOf;
   out.months = months;
   for (const id of Array.from(found.identified).sort()) {
     if (found.unsupported.has(id)) { out.bills.push({ billId: id, status: 'unavailable', reason: 'paid-in-parts', payments: [] }); continue; }
     if (found.duplicated.has(id)) { out.bills.push({ billId: id, status: 'unavailable', reason: 'duplicate-record', payments: [] }); continue; }
     const entry = { billId: id, status: 'complete',
-      payments: (found.payments.get(id) || []).filter(row => row.date >= from)
+      payments: (found.payments.get(id) || []).filter(row => row.date >= from && row.date <= asOf)
         .map(row => ({ date: row.date, amount: row.cents / 100 })) };
-    const left = (found.ambiguous.get(id) || []).filter(date => date >= from).length;
-    if (left) entry.excludedAmbiguous = left;
+    const left = (found.ambiguous.get(id) || []).filter(date => date >= from && date <= asOf);
+    if (left.length) {
+      entry.excludedAmbiguous = left.length;
+      // The months those rows fall in, so the page marks them left out, not unpaid (lead on #1379).
+      entry.excludedAmbiguousMonths = Array.from(new Set(left.map(date => date.slice(0, 7)))).sort();
+    }
     out.bills.push(entry);
   }
   return out;

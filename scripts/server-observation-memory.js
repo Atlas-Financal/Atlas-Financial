@@ -124,10 +124,15 @@ function billPaymentHistory(value) {
       ? { billId: row.billId, status: 'unavailable', reason: row.reason, payments: [] } : null;
     if (row.status !== 'complete' || !row.payments.every(p => p && day(p.date) && cents(p.amount)
       && months.includes(p.date.slice(0, 7)) && p.date <= value.asOf)) return null;
-    if (row.excludedAmbiguous !== undefined && !(Number.isInteger(row.excludedAmbiguous) && row.excludedAmbiguous > 0)) return null;
+    if ((row.excludedAmbiguous === undefined) !== (row.excludedAmbiguousMonths === undefined)) return null;
+    if (row.excludedAmbiguous !== undefined && !(Number.isInteger(row.excludedAmbiguous) && row.excludedAmbiguous > 0
+      && Array.isArray(row.excludedAmbiguousMonths) && row.excludedAmbiguousMonths.length > 0
+      && row.excludedAmbiguousMonths.length <= row.excludedAmbiguous
+      && row.excludedAmbiguousMonths.every((m, i, all) => months.includes(m) && (i === 0 || m > all[i - 1])))) return null;
     return { billId: row.billId, status: 'complete',
       payments: row.payments.map(p => ({ date: p.date, amount: p.amount })),
-      ...(row.excludedAmbiguous !== undefined ? { excludedAmbiguous: row.excludedAmbiguous } : {}) };
+      ...(row.excludedAmbiguous !== undefined
+        ? { excludedAmbiguous: row.excludedAmbiguous, excludedAmbiguousMonths: row.excludedAmbiguousMonths.slice() } : {}) };
   };
   if (!day(value.asOf) || !Array.isArray(months) || months.length !== 6 || !months.every(month)
     || months[5] !== value.asOf.slice(0, 7) || !months.every((m, i) => i === 0 || m > months[i - 1])

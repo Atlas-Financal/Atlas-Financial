@@ -8711,10 +8711,13 @@
       rows.push({ date: p.date, cents: Math.round(p.amount * 100) });
     }
     rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Months where a row two plan rows identify was left out: marked, never read as unpaid.
+    const leftOut = new Set(Array.isArray(entry.excludedAmbiguousMonths) ? entry.excludedAmbiguousMonths.filter(isMonth) : []);
     const buckets = months.map(month => {
       const inMonth = rows.filter(r => r.date.slice(0, 7) === month);
       return { month, payments: inMonth.map(r => ({ date: r.date, amount: r.cents / 100 })),
-        total: inMonth.length ? inMonth.reduce((sum, r) => sum + r.cents, 0) / 100 : null };
+        total: inMonth.length ? inMonth.reduce((sum, r) => sum + r.cents, 0) / 100 : null,
+        leftOut: leftOut.has(month) };
     });
     const count = rows.length;
     const enough = count >= 2;

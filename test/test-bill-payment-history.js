@@ -102,8 +102,11 @@ console.log('1. The published series: dates and amounts only, the six months, th
   ok(PAYEES.every(p => !blob.includes(p)), 'no payee text reaches the published series');
   const keys = new Set();
   for (const b of s.series.bills) { Object.keys(b).forEach(k => keys.add('bill.' + k)); b.payments.forEach(p => Object.keys(p).forEach(k => keys.add('payment.' + k))); }
-  ok([...keys].sort().join() === ['bill.billId', 'bill.excludedAmbiguous', 'bill.payments', 'bill.status', 'payment.amount', 'payment.date'].join(),
-    'each row publishes only its id, status, payments (date, amount) and the left-out count', [...keys].sort().join());
+  ok([...keys].sort().join() === ['bill.billId', 'bill.excludedAmbiguous', 'bill.excludedAmbiguousMonths', 'bill.payments', 'bill.status',
+    'payment.amount', 'payment.date'].join(),
+  'each row publishes only its id, status, payments (date, amount) and the left-out count and months', [...keys].sort().join());
+  ok(JSON.stringify(entry('water').excludedAmbiguousMonths) === JSON.stringify(['2026-08', '2026-09', '2026-10']),
+    'water: the left-out rows fall in Aug, Sep and Oct');
   ok(!blob.includes('"id"') && !blob.includes('note') && !blob.includes('category'), 'no provider id, note or category');
 }
 
@@ -140,6 +143,11 @@ console.log('2. The box, against the hand values');
   const water = s.box('water');
   ok(read(water).months.every(m => !m.paid) && /3 payments matched another bill too and are left out\./.test(water),
     'water: no bar, and the box says three payments were left out');
+  // Lead on #1379: a month whose row was left out reads "Payment left out (shared payee)", not "No payment identified".
+  const waterMonths = read(water).months;
+  ok(JSON.stringify(waterMonths.map(m => m.dates)) === JSON.stringify(['No payment identified', 'No payment identified', 'No payment identified',
+    'Payment left out (shared payee)', 'Payment left out (shared payee)', 'Payment left out (shared payee)']),
+  'water: Aug, Sep and Oct read "Payment left out (shared payee)"; May to Jul read "No payment identified"', JSON.stringify(waterMonths.map(m => m.dates)));
   ok(/Calculated · source: Lunch Money posted payments · read 2026-10-14/.test(s.box('internet')), 'the box is tagged calculated, source Lunch Money, with the read date');
   // The page's own summary: Forecast owns the arithmetic, BillDetail only prints it.
   const sum = F.billPaymentHistorySummary(s.series.bills.find(b => b.billId === 'insurance'), s.series.months);
@@ -176,6 +184,19 @@ console.log('3. Unavailable keeps "Unavailable" with a reason');
   'a posted row delivered twice: Unavailable, never counted twice', JSON.stringify(dupEntry));
   ok(dup.data.plan.bills.find(b => b.id === 'phone').amountFixed !== true, 'the same duplicate leaves the bill not derived fixed');
   ok(read(dup.box('internet')).status === 'complete', 'other bills keep their history');
+  ok(/Lunch Money returned one of this bill\u2019s payments more than once/.test(dup.box('phone')),
+    'the duplicate reason prints its own message, not the generic one');
+  ok(JSON.stringify(Memory.billPaymentHistory(dup.series).bills.find(b => b.billId === 'phone'))
+    === JSON.stringify({ billId: 'phone', status: 'unavailable', reason: 'duplicate-record', payments: [] }),
+  'the memory cleaner keeps a duplicate-record row as it is');
+  // The series is anchored on the observation's as-of, never the request clock (evidence-day view on #1379): a
+  // history read ending two days later (Oct 16, with an Oct 15 payment) publishes the same series as of Oct 14.
+  const later = serve({ history: { transactions: HISTORY.concat([pay('Invented gym co', '2026-10-15', 40)]), endDate: '2026-10-16' } });
+  ok(later.series.asOf === '2026-10-14' && JSON.stringify(later.series) === JSON.stringify(s.series),
+    'a history read ending later: the same series, as of the observation, the Oct 15 payment not shown',
+    JSON.stringify(later.series.bills.find(b => b.billId === 'gym')));
+  const earlier = serve({ history: { transactions: HISTORY, endDate: '2026-10-13' } });
+  ok(read(earlier.box('internet')).reason === 'history-incomplete', 'a history read ending before the observation day: Unavailable, incomplete');
 }
 
 console.log('4. Replay equals live; memory keeps the clean series only');
