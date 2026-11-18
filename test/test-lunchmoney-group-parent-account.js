@@ -113,5 +113,35 @@ console.log('5. Replay memory keeps only the children\'s ids and account ids, an
   ok(isDeepStrictEqual(live.data, replayed.data), 'the replayed served data is deep-equal (memory would be stored)');
 }
 
+console.log('6. v2 group_parent_id: a grouped row knows its parent, so children that also arrive as rows count once');
+{
+  const norm = row => O.normalizeLunchMoneyTransaction(row, new Map(), new Map()).parentId;
+  ok(norm({ ...base, group_parent_id: 7001 }) === '7001', 'group_parent_id reads as the parent');
+  ok(norm({ ...base, parent_id: 6001, group_parent_id: 7001 }) === '6001', 'v1 parent_id still wins when present');
+  ok(norm({ ...base, split_parent_id: 8001 }) === null, 'split_parent_id is not read (split pieces stay separate: BACKLOG.md)');
+  const kidRow = (id, amount) => ({ ...H.lm({ id, date: '2026-10-11', amount, category: 'Groceries', account: 'chequing-a', payee: 'Invented grocer' }),
+    group_parent_id: 7001 });
+  const kids = [kidRow(7002, 40), kidRow(7003, 15)];
+  const parent = { ...H.lm({ id: 7001, date: '2026-10-11', amount: 55, category: 'Groceries', account: 'chequing-a', payee: 'Invented grocer' }),
+    is_group_parent: true, plaid_account_id: null, manual_account_id: null,
+    children: kids.map(k => ({ id: k.id, plaid_account_id: CHEQUING, manual_account_id: null, group_parent_id: 7001 })) };
+  const groceries = rows => {
+    const w = H.baseWorld('2026-10-14');
+    w.transactions = [H.lm({ id: 659999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+    H.productionOpening(w);
+    const payload = H.rawPayload(w);
+    payload.transactions = payload.transactions.concat(rows);
+    const r = Live.fromObservation({ data: H.canonicalOf(w, H.planOf(w)), payload, accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
+    const cpa = F.recommend(r.data.plan, F.budgetAsOf(r.data), F.budgetRecommendInputs(r.data, {})).currentPeriodAction;
+    return { posted: (cpa.categories.find(c => c.id === 'groceries') || {}).posted, claim: cpa.categoryRemainingClaim };
+  };
+  const alone = groceries([parent]), both = groceries([parent].concat(kids));
+  ok(alone.posted === 55 && alone.claim === 'precise', 'the group parent alone: groceries $55, precise', JSON.stringify(alone));
+  ok(both.posted === 55 && both.claim === 'precise', 'parent plus its children as rows: still $55, counted once', JSON.stringify(both));
+  const kept = keep([parent].concat(kids)).transactions;
+  ok(kept[1].group_parent_id === 7001 && kept[0].children.every(c => c.group_parent_id === 7001),
+    'replay memory keeps group_parent_id on rows and children');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll Lunch Money group parent account checks passed.');

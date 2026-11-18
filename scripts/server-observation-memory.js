@@ -8,7 +8,7 @@ const ACCOUNT = 'id name display_name institution_name institution type subtype 
 const CATEGORY = 'id name display_name is_income exclude_from_totals exclude_from_budget is_group is_group_parent archived is_archived'.split(' ');
 // Keep the recurring source identity already consumed by the observer. Dropping
 // it changes replay evidence and defeats exact-input Forecast reuse.
-const TRANSACTION = 'id account_id plaid_account_id manual_account_id date amount currency payee original_name originalName notes note external_id externalId pending_transaction_id pendingTransactionId plaid_id plaidId plaidTransactionId plaidPendingTransactionId is_group is_group_parent has_children parent_id recurring_id is_pending status kind mcc plaid_mcc category_id category_name categoryName is_income exclude_from_totals exclude_from_budget contradictoryEvidence confirmedSettlement'.split(' ');
+const TRANSACTION = 'id account_id plaid_account_id manual_account_id date amount currency payee original_name originalName notes note external_id externalId pending_transaction_id pendingTransactionId plaid_id plaidId plaidTransactionId plaidPendingTransactionId is_group is_group_parent has_children parent_id group_parent_id recurring_id is_pending status kind mcc plaid_mcc category_id category_name categoryName is_income exclude_from_totals exclude_from_budget contradictoryEvidence confirmedSettlement'.split(' ');
 const WINDOW = 'startDate endDate complete hasMore truncated'.split(' ');
 const PENDING = [...WINDOW, 'basis'];
 function pick(row, fields) {
@@ -63,9 +63,9 @@ function recurring(value) {
           ? strings(item.matches.missingTransactionDates) : null,
       } })) } };
 }
-// A group parent's children: only the ids and account ids the observer reads
+// A group parent's children: only their ids, account ids and parent id
 // (provider-observe groupParentAccountId). No payee, note, amount or metadata.
-const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id'];
+const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id', 'group_parent_id'];
 function transaction(row) {
   const out = pick(row, TRANSACTION);
   if (Object.hasOwn(row, 'children')) {
