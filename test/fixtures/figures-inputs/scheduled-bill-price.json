@@ -6,7 +6,7 @@
   "origin": {
     "kind": "test-builder",
     "source": "test/test-bill-amount-schedule.js baseBill / schedBill / mkPlan at 4a215db6859c42cacb5715d332b0adb9ff8cd6d7, and the 'Invented non-household' bill in test/test-a6-unknown-bill-amount-date.js at the same revision, re-entered literally",
-    "transform": "Served /data.json: meta.asOf = the mkPlan opening; plan.defaults and an invented biweekly payday added so pay periods exist; schedBill with one estimated term; the non-household bill given a day; no debts or extra facilities; no periods payload (absent-periods)."
+    "transform": "Served /data.json: meta.asOf = the mkPlan opening; plan.defaults and an invented biweekly payday added so pay periods exist; explicit known-zero balance for the unused second operating account; schedBill with one estimated term; the non-household bill given a day; no debts or extra facilities; no periods payload (absent-periods)."
   },
   "limitations": [
     "absent-periods"
@@ -29,6 +29,10 @@
           {
             "id": "chequing-a",
             "value": 1000
+          },
+          {
+            "id": "chequing-b",
+            "value": 0
           }
         ]
       },
