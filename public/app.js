@@ -857,9 +857,11 @@ const App = (() => {
     //     Refresh (the long "Checking Lunch Money" wait) shows facts too.
     //     Facts name a month, a category or a count, never an amount, and
     //     they compute no new money figure: they only pick which published
-    //     month or category is largest. Nothing is stored. Any history that
-    //     is not marked complete, or a value that is missing, drops the
-    //     fact rather than guessing.
+    //     month or category is largest. Nothing is stored. They read only an
+    //     unbroken run of fully covered months (cards included, after the
+    //     coverage start), counting back from last month; a history not
+    //     marked complete, a gap, or an uncovered month ends the run or drops
+    //     the fact rather than guessing.
     // The card is aria-hidden decoration like the treatment, so the notice
     // stays the single role="status" announcer. The entrance motion is CSS
     // and stops under prefers-reduced-motion (the text still changes). The
@@ -877,8 +879,8 @@ const App = (() => {
     ]);
     // Fact templates: placeholders only, never a figure in the source.
     const BOOT_FACT_TEMPLATES = Object.freeze({
-      biggestMonth: 'Your biggest spending month in the past year was {month}.',
-      lightestMonth: 'Your lightest spending month in the past year was {month}.',
+      biggestMonth: 'Of the last {total} months, your biggest spending month was {month}.',
+      lightestMonth: 'Of the last {total} months, your lightest spending month was {month}.',
       topCategory: 'So far this year, your biggest spending category is {category}.',
       lessThanBefore: 'In {count} of the last {total} months, you spent less than the month before.',
     });
@@ -890,33 +892,59 @@ const App = (() => {
     const bootFacts = periods => {
       if (!periods || typeof periods !== 'object' || !periods.source || periods.source.complete !== true) return [];
       const current = typeof periods.thisMonth === 'string' ? periods.thisMonth : null;
+      const coverageStart = typeof periods.source.coverageStart === 'string' ? periods.source.coverageStart : null;
       const monthName = key => MONTH_NAMES[Number(String(key).slice(5, 7)) - 1] || null;
       const isMonth = key => typeof key === 'string' && /^\d{4}-\d{2}$/.test(key) && !!monthName(key);
-      const closed = (Array.isArray(periods.monthly) ? periods.monthly : [])
-        .filter(row => row && isMonth(row.m) && current && row.m < current
-          && typeof row.spending === 'number' && Number.isFinite(row.spending) && row.spending >= 0)
-        .sort((a, b) => (a.m < b.m ? -1 : 1))
-        .slice(-12);
-      const facts = [];
-      // The single largest / smallest published month; a tie names nothing.
-      const extreme = pick => {
-        const best = closed.reduce((acc, row) => (acc == null || pick(row.spending, acc.spending) ? row : acc), null);
-        return best && closed.filter(row => row.spending === best.spending).length === 1 ? best : null;
+      if (!isMonth(current) || !coverageStart || !/^\d{4}-\d{2}-\d{2}$/.test(coverageStart)) return [];
+      const prevMonth = key => {
+        const y = Number(key.slice(0, 4)), m = Number(key.slice(5, 7));
+        return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
       };
-      if (closed.length >= 3) {
-        const big = extreme((a, b) => a > b);
-        if (big) facts.push(fill(BOOT_FACT_TEMPLATES.biggestMonth, { month: monthName(big.m) }));
-        const light = extreme((a, b) => a < b);
-        if (light) facts.push(fill(BOOT_FACT_TEMPLATES.lightestMonth, { month: monthName(light.m) }));
+      // The first month the history covers in full: the coverage start's own
+      // month only when coverage starts on its first day.
+      const startMonth = coverageStart.slice(0, 7);
+      const firstFull = coverageStart.slice(8, 10) === '01' ? startMonth
+        : (() => { const y = Number(startMonth.slice(0, 4)), m = Number(startMonth.slice(5, 7));
+          return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; })();
+      // A month is usable only when it is published, fully covered (cards
+      // included) and has a real spending value.
+      const byMonth = new Map((Array.isArray(periods.monthly) ? periods.monthly : [])
+        .filter(row => row && isMonth(row.m)).map(row => [row.m, row]));
+      const usable = key => {
+        const row = byMonth.get(key);
+        return !!row && key >= firstFull && row.cardsCovered === true
+          && typeof row.spending === 'number' && Number.isFinite(row.spending) && row.spending >= 0;
+      };
+      // An unbroken run of usable months, counting back from last month;
+      // the first gap, uncovered or missing month ends it. Oldest first.
+      const run = [];
+      for (let key = prevMonth(current); run.length < 12 && usable(key); key = prevMonth(key)) run.unshift(byMonth.get(key));
+      const facts = [];
+      // The single largest / smallest month in the run; a tie names nothing.
+      const extreme = pick => {
+        const best = run.reduce((acc, row) => (acc == null || pick(row.spending, acc.spending) ? row : acc), null);
+        return best && run.filter(row => row.spending === best.spending).length === 1 ? best : null;
+      };
+      if (run.length >= 3) {
+        const big = extreme((x, y) => x > y);
+        if (big) facts.push(fill(BOOT_FACT_TEMPLATES.biggestMonth, { total: run.length, month: monthName(big.m) }));
+        const light = extreme((x, y) => x < y);
+        if (light) facts.push(fill(BOOT_FACT_TEMPLATES.lightestMonth, { total: run.length, month: monthName(light.m) }));
       }
-      const recent = closed.slice(-6);
+      // Consecutive months only: the run has no gaps.
+      const recent = run.slice(-6);
       if (recent.length >= 4) {
         const total = recent.length - 1;
         const count = recent.slice(1).filter((row, i) => row.spending < recent[i].spending).length;
         facts.push(fill(BOOT_FACT_TEMPLATES.lessThanBefore, { count, total }));
       }
+      // "So far this year" needs every month of this year, up to last
+      // month, fully covered (and coverage from the year's first day).
+      const year = current.slice(0, 4);
+      let yearCovered = firstFull <= `${year}-01`;
+      for (let key = prevMonth(current); yearCovered && key >= `${year}-01`; key = prevMonth(key)) yearCovered = usable(key);
       const ytd = periods.periods && periods.periods.ytd;
-      const categories = (ytd && Array.isArray(ytd.spending) ? ytd.spending : [])
+      const categories = (yearCovered && ytd && Array.isArray(ytd.spending) ? ytd.spending : [])
         .filter(row => row && (row.type === 'essential' || row.type === 'discretionary')
           && typeof row.label === 'string' && row.label.trim()
           && typeof row.total === 'number' && Number.isFinite(row.total) && row.total > 0);

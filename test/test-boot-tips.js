@@ -15,8 +15,10 @@
 //   6  /data.json is requested before the card exists;
 //   7  facts come only from the history already in memory: a Manual Refresh
 //      after a load with an invented history shows exactly the facts
-//      hand-derived below, with no amount; a history not marked complete,
-//      or none at all, gives tips only;
+//      hand-derived below, with no amount; facts read only an unbroken run
+//      of fully covered months, so a gap, an uncovered month or a partial
+//      first month changes them exactly as hand-derived; a history not
+//      marked complete, or none at all, gives tips only;
 //   8  the committed tip and fact copy in public/app.js has no digit or
 //      currency sign (templates use placeholders).
 // Served from public/ through page.route; every figure served is invented.
@@ -121,26 +123,44 @@ async function lap(page) {
 }
 
 // An invented published history in the periods.json shape. Closed months
-// Jan-Oct 2026; November is the current, partial month and is ignored.
+// Jan-Oct 2026; November is the current, partial month and is never used.
 //   monthly spending: Jan 500, Feb 520, Mar 900, Apr 610, May 600, Jun 650,
 //                     Jul 640, Aug 300, Sep 450, Oct 420 (Nov 100 current)
-// Hand-derived facts:
-//   biggest month   = March (900, unique)
-//   lightest month  = August (300, unique)
-//   last six closed = May 600, Jun 650, Jul 640, Aug 300, Sep 450, Oct 420;
+// Facts read an unbroken run of fully covered months counting back from
+// October. Hand-derived for each variant:
+//   full history (coverage from Jan 1): run Jan-Oct, 10 months
+//     biggest March (900), lightest August (300)
+//     last six = May 600, Jun 650, Jul 640, Aug 300, Sep 450, Oct 420;
 //     less than the month before: Jun no, Jul yes, Aug yes, Sep no, Oct yes
 //     -> 3 of the last 5
-//   top category this year: essential/discretionary only (business is not
-//     household spending) -> Invented groceries (900 > 400; 5000 is business)
+//     top category this year (essential/discretionary; business excluded):
+//     Invented groceries (900 > 400)
+//   July missing: run Aug-Oct, 3 months -> biggest September (450),
+//     lightest August (300); too short for the month-on-month fact; the year
+//     is not fully covered, so no category fact
+//   September cards not covered: run Oct only -> no month facts; year not
+//     covered -> tips only
+//   coverage starts Jan 15: January is partial, run Feb-Oct, 9 months ->
+//     biggest March, lightest August, 3 of 5; the year is not covered from
+//     its first day, so no category fact
 const MONTHLY = [['2026-01', 500], ['2026-02', 520], ['2026-03', 900], ['2026-04', 610], ['2026-05', 600],
   ['2026-06', 650], ['2026-07', 640], ['2026-08', 300], ['2026-09', 450], ['2026-10', 420], ['2026-11', 100]];
 const EXPECTED_FACTS = [
-  'Your biggest spending month in the past year was March.',
-  'Your lightest spending month in the past year was August.',
+  'Of the last 10 months, your biggest spending month was March.',
+  'Of the last 10 months, your lightest spending month was August.',
   'In 3 of the last 5 months, you spent less than the month before.',
   'So far this year, your biggest spending category is Invented groceries.',
 ];
-function inventedPeriods({ complete = true } = {}) {
+const EXPECTED_GAP = [
+  'Of the last 3 months, your biggest spending month was September.',
+  'Of the last 3 months, your lightest spending month was August.',
+];
+const EXPECTED_PARTIAL_START = [
+  'Of the last 9 months, your biggest spending month was March.',
+  'Of the last 9 months, your lightest spending month was August.',
+  'In 3 of the last 5 months, you spent less than the month before.',
+];
+function inventedPeriods({ complete = true, coverageStart = '2026-01-01', drop = [], uncovered = [] } = {}) {
   const block = (label, months) => ({ label, months,
     spending: [
       { label: 'Invented groceries', total: 900, type: 'essential' },
@@ -150,10 +170,11 @@ function inventedPeriods({ complete = true } = {}) {
     spendingTotal: 6300, fees: [], feesTotal: 0, interest: [], interestTotal: 0 });
   return {
     asOf: '2026-11-14', thisMonth: '2026-11', lastMonth: '2026-10',
-    source: { basis: 'invented', complete, coverageStart: '2026-01-01', coverageThrough: '2026-11-14' },
+    source: { basis: 'invented', complete, coverageStart, coverageThrough: '2026-11-14' },
     periods: { thisMonth: block('This month', 1), lastMonth: block('Last month', 1),
       ytd: block('Year to date', 11), all: block('All', 11) },
-    monthly: MONTHLY.map(([m, spending]) => ({ m, spending, interest: 0, fees: 0, cardsCovered: true })),
+    monthly: MONTHLY.filter(([m]) => !drop.includes(m))
+      .map(([m, spending]) => ({ m, spending, interest: 0, fees: 0, cardsCovered: !uncovered.includes(m) })),
   };
 }
 const inventedData = () => require('./fixtures/budget-surface-data').served();
@@ -257,6 +278,20 @@ async function refreshScreen(browser, periods, contextOpts = {}) {
         'the category named in a fact comes from the served history, not the source');
       await context.close();
     }
+    const factsFor = async (periods) => {
+      const { context, page } = await refreshScreen(browser, periods);
+      const lines = await lap(page);
+      await context.close();
+      return lines.filter(x => x.kind === 'fact').map(x => x.text).sort();
+    };
+    const gap = await factsFor(inventedPeriods({ drop: ['2026-07'] }));
+    ok(JSON.stringify(gap) === JSON.stringify(EXPECTED_GAP.slice().sort()),
+      'a missing month ends the run: never compares non-adjacent months', JSON.stringify(gap));
+    const uncov = await factsFor(inventedPeriods({ uncovered: ['2026-09'] }));
+    ok(uncov.length === 0, 'a month with cards not covered ends the run: tips only here', JSON.stringify(uncov));
+    const partial = await factsFor(inventedPeriods({ coverageStart: '2026-01-15' }));
+    ok(JSON.stringify(partial) === JSON.stringify(EXPECTED_PARTIAL_START.slice().sort()),
+      'a partly covered first month is never used, and no year fact', JSON.stringify(partial));
     {
       const { context, page } = await refreshScreen(browser, inventedPeriods({ complete: false }));
       const lines = await lap(page);
