@@ -14059,7 +14059,30 @@
     // payment leg on that card. Recognised by that alone, it pairs only
     // with a TD "TFR-TO C/C" debit (see pairLegs).
     const tdPaymentCreditOnly = tx => !recordedPaymentLike(tx) && tx.pending === false && isTdCardPaymentCredit(tx);
-    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx);
+    // Lead dispatch U5: a Lunch Money group is the household's own record that
+    // its two rows are one card payment, when it spans two accounts and holds
+    // exactly one posted household-cash debit and one posted revolving-card
+    // credit of equal cents. Its rows are payment legs; reconcileCardPurchases
+    // pairs them with each other only (see groupPairs).
+    const groupMembers = new Map();
+    for (const tx of input) {
+      if (tx && tx.parentId != null && tx.isGroup !== true) {
+        const id = String(tx.parentId);
+        if (!groupMembers.has(id)) groupMembers.set(id, []);
+        groupMembers.get(id).push(tx);
+      }
+    }
+    const cardPaymentGroup = tx => {
+      const members = tx && tx.parentId != null ? groupMembers.get(String(tx.parentId)) : null;
+      if (!members || members.length !== 2) return false;
+      const accountOf = row => [row.atlasAccountId, row.accountId, row.account].find(id => id != null && id !== '');
+      if (accountOf(members[0]) == null || accountOf(members[0]) === accountOf(members[1])) return false;
+      const debit = members.find(row => row.accountRole === 'household-cash' && savingsCents(row.amount, true) > 0);
+      const credit = members.find(row => isRevolvingCardAccount(row) && savingsCents(row.amount, true) < 0);
+      return !!debit && !!credit && debit !== credit && debit.pending === false && credit.pending === false
+        && savingsCents(debit.amount, true) === -savingsCents(credit.amount, true);
+    };
+    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx) || cardPaymentGroup(tx);
     for (const tx of input) {
       if (tx && (cardLike(tx) || paymentLike(tx)) && !savingsDate(tx.date)) issue('coverage-date-unconfirmed');
       // Under the aggregate rule every card row before the opening is
@@ -14264,7 +14287,44 @@
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
-      const creditPairs = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // Lead dispatch U5: Lunch Money's own card-payment link. A posted group
+      // (its rows share a parentId) that spans more than one account and holds
+      // exactly one household-cash debit and one card-payment credit of equal
+      // cents proves where that payment went: the two pair directly, whatever
+      // their dates or notes. Any other cross-account group holding a payment
+      // leg withholds. A same-account group (a split) and ungrouped legs pair
+      // as before. Grouped legs never pair outside their group.
+      const groupPairs = [];
+      {
+        const accountOf = tx => [tx.atlasAccountId, tx.accountId, tx.account].find(id => id != null && id !== '');
+        const legOf = new Map();
+        for (const [kind, list] of Object.entries(legs)) for (const leg of list) legOf.set(leg.tx, { kind, leg });
+        const groupIds = new Set([...legOf.keys()].filter(tx => tx.parentId != null).map(tx => String(tx.parentId)));
+        const grouped = new Set();
+        for (const id of groupIds) {
+          const members = input.filter(tx => tx && tx.parentId != null && String(tx.parentId) === id);
+          if (new Set(members.map(accountOf)).size < 2) continue;
+          for (const tx of members) grouped.add(tx);
+          const shaped = members.map(tx => legOf.get(tx));
+          const cash = shaped.filter(m => m && m.kind === 'cashDebit');
+          const card = shaped.filter(m => m && m.kind === 'cardCredit');
+          const valid = members.length === 2 && cash.length === 1 && card.length === 1
+            && cash[0].leg.tx.accountRole === 'household-cash'
+            && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
+            && cash[0].leg.cents === card[0].leg.cents;
+          const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
+          if (!valid) {
+            if (counted) issue('coverage-payment-group-unconfirmed', (card[0] || cash[0] || shaped.find(Boolean))?.leg.tx.coverageRef);
+            for (const m of shaped) if (m) m.leg.paired = true;
+            continue;
+          }
+          cash[0].leg.paired = true; card[0].leg.paired = true;
+          if (card[0].leg.tx.date >= origin) groupPairs.push({ card: card[0].leg, cash: cash[0].leg });
+        }
+        for (const kind of Object.keys(legs)) legs[kind] = legs[kind].filter(leg => !grouped.has(leg.tx));
+      }
+      const creditPairs = [...groupPairs,
+        ...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed')];
       // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
       // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
       // exactly one card in the fixed table is a payment to that card on its
