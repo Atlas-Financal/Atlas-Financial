@@ -3462,8 +3462,12 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     // by a weekday holiday is two business days to the Tuesday and still holds. At most ONE credit is absorbed per
     // payday: a second qualifying credit is unexplained and holds exactly as before, as does any credit that is not
     // explicitly posted, not strictly nearer that payday than the next, or later than one business day.
+    // A payday whose own receipts already compete (an ambiguous group for that exact occurrence, on any date) is
+    // not unclaimed in the sense this needs: its receipt is unresolved, so a later credit stays held as before.
+    const previousAmbiguous = !!previousEvent && (ambiguous || []).some(group => group
+      && String(group.id) === String(previousEvent.id) && String(group.date) === String(previousEvent.date));
     let payrollLateAbsorbed = 0;
-    const payrollLateOfEarlier = credit => !!previousEvent && earlierUnclaimed
+    const payrollLateOfEarlier = credit => !!previousEvent && earlierUnclaimed && !previousAmbiguous
       && credit.savingsPostingEvidence === 'posted' && credit.date > previousEvent.date
       && Forecast.businessDaysAfter(previousEvent.date, credit.date) <= 1
       && Forecast.diffDays(previousEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);

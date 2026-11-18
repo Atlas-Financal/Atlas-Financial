@@ -89,6 +89,10 @@ ok(live(nextRefresh) && JSON.stringify(nextRefresh.future) === JSON.stringify(FU
 console.log('Everything else still holds');
 ok(held(run([pay('2026-10-12'), pay('2026-10-13')])), 'two payroll credits after the same unclaimed payday hold the plan');
 ok(held(run([pay('2026-10-09'), pay('2026-10-12')])), 'an extra credit after a payday already claimed on time holds the plan');
+// Codex P2 on #1290: two compatible receipts on the payday leave it ambiguous, not claimed; a Monday credit must not be
+// absorbed as its late pay (main holds this case too).
+ok(held(run([pay('2026-10-09', { id: 91101 }), pay('2026-10-09', { id: 91102 }), pay('2026-10-12', { id: 91103 })])),
+  'a late credit after a payday whose own receipts compete holds the plan');
 ok(held(run([pay('2026-10-13')])), 'a pay two business days late (Tuesday) holds the plan');
 ok(held(run([pay('2026-10-12', { is_pending: null })])), 'a late credit not explicitly posted holds the plan');
 const unidentified = run([pay('2026-10-12', undefined, 'Invented stranger')]);
