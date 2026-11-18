@@ -20,7 +20,10 @@
  *   5. it is absent from the assistant / MCP packet and the figures snapshot;
  *   6. a failed read, or invalid settings, is recorded as unavailable and the
  *      observation still serves; every other packet field is identical with
- *      or without the block.
+ *      or without the block;
+ *   7. the memory replay copy gives the same block as the live read, for a
+ *      catalog naming a group both ways (nested children and a child's
+ *      group_id).
  *
  * `node test/test-lunchmoney-budget-read.js`
  */
@@ -112,7 +115,7 @@ const live = (base, now) => O.fetchLunchMoneyLive('invented-token', now, 14,
 
 // An invented served world whose plan names groups 9100, 9200 and 9400
 // (and one fixture-style id that is not a Lunch Money integer id).
-function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 9400, other: 'fixture-group:x' }) {
+function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 9400, other: 'fixture-group:x' }, categories = CATEGORIES) {
   const w = H.baseWorld();
   w.transactions = [H.lm({ id: 610001, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
   H.productionOpening(w);
@@ -121,7 +124,7 @@ function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 
   rows.forEach(row => { if (groupIds[row.id] != null) row.lunchMoneyCategoryGroupId = groupIds[row.id]; });
   rows.push({ id: 'extra', label: 'Invented extra', class: 'discretionary', lunchMoneyCategoryGroupId: groupIds.extra },
     { id: 'other-fixture', label: 'Invented fixture', class: 'discretionary', lunchMoneyCategoryGroupId: groupIds.other });
-  const payload = { ...H.rawPayload(w), categories: CATEGORIES, ...(budgets === undefined ? {} : { lunchMoneyBudgets: budgets }) };
+  const payload = { ...H.rawPayload(w), categories, ...(budgets === undefined ? {} : { lunchMoneyBudgets: budgets }) };
   const result = Live.fromObservation({ data, payload, accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
   return { data: result.data, packet: result.data.liveOverlay.currentPeriodActuals };
 }
@@ -211,6 +214,28 @@ function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 
   const without = serve(undefined);
   ok(!('lunchMoneyBudgets' in without.packet), 'with no budget read, the packet has no block');
   ok(strip(s.packet) === strip(without.packet), 'every other packet field is identical with or without the block');
+
+  console.log('7. The memory replay copy gives the same block as the live read');
+  {
+    // Group 9200 names child 203 by nesting and child 204 by its own group_id.
+    // Hand-derived: Oct 40 + 60 = 100 'children' (live and replayed alike).
+    const Memory = require('../scripts/server-observation-memory.js');
+    const summary = { ...SUMMARY, categories: SUMMARY.categories.map(row => row.category_id === 204 ? summaryRow(204, 60, null, null) : row) };
+    await withStub(baseRoutes({ '/summary': { body: summary } }), async base => {
+      const liveRead = await live(base, '2026-10-14T18:00:00.000Z');
+      let replayed = null, error = null;
+      try { replayed = Memory.sourceInputs(liveRead); } catch (e) { error = e; }
+      ok(replayed && !error, 'positive control: the live observation is a valid replay input', error && error.message);
+      const a = serve(liveRead.lunchMoneyBudgets, undefined, liveRead.categories).packet.lunchMoneyBudgets;
+      const b = replayed && serve(replayed.lunchMoneyBudgets, undefined, replayed.categories).packet.lunchMoneyBudgets;
+      ok(a && a.byGroup['9200'][0].budgeted === 100 && a.byGroup['9200'][0].level === 'children',
+        'live: 9200 in October is 40 + 60 = 100 from its children', JSON.stringify(a && a.byGroup['9200'][0]));
+      ok(b && JSON.stringify(b) === JSON.stringify(a), 'replayed: the same block, byte for byte', JSON.stringify(b && b.byGroup['9200'][0]));
+      const kept = replayed && JSON.stringify(replayed.lunchMoneyBudgets);
+      ok(kept && !kept.includes('12345') && !kept.includes('Invented budget note') && !/budgeted_amount|activity|notes|cad/.test(kept),
+        'the replay copy keeps no activity, notes or currency text');
+    });
+  }
 
   console.log(failures ? `\n${failures} failure(s)` : '\nall cases pass');
   process.exit(failures ? 1 : 0);
