@@ -189,12 +189,42 @@ console.log('6. No tag moves toward certainty');
   const withheld = run(world([purchase, ['bills', -105, null, 'cash']]));
   const td = tags(degraded.advice), tw = tags(withheld.advice);
   let newlyPublished = 0;
+  // A graded tag that exists only under the estimate is a newly published
+  // figure too (pre-review note on 4a65663d): it may read estimated at most.
+  // Tags the resolved run also carries graded are figures the withheld twin
+  // simply omits, not coverage-dependent ones (the resolved run is their bound).
+  const resolved = run(world([purchase, cashLeg(105, { notes: TRAVEL })]));
+  const tr = tags(resolved.advice);
   for (const [k, v] of Object.entries(td)) {
-    if (!(k in tw) || !(v in RANK)) continue;
+    if (!(v in RANK)) continue;
+    if (!(k in tw)) {
+      if (!(tr[k] in RANK)) { newlyPublished++; check(v === 'estimated', `${k}: absent today, now ${v} (estimated at most)`); }
+      continue;
+    }
     if (tw[k] in RANK) check(RANK[v] <= RANK[tw[k]], `${k}: ${v} is no more certain than today's ${tw[k]}`);
     else { newlyPublished++; check(v === 'estimated', `${k}: today ${tw[k]}, now ${v} (estimated at most)`); }
   }
   check(newlyPublished >= 5, `the audit reached the card-dependent figures (${newlyPublished})`);
+}
+
+console.log('7. The Budget payment section shows the To-confirm row');
+{
+  const Detail = require('../public/bill-detail');
+  const html = Detail.visaPaymentsHtml(degraded.period.visaPaymentBackfill, degraded.period.cardPurchaseCoverage);
+  const rows = html.match(/data-card-payment-to-confirm-row/g) || [];
+  check(rows.length === 1, 'one To-confirm row on the page');
+  check(html.includes('To confirm: which card did this pay?') && html.includes('2026-09-20') && html.includes('$105.00')
+    && html.includes('from Bills'), 'it shows the question, date, amount and the account it left');
+  check(/counts toward no card/.test(html) && /estimates/.test(html), 'it says the payment counts toward no card and the figures are estimates');
+  const two = run(world([purchase, cashLeg(60), cashLeg(45)]));
+  check((Detail.visaPaymentsHtml(two.period.visaPaymentBackfill, two.period.cardPurchaseCoverage)
+    .match(/data-card-payment-to-confirm-row/g) || []).length === 2, 'two unconfirmed payments: two rows');
+  const savings = run(world([purchase, cashLeg(105, {}, 'savings')], { reserveSavings: true, savingsOpening: 300 }));
+  check(Detail.visaPaymentsHtml(savings.period.visaPaymentBackfill, savings.coverage).includes('from Savings'),
+    'a Savings debit reads from Savings');
+  const noted = run(world([purchase, cashLeg(105, { notes: TRAVEL })]));
+  check(!/data-card-payment-to-confirm/.test(Detail.visaPaymentsHtml(noted.period.visaPaymentBackfill, noted.period.cardPurchaseCoverage)),
+    'once confirmed, no To-confirm row');
 }
 
 console.log(`\nAll card-payment destination estimate checks passed (${checks}).`);
