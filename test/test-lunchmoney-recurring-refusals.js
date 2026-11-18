@@ -191,5 +191,26 @@ for (const file of ['public/plan.js', 'public/app.js', 'public/budget-surface.js
   ok(!/lunchMoneyRecurring|recurringScheduleRefusals|reasonCode/.test(text), file + ' never reads the refusals');
 }
 
+console.log('9. One bad plan id fails only its own entry, never the whole block (lead follow-up to #1300)');
+{
+  // A plan id outside the served plan-id shape (capitals, an underscore).
+  const odd = serve(read([item({ granularity: 'week', quantity: 1, anchorDate: '2026-10-06', expected: ['2026-10-06', '2026-10-13'] })]),
+    { bill: { id: 'Band_Room' }, rules: [rule('Band_Room', [ID])] });
+  ok(odd.block && odd.block.status === 'read', 'the recurring block is still read, not replaced with unavailable',
+    JSON.stringify(odd.block && odd.block.status));
+  ok(odd.block && odd.block.items.length === 1, 'its reviewed item is still served');
+  ok(odd.block && same(odd.block.refused, [{ billId: null, obligationId: null, reasonCode: 'cadence-unmapped' }]),
+    'that entry keeps its reason, with the id read as null', JSON.stringify(odd.block && odd.block.refused));
+  ok(!JSON.stringify(odd.data.liveOverlay.currentPeriodActuals.lunchMoneyRecurring.refused).includes('Band_Room'),
+    'the bad id is not served');
+  const p = refusalsOf(odd.data);
+  ok(p.status === 'ok' && p.count === 1 && p.items[0].billId === null, 'the packet lists it with no row', JSON.stringify(p.items));
+  // The served check itself stays strict.
+  const packet = odd.data.liveOverlay.currentPeriodActuals;
+  ok(O.currentPeriodActualsLooksSanitized({ ...packet, lunchMoneyRecurring: { ...packet.lunchMoneyRecurring,
+    refused: [{ billId: 'Band_Room', obligationId: null, reasonCode: 'cadence-unmapped' }] } }) === false,
+  'a served entry with that id is still rejected');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll Lunch Money recurring refusal checks passed.');
