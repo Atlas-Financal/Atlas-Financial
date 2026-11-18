@@ -17,9 +17,18 @@ const CATEGORY = { shopping: 14, transfer: 17, payment: 18 };
 // (id 94802, Aug 19) of the given amount; `card.declare` is a function (refs) -> payment record to declare in the
 // card-coverage ledger, where refs = { debit, credit, purchase } are the coverage references of the first leg, the
 // credit and the purchase. The leg that pays it is an ordinary Transfer leg in `legs`.
-function world(legs = [], { confirmed = false, refile = {}, card = null, minimumOwner = false, durableMinimum = false } = {}) {
+// `manualCards` adds two invented manual cards with no card feed, MBNA and Triangle, each with a minimum
+// (45 and 35, due Aug 22, paid from chequing-a), so a note naming either has a bill to belong to.
+function world(legs = [], { confirmed = false, refile = {}, card = null, minimumOwner = false, durableMinimum = false, manualCards = false } = {}) {
   const data = fx.canonical();
   const payload = fx.payload();
+  if (manualCards) {
+    for (const [id, label, amount] of [['mbna', 'Invented MBNA card', 45], ['triangle', 'Invented Triangle card', 35]]) {
+      data.debts.push({ id, label, structure: 'Revolving', secured: false, balance: 1000, pending: 0, limit: 3000, rate: 19.99 });
+      data.plan.obligations.push({ id: id + '-minimum', label: label + ' minimum', debtId: id, effect: 'payment',
+        frequency: 'monthly', day: 22, amount, confidence: 'confirmed', payingAccount: 'chequing-a' });
+    }
+  }
   payload.categories.push({ id: 17, name: 'Transfer', is_income: false, exclude_from_totals: true });
   payload.categories.push({ id: 18, name: 'Payment, Transfer', is_income: false, exclude_from_totals: true });
   if (confirmed) {

@@ -1207,7 +1207,8 @@ household chequing account that the ledger files as Transfer or Payment
 (label or generic kind hint), whose other side the ledger does not prove, is
 also a held outflow under the same term. Proof is the ledger's own: a
 Lunch Money group or proven internal movement, a represented bill, a card
-payment by its own identity, a card-payment cash leg the card
+payment by its own identity or a "card payment: <card>" note naming a
+contract card (that card's minimum stays in the bill load), a card-payment cash leg the card
 reconciler accepted, a near-due bill hold, or a debit the card-minimum owner
 counts (`Forecast.cardMinimumOwnedDebits`, carried by the observer only as the
 boolean `cardMinimumOwned`; debit identities stay server-side). Names and

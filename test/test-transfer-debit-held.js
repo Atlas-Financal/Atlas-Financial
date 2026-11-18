@@ -153,19 +153,35 @@ console.log('\n=== Grok Bot condition 1: only an exact single-card minimum categ
   stays(run(leg(CARDMIN), { minimumOwner: true, durableMinimum: true }), 'a minimum already owned by a durable record');
 }
 
-console.log('\n=== a noted card payment the card ledger did not pair is not owned (Codex P1 on #1388) ===');
+console.log('\n=== a contract-card note is the payment\'s own identity: counted once, with its minimum (lead blocker 2 on #1388) ===');
 {
-  // A Transfer debit noted "card payment: Travel Visa" is a provisional minimum candidate. Card coverage
-  // finds no posted card credit for it, so qualification drops it: neither owner counts it, so it is held.
+  // A card's minimum stays in the bill load until it is confirmed (it reads "still due"). A debit whose
+  // "card payment: <card>" note names a contract card is that payment, so holding it too counts it twice.
   const MIN = 60;
-  const noted = [{ account: 1001, amount: MIN, category: 'transfer', date: '2026-08-18', notes: 'card payment: Travel Visa' }];
-  const served = world(noted, { minimumOwner: true });
-  const view = viewOf(served);
-  ok(cents(view.cur.balanceAfterDeductions) === cents(BEFORE - MIN) && heldAmount(view) === MIN,
-    'an unpaired noted payment is held once (1,572.01), not exempt as a minimum', JSON.stringify([view.cur.balanceAfterDeductions, heldAmount(view)]));
-  ok(!served.liveOverlay.currentPeriodActuals.transactions.some(tx => tx.cardMinimumOwned === true),
-    'no row stays marked owned after qualification drops the candidate');
-  // The paired control (the mark survives qualification) is in test-card-payment-note-minimum section 8.
+  const leg = (notes, extra) => [{ account: 1001, amount: MIN, category: 'transfer', date: '2026-08-18', ...(notes ? { notes } : {}), ...(extra || {}) }];
+  const once = (view, base, label) => ok(cents(view.cur.balanceAfterDeductions) === cents(base.cur.balanceAfterDeductions)
+    && !heldAmount(view) && view.cur.periodBillLoad === base.cur.periodBillLoad,
+    label + ': not held, and its minimum stays one bill (counted once)', JSON.stringify([view.cur.balanceAfterDeductions, heldAmount(view), view.cur.periodBillLoad]));
+  const manual = run([], { manualCards: true });
+  ok(manual.cur.periodBillLoad === control.cur.periodBillLoad + 45 + 35, 'control: the invented MBNA (45) and Triangle (35) minimums are in the bill load');
+  once(run(leg('card payment: MBNA'), { manualCards: true }), manual, 'an MBNA row identified only by its note');
+  once(run(leg('card payment: Triangle Mastercard'), { manualCards: true }), manual, 'a Triangle row identified only by its note');
+  // A TD card note with no posted card credit: the Travel Visa minimum stays still due (unpaired, so
+  // qualification drops the provisional minimum evidence), and the debit is that payment, counted once.
+  const tdServed = world(leg('card payment: Travel Visa'), { minimumOwner: true });
+  const td = viewOf(tdServed);
+  once(td, run([], { minimumOwner: true }), 'a Travel Visa note with no card credit');
+  ok(!tdServed.liveOverlay.currentPeriodActuals.transactions.some(tx => tx.cardMinimumOwned === true),
+    'Codex P1: no row stays marked owned after qualification drops the unpaired note');
+  // What proves nothing: a renamed payee with no note, and a note naming no contract card.
+  for (const [label, row] of [
+    ['a payee renamed away from the card (no card name anywhere), with no note', leg(null, { payee: 'Invented card bill', original: 'INVENTED BILL PAYMENT 0042' })],
+    ['a note naming no contract card', leg('card payment: Invented store card')],
+  ]) {
+    const view = run(row, { manualCards: true });
+    ok(cents(view.cur.balanceAfterDeductions) === cents(manual.cur.balanceAfterDeductions - MIN) && heldAmount(view) === MIN,
+      label + ': still held once', JSON.stringify([view.cur.balanceAfterDeductions, heldAmount(view)]));
+  }
 }
 
 console.log('\n=== the card-minimum owner export decides (Forecast.cardMinimumOwnedDebits) ===');

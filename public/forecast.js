@@ -7543,7 +7543,8 @@
   // Everything that proves the other side keeps its own owner and is never
   // held here a second time: a Lunch Money group or link (the classifier's
   // proven internal movement, or a grouped row), a represented bill, a card
-  // payment by its own identity (never a category alone), a debit the card-minimum owner
+  // payment by its own identity or its contract-card note (never a category
+  // alone), a debit the card-minimum owner
   // counts (Forecast.cardMinimumOwnedDebits, carried by the observer as the
   // boolean cardMinimumOwned), a near-due bill hold, and a cash leg the card
   // reconciler accepted. Names and amounts never prove anything here. A
@@ -7570,6 +7571,13 @@
     // is not proof (Grok Bot, Plan #6; lead, #1388): only a pair, a group or an
     // identity proves the other side, so such a debit is held like any other.
     if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment') return null;
+    // A "card payment: <card>" note naming a contract card (the fixed table,
+    // MBNA and Triangle included) is the payment's own identity: that card's
+    // minimum stays in the bill load until confirmed, so holding the debit
+    // too would count it twice (lead blocker on #1388). An 'unknown' card,
+    // and a renamed payee with no note, prove nothing.
+    const notedCard = cardPaymentNoteDestination(tx);
+    if (notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard)) return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
