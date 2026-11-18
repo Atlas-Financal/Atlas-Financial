@@ -529,7 +529,7 @@ console.log('\n=== N. Credit-card payment does not duplicate underlying card spe
     'later hub → Travel Visa payment does not deduct the $200 again');
 }
 
-console.log('\n=== O. HELOC funding/payment does not duplicate an assigned obligation ===');
+console.log('\n=== O. HELOC funding/payment: the assigned bill stays one bill; an unproven transfer is also held once ===');
 {
   const helocBill = 400;
   const plan = fixturePlan({
@@ -567,7 +567,7 @@ console.log('\n=== O. HELOC funding/payment does not duplicate an assigned oblig
   // It never becomes a second bill, a bill-load change or a hold change; the assigned bill stays
   // the one scheduled deduction until the ledger confirms the payment (disclosed, conservative).
   ok(near(paid.periodBillLoad, none.periodBillLoad) && near(paid.budgetHold, none.budgetHold),
-    'later hub → HELOC transfer does not deduct the assigned bill again');
+    'later hub → HELOC transfer adds no second bill and no bill-load or hold change');
   ok(near(paid.afterHouseholdBudget, none.afterHouseholdBudget - helocBill),
     'the unproven transfer leaves the remainder once, held To confirm');
 }

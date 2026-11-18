@@ -7543,7 +7543,7 @@
   // Everything that proves the other side keeps its own owner and is never
   // held here a second time: a Lunch Money group or link (the classifier's
   // proven internal movement, or a grouped row), a represented bill, a card
-  // payment by its own identity or category, a debit the card-minimum owner
+  // payment by its own identity (never a category alone), a debit the card-minimum owner
   // counts (Forecast.cardMinimumOwnedDebits, carried by the observer as the
   // boolean cardMinimumOwned), a near-due bill hold, and a cash leg the card
   // reconciler accepted. Names and amounts never prove anything here. A
@@ -7565,9 +7565,11 @@
     if (!generic) return null;
     if (tx.parentId != null || tx.isGroup === true) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
-    const label = normalizeCategoryLabel(tx.categoryLabel);
-    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment'
-      || DEBT_PAYMENT_CATEGORY_LABELS.has(label) || label === 'credit card payment' || label === 'cc payment') return null;
+    // A card payment by its own identity (the observer's payee identities and
+    // its 'card-payment' stamp). A card-payment or debt-payment CATEGORY alone
+    // is not proof (Grok Bot, Plan #6; lead, #1388): only a pair, a group or an
+    // identity proves the other side, so such a debit is held like any other.
+    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment') return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;

@@ -113,6 +113,27 @@ console.log('\n=== only a card payment the card ledger ACCEPTED is proven ===');
   ok(heldAmount(viewOf(served)) === DEBIT, 'an unconfirmed declaration proves nothing: held once');
 }
 
+console.log('\n=== a card-payment or debt-payment category alone is not proof (lead blocker on #1388) ===');
+{
+  const CARD = 400;
+  const pay = r => ({ id: 'pay-1', confirmed: true, debitRef: r.debit, creditRef: r.credit, allocations: [{ purchaseRef: r.purchase, amount: CARD }], otherAmount: 0 });
+  for (const [label, leg] of [
+    ['a "Credit Card Payment" category', { categoryName: 'Credit Card Payment', amount: CARD, account: 1001 }],
+    ['a "CC Payment" category', { categoryName: 'CC Payment', amount: CARD, account: 1001 }],
+    ['a "Personal Loan Payment" category with a transfer hint', { categoryName: 'Personal Loan Payment', kind: 'transfer', amount: CARD, account: 1001 }],
+  ]) {
+    const unpaired = run([leg]);
+    ok(cents(unpaired.cur.balanceAfterDeductions) === cents(BEFORE - CARD) && heldAmount(unpaired) === CARD,
+      label + ', no pair, group or identity: held once', JSON.stringify([unpaired.cur.balanceAfterDeductions, heldAmount(unpaired)]));
+    const purchaseOnly = run([], { card: { amount: CARD } });
+    const paired = run([leg], { card: { amount: CARD, declare: pay } });
+    ok(cents(paired.cur.balanceAfterDeductions) === cents(purchaseOnly.cur.balanceAfterDeductions) && !heldAmount(paired),
+      label + ' the card ledger pairs: not held; the purchase counts once', JSON.stringify([paired.cur.balanceAfterDeductions, heldAmount(paired)]));
+    const grouped = run([{ ...leg, groupParent: 99002 }]);
+    ok(!heldAmount(grouped), label + ' in a Lunch Money group: not held');
+  }
+}
+
 console.log('\n=== Grok Bot condition 1: only an exact single-card minimum category keeps a debit out ===');
 {
   const MIN = 60, CARDMIN = 'Minimum payment - TD Travel Visa';
@@ -155,6 +176,13 @@ console.log('\n=== the card-minimum owner export decides (Forecast.cardMinimumOw
   ok(cents(owned.cur.balanceAfterDeductions) === cents(BEFORE) && !heldAmount(owned),
     'a debit a durable owner record counts, with no category: not held as well', JSON.stringify([owned.cur.balanceAfterDeductions, heldAmount(owned)]));
   ok(heldAmount(run(plain)) === MIN, 'control: the same debit with no owner record is held once');
+  // Condition (3) on refresh: the same ledger observed again after the durable owner record is
+  // withdrawn. The debit is no longer owned, so it comes back, held once (never dropped, never doubled).
+  const sameWorld = (withRecord) => run(plain, withRecord ? { durableMinimum: true } : {});
+  const first = sameWorld(true), refreshed = sameWorld(false);
+  ok(!heldAmount(first) && heldAmount(refreshed) === MIN && cents(refreshed.cur.balanceAfterDeductions) === cents(BEFORE - MIN),
+    'condition (3): a withdrawn owner record returns the debit on the next refresh, held once',
+    JSON.stringify([heldAmount(first), heldAmount(refreshed), refreshed.cur.balanceAfterDeductions]));
   const other = 'f'.repeat(64);
   const elsewhere = run(plain, { durableMinimum: { debitId: other, movementIdentity: { source: 'lunchmoney-minimum-category', debitId: other } } });
   ok(heldAmount(elsewhere) === MIN, 'an owner record naming another debit does not own this one: held once');
