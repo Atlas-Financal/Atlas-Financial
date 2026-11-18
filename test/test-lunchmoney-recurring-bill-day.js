@@ -169,11 +169,13 @@ console.log('2c. Grok Bot (c): an early linked payment, inside the existing earl
   JSON.stringify(outside.map(b => [b.date, b.status, b.amount])));
 }
 
-console.log('3. Any doubt keeps the plan\'s day and tags');
+console.log('3. Any doubt keeps the plan\'s cadence, day and tags');
 planDay(serve(world(), { status: 'unavailable', reason: 'recurring-read-failed' }), 'read unavailable');
 planDay(serve(world(), read([readItem(ID, { criteria: { quantity: 2 } })])), 'every two months');
 planDay(serve(world(), read([readItem(ID, { criteria: { granularity: 'week' }, expected: ['2026-10-06'] })])), 'weekly');
-planDay(serve(world(), read([readItem(ID, { criteria: { endDate: '2026-09-30' } })])), 'ended before today');
+// An ended item now stops the bill (test-lunchmoney-recurring-cadence.js);
+// one whose expected dates fall after its own end is inconsistent.
+planDay(serve(world(), read([readItem(ID, { criteria: { endDate: '2026-09-30' } })])), 'ended Sep 30, yet LM expects Oct 20');
 planDay(serve(world(), read([readItem(ID, { criteria: { startDate: '2026-11-01', anchorDate: '2026-11-20' } })])), 'not yet started');
 planDay(serve(world(), read([readItem(ID, { expected: ['2026-10-21'] })])), 'expected dates disagree with the anchor day');
 planDay(serve(world(), read([readItem(ID, { criteria: { plaidAccountId: '9999' } })])), 'paid from an unmapped account');
@@ -194,21 +196,29 @@ console.log('4. Short months: an anchor on the 31st matches a Nov 30 expected da
     anchorDate: '2026-01-31', startDate: '2026-01-31', endDate: null, currency: 'cad', accountRole: 'household-cash',
     expectedDates: ['2026-10-31', '2026-11-30'], foundTransactionLocalIds: [] }] },
   [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }], { bills: [{ ...BILL, day: 31 }] }, '2026-10-14');
-  ok(sched.length === 1 && sched[0].day === 31, 'day 31 with a clamped Nov 30', JSON.stringify(sched));
+  ok(sched.length === 1 && sched[0].timing.frequency === 'monthly' && sched[0].timing.day === 31, 'day 31 with a clamped Nov 30', JSON.stringify(sched));
 }
 
-console.log('4b. Grok Bot\'s cadence guard: a monthly item never leads a bill Atlas plans on another cadence');
+// Owner decision (Dale, 2026-11-18) retires Grok Bot's cadence guard: the
+// reviewed item's cadence leads (test-lunchmoney-recurring-cadence.js). A
+// once bill is never rescheduled.
+console.log('4b. Cadence leads: a monthly item reschedules a bill Atlas plans on another cadence; never a once bill');
 {
   const item = { recurringId: ID, granularity: 'month', quantity: 1, anchorDate: '2026-01-20', startDate: '2026-01-20', endDate: null,
     currency: 'cad', accountRole: 'household-cash', expectedDates: ['2026-10-20'], foundTransactionLocalIds: [] };
-  for (const frequency of ['biweekly', 'weekly', 'quarterly', 'yearly', 'once']) {
+  for (const frequency of ['biweekly', 'weekly', 'quarterly', 'yearly']) {
+    // The item expects $80 a time, the plan's amount (#1289 blocker 1).
     const sched = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
-      { bills: [{ ...BILL, frequency }] }, '2026-10-14');
-    ok(sched.length === 0, 'Atlas ' + frequency + ' vs LM monthly: no schedule, the plan day stands', JSON.stringify(sched));
+      { bills: [{ ...BILL, frequency }] }, '2026-10-14', { amounts: new Map([[ID, 80]]) });
+    ok(sched.length === 1 && JSON.stringify(sched[0].timing) === JSON.stringify({ frequency: 'monthly', day: 20 }),
+      'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th', JSON.stringify(sched));
   }
+  const once = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
+    { bills: [{ ...BILL, frequency: 'once', date: '2026-10-20' }] }, '2026-10-14');
+  ok(once.length === 0, 'a once bill: no schedule', JSON.stringify(once));
 }
 
-console.log('5. The owner-policy guard: only day and dateConfidence, only on a scheduled bill');
+console.log('5. The owner-policy guard: only timing fields and dateConfidence, only on a scheduled bill');
 {
   const before = { plan: { bills: [BILL, { ...BILL, id: 'other' }] } };
   const moved = patch => ({ plan: { bills: [{ ...BILL, ...patch }, { ...BILL, id: 'other' }] } });

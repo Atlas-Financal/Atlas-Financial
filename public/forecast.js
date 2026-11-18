@@ -618,7 +618,17 @@
     return out;
   }
 
+  // `lastDue` (an ISO day) ends a recurring schedule: no occurrence after it.
+  // Like firstDue it is a filter, never a rewrite of the calendar. It is set
+  // only on the served plan, from an ended reviewed Lunch Money recurring item
+  // (scripts/provider-observe.js recurringBillScheduleReview).
   function occurrences(item, start, end) {
+    const dates = cadenceOccurrences(item, start, end);
+    const last = item && item.frequency !== 'once' && typeof item.lastDue === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(item.lastDue) ? item.lastDue : null;
+    return last ? dates.filter(d => d <= last) : dates;
+  }
+  function cadenceOccurrences(item, start, end) {
     if (item.frequency === 'once') {
       return (item.date >= start && item.date <= end) ? [item.date] : [];
     }
@@ -21547,6 +21557,27 @@
         continue;
       }
       if (undated) continue;
+      // An ended schedule (lastDue, from an ended reviewed Lunch Money item)
+      // is normalised from its own occurrences in the window, so a bill that
+      // stops does not keep drawing its full monthly equivalent from the
+      // category. Without a window start its share is unknown, like a refused
+      // schedule.
+      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue)
+        ? b.lastDue : null;
+      if (last && (!scheduleLastIncluded || last < scheduleLastIncluded)) {
+        if (!scheduleAsOf) {
+          if (b.budgetCategory) {
+            addDated(b.budgetCategory, 0, b.label, 'bill');
+            const acc = datedByCategory[b.budgetCategory];
+            acc.items[acc.items.length - 1] = { label: b.label, amount: null, kind: 'bill', reason: 'bill-date-unknown' };
+            acc.unknown = true;
+          }
+          continue;
+        }
+        const count = billNeedsDate(b) ? 0 : occurrences(b, scheduleAsOf, scheduleLastIncluded).length;
+        addDated(b.budgetCategory, count * b.amount / monthsInWindow, b.label, 'bill');
+        continue;
+      }
       addDated(b.budgetCategory, billMonthly(b), b.label, 'bill');
     }
     // A dated commitment is NOT automatically a draw against the recurring
