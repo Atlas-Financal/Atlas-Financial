@@ -69,11 +69,11 @@ function observe(input) {
     // An exact minimum category is household confirmation (Dale 2026-10-07).
     // Otherwise a note naming exactly one TD card is a candidate, kept only if
     // card coverage pairs it with that card's posted credit (qualifyNotePayments).
-    // A note naming a different known card than the category names nothing.
+    // The category, when present, wins unchanged.
     const noted = Forecast.cardPaymentNoteDestination({ notes: tx.notes });
     const byCategory = CARD_IDS.has(tx.minimumCategoryDebt) ? tx.minimumCategoryDebt : null;
     const byNote = !byCategory && NOTE_CARD_IDS.has(noted) && typeof coverageReference === 'function' ? noted : null;
-    const debtId = byCategory && CARD_IDS.has(noted) && noted !== byCategory ? null : byCategory || byNote;
+    const debtId = byCategory || byNote;
     const map = mapping(tx), amount = cents(tx.amount);
     if (!debtId || tx.pending === true || tx.contradictoryEvidence === true
         || tx.isGroup || tx.parentId || tx.currency !== 'cad' || tx.isIncome === true

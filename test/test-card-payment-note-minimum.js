@@ -117,6 +117,30 @@ toConfirm(run(world({ note: TRAVEL, credit: true, edit: x => {
   x.payload.categories.push({ id: 9002, name: 'Credit Card Payment', is_income: false, is_group: false });
   Object.assign(x.payload.transactions[1], { payee: 'Invented card payment', original_name: 'Invented card payment', category_id: 9002 });
 } })), 'note + a non-TD payment credit');
+// 5c. The payment is later returned (Codex P1, #1316): a posted card debit and a
+// Bills credit of the same 49.37 under "Credit Card Payment". Coverage reverses
+// it, so nothing satisfied the minimum: it stays To confirm, never paid.
+toConfirm(run(world({ note: TRAVEL, credit: true, edit: x => {
+  x.payload.categories.push({ id: 9002, name: 'Credit Card Payment', is_income: false, is_group: false });
+  x.payload.transactions.push(
+    { id: 98003, account_id: 3004, date: '2035-10-06', amount: 49.37, currency: 'cad', payee: 'Invented returned payment',
+      original_name: 'Invented returned payment', category_id: 9002, is_pending: false, status: 'reviewed' },
+    { id: 98004, account_id: 3001, date: '2035-10-06', amount: -49.37, currency: 'cad', payee: 'Invented returned payment',
+      original_name: 'Invented returned payment', category_id: 9002, is_pending: false, status: 'reviewed' });
+  x.payload.accounts[0].balance += 49.37; x.payload.accounts[3].balance += 49.37;
+} })), 'note + credit, then the payment is returned');
+// 5d. The genuine TD PAYMENT - THANK YOU credit filed under "Credit Card
+// Payment" (Codex P2, #1316) is still the issuer's receipt: paid, as in case 1.
+{
+  const s = run(world({ note: TRAVEL, credit: true, edit: x => {
+    x.payload.categories.push({ id: 9002, name: 'Credit Card Payment', is_income: false, is_group: false });
+    x.payload.transactions[1].category_id = 9002;
+  } }));
+  check(s.state.status === 'ready' && s.state.payments[0]?.issuerMinimumStatus === 'satisfied'
+    && s.row?.householdPaymentStatus === 'paid', 'TD credit under "Credit Card Payment": still the receipt, paid (state '
+    + s.state.status + ')');
+  check(s.available === 950.63, 'TD credit under "Credit Card Payment": available 950.63 (got ' + s.available + ')');
+}
 // 6. Triangle and MBNA (manual, no card feed): a note never confirms them; their minimum reads as it does with no note.
 for (const [card, payee] of [['triangle', 'CAN TIRE MC'], ['mbna', 'MBNA M/C']]) {
   const name = card === 'triangle' ? 'Triangle Mastercard' : 'MBNA';
@@ -127,11 +151,35 @@ for (const [card, payee] of [['triangle', 'CAN TIRE MC'], ['mbna', 'MBNA M/C']])
     && noted.available === plain.available, card + ': reads exactly as the same payment without a note');
   check(noted.state.status !== 'unavailable', card + ': never sent with the issuer unknown');
 }
+// 6b. A Triangle or MBNA name on a TD "TFR-TO C/C" transfer is contradictory
+// (that transfer pays a TD card): card coverage withholds it exactly as an
+// unknown name, as on main, and the minimum stays To confirm (#1316 pre-review).
+for (const name of ['Triangle Mastercard', 'MBNA']) {
+  const s = run(world({ note: 'card payment: ' + name, edit: x => {
+    x.data.debts.push({ id: 'triangle', label: 'Invented triangle', structure: 'Revolving', secured: false, balance: 0,
+      pending: 0, rate: 0, limit: 1000, statementCloseDay: 17 });
+  } }));
+  const unknown = run(world({ note: 'card payment: Invented Card', edit: x => {
+    x.data.debts.push({ id: 'triangle', label: 'Invented triangle', structure: 'Revolving', secured: false, balance: 0,
+      pending: 0, rate: 0, limit: 1000, statementCloseDay: 17 });
+  } }));
+  const codes = r => JSON.stringify(((r.live.data && F.recommend(r.live.data.plan, NOW, { debts: r.live.data.debts,
+    currentPeriodActuals: r.live.report.currentPeriodActuals }).cardPurchaseCoverage) || {}).issues || []);
+  check(s.available === unknown.available && codes(s) === codes(unknown),
+    name + ' on a TFR-TO C/C: card coverage reads as an unknown name (available ' + s.available + ', ' + codes(s) + ')');
+  check(/coverage-payment-destination-unconfirmed/.test(codes(s)), name + ' on a TFR-TO C/C: destination unconfirmed');
+  toConfirm(s, name + ' on a TFR-TO C/C');
+}
 // 7. The exact minimum category is unchanged (Dale 2026-10-07): ready, household-category.
 {
   const s = run(world({ category: true }));
   check(s.state.status === 'ready' && s.state.payments[0].minimumConfirmationSource === 'household-category',
     'category: unchanged household confirmation');
+}
+{
+  const s = run(world({ category: true, note: 'card payment: TD Cash Back Visa ...8888' }));
+  check(s.state.status === 'ready' && s.state.payments[0].minimumConfirmationSource === 'household-category',
+    'category with a note naming another card: the category wins, as on main');
 }
 
 console.log(`  PASS  a noted TD minimum is confirmed by the card's paired credit, else To confirm (${checks} checks)`);

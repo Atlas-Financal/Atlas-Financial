@@ -11352,7 +11352,11 @@
   // contract while Grok consultation is paused, #821 6964009921).
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
     'td personal credit card': 'tdcc', 'triangle mastercard': 'triangle', 'mbna': 'mbna' });
-  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
+  // Card coverage's note path is for TD "TFR-TO C/C" transfers, which pay a TD
+  // card: a Triangle or MBNA name on one is contradictory and stays unconfirmed
+  // (#1316 pre-review). Those names exist for the destination, not this path.
+  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']
+    .filter(id => Object.values(CARD_PAYMENT_NOTE_CARDS).includes(id)));
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -14105,7 +14109,7 @@
     // Noted TD debits that paired with a posted TD PAYMENT - THANK YOU credit
     // on the card the note names: the issuer's own receipt of that payment
     // (lead dispatch U4, option A). Read by the observer only.
-    const notedCreditPairs = [];
+    const notedCreditPairs = [], reversedPairs = new Set();
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
     const aggregatePeriods = [], minimumCoverage = [], savingsFundedByRef = new Map();
@@ -14236,10 +14240,11 @@
         return false;
       };
       const creditPairs = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // The TD issuer identity is the credit's own PAYMENT - THANK YOU
+      // description, whatever category it is filed under (Codex P2, #1316).
       for (const pair of creditPairs) {
-        if (tdPaymentCreditOnly(pair.card.tx) && notePays(pair.cash) === pair.card.account) {
-          notedCreditPairs.push({ debitRef: pair.cash.tx.coverageRef, card: pair.card.account });
-        }
+        if (pair.card.tx.pending === false && isTdCardPaymentCredit(pair.card.tx)
+          && notePays(pair.cash) === pair.card.account) notedCreditPairs.push(pair);
       }
       // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
       // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
@@ -14377,6 +14382,7 @@
           for (const pair of sortedPayments.slice().reverse()) {
             const cut = Math.min(toReverse, pair.card.cents - pair.scheduled); toReverse -= cut;
             effective.set(pair, pair.card.cents - pair.scheduled - cut);
+            if (cut > 0) reversedPairs.add(pair);
           }
           const minimums = (period.minimums || []).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
           for (const pair of sortedPayments) {
@@ -14752,7 +14758,10 @@
       accountLabel: row.accountLabel,
       ...(aggregate ? { savingsFunded: issues.length ? null : (savingsFundedByRef.get(row.ref) || 0) / 100 } : {}),
     }]));
-    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs, notedCreditPairs,
+    // A payment that a reversal cut (wholly or partly) is not a receipt (Codex P1, #1316).
+    const noteReceipts = notedCreditPairs.filter(pair => !reversedPairs.has(pair))
+      .map(pair => ({ debitRef: pair.cash.tx.coverageRef, card: pair.card.account }));
+    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs, notedCreditPairs: noteReceipts,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
     // Diagnostic identity is independent of the allocator's iteration order.
     // Inspect all explicitly confirmed declarations, including rejected ones:
@@ -14882,7 +14891,7 @@
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
     }
     return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs, aggregateReversalCashRefs,
-      notedCreditPairs, ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
+      notedCreditPairs: noteReceipts, ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
   function visaPaymentReconciliation(transactions, opts) {
