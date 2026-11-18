@@ -921,7 +921,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 
 ~~Transitive npm advisories. Source: #900 follow-up.~~ Cleared by `agent/npm-audit-transitive` (hono and @hono/node-server patch bumps; `npm audit` reports 0).
 
-`operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
+~~`operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.~~ Closed 2026-11-18 (lead ruling). The acceptance harness, the invented-world path, reads the file as absent since 205da705, guarded by `test-acceptance-harness-hermetic-periods`. With the file forced absent, 17 of the 20 older direct suites that reach `loadPeriods` give the same results, including every invented-data suite. The other 3 use it by design: `test-live-plan` and `test-refresh-05-operating-answer` run on the committed household opening, and `test-refresh-evaluation-reuse` tests that periods are loaded. The file is the committed, sanitised aggregate `ARCHITECTURE.md` names as the home for actuals, so reading it in a test publishes nothing new.
 
 ~~Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.~~ Stale: `scripts/recurring-audit.js` was removed 2026-11-17.
 
