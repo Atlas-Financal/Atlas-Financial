@@ -76,10 +76,16 @@ bothToConfirm(run(world([purchase, cashLeg(105), cardCredit(105, null, { origina
 withheld(run(world([purchase, cashLeg(105), cardCredit(105, null, { is_pending: true })])),
   'coverage-payment-destination-unconfirmed', 'a pending PAYMENT - THANK YOU credit is not a payment');
 // 5. Never inferred from the amount alone: a cent apart, or outside +/-3 days.
-withheld(run(world([purchase, cashLeg(105), cardCredit(104.99)])),
-  'coverage-payment-destination-unconfirmed', 'unequal cents never pair');
-withheld(run(world([['card', 80, '2026-09-20', 'purchase'], cashLeg(105, '2026-09-20'), cardCredit(105, '2026-09-24')],
-  { asOf: '2026-09-25' })), 'coverage-payment-destination-unconfirmed', 'four days apart never pair');
+// Since the lead's 2026-11-18 dispatches (Dale, stop 2) neither leg pairs and
+// both are To confirm: the debit counts toward no card, the credit too.
+const neverPaired = (s, why) => {
+  check(s.coverage.status === 'ready' && s.coverage.estimateBasis === 'card-coverage-rows-unconfirmed', why + ': both To confirm');
+  check(s.coverage.reservedCash === 80 && s.coverage.toConfirm.length === 2, why + ': purchase reserved, two rows');
+  check(!s.coverage.payments.some(p => p.status === 'reconciled'), why + ': never paired');
+};
+neverPaired(run(world([purchase, cashLeg(105), cardCredit(104.99)])), 'unequal cents never pair');
+neverPaired(run(world([['card', 80, '2026-09-20', 'purchase'], cashLeg(105, '2026-09-20'), cardCredit(105, '2026-09-24')],
+  { asOf: '2026-09-25' })), 'four days apart never pair');
 ready(run(world([['card', 80, '2026-09-20', 'purchase'], cashLeg(105, '2026-09-20'), cardCredit(105, '2026-09-23')],
   { asOf: '2026-09-25' })), 'control: three days apart pairs');
 // 6. It pairs only with a TD "TFR-TO C/C" debit, not with any other payment-like debit.

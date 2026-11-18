@@ -111,8 +111,18 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 }
 // 6. Unknown direction or account withholds; nothing is inferred from amount alone.
 {
-  withheld(run(world([['card', 80, null, 'purchase'], ['card', -80, null, 'credit']])),
-    'coverage-payment-source-unconfirmed', 'card credit with no household cash leg');
+  // Lead dispatch 2026-11-18 (Dale, stop 2): a posted card payment credit
+  // with no household cash leg near it counts toward no card; the purchase
+  // stays reserved and the credit is To confirm
+  // (test/test-card-payment-source-estimate.js holds the full proof).
+  {
+    const s = run(world([['card', 80, null, 'purchase'], ['card', -80, null, 'credit']]));
+    const why = 'card credit with no household cash leg';
+    assert.equal(s.coverage.status, 'ready', why + ': published');
+    assert.equal(s.coverage.estimateBasis, 'card-payment-source-unconfirmed', why + ': its basis');
+    assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
+    assert.equal(s.coverage.toConfirm.length, 1, why + ': one To-confirm row');
+  }
   // Lead dispatch 2026-11-18 (Dale): a Bills or Savings payment debit with no
   // card leg no longer withholds. It is applied to no card (the purchase stays
   // reserved), coverage is an estimate, and the payment is listed To confirm.
@@ -125,8 +135,17 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
     assert.equal(s.coverage.toConfirm.length, 1, why + ': one To-confirm row');
   }
-  withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -79.99, null, 'credit']])),
-    'coverage-payment-source-unconfirmed', 'unequal cents never pair');
+  // Unequal cents never pair: the debit and the credit are each To confirm
+  // and count toward no card, so the purchase stays reserved.
+  {
+    const s = run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -79.99, null, 'credit']]));
+    const why = 'unequal cents never pair';
+    assert.equal(s.coverage.status, 'ready', why + ': published');
+    assert.equal(s.coverage.estimateBasis, 'card-coverage-rows-unconfirmed', why + ': both kinds');
+    assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
+    assert.equal(s.coverage.payments.filter(p => p.status === 'reconciled').length, 0, why + ': never paired');
+    assert.equal(s.coverage.toConfirm.length, 2, why + ': two To-confirm rows');
+  }
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, '2026-09-18', 'cash'], ['bills', 80, '2026-09-19', 'cash'],
     ['card', -80, null, 'credit']])), 'coverage-payment-pair-ambiguous', 'two candidate cash legs');
   // Since the lead's 2026-11-18 dispatch (Dale, stop 2) a posted one is
@@ -299,8 +318,11 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   const packet = Assistant.buildPacket({ data: s.observed.data, periods: null, questionsMarkdown: '' });
   assert.notEqual(packet.forecast.status, 'unavailable', 'assistant forecast available');
   assert.notEqual(packet.current.spendableHouseholdCash.value, null, 'spendable household cash publishes');
-  // The same packet with an unpaired card credit withholds all three.
-  const held = run(world([['card', 80, null, 'purchase'], ['card', -80, null, 'credit']]));
+  // The same packet with a hold withholds all three: an unpaired credit back
+  // into Bills from an unknown card (an unpaired card credit alone is now To
+  // confirm, lead dispatch 2026-11-18).
+  const held = run(world([['card', 80, null, 'purchase'], ['bills', -80, null, 'cash']]));
+  assert.equal(held.coverage.status, 'unavailable', 'the credit into Bills withholds coverage');
   const heldPacket = Assistant.buildPacket({ data: held.observed.data, periods: null, questionsMarkdown: '' });
   assert.equal(heldPacket.forecast.status, 'unavailable');
   assert.equal(heldPacket.current.spendableHouseholdCash.value, null);
