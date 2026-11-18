@@ -1,0 +1,225 @@
+{
+ "capturedFrom": "main 422f96d4 (scripts/private-period-history-postgres.js project), invented close Feb 1-14 2030, engine identity omitted",
+ "content": {
+  "period": {
+   "start": "2030-02-01",
+   "end": "2030-02-14",
+   "timezone": "America/Vancouver"
+  },
+  "kind": "closing",
+  "asOf": "2030-02-16",
+  "declaredAt": null,
+  "effectiveFrom": null,
+  "reason": null,
+  "planBasis": "see-baseline-revision",
+  "provenance": {
+   "provider": "lunchmoney",
+   "fetchedAt": "2030-02-16T18:00:00.000Z",
+   "sourceFingerprint": "5361be99b64b6719c1c0041434710836b5d5eacdab814e933702f43d4916000e",
+   "policyFingerprint": "fad508815689da4700cef7e81c19aea6ba9f72273bb76e76e88255c9189c088e",
+   "accountMapFingerprint": "99237b12b44250e4dea4a5f9b66494cbefe27396c145a1df8c812049df1aec5a",
+   "identityFingerprint": "780ae8fa30def4b7cc371efde9620de456bd2d71b3f8fe00cf825034bb861bee",
+   "transactionWindow": {
+    "startDate": "2030-02-01",
+    "endDate": "2030-02-16",
+    "complete": true,
+    "hasMore": false,
+    "truncated": false
+   },
+   "pendingCoverage": {
+    "complete": true,
+    "status": "complete",
+    "basis": "is_pending-unbounded",
+    "hasMore": false
+   }
+  },
+  "sourceCompleteness": {
+   "status": "incomplete",
+   "reasons": [
+    "publication:income-actual-unavailable"
+   ]
+  },
+  "closingState": "provisional",
+  "cutoff": {
+   "rule": "household-day",
+   "end": "2030-02-14",
+   "tz": "America/Vancouver"
+  },
+  "periodBankBalances": {
+   "status": "saved",
+   "reason": null,
+   "edge": {
+    "rule": "household-day",
+    "end": "2030-02-14",
+    "tz": "America/Vancouver"
+   },
+   "accounts": [
+    {
+     "id": "chequing-a",
+     "balance": 1000,
+     "evidenceDate": "2030-02-16"
+    },
+    {
+     "id": "chequing-b",
+     "balance": 500,
+     "evidenceDate": "2030-02-16"
+    }
+   ]
+  },
+  "publication": {
+   "id": "past:2030-02-01",
+   "label": "Previous Pay Period",
+   "rangeLabel": "Feb 1–Feb 14",
+   "start": "2030-02-01",
+   "end": "2030-02-14",
+   "role": "lookback",
+   "projected": false,
+   "lookback": true,
+   "openingKnown": false,
+   "paydayBoundaryOpening": false,
+   "opening": null,
+   "openingAsOf": null,
+   "openingSource": null,
+   "liveCurrentBalance": null,
+   "currentBalance": null,
+   "incomeAdded": null,
+   "incomeTotal": 200,
+   "incomeTrust": "estimated",
+   "available": 200,
+   "totalBillsThisPeriod": 0,
+   "paidBills": 0,
+   "remainingBills": 0,
+   "periodBillLoad": 0,
+   "periodBillLoadTrust": "calculated",
+   "afterRemainingBills": 200,
+   "afterBills": 200,
+   "afterBillsTrust": "estimated",
+   "budgetHold": 12.34,
+   "budgetHoldTrust": null,
+   "balanceAfterDeductionsTrust": "estimated",
+   "cycleUnresolved": false,
+   "operatingPlanUnavailable": false,
+   "afterHouseholdBudget": 187.66,
+   "balanceAfterDeductions": 187.66,
+   "predictedEndingBalance": 187.66,
+   "predictedEndingBalanceIdentity": "balance-after-deductions",
+   "plannedPeriodClose": null,
+   "plannedPeriodCloseTrust": "unknown",
+   "afterDebtRepayment": 187.66,
+   "afterBigPurchases": 187.66,
+   "projectedEnding": 187.66,
+   "timelineRole": "past",
+   "timelineOffset": -1,
+   "evidenceState": "historical",
+   "budgetProgressAsOf": "2030-02-16",
+   "predictedEndingBalanceTerms": {
+    "periodIncome": 200,
+    "assignedBills": 0,
+    "householdBudgetHold": 12.34,
+    "balanceAfterDeductions": 187.66,
+    "identity": "balance-after-deductions",
+    "closes": true
+   },
+   "plannedPeriodCloseTerms": null,
+   "householdBudget": [
+    {
+     "id": "groceries",
+     "label": "Groceries",
+     "monthly": 86.96,
+     "plannedWeekly": null,
+     "plannedPayday": 40,
+     "planned": 40,
+     "spent": 12.34,
+     "remaining": null,
+     "overspend": null,
+     "hold": 12.34,
+     "projected": false
+    },
+    {
+     "id": "fuel",
+     "label": "Fuel",
+     "monthly": 32.61,
+     "plannedWeekly": null,
+     "plannedPayday": 15,
+     "planned": 15,
+     "spent": 0,
+     "remaining": null,
+     "overspend": null,
+     "hold": 0,
+     "projected": false
+    },
+    {
+     "id": "pets",
+     "label": "Dog food",
+     "monthly": 10.87,
+     "plannedWeekly": null,
+     "plannedPayday": 5,
+     "planned": 5,
+     "spent": 0,
+     "remaining": null,
+     "overspend": null,
+     "hold": 0,
+     "projected": false
+    },
+    {
+     "id": "restaurants",
+     "label": "Eating out",
+     "monthly": 21.74,
+     "plannedWeekly": null,
+     "plannedPayday": 10,
+     "planned": 10,
+     "spent": 0,
+     "remaining": null,
+     "overspend": null,
+     "hold": 0,
+     "projected": false
+    },
+    {
+     "id": "dale-guilt-free",
+     "label": "Dale guilt-free spending",
+     "monthly": 10.87,
+     "plannedWeekly": null,
+     "plannedPayday": 5,
+     "planned": 5,
+     "spent": 0,
+     "remaining": null,
+     "overspend": null,
+     "hold": 0,
+     "projected": false
+    },
+    {
+     "id": "amanda-guilt-free",
+     "label": "Amanda guilt-free spending",
+     "monthly": 10.87,
+     "plannedWeekly": null,
+     "plannedPayday": 5,
+     "planned": 5,
+     "spent": 0,
+     "remaining": null,
+     "overspend": null,
+     "hold": 0,
+     "projected": false
+    }
+   ],
+   "income": [
+    {
+     "id": "payroll",
+     "label": "Invented income",
+     "kind": "income",
+     "date": "2030-02-01",
+     "planned": 200,
+     "amount": 200,
+     "actual": null,
+     "remaining": 200,
+     "settlement": "unverified",
+     "status": "planned",
+     "confidence": "confirmed"
+    }
+   ],
+   "bills": [],
+   "otherIncome": {
+    "amount": 0
+   }
+  }
+ }
+}

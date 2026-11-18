@@ -78,8 +78,13 @@ ok(past.budgetProgress === null, 'L1 the close saved no actual-against-plan comp
 ok(saved.incomeTotal === 200 && saved.totalBillsThisPeriod === 30 && saved.budgetHold === 12.34,
   'L1 the close saved its period totals (income 200, bills 30, spending deduction 12.34)');
 ok(plain.householdBudget.find(row => row.id === 'groceries').planned === 80, "L1 control: today's groceries target is 80, not the saved 40");
-ok(saved.householdBudget.every(row => !['plannedTrust', 'confidence', 'trust'].some(key => Object.hasOwn(row, key))),
-  'L1 the close saved no trust word on a household category row');
+// The store keeps each category row's trust tag for saved-period trends
+// (untagged at the close, so 'calculated'); the reprint does not carry it, so
+// the page below reads exactly as before.
+ok(saved.householdBudget.every(row => row.trust === 'calculated' && !['plannedTrust', 'confidence'].some(key => Object.hasOwn(row, key))),
+  'L1 the close saved each untagged household category row as calculated, and no other trust word');
+ok(past.householdBudget.every(row => !['plannedTrust', 'confidence', 'trust'].some(key => Object.hasOwn(row, key))),
+  'L1 the reprinted saved period carries no trust word on a household category row');
 ok(!plain.capturedClose, 'L1 control: without the archive the period is an uncaptured completed period');
 
 // The page, as the browser builds it.

@@ -17768,6 +17768,10 @@
             ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
           delete copy.alsoCarriedToCurrent;
           delete copy.ledgerEntryUnbacked;
+          // A budget row's saved trust tag is kept for saved-period trends
+          // only. The reprint is unchanged by it: no trust word is re-raised
+          // on a saved close's category rows.
+          if (key === 'householdBudget') { delete copy.trust; delete copy.plannedTrust; }
           if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
               && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
             copy.alsoCarriedToCurrent = true;

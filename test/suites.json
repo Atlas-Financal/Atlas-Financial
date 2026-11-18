@@ -472,6 +472,7 @@
   ["a saved close never shows today's figures as its own (Not confirmed paid, leftover, extra-debt and card lines)","test-saved-close-no-todays-figures.js"],
   ["saved bill rows print their saved amount, tagged no more certain than the close saved","test-saved-bill-rows-saved-amount.js"],
   ["a saved close never calls its plan Unavailable beside the plan amounts it shows; it names the piece it did not save","test-saved-close-plan-labels.js"],
+  ["a saved close keeps each household category row's plan trust (untagged rows stored calculated); older records still read; nothing else stored changes; the reprint is unchanged","test-saved-close-row-plan-trust.js"],
   ["completed-period remaining bills count unproven bills; an unknown amount leaves the remainder unknown","test-completed-period-remaining-bills.js"],
   ["a bill of unknown amount shows its Bills drawer lines (live replay and current period); a saved close still prints no Not confirmed paid","test-bills-unknown-amount-drawer.js"],
   ["Expected one-off income settles only on qualified identity (C3)","test-income-settles-on-identity.js"],
