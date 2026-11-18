@@ -1112,13 +1112,24 @@ const RETAINED_PICTURE_REASONS = Object.freeze({
   // 2026-11-18): the last non-withheld picture is shown instead.
   'current-plan-withheld': 'today\'s figures are on hold until something is confirmed.',
 });
+// Whole household days between the picture and today's attempt, when the
+// picture is from an earlier household day; otherwise null (no age shown).
+function retainedPictureAgeDays(retained) {
+  const at = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Forecast.financialDate(value) : null;
+  const pictureDay = at(retained?.observedAt), today = at(retained?.attempt?.attemptedAt);
+  if (!pictureDay || !today || pictureDay >= today) return null;
+  const days = Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(pictureDay + 'T00:00:00Z')) / 86400000);
+  return Number.isFinite(days) && days > 0 ? days : null;
+}
 function retainedPictureBannerHtml(liveOverlay) {
   const retained = liveOverlay?.retainedRefresh;
   if (!retained) return '';
-  const time = retainedPictureTime(retained) || 'an earlier refresh (time unavailable)';
+  const time = retainedPictureTime(retained);
+  const days = time ? retainedPictureAgeDays(retained) : null;
+  const when = !time ? 'an earlier refresh (time unavailable)' : days ? `${time} (${days} ${days === 1 ? 'day' : 'days'} ago)` : time;
   const reason = RETAINED_PICTURE_REASONS[retained.attempt?.reason] || RETAINED_PICTURE_REASONS['current-observation-unavailable'];
   return `<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>`
-    + `Showing the last full picture from ${escapeHtml(time)}. Today's update couldn't be completed: ${escapeHtml(reason)}</p>`;
+    + `Showing the last full picture from ${escapeHtml(when)}. Today's update couldn't be completed: ${escapeHtml(reason)}</p>`;
 }
 
 function latestCompleteRefreshNote(liveOverlay) {

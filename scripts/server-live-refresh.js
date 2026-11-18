@@ -246,7 +246,7 @@ if (!isMainThread) {
     }));
     return { accountMap: map, categoryMapping: categories };
   }
-  function retainedDisplay(canonical, env, accountId, attempt, persist = true) {
+  function retainedDisplay(canonical, env, accountId, attempt, persist = true, preferClear = true) {
     try {
       // Lead ruling: the normal production provider environment is assumed
       // fixed for the process. A failed /me may reuse historical same-process
@@ -259,8 +259,9 @@ if (!isMainThread) {
       // Dale, 2026-11-18: the last FULL picture. When the newest retained
       // publication carries a whole-plan hold, the last non-withheld one is
       // shown instead (under the banner), if this process still holds it.
+      // Precedence checks (preferClear false) read the newest held cohort.
       const newest = observations.readDisplay(context);
-      const retained = newest && ObservationMemory.planWithheld(newest.data)
+      const retained = preferClear && newest && ObservationMemory.planWithheld(newest.data)
         ? observations.readClearDisplay(context) || newest : newest;
       if (!retained || retained.credentialSource !== 'env'
         || (accountId && accountId !== retained.householdAccountId)
@@ -302,7 +303,9 @@ if (!isMainThread) {
     if (result?.check?.evidenceDayView !== true || result.check.qualified === true
       || !data?.liveOverlay?.retainedRefresh || !ObservationMemory.completeTransactionCohort(data)
       || typeof data.meta?.asOf !== 'string') return null;
-    const held = retainedDisplay(canonical, env, accountId, null, false);
+    // Precedence against the NEWEST held cohort, withheld or not: a view older
+    // than it never wins and never drops it (rulings 6788227366 / 6788734379).
+    const held = retainedDisplay(canonical, env, accountId, null, false, false);
     if (held && !evidenceDayNewer(data, held)) return null;
     // Any supersession, same day or later, drops the superseded cohort from
     // memory (lead ruling 6788734379): a process never shows figures older

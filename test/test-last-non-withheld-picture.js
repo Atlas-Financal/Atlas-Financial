@@ -104,7 +104,8 @@ if (threads.isMainThread && require.main === module) (async () => {
     delete require.cache[require.resolve('../scripts/server-live-refresh')];
     const Refresh = require('../scripts/server-live-refresh');
     try {
-      const first = await Refresh.serve(canonical, env, { forceRefresh: true }); await drain();
+      let firstCheck = null;
+      const first = await Refresh.serve(canonical, env, { forceRefresh: true, onCheck(value) { firstCheck = value; } }); await drain();
       check(first.liveOverlay.operatingPlan !== 'unavailable' && !first.liveOverlay.retainedRefresh,
         'a clean complete refresh is current: no hold, no retained banner');
       check(first.liveOverlay.currentPeriodActuals?.transactionCoverage === 'complete', 'the invented refresh is a complete cohort');
@@ -114,7 +115,8 @@ if (threads.isMainThread && require.main === module) (async () => {
       check(held.liveOverlay.operatingPlan !== 'unavailable', 'a withheld complete refresh serves the last full picture, not the hold');
       check(held.liveOverlay.retainedRefresh?.attempt?.reason === 'current-plan-withheld',
         'under the banner, with the withheld reason (' + held.liveOverlay.retainedRefresh?.attempt?.reason + ')');
-      check(held.liveOverlay.retainedRefresh.observedAt === Helpers.CLOCK, 'dated as the full picture (its own check time)');
+      check(typeof firstCheck?.checkedAt === 'string' && held.liveOverlay.retainedRefresh.observedAt === firstCheck.checkedAt,
+        'dated as the full picture: the first publication\'s own check time');
       check(JSON.stringify(held.plan) === JSON.stringify(first.plan), 'the picture\'s plan is the full publication, unchanged');
 
 
@@ -154,6 +156,55 @@ if (threads.isMainThread && require.main === module) (async () => {
         'with no earlier full picture, the withheld page is served as before');
     } finally {
       await drain().catch(() => {}); await coldMock.close(); fs.rmSync(path.dirname(flag), { recursive: true, force: true });
+      threads.Worker = RealWorker; Date.now = originalNow;
+    }
+  }
+
+  console.log('4. Evidence-day precedence reads the newest held cohort, not the clear picture');
+  {
+    // A dated evidence-day view newer than the clear picture but older than the
+    // withheld cohort never wins, and never drops what is held (lead rulings
+    // 6788227366 / 6788734379).
+    const Helpers = require('./test-server-observation-memory');
+    const Fixture = require('./fixtures/budget-surface-data');
+    const flag = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-withhold-')), 'withhold');
+    const workerExits = [], RealWorker = threads.Worker;
+    threads.Worker = class extends RealWorker {
+      constructor(...args) { super(...args); workerExits.push(new Promise(resolve => this.once('exit', resolve))); }
+    };
+    const drain = () => Promise.all(workerExits);
+    const originalNow = Date.now; let now = Helpers.CLOCK;
+    Date.now = () => Date.parse(now);
+    const synced = at => { const p = { ...Fixture.payload(), tags: [] };
+      p.accounts = p.accounts.map(a => ({ ...a, balance_last_update: at, updated_at: at })); return p; };
+    const mock = await Helpers.provider({ accountId: 424242 });
+    const env = { ...Helpers.environment(mock.base), ATLAS_SYNTHETIC_WITHHOLD_FLAG: flag,
+      NODE_OPTIONS: '--require "' + __filename.replace(/\\/g, '/') + '"' };
+    const canonical = Fixture.canonical();
+    delete require.cache[require.resolve('../scripts/server-live-refresh')];
+    delete require.cache[require.resolve('../scripts/server-observation-memory')];
+    const Refresh = require('../scripts/server-live-refresh');
+    const serve = async (at, payload, options) => { now = at; mock.payload(payload);
+      const data = await Refresh.serve(canonical, { ...env, ATLAS_LIVE_OVERLAY_NOW: at }, options).catch(error => ({ error }));
+      await drain(); return data; };
+    try {
+      const clear = await serve('2026-08-18T18:10:00.000Z', synced('2026-08-18T17:55:00.000Z'), { forceRefresh: true });
+      check(clear.meta?.asOf === '2026-08-18' && !clear.liveOverlay.retainedRefresh, 'the Aug 18 refresh is the clear picture');
+      fs.writeFileSync(flag, '1');
+      const held = await serve('2026-08-20T18:00:00.000Z', synced('2026-08-20T17:55:00.000Z'), { forceRefresh: true });
+      check(held.meta?.asOf === '2026-08-18' && held.liveOverlay.retainedRefresh?.attempt?.reason === 'current-plan-withheld',
+        'the Aug 20 refresh is withheld, so the Aug 18 picture shows under the banner');
+      fs.unlinkSync(flag);
+      // The bank's own last sync is Aug 19: between the two held cohorts.
+      const between = await serve('2026-08-20T18:30:00.000Z', synced('2026-08-19T17:55:00.000Z'), { forceRefresh: true });
+      check(!between.error && between.meta?.asOf !== '2026-08-19',
+        'a view older than the newest held cohort is not served (got ' + (between.meta?.asOf || between.error?.code) + ')');
+      check(between.meta?.asOf === '2026-08-18' && !!between.liveOverlay.retainedRefresh, 'the last full picture still shows, under the banner');
+      mock.mode('failure');
+      const later = await serve('2026-08-20T18:40:00.000Z', synced('2026-08-19T17:55:00.000Z'), { forceRefresh: true });
+      check(!later.error && later.meta?.asOf === '2026-08-18', 'nothing held was dropped: a later failure still shows the last full picture');
+    } finally {
+      await drain().catch(() => {}); await mock.close(); fs.rmSync(path.dirname(flag), { recursive: true, force: true });
       threads.Worker = RealWorker; Date.now = originalNow;
     }
   }
