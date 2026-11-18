@@ -116,12 +116,14 @@ console.log('4. Fail closed, and no hand mark survives');
   ok(!(data.plan.bills || []).some(b => b && Object.hasOwn(b, 'amountFixed')), 'data.json carries no hand amountFixed mark');
 }
 
-console.log('5. The history read moves nothing but the flag');
+console.log('5. The history read moves nothing but the flag and the bill sheet\'s history');
 {
   // The same world with and without the read. Hydro is paid in full on Oct 12, so D2 has no remainder to hold: every
   // served figure, the observation report and the whole recommend() output must be identical once the amountFixed key
-  // itself (and the report's derivation record) is set aside.
-  const strip = v => JSON.parse(JSON.stringify(v, (k, x) => (k === 'amountFixed' || k === 'derivedAmountFixed' ? undefined : x)));
+  // itself (and the report's derivation record) is set aside, and the bill sheet's payment series (Dale, 2026-11-18),
+  // which recommend() never reads.
+  const strip = v => JSON.parse(JSON.stringify(v, (k, x) => (k === 'amountFixed' || k === 'derivedAmountFixed'
+    || k === 'billPaymentHistory' ? undefined : x)));
   const txs = [pay(90, '2026-10-12'), H.lm({ date: '2026-10-13', amount: 42, category: 'Groceries', payee: 'Invented grocer' })];
   const without = serve({ transactions: txs });
   const withRead = fixedFor(monthly([90, 90, 90]).concat(monthly([110, 110, 110]).map(t => ({ ...t, payee: 'Invented other' }))),
@@ -129,8 +131,8 @@ console.log('5. The history read moves nothing but the flag');
   ok(withRead.fixed('hydro') && !without.fixed('hydro'), 'control: the read derives the flag, and without it there is none');
   const recOf = s => F.recommend(s.plan, s.w.asOf, { currentPeriodActuals: s.result.data.liveOverlay.currentPeriodActuals, debts: s.result.data.debts });
   const same = (a, b) => JSON.stringify(strip(a)) === JSON.stringify(strip(b));
-  ok(same(without.result.data, withRead.result.data), 'the served data is identical apart from amountFixed');
-  ok(same(without.report, withRead.report), 'the observation report is identical apart from the derivation record');
+  ok(same(without.result.data, withRead.result.data), 'the served data is identical apart from amountFixed and the bill sheet\'s series');
+  ok(same(without.report, withRead.report), 'the observation report is identical apart from the derivation record and the series');
   ok(same(recOf(without), recOf(withRead)), 'every figure, tag and claim in recommend() is identical apart from amountFixed');
 }
 

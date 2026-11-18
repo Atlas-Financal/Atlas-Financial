@@ -3023,19 +3023,30 @@
       const paymentEvidence = document.createElement('div');
       paymentEvidence.className = 'blend-payment-evidence';
       matching.appendChild(paymentEvidence);
+      // BillDetail's own "Last 6 months" section (Forecast-summarised payment
+      // history), moved into the sheet as printed. Without it the box keeps
+      // its Unavailable placeholder.
+      const printed = body.querySelector(':scope > [data-bill-history]');
       // Keep the original linked-payment evidence and every warning. No
       // candidate matching, financial calculations or prototype actions.
-      original.filter(node => node !== heading && node !== facts).forEach(node => paymentEvidence.appendChild(node));
+      original.filter(node => node !== heading && node !== facts && node !== printed)
+        .forEach(node => paymentEvidence.appendChild(node));
       const history = document.createElement('section');
       history.className = 'blend-bill-history';
       const historyTitle = document.createElement('h3');
       historyTitle.textContent = 'Last 6 months';
-      const unavailable = document.createElement('div');
-      unavailable.className = 'blend-history-unavailable';
-      unavailable.textContent = 'Unavailable';
-      const historyNote = document.createElement('p');
-      historyNote.textContent = 'Average: Unavailable · Range: Unavailable.';
-      history.append(historyTitle, unavailable, historyNote);
+      history.appendChild(historyTitle);
+      if (printed) {
+        printed.querySelector(':scope > h4')?.remove();
+        history.appendChild(printed);
+      } else {
+        const unavailable = document.createElement('div');
+        unavailable.className = 'blend-history-unavailable';
+        unavailable.textContent = 'Unavailable';
+        const historyNote = document.createElement('p');
+        historyNote.textContent = 'Average: Unavailable · Range: Unavailable.';
+        history.append(unavailable, historyNote);
+      }
       body.append(matching, history, published);
     });
   }

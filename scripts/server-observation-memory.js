@@ -101,6 +101,41 @@ function amountFixedDerivation(value) {
     billIds: Array.from(new Set(value.billIds)).sort(),
     obligationIds: Array.from(new Set(value.obligationIds || [])).sort() };
 }
+// The bill sheet's payment history (Dale, 2026-11-18): per plan row only its id
+// and its payments' dates and amounts, the six month keys and the read date.
+// Anything not in exactly this clean shape replays as unavailable.
+const BILL_HISTORY_REASONS = new Set(['history-unavailable', 'history-incomplete', 'history-too-short']);
+function billPaymentHistory(value) {
+  const day = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v;
+  const month = v => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+  const cents = v => typeof v === 'number' && Number.isFinite(v) && v > 0 && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
+  const unavailable = reason => ({ source: 'lunchmoney-payment-history', status: 'unavailable',
+    reason: BILL_HISTORY_REASONS.has(reason) ? reason : 'history-unavailable', asOf: null, months: [], bills: [] });
+  if (!value || typeof value !== 'object' || value.source !== 'lunchmoney-payment-history') return unavailable();
+  if (value.status !== 'complete') return unavailable(value.reason);
+  const months = value.months;
+  const ids = new Set();
+  const cleanBill = row => {
+    if (!row || typeof row !== 'object' || typeof row.billId !== 'string' || !row.billId || ids.has(row.billId)
+      || !Array.isArray(row.payments)) return null;
+    ids.add(row.billId);
+    if (row.status === 'unavailable') return row.reason === 'paid-in-parts' && row.payments.length === 0
+      ? { billId: row.billId, status: 'unavailable', reason: 'paid-in-parts', payments: [] } : null;
+    if (row.status !== 'complete' || !row.payments.every(p => p && day(p.date) && cents(p.amount)
+      && months.includes(p.date.slice(0, 7)) && p.date <= value.asOf)) return null;
+    if (row.excludedAmbiguous !== undefined && !(Number.isInteger(row.excludedAmbiguous) && row.excludedAmbiguous > 0)) return null;
+    return { billId: row.billId, status: 'complete',
+      payments: row.payments.map(p => ({ date: p.date, amount: p.amount })),
+      ...(row.excludedAmbiguous !== undefined ? { excludedAmbiguous: row.excludedAmbiguous } : {}) };
+  };
+  if (!day(value.asOf) || !Array.isArray(months) || months.length !== 6 || !months.every(month)
+    || months[5] !== value.asOf.slice(0, 7) || !months.every((m, i) => i === 0 || m > months[i - 1])
+    || !Array.isArray(value.bills)) return unavailable();
+  const bills = value.bills.map(cleanBill);
+  if (bills.some(row => !row)) return unavailable();
+  return { source: value.source, status: 'complete', asOf: value.asOf, months: months.slice(), bills };
+}
 // A group parent's children: only their ids, account ids and parent id
 // (provider-observe groupParentAccountId). No payee, note, amount or metadata.
 const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id', 'group_parent_id'];
@@ -141,7 +176,9 @@ function sourceInputs(payload) {
     ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}),
     ...(Object.hasOwn(payload, 'lunchMoneyBudgets') ? { lunchMoneyBudgets: budgets(payload.lunchMoneyBudgets) } : {}),
     ...(Object.hasOwn(payload, 'amountFixedDerivation')
-      ? { amountFixedDerivation: amountFixedDerivation(payload.amountFixedDerivation) } : {}) };
+      ? { amountFixedDerivation: amountFixedDerivation(payload.amountFixedDerivation) } : {}),
+    ...(Object.hasOwn(payload, 'billPaymentHistory')
+      ? { billPaymentHistory: billPaymentHistory(payload.billPaymentHistory) } : {}) };
   const numeric = value => typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()) && Number.isFinite(Number(value));
   const id = value => typeof value === 'string' && value.length > 0 || typeof value === 'number' && Number.isFinite(value);
@@ -208,4 +245,4 @@ function create() {
     },
   });
 }
-module.exports = { SCHEMA, sourceInputs, amountFixedDerivation, completeTransactionCohort, create };
+module.exports = { SCHEMA, sourceInputs, amountFixedDerivation, billPaymentHistory, completeTransactionCohort, create };
