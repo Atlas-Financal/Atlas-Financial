@@ -933,6 +933,7 @@
     ['heldOutflowSpending', 'To confirm'],
     ['savingsItemSpending', 'Savings items'],
   ];
+  const EXTRA_SEGMENT = { heldOutflowSpending: 's-held', savingsItemSpending: 's-item' };
   function paintExtraTermSlots(hero) {
     hero.querySelectorAll('[data-blend-extra-term], .blend-minus.is-extra').forEach(node => node.remove());
     hero.classList.remove('has-extra-terms-1', 'has-extra-terms-2');
@@ -1047,8 +1048,14 @@
     const parts = [
       ['s-bills', read('[data-operating-question="04"] .blend-term')],
       ['s-house', read('[data-operating-question="06"] .blend-term')],
-      ['s-bad', read('[data-blend-term="balanceAfterDeductions"]')],
     ];
+    // One segment per extra term slot on the face, read from that slot's
+    // printed figure, in face order (paintExtraTermSlots). None: unchanged.
+    EXTRA_TERMS.forEach(([name]) => {
+      const sel = '[data-blend-extra-term="' + name + '"] [data-blend-term="' + name + '"]';
+      if (hero.querySelector(sel)) parts.push([EXTRA_SEGMENT[name], read(sel)]);
+    });
+    parts.push(['s-bad', read('[data-blend-term="balanceAfterDeductions"]')]);
     const split = document.createElement('span');
     split.className = 'blend-split';
     split.setAttribute('aria-hidden', 'true');
