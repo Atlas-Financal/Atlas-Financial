@@ -5658,8 +5658,12 @@ function derivedAmountFixedBills(history, opts) {
   for (const o of plan.obligations || []) {
     if (o && typeof o.id === 'string' && idCount.get(o.id) === 1 && plainObligation(o)) bills.set(o.id, { row: o, kind: 'obligation' });
   }
+  // The identity check reads every plan row's rules, candidate or not (Codex P2
+  // on #1374): a row another bill or obligation also identifies is ambiguous
+  // evidence, so leaving a non-candidate out could hand its payment to a
+  // candidate. Only candidates can come out fixed.
   const rules = stampRuleSetClaims(opts.identityRules).filter(rule => rule && rule.direction === 'debit'
-    && rule.atlasAccountId && bills.has(rule.eventId));
+    && rule.atlasAccountId && idCount.has(rule.eventId));
   const normalized = normalizeLunchMoneyPayload({ transactions: history.transactions,
     categories: opts.categories || [], tags: opts.tags || [] }, opts.fetchedAt).transactions;
   const payments = new Map();
@@ -5676,8 +5680,9 @@ function derivedAmountFixedBills(history, opts) {
       && ruleMatchesTransactionIdentity(tx, rule) && ruleCurrencyQualified(tx, rule));
     const ids = Array.from(new Set(hits.map(rule => rule.eventId)));
     if (!ids.length) continue;
-    // A row two bills' rules identify settles neither here.
+    // A row two plan rows' rules identify settles neither here.
     if (ids.length > 1) { ids.forEach(id => unusable.add(id)); continue; }
+    if (!bills.has(ids[0])) continue;
     if (hits.some(rule => AMOUNT_FIXED_EXCLUDED_SETTLES.has(rule.settlesWhen) || rule.transactionKind === 'transfer')) {
       unusable.add(ids[0]); continue;
     }

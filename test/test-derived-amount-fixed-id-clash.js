@@ -30,13 +30,13 @@ const OBLIGATION = { id: 'utility', debtId: 'utility', effect: 'payment', label:
 const DEBT = { id: 'utility', label: 'Invented utility loan', balance: 5000, rate: 5, payment: 90, confidence: 'confirmed' };
 const RULE = { eventId: 'utility', payeePattern: 'Invented utility', atlasAccountId: 'chequing-a', direction: 'debit' };
 
-function serve({ bills = [], obligations = [] }) {
+function serve({ bills = [], obligations = [], obligationRule = false }) {
   const w = H.baseWorld();
   w.bills = bills;
   w.obligations = obligations;
   w.debts = obligations.length ? [DEBT] : [];
   // Bill rows carrying `payee` get their rule from the harness; obligation-only worlds name it explicitly.
-  if (!bills.some(b => b.payee)) w.identityRules = (w.identityRules || []).concat([RULE]);
+  if (obligationRule || !bills.some(b => b.payee)) w.identityRules = (w.identityRules || []).concat([RULE]);
   w.transactions = [];
   w.amountHistory = { transactions: HISTORY };
   const r = H.observe(w);
@@ -60,6 +60,20 @@ console.log('2. An id two plan rows share is never fixed');
   const billAndObligation = serve({ bills: [BILL], obligations: [OBLIGATION] });
   ok(billAndObligation.fixed.length === 0, 'a bill and an obligation sharing the id: neither is fixed',
     JSON.stringify(billAndObligation.fixed.map(r => r.label)));
+}
+
+console.log('3. A rejected id still counts as an identity conflict (Codex P2 on #1374)');
+{
+  // Two 'utility' rows (a clash) and one unique 'other' bill, all identified by the same payee on the same account.
+  // By hand: every payment is identified by both ids, so it is ambiguous and fixes neither; 'other' is never fixed.
+  const other = { ...BILL, id: 'other', label: 'Invented other' };
+  const s = serve({ bills: [BILL, { ...BILL, label: 'Invented utility (copy)' }, other] });
+  ok(s.fixed.length === 0, 'a unique bill sharing its payee with a clashing id is not fixed from those payments',
+    JSON.stringify(s.fixed.map(r => r.id)));
+  // The same holds when the other identifying row is a non-candidate obligation (a card minimum shape).
+  const card = serve({ bills: [other], obligations: [{ ...OBLIGATION, statementOccurrences: [] }], obligationRule: true });
+  ok(card.fixed.length === 0, 'a bill sharing its payee with a non-candidate obligation is not fixed from those payments',
+    JSON.stringify(card.fixed.map(r => r.id)));
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
