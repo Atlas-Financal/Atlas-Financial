@@ -6455,21 +6455,41 @@ function applyRecurringObligationSchedule(row, schedule) {
 // The structural check for that block: exact keys, value types and no
 // free text. Anything else marks the packet unsanitized.
 // Lunch Money budgets, reduced for the packet (owner decision #821
-// 2026-11-18; lead rulings Q1-Q5). Only the groups the plan names
-// (plan.budget.categories[].lunchMoneyCategoryGroupId) are kept, the same
-// privacy rule as the group routing: no other group or category id leaves.
-// Per Lunch Money budget period, each named group gets one `budgeted`:
+// 2026-11-18; lead rulings Q1-Q5, and the 2026-11-18 group-id ruling).
+// Each plan budget row names its Lunch Money category group by numeric id
+// (plan.budget.categories[].lunchMoneyCategoryGroupId, an integer: the one
+// authority; an id survives a rename in Lunch Money). The id is checked
+// against this observation's own /categories read. An id the read does not
+// carry, or carries archived, fails closed for that row
+// (group-id-missing); an id that is a category rather than a group fails
+// closed too (group-id-not-group). The packet is keyed by Atlas row id, so
+// no Lunch Money id leaves.
+// Per Lunch Money budget period, each resolved row gets one `budgeted`:
 //   - the budget Lunch Money holds on the group itself, when it holds one
 //     (level 'group'); otherwise
 //   - the sum of the budgets on the group's own categories, skipping
 //     categories with none (level 'children'); otherwise
 //   - null (no budget set for that period; level null).
 // Only `budgeted` (the user's primary currency) is kept: activity,
-// available, notes and currency text are dropped. Forecast does not read the
-// block yet (PR B); the planned-amount rules (proration, carry-forward,
-// payday cadence) are Forecast's, not this reader's.
+// available, notes and currency text are dropped. The planned-amount rules
+// (cadence, carry-forward) are Forecast's, not this reader's.
 const BUDGET_GRANULARITIES = new Set(['day', 'week', 'month', 'year', 'twice a month']);
 const BUDGET_UNAVAILABLE_REASONS = new Set(['budget-read-failed', 'budget-settings-invalid', 'budget-summary-invalid']);
+const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-id-missing', 'group-id-not-group']);
+// An Atlas row id: lower-case words and hyphens, never all digits (the shape
+// of a Lunch Money id).
+const BUDGET_ROW_ID = /^(?=[a-z0-9-]*[a-z])[a-z0-9][a-z0-9-]{0,63}$/;
+// Atlas row id -> the Lunch Money group id it reads, from the plan. Only a
+// positive integer names a group; anything else names nothing.
+function budgetRowGroupIds(plan) {
+  const out = new Map();
+  for (const row of (plan && plan.budget && Array.isArray(plan.budget.categories)) ? plan.budget.categories : []) {
+    if (!row || typeof row.id !== 'string' || !BUDGET_ROW_ID.test(row.id)) continue;
+    const id = row.lunchMoneyCategoryGroupId;
+    if (Number.isSafeInteger(id) && id > 0) out.set(row.id, String(id));
+  }
+  return out;
+}
 function sanitizedBudgetEvidence(raw, rawCategories, plan) {
   if (raw == null) return null;
   const unavailable = reason => ({ source: 'provider-observe:lunchmoney', status: 'unavailable', reason });
@@ -6501,31 +6521,37 @@ function sanitizedBudgetEvidence(raw, rawCategories, plan) {
     byCategory.set(String(row.category_id), occ);
   }
   // group id -> its own category ids, from the categories catalog (nested
-  // children, or a child's group_id).
+  // children, or a child's group_id); every id the read carries -> whether it
+  // is a live group, an archived one, or a category.
   const children = new Map();
+  const kinds = new Map();
   const addChild = (groupId, childId) => {
     if (groupId == null || childId == null) return;
     const key = String(groupId);
     if (!children.has(key)) children.set(key, new Set());
     children.get(key).add(String(childId));
   };
+  const archived = cat => cat.archived === true || cat.is_archived === true;
+  const note = (cat, kind) => { if (!kinds.has(String(cat.id)) || kind === 'group') kinds.set(String(cat.id), kind); };
   for (const cat of Array.isArray(rawCategories) ? rawCategories : []) {
     if (!cat || cat.id == null) continue;
     if (cat.is_group === true && Array.isArray(cat.children)) {
-      for (const child of cat.children) if (child && child.id != null) addChild(cat.id, child.id);
+      for (const child of cat.children) {
+        if (child && child.id != null) { addChild(cat.id, child.id); note(child, archived(child) ? 'archived' : 'category'); }
+      }
     }
     if (cat.group_id != null) addChild(cat.group_id, cat.id);
+    note(cat, archived(cat) ? 'archived' : cat.is_group === true ? 'group' : 'category');
   }
-  const named = [...new Set(((plan && plan.budget && plan.budget.categories) || [])
-    .map(row => row && row.lunchMoneyCategoryGroupId).filter(id => id != null).map(String)
-    // Lunch Money ids are integers; anything else names no Lunch Money group.
-    .filter(id => /^\d+$/.test(id)))].sort();
   const ordered = [...periods.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
-  const byGroup = {};
-  for (const groupId of named) {
+  const byRow = {};
+  for (const [rowId, groupId] of [...budgetRowGroupIds(plan)].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const kind = kinds.get(groupId);
+    if (kind === 'category') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-not-group' }; continue; }
+    if (kind !== 'group') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-missing' }; continue; }
     const own = byCategory.get(groupId);
     const kids = [...(children.get(groupId) || [])];
-    byGroup[groupId] = ordered.map(({ start, end }) => {
+    byRow[rowId] = { status: 'read', periods: ordered.map(({ start, end }) => {
       const key = start + '|' + end;
       const groupValue = own ? own.get(key) : null;
       if (typeof groupValue === 'number') return { start, end, budgeted: round2(groupValue), level: 'group' };
@@ -6533,14 +6559,14 @@ function sanitizedBudgetEvidence(raw, rawCategories, plan) {
         .map(occ => occ.get(key)).filter(v => typeof v === 'number');
       if (values.length) return { start, end, budgeted: round2(values.reduce((a, b) => a + b, 0)), level: 'children' };
       return { start, end, budgeted: null, level: null };
-    });
+    }) };
   }
-  return { source: 'provider-observe:lunchmoney', status: 'read', granularity, quantity, anchorDate, byGroup };
+  return { source: 'provider-observe:lunchmoney', status: 'read', granularity, quantity, anchorDate, byRow };
 }
 
 // Structural check for the packet's budget block: exactly the keys above,
-// dates as dates, numbers as numbers, group ids as digit strings. Anything
-// else fails the packet's sanitization and the block is withheld.
+// dates as dates, numbers as numbers, Atlas row ids, closed reasons.
+// Anything else fails the packet's sanitization and the block is withheld.
 function budgetEvidenceLooksSanitized(block) {
   if (block == null) return true;
   if (typeof block !== 'object' || Array.isArray(block)) return false;
@@ -6549,13 +6575,19 @@ function budgetEvidenceLooksSanitized(block) {
     return keys === 'reason,source,status' && block.source === 'provider-observe:lunchmoney'
       && BUDGET_UNAVAILABLE_REASONS.has(block.reason);
   }
-  if (block.status !== 'read' || keys !== 'anchorDate,byGroup,granularity,quantity,source,status') return false;
+  if (block.status !== 'read' || keys !== 'anchorDate,byRow,granularity,quantity,source,status') return false;
   if (block.source !== 'provider-observe:lunchmoney' || !BUDGET_GRANULARITIES.has(block.granularity)
     || !Number.isSafeInteger(block.quantity) || block.quantity < 1 || !parseIsoDate(block.anchorDate)) return false;
-  if (!block.byGroup || typeof block.byGroup !== 'object' || Array.isArray(block.byGroup)) return false;
-  for (const [groupId, list] of Object.entries(block.byGroup)) {
-    if (!/^\d+$/.test(groupId) || !Array.isArray(list)) return false;
-    for (const p of list) {
+  if (!block.byRow || typeof block.byRow !== 'object' || Array.isArray(block.byRow)) return false;
+  for (const [rowId, entry] of Object.entries(block.byRow)) {
+    if (!BUDGET_ROW_ID.test(rowId) || !entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+    const entryKeys = Object.keys(entry).sort().join(',');
+    if (entry.status === 'unavailable') {
+      if (entryKeys !== 'reason,status' || !BUDGET_ROW_UNAVAILABLE_REASONS.has(entry.reason)) return false;
+      continue;
+    }
+    if (entry.status !== 'read' || entryKeys !== 'periods,status' || !Array.isArray(entry.periods)) return false;
+    for (const p of entry.periods) {
       if (!p || typeof p !== 'object' || Object.keys(p).sort().join(',') !== 'budgeted,end,level,start') return false;
       if (!parseIsoDate(p.start) || !parseIsoDate(p.end) || p.end < p.start) return false;
       if (p.budgeted === null ? p.level !== null
