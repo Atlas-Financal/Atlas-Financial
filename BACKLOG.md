@@ -797,7 +797,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 ~~`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.~~ Fixed by `agent/reconcile-calendar-dates`.
 
-`majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
+~~`majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).~~ Already fixed: 29b06744 withholds every future-cost verdict, margin and remaining amount when card coverage is unavailable, and b069242d names the reason. `test/test-major-plans-card-coverage-unknown.js` (registered) pins it on invented data, with a known-coverage control. Dropping the coverage condition fails 9 of its checks.
 
 "Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet). **Owner decision:** it adds a new visible ≈ mark, and Dale asked for no new ≈ marks without his OK (lead, 2026-11-16); not built until he says so.
 
