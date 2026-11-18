@@ -1709,6 +1709,11 @@ observation. The 2026-09-04 addenda on that pass authorize the exhausted
 one-transaction `category_id` correction and the later reusable Other
 Spending `category_id` class. Every other Lunch Money interaction
 remains GET-only. Unattended production writes remain unauthorized.
+The observation's GET reads include `GET /budgets/settings` and
+`GET /summary` (owner decision, #821, 2026-11-18: budget amounts come from
+Lunch Money budgets; lead ruling Q4). Only each plan-named group's
+`budgeted` per budget period reaches the packet; activity, notes and every
+other group or category are dropped. No budget is ever written.
 
 **Period-close capture — owner-approved 2026-11-12 (#821 comments
 6812320225 and 6812433768).** Dale's words: "proceed with your

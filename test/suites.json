@@ -80,6 +80,7 @@
   ["a paid bill's observed actual at or above plan is deducted once; totals agree; below plan keeps the plan (finding 6)","test-bill-actual-deducted.js"],
   ["payday cash glance shows Last updated in place of the dated-plan note (OD-3)","test-payday-glance-dated-note.js"],
   ["bounded shared browser data load and truthful retry","test-browser-data-deadline.js"],
+  ["Lunch Money budgets: GET-only read, named groups only, group then children then null (PR A)","test-lunchmoney-budget-read.js"],
   ["every Budget attention item has a visible flag on the face, the Other ring included","test-budget-attention-face-flags.js"],
   ["loading screen tips: render, rotate, reduced motion, no figures (Dale, 2026-11-18)","test-boot-tips.js"],
   ["stale bank feed marks on derived Budget spending","test-budget-stale-derived-marks.js"],
