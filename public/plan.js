@@ -6754,10 +6754,47 @@ function billsAccountPeriodBalanceHtml(ctx) {
   </section>`;
 }
 
+/* Later pay periods while today's cash is unconfirmed (owner decision, Dale,
+ * #821 6964438984). Forecast releases each later period as an estimate from
+ * its own income, bills and Household budget and marks it
+ * currentCashUnconfirmed; this prints those engine fields and their trust
+ * words only. It selects no period Forecast did not release, totals nothing,
+ * and prints no opening-dependent close. */
+function budgetEstimatedLaterPeriodsHtml(ctx) {
+  const advice = (ctx && ctx.advice) || {};
+  const asOf = advice.defaultView && advice.defaultView.asOf;
+  const periods = (advice.payPeriodViews || []).filter(p => p && p.currentCashUnconfirmed
+    && p.currentCashUnconfirmed.status === 'estimated' && (!asOf || p.start > asOf));
+  if (!periods.length) return '';
+  const tag = trust => trust === 'estimated'
+    ? ' <span class="trust-tag trust-estimated">estimate</span>'
+    : trust === 'unavailable' ? ' <span class="trust-tag">unavailable</span>' : '';
+  const term = (label, amount, trust, key) => {
+    const known = amount != null && isFinite(Number(amount)) && trust !== 'unavailable';
+    return `<div class="estimated-later-term" data-estimated-term="${key}"><dt>${label}</dt>`
+      + `<dd>${known ? money2(Number(amount)) : 'Unavailable'}${tag(known ? trust : 'unavailable')}</dd></div>`;
+  };
+  const items = periods.map(p => `<article class="estimated-later-period" data-estimated-later-period="${escapeHtml(p.start)}">
+      <h3 class="estimated-later-range">${escapeHtml(p.rangeLabel || (p.start + '–' + p.end))}</h3>
+      <dl class="estimated-later-terms">
+        ${term('Income', p.incomeTotal, p.incomeTrust, 'income')}
+        ${term('Bills', p.periodBillLoad, p.periodBillLoadTrust, 'bills')}
+        ${term('Household budget', p.budgetHold, p.budgetHoldTrust, 'household')}
+        ${term('Balance After Deductions', p.balanceAfterDeductions, p.balanceAfterDeductionsTrust, 'balance-after-deductions')}
+      </dl>
+    </article>`).join('');
+  return `<div class="estimated-later-periods" data-estimated-later-periods>
+    <p class="operating-lead">Later pay periods</p>
+    <p class="operating-note" data-estimated-later-reason>${escapeHtml(periods[0].currentCashUnconfirmed.reason || '')}</p>
+    ${items}
+  </div>`;
+}
+
 function budgetSurfaceParts() {
   return {
     planUnavailable: ctx => liveOperatingPlanUnavailable(ctx.advice || {}, ctx.liveOverlay),
     unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx),
+    estimatedLaterHtml: ctx => budgetEstimatedLaterPeriodsHtml(ctx),
       headerHtml: ctx => budgetWindowHeaderHtml(ctx),
       detailSheetHtml: () => budgetDetailSheetHtml(),
     todayHtml: ctx => budgetTodayCashCardHtml(ctx) + billsAccountPeriodBalanceHtml(ctx),

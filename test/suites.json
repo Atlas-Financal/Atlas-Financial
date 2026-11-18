@@ -298,6 +298,7 @@
   ["Bounded salary matcher diagnostic conservation and redaction","test-salary-matcher-diagnostic.js"],
   ["Salary matcher diagnostic existing authenticated readback","test-salary-diagnostic-auth.js"],
   ["active Budget surface: one renderer, Forecast figures, drilldown and withheld states","test-budget-surface.js"],
+  ["Budget shows later pay periods, estimated, while today's cash is unconfirmed","test-budget-estimated-later-periods.js"],
   ["Budget owner-voice presentation","test-budget-owner-voice.js"],
   ["Budget hero cannot borrow whole-window confidence","test-budget-plan-status-scope.js"],
   ["Plan homepage decision desk","test-plan-decision-desk.js"],
