@@ -2021,6 +2021,7 @@ const api = {
   OPERATING_PLAN_UNAVAILABLE,
   OPERATING_PLAN_UNAVAILABLE_NOTE,
   overlayModeFromEnv,
+  paydayOpeningCashKnown,
   sanitizeLiveFailureReason,
   proposeOverlay,
   overlayLiveState,
