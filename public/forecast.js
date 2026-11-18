@@ -8299,6 +8299,19 @@
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const etransferItems = [];
     const datedOtherTarget = otherSpendPayPeriodTarget(plan, periodStart);
+    // Held-row listing (assistant packet only): when asked, record each row
+    // this loop counts as unclassified, at the same sites that count it, so the
+    // list and the count share one rule. Identity, date, role and the
+    // classifier's own codes only: no amount, payee, description or note.
+    // Off by default; the page and the figures snapshot never ask for it.
+    const held = opts && opts.collectHeldTransactions === true ? [] : null;
+    const recordHeld = (tx, cls) => {
+      if (!held) return;
+      held.push({ id: tx.id != null ? String(tx.id) : null, date: tx.date,
+        accountRole: typeof tx.accountRole === 'string' ? tx.accountRole : null,
+        kind: cls && cls.kind || null, reason: cls && cls.reason || null,
+        budgetRow: cls && (cls.atlasRow || cls.categoryId) || null });
+    };
     const add = (row, state, amt) => {
       if (state === 'pending') row.pending = roundCent(row.pending + amt);
       else row.posted = roundCent(row.posted + amt);
@@ -8312,7 +8325,7 @@
       const amt = Number(tx.amount);
       if (!isFinite(amt) || amt === 0) {
         const clsZero = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
-        if (classificationIncompleteHouseholdSpend(clsZero)) out.unclassified.count += 1;
+        if (classificationIncompleteHouseholdSpend(clsZero)) { out.unclassified.count += 1; recordHeld(tx, clsZero); }
         continue;
       }
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
@@ -8372,6 +8385,7 @@
       }
       if (cls.kind === 'unmapped') {
         out.unclassified.count += 1;
+        recordHeld(tx, cls);
         continue;
       }
       // Cash principal is independent of category capacity, including Other
@@ -8390,12 +8404,14 @@
         add(row, state, confirmedHouseholdAmount(tx, duplicateIds));
         if (cls.needsConfirmation || classificationIncompleteHouseholdSpend(cls)) {
           out.unclassified.count += 1;
+          recordHeld(tx, Object.assign({}, cls, { atlasRow: OTHER_SPEND_ID }));
           add(out.unclassified, state, amt);
         }
         continue;
       }
       if (cls.needsConfirmation) {
         out.unclassified.count += 1;
+        recordHeld(tx, cls);
         add(out.unclassified, state, amt);
         continue;
       }
@@ -8406,9 +8422,11 @@
       add(row, state, amt);
       if (classificationIncompleteHouseholdSpend(cls)) {
         out.unclassified.count += 1;
+        recordHeld(tx, cls);
         add(out.unclassified, state, amt);
       }
     }
+    if (held) out.heldTransactions = held;
     // Provisional collector output: never an all-clear on its own.
     // currentPeriodAction re-stamps the coverage-derived state before
     // publishing; other sumCategoryActuals consumers do not read this field.
@@ -17634,6 +17652,11 @@
       internalMovements: householdInternalMovements(plan, opts),
       outgoingETransfers: outgoingETransfersPublication(
         useActuals ? actuals.outgoingETransfers.items : null, coverage, opts, asOf, origin),
+      // Assistant packet only (opt-in): the rows behind unclassified.count.
+      // Only when actuals were read: missing or unusable actuals publish no
+      // list, so the packet reads unavailable, never an empty all-clear.
+      ...(opts.collectHeldTransactions === true && useActuals && Array.isArray(actuals.heldTransactions)
+        ? { heldTransactions: actuals.heldTransactions } : {}),
     };
     if (income.status !== 'unavailable') return result;
     for (const row of result.thisPaydayDue.concat(result.thisPeriodGlance)) {
