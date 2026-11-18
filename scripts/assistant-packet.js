@@ -264,7 +264,8 @@ function cardCoverageIssueCodes(advice) {
 const CARD_ESTIMATE_REASONS = Object.freeze({
   'card-payment-destination-unconfirmed': 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
   'card-credit-purpose-unconfirmed': 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and every card purchase stays reserved as if unpaid.',
-  'card-coverage-rows-unconfirmed': 'A card payment\'s card, or a card credit\'s purpose, is not confirmed, so neither counts toward any card and every card purchase stays reserved as if unpaid.',
+  'card-payment-source-unconfirmed': 'A card payment reached a card but where it came from is not confirmed, so it counts toward no card and every card purchase stays reserved as if unpaid.',
+  'card-coverage-rows-unconfirmed': 'More than one card payment or credit is not confirmed, so none of them counts toward any card and every card purchase stays reserved as if unpaid.',
 });
 function cardCoverageEstimate(advice) {
   const coverage = advice && advice.cardPurchaseCoverage;

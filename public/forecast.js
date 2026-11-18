@@ -14296,6 +14296,9 @@
     // Posted card credits whose purpose (payment or refund) is unconfirmed:
     // counted as neither, so no purchase is covered and no minimum is paid.
     const purposeUnconfirmed = [];
+    // Posted card payment credits with no household cash leg (source
+    // unconfirmed): counted toward no card, listed To confirm.
+    const sourceUnconfirmed = [];
     const opening = policy && policy.opening;
     const validOpening = opening && opening.confirmed === true && savingsDate(opening.asOf)
       && (aggregate || opening.asOf <= asOf) && opening.currency === 'cad'
@@ -14554,7 +14557,9 @@
         && debtRows.some(d => d.id === leg.tx.cardPaymentNoteDestination) ? leg.tx.cardPaymentNoteDestination : null;
       // Mutually unique pairing. The card leg fixes the card and the period,
       // except that a noted debit's own date fixes it (notePays).
-      const pairLegs = (cardLegs, cashLegs, reserveLegs, missing) => {
+      // onMissing, when given, takes a posted counted leg with no cash leg
+      // instead of raising the missing code.
+      const pairLegs = (cardLegs, cashLegs, reserveLegs, missing, onMissing) => {
         const pairs = [];
         for (const leg of cardLegs) {
           // Owner rule (Dale, via the lead): money onto the card counts
@@ -14574,7 +14579,14 @@
             cash[0].paired = true;
             if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0], date });
           } else if (leg.tx.date < origin || leg.tx.pending === true) continue;
-          else if (!cash.length) issue(missing, leg.tx.coverageRef);
+          // A near cash leg that cannot pair (another card's note, a non-TD
+          // debit) is contradicting evidence, not a missing source: it still
+          // withholds. Only a credit with no near household cash leg at all
+          // goes to onMissing.
+          else if (!cash.length) {
+            if (onMissing && ![...cashLegs, ...reserveLegs].some(other => near(leg, other))) onMissing(leg);
+            else issue(missing, leg.tx.coverageRef);
+          }
           else issue('coverage-payment-pair-ambiguous', leg.tx.coverageRef);
         }
         return pairs;
@@ -14640,7 +14652,10 @@
         for (const kind of Object.keys(legs)) legs[kind] = legs[kind].filter(leg => !grouped.has(leg.tx));
       }
       const creditPairs = [...groupPairs,
-        ...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed')];
+        // Lead dispatch 2026-11-18 (Dale, stop 2): a posted payment credit
+        // with no household cash leg covers no card; it is To confirm.
+        ...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed',
+          leg => sourceUnconfirmed.push(leg))];
       // The TD issuer identity is the credit's own PAYMENT - THANK YOU
       // description, whatever category it is filed under (Codex P2, #1316).
       for (const pair of creditPairs) {
@@ -15116,10 +15131,15 @@
     // already withholds, it withholds with it exactly as before.
     if (issues.length) for (const leg of destinationUnconfirmed) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
     if (issues.length) for (const leg of purposeUnconfirmed) issue('coverage-payment-or-credit-purpose-unconfirmed', leg.tx.coverageRef);
-    const destinationEstimate = !issues.length && (destinationUnconfirmed.length > 0 || purposeUnconfirmed.length > 0);
+    if (issues.length) for (const leg of sourceUnconfirmed) issue('coverage-payment-source-unconfirmed', leg.tx.coverageRef);
+    // One basis per kind of unconfirmed row; more than one kind is the
+    // combined basis.
+    const estimateKinds = [[destinationUnconfirmed, CARD_DESTINATION_ESTIMATE_BASIS],
+      [purposeUnconfirmed, CARD_CREDIT_PURPOSE_ESTIMATE_BASIS], [sourceUnconfirmed, CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]]
+      .filter(([rows]) => rows.length > 0).map(([, basis]) => basis);
+    const destinationEstimate = !issues.length && estimateKinds.length > 0;
     const estimateBasis = !destinationEstimate ? null
-      : !purposeUnconfirmed.length ? CARD_DESTINATION_ESTIMATE_BASIS
-      : !destinationUnconfirmed.length ? CARD_CREDIT_PURPOSE_ESTIMATE_BASIS : CARD_ROWS_ESTIMATE_BASIS;
+      : estimateKinds.length === 1 ? estimateKinds[0] : CARD_ROWS_ESTIMATE_BASIS;
     // Opening carry can fall inside a cycle. Only a corresponding visible
     // category row replaces its fallback, never a date boundary, equal amount
     // or mere presence in the provider packet. Forecast owns both selections.
@@ -15183,6 +15203,9 @@
           fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })),
         ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
           question: 'To confirm: was this card credit a payment or a refund?',
+          date: leg.tx.date, amount: leg.cents / 100, onCard: label(leg.account) })),
+        ...sourceUnconfirmed.map(leg => ({ basis: CARD_PAYMENT_SOURCE_ESTIMATE_BASIS,
+          question: 'To confirm: where did this card payment come from?',
           date: leg.tx.date, amount: leg.cents / 100, onCard: label(leg.account) }))] } : {}),
       purchases: publishedPurchases, active: publishedPurchases.filter(row => row.remaining > 0),
       earlierPeriods,
@@ -15368,19 +15391,24 @@
   // Lead dispatch 2026-11-18 (Dale, stop 2): a posted card credit whose
   // purpose is unconfirmed is counted as neither payment nor refund.
   const CARD_CREDIT_PURPOSE_ESTIMATE_BASIS = 'card-credit-purpose-unconfirmed';
-  // Both at once.
+  // A posted card payment credit with no household cash leg (its source is
+  // unconfirmed) is counted toward no card (lead dispatch 2026-11-18, Dale).
+  const CARD_PAYMENT_SOURCE_ESTIMATE_BASIS = 'card-payment-source-unconfirmed';
+  // More than one kind at once.
   const CARD_ROWS_ESTIMATE_BASIS = 'card-coverage-rows-unconfirmed';
   // One fixed reason per closed basis; the coverage publishes exactly one.
   const CARD_ESTIMATE_REASONS = Object.freeze({
     [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
     [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and every card purchase stays reserved as if unpaid.',
-    [CARD_ROWS_ESTIMATE_BASIS]: 'A card payment\'s card, or a card credit\'s purpose, is not confirmed, so neither counts toward any card and every card purchase stays reserved as if unpaid.',
+    [CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]: 'A card payment reached a card but where it came from is not confirmed, so it counts toward no card and every card purchase stays reserved as if unpaid.',
+    [CARD_ROWS_ESTIMATE_BASIS]: 'More than one card payment or credit is not confirmed, so none of them counts toward any card and every card purchase stays reserved as if unpaid.',
   });
   // The planned close's reason for each basis.
   const CARD_CLOSE_REASONS = Object.freeze({
     [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment\'s card is not confirmed, so it is applied to no card and card purchases stay reserved.',
     [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and card purchases stay reserved.',
-    [CARD_ROWS_ESTIMATE_BASIS]: 'A card payment\'s card, or a card credit\'s purpose, is not confirmed, so neither counts toward any card and card purchases stay reserved.',
+    [CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]: 'A card payment\'s source is not confirmed, so it counts toward no card and card purchases stay reserved.',
+    [CARD_ROWS_ESTIMATE_BASIS]: 'More than one card payment or credit is not confirmed, so none counts toward any card and card purchases stay reserved.',
   });
   // The trust a figure built on this card coverage may carry: 'estimated'
   // while a payment's destination card is unconfirmed, else 'calculated'.

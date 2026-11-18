@@ -239,6 +239,7 @@
   ["a \"card payment: <card>\" note alone names the card for a TFR-TO C/C debit","test-card-payment-note-pays.js"],
   ["card coverage: one unconfirmed card-payment destination (a Bills or Savings debit) degrades to a cautious estimate, never above the truth for any destination, To confirm; credits, Weekly debits and other issues still withhold","test-card-payment-destination-estimate.js"],
   ["card coverage: one posted card credit of unconfirmed purpose (payment or refund) is counted as neither, a cautious estimate never above the truth, To confirm; pending credits and other issues still withhold","test-card-credit-purpose-estimate.js"],
+  ["card coverage: one posted card payment credit with no household cash leg near it counts toward no card, a cautious estimate never above the truth, To confirm; contradicting near legs, other issues and pending credits still withhold","test-card-payment-source-estimate.js"],
   ["card coverage: a Budget figure estimated only by card coverage shows the bank data's date instead of the estimate word (Dale, 2026-11-18); trust, data-trust and other causes unchanged","test-card-estimate-as-of-date.js"],
   ["a noted TD minimum is confirmed by the card's paired credit, else To confirm (U4)","test-card-payment-note-minimum.js"],
   ["equal same-day payments to two cards pair by their notes, in both directions","test-card-payment-reverse-destination.js"],
