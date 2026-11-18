@@ -100,6 +100,20 @@ const degraded = run(world([purchase, cashLeg(105)]));
 degradedShape(degraded, 'no note');
 check(degraded.period.fromTodayFunding.availableNow === 220, 'available now is the hand-derived 220');
 check(degraded.coverage.reservedCash === 80, 'the 80 purchase stays reserved as if unpaid');
+// Lead B2 on #1358: every projection that walks forward at the (lower) cap is withheld.
+{
+  const a = degraded.advice;
+  check(a.sim.endingSurplus === null && a.sim.extraDebtCapacity === null, 'the walk\'s ending surplus and debt capacity are withheld');
+  check(a.planSpendPaydayFunding.status === 'unavailable' && a.planSpendPaydayFunding.paydays.length === 0,
+    'the payday funding schedule (walked at the cap) is withheld');
+  const future = a.payPeriodViews.filter(v => v.start > degraded.period.start);
+  check(future.length > 0 && future.every(v => v.plannedCostFunding && v.plannedCostFunding.status === 'unavailable'),
+    'every later period\'s planned-cost funding is withheld');
+  check(degraded.period.paydaySchedule && degraded.period.paydaySchedule.status === 'unavailable', 'the payday schedule is withheld');
+  const today = degraded.period.fromTodayFunding;
+  check(today.availableNow === 220 && today.contribution === null && today.cashAfterProposal === null
+    && (today.items || []).every(item => item.contribution === null), 'today keeps available now; its proposals are withheld');
+}
 
 console.log('2. Never above the truth, whichever card it paid (or none tracked)');
 {
@@ -231,6 +245,87 @@ console.log('7. The Budget payment section shows the To-confirm row');
   const noted = run(world([purchase, cashLeg(105, { notes: TRAVEL })]));
   check(!/data-card-payment-to-confirm/.test(Detail.visaPaymentsHtml(noted.period.visaPaymentBackfill, noted.period.cardPurchaseCoverage)),
     'once confirmed, no To-confirm row');
+}
+
+console.log('8. The assistant packet: forward walks withheld, the rest estimated (lead B2 on #1358)');
+{
+  const Live = require('../scripts/live-plan');
+  const Assistant = require('../scripts/assistant-packet');
+  const packetOf = rows => Assistant.buildPacket({ data: Live.fromObservation(world(rows)).data, periods: null, questionsMarkdown: '' });
+  const p = packetOf([purchase, cashLeg(105)]);
+  const est = o => o && o.cardCoverageEstimate && o.cardCoverageEstimate.basis === 'card-payment-destination-unconfirmed'
+    && o.cardCoverageEstimate.toConfirmCount === 1;
+  check(p.planning.trajectory.status === 'unavailable' && est(p.planning.trajectory),
+    'the monthly trajectory (walked at the cap) is withheld, with the estimate disclosure');
+  check(p.forecast.horizon.minBalance === null && p.forecast.horizon.minDate === null, 'the projected low point is withheld');
+  check(p.forecast.facilityCrossings.status === 'unavailable' && est(p.forecast.facilityCrossings), 'facility crossings are withheld');
+  check(p.forecast.trust === 'estimated' && est(p.forecast), 'the forecast block is estimated, basis and To-confirm count named');
+  check(p.forecast.currentPeriodAction.trust === 'estimated' && p.forecast.currentPeriodAction.weeklyCap === 165,
+    'currentPeriodAction.weeklyCap (165, below the true 230) is tagged estimated');
+  check(p.current.spendableHouseholdCash.trust === 'unknown' && est(p.current.spendableHouseholdCash),
+    'a section already tagged unknown stays unknown (never more certain), with the disclosure');
+  check(!JSON.stringify(p).includes('AB123') && !/coverageRef/.test(JSON.stringify(p.forecast)), 'no provider reference reaches the packet');
+  // Packet tag audit against the withheld twin; packet numbers against the truth.
+  const flat = (o, pre = '', m = {}) => { if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) {
+    if (v === null || typeof v !== 'object') m[pre + k] = v; else flat(v, pre + k + '.', m); } return m; };
+  const fd = flat(p), fw = flat(packetOf([purchase, ['bills', -105, null, 'cash']]));
+  const ft = flat(packetOf([purchase, cashLeg(105, { notes: TRAVEL })]));
+  let graded = 0;
+  for (const [k, v] of Object.entries(fd)) {
+    if (!/(trust|Trust)$/.test(k) || !(v in RANK)) continue;
+    if (fw[k] in RANK) check(RANK[v] <= RANK[fw[k]], `packet ${k}: ${v} no more certain than today's ${fw[k]}`);
+    else { graded++; check(v === 'estimated', `packet ${k}: today ${fw[k]}, now ${v} (estimated at most)`); }
+  }
+  check(graded >= 3, `the packet audit reached the newly published sections (${graded})`);
+  for (const [k, v] of Object.entries(fd)) {
+    if (typeof v !== 'number' || typeof ft[k] !== 'number' || /At$|asOf|Count$|days|Days/i.test(k)) continue;
+    check(v <= ft[k] + 0.005, `packet ${k}: ${v} <= truth ${ft[k]}`);
+  }
+}
+
+console.log('9. Every published figure, never above the truth, whichever card it paid');
+{
+  const Live = require('../scripts/live-plan');
+  const Snapshot = require('../scripts/figures-snapshot');
+  const snapOf = (rows, opts) => { const o = Live.fromObservation(world(rows, opts)); return Snapshot.buildFiguresSnapshot(o.data, o.data.periods || null); };
+  // Higher is the cautious direction for these: what is still owed or reserved.
+  // Debt owed is cautious when higher too. (Where the truth world adds the
+  // second card's own payment credit, that card's provider balance itself
+  // differs: an input difference, not card coverage.)
+  const CAUTIOUS = [/^totals\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
+    /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/];
+  // advice.sim's raw walk: the Plan tab draws it directly and main publishes it
+  // on every card hold too (from a zero-spend walk, higher still). Lead's call
+  // on #1358 (option 1): named here, BACKLOG for the page's withheld path.
+  const RAW_WALK = [/^plan\.endingCash$/, /^plan\.lowestCash$/, /^plan\.bindingBalance$/];
+  const compare = (degradedRows, truthRows, opts, why) => {
+    const d = snapOf(degradedRows, opts), t = snapOf(truthRows, opts);
+    let compared = 0;
+    for (const [k, v] of Object.entries(d)) {
+      if (typeof v !== 'number' || typeof t[k] !== 'number') continue;
+      if (CAUTIOUS.some(re => re.test(k)) || RAW_WALK.some(re => re.test(k))) continue;
+      compared++;
+      check(v <= t[k] + 0.005, `${why}: published ${k} ${v} <= truth ${t[k]}`);
+    }
+    check(compared >= 20, `${why}: compared ${compared} published figures`);
+  };
+  compare([purchase, cashLeg(105)], [purchase, cashLeg(105, { notes: TRAVEL })], {}, 'vs Travel Visa');
+  compare([purchase, cashLeg(105)], [purchase, cashLeg(105), cardCredit('card2', 105)], { twoCards: true }, 'vs another card');
+  const both = [purchase, ['card2', 40, null, 'purchase']];
+  compare([...both, cashLeg(105)], [...both, cashLeg(105, { notes: TRAVEL })], { twoCards: true }, 'both cards vs Travel Visa');
+  compare([...both, cashLeg(105)], [...both, cashLeg(105), cardCredit('card2', 105)], { twoCards: true }, 'both cards vs the second card');
+}
+
+console.log('10. The operating answer names the estimate on its spending permission');
+{
+  const Live = require('../scripts/live-plan');
+  const OA = require('../scripts/operating-answer');
+  const answer = OA.fromRefreshedState(Live.fromObservation(world([purchase, cashLeg(105)])).data, { mode: 'live-overlay' });
+  const permission = answer.currentSpendingPermission;
+  check(permission && permission.trust === 'estimated' && permission.estimateBasis === 'card-payment-destination-unconfirmed'
+    && permission.toConfirmCount === 1, 'currentSpendingPermission is tagged estimated with its basis and count');
+  const resolved = OA.fromRefreshedState(Live.fromObservation(world([purchase, cashLeg(105, { notes: TRAVEL })])).data, { mode: 'live-overlay' });
+  check(resolved.currentSpendingPermission.trust === undefined, 'confirmed: no estimate tag, as today');
 }
 
 console.log(`\nAll card-payment destination estimate checks passed (${checks}).`);

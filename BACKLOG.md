@@ -331,6 +331,10 @@ In `reconcileCardPurchases` (`public/forecast.js`), a card credit that is paymen
 
 When a household debit carries a payDown destination and its note names a different card, the payDown destination wins with no withhold or diagnostic. Decide which one is the authority, or whether the conflict withholds. Proof would be an invented debit with a payDown to one card and a note naming another, read the chosen way once.
 
+**The Plan tab's projection has no withheld path under a card hold** · *#1358 review (lead B2), 2026-11-18; ADDED TO BACKLOG*
+
+The Plan tab draws its cash projection straight from `advice.sim`: projected ending cash, the lowest balance, the chart and the calendar low point. When card coverage is held, those are still drawn. When it is unavailable they come from a zero-spend walk; since #1358, under an estimated coverage, they come from the lower, cautious cap. Either way the forward walk can read above the truth, and the published `plan.endingCash`, `plan.lowestCash` and `plan.bindingBalance` follow it. #1358 withholds every Forecast-side forward claim (surplus, debt capacity, the funding schedule beyond today, major plans, planned debt, the packet trajectory) but not this raw walk, because the page has no withheld rendering for it. Proof would be an invented card-hold world whose Plan tab shows the projection as withheld, with those three published keys null.
+
 **Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*
 
 Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money's own recurring match: a linked deposit settles the payday LM paired it to, early, on time or late, once, at its actual amount. FOUNDATION: the household payroll rule names no item yet. Closure, one PR:

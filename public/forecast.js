@@ -3737,8 +3737,11 @@
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
       breachesBuffer: below(min.balance, buffer),
-      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
-      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
+      // Lead ruling on #1358 (B2): withheld under an estimated card coverage too.
+      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : ending - simulationCashFloor(full),
+      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
         start: full.start, end: full.end, days: full.daily.length,
         min: full.min, ending: full.ending, events: full.events, totals: full.totals,
@@ -3850,8 +3853,11 @@
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
       breachesBuffer: below(min.balance, buffer),
-      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
-      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
+      // Lead ruling on #1358 (B2): withheld under an estimated card coverage too.
+      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : ending - simulationCashFloor(full),
+      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
         start: full.start, end: full.end, days: full.daily.length,
         min: full.min, ending: full.ending, events: full.events, totals: full.totals,
@@ -4955,10 +4961,13 @@
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
       breachesBuffer: below(min.balance, buffer),
-      endingSurplus: coverage.status === 'unavailable' ? null : balance - cashFloor,
+      // Lead ruling on #1358 (B2): under an estimated card coverage the walk
+      // spends the lower, cautious cap, so its forward surplus can exceed the
+      // truth. Withheld exactly as when coverage is unavailable.
+      endingSurplus: coverage.status === 'unavailable' || cardCoverageTrust(coverage) === 'estimated' ? null : balance - cashFloor,
       // Room for extra repayment, measured at the end of the window — cash
       // above the buffer once everything has cleared. Bounded by zero.
-      extraDebtCapacity: coverage.status === 'unavailable' ? null : Math.max(0, balance - cashFloor),
+      extraDebtCapacity: coverage.status === 'unavailable' || cardCoverageTrust(coverage) === 'estimated' ? null : Math.max(0, balance - cashFloor),
     };
     if (savingsEarmarksEnabled(plan) && Array.isArray(plan.savingsEarmarks.pools)
         && plan.savingsEarmarks.pools.some(pool => pool && pool.role === 'purpose-reserve')) {
@@ -5553,7 +5562,10 @@
     // withholds when uncovered card purchases are unknown (cash held for them
     // cannot be measured, so no verdict can assert feasibility).
     const coverageState = cardCoverageState(plan, asOf, opts);
-    const fundingUnknown = coverageState.status === 'unavailable'
+    // Lead ruling on #1358 (B2): an estimated card coverage walks at the lower
+    // cap, so a plan could read funded earlier than the truth: no verdict.
+    const coverageEstimated = cardCoverageTrust(coverageState) === 'estimated';
+    const fundingUnknown = coverageState.status === 'unavailable' || coverageEstimated
       || income.status === 'unavailable'
       || scheduledAmountState(plan, asOf, horizon.end, opts).status === 'unavailable';
     const weekly = opts.weeklyVariable != null ? opts.weeklyVariable : 0;
@@ -5702,7 +5714,8 @@
           fundingMargin: null, remainingIdentity: null, deferred: null,
           fundingStatus: 'unavailable',
           ...(income.status === 'unavailable' ? { fundingReason: income.reason }
-            : coverageState.status === 'unavailable' && coverageState.reason ? { fundingReason: coverageState.reason } : {}) } : {}),
+            : coverageState.status === 'unavailable' && coverageState.reason ? { fundingReason: coverageState.reason }
+              : coverageEstimated ? { fundingReason: coverageState.estimateReason } : {}) } : {}),
       };
     });
   }
@@ -6338,6 +6351,11 @@
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return { ...denied, status: 'unavailable',
       reason: income.reason, permitted: null, borrowed: null, interest: null,
+      feasible: null, capacity: null };
+    // Lead ruling on #1358 (B2): no planned borrowing on an estimated card coverage.
+    const debtCoverage = cardCoverageState(plan, asOf, opts);
+    if (cardCoverageTrust(debtCoverage) === 'estimated') return { ...denied, status: 'unavailable',
+      reason: debtCoverage.estimateReason, permitted: null, borrowed: null, interest: null,
       feasible: null, capacity: null };
 
     const facilityId = opts.plannedDebtFacility || null;
@@ -20931,6 +20949,21 @@
           }
         }
       }
+      // Lead ruling on #1358 (B2): under an estimated card coverage the payday
+      // schedule walks forward at the lower, cautious cap, so its later capacity
+      // can exceed the truth. Today's available now stays (it is at or below the
+      // truth); its proposals and every later payday are withheld.
+      if (cardCoverageTrust(coverage) === 'estimated') {
+        const reason = 'The funding plan beyond today waits until the card payment is confirmed. ' + coverage.estimateReason;
+        const today = current && current.fromTodayFunding;
+        if (today && today.status !== 'unavailable') {
+          Object.assign(today, { contribution: null, cashAfterProposal: null, gap: null, originalPaydayPlan: null,
+            proposalReason: reason,
+            items: (today.items || []).map(item => ({ ...item, contribution: null, cumulativeProposed: null,
+              remainingGap: null, projectedFullyFunded: null })) });
+        }
+        return unavailable(reason);
+      }
       const schedule = planSpendPaydayFunding(plan, asOf, sim, seq, plans, null, basis);
       if (!schedule || schedule.status === 'unavailable') return unavailable(
         schedule && schedule.reason || 'Budget funding schedule unavailable.');
@@ -21320,8 +21353,15 @@
       });
       const dalePaydayOpts = withDalePayrollWalkAdjustment(paydayOpts, dalePayroll);
       const alloc = paydayAllocation(plan, asOf, dalePaydayOpts);
-      const planSpendFunding = planSpendPaydayFunding(
+      const planSpendFundingWalked = planSpendPaydayFunding(
         plan, asOf, knowledgeSim, sequence, plans, alloc);
+      // Lead ruling on #1358 (B2): the schedule walks forward at the cap, so
+      // under an estimated card coverage its later paydays can exceed the truth.
+      const walkCoverage = knowledgeSim && knowledgeSim.cardPurchaseCoverage;
+      const planSpendFunding = cardCoverageTrust(walkCoverage) === 'estimated'
+        ? { ...planSpendFundingWalked, status: 'unavailable', paydays: [], gap: null, fundingTrust: 'unavailable',
+          reason: 'The funding plan waits until the card payment is confirmed. ' + walkCoverage.estimateReason }
+        : planSpendFundingWalked;
       // Trust packet for the payday instruction shell (AMANDA SLICE 1).
       // Forecast publishes the trust state of every figure the shell
       // reprints; the page renders only this published state and fails

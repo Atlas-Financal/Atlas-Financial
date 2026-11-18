@@ -255,6 +255,53 @@ function cardCoverageIssueCodes(advice) {
   return codes.length ? codes.slice(0, 32) : null;
 }
 
+// Lead ruling on #1358 (B2): card coverage published as an ESTIMATE (a card
+// payment's card is unconfirmed, so it is applied to no card). Only the closed
+// basis, a fixed reason and a count leave Forecast here: no ref, date, amount
+// or note.
+const CARD_ESTIMATE_REASON = 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.';
+function cardCoverageEstimate(advice) {
+  const coverage = advice && advice.cardPurchaseCoverage;
+  if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
+  return { basis: 'card-payment-destination-unconfirmed', reason: CARD_ESTIMATE_REASON,
+    toConfirmCount: Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0 };
+}
+// A published section under the estimate: a graded tag (or none) becomes
+// estimated; unknown or unavailable stays as it is (never more certain).
+function tagCardEstimate(section, estimate) {
+  if (!section || typeof section !== 'object' || section.status === 'unavailable') return section;
+  const trust = section.trust == null || section.trust === 'calculated' ? 'estimated' : section.trust;
+  return { ...section, trust, cardCoverageEstimate: estimate };
+}
+// Projections that walk forward at the weekly cap: withheld under the estimate.
+function withheldForCardEstimate(source, estimate) {
+  return { status: 'unavailable', source, reason: 'Projection waits until the card payment is confirmed. ' + estimate.reason,
+    cardCoverageEstimate: estimate };
+}
+function applyCardEstimate(packet, advice) {
+  const estimate = cardCoverageEstimate(advice);
+  if (!estimate) return packet;
+  const current = packet.current || {};
+  for (const key of ['spendableHouseholdCash', 'nextSignificantObligations']) {
+    if (current[key]) current[key] = tagCardEstimate(current[key], estimate);
+  }
+  const forecast = packet.forecast;
+  if (forecast && forecast.status !== 'unavailable') {
+    for (const key of ['recommendation', 'currentPeriodAction', 'budgetCap', 'paydayAllocation',
+      'predictedEndingBalance', 'upcomingModeledCommitments', 'majorPlanFunding']) {
+      if (forecast[key]) forecast[key] = tagCardEstimate(forecast[key], estimate);
+    }
+    if (forecast.horizon && forecast.horizon.status !== 'unavailable') {
+      forecast.horizon = { ...forecast.horizon, minBalance: null, minDate: null,
+        minReason: 'The projected low point waits until the card payment is confirmed.', cardCoverageEstimate: estimate };
+    }
+    if (forecast.facilityCrossings) forecast.facilityCrossings = withheldForCardEstimate('Forecast.projectDebts', estimate);
+    packet.forecast = { ...forecast, trust: 'estimated', cardCoverageEstimate: estimate };
+  }
+  if (packet.planning) packet.planning.trajectory = withheldForCardEstimate('Forecast.baselineTrajectory', estimate);
+  return packet;
+}
+
 function operatingPlanNote(data, advice) {
   const overlay = data && data.liveOverlay;
   return (advice && advice.operatingPlanNote)
@@ -1636,6 +1683,7 @@ function buildPacket(opts) {
     actuals: actualsBlock(data, periods, advice, settlement),
     uncertainty: uncertaintyBlock(data, periods, questionsMarkdown, advice),
   };
+  applyCardEstimate(packet, advice);
   if (!looksSanitized(packet)) {
     throw new Error('Assistant packet is not sanitized.');
   }
