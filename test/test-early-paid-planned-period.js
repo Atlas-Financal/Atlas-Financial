@@ -7,10 +7,11 @@
  * bills, is never spend in the posting period, and its cash leaves once,
  * on the posting date. The cash walk already settles the occurrence
  * (representedKeySet), so the next period's cash close must not deduct it
- * again. Only a payment that covers the occurrence does this: an early
- * partial keeps today's behaviour (planned, the full amount still held), so
- * a future period never holds less than it may still owe (lead ruling;
- * reserving a partial's remainder is a separate rule). A represented
+ * again. Only a payment that covers the occurrence reads Paid. An early
+ * partial of a fixed (confirmed) bill (D2, lead dispatch 2026-11-18) reads
+ * still due in its planned period: the paid part shows as paid, the
+ * remainder stays held, and the cash close deducts only the remainder,
+ * because the paid part already left before that opening. A represented
  * occurrence with no observed amount stays planned too: representation proves
  * the occurrence, not the amount (lead ruling on #1301).
  *
@@ -107,17 +108,21 @@ console.log('\n=== early: due next period, paid in full in this one ===');
     `${a.budgetHold}/${a.balanceAfterDeductions} vs ${ac.budgetHold}/${ac.balanceAfterDeductions}`);
 }
 
-console.log('\n=== partial: 40.00 of 90.00 paid early keeps today\'s behaviour ===');
+console.log('\n=== partial (D2): 40.00 of 90.00 paid early, fixed bill ===');
 {
+  // By hand: paid 40 shows as paid in the planned period, 90 - 40 = 50 stays held there, the full 90 is assigned once,
+  // and the close deducts only the 50 (the 40 already left before that opening), so it is 40 above the control.
   const n = period(partial, 'future'), nc = period(control, 'future');
   const row = hydroRow(n);
-  ok(row && row.status === 'planned' && row.settlement === 'upcoming' && row.actual === 0 && row.remaining === 90,
-    'reads planned next period with the full 90.00 still held, as today', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
-  ok(row && !('paymentState' in row) && !('shortfall' in row), 'and makes no partly-paid claim', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
-  ok(n.remainingBills === 90 && n.paidBills === 0 && closeBills(n) === 90,
-    'next period: paid 0, remaining 90, the cash close deducts 90 (never under-reserved)', [n.paidBills, n.remainingBills, closeBills(n)].join(' / '));
-  ok(n.balanceAfterDeductions === nc.balanceAfterDeductions && n.paydaySweep === nc.paydaySweep,
-    'BAD and the close are the same as the control', `${n.balanceAfterDeductions}/${n.paydaySweep} vs ${nc.balanceAfterDeductions}/${nc.paydaySweep}`);
+  ok(row && row.status === 'still due' && row.settlement === 'represented' && row.actual === 40 && row.remaining === 50,
+    'reads still due next period: 40.00 paid, 50.00 still held', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
+  ok(row && row.paymentState === 'partly-paid' && row.shortfall === 50, 'and reads Partly paid, 50.00 short', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
+  ok(n.paidBills === 40 && n.remainingBills === 50 && n.totalBillsThisPeriod === 90 && closeBills(n) === 50,
+    'next period: paid 40 + remaining 50 = total 90; the cash close deducts the 50', [n.paidBills, n.remainingBills, n.totalBillsThisPeriod, closeBills(n)].join(' / '));
+  ok(n.periodBillLoad === 90 && n.balanceAfterDeductions === nc.balanceAfterDeductions && n.opening === nc.opening,
+    'assigned load 90 and BAD as the control; the same walked opening', `${n.periodBillLoad} ${n.balanceAfterDeductions}/${nc.balanceAfterDeductions} ${n.opening}/${nc.opening}`);
+  ok(n.paydaySweep === Math.round((nc.paydaySweep + 40) * 100) / 100,
+    'so the next close is 40.00 above the control: the paid part is not taken twice, the 50 is taken once', `${n.paydaySweep} vs ${nc.paydaySweep}`);
 }
 
 console.log('\n=== plain represented, no observed amount: stays planned ===');

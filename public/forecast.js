@@ -10784,8 +10784,15 @@
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
         && coversOccurrence;
-      if (prepaidByWalk) prepaidBillSettledBy.set(row, asOf);
-      if (!prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+      // D2: a fixed bill paid in part early, on the walk's own settled set:
+      // the paid part left cash on or before asOf, so the row keeps it as
+      // paid in its planned period and owes only its remainder there; a
+      // later opening already holds the paid part.
+      const prepaidPartial = !prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+        && row.partlyPaidRemainder === true && row.settlement === 'represented'
+        && represented && represented.has(row.id + '@' + row.date);
+      if (prepaidByWalk || prepaidPartial) prepaidBillSettledBy.set(row, asOf);
+      if (!prepaidByWalk && !prepaidPartial && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -10813,6 +10820,7 @@
         delete row.shortfall;
         delete row.shortfallTrust;
         delete row.shortfallSource;
+        delete row.partlyPaidRemainder;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -13228,7 +13236,14 @@
   function periodWaterfallBillLoad(bills, openingAsOf, openingSource, amountOf) {
     const amount = amountOf || billAssignedAmount;
     return roundCent((bills || []).reduce((sum, row) => {
-      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) return sum;
+      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) {
+        // D2: a fixed bill paid in part whose paid part is already inside
+        // this opening: the opening holds the paid part, not the remainder.
+        return row && row.partlyPaidRemainder === true && !row.needsDate
+          && paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource)
+          && typeof row.remaining === 'number' && Number.isFinite(row.remaining)
+          ? sum + Math.abs(row.remaining) : sum;
+      }
       return sum + (row.scheduledFeeAllowance
         ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));

@@ -147,5 +147,34 @@ console.log('4. A variable bill (estimated amount) keeps today\'s behaviour');
   ok(near(ePart.day0, eFull.day0), 'the cash walk holds nothing more than paid in full', `${ePart.day0} vs ${eFull.day0}`);
 }
 
+console.log('5. Paid in part early (due Oct 24, next pay period; paid Oct 21, as of Oct 21)');
+{
+  const early = (paid, confidence = 'confirmed') => {
+    const w = H.baseWorld();
+    w.asOf = '2026-10-21';
+    w.bills = [{ ...HYDRO, day: 24, confidence, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];
+    w.transactions = paid ? [pay(paid, '2026-10-21')] : [];
+    const r = H.observe(w);
+    if (r.error) throw r.error;
+    const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+    const next = rec.defaultView.calendarPeriods.find(p => p.role === 'future');
+    const due = rec.sim.daily.find(d => d.date === '2026-10-24');
+    return { next, row: (next.bills || []).find(b => b.id === 'hydro' && b.date === '2026-10-24'),
+      onDue: due && due.balance, weekly: rec.weekly };
+  };
+  const eFull = early(90), ePart = early(40);
+  ok(ePart.row && ePart.row.status === 'still due' && ePart.row.actual === 40 && ePart.row.remaining === 50,
+    'next period: still due, 40 paid, 50 remaining', ePart.row && `${ePart.row.status} ${ePart.row.actual} ${ePart.row.remaining}`);
+  // Unpaid picks a different weekly cap in this world, so the like-for-like control is paid in full (same weekly).
+  ok(ePart.weekly === eFull.weekly && near(ePart.onDue, eFull.onDue - 50),
+    'on the due date the cash walk holds 50 more than paid in full (same weekly cap)', `${ePart.onDue} vs ${eFull.onDue}; weekly ${ePart.weekly}/${eFull.weekly}`);
+  ok(ePart.next.plannedPeriodCloseTerms && ePart.next.plannedPeriodCloseTerms.periodBillLoad === 50,
+    'that period\'s cash close deducts only the 50 (the 40 left before its opening)',
+    ePart.next.plannedPeriodCloseTerms && ePart.next.plannedPeriodCloseTerms.periodBillLoad);
+  const vPart = early(40, 'estimated');
+  ok(vPart.row && vPart.row.status === 'planned' && vPart.row.remaining === 90 && !('partlyPaidRemainder' in vPart.row),
+    'an estimated bill paid in part early keeps today\'s behaviour: planned, 90 held', vPart.row && `${vPart.row.status} ${vPart.row.remaining}`);
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll partial-bill remainder checks passed.');
