@@ -454,11 +454,34 @@ function isTrustworthyTransactionId(value) {
   return false;
 }
 
+// Lunch Money v2 (spec 2.11.2, POST /transactions/group example): a group
+// parent carries plaid_account_id and manual_account_id null; only its
+// children (returned with include_children) carry accounts. The parent takes
+// the one account every child records, and nothing else: no child, a child
+// with no account or with both, or children on different accounts leaves the
+// parent without an account (unmapped, fail closed). Children are read for
+// their account ids only; they never become rows of their own.
+function groupParentAccountId(raw) {
+  if (!(raw.is_group_parent === true || raw.is_group === true)) return null;
+  const children = Array.isArray(raw.children) ? raw.children : [];
+  if (!children.length) return null;
+  const accounts = new Set();
+  for (const child of children) {
+    const plaid = child && child.plaid_account_id != null, manual = child && child.manual_account_id != null;
+    if (plaid === manual) return null;
+    accounts.add((plaid ? 'plaid:' : 'manual:') + String(plaid ? child.plaid_account_id : child.manual_account_id));
+  }
+  if (accounts.size !== 1) return null;
+  const child = children[0];
+  return child.plaid_account_id != null ? child.plaid_account_id : child.manual_account_id;
+}
+
 function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
   if (!raw || !isTrustworthyTransactionId(raw.id)) fail('Lunch Money transaction is missing a stable id.');
   const accountId = raw.account_id != null ? raw.account_id
     : raw.plaid_account_id != null ? raw.plaid_account_id
-    : raw.manual_account_id;
+    : raw.manual_account_id != null ? raw.manual_account_id
+    : groupParentAccountId(raw);
   const categoryId = raw.category_id != null ? String(raw.category_id) : null;
   const fromIndex = categoryId && categoriesById ? categoriesById.get(categoryId) : null;
   const categoryName = raw.category_name || raw.categoryName
@@ -495,7 +518,11 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     plaidPendingTransactionId: plaidPendingTransactionIdFromRaw(raw),
     isGroup: raw.is_group === true || raw.is_group_parent === true
       || raw.has_children === true,
-    parentId: raw.parent_id != null ? String(raw.parent_id) : null,
+    // v1 parent_id, or v2 group_parent_id (spec 2.11.2) for a row grouped
+    // into a group parent. v2 split pieces (split_parent_id) are not read
+    // here: BACKLOG.md, LM v2 split pieces.
+    parentId: raw.parent_id != null ? String(raw.parent_id)
+      : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
     // Lunch Money v2 transaction recurring_id: the recurring item this row
     // matched. Forecast reads it only to stamp the dogFood flags; it is not
     // published in the served packet.
@@ -667,6 +694,9 @@ function lunchMoneyTransactionsUrl(now, historyDays, base) {
   txUrl.searchParams.set('end_date', end);
   txUrl.searchParams.set('include_pending', 'true');
   txUrl.searchParams.set('include_metadata', 'true');
+  // v2 returns a group parent with no account of its own; its children
+  // (only with include_children) carry the account (groupParentAccountId).
+  txUrl.searchParams.set('include_children', 'true');
   txUrl.startDate = start;
   txUrl.endDate = end;
   return txUrl;
@@ -676,6 +706,7 @@ function lunchMoneyPendingUniverseUrl(base) {
   const txUrl = new URL(`${base || LIVE_BASE}/transactions`);
   txUrl.searchParams.set('is_pending', 'true');
   txUrl.searchParams.set('include_metadata', 'true');
+  txUrl.searchParams.set('include_children', 'true');
   return txUrl;
 }
 
@@ -1503,7 +1534,7 @@ function transferCounterpartMatches(tx, rule, input, amount, diagnostic) {
   const matches = [];
   for (const other of (input && input.transactions) || []) {
     if (!other || other === tx) continue;
-    if (other.pending === true || other.contradictoryEvidence === true) continue;
+    if (!hasPostedReceipt(other)) continue;
     if (String(other.date || '') !== String(tx.date || '')) continue;
     if (!transactionIsTransfer(other)) continue;
     const mapping = mappingFor(mapDoc, other.providerAccountId);
@@ -1718,14 +1749,24 @@ function ruleHasIdentity(rule, diagnostic) {
   return rulePayeePatterns(rule).length > 0;
 }
 
+function hasPostedReceipt(tx) {
+  // Normalization retains affirmative provider evidence separately from the
+  // display-oriented pending boolean. A missing flag can project false there.
+  return !!tx && tx.pending === false && tx.savingsPostingEvidence === 'posted'
+    && tx.contradictoryEvidence !== true;
+}
+
 function ruleMatchesTransactionIdentity(tx, rule) {
+  return hasPostedReceipt(tx) && matchesIdentityFields(tx, rule);
+}
+
+// Pending-bill disclosure and replacement inheritance can find an identity
+// here. Only a posted receipt can settle it.
+function matchesIdentityFields(tx, rule) {
   if (!tx || !rule) return false;
-  // An opted-in identity must have affirmative provider posting evidence.
-  // This shared boundary also excludes pending-only bill receipts. Invalid
-  // explicit qualifiers fail closed; absent qualifiers retain incumbent rules.
+  // An explicit posting qualifier also constrains candidate-only paths.
   if (Object.hasOwn(rule, 'requiredPostingEvidence')
-      && (rule.requiredPostingEvidence !== 'posted'
-        || tx.pending !== false || tx.savingsPostingEvidence !== 'posted')) {
+      && (rule.requiredPostingEvidence !== 'posted' || !hasPostedReceipt(tx))) {
     return false;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
@@ -2474,7 +2515,7 @@ function transactionWithMappedAccount(tx, accountMap) {
 
 function soleOwnerConfirmedSpotifyTransaction(transactions, accountMap) {
   const matches = (transactions || []).filter(tx =>
-    tx && tx.pending !== true
+    hasPostedReceipt(tx)
     && Forecast.classifyCurrentPeriodTransaction.ownerConfirmedSpotify(
       transactionWithMappedAccount(tx, accountMap)
     ));
@@ -2702,9 +2743,9 @@ function collectIdentityHits(tx, input, rules) {
   const amount = lunchMoneyDebitAmount(tx.amount);
   const hits = [];
   for (const rule of rules || []) {
-    if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
+    if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
-    if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
+    if (!matchesIdentityFields(tx, rule)) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
@@ -2816,7 +2857,7 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
   const kept = new Set(collapsedTransactions || []);
   const byPostedId = new Map();
   for (const tx of collapsedTransactions || []) {
-    if (!tx || tx.pending === true || tx.providerTransactionId == null || tx.providerTransactionId === '') {
+    if (!hasPostedReceipt(tx) || tx.providerTransactionId == null || tx.providerTransactionId === '') {
       continue;
     }
     const id = String(tx.providerTransactionId);
@@ -2894,7 +2935,7 @@ function salaryReceiptTransferHits(input, rules) {
   });
   if (!salaryRules.length) return [];
   const eligibleIds = new Set(salaryRules.map(rule => rule.eventId));
-  const nativePosted = tx => tx && tx.pending !== true && tx.contradictoryEvidence !== true
+  const nativePosted = tx => hasPostedReceipt(tx)
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= window.endDate
     && tx.providerTransactionId != null;
@@ -3021,6 +3062,52 @@ function salaryReceiptTransferHits(input, rules) {
   return hits;
 }
 
+// E2 (lead ruling 2026-11-18, #821 6967807281, under Dale's standing
+// direction; Dale may veto). A card minimum stays withheld from automatic
+// settlement (cardMinimumNeedsConfirmation: a card payment may be a purchase
+// backfill, not the minimum) except in one narrow case. The rule opts in
+// (settlementFrom), Lunch Money's own matches for its reviewed item are
+// consistent (stampLunchMoneyMatched), and Lunch Money paired exactly this
+// one payment with the cycle, where:
+//   - the cycle has a CONFIRMED statement (statementOccurrences, confidence
+//     confirmed) whose scheduled date is the paired occurrence;
+//   - the payment posted inside the cycle (after the previous occurrence, up
+//     to the statement's due date) and is at least that statement's minimum;
+//     and
+//   - no other linked payment of the rule posted in that cycle (after the
+//     previous occurrence, up to the statement's due date), and the fetched
+//     transaction window is complete and starts no later than the cycle's
+//     first day, so an earlier payment in the cycle cannot be missing.
+// Otherwise today's withholding stands: a payment below the minimum, two
+// payments in a cycle, or no confirmed statement (the plan's estimated
+// minimum never counts). coveringStatementCycleDates is untouched.
+function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
+  const row = ((plan && plan.obligations) || []).find(item => item && item.id === rule.eventId);
+  if (!row || row.effect !== 'payment' || !Array.isArray(row.statementOccurrences)) return false;
+  const original = Forecast.statementOccurrenceIdentity(plan, rule.eventId, date);
+  const statements = row.statementOccurrences.filter(r => r && r.scheduledDate === original);
+  if (statements.length !== 1) return false;
+  const statement = statements[0];
+  const minimum = Number(statement.minimum);
+  if (statement.confidence !== 'confirmed' || !realIsoDay(statement.dueDate) || !(Number.isFinite(minimum) && minimum > 0)) return false;
+  if (!(lunchMoneyDebitAmount(tx.amount) + IDENTITY_AMOUNT_EPSILON >= minimum)) return false;
+  const previous = Forecast.occurrences(row, Forecast.addDays(original, -62), Forecast.addDays(original, -1)).pop() || Forecast.addDays(original, -31);
+  if (!txWindow || txWindow.complete !== true || !realIsoDay(txWindow.startDate)
+    || txWindow.startDate > Forecast.addDays(previous, 1)) return false;
+  // The paired payment itself must post inside the cycle: a payment before
+  // the cycle starts, or after the statement is due, pays no part of it.
+  if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
+  const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
+    && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
+  return others.length === 0;
+}
+// True only for the narrow E2 case above, on the rule that opted in.
+function lmMatchedCardMinimum(tx, rule) {
+  const lm = tx && typeof tx === 'object' ? LM_MATCHED.get(tx) : null;
+  return !!(rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED && lm && lm.eventId === rule.eventId
+    && lm.date && lm.cardMinimum === true);
+}
+
 // S3: read which occurrences Lunch Money itself matched for an opt-in rule's
 // reviewed recurring item, and stamp each linked transaction of that rule
 // with the occurrence LM paired it to (LM_MATCHED date) or none (null). The
@@ -3044,7 +3131,7 @@ function salaryReceiptTransferHits(input, rules) {
 //     debit rule only). A credit rule's paired receipt settles at its actual
 //     amount: Lunch Money paired it, and Forecast publishes the represented
 //     actual, so no scheduled-amount guard is asked (Q1, lead 2026-11-18).
-function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring) {
+function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow) {
   for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
   const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
     && rule.eventId && (rule.direction === 'debit' || rule.direction === 'credit')
@@ -3089,7 +3176,7 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       return rows.length === 1 ? rows[0] : null;
     });
     const accepted = tx => {
-      if (!tx || tx.pending !== false || tx.contradictoryEvidence === true) return false;
+      if (!hasPostedReceipt(tx)) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
       if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
       if (rule.transactionKind === 'transfer' && !transactionIsTransfer(tx)) return false;
@@ -3107,7 +3194,13 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     });
     if (!consistent) continue;
     for (const tx of linked) LM_MATCHED.set(tx, { eventId: rule.eventId, date: null });
-    for (const { tx, date } of pairs) LM_MATCHED.set(tx, { eventId: rule.eventId, date });
+    // E2: a card minimum is otherwise withheld by cardMinimumNeedsConfirmation;
+    // the pairing marks only the narrow case that may settle it.
+    const card = cardMinimumNeedsConfirmation(plan, rule.eventId, accountMap);
+    for (const { tx, date } of pairs) {
+      LM_MATCHED.set(tx, { eventId: rule.eventId, date,
+        ...(card ? { cardMinimum: lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) } : {}) });
+    }
     applied.push({ eventId: rule.eventId, matchedDates: matched.length });
   }
   return applied;
@@ -3123,7 +3216,8 @@ function representedEventHitGroups(input) {
   const rules = stampRuleSetClaims(input.identityRules).filter(rule => {
     diagnostic?.rule(rule?.eventId);
     const eligible = ruleHasIdentity(rule, diagnostic)
-      && !cardMinimumNeedsConfirmation(input.plan, rule.eventId, input.accountMap);
+      && (!cardMinimumNeedsConfirmation(input.plan, rule.eventId, input.accountMap)
+        || rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED);
     diagnostic?.record(rule?.eventId, 'rule', !!eligible, eligible ? undefined : 'RULE_INELIGIBLE');
     return eligible;
   });
@@ -3139,11 +3233,13 @@ function representedEventHitGroups(input) {
     eventHits.set(key, list);
   }
   for (const tx of input.transactions || []) {
-    if (tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (!hasPostedReceipt(tx)) continue;
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
     for (const rule of rules) {
+      // E2: an opted-in card rule is let through only for its narrow LM case.
+      if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
       if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
@@ -3214,7 +3310,7 @@ function representedEventHitGroups(input) {
   }
   for (const tx of input.transactions || []) {
     const inherited = tx && tx.pendingReplacementHit;
-    if (!inherited || !inherited.id || !inherited.date || tx.pending === true) continue;
+    if (!inherited || !inherited.id || !inherited.date || !hasPostedReceipt(tx)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, inherited.id, input.accountMap)) continue;
     const key = inherited.id + '@' + inherited.date;
     const list = eventHits.get(key) || [];
@@ -3509,7 +3605,8 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       const mapping = mappingFor(input.accountMap, credit.providerAccountId);
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
-        if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
+        // A possible payroll receipt may still justify a hold.
+        if (!matchesIdentityFields(credit, rule)) continue;
         if (rule.eventId === 'payroll') {
           if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
           unresolved = true; break;
@@ -4398,7 +4495,7 @@ function observeCore(input, capture) {
     debts: (input.data && input.data.debts) || [],
   });
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
-    input.payload && input.payload.recurringItems);
+    input.payload && input.payload.recurringItems, normalized.transactionWindow);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
@@ -4751,7 +4848,7 @@ function paydayGapCompleteFromEvidence(opts) {
       && String(tx.date) < String(paydayDate);
     if (tx.accountRole === 'household-cash'
       && tx.pending === true
-      && tx.pendingPostedDuplicate !== true
+      && (tx.pendingPostedDuplicate !== true || tx.pendingBillCopy === true)
       && inGap) {
       return false;
     }
@@ -5146,6 +5243,35 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // scheduled occurrence, capped below half of that bill's own interval so
 // a short-cycle bill can never claim its neighbour's charge.
 const NEAR_DUE_BILL_DAYS = 3;
+// The one occurrence of a bill nearest a debit date, with its reach: at most
+// NEAR_DUE_BILL_DAYS, capped below half of that bill's own interval. Null
+// when the bill has no occurrence within 45 days. Shared by the near-due
+// candidates and the pending-copy pairing, so both use one window.
+function nearestBillOccurrence(plan, eventId, date) {
+  const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
+    .filter(e => e.id === eventId).map(e => e.date)
+    .filter((d, i, all) => all.indexOf(d) === i).sort();
+  if (!occ.length) return null;
+  const dist = d => Math.abs(Forecast.diffDays(d, date));
+  const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
+  const i = occ.indexOf(nearest);
+  const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
+    i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
+  const interval = Math.min(...gaps);
+  return { date: nearest, off: dist(nearest), reach: Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1),
+    offsetDays: Forecast.diffDays(nearest, date) };
+}
+// The identity rules the near-due candidates and the pending-copy pairing
+// read: an explicit payee identity, debit direction, a mapped account, not a
+// transfer or a trust-on-due rule, naming a plan bill or obligation.
+function nearDueIdentityRules(opts, plan) {
+  return stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
+    && rule.direction === 'debit' && rule.atlasAccountId
+    && rule.transactionKind !== 'transfer'
+    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
+    && rulePayeePatterns(rule).length > 0
+    && isBillOrObligationEvent(plan, rule.eventId));
+}
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
@@ -5173,12 +5299,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   if (window && window.complete === false) return out;
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
-  const rules = stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
-    && rule.direction === 'debit' && rule.atlasAccountId
-    && rule.transactionKind !== 'transfer'
-    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
-    && rulePayeePatterns(rule).length > 0
-    && isBillOrObligationEvent(plan, rule.eventId));
+  const rules = nearDueIdentityRules(opts, plan);
   if (!plan || !rules.length) return out;
   // Posted household-cash debits that pass every gate below except date.
   const eligibleDebit = new Map();
@@ -5186,7 +5307,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     // Posted debits only: unresolved pending cash keeps its incumbent path
     // (it withholds precise funding until it posts or is resolved).
     if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
-    if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
+    // A posted row paired with its own pending copy (pendingPostedDuplicate)
+    // is still the payment: the pending side is the possible replacement,
+    // never counted. Without the hold it would be spent beside the reserve.
+    if (tx.pendingPostedAmbiguous === true) continue;
     const localId = existingLocalId(tx.providerTransactionId);
     if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
@@ -5198,21 +5322,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     for (const rule of rules) {
       if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
-      const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
-        .filter(e => e.id === rule.eventId).map(e => e.date)
-        .filter((d, i, all) => all.indexOf(d) === i).sort();
-      if (!occ.length) continue;
-      const dist = d => Math.abs(Forecast.diffDays(d, date));
-      const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
-      const i = occ.indexOf(nearest);
-      const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
-        i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
-      const interval = Math.min(...gaps);
-      const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
-      const off = dist(nearest);
+      const near = nearestBillOccurrence(plan, rule.eventId, date);
       // Same-day identity is the matcher's to settle or leave ambiguous.
-      if (off < 1 || off > reach) continue;
-      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
+      if (!near || near.off < 1 || near.off > near.reach) continue;
+      found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
@@ -5274,6 +5387,99 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
       else out.delete(row.localId);
     }
+  }
+  return out;
+}
+
+// Lead dispatch 2026-11-18 (after #1315): a bill payment first seen pending
+// on one day and posted on a later day, with no provider link between the two
+// rows, is one payment. The same-day pairing (flagUnresolvedPendingPostedDuplicates)
+// needs equal dates, and a pending identity debit off the due date is never a
+// near-due candidate, so the pending copy was spent beside the bill's reserve
+// or its payment. Here, per occurrence of one bill: exactly one unlinked
+// pending identity debit, within the occurrence's near-due reach (due date
+// included), and exactly one posted payment for that occurrence (the
+// matcher's posted settlement or a held near-due candidate), on the same
+// account, at the same amount to the cent, the pending dated on or before the
+// posted. The pending side takes the existing pendingPostedDuplicate
+// treatment (the posted payment counts once; the pending row stays listed as
+// an unresolved possible replacement, never spent and never dropped) and is
+// also marked pendingBillCopy, so the two places where an unresolved pending
+// row keeps a figure cautious still read it that way: an unclassified copy
+// still makes the category remaining claim classified-incomplete, and a copy
+// in the opening-to-payday gap still leaves that gap unproven. A pending row
+// the same-day pairing already flagged is marked too when it pairs here. The
+// posted payment is not flagged, so every consumer reads it as before.
+// Anything else (two pendings, two posted payments, a pending after the
+// posted row, a different amount or account) is left as it was.
+function pendingBillCopyIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals, nearDueBills) {
+  const out = new Set();
+  const window = opts && opts.transactionWindow;
+  if (window && window.complete === false) return out;
+  const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
+  const mapDoc = opts && opts.accountMap;
+  const rules = nearDueIdentityRules(opts, plan);
+  // Codex P2 on #1319: a posted row dated after the observation date is not
+  // yet in the period's actuals, so it is never evidence that a current
+  // pending row is its copy.
+  const observedOn = parseIsoDate(opts && opts.asOf);
+  if (!plan || !rules.length || !mapDoc || !observedOn) return out;
+  const byLocal = new Map();
+  for (const tx of collapsed || []) {
+    const localId = tx && existingLocalId(tx.providerTransactionId);
+    if (localId) byLocal.set(localId, tx);
+  }
+  const posted = new Map();
+  const addPosted = (key, localId) => {
+    const tx = byLocal.get(localId);
+    if (!tx || tx.pending === true) return;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date || date > observedOn) return;
+    const list = posted.get(key) || [];
+    if (!list.some(row => row.localId === localId)) list.push({ localId, amount, date, account: String(tx.providerAccountId) });
+    posted.set(key, list);
+  };
+  for (const row of representedActuals || []) {
+    if (!row || row.pending === true || !row.id || !row.date || !rules.some(rule => rule.eventId === row.id)) continue;
+    for (const localId of [].concat(row.transactionIds || (row.transactionId ? [row.transactionId] : []))) {
+      addPosted(row.id + '@' + row.date, localId);
+    }
+  }
+  for (const [localId, f] of nearDueBills || []) addPosted(f.id + '@' + f.date, localId);
+  const pending = new Map();
+  for (const tx of collapsed || []) {
+    if (!tx || tx.pending !== true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) continue;
+    const localId = existingLocalId(tx.providerTransactionId);
+    if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+    const mapping = mappingFor(mapDoc, tx.providerAccountId);
+    if (atlasAccountRole(mapping) !== 'household-cash' || !mapping.canonical) continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+    const keys = new Set();
+    for (const rule of rules) {
+      if (mapping.canonical.id !== rule.atlasAccountId) continue;
+      // A pending row has no posted receipt: like the pending-bill disclosure
+      // (collectIdentityHits), it reads the rule's identity fields only, and a
+      // rule that requires posted evidence still never pairs it.
+      if (!matchesIdentityFields(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
+      const near = nearestBillOccurrence(plan, rule.eventId, date);
+      if (!near || near.off > near.reach) continue;
+      keys.add(rule.eventId + '@' + near.date);
+    }
+    if (keys.size !== 1) continue;
+    const key = [...keys][0];
+    const list = pending.get(key) || [];
+    list.push({ localId, amount, date, account: String(tx.providerAccountId) });
+    pending.set(key, list);
+  }
+  for (const [key, pendings] of pending) {
+    const posts = posted.get(key) || [];
+    if (pendings.length !== 1 || posts.length !== 1) continue;
+    const [p] = pendings, [q] = posts;
+    if (p.account !== q.account || Math.abs(p.amount - q.amount) > IDENTITY_AMOUNT_EPSILON || p.date > q.date) continue;
+    out.add(p.localId);
   }
   return out;
 }
@@ -5457,6 +5663,20 @@ const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.start
   'criteria.granularity', 'criteria.quantity', 'criteria.anchorDate', 'criteria.currency',
   'criteria.plaidAccountId', 'criteria.manualAccountId', 'matches', 'matches.expectedOccurrenceDates',
   'matches.foundTransactions']);
+// Each reviewed, named item the review does not apply is recorded where it
+// is refused, with its Atlas plan row (only when exactly one plan row has the
+// one event id that names it, else null) and one closed reason code (lead
+// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
+const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
+  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
+  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
+  'expected-dates-mismatch']);
+const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
+// The plan-id shape a served refusal may carry: lowercase, starting with a
+// letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
+function recurringRefusalPlanId(v) {
+  return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
+}
 function sanitizedRecurringEvidence(raw, opts) {
   if (raw == null) return null;
   // A response that claims to continue beyond what it returned (paging keys
@@ -5497,11 +5717,17 @@ function sanitizedRecurringEvidence(raw, opts) {
         ? opts.existingLocalId(f.transactionId) : null).filter(Boolean))),
     });
   }
-  // The review's refusals, copied field by field into the closed shape.
-  const refused = (Array.isArray(opts.refused) ? opts.refused : []).map(r => ({
-    billId: r && typeof r.billId === 'string' ? r.billId : null,
-    obligationId: r && typeof r.obligationId === 'string' ? r.obligationId : null,
-    reasonCode: r && r.reasonCode }));
+  // The review's refusals, copied field by field into the closed shape. An
+  // id outside the plan-id shape reads null for that entry only, and an
+  // entry without a closed code is left out, so one bad entry never fails
+  // the whole block (recurringEvidenceLooksSanitized stays strict).
+  const refused = (Array.isArray(opts.refused) ? opts.refused : [])
+    .filter(r => r && RECURRING_REFUSAL_CODES.includes(r.reasonCode))
+    .map(r => {
+      const billId = recurringRefusalPlanId(r.billId) ? r.billId : null;
+      const obligationId = recurringRefusalPlanId(r.obligationId) ? r.obligationId : null;
+      return { billId, obligationId: billId ? null : obligationId, reasonCode: r.reasonCode };
+    });
   return { source: 'provider-observe:lunchmoney', status: 'read',
     window: { startDate: raw.read.requestedWindow?.startDate ?? null, endDate: raw.read.requestedWindow?.endDate ?? null },
     items, dropped, refused };
@@ -5587,15 +5813,6 @@ function applyRecurringSchedule(bill, schedule) {
   return out;
 }
 
-// Each reviewed, named item the review does not apply is recorded where it
-// is refused, with its Atlas plan row (only when exactly one plan row has the
-// one event id that names it, else null) and one closed reason code (lead
-// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
-const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
-  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
-  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
-  'expected-dates-mismatch']);
-const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
 function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   const refused = [];
   const done = schedules => ({ schedules, refused });
@@ -5773,7 +5990,7 @@ function recurringEvidenceLooksSanitized(block) {
   if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped', 'refused'])) return false;
   // A refusal is an Atlas plan row id (never a Lunch Money id, which is all
   // digits) or null, and one closed reason code; nothing else.
-  const planId = v => v === null || (typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v));
+  const planId = v => v === null || recurringRefusalPlanId(v);
   if (!Array.isArray(block.refused) || !block.refused.every(r => keysAre(r, RECURRING_REFUSAL_KEYS)
     && planId(r.billId) && planId(r.obligationId) && !(r.billId && r.obligationId)
     && RECURRING_REFUSAL_CODES.includes(r.reasonCode))) return false;
@@ -6345,6 +6562,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     asOf,
     ambiguousGroups: opts.ambiguousBillGroups,
   }, linkedLocalIds, existingLocalId, representedActuals);
+  const pendingBillCopies = pendingBillCopyIds(collapsed, {
+    transactionWindow: window,
+    identityRules: opts.identityRules,
+    planForIdentity: opts.planForIdentity,
+    plan: opts.plan,
+    accountMap: mapDoc,
+    asOf,
+  }, linkedLocalIds, existingLocalId, representedActuals, nearDueBills);
   const linkedMisfits = linkedBillMisfitIds(collapsed, {
     identityRules: opts.identityRules,
     planForIdentity: opts.planForIdentity,
@@ -6356,6 +6581,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     else if (tx) tx.representedBill = false;
     if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
       tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+    }
+    if (tx && tx.pending === true && pendingBillCopies.has(tx.id)) {
+      tx.pendingPostedDuplicate = true;
+      tx.pendingBillCopy = true;
     }
     // A near-due candidate is already named on its bill; one naming only.
     if (tx && tx.representedBill !== true && !tx.nearDueBillCandidate && linkedMisfits.has(tx.id)) {
@@ -6931,6 +7160,7 @@ const api = {
   applyRecurringObligationSchedule,
   RECURRING_OBLIGATION_FIELDS,
   RECURRING_REFUSAL_CODES,
+  sanitizedRecurringEvidence,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,

@@ -44,6 +44,7 @@
     if (parts.planUnavailable(ctx)) {
       return `<div class="payday-operating-sheet budget-surface" data-payday-sheet data-budget-surface="unavailable">
         ${card('unavailable', parts.unavailableHtml(ctx), { eyebrow: 'Budget', label: 'Current plan unavailable' })}
+        ${parts.estimatedLaterHtml ? card('later', parts.estimatedLaterHtml(ctx), { label: 'Later pay periods, estimated' }) : ''}
         ${movementsSection(ctx, parts)}
         ${parts.detailSheetHtml ? parts.detailSheetHtml() : ''}
       </div>`;

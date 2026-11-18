@@ -60,10 +60,14 @@ unconfirmed opening; an opening off a payday; a foreign or missing currency or
 amount; an unmapped or ambiguous account; unknown pending status; a card
 payment credit with no household cash leg (`coverage-payment-source-unconfirmed`);
 a cash payment debit with no card leg (`coverage-payment-destination-unconfirmed`);
-more than one candidate pairing (`coverage-payment-pair-ambiguous`); a card
-card payment paid from Weekly (`coverage-weekly-funded-payment-unmodeled`:
-its Bills-to-Weekly funding is already counted against the household hold,
-so it waits until that route is reconciled); a payment reversal larger than the period's payments.
+more than one candidate pairing (`coverage-payment-pair-ambiguous`); a
+payment reversal back to Weekly (`coverage-weekly-funded-payment-unmodeled`);
+a payment reversal larger than the period's payments.
+A card payment from Weekly covers the card once, like one from Bills (lead
+dispatch U3). Bills sees no debit for it. Its household-purchase share was
+funded by the Bills-to-Weekly transfer already counted against the household
+hold; its other share (a minimum, older debt) comes off that counted Weekly
+funding, never below zero, so the money is not released twice.
 Nothing is inferred from amount alone: equal cents are necessary, never
 sufficient.
 
