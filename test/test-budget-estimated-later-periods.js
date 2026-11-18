@@ -109,6 +109,25 @@ console.log('\n=== controls: healthy cash and an unresolved income occurrence sh
     'income unresolved: still unavailable, and no later period is shown (Forecast withholds them)');
 }
 
+console.log('\n=== a figure without an estimated trust word is never printed untagged ===');
+{
+  const p = plan();
+  const advice = F.recommend(p, AS_OF, Object.assign({ targetBuffer: 500, debts: [] }, UNCONFIRMED));
+  const first = advice.payPeriodViews.find(v => v && v.currentCashUnconfirmed);
+  first.incomeTrust = 'calculated';        // a stronger word than Forecast publishes
+  delete first.periodBillLoadTrust;        // no word at all
+  first.budgetHoldTrust = 'verified';
+  first.balanceAfterDeductionsTrust = 'unavailable';
+  const ctx = { advice, weekly: advice.weekly, recommended: advice.weekly, plan: p, asOf: AS_OF, debts: [], liveOverlay: null };
+  const block = period(laterCard(BudgetSurface.html(ctx, page.get('budgetSurfaceParts')())), first.start);
+  const texts = ['income', 'bills', 'household', 'balance-after-deductions'].map(k => {
+    const m = new RegExp(`data-estimated-term="${k}"><dt>[^<]*</dt><dd>([\\s\\S]*?)</dd>`).exec(block);
+    return m ? m[1] : null;
+  });
+  ok(texts.every(t => t === 'Unavailable'),
+    'calculated, missing, verified or unavailable trust prints Unavailable, never a bare or stronger figure', JSON.stringify(texts));
+}
+
 console.log('\n=== the page only prints Forecast fields ===');
 {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'plan.js'), 'utf8');

@@ -6766,13 +6766,13 @@ function budgetEstimatedLaterPeriodsHtml(ctx) {
   const periods = (advice.payPeriodViews || []).filter(p => p && p.currentCashUnconfirmed
     && p.currentCashUnconfirmed.status === 'estimated' && (!asOf || p.start > asOf));
   if (!periods.length) return '';
-  const tag = trust => trust === 'estimated'
-    ? ' <span class="trust-tag trust-estimated">estimate</span>'
-    : trust === 'unavailable' ? ' <span class="trust-tag">unavailable</span>' : '';
+  // Fail closed: only an amount Forecast tagged 'estimated' is printed, and
+  // always with its tag. Any other trust word (or none) prints Unavailable,
+  // so no released figure can appear untagged or more certain.
   const term = (label, amount, trust, key) => {
-    const known = amount != null && isFinite(Number(amount)) && trust !== 'unavailable';
+    const shown = trust === 'estimated' && amount != null && isFinite(Number(amount));
     return `<div class="estimated-later-term" data-estimated-term="${key}"><dt>${label}</dt>`
-      + `<dd>${known ? money2(Number(amount)) : 'Unavailable'}${tag(known ? trust : 'unavailable')}</dd></div>`;
+      + `<dd>${shown ? money2(Number(amount)) + ' <span class="trust-tag trust-estimated">estimate</span>' : 'Unavailable'}</dd></div>`;
   };
   const items = periods.map(p => `<article class="estimated-later-period" data-estimated-later-period="${escapeHtml(p.start)}">
       <h3 class="estimated-later-range">${escapeHtml(p.rangeLabel || (p.start + '–' + p.end))}</h3>
