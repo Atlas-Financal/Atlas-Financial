@@ -2702,7 +2702,7 @@ function collectIdentityHits(tx, input, rules) {
   const amount = lunchMoneyDebitAmount(tx.amount);
   const hits = [];
   for (const rule of rules || []) {
-    if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
+    if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
     if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
@@ -3021,6 +3021,52 @@ function salaryReceiptTransferHits(input, rules) {
   return hits;
 }
 
+// E2 (lead ruling 2026-11-18, #821 6967807281, under Dale's standing
+// direction; Dale may veto). A card minimum stays withheld from automatic
+// settlement (cardMinimumNeedsConfirmation: a card payment may be a purchase
+// backfill, not the minimum) except in one narrow case. The rule opts in
+// (settlementFrom), Lunch Money's own matches for its reviewed item are
+// consistent (stampLunchMoneyMatched), and Lunch Money paired exactly this
+// one payment with the cycle, where:
+//   - the cycle has a CONFIRMED statement (statementOccurrences, confidence
+//     confirmed) whose scheduled date is the paired occurrence;
+//   - the payment posted inside the cycle (after the previous occurrence, up
+//     to the statement's due date) and is at least that statement's minimum;
+//     and
+//   - no other linked payment of the rule posted in that cycle (after the
+//     previous occurrence, up to the statement's due date), and the fetched
+//     transaction window is complete and starts no later than the cycle's
+//     first day, so an earlier payment in the cycle cannot be missing.
+// Otherwise today's withholding stands: a payment below the minimum, two
+// payments in a cycle, or no confirmed statement (the plan's estimated
+// minimum never counts). coveringStatementCycleDates is untouched.
+function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
+  const row = ((plan && plan.obligations) || []).find(item => item && item.id === rule.eventId);
+  if (!row || row.effect !== 'payment' || !Array.isArray(row.statementOccurrences)) return false;
+  const original = Forecast.statementOccurrenceIdentity(plan, rule.eventId, date);
+  const statements = row.statementOccurrences.filter(r => r && r.scheduledDate === original);
+  if (statements.length !== 1) return false;
+  const statement = statements[0];
+  const minimum = Number(statement.minimum);
+  if (statement.confidence !== 'confirmed' || !realIsoDay(statement.dueDate) || !(Number.isFinite(minimum) && minimum > 0)) return false;
+  if (!(lunchMoneyDebitAmount(tx.amount) + IDENTITY_AMOUNT_EPSILON >= minimum)) return false;
+  const previous = Forecast.occurrences(row, Forecast.addDays(original, -62), Forecast.addDays(original, -1)).pop() || Forecast.addDays(original, -31);
+  if (!txWindow || txWindow.complete !== true || !realIsoDay(txWindow.startDate)
+    || txWindow.startDate > Forecast.addDays(previous, 1)) return false;
+  // The paired payment itself must post inside the cycle: a payment before
+  // the cycle starts, or after the statement is due, pays no part of it.
+  if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
+  const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
+    && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
+  return others.length === 0;
+}
+// True only for the narrow E2 case above, on the rule that opted in.
+function lmMatchedCardMinimum(tx, rule) {
+  const lm = tx && typeof tx === 'object' ? LM_MATCHED.get(tx) : null;
+  return !!(rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED && lm && lm.eventId === rule.eventId
+    && lm.date && lm.cardMinimum === true);
+}
+
 // S3: read which occurrences Lunch Money itself matched for an opt-in rule's
 // reviewed recurring item, and stamp each linked transaction of that rule
 // with the occurrence LM paired it to (LM_MATCHED date) or none (null). The
@@ -3044,7 +3090,7 @@ function salaryReceiptTransferHits(input, rules) {
 //     debit rule only). A credit rule's paired receipt settles at its actual
 //     amount: Lunch Money paired it, and Forecast publishes the represented
 //     actual, so no scheduled-amount guard is asked (Q1, lead 2026-11-18).
-function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring) {
+function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow) {
   for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
   const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
     && rule.eventId && (rule.direction === 'debit' || rule.direction === 'credit')
@@ -3107,7 +3153,13 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     });
     if (!consistent) continue;
     for (const tx of linked) LM_MATCHED.set(tx, { eventId: rule.eventId, date: null });
-    for (const { tx, date } of pairs) LM_MATCHED.set(tx, { eventId: rule.eventId, date });
+    // E2: a card minimum is otherwise withheld by cardMinimumNeedsConfirmation;
+    // the pairing marks only the narrow case that may settle it.
+    const card = cardMinimumNeedsConfirmation(plan, rule.eventId, accountMap);
+    for (const { tx, date } of pairs) {
+      LM_MATCHED.set(tx, { eventId: rule.eventId, date,
+        ...(card ? { cardMinimum: lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) } : {}) });
+    }
     applied.push({ eventId: rule.eventId, matchedDates: matched.length });
   }
   return applied;
@@ -3123,7 +3175,8 @@ function representedEventHitGroups(input) {
   const rules = stampRuleSetClaims(input.identityRules).filter(rule => {
     diagnostic?.rule(rule?.eventId);
     const eligible = ruleHasIdentity(rule, diagnostic)
-      && !cardMinimumNeedsConfirmation(input.plan, rule.eventId, input.accountMap);
+      && (!cardMinimumNeedsConfirmation(input.plan, rule.eventId, input.accountMap)
+        || rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED);
     diagnostic?.record(rule?.eventId, 'rule', !!eligible, eligible ? undefined : 'RULE_INELIGIBLE');
     return eligible;
   });
@@ -3144,6 +3197,8 @@ function representedEventHitGroups(input) {
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
     for (const rule of rules) {
+      // E2: an opted-in card rule is let through only for its narrow LM case.
+      if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
       if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
@@ -4398,7 +4453,7 @@ function observeCore(input, capture) {
     debts: (input.data && input.data.debts) || [],
   });
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
-    input.payload && input.payload.recurringItems);
+    input.payload && input.payload.recurringItems, normalized.transactionWindow);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
