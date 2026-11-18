@@ -21,6 +21,8 @@
 const H = require('./acceptance/harness.js');
 const Live = require('../scripts/live-plan');
 const F = require('../public/forecast.js');
+const ObservationMemory = require('../scripts/server-observation-memory.js');
+const { isDeepStrictEqual } = require('node:util');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -30,27 +32,35 @@ const ok = (cond, label, detail = '') => {
 const ID = '7123457';
 const BILL = { id: 'band', label: 'Invented band room', amount: 80, frequency: 'monthly', day: 20, firstDue: '2026-10-01',
   confidence: 'estimated', dateConfidence: 'estimated', payingAccount: 'chequing-a', householdObligation: true };
-const item = ({ granularity = 'month', quantity = 1, anchorDate = '2026-01-20', endDate = null, expected = ['2026-10-20'] } = {}) => ({
+const item = ({ granularity = 'month', quantity = 1, anchorDate = '2026-01-20', endDate = null, expected = ['2026-10-20'], amount = '80.0000' } = {}) => ({
   providerId: ID, status: 'reviewed', unavailableFields: [],
-  criteria: { startDate: '2026-01-01', endDate, granularity, quantity, anchorDate, currency: 'CAD', plaidAccountId: '9001', manualAccountId: null },
+  criteria: { startDate: '2026-01-01', endDate, granularity, quantity, anchorDate, amount, currency: 'CAD', plaidAccountId: '9001', manualAccountId: null },
   matches: { expectedOccurrenceDates: expected, foundTransactions: [], missingTransactionDates: expected } });
 const read = items => ({ status: 'read', read: { unexpectedPaginationEvidence: false,
   requestedWindow: { startDate: '2026-09-30', endDate: '2026-11-14' }, items } });
 
-function serve(recurringItems) {
+function serve(recurringItems, { replay = false } = {}) {
   const w = H.baseWorld('2026-10-14');
   w.bills = [{ ...BILL }];
   w.identityRules = w.identityRules.concat([{ eventId: 'band', lunchMoneyRecurringIds: [ID], atlasAccountId: 'chequing-a',
     direction: 'debit', requiredCurrency: 'cad', requiredPostingEvidence: 'posted',
     postingDateRule: 'covers-early-or-due-on-or-before-posting' }]);
-  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  w.transactions = [H.lm({ id: 659999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  // replay: the recurring read as replay memory retains it (live-plan
+  // re-evaluates that projection and keeps memory only on a deep-equal result).
+  const project = read => ObservationMemory.sourceInputs({ provider: 'lunchmoney', fetchedAt: '2026-10-14T18:00:00.000Z',
+    accounts: [], categories: [], tags: [], transactions: [],
+    transactionWindow: { startDate: '2026-09-30', endDate: '2026-10-14', complete: true, hasMore: false, truncated: false },
+    pendingCoverage: { complete: true, hasMore: false, truncated: false, basis: 'is_pending-unbounded' },
+    recurringItems: read }).recurringItems;
+  if (replay && recurringItems) recurringItems = project(recurringItems);
   H.productionOpening(w);
   const r = Live.fromObservation({ data: H.canonicalOf(w, H.planOf(w)),
     payload: { ...H.rawPayload(w), ...(recurringItems ? { recurringItems } : {}) },
     accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
   const bill = r.data.plan.bills.find(b => b.id === 'band');
   const walk = (from, to) => F.expandEvents(r.data.plan, from, to).filter(e => e.id === 'band').map(e => e.date);
-  return { applied: r.data.liveOverlay.applied, bill, walk };
+  return { applied: r.data.liveOverlay.applied, bill, walk, data: r.data };
 }
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const planStands = (s, why) => {
@@ -120,6 +130,40 @@ planStands(serve(read([item({ granularity: 'day', quantity: 10, anchorDate: '202
 planStands(serve(read([item({ granularity: 'week', quantity: 2, anchorDate: '2026-10-16', expected: ['2026-10-09'] })])),
   'expected dates off the mapped cadence');
 planStands(serve(read([{ ...item(), status: 'suggested' }])), 'a suggestion, not reviewed');
+
+console.log('5b. A cadence change leads only when the item expects the plan\'s amount each time (#1289 blocker 1)');
+{
+  // The served amount stays the plan's $80 per occurrence. LM every 2 weeks
+  // at $80 confirms $80 each time, so it leads (test 1). At $40 a time the
+  // plan's $80 would be served every 2 weeks, about double: it falls back,
+  // as it does with no amount. Within 1.5x either way is consistent:
+  // $60 (80 / 60 = 1.33) leads; $50 (80 / 50 = 1.6) falls back.
+  const biweekly = amount => serve(read([item({ granularity: 'week', quantity: 2, anchorDate: '2026-10-16',
+    expected: ['2026-10-02', '2026-10-16'], amount })]));
+  planStands(biweekly('40.0000'), 'item $40 every 2 weeks');
+  planStands(biweekly(null), 'item with no amount');
+  planStands(biweekly('50.0000'), 'item $50 (outside 1.5x)');
+  ok(biweekly('60.0000').bill.frequency === 'biweekly', 'item $60 (within 1.5x): biweekly leads');
+  planStands(serve(read([item({ granularity: 'year', anchorDate: '2026-03-15', expected: [], amount: '960.0000' })])),
+    'yearly item at $960 against the plan\'s $80');
+  // A day move on the same cadence needs no amount (#1283 unchanged).
+  const dayOnly = serve(read([item({ anchorDate: '2026-01-04', expected: ['2026-10-04'], amount: null })]));
+  ok(dayOnly.bill.frequency === 'monthly' && dayOnly.bill.day === 4 && dayOnly.bill.dateConfidence === 'confirmed',
+    'monthly to monthly with no amount: the day still leads', JSON.stringify([dayOnly.bill.frequency, dayOnly.bill.day]));
+}
+
+console.log('5c. Not a real calendar day: the plan stands');
+planStands(serve(read([item({ granularity: 'week', quantity: 2, anchorDate: '2026-02-30', expected: [] })])), 'anchor Feb 30');
+planStands(serve(read([item({ endDate: '2026-02-31' })])), 'end date Feb 31');
+
+console.log('5d. Replay memory: a cadence-led refresh replays from its retained projection to the same served data');
+{
+  const mk = () => read([item({ granularity: 'week', quantity: 2, anchorDate: '2026-10-16', expected: ['2026-10-02', '2026-10-16'] })]);
+  const live = serve(mk());
+  const replayed = serve(mk(), { replay: true });
+  ok(live.bill.frequency === 'biweekly' && replayed.bill.frequency === 'biweekly', 'both lead biweekly');
+  ok(isDeepStrictEqual(live.data, replayed.data), 'the replayed served data is deep-equal (memory would be stored)');
+}
 
 console.log('6. The owner-policy guard widens only to frequency and its phase fields on a scheduled bill');
 {

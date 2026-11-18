@@ -4218,12 +4218,14 @@ function observeCore(input, capture) {
   // so payment evidence and Forecast read the same occurrence dates (Codex P1,
   // #1281). Only day and dateConfidence of a mapper-supplied bill change, on
   // this observation's working copy of the plan; data.json is never written.
+  // Cadence too (#1289), and only with the item's own expected amount.
   const recurringReview = recurringBillScheduleReview(
     sanitizedRecurringEvidence(input.payload && input.payload.recurringItems,
       { identityRules: input.identityRules || (input.identity && input.identity.rules) || [],
         accountMap: mapDoc, existingLocalId: () => null }),
     input.identityRules || (input.identity && input.identity.rules) || [],
-    input.data && input.data.plan, dateOnly(normalized.fetchedAt));
+    input.data && input.data.plan, dateOnly(normalized.fetchedAt),
+    { amounts: recurringItemAmounts(input.payload && input.payload.recurringItems) });
   const recurringSchedules = recurringReview.schedules;
   if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
     const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
@@ -5458,8 +5460,35 @@ function sanitizedRecurringEvidence(raw, opts) {
 // zero or several rules, a bill named by several items, a once bill, a
 // paying account whose role does not match, or expected dates the mapped
 // cadence does not produce.
-function recurringBillSchedules(block, identityRules, plan, asOf) {
-  return recurringBillScheduleReview(block, identityRules, plan, asOf).schedules;
+function recurringBillSchedules(block, identityRules, plan, asOf, opts) {
+  return recurringBillScheduleReview(block, identityRules, plan, asOf, opts).schedules;
+}
+// Each reviewed item's expected amount per occurrence (criteria.amount, an
+// exact decimal string, or null), keyed by provider id, from the read itself.
+// Used only to test consistency; it never becomes a served amount.
+function recurringItemAmounts(raw) {
+  const out = new Map();
+  const items = raw && raw.status === 'read' && raw.read && Array.isArray(raw.read.items) ? raw.read.items : [];
+  for (const item of items) {
+    if (!item || item.providerId == null) continue;
+    const amount = item.criteria && typeof item.criteria.amount === 'string' ? Number(item.criteria.amount) : NaN;
+    out.set(String(item.providerId), Number.isFinite(amount) ? amount : null);
+  }
+  return out;
+}
+// A real calendar day: the ISO shape and a UTC round trip (no Feb 30).
+function realIsoDay(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(value + 'T00:00:00Z');
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+// #1289 blocker 1: a cadence change keeps the plan's per-occurrence amount,
+// so it is safe only when the reviewed item expects about that amount each
+// time. Consistent means within the bill matchers' share (1.5x) either way.
+function recurringAmountConsistent(itemAmount, planAmount) {
+  const a = Math.abs(Number(itemAmount)), b = Math.abs(Number(planAmount));
+  if (!(Number.isFinite(a) && a > 0 && Number.isFinite(b) && b > 0)) return false;
+  return Math.max(a, b) <= Math.min(a, b) * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
 }
 // The bill-schedule fields a reviewed Lunch Money item may set on the served
 // plan (owner decision, Dale 2026-11-18: cadence also comes from Lunch Money).
@@ -5494,7 +5523,7 @@ function applyRecurringSchedule(bill, schedule) {
   return out;
 }
 
-function recurringBillScheduleReview(block, identityRules, plan, asOf) {
+function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   const done = schedules => ({ schedules });
   if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
   const bills = Array.isArray(plan.bills) ? plan.bills : [];
@@ -5518,8 +5547,16 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf) {
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') continue;
+    if (!realIsoDay(item.anchorDate) || (item.endDate && !realIsoDay(item.endDate))) continue;
     const timing = recurringItemTiming(item);
     if (!timing) continue;
+    // A cadence change leads only when the item's expected amount per
+    // occurrence matches the plan's (the amount stays the plan's). A day move
+    // on the same cadence cannot change the load and needs no amount.
+    if (timing.frequency !== bill.frequency) {
+      const amounts = opts && opts.amounts instanceof Map ? opts.amounts : new Map();
+      if (!recurringAmountConsistent(amounts.get(item.recurringId), bill.amount)) continue;
+    }
     // An ended item stops the bill after its end date (lastDue).
     if (item.endDate) timing.lastDue = item.endDate;
     // Every date Lunch Money expects must be one Forecast expands from the
@@ -6695,6 +6732,7 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  recurringItemAmounts,
   applyRecurringSchedule,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,

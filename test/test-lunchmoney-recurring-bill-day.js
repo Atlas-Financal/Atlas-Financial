@@ -207,8 +207,9 @@ console.log('4b. Cadence leads: a monthly item reschedules a bill Atlas plans on
   const item = { recurringId: ID, granularity: 'month', quantity: 1, anchorDate: '2026-01-20', startDate: '2026-01-20', endDate: null,
     currency: 'cad', accountRole: 'household-cash', expectedDates: ['2026-10-20'], foundTransactionLocalIds: [] };
   for (const frequency of ['biweekly', 'weekly', 'quarterly', 'yearly']) {
+    // The item expects $80 a time, the plan's amount (#1289 blocker 1).
     const sched = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
-      { bills: [{ ...BILL, frequency }] }, '2026-10-14');
+      { bills: [{ ...BILL, frequency }] }, '2026-10-14', { amounts: new Map([[ID, 80]]) });
     ok(sched.length === 1 && JSON.stringify(sched[0].timing) === JSON.stringify({ frequency: 'monthly', day: 20 }),
       'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th', JSON.stringify(sched));
   }
