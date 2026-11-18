@@ -5635,7 +5635,8 @@ const AMOUNT_FIXED_EXCLUDED_SETTLES = new Set(['two-leg-sum', 'amount-at-least',
 // missing). `ambiguous` holds, per id, the dates of the rows another plan row's rules also
 // identify (left out of every row's payments); `unsupported` holds the ids
 // whose rule shape (two-leg sum, at least, trust on due, transfer) means one
-// debit is not one payment of the bill.
+// debit is not one payment of the bill; `duplicated` the ids one of whose
+// rows the read delivered more than once.
 function identifiedHistoryPayments(history, opts) {
   const plan = opts && opts.plan;
   const mapDoc = opts && opts.accountMap;
@@ -5683,6 +5684,16 @@ function identifiedHistoryPayments(history, opts) {
   const payments = new Map();
   const ambiguous = new Map();
   const unsupported = new Set();
+  // A posted row whose provider transaction id the read delivers more than
+  // once (or without one) has no single identity (Codex P1 on #1379): it is
+  // never one payment, so the row it would pay is `duplicated` instead.
+  const idSeen = new Map();
+  for (const tx of normalized) {
+    if (tx && tx.pending !== true && tx.providerTransactionId != null) {
+      idSeen.set(tx.providerTransactionId, (idSeen.get(tx.providerTransactionId) || 0) + 1);
+    }
+  }
+  const duplicated = new Set();
   for (const tx of normalized) {
     if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
     const date = parseIsoDate(tx.date);
@@ -5701,11 +5712,12 @@ function identifiedHistoryPayments(history, opts) {
     if (hits.some(rule => AMOUNT_FIXED_EXCLUDED_SETTLES.has(rule.settlesWhen) || rule.transactionKind === 'transfer')) {
       unsupported.add(ids[0]); continue;
     }
+    if (tx.providerTransactionId == null || idSeen.get(tx.providerTransactionId) !== 1) { duplicated.add(ids[0]); continue; }
     if (!payments.has(ids[0])) payments.set(ids[0], []);
     payments.get(ids[0]).push({ date, cents: Math.round(amount * 100) });
   }
   for (const rows of payments.values()) rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  return { plan, window, end, bills, identified, payments, ambiguous, unsupported };
+  return { plan, window, end, bills, identified, payments, ambiguous, unsupported, duplicated };
 }
 
 function derivedAmountFixedBills(history, opts) {
@@ -5719,7 +5731,7 @@ function derivedAmountFixedBills(history, opts) {
   for (const [id, rows] of payments) {
     const { row: bill, kind } = bills.get(id);
     const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
-    if (found.ambiguous.has(id) || found.unsupported.has(id) || !interval || bill.amountSchedule !== undefined
+    if (found.ambiguous.has(id) || found.unsupported.has(id) || found.duplicated.has(id) || !interval || bill.amountSchedule !== undefined
       || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
     // Two payments on one day are legs or a duplicate, not one fixed price.
     if (rows.some((row, i) => i > 0 && rows[i - 1].date === row.date)) continue;
@@ -5785,6 +5797,7 @@ function billPaymentHistory(history, opts) {
   out.months = months;
   for (const id of Array.from(found.identified).sort()) {
     if (found.unsupported.has(id)) { out.bills.push({ billId: id, status: 'unavailable', reason: 'paid-in-parts', payments: [] }); continue; }
+    if (found.duplicated.has(id)) { out.bills.push({ billId: id, status: 'unavailable', reason: 'duplicate-record', payments: [] }); continue; }
     const entry = { billId: id, status: 'complete',
       payments: (found.payments.get(id) || []).filter(row => row.date >= from)
         .map(row => ({ date: row.date, amount: row.cents / 100 })) };

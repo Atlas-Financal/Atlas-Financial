@@ -151,6 +151,7 @@
     'history-too-short': 'the payment history read does not reach back six months',
     'no-identity': 'this bill has no payment identity to find its payments by',
     'paid-in-parts': 'this bill is paid in parts, so one debit is not one payment',
+    'duplicate-record': 'Lunch Money returned one of this bill\u2019s payments more than once',
     summary: 'the payment history could not be summarised',
   };
   const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -175,7 +176,7 @@
     const entries = series.bills.filter(item => item && item.billId === row.id);
     if (!entries.length) return historyUnavailable('no-identity');
     if (entries.length > 1) return historyUnavailable('summary');
-    if (entries[0].status === 'unavailable') return historyUnavailable(entries[0].reason === 'paid-in-parts' ? 'paid-in-parts' : 'summary');
+    if (entries[0].status === 'unavailable') return historyUnavailable(['paid-in-parts', 'duplicate-record'].includes(entries[0].reason) ? entries[0].reason : 'summary');
     const F = forecast();
     const summary = F && typeof F.billPaymentHistorySummary === 'function'
       ? F.billPaymentHistorySummary(entries[0], series.months) : null;

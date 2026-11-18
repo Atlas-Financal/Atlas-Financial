@@ -166,6 +166,16 @@ console.log('3. Unavailable keeps "Unavailable" with a reason');
   ok(read(s.box('not-a-bill')).reason === 'no-identity', 'a row with no payment identity: Unavailable, no identity');
   const parts = serve({ bills: BILLS.map(b => (b.id === 'internet' ? { ...b, rule: { settlesWhen: 'two-leg-sum' } } : b)) });
   ok(read(parts.box('internet')).reason === 'paid-in-parts', 'a two-leg rule: Unavailable, paid in parts');
+  // Codex P1 on #1379: the read delivering one posted row twice (same provider id). By hand that is one $80 payment,
+  // never $160, so the row has no single identity: the box is Unavailable, and the bill is not derived fixed.
+  const sep = HISTORY.find(t => t.date === '2026-09-05');
+  const dup = serve({ history: { transactions: HISTORY.concat([{ ...sep }]) } });
+  const dupEntry = dup.series.bills.find(b => b.billId === 'phone');
+  ok(dupEntry && dupEntry.status === 'unavailable' && dupEntry.reason === 'duplicate-record' && dupEntry.payments.length === 0
+    && read(dup.box('phone')).reason === 'duplicate-record' && !/\$100\.00/.test(dup.box('phone')),
+  'a posted row delivered twice: Unavailable, never counted twice', JSON.stringify(dupEntry));
+  ok(dup.data.plan.bills.find(b => b.id === 'phone').amountFixed !== true, 'the same duplicate leaves the bill not derived fixed');
+  ok(read(dup.box('internet')).status === 'complete', 'other bills keep their history');
 }
 
 console.log('4. Replay equals live; memory keeps the clean series only');

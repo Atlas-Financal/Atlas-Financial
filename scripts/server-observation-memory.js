@@ -120,8 +120,8 @@ function billPaymentHistory(value) {
     if (!row || typeof row !== 'object' || typeof row.billId !== 'string' || !row.billId || ids.has(row.billId)
       || !Array.isArray(row.payments)) return null;
     ids.add(row.billId);
-    if (row.status === 'unavailable') return row.reason === 'paid-in-parts' && row.payments.length === 0
-      ? { billId: row.billId, status: 'unavailable', reason: 'paid-in-parts', payments: [] } : null;
+    if (row.status === 'unavailable') return ['paid-in-parts', 'duplicate-record'].includes(row.reason) && row.payments.length === 0
+      ? { billId: row.billId, status: 'unavailable', reason: row.reason, payments: [] } : null;
     if (row.status !== 'complete' || !row.payments.every(p => p && day(p.date) && cents(p.amount)
       && months.includes(p.date.slice(0, 7)) && p.date <= value.asOf)) return null;
     if (row.excludedAmbiguous !== undefined && !(Number.isInteger(row.excludedAmbiguous) && row.excludedAmbiguous > 0)) return null;
