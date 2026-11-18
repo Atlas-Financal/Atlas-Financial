@@ -229,8 +229,9 @@ const scenarios = [
     id: '7.12', basis: 'audit', name: 'a debit in an income category is never counted as income (D6)',
     // #962 D6. A 50 debit out of chequing in the income category "Payroll"
     // is money leaving, not income received. Income stays the 1,400 salary,
-    // the 50 sits in Other spending (needs a category), and the remainder is
-    // 1,400 - 400 planned household - 50 = 950, never 1,050.
+    // the 50 is held To confirm (rank 18, lead ruling under OD-021: never
+    // household spending; previously Other spending), and the remainder is
+    // 1,400 - 400 planned household - 50 held = 950, never 1,050.
     async run(H) {
       const w = txWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-12', amount: 50, category: 'Payroll', account: 'chequing-a', payee: 'Invented clawback' }));
@@ -241,7 +242,8 @@ const scenarios = [
         H.expect(payday === '$1,400.00', `D6: income stays 1,400 (got ${payday || 'nothing'})`);
         H.expectNoMatch(s.income, /Other income\s*\$50\.00/, 'D6: the debit is not other income');
         H.expectNoMatch(s.income, /Received\s*\$50\.00/, 'D6: the debit is not received income');
-        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$50\.00/, 'D6: the debit is Other spending of 50');
+        H.expectMatch(s.all, /To confirm\s*\$50\.00\s*1 payment · not counted as spending/, 'D6: the debit is held To confirm: 50');
+        H.expect(!H.category(s, 'Other spending').includes('50.00'), 'D6: the debit is not Other spending');
         const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
         const bad = m ? m[1].replace('−', '-') : '';
         H.expect(bad === '$950.00', `D6: 1,400 - 400 - 50 = 950 (got ${bad || 'nothing'})`);

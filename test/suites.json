@@ -607,6 +607,7 @@
   ["acceptance harness serves production's opening shape (a posted bill is deducted once)","test-acceptance-harness-opening.js"],
   ["acceptance harness never reads the household periods file","test-acceptance-harness-hermetic-periods.js"],
   ["an unplanned bill-labelled charge stays visible and deducted; only a planned bill match is a bill (Budget audit)","test-unplanned-bill-label-counted.js"],
+  ["a loan payment or reversed income is held To confirm, never consumption, and deducted once (rank 18)","test-held-outflow-not-consumption.js"],
   ["a pending card charge occupies a card-paid bill only at its exact amount (Budget audit)","test-pending-card-bill-exact-amount.js"],
   ["this-payday already-paid set and cancelled CMAW drop","test-this-payday-already-paid.js"],
   ["automatic-payment settlement reconciliation","test-automatic-payment-settlement.js"],

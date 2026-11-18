@@ -18,7 +18,9 @@
  *      deposit Lunch Money filed under a household category is that
  *      category's refund, never automatic Other income.
  *   3. Rows that used to vanish land in their row or in Other: "Mortgage"
- *      with no planned mortgage payment, "Personal Loan Payment", and
+ *      with no planned mortgage payment (on a card; from household cash it
+ *      is held To confirm and deducted once as its own term, rank 18),
+ *      "Personal Loan Payment", and
  *      "Other Bank Fees" on a card. A card payment (TD "TFR-TO C/C" or
  *      CAN TIRE MC) stays a card payment under every label, including a
  *      spending one: it moves money between the household's own accounts
@@ -27,7 +29,8 @@
  *      posted household debit lands in exactly one place, either one
  *      household row (a category or Other) or an owner whose cash is
  *      deducted elsewhere (planned bill or mortgage, transfer, card payment,
- *      business, interest, external, savings). A row dropped by a bare
+ *      business, interest, external, savings, a held household-cash
+ *      Mortgage debit under the held term). A row dropped by a bare
  *      "bill-label" or "debt-payment" result with no planned coverage fails.
  */
 const F = require('../public/forecast.js');
@@ -196,7 +199,7 @@ const CARD = { accountRole: 'revolving-credit', atlasAccountId: 'cashback' };
 console.log('\n=== 3. rows that used to vanish land in their row or in Other ===');
 {
   const cases = [
-    ['Mortgage, no planned mortgage payment', debit('tx-mort', 'Mortgage'), syntheticPlan()],
+    ['Mortgage on a card, no planned mortgage payment', debit('tx-mort', 'Mortgage', CARD), syntheticPlan()],
     ['Personal Loan Payment', debit('tx-loan', 'Personal Loan Payment'), syntheticPlan()],
     ['Other Bank Fees on a card', debit('tx-fee', 'Other Bank Fees', CARD), syntheticPlan()],
   ];
@@ -204,6 +207,17 @@ console.log('\n=== 3. rows that used to vanish land in their row or in Other ===
     const p = current([tx], plan);
     ok(rowsHolding(p, tx.id).length === 1 && rowsHolding(p, tx.id)[0] === otherRow(p).id,
       what + ' is Other spending, counted once', JSON.stringify(rowsHolding(p, tx.id)));
+  }
+  // Rank 18: from household cash, a Mortgage debit with no planned mortgage
+  // payment is held To confirm: in no household row, its cash deducted once
+  // by the held term (test-held-outflow-not-consumption.js proves the term).
+  {
+    const tx = debit('tx-mort-cash', 'Mortgage'), plan = syntheticPlan();
+    const p = current([tx], plan);
+    const cls = F.classifyCurrentPeriodTransaction(tx, plan, { currentPeriodActuals: packet([tx]) });
+    ok(rowsHolding(p, tx.id).length === 0 && cls.kind === 'held-outflow',
+      'Mortgage from household cash, no planned mortgage payment, is held To confirm, not a household row',
+      JSON.stringify({ rows: rowsHolding(p, tx.id), kind: cls.kind }));
   }
   // Mortgage under a planned mortgage payment stays out of spending: the
   // debt walk deducts that cash (the incumbent double-deduction guard).
@@ -247,6 +261,9 @@ console.log('\n=== 4. conservation: every posted household debit lands in exactl
     if (TRANSFER_LABELS.includes(label)) return 'transfer';
     if (label === 'business') return 'business';
     if (label === 'mortgage' && (plan.obligations || []).some(o => o.debtId === 'mortgage' && Number(o.amount) > 0)) return 'bill';
+    // Rank 18: a household-cash Mortgage debit no owner claims is held.
+    if (label === 'mortgage' && tx.accountRole === 'household-cash'
+      && !/CAN TIRE MC|TFR-TO C\/C/.test(tx.displayedPayee)) return 'held-outflow';
     return null;
   };
   const LABELS = ['Groceries', 'Household', 'Restaurants', 'Mortgage', 'Personal Loan Payment',

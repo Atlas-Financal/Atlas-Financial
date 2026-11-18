@@ -2279,7 +2279,8 @@ function householdBudgetMetric(label, amount, opts) {
     ? `<span class="est">≈ estimated</span> ${plain}`
     : plain;
   const recon = opts && Array.isArray(opts.recon) ? opts.recon : null;
-  if (label === 'Spent' && recon && recon.length) {
+  // Rank 18: the To confirm block lists its rows the same way, under its own label.
+  if ((label === 'Spent' || (opts && opts.listRows === true)) && recon && recon.length) {
     const esc = v => String(v == null ? '' : v)
       .replace(/&/g, '\u0026amp;')
       .replace(/</g, '\u0026lt;')
@@ -2328,8 +2329,8 @@ function householdBudgetMetric(label, amount, opts) {
       const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
         ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
         : '';
-      // Display-only (Forecast owns the date): a Mortgage-labelled row counted
-      // here while the plan's earlier mortgage occurrence is still To confirm.
+      // Display-only (Forecast owns the date): a Mortgage-labelled row held To
+      // confirm while the plan's earlier mortgage occurrence is still To confirm.
       const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
         ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
         : '';
@@ -2372,11 +2373,11 @@ function householdBudgetMetric(label, amount, opts) {
       ? `<p class="household-budget-tx-total"><span>Total</span><span data-budget-spent-total="${spentId}">${value}</span></p>`
       : '';
     return `<div class="${cls} household-budget-spent-openable">
-      <dt>Spent</dt>
+      <dt>${label}</dt>
       <dd>
         <details class="household-budget-spent-detail" data-budget-spent="${spentId}">
           <summary class="household-budget-spent-summary">
-            <span class="household-budget-spent-label">Spent</span>
+            <span class="household-budget-spent-label">${label}</span>
             <span class="household-budget-spent-amount">${value}</span>
           </summary>
           <div class="household-budget-breakdown" data-budget-spent-detail>
@@ -2620,9 +2621,21 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
       <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings', unavailableText: 'Unavailable' })}</dl>
     </div>`;
   }
+  // Rank 18: a loan/mortgage payment or reversed income no owner claimed.
+  // Forecast holds it To confirm, out of every category and Other, and
+  // deducts it once as its own Balance After Deductions term. Print
+  // Forecast's rows and total; never sum them here.
+  function heldOutflowsHtml(period) {
+    const held = period && period.heldOutflowsToConfirm;
+    if (!held || !Array.isArray(held.recon) || !held.recon.length) return '';
+    return `<div class="household-budget-other" data-budget-category="to-confirm" data-budget-held-outflows>
+      <h3 class="household-budget-name">To confirm</h3>
+      <dl class="household-budget-metrics">${householdBudgetMetric('Not counted as spending', held.total, { recon: held.recon, id: 'to-confirm', unavailableText: 'Unavailable', listRows: true })}</dl>
+    </div>`;
+  }
   return `<div class="payday-household-budget" data-payday-household-budget>
     ${cycle}
-    <div class="household-budget-list">${blocks}${savingsPaidSpendingHtml(period)}</div>
+    <div class="household-budget-list">${blocks}${heldOutflowsHtml(period)}${savingsPaidSpendingHtml(period)}</div>
     ${reserveInfo}
   </div>`;
 }
@@ -3903,13 +3916,15 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // own named term (A4b). It is printed only when Forecast publishes it, so every
   // other period is unchanged and the printed terms add up to the printed result.
   const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
+  // Rank 18: held outflows (To confirm), deducted once as their own term.
+  const badHeldTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'heldOutflowSpending');
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote}</p>` : ''}
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badHeldTermPublished ? badTermRow('heldOutflowSpending', 'To confirm (not spending)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);
@@ -6249,6 +6264,17 @@ function budgetSpendingSectionHtml(period, ctx) {
       <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
       ${reflected ? `<p>${reflected}</p>` : ''}</div>`;
   }
+  // Rank 18: held outflows (a Mortgage-labelled or income-category debit no
+  // owner claims), listed under Spending as plain markup like Paid from
+  // Savings, never a .budget-category-row. Forecast's total prints as
+  // published; it is deducted once as its own Balance After Deductions term.
+  function budgetHeldOutflowsBrowseHtml(period) {
+    const held = period && period.heldOutflowsToConfirm;
+    if (!held || !Array.isArray(held.recon) || !held.recon.length) return '';
+    const n = held.recon.length;
+    return `<div class="budget-browse-note" data-budget-held-outflows-browse>
+      <p><strong>To confirm</strong> <span>${budgetBrowseMoney(held.total)}</span> <small>${n} ${n === 1 ? 'payment' : 'payments'} · not counted as spending</small></p></div>`;
+  }
   // LEDGER A item 3 (Grok Bot, rule 17): posted refunds the ledger does not link to a purchase. Forecast
   // publishes them display-only; they are in no category, not in Other and not in any total.
   function budgetUnlinkedRefundsBrowseHtml(period) {
@@ -6265,7 +6291,7 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
-    ${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
+    ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
     <footer><button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }

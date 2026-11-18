@@ -331,6 +331,10 @@ Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money'
 
 Until then the stopgap stands aside only in an observation where LM's pairing took charge of payroll; with no consistent read it applies as before. Proof: the private exact base/head diff, LM's expected dates against Forecast's paydays for 12 months, then Dale's walk (rule 15). Closure is reached when the late-Monday case stays live through the LM pairing and the payday reads received rather than To confirm.
 
+**Linked savings-item spending is carried when actuals coverage is lost** · *#1323 review (rank 18), 2026-11-18; ADDED TO BACKLOG*
+
+`savingsItemCycleSpend` is deducted from Balance After Deductions and the planned close only when `budget.spentReady` is true. When actuals coverage is lost, or one category is withheld, the item term is 0 while the linked charges (kind `savings-item`) are out of every category and Other, so the household cash carried to the next period does not deduct them. The gate is deliberate on main ("linked equals unlinked": an unlinked category purchase is not counted by the lost-coverage hold either), so both understate together. #1323 repaired only the held-outflow term, whose twin was Other spending (which the lost-coverage hold does count). Next action: decide whether known posted linked charges are carried out of cash on the lost-coverage paths, as held outflows now are, with a hand-derived carry test. Owner: lead.
+
 **A grouped Savings card payment counts** · *lead U5 ruling, 2026-11-18; ADDED TO BACKLOG from the U5 PR*
 
 A Lunch Money card-payment group (U5) counts only with a household-cash debit (Bills or Weekly). A group of a Savings (household-reserve) debit and a card credit withholds as "another shape" (`coverage-payment-group-unconfirmed`), although the same payment ungrouped already pairs (owner rule: money onto the card counts from Savings). Next action: decide whether a grouped Savings debit proves the destination like a grouped Bills debit, and if so admit `household-reserve` in `cardPaymentGroup` and the group step of `reconcileCardPurchases` in `public/forecast.js`, with a hand-derived test. Owner: lead.
