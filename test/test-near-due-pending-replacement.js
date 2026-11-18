@@ -36,7 +36,7 @@ const ok = (cond, label, detail = '') => {
 const TAG_KEY = /trust|confidence|claim|certain|verified|precis/i;
 
 let nextId = 990000;
-const debit = (date, { pending = false, raw } = {}) => H.lm({ id: ++nextId, date, amount: 100, account: 'chequing-a',
+const debit = (date, { pending = false, raw, amount = 100 } = {}) => H.lm({ id: ++nextId, date, amount, account: 'chequing-a',
   payee: 'Invented Hydro', category: 'Utilities', pending, raw });
 
 function serve(txs, asOf = '2026-10-17') {
@@ -55,7 +55,8 @@ function serve(txs, asOf = '2026-10-17') {
   const adv = F.recommend(r.data.plan, w.asOf, { currentPeriodActuals: packet, debts: r.data.debts });
   const current = adv.defaultView.calendarPeriods.find(p => p.start <= asOf && p.end >= asOf);
   const bill = (current.bills || []).find(b => b.id === 'hydro' && b.date === '2026-10-15');
-  const rows = (packet.transactions || []).filter(t => Math.abs(Number(t.amount)) === 100).map(t => ({
+  const rows = (packet.transactions || []).filter(t => t.category === 'Utilities' || /hydro/i.test(String(t.payee || t.description || '')) || [90, 100, 100.01].includes(Math.abs(Number(t.amount)))).map(t => ({
+    amount: Math.abs(Number(t.amount)),
     date: t.date, pending: t.pending === true,
     cls: F.classifyCurrentPeriodTransaction(t, r.data.plan, { currentPeriodActuals: packet }),
   }));
@@ -127,6 +128,31 @@ console.log('4. No trust, confidence or claim field moves from main (pending on 
   // Control: a posted payment late on its own (no pending copy) keeps main's claim too.
   const late = serve([debit('2026-10-17')]);
   ok(late.claim === 'precise', 'control: a lone late posted payment held To confirm reads precise, as on main', late.claim);
+}
+
+console.log('5. Pending on the due date, then a posted debit at a different amount (#1315 re-review note)');
+{
+  // Hand-derived, same world (income 1400, Household 400, the 100 bill reserved once: 900 with no other spend).
+  // The posted debit is that pending charge posting only if it is the pending amount to the cent. Any other amount
+  // may be a separate charge beside a bill still pending, so the cautious reading keeps the bill reserved (pending)
+  // and counts the posted debit as spending: 900 - 90 = 810, and 900 - 100.01 = 799.99. Reading the 90 as the bill
+  // would publish 900, overstating cash by 90 whenever it is a second charge.
+  for (const [label, amount, balance] of [['90 (a lower final amount, or a separate charge)', 90, 810], ['100.01 (one cent over)', 100.01, 799.99]]) {
+    const s = serve([debit('2026-10-15', { pending: true }), debit('2026-10-16', { amount })]);
+    const posted = s.rows.find(r => !r.pending && r.amount === amount);
+    ok(s.balance === balance, `posted ${label}: balance after deductions ${balance}, never 900`, String(s.balance));
+    ok(s.remaining === 100 && s.bill.status === 'pending', `posted ${label}: the bill stays reserved once and reads Payment pending`,
+      JSON.stringify([s.remaining, s.bill.status]));
+    ok(posted && spends(posted), `posted ${label}: the posted debit is household spending, not held on the bill`, JSON.stringify(posted && posted.cls));
+  }
+  // Controls: the exact amount is the pending charge posting (900, section 1); a lower posted debit with no
+  // pending copy keeps the incumbent near-due tolerance (held To confirm on the bill, 900).
+  const exact = serve([debit('2026-10-15', { pending: true }), debit('2026-10-16')]);
+  ok(exact.balance === 900, 'control: posted at exactly the pending 100.00 is that charge posting: 900', String(exact.balance));
+  const alone = serve([debit('2026-10-16', { amount: 90 })]);
+  const held = alone.rows.find(r => !r.pending && r.amount === 90);
+  ok(alone.balance === 900 && held && held.cls.reason === 'near-due-bill-unconfirmed',
+    'control: a lone posted 90 with no pending copy keeps the incumbent tolerance (held To confirm, 900)', JSON.stringify([alone.balance, held && held.cls.reason]));
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
