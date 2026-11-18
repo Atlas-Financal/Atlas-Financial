@@ -275,7 +275,7 @@ console.log('8. The assistant packet: forward walks withheld, the rest estimated
     && combined.forecast.cardCoverageEstimate.toConfirmCount === 2, 'beside a payment: the combined basis and two rows');
 }
 
-console.log('9. Every published figure, never above the truth');
+console.log('9. Every published figure on the cautious side of the truth');
 {
   const Live = require('../scripts/live-plan');
   const Snapshot = require('../scripts/figures-snapshot');
@@ -285,17 +285,25 @@ console.log('9. Every published figure, never above the truth');
     /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/];
   // The single named pre-existing exception (#1358, lead's call): the Plan
   // tab's raw walk, drawn only inside the hidden, inert #road-ahead (#1365).
+  const MIN_CAUTIOUS = 20;
   const RAW_WALK = [/^plan\.endingCash$/, /^plan\.lowestCash$/, /^plan\.bindingBalance$/];
   const compare = (degradedRows, truthRows, opts, why) => {
     const d = snapOf(degradedRows, opts), t = snapOf(truthRows, opts);
-    let compared = 0;
+    let compared = 0, cautious = 0;
     for (const [k, v] of Object.entries(d)) {
       if (typeof v !== 'number' || typeof t[k] !== 'number') continue;
-      if (CAUTIOUS.some(re => re.test(k)) || RAW_WALK.some(re => re.test(k))) continue;
+      if (RAW_WALK.some(re => re.test(k))) continue;
+      // What is still owed or reserved may only be overstated.
+      if (CAUTIOUS.some(re => re.test(k))) {
+        cautious++;
+        check(v >= t[k] - 0.005, `${why}: published ${k} ${v} >= truth ${t[k]}`);
+        continue;
+      }
       compared++;
       check(v <= t[k] + 0.005, `${why}: published ${k} ${v} <= truth ${t[k]}`);
     }
     check(compared >= 20, `${why}: compared ${compared} published figures`);
+    check(cautious >= MIN_CAUTIOUS, `${why}: compared ${cautious} cautious figures`);
   };
   compare([purchase, unknown()], [purchase, asNonPayment()], {}, 'vs non-payment');
   compare([purchase, unknown()], [purchase, asRefund()], {}, 'vs refund');
