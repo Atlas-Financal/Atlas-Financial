@@ -245,6 +245,7 @@
   ["card coverage: one posted card credit of unconfirmed purpose (payment or refund) is counted as neither, a cautious estimate never above the truth, To confirm; pending credits and other issues still withhold","test-card-credit-purpose-estimate.js"],
   ["card coverage: one posted card payment credit with no household cash leg near it counts toward no card, a cautious estimate never above the truth, To confirm; contradicting near legs, other issues and pending credits still withhold","test-card-payment-source-estimate.js"],
   ["card coverage: a Budget figure estimated only by card coverage shows the bank data's date instead of the estimate word (Dale, 2026-11-18); trust, data-trust and other causes unchanged","test-card-estimate-as-of-date.js"],
+  ["Budget page never blanks: under a whole-plan hold the current pay period stays as a shell, every figure Unknown with the withhold reason, no number filled in (Dale, 2026-11-18)","test-budget-shell-never-blanks.js"],
   ["a noted TD minimum is confirmed by the card's paired credit, else To confirm (U4)","test-card-payment-note-minimum.js"],
   ["equal same-day payments to two cards pair by their notes, in both directions","test-card-payment-reverse-destination.js"],
   ["TD rewards redemption card credit is a known non-payment credit (Grok Bot ruling)","test-td-rewards-redemption.js"],

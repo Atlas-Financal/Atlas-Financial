@@ -1081,12 +1081,47 @@ function providerBalanceDate(liveOverlay) {
   return null;
 }
 
+// The retained picture's own time (its complete cohort), household time zone.
+function retainedPictureTime(retained) {
+  return retained && typeof retained.observedAt === 'string' && Number.isFinite(Date.parse(retained.observedAt))
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(retained.observedAt))
+    : null;
+}
+
+// Dale, 2026-11-18: "If we have a failure where the whole page goes down we
+// should just keep it at the last full picture." The server already serves
+// the retained last complete publication wholesale (live-plan
+// withLatestCompleteRefresh: its own financial date stays Forecast's basis,
+// nothing is mixed with today's partial data). This banner says so plainly,
+// in place of OD-3's dated-plan note in this failure state only.
+// One line per closed attempt reason (live-plan withLatestCompleteRefresh).
+const RETAINED_PICTURE_REASONS = Object.freeze({
+  'provider-unavailable': 'the bank connection did not answer.',
+  'provider-request-timeout': 'the bank connection did not answer in time.',
+  'stale-live-cash-evidence': 'the bank balances were not current.',
+  'missing-live-cash-evidence': 'a bank balance was missing.',
+  'pending-freshness-unproven': 'pending transactions could not be confirmed as current.',
+  'posted-window-truncated': 'the transaction history came back incomplete.',
+  'posted-window-unproven': 'the transaction history could not be confirmed complete.',
+  'live-refresh-unavailable': 'the refresh did not finish.',
+  'live-refresh-timeout': 'the refresh took too long.',
+  'live-refresh-invalidated': 'the refresh was superseded before it finished.',
+  'live-refresh-busy': 'another refresh was already running.',
+  'current-observation-unavailable': 'the current bank data is unavailable.',
+});
+function retainedPictureBannerHtml(liveOverlay) {
+  const retained = liveOverlay?.retainedRefresh;
+  if (!retained) return '';
+  const time = retainedPictureTime(retained) || 'an earlier refresh (time unavailable)';
+  const reason = RETAINED_PICTURE_REASONS[retained.attempt?.reason] || RETAINED_PICTURE_REASONS['current-observation-unavailable'];
+  return `<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>`
+    + `Showing the last full picture from ${escapeHtml(time)}. Today's update couldn't be completed: ${escapeHtml(reason)}</p>`;
+}
+
 function latestCompleteRefreshNote(liveOverlay) {
   const retained = liveOverlay?.retainedRefresh;
   if (!retained) return null;
-  const time = typeof retained.observedAt === 'string' && Number.isFinite(Date.parse(retained.observedAt))
-    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(retained.observedAt))
-    : 'date/time unavailable';
+  const time = retainedPictureTime(retained) || 'date/time unavailable';
   return `Latest complete refresh: ${time}. Dated plan, not current balances. Current refresh ${retained.attempt?.checkedAt ? 'incomplete' : 'unavailable'}.`;
 }
 
@@ -5399,6 +5434,37 @@ function wirePlanLookPicker(mount, ctx) {
  * incumbent Forecast result passed in by renderPlan. This formats those
  * fields only: it does not call Forecast, add an allocation, choose a debt
  * target, total a bucket, invent freshness, or decide feasibility. */
+// Dale, 2026-11-18: "The budget page for no reason should ever go blank."
+// While the current plan is unavailable (operatingPlan 'unavailable': no
+// complete refresh retained, a live refresh that failed closed, or income
+// reconciliation unavailable), the current pay period stays on the page as
+// a shell. Forecast withholds every figure of this period then, so each
+// shows "Unknown" with the withhold reason; nothing is filled in from the
+// plan, a fallback or a stale balance, and no number is printed here. Bank
+// balances stay where they already are, with their dates (the unavailable
+// card above and the card strip). Forward walks and proposals stay withheld.
+const UNAVAILABLE_PERIOD_SHELL_ROWS = [
+  ['Income', 'income'], ['Bills', 'bills'], ['Household budget', 'household'],
+  ['Balance After Deductions', 'balance-after-deductions'], ['Spending this period', 'spending'],
+  ['Available now', 'available-now'],
+];
+function unavailablePeriodShellHtml(ctx) {
+  const advice = ctx.advice || {};
+  const rows = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews.filter(Boolean) : [];
+  const period = rows.find(row => row.timelineRole === 'current') || null;
+  if (!period) return '';
+  const range = isValidIsoCalendarDate(period.start) && isValidIsoCalendarDate(period.end)
+    ? `${fmtDate(period.start)} – ${fmtDate(period.end)}` : 'Dates unavailable';
+  const reason = liveOperatingPlanNote(advice, ctx.liveOverlay || null);
+  const items = UNAVAILABLE_PERIOD_SHELL_ROWS.map(([label, key]) => `<div class="operating-line" data-unavailable-shell-row="${key}">
+      <dt>${escapeHtml(label)}</dt><dd data-trust="unknown" title="${escapeHtml(reason)}">Unknown</dd></div>`).join('');
+  return `<div class="budget-unavailable-shell" data-budget-unavailable-shell>
+    <p class="operating-lead">This pay period · ${escapeHtml(range)}</p>
+    <dl class="budget-unavailable-shell-figures">${items}</dl>
+    <p class="operating-note" data-unavailable-shell-reason>Unknown: ${escapeHtml(reason)}</p>
+  </div>`;
+}
+
 function unavailableOperatingSurfaceHtml(ctx) {
   const advice = ctx.advice || {};
   const liveOverlay = ctx.liveOverlay || null;
@@ -6608,6 +6674,7 @@ function budgetSurfaceParts() {
   return {
     planUnavailable: ctx => liveOperatingPlanUnavailable(ctx.advice || {}, ctx.liveOverlay),
     unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx),
+    unavailablePeriodHtml: ctx => unavailablePeriodShellHtml(ctx),
     estimatedLaterHtml: ctx => budgetEstimatedLaterPeriodsHtml(ctx),
       headerHtml: ctx => budgetWindowHeaderHtml(ctx),
       detailSheetHtml: () => budgetDetailSheetHtml(),
@@ -6646,14 +6713,22 @@ function budgetSurfaceHtml(ctx) {
   // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
   // the small "Last updated" line only. The note stays only when no such line
   // can be printed, so a dated view is never shown without any freshness line.
-  const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
+  // For a retained picture (Dale, 2026-11-18) the banner below says it is the
+  // last full picture and why today's update failed, so the dated-plan note
+  // goes. The small "Last updated" line stays: it is the bank's own last
+  // sync, a different and possibly older time than the picture's.
+  const retained = !!ctx.liveOverlay?.retainedRefresh;
+  const dated = retained || updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
   // A dated or retained view marks its evidence day so the current-period chip reads
   // "As of <day>", never "Now" (public/budget-blend.js).
   const evidenceDay = ctx.liveOverlay?.retainedRefresh && Forecast.financialDate(ctx.asOf) ? Forecast.financialDate(ctx.asOf) : null;
+  const body = budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
+    + BudgetSurface.html(ctx, budgetSurfaceParts());
   return (evidenceDay ? `<span hidden data-budget-evidence-dated="${escapeHtml(evidenceDay)}"></span>` : '')
+    + retainedPictureBannerHtml(ctx.liveOverlay)
     + (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
-    + budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
-    + BudgetSurface.html(ctx, budgetSurfaceParts())
+    // A retained picture is shown unchanged, in a muted page state.
+    + (retained ? `<div class="budget-retained-picture" data-budget-retained-picture>${body}</div>` : body)
     + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
 }
 
@@ -6870,7 +6945,7 @@ function paydayAnswerHtml(ctx) {
           }</div>`
         : ''
     }${
-      r.trust === 'estimated' && r.estimateReason === 'lunch-money-budget-carried-forward'
+      r.trust === 'estimated' && r.estimateReason === Forecast.LUNCH_MONEY_BUDGET_CARRIED
         ? '<div class="payday-item-note">Estimated: Lunch Money has no budget set for this month yet, so last month\'s is used.</div>' : ''
     }</td><td>${r.trust === 'estimated'
       ? est(money2(hasRemaining && r.remaining != null ? r.remaining : r.required))
@@ -6884,7 +6959,7 @@ function paydayAnswerHtml(ctx) {
     essentialSummary = `<p class="payday-qual">Required for period: ${essMoney(ess.wanted)}</p>
       <p class="payday-qual">Cash available for essentials: ${essMoney(ess.allocated)}</p>${
         short > 0
-          ? `<p class="payday-qual">Essential shortfall: ${money2(short)}. This is not the full amount needed, and it is not a spending allowance.</p>`
+          ? `<p class="payday-qual">Essential shortfall: ${essMoney(short)}. This is not the full amount needed, and it is not a spending allowance.</p>`
           : ''
       }${
         attributed === 'unattributed'
