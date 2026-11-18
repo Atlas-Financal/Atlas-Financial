@@ -246,7 +246,7 @@ if (!isMainThread) {
     }));
     return { accountMap: map, categoryMapping: categories };
   }
-  function retainedDisplay(canonical, env, accountId, attempt, persist = true) {
+  function retainedDisplay(canonical, env, accountId, attempt, persist = true, preferClear = true) {
     try {
       // Lead ruling: the normal production provider environment is assumed
       // fixed for the process. A failed /me may reuse historical same-process
@@ -256,7 +256,13 @@ if (!isMainThread) {
       // a token value comparison/fingerprint. Never read a local credential.
       if (!Credentials.envToken(env || process.env)) return null;
       const context = displayKey(canonical, env);
-      const retained = observations.readDisplay(context);
+      // Dale, 2026-11-18: the last FULL picture. When the newest retained
+      // publication carries a whole-plan hold, the last non-withheld one is
+      // shown instead (under the banner), if this process still holds it.
+      // Precedence checks (preferClear false) read the newest held cohort.
+      const newest = observations.readDisplay(context);
+      const retained = preferClear && newest && ObservationMemory.planWithheld(newest.data)
+        ? observations.readClearDisplay(context) || newest : newest;
       if (!retained || retained.credentialSource !== 'env'
         || (accountId && accountId !== retained.householdAccountId)
         || retained.lastBudgetAccountId !== retained.householdAccountId) return null;
@@ -297,7 +303,9 @@ if (!isMainThread) {
     if (result?.check?.evidenceDayView !== true || result.check.qualified === true
       || !data?.liveOverlay?.retainedRefresh || !ObservationMemory.completeTransactionCohort(data)
       || typeof data.meta?.asOf !== 'string') return null;
-    const held = retainedDisplay(canonical, env, accountId, null, false);
+    // Precedence against the NEWEST held cohort, withheld or not: a view older
+    // than it never wins and never drops it (rulings 6788227366 / 6788734379).
+    const held = retainedDisplay(canonical, env, accountId, null, false, false);
     if (held && !evidenceDayNewer(data, held)) return null;
     // Any supersession, same day or later, drops the superseded cohort from
     // memory (lead ruling 6788734379): a process never shows figures older
@@ -679,6 +687,21 @@ if (!isMainThread) {
         // held, under the exact key its inputs were read with (item c).
         if (job.reuseKey && !job.reused && result?.data && result.check?.qualified === true) {
           replayReuse.remember(job.reuseKey, result);
+        }
+        // Dale, 2026-11-18: a complete refresh whose plan is withheld as a
+        // whole (e.g. income reconciliation) shows the last non-withheld
+        // picture under the banner; with none held, the withheld page (and
+        // its shell) as before. A replay of that withheld observation (an
+        // ordinary page load) takes the same fallback, but is not a new
+        // provider check.
+        if (result?.data && completeDisplay && ObservationMemory.planWithheld(result.data)) {
+          const attempt = failedAttempt(result.check, 'current-plan-withheld');
+          if (job.evidence) attempt.source = null;
+          const clear = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt, false);
+          if (clear && !ObservationMemory.planWithheld(clear.data)) {
+            job.displayCheck = clear.check;
+            return finishJob(job, null, clear.data);
+          }
         }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }

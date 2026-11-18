@@ -151,8 +151,19 @@ console.log('6. A retained last full picture is shown unchanged, under a banner 
       reason: 'provider-unavailable' });
   const plain = render(base).html, shown = render(picture).html;
   const banner = (shown.match(/<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>([^<]*)<\/p>/) || [])[1];
-  check(banner === 'Showing the last full picture from Sep 20, 2026, 10:00 a.m. PDT. Today\'s update couldn\'t be completed: the bank connection did not answer.',
-    'the banner names the picture\'s time and a one-line reason (got ' + banner + ')');
+  check(banner === 'Showing the last full picture from Sep 20, 2026, 10:00 a.m. PDT (1 day ago). Today\'s update couldn\'t be completed: the bank connection did not answer.',
+    'the banner names the picture\'s time, its age and a one-line reason (got ' + banner + ')');
+  // The age counts household days (Pacific), and is left out on the same day.
+  const bannerOf = (checkedAt, attemptedAt) => (render(Live.withLatestCompleteRefresh({ data: base, checkedAt },
+    { source: 'provider', qualified: false, checkedAt: attemptedAt, attemptedAt, reason: 'provider-unavailable' })).html
+    .match(/data-budget-retained-banner>([^<]*)<\/p>/) || [])[1] || '';
+  check(bannerOf('2026-09-18T17:00:00Z', '2026-09-21T16:30:00Z').includes('PDT (3 days ago).'), 'three household days back reads "3 days ago"');
+  check(/PDT\. Today/.test(bannerOf('2026-09-21T15:00:00Z', '2026-09-21T16:30:00Z')), 'a picture from earlier today shows no age');
+  check(/PDT\. Today/.test(bannerOf('2026-09-21T15:00:00Z', '2026-09-22T05:30:00Z')),
+    'a later UTC date on the same Pacific day shows no age (Sep 21 10:30 p.m. PDT)');
+  check(/PDT \(1 day ago\)\./.test(bannerOf('2026-09-21T06:30:00Z', '2026-09-21T16:30:00Z')),
+    'the same UTC date on the previous Pacific day reads "1 day ago" (Sep 20 11:30 p.m. PDT)');
+  check(/PDT\. Today/.test(bannerOf('2026-09-20T17:00:00Z', null)), 'with no attempt time, no age is guessed');
   check(/data-budget-surface="pay-period"/.test(shown) && !shown.includes('data-budget-unavailable-shell'), 'the full page is shown, not the shell');
   check(/<div class="budget-retained-picture" data-budget-retained-picture>/.test(shown), 'the page is in its muted state');
   check(!/data-latest-complete-refresh/.test(shown), 'the banner replaces the dated-plan note here');
@@ -172,6 +183,12 @@ console.log('6. A retained last full picture is shown unchanged, under a banner 
     { source: 'provider', checkedAt: null, attemptedAt: null, reason: '<b>x</b>' });
   check(render(odd).html.includes("Today's update couldn't be completed: the current bank data is unavailable."),
     'an unknown reason reads the default line');
+  // A complete refresh withheld as a whole shows the last non-withheld picture
+  // (test/test-last-non-withheld-picture.js) with its own line.
+  const withheldToday = Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
+    { source: 'provider', checkedAt: '2026-09-21T16:30:00Z', attemptedAt: '2026-09-21T16:30:00Z', reason: 'current-plan-withheld' });
+  check(render(withheldToday).html.includes("Today's update couldn't be completed: today&#39;s figures are on hold until something is confirmed."),
+    'the withheld-today reason reads its own line');
   const badTime = JSON.parse(JSON.stringify(picture));
   badTime.liveOverlay.retainedRefresh.observedAt = '<img src=x onerror=alert(1)>';
   const badHtml = render(badTime).html;
