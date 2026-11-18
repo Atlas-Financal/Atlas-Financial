@@ -55,13 +55,23 @@ const withheld = (s, code, why) => {
 // 2. Case and surrounding spaces are ignored; nothing else is.
 ready(run(world([purchase, cashLeg(105), cardCredit(105, null, { original_name: '  payment - thank you ' })])),
   'case and surrounding spaces ignored');
+// Since the lead's 2026-11-18 dispatches (Dale, stop 2) the unpaired debit
+// counts toward no card and the credit as neither payment nor refund: both
+// are To confirm, the 80 purchase stays reserved and the 25 minimum due.
+const bothToConfirm = (s, why) => {
+  check(s.coverage.status === 'ready' && s.coverage.trust === 'estimated', why + ': an estimate');
+  check(s.coverage.estimateBasis === 'card-coverage-rows-unconfirmed', why + ': both bases');
+  check(s.coverage.reservedCash === 80 && s.coverage.toConfirm.length === 2, why + ': purchase reserved, two rows');
+  check(s.period.fromTodayFunding.availableNow === 220, why + ': available now 395 - 80 - 70 - 25 = 220 (got '
+    + s.period.fromTodayFunding.availableNow + ')');
+};
 for (const original of ['PAYMENT THANK YOU', 'PAYMENT - THANK YOU REFUND', 'PAYMENT -  THANK YOU', 'Invented credit']) {
-  withheld(run(world([purchase, cashLeg(105), cardCredit(105, null, { original_name: original })])),
-    'coverage-payment-destination-unconfirmed', 'original "' + original + '" is not the ruled description');
+  bothToConfirm(run(world([purchase, cashLeg(105), cardCredit(105, null, { original_name: original })])),
+    'original "' + original + '" is not the ruled description');
 }
 // 3. The displayed payee alone is not the bank description.
-withheld(run(world([purchase, cashLeg(105), cardCredit(105, null, { original_name: 'INVENTED CREDIT' })])),
-  'coverage-payment-or-credit-purpose-unconfirmed', 'payee "PAYMENT - THANK YOU" over another bank description');
+bothToConfirm(run(world([purchase, cashLeg(105), cardCredit(105, null, { original_name: 'INVENTED CREDIT' })])),
+  'payee "PAYMENT - THANK YOU" over another bank description');
 // 4. Pending does not count: the posted cash leg has no card leg.
 withheld(run(world([purchase, cashLeg(105), cardCredit(105, null, { is_pending: true })])),
   'coverage-payment-destination-unconfirmed', 'a pending PAYMENT - THANK YOU credit is not a payment');
@@ -76,9 +86,17 @@ ready(run(world([['card', 80, '2026-09-20', 'purchase'], cashLeg(105, '2026-09-2
 withheld(run(world([purchase, ['bills', 105, null, 'cash', { payee: 'Invented card payment', category_name: 'Credit Card Payment' }],
   cardCredit(105)])), 'coverage-payment-source-unconfirmed', 'a non-TD cash leg does not pair with it');
 // 7. Only on a mapped TD card: the same credit on another card is no payment.
-withheld(run(world([['card', 80, null, 'purchase'], ['card2', 40, null, 'purchase'], cashLeg(40),
-  ['card2', -40, null, 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU', ...transfer }]],
-  { twoCards: true })), 'coverage-payment-destination-unconfirmed', 'not a mapped TD card (invented mbna)');
+// Both legs are then To confirm (lead's 2026-11-18 dispatches, Dale): both
+// purchases stay reserved.
+{
+  const s = run(world([['card', 80, null, 'purchase'], ['card2', 40, null, 'purchase'], cashLeg(40),
+    ['card2', -40, null, 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU', ...transfer }]],
+    { twoCards: true }));
+  const why = 'not a mapped TD card (invented mbna)';
+  check(s.coverage.status === 'ready' && s.coverage.estimateBasis === 'card-coverage-rows-unconfirmed', why + ': both To confirm');
+  check(s.coverage.reservedCash === 120 && s.coverage.toConfirm.length === 2, why + ': both purchases reserved (80 + 40)');
+  check(s.coverage.payments.length === 0, why + ': no payment published');
+}
 // 8. Two TD cards, one amount: ambiguous, never guessed.
 withheld(run(world([purchase, cashLeg(105), cardCredit(105), cashLeg(105, null, { payee: 'CD456 TFR-TO C/C', original_name: 'CD456 TFR-TO C/C' })])),
   'coverage-payment-pair-ambiguous', 'two candidate TFR-TO C/C debits for one credit');

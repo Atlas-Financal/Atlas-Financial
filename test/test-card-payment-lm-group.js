@@ -41,8 +41,18 @@ const orders = rows => [['in order', rows], ['reversed', rows.slice().reverse()]
 const grouped = [purchase, ['bills', 105, null, 'cash', { ...generic, ...group }], ['card', -105, null, 'credit', { ...generic, ...group }]];
 for (const [name, rows] of orders(grouped)) paidOnce(run(world(rows)), 'grouped pair, ' + name);
 // 2. The same rows ungrouped behave as today: the generic credit's purpose is unconfirmed.
-withheld(run(world([purchase, ['bills', 105, null, 'cash', generic], ['card', -105, null, 'credit', generic]])),
-  'ungrouped generic pair (as today)', 'coverage-payment-or-credit-purpose-unconfirmed');
+// Since the lead's 2026-11-18 dispatch (Dale, stop 2) the generic credit is
+// To confirm, counted as neither payment nor refund (the generic debit is no
+// card-payment leg), so the 80 purchase stays reserved and the 25 minimum due.
+{
+  const s = run(world([purchase, ['bills', 105, null, 'cash', generic], ['card', -105, null, 'credit', generic]]));
+  const why = 'ungrouped generic pair';
+  check(s.coverage.status === 'ready' && s.coverage.estimateBasis === 'card-credit-purpose-unconfirmed', why + ': the credit To confirm');
+  check(s.coverage.reservedCash === 80 && s.coverage.toConfirm.length === 1 && s.coverage.toConfirm[0].amount === 105
+    && s.coverage.payments.length === 0, why + ': purchase reserved, one row, no payment');
+  check(s.period.fromTodayFunding.availableNow === 220, why + ': available now 395 - 80 - 70 - 25 = 220 (got '
+    + s.period.fromTodayFunding.availableNow + ')');
+}
 // 3. A grouped TD pair pays once, and an extra ungrouped TD debit of the same amount
 // does not join it: it has no destination of its own. Since the lead's
 // 2026-11-18 dispatch (Dale) it is applied to no card and listed To confirm.
@@ -55,10 +65,23 @@ paidOnce(run(world([purchase, [...tdDebit('AB123').slice(0, 4), { ...tdDebit('AB
     'grouped TD pair + an outside equal TD debit: an estimate, the outside debit To confirm');
   check(s.coverage.payments.length === 1, 'the grouped pair is still the one payment; the outside debit never joins it');
 }
-// 4. Any other group shape withholds.
-withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...group }], ['card', -100, null, 'credit', { ...generic, ...group }]])),
-  'grouped, unequal amounts');
-withheld(run(world([...grouped, ['bills', 10, null, 'cash', { ...generic, ...group }]])), 'grouped, three members');
+// 4. Any other group shape never pairs. Since the lead's 2026-11-18 dispatch
+// (Dale, stop 2), where the only issue is the generic credit's purpose, that
+// credit is To confirm, counted as neither payment nor refund: the 80
+// purchase stays reserved and the 25 minimum due, and the generic debits
+// have already left Bills.
+const creditToConfirm = (s, why, amount, available) => {
+  check(s.coverage.status === 'ready' && s.coverage.estimateBasis === 'card-credit-purpose-unconfirmed', why + ': the credit To confirm');
+  check(s.coverage.reservedCash === 80 && s.coverage.payments.length === 0, why + ': purchase reserved, no payment');
+  check(s.coverage.toConfirm.length === 1 && s.coverage.toConfirm[0].amount === amount, why + ': one row, the ' + amount);
+  check(s.period.fromTodayFunding.availableNow === available, why + ': available now ' + available + ' (got '
+    + s.period.fromTodayFunding.availableNow + ')');
+};
+// Bills 500 - 105 = 395; 395 - 80 - 70 - 25 = 220.
+creditToConfirm(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...group }], ['card', -100, null, 'credit', { ...generic, ...group }]])),
+  'grouped, unequal amounts', 100, 220);
+// Bills 500 - 105 - 10 = 385; 385 - 80 - 70 - 25 = 210.
+creditToConfirm(run(world([...grouped, ['bills', 10, null, 'cash', { ...generic, ...group }]])), 'grouped, three members', 105, 210);
 withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...group }],
   ['card', -105, null, 'credit', { ...generic, ...group, is_pending: true }]])), 'grouped, pending credit');
 withheld(run(world([purchase, ['savings', 105, null, 'cash', { ...generic, ...group }], ['card', -105, null, 'credit', { ...generic, ...group }]],

@@ -129,8 +129,17 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     'coverage-payment-source-unconfirmed', 'unequal cents never pair');
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, '2026-09-18', 'cash'], ['bills', 80, '2026-09-19', 'cash'],
     ['card', -80, null, 'credit']])), 'coverage-payment-pair-ambiguous', 'two candidate cash legs');
-  withheld(run(world([['card', 80, null, 'purchase'], ['card', -5, null, 'refund', { category_name: 'Transfer', payee: 'Invented' }]])),
-    null, 'an unexplained card credit is not a refund');
+  // Since the lead's 2026-11-18 dispatch (Dale, stop 2) a posted one is
+  // counted as neither payment nor refund: the purchase stays reserved.
+  {
+    const s = run(world([['card', 80, null, 'purchase'], ['card', -5, null, 'refund', { category_name: 'Transfer', payee: 'Invented' }]]));
+    const why = 'an unexplained card credit is not a refund';
+    assert.equal(s.coverage.status, 'ready', why + ': published');
+    assert.equal(s.coverage.trust, 'estimated', why + ': an estimate');
+    assert.equal(s.coverage.estimateBasis, 'card-credit-purpose-unconfirmed', why + ': its basis');
+    assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
+    assert.equal(s.coverage.toConfirm.length, 1, why + ': one To-confirm row');
+  }
 }
 // 6a. Owner rule (Dale, via the lead): money onto the card counts whatever
 // household account it comes from. A Savings→card payment is a coverage
