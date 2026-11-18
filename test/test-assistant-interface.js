@@ -595,6 +595,11 @@ console.log('=== packet builder consumes Forecast, not a second planner ===');
     `${weeklyPacket.forecast.recommendation.weekly} vs ${weeklyAdvice.weekly}`);
   ok(Assistant.looksSanitized(packet) && !forbiddenBlob(packet),
     'packet has no secrets, provider ids, payees, or raw transaction keys');
+  const heldList = packet.uncertainty.incompleteCategoryCoverage.heldCurrentPeriod;
+  ok(heldList && (heldList.status === 'unavailable' || (Array.isArray(heldList.items) && heldList.items.every(item =>
+    JSON.stringify(Object.keys(item).sort()) === JSON.stringify(['accountRole', 'budgetRow', 'date', 'key', 'ordinal', 'reason', 'reasonClass'])
+    && /^held-\d+$/.test(item.key)))),
+    'held current-period rows carry only date, role, budget row, reason and ordinal (no amount, payee, note or id)');
   ok(!Array.isArray(packet.actuals && packet.actuals.transactions),
     'packet does not include a raw transaction list');
   const q2 = (packet.uncertainty.ownerQuestions || []).find(q => q.id === 'Q2');

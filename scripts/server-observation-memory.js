@@ -32,9 +32,12 @@ function category(row) {
   return out;
 }
 // Lunch Money recurring items (S1): only the schedule fields the observer's
-// sanitizer reads (scripts/provider-observe.js sanitizedRecurringEvidence).
+// sanitizer reads (scripts/provider-observe.js sanitizedRecurringEvidence),
+// plus the match dates stampLunchMoneyMatched reads (S3).
 // No description, payee, overrides, amount or provenance is retained.
-const RECURRING_CRITERIA = 'startDate endDate granularity quantity anchorDate currency plaidAccountId manualAccountId'.split(' ');
+// amount: the item's expected amount per occurrence, which the cadence
+// consistency check reads (#1289); never a served amount.
+const RECURRING_CRITERIA = 'startDate endDate granularity quantity anchorDate currency amount plaidAccountId manualAccountId'.split(' ');
 function recurring(value) {
   if (value?.status !== 'read') return { status: 'unavailable', reason: 'recurring-read-failed' };
   const read = value.read;
@@ -52,8 +55,12 @@ function recurring(value) {
       matches: item.matches === null ? null : {
         expectedOccurrenceDates: Array.isArray(item.matches.expectedOccurrenceDates)
           ? strings(item.matches.expectedOccurrenceDates) : null,
+        // S3 (LM-matched settlement): the found date and the missing dates
+        // decide which occurrences Lunch Money matched; dates and ids only.
         foundTransactions: Array.isArray(item.matches.foundTransactions)
-          ? item.matches.foundTransactions.map(found => pick(found, ['transactionId'])) : null,
+          ? item.matches.foundTransactions.map(found => pick(found, ['date', 'transactionId'])) : null,
+        missingTransactionDates: Array.isArray(item.matches.missingTransactionDates)
+          ? strings(item.matches.missingTransactionDates) : null,
       } })) } };
 }
 function transaction(row) {

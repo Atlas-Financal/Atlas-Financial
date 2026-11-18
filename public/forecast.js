@@ -618,7 +618,35 @@
     return out;
   }
 
+  // `lastDue` (an ISO day) ends a recurring schedule: no occurrence after it.
+  // Like firstDue it is a filter, never a rewrite of the calendar. It is set
+  // only on the served plan, from an ended reviewed Lunch Money recurring item
+  // (scripts/provider-observe.js recurringBillScheduleReview).
+  // `timingBefore` ({from, frequency, day, month, anchor}) is a cutover set
+  // only on the served plan (a reviewed Lunch Money item leading an
+  // obligation that has recorded history, #1289 E1): occurrences before
+  // `from` keep that earlier timing, so recorded statements and payments stay
+  // on their own dates; occurrences on or after `from` follow the row.
   function occurrences(item, start, end) {
+    const prior = item && item.timingBefore && typeof item.timingBefore.from === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(item.timingBefore.from) ? item.timingBefore : null;
+    let dates;
+    if (!prior) dates = cadenceOccurrences(item, start, end);
+    else {
+      const before = { ...item };
+      for (const field of ['frequency', 'day', 'month', 'anchor']) {
+        delete before[field];
+        if (Object.prototype.hasOwnProperty.call(prior, field)) before[field] = prior[field];
+      }
+      const cut = addDays(prior.from, -1);
+      dates = (start <= cut ? cadenceOccurrences(before, start, end < cut ? end : cut) : [])
+        .concat(end >= prior.from ? cadenceOccurrences(item, start > prior.from ? start : prior.from, end) : []);
+    }
+    const last = item && item.frequency !== 'once' && typeof item.lastDue === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(item.lastDue) ? item.lastDue : null;
+    return last ? dates.filter(d => d <= last) : dates;
+  }
+  function cadenceOccurrences(item, start, end) {
     if (item.frequency === 'once') {
       return (item.date >= start && item.date <= end) ? [item.date] : [];
     }
@@ -864,6 +892,8 @@
       frequency: o.frequency,
       day: o.cashDay,
       firstDue: o.cashFirstDue || o.firstDue || null,
+      // E1 cutover for the cash leg: earlier cash days stay on their own day.
+      ...(o.cashTimingBefore ? { timingBefore: o.cashTimingBefore } : {}),
     }, start, end);
     return dates.map(date => ({
       date,
@@ -8269,6 +8299,19 @@
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const etransferItems = [];
     const datedOtherTarget = otherSpendPayPeriodTarget(plan, periodStart);
+    // Held-row listing (assistant packet only): when asked, record each row
+    // this loop counts as unclassified, at the same sites that count it, so the
+    // list and the count share one rule. Identity, date, role and the
+    // classifier's own codes only: no amount, payee, description or note.
+    // Off by default; the page and the figures snapshot never ask for it.
+    const held = opts && opts.collectHeldTransactions === true ? [] : null;
+    const recordHeld = (tx, cls) => {
+      if (!held) return;
+      held.push({ id: tx.id != null ? String(tx.id) : null, date: tx.date,
+        accountRole: typeof tx.accountRole === 'string' ? tx.accountRole : null,
+        kind: cls && cls.kind || null, reason: cls && cls.reason || null,
+        budgetRow: cls && (cls.atlasRow || cls.categoryId) || null });
+    };
     const add = (row, state, amt) => {
       if (state === 'pending') row.pending = roundCent(row.pending + amt);
       else row.posted = roundCent(row.posted + amt);
@@ -8282,7 +8325,7 @@
       const amt = Number(tx.amount);
       if (!isFinite(amt) || amt === 0) {
         const clsZero = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
-        if (classificationIncompleteHouseholdSpend(clsZero)) out.unclassified.count += 1;
+        if (classificationIncompleteHouseholdSpend(clsZero)) { out.unclassified.count += 1; recordHeld(tx, clsZero); }
         continue;
       }
       const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
@@ -8342,6 +8385,7 @@
       }
       if (cls.kind === 'unmapped') {
         out.unclassified.count += 1;
+        recordHeld(tx, cls);
         continue;
       }
       // Cash principal is independent of category capacity, including Other
@@ -8360,12 +8404,14 @@
         add(row, state, confirmedHouseholdAmount(tx, duplicateIds));
         if (cls.needsConfirmation || classificationIncompleteHouseholdSpend(cls)) {
           out.unclassified.count += 1;
+          recordHeld(tx, Object.assign({}, cls, { atlasRow: OTHER_SPEND_ID }));
           add(out.unclassified, state, amt);
         }
         continue;
       }
       if (cls.needsConfirmation) {
         out.unclassified.count += 1;
+        recordHeld(tx, cls);
         add(out.unclassified, state, amt);
         continue;
       }
@@ -8376,9 +8422,11 @@
       add(row, state, amt);
       if (classificationIncompleteHouseholdSpend(cls)) {
         out.unclassified.count += 1;
+        recordHeld(tx, cls);
         add(out.unclassified, state, amt);
       }
     }
+    if (held) out.heldTransactions = held;
     // Provisional collector output: never an all-clear on its own.
     // currentPeriodAction re-stamps the coverage-derived state before
     // publishing; other sumCategoryActuals consumers do not read this field.
@@ -14121,6 +14169,12 @@
       }
       const near = (a, b) => a.cents === b.cents
         && Math.abs(diffDays(a.tx.date, b.tx.date)) <= CARD_PAYMENT_PAIR_DAYS;
+      // A card leg and a cash leg can pair when they are near, and a TD
+      // "PAYMENT - THANK YOU" credit only with a TD "TFR-TO C/C" debit whose
+      // note names no card or this card.
+      const matches = (card, cash) => near(card, cash)
+        && (!tdPaymentCreditOnly(card.tx) || (cash.tx.tdCardPaymentIdentity === true
+          && (cash.tx.cardPaymentNoteDestination == null || cash.tx.cardPaymentNoteDestination === card.account)));
       // The card a posted TD "TFR-TO C/C" debit pays by its note: exactly one
       // card in the fixed name table that the plan maps as a revolving card.
       const notePays = leg => leg.tx.pending === false && leg.tx.tdCardPaymentIdentity === true
@@ -14133,10 +14187,11 @@
         for (const leg of cardLegs) {
           // Owner rule (Dale, via the lead): money onto the card counts
           // whatever household account it comes from, Savings included.
-          const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other)
-            && (!tdPaymentCreditOnly(leg.tx) || (other.tx.tdCardPaymentIdentity === true
-              && (other.tx.cardPaymentNoteDestination == null || other.tx.cardPaymentNoteDestination === leg.account))));
-          const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
+          const cash = [...cashLegs, ...reserveLegs].filter(other => matches(leg, other));
+          // The same predicate in both directions (census rank 1): a cash
+          // leg whose note names one card does not also count as "near" an
+          // equal same-day credit on another card.
+          const back = cash.length === 1 ? cardLegs.filter(other => matches(other, cash[0])) : [];
           // A debit whose note names this card is a payment on the debit's own
           // date, credit or no credit (#1298 review): one date for both paths,
           // so a later credit across an opening rollover cannot count it again.
@@ -17629,6 +17684,11 @@
       internalMovements: householdInternalMovements(plan, opts),
       outgoingETransfers: outgoingETransfersPublication(
         useActuals ? actuals.outgoingETransfers.items : null, coverage, opts, asOf, origin),
+      // Assistant packet only (opt-in): the rows behind unclassified.count.
+      // Only when actuals were read: missing or unusable actuals publish no
+      // list, so the packet reads unavailable, never an empty all-clear.
+      ...(opts.collectHeldTransactions === true && useActuals && Array.isArray(actuals.heldTransactions)
+        ? { heldTransactions: actuals.heldTransactions } : {}),
     };
     if (income.status !== 'unavailable') return result;
     for (const row of result.thisPaydayDue.concat(result.thisPeriodGlance)) {
@@ -21572,6 +21632,27 @@
         continue;
       }
       if (undated) continue;
+      // An ended schedule (lastDue, from an ended reviewed Lunch Money item)
+      // is normalised from its own occurrences in the window, so a bill that
+      // stops does not keep drawing its full monthly equivalent from the
+      // category. Without a window start its share is unknown, like a refused
+      // schedule.
+      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue)
+        ? b.lastDue : null;
+      if (last && (!scheduleLastIncluded || last < scheduleLastIncluded)) {
+        if (!scheduleAsOf) {
+          if (b.budgetCategory) {
+            addDated(b.budgetCategory, 0, b.label, 'bill');
+            const acc = datedByCategory[b.budgetCategory];
+            acc.items[acc.items.length - 1] = { label: b.label, amount: null, kind: 'bill', reason: 'bill-date-unknown' };
+            acc.unknown = true;
+          }
+          continue;
+        }
+        const count = billNeedsDate(b) ? 0 : occurrences(b, scheduleAsOf, scheduleLastIncluded).length;
+        addDated(b.budgetCategory, count * b.amount / monthsInWindow, b.label, 'bill');
+        continue;
+      }
       addDated(b.budgetCategory, billMonthly(b), b.label, 'bill');
     }
     // A dated commitment is NOT automatically a draw against the recurring
@@ -24061,6 +24142,17 @@
   // until evidence supersedes the estimate. This function
   // remains the only statutory calculator.
   const SEASPAN_CURRENT_ANNUAL = 158091;
+  // Raise date (lead ruling 2026-11-18): Dale's raise anniversary
+  // is 1 March (household interview 2026-08-12). Payroll applied the 2026
+  // raise from Sun 2026-02-22, the start of the 14-day pay period that
+  // contains 1 March (source_intake EMPLOYMENT_PENSION_FACTS_2026-08-13).
+  // NEXT_EFFECTIVE is that observed date rolled forward one year. It lands
+  // the estimated raise on the cheque whose pay period contains the 1 March
+  // anniversary. Do not replace it with the literal 1 March: under the
+  // period-start rule below that would move the raise one cheque later.
+  // The regime lookup takes a cheque's period start as payday minus 13
+  // days, which is not payroll's own period (about payday minus 19 to
+  // minus 6); the two agree on which cheque first carries the raise.
   const SEASPAN_RAISE_LAST_EFFECTIVE = '2026-02-22';
   const SEASPAN_RAISE_NEXT_EFFECTIVE = '2027-02-22';
   const SEASPAN_OPTIONAL_PENSION_FROM = '2026-06-19';
@@ -28117,7 +28209,7 @@
     };
   }
 
-  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
