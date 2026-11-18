@@ -301,15 +301,45 @@
     if (!year || !month || !day) return null;
     return `${year.value}-${month.value}-${day.value}`;
   }
-  function toUTC(iso) {
+  // Date arithmetic memos (LEAD 10, profiling on invented inputs: one
+  // recommend asks addDays ~39,000 times over ~800 distinct inputs). Both
+  // functions are pure, and every cached value is a primitive (a number or
+  // a string), so a cached result cannot be mutated by a caller. Only a
+  // string date and a number offset are memoised; any other argument takes
+  // the unmemoised path exactly as before. A call that throws is never
+  // cached: the error is raised before the store. A NaN from a malformed
+  // string is the same value either way. Each memo clears at its bound, so
+  // a long-running process cannot grow it without limit.
+  const DATE_MEMO_LIMIT = 8192;
+  const toUtcMemo = new Map();
+  const addDaysMemo = new Map();
+  function toUTCUnmemoised(iso) {
     const [y, m, d] = iso.split('-').map(Number);
     return Date.UTC(y, m - 1, d);
+  }
+  function toUTC(iso) {
+    if (typeof iso !== 'string') return toUTCUnmemoised(iso);
+    let ms = toUtcMemo.get(iso);
+    if (ms === undefined) {
+      ms = toUTCUnmemoised(iso);
+      if (toUtcMemo.size >= DATE_MEMO_LIMIT) toUtcMemo.clear();
+      toUtcMemo.set(iso, ms);
+    }
+    return ms;
   }
   function fromUTC(ms) {
     return new Date(ms).toISOString().slice(0, 10);
   }
   function addDays(iso, n) {
-    return fromUTC(toUTC(iso) + n * 86400000);
+    if (typeof iso !== 'string' || typeof n !== 'number') return fromUTC(toUTC(iso) + n * 86400000);
+    const key = n + '|' + iso;
+    let out = addDaysMemo.get(key);
+    if (out === undefined) {
+      out = fromUTC(toUTC(iso) + n * 86400000);
+      if (addDaysMemo.size >= DATE_MEMO_LIMIT) addDaysMemo.clear();
+      addDaysMemo.set(key, out);
+    }
+    return out;
   }
   function diffDays(a, b) { // b - a in days
     return Math.round((toUTC(b) - toUTC(a)) / 86400000);
