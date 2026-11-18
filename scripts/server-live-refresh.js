@@ -256,7 +256,12 @@ if (!isMainThread) {
       // a token value comparison/fingerprint. Never read a local credential.
       if (!Credentials.envToken(env || process.env)) return null;
       const context = displayKey(canonical, env);
-      const retained = observations.readDisplay(context);
+      // Dale, 2026-11-18: the last FULL picture. When the newest retained
+      // publication carries a whole-plan hold, the last non-withheld one is
+      // shown instead (under the banner), if this process still holds it.
+      const newest = observations.readDisplay(context);
+      const retained = newest && ObservationMemory.planWithheld(newest.data)
+        ? observations.readClearDisplay(context) || newest : newest;
       if (!retained || retained.credentialSource !== 'env'
         || (accountId && accountId !== retained.householdAccountId)
         || retained.lastBudgetAccountId !== retained.householdAccountId) return null;
@@ -679,6 +684,18 @@ if (!isMainThread) {
         // held, under the exact key its inputs were read with (item c).
         if (job.reuseKey && !job.reused && result?.data && result.check?.qualified === true) {
           replayReuse.remember(job.reuseKey, result);
+        }
+        // Dale, 2026-11-18: a complete refresh whose plan is withheld as a
+        // whole (e.g. income reconciliation) shows the last non-withheld
+        // picture under the banner; with none held, the withheld page (and
+        // its shell) as before.
+        if (result?.data && completeDisplay && !job.evidence && ObservationMemory.planWithheld(result.data)) {
+          const clear = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
+            failedAttempt(result.check, 'current-plan-withheld'), false);
+          if (clear && !ObservationMemory.planWithheld(clear.data)) {
+            job.displayCheck = clear.check;
+            return finishJob(job, null, clear.data);
+          }
         }
         return result?.data ? finishJob(job, null, result.data) : finishJob(job, unavailable('live-refresh-unavailable'));
         } finally { job.publicationMs = Math.max(0, performance.now() - publicationStarted); }

@@ -1720,6 +1720,17 @@ function serveCanonicalOrFixture(canonical, env) {
   }
 }
 
+// The closed set of reasons a retained picture's attempt may carry. The
+// Budget page's banner has one plain line for each (public/plan.js
+// RETAINED_PICTURE_REASONS; test/test-last-non-withheld-picture.js checks the
+// two match). 'current-plan-withheld': today's refresh completed but its plan
+// is withheld as a whole (Dale, 2026-11-18).
+const RETAINED_ATTEMPT_REASONS = Object.freeze(['stale-live-cash-evidence', 'missing-live-cash-evidence',
+  'pending-freshness-unproven', 'posted-window-truncated', 'posted-window-unproven',
+  'provider-unavailable', 'provider-request-timeout', 'live-refresh-unavailable',
+  'live-refresh-timeout', 'live-refresh-invalidated', 'live-refresh-busy', 'current-observation-unavailable',
+  'current-plan-withheld']);
+
 // Display only: preserve one complete worker publication wholesale. A failed
 // attempt contributes provenance, never balances, transactions or coverage.
 // The retained original financial date remains Forecast's sole planning basis.
@@ -1727,10 +1738,7 @@ function withLatestCompleteRefresh(retained, attempt) {
   const raw = attempt || retained.attempt;
   const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)
     && Number.isFinite(Date.parse(value)) ? value : null;
-  const reasons = new Set(['stale-live-cash-evidence', 'missing-live-cash-evidence',
-    'pending-freshness-unproven', 'posted-window-truncated', 'posted-window-unproven',
-    'provider-unavailable', 'provider-request-timeout', 'live-refresh-unavailable',
-    'live-refresh-timeout', 'live-refresh-invalidated', 'live-refresh-busy', 'current-observation-unavailable']);
+  const reasons = new Set(RETAINED_ATTEMPT_REASONS);
   const receipt = raw ? { source: raw.source === 'provider' ? 'provider' : null,
     qualified: false, checkedAt: timestamp(raw.checkedAt), attemptedAt: timestamp(raw.attemptedAt),
     reason: reasons.has(raw.reason) ? raw.reason : 'current-observation-unavailable' } : null;
@@ -2122,6 +2130,7 @@ const api = {
   serveCanonicalOrFixture,
   applyForServer,
   withLatestCompleteRefresh,
+  RETAINED_ATTEMPT_REASONS,
   withoutCompleteRefresh,
   retainableSavingsEvidence,
   failedRefreshWithCarriedSavings,

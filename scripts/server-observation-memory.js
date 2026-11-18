@@ -169,6 +169,12 @@ function completeTransactionCohort(data) {
   return data?.liveOverlay?.applied === true
     && data.liveOverlay.currentPeriodActuals?.transactionCoverage === 'complete';
 }
+// A publication under a whole-plan hold (liveOverlay.operatingPlan
+// 'unavailable', e.g. income reconciliation on a complete refresh) is still a
+// complete cohort, but it is not a full picture of the plan.
+function planWithheld(data) {
+  return data?.liveOverlay?.operatingPlan === 'unavailable';
+}
 function create() {
   let slot = null;
   return Object.freeze({
@@ -190,6 +196,19 @@ function create() {
       }
       return structuredClone(slot.display);
     },
+    // Dale, 2026-11-18: the last NON-WITHHELD complete publication, so a hold
+    // raised on a complete refresh still shows the last full picture. Same
+    // process memory and the same compatibility rule as readDisplay; it is
+    // replaced only by a later non-withheld complete publication and is
+    // served only under the "last full picture" banner (live-plan
+    // withLatestCompleteRefresh). Retirement: ARCHITECTURE.md.
+    readClearDisplay(context) {
+      if (!slot?.clearDisplay || !isDeepStrictEqual(slot.clearDisplay.context, context)) return null;
+      // Household attestation and the latest attempt are the current display's.
+      const current = slot.display && isDeepStrictEqual(slot.display.context, context) ? slot.display : null;
+      return structuredClone({ ...slot.clearDisplay,
+        ...(current ? { lastBudgetAccountId: current.lastBudgetAccountId, attempt: current.attempt } : {}) });
+    },
     observeBudget(accountId) {
       if (slot?.display) slot.display.lastBudgetAccountId = accountId;
     },
@@ -203,9 +222,16 @@ function create() {
         && completeTransactionCohort(display.data)
         && display.checkedAt === evidence.payload?.fetchedAt
         ? structuredClone(display) : null;
+      const nextDisplay = retained || (display === undefined || incompleteCandidate ? slot?.display || null : null);
+      // The clear slot follows the display slot, except that a withheld
+      // publication keeps the earlier clear picture. When the display slot
+      // empties (a newer publication that cannot be retained) the clear slot
+      // empties too: no picture older than a superseding one is kept.
+      const clearDisplay = !nextDisplay ? null
+        : planWithheld(nextDisplay.data) ? slot?.clearDisplay || null : nextDisplay;
       slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
-        display: retained || (display === undefined || incompleteCandidate ? slot?.display || null : null) };
+        display: nextDisplay, clearDisplay };
     },
   });
 }
-module.exports = { SCHEMA, sourceInputs, amountFixedDerivation, completeTransactionCohort, create };
+module.exports = { SCHEMA, sourceInputs, amountFixedDerivation, completeTransactionCohort, planWithheld, create };
