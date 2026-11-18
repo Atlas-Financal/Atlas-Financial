@@ -6828,7 +6828,7 @@
   // collapse to one transaction. Confirmed household spend counts the
   // posted side once; the still-visible pending stays recon/pending
   // exposure and is not a second confirmed spend.
-  function pendingPostedDuplicateIdSet(packet) {
+  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds) {
     const flagged = new Set();
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const pendingByKey = new Map();
@@ -6848,6 +6848,16 @@
     for (const [key, pendings] of pendingByKey) {
       const posted = postedByKey.get(key) || [];
       if (pendings.length !== 1 || posted.length !== 1) continue;
+      // A different authorization can be a reissue of the same purchase.
+      // The exact packet-local link admits its amount only to an estimate.
+      const [pending] = pendings;
+      const [posting] = posted;
+      if (pendingEstimateIds && pending.id != null && posting.distinctPendingId === String(pending.id)
+        && posting.pending === false && posting.savingsPostingEvidence === 'posted'
+        && [pending, posting].every(tx => tx.pendingPostedDuplicate !== true
+          && tx.pendingPostedAmbiguous !== true && tx.contradictoryEvidence !== true)) {
+        pendingEstimateIds.add(String(pending.id));
+      }
       for (const tx of pendings.concat(posted)) {
         if (tx && tx.id != null) flagged.add(String(tx.id));
       }
@@ -6862,6 +6872,7 @@
   }
 
   function confirmedHouseholdAmount(tx, duplicateIds) {
+    // Withhold the pending side of every possible replacement.
     if (isPossibleReplacementPending(tx, duplicateIds)) return 0;
     const amt = Number(tx && tx.amount);
     return isFinite(amt) ? amt : 0;
@@ -12729,6 +12740,7 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  classifyCurrentPeriodTransaction.spendDuplicateKey = spendDuplicateKey;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
   // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
@@ -12774,6 +12786,7 @@
         : ((cls && (cls.includeReason || cls.reason)) || null),
       pending,
       pendingPostedDuplicate: duplicate,
+      ...(extra && extra.pendingAmountEstimated === true ? { pendingAmountEstimated: true } : {}),
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
@@ -12926,15 +12939,14 @@
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
     // A pending row that only looks like a posted one (same date, account,
-    // amount and merchant) may be a second real purchase. Spent still counts
-    // the posted side once, but until the pair resolves the category's spent
-    // is an estimate, never a precise calculated total, and the pending row
-    // stays listed.
+    // amount and merchant) stays listed with a possible-duplicate warning.
+    // A distinct authorization can contribute to estimated spending.
     const possibleDuplicateCategories = new Set();
     // The plan itself is unchanged, so its trust stays as published.
     const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
-    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const pendingEstimateIds = new Set();
+    const duplicateIds = pendingPostedDuplicateIdSet(packet, pendingEstimateIds);
     // Resolve coverage against the complete ledger, before selecting a category
     // or cycle. Older/ambiguous liabilities still govern the trust of each row.
     const cardCoverage = useActuals && packet
@@ -12954,18 +12966,21 @@
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
         Object.assign({}, opts, { categoryRefunds: true }))) {
+        const catId = cls.atlasRow || cls.categoryId;
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
+        const pendingAmountEstimated = actualsReady && !withheldCategories.has(catId)
+          && tx.id != null && pendingEstimateIds.has(String(tx.id));
         const row = reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate,
+          pendingAmountEstimated,
           cardPurchaseCoverage: amt > 0 && isRevolvingCardAccount(tx)
             ? cardCoverageAnnotation(tx, cardCoverage) : null });
         if (otherSpendingEvidenceEligible(cls)) {
           confirmationRecon.push(row);
           confirmationSpent = roundCent(
-            confirmationSpent + confirmedHouseholdAmount(tx, duplicateIds)
+            confirmationSpent + (row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds))
           );
           continue;
         }
-        const catId = cls.atlasRow || cls.categoryId;
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
@@ -13025,7 +13040,7 @@
     // G3a: an identified refund row is negative and nets, signed, within its
     // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
-      if (r && r.pendingPostedDuplicate === true && r.pending === true) return s;
+      if (r && r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true) return s;
       return s + (Number(r && r.amount) || 0);
     }, 0));
     const byId = new Map();
@@ -13214,6 +13229,8 @@
     // it does on a global withhold; only the category rows stay per-row.
     const anyWithheld = items.some(row => withheldCategories.has(row.id));
     if (anyWithheld) holdTrust = 'estimated';
+    if (items.some(row => row.spent != null && (lookback || row.planned == null || row.spent > row.planned)
+      && row.recon.some(tx => tx.pendingAmountEstimated === true))) holdTrust = 'estimated';
     return {
       items,
       // An invalid declared target has no quantity, so the total hold is
@@ -15336,6 +15353,7 @@
     // exclusion as the remaining-requirement loop below.
     const heldCards = new Set(), heldRefs = new Map();
     for (const row of budget.items) for (const r of (row && row.recon) || []) {
+      if (r && r.pendingAmountEstimated === true) return unknown('household-budget-unavailable');
       if (!r || (r.pendingPostedDuplicate === true && r.pending === true)) continue;
       const source = rowSource(r);
       if (!source) return unknown('household-row-untraceable');
@@ -19962,7 +19980,8 @@
         if (!finite(row.spent) || !trusted(rowTrust)) { missing = true; continue; }
         amount = roundCent(amount + row.spent);
         const recon = Array.isArray(row.recon) ? row.recon : [];
-        pending ||= recon.some(tx => tx.pending === true && tx.pendingPostedDuplicate !== true);
+        pending ||= recon.some(tx => tx.pending === true
+          && (tx.pendingPostedDuplicate !== true || tx.pendingAmountEstimated === true));
         if (rowTrust === 'estimated') trust = 'estimated';
         evidence.push({ id: row.id, spent: row.spent, otherSpending: row.otherSpending === true, recon });
       }

@@ -5247,54 +5247,41 @@ function parsePlaidMetadataObject(meta) {
   return obj;
 }
 
-function plaidFieldFromMetadata(meta, keys) {
+function plaidFieldsFromMetadata(meta, keys) {
   const obj = parsePlaidMetadataObject(meta);
-  if (!obj) return null;
+  if (!obj) return [];
   const sources = [obj];
   if (obj.transaction && typeof obj.transaction === 'object' && !Array.isArray(obj.transaction)) {
     sources.push(obj.transaction);
   }
-  for (const source of sources) {
-    for (const key of keys) {
-      const value = source[key];
-      if (value != null && value !== '') return String(value);
-    }
-  }
-  return null;
+  return sources.flatMap(source => keys.map(key => source[key]));
 }
 
-function plaidPendingIdFromMetadata(meta) {
-  return plaidFieldFromMetadata(meta, ['pending_transaction_id', 'pendingTransactionId']);
-}
-
-function plaidTransactionIdFromMetadata(meta) {
-  return plaidFieldFromMetadata(meta, ['transaction_id', 'transactionId']);
+function consistentPlaidIdentity(raw, directKeys, metadataKeys) {
+  if (!raw || typeof raw !== 'object') return null;
+  const values = directKeys.map(key => raw[key])
+    .concat([raw.plaid_metadata, raw.plaidMetadata].flatMap(meta => plaidFieldsFromMetadata(meta, metadataKeys)))
+    .filter(value => value != null && value !== '');
+  const [first] = values;
+  return typeof first === 'string' && /^\S+$/.test(first) && values.every(value => value === first) ? first : null;
 }
 
 function plaidTransactionIdFromRaw(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  if (raw.plaidTransactionId != null && raw.plaidTransactionId !== '') {
-    return String(raw.plaidTransactionId);
-  }
-  return plaidTransactionIdFromMetadata(raw.plaid_metadata || raw.plaidMetadata);
+  return consistentPlaidIdentity(raw, ['plaidTransactionId'], ['transaction_id', 'transactionId']);
 }
 
 function plaidPendingTransactionIdFromRaw(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  if (raw.plaidPendingTransactionId != null && raw.plaidPendingTransactionId !== '') {
-    return String(raw.plaidPendingTransactionId);
-  }
-  const fromMeta = plaidPendingIdFromMetadata(raw.plaid_metadata || raw.plaidMetadata);
-  if (fromMeta) return fromMeta;
-  const direct = raw.pending_transaction_id || raw.pendingTransactionId;
-  return direct == null || direct === '' ? null : String(direct);
+  return consistentPlaidIdentity(raw, ['plaidPendingTransactionId', 'pending_transaction_id', 'pendingTransactionId'],
+    ['pending_transaction_id', 'pendingTransactionId']);
 }
 
 function plaidTransactionIdOf(tx) {
+  if (tx?.provider === 'lunchmoney' && Object.hasOwn(tx, 'plaidTransactionId')) return tx.plaidTransactionId;
   return plaidTransactionIdFromRaw(tx);
 }
 
 function plaidPendingTransactionIdOf(tx) {
+  if (tx?.provider === 'lunchmoney' && Object.hasOwn(tx, 'plaidPendingTransactionId')) return tx.plaidPendingTransactionId;
   return plaidPendingTransactionIdFromRaw(tx);
 }
 
@@ -5303,6 +5290,22 @@ function directedPlaidSettlementMate(posted, pending) {
   const have = plaidTransactionIdOf(pending);
   if (!want || !have) return false;
   return want === have;
+}
+
+function postedForPendingSettlement(tx) {
+  // Normalized provider rows always carry explicit posting evidence.
+  // Older normalized fixtures carry the affirmative boolean directly.
+  return tx.pending === false && tx.contradictoryEvidence !== true
+    && (!Object.hasOwn(tx, 'savingsPostingEvidence') || tx.savingsPostingEvidence === 'posted');
+}
+
+function hasDifferentPlaidPredecessor(posted, pending) {
+  if (!postedForPendingSettlement(posted) || pending.contradictoryEvidence === true) return false;
+  const predecessor = plaidPendingTransactionIdOf(posted);
+  const authorization = plaidTransactionIdOf(pending);
+  const postedIdentity = plaidTransactionIdOf(posted);
+  return !!predecessor && !!authorization && predecessor !== authorization
+    && postedIdentity !== authorization && postedIdentity !== predecessor;
 }
 
 function sameSettlementAccount(pending, posted, opts) {
@@ -5359,7 +5362,8 @@ function collapseOwnerConfirmedShopifySettlement(pending, posted, drop, opts) {
     !drop.has(tx) && matchesOwnerConfirmedShopifySettlement(tx, settlementAccountId(tx, opts)));
   // Exactly one unresolved pending and one confirmed-settled posted of this
   // identity. Two such 4-tuples stay uncollapsed — that would be a general rule.
-  if (confirmedPending.length === 1 && confirmedPosted.length === 1) {
+  if (confirmedPending.length === 1 && confirmedPosted.length === 1
+    && !hasDifferentPlaidPredecessor(confirmedPosted[0], confirmedPending[0])) {
     drop.add(confirmedPending[0]);
   }
 }
@@ -5373,7 +5377,7 @@ function collapsePendingPostedBySettlementIdentity(transactions, asOf, opts) {
   for (const tx of list) {
     const treatment = treat(tx);
     if (tx.pending === true && treatment.treatment === 'unresolved') pending.push(tx);
-    else if (tx.pending !== true && treatment.treatment === 'confirmed-settled') posted.push(tx);
+    else if (postedForPendingSettlement(tx)) posted.push(tx);
   }
   if (!pending.length || !posted.length) return list;
   const drop = new Set();
@@ -5410,6 +5414,8 @@ function collapsePendingPostedBySettlementIdentity(transactions, asOf, opts) {
   return remaining;
 }
 
+const distinctPendingByPosted = new WeakMap();
+
 function pendingPostedSurfaceKey(tx, opts) {
   const accountId = settlementAccountId(tx, opts);
   const amount = lunchMoneyDebitAmount(tx && tx.amount);
@@ -5419,10 +5425,10 @@ function pendingPostedSurfaceKey(tx, opts) {
     tx && tx.original_name,
     tx && tx.payee,
   ].find(v => v != null && String(v).trim() !== '');
-  if (!tx || !tx.date || accountId == null || accountId === '' || amount == null || !merchant) {
-    return null;
-  }
-  return [tx.date, String(accountId), Number(amount).toFixed(2), String(merchant)].join('|');
+  if (!tx || amount == null) return null;
+  return Forecast.classifyCurrentPeriodTransaction.spendDuplicateKey({
+    date: tx.date, account: accountId, amount, originalMerchant: merchant,
+  });
 }
 
 function flagUnresolvedPendingPostedDuplicates(transactions, asOf, opts) {
@@ -5431,6 +5437,7 @@ function flagUnresolvedPendingPostedDuplicates(transactions, asOf, opts) {
   const postedByKey = new Map();
   for (const tx of transactions || []) {
     if (!tx) continue;
+    distinctPendingByPosted.delete(tx);
     const key = pendingPostedSurfaceKey(tx, opts);
     if (!key) continue;
     const treatment = treat(tx);
@@ -5447,6 +5454,11 @@ function flagUnresolvedPendingPostedDuplicates(transactions, asOf, opts) {
   for (const [key, pendings] of pendingByKey) {
     const posted = postedByKey.get(key) || [];
     if (pendings.length !== 1 || posted.length !== 1) continue;
+    if (pendings[0].pendingPostedAmbiguous !== true && posted[0].pendingPostedAmbiguous !== true
+      && hasDifferentPlaidPredecessor(posted[0], pendings[0])) {
+      distinctPendingByPosted.set(posted[0], pendings[0]);
+      continue;
+    }
     pendings[0].pendingPostedDuplicate = true;
     posted[0].pendingPostedDuplicate = true;
   }
@@ -6608,6 +6620,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
+  const distinctPendingRows = [];
   // U5: emitted group-parent id -> the child provider ids Lunch Money lists for
   // it; emitted row id -> its provider id. Internal to this pass; never emitted.
   const groupChildIds = new Map(), providerIdOfRow = new Map();
@@ -6947,6 +6960,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
     };
     txs.push(emittedRow);
+    const distinctPending = distinctPendingByPosted.get(tx);
+    if (distinctPending) distinctPendingRows.push([emittedRow, distinctPending.providerTransactionId]);
     if (emittedRow.id != null) {
       providerIdOfRow.set(String(emittedRow.id), tx.providerTransactionId == null ? null : String(tx.providerTransactionId));
       if (Array.isArray(tx.groupChildIds)) groupChildIds.set(String(emittedRow.id), tx.groupChildIds);
@@ -6962,6 +6977,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         transactionId: String(tx.providerTransactionId),
       });
     }
+  }
+  // Project only a link within this packet. Plaid IDs and raw provider
+  // transaction IDs stay in the observer.
+  const emittedIds = new Set(txs.map(tx => tx.id));
+  for (const [posted, providerId] of distinctPendingRows) {
+    const pendingId = existingLocalId(providerId);
+    if (pendingId && pendingId !== posted.id && emittedIds.has(pendingId)) posted.distinctPendingId = pendingId;
   }
   const representedActuals = [];
   const linkedLocalIds = new Set();
