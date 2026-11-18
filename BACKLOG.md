@@ -323,9 +323,13 @@ Inferred personal from its transactions, not verified.
 
 A posted credit into Bills that no income rule settles and no hold catches (for example a plain deposit for Amanda's salary more than 3 business days before her payday, outside the owner's near-amount window, #821 6967081727) is counted as Other Income now, and the scheduled occurrence is still projected on its payday. The same holds on main before #1294. Decide whether such a credit should hold the plan, as the early-receipt hold does for a TENNIS INCOME salary transfer, or be left as is. Proof would be an invented early plain credit whose payday is counted once.
 
-**Retire the payroll late-posting stopgap** · *census rank 3 follow-up; NEXT after the LM recurring-matches slice for pay*
+**Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*
 
-`futureIncomeUncertainty` in `scripts/provider-observe.js` absorbs one posted payroll credit within one business day after an unclaimed, unambiguous payday as that payday's late posting (stopgap, #1290). Once pay is settled from Lunch Money's own found_transactions pairing, remove `payrollLateOfEarlier` and its test cases, and drop the `businessDaysAfter` export if nothing else reads it. Closure: the late-Monday case stays live through the LM pairing, and the payday reads received rather than To confirm.
+Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money's own recurring match: a linked deposit settles the payday LM paired it to, early, on time or late, once, at its actual amount. FOUNDATION: the household payroll rule names no item yet. Closure, one PR:
+- add the reviewed biweekly item's id to the `payroll` rule in `docs/connectivity/transaction-identity.json` (`lunchMoneyRecurringIds` + `settlementFrom: lunchmoney-matched-occurrences`);
+- remove `payrollLateOfEarlier` (#1290's one-business-day stopgap in `futureIncomeUncertainty`, `scripts/provider-observe.js`) and its cases in `test/test-payroll-late-posting.js`, and drop the `businessDaysAfter` export if nothing else reads it.
+
+Until then the stopgap stands aside only in an observation where LM's pairing took charge of payroll; with no consistent read it applies as before. Proof: the private exact base/head diff, LM's expected dates against Forecast's paydays for 12 months, then Dale's walk (rule 15). Closure is reached when the late-Monday case stays live through the LM pairing and the payday reads received rather than To confirm.
 
 **B97 · Read-only assistant access to Atlas** · **IN PROGRESS 2026-08-29** · *owner instruction; OAuth MCP connection slice*
 
