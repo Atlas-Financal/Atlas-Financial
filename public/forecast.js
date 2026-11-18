@@ -10720,14 +10720,16 @@
       // (`represented`, the opening's prepaid occurrence) holds it, the
       // payment already left cash on or before asOf: the row stays Paid in
       // its planned period, owes nothing there, and its cash is outside every
-      // later opening. Only when that settlement covers the occurrence: an
-      // observed actual below plan is a partial and keeps the demotion below,
-      // so a future period never holds less than it may still owe (lead
-      // ruling on #821 6961042821; partial remainders are a separate rule).
-      // Evidence the walk does not settle on is demoted too, as before.
-      const coversOccurrence = row.actual == null || !Number.isFinite(Number(row.actual))
-        || row.planned == null || !Number.isFinite(Number(row.planned))
-        || Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
+      // later opening. Only when an observed actual covers the occurrence:
+      // a missing amount never counts (representation proves the occurrence,
+      // not the amount), and an observed actual below plan is a partial; both
+      // keep the demotion below, so a future period never holds less than it
+      // may still owe (lead rulings on #821 6961042821 and #1301; partial
+      // remainders are a separate rule). Evidence the walk does not settle on
+      // is demoted too, as before.
+      const coversOccurrence = row.actual != null && Number.isFinite(Number(row.actual))
+        && row.planned != null && Number.isFinite(Number(row.planned)) && Number(row.planned) !== 0
+        && Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
         && coversOccurrence;

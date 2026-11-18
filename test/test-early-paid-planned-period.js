@@ -10,7 +10,9 @@
  * again. Only a payment that covers the occurrence does this: an early
  * partial keeps today's behaviour (planned, the full amount still held), so
  * a future period never holds less than it may still owe (lead ruling;
- * reserving a partial's remainder is a separate rule).
+ * reserving a partial's remainder is a separate rule). A represented
+ * occurrence with no observed amount stays planned too: representation proves
+ * the occurrence, not the amount (lead ruling on #1301).
  *
  * Invented world only (test/acceptance/harness.js): biweekly salary 1,400
  * anchored 2026-10-09, so This Pay Period is Oct 9-22 and Next Pay Period
@@ -38,11 +40,14 @@ const HYDRO = {
 };
 const pay = amount => H.lm({ date: AS_OF, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' });
 
-function run(amount) {
+function run(amount, representedOnly = false) {
   const w = H.baseWorld();
   w.asOf = AS_OF;
   w.bills = [HYDRO];
   w.transactions = amount == null ? [] : [pay(amount)];
+  // A plain represented occurrence: the opening names it (id + date) with no
+  // observed payment amount at all.
+  if (representedOnly) w.planPatch = plan => { plan.opening.representedEvents.push({ id: 'hydro', date: DUE }); };
   const r = H.observe(w);
   if (r.error) throw r.error;
   return F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
@@ -54,6 +59,7 @@ const closeBills = p => p && p.plannedPeriodCloseTerms ? p.plannedPeriodCloseTer
 const control = run(null);
 const early = run(90);
 const partial = run(40);
+const plain = run(null, true);
 
 console.log('\n=== windows ===');
 {
@@ -112,6 +118,18 @@ console.log('\n=== partial: 40.00 of 90.00 paid early keeps today\'s behaviour =
     'next period: paid 0, remaining 90, the cash close deducts 90 (never under-reserved)', [n.paidBills, n.remainingBills, closeBills(n)].join(' / '));
   ok(n.balanceAfterDeductions === nc.balanceAfterDeductions && n.paydaySweep === nc.paydaySweep,
     'BAD and the close are the same as the control', `${n.balanceAfterDeductions}/${n.paydaySweep} vs ${nc.balanceAfterDeductions}/${nc.paydaySweep}`);
+}
+
+console.log('\n=== plain represented, no observed amount: stays planned ===');
+{
+  const n = period(plain, 'future');
+  const row = hydroRow(n);
+  // Representation proves the occurrence, not the amount (lead ruling #1301):
+  // with no observed payment, nothing shows that 90.00 was covered.
+  ok(row && row.status === 'planned' && row.settlement === 'upcoming' && row.remaining === 90,
+    'a represented occurrence with no observed amount reads planned with the full 90.00 held', row && `${row.status} ${row.settlement} ${row.remaining}`);
+  ok(n.paidBills === 0 && n.remainingBills === 90 && n.totalBillsThisPeriod === 90,
+    'next period: paid 0 + remaining 90 = total 90 (no Paid invented)', [n.paidBills, n.remainingBills, n.totalBillsThisPeriod].join(' / '));
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll early-paid planned-period checks passed');

@@ -174,14 +174,13 @@ console.log('\n=== 4. a stand-in reserved on payday is counted in the period tha
     holders.map(sec => sec.start).join(','));
 }
 
-console.log('\n=== 5. an already-paid one-off in the next period is Paid there (Dale, #821 6961042821) ===');
+console.log('\n=== 5. an already-paid one-off in the next period follows the future-period rule ===');
 {
   // As-of Sep 24 (last day of this period). Recurring day 20, first due
   // Oct 20; the Oct 5 one-off stands in for Sep 20 and is already
   // represented. It sits in the next period by its real date (Oct 5, after
-  // as-of). The opening already settled it, so it counts in that planned
-  // period (next-period BAD 5,000 - 283.94, unchanged) and reads PAID there
-  // with $0 left to pay: it is not held a second time.
+  // as-of), so like any future occurrence it stays planned in that period:
+  // next-period BAD 5,000 - 283.94. It must not read PAID with $0 left.
   const data = served({ day: 20, firstDue: '2026-10-20' }, { date: '2026-10-05' });
   data.meta.asOf = data.plan.opening.asOf = '2026-09-24';
   data.plan.opening.representedEvents = [{ id: 'phone-one-off', date: '2026-10-05' }];
@@ -191,9 +190,8 @@ console.log('\n=== 5. an already-paid one-off in the next period is Paid there (
   const view = F.recommend(data.plan, '2026-09-24', {}).defaultView;
   const next = (view.billSections || []).find(sec => sec.id === 'next-pay-period');
   const row = ((next && next.rows) || []).find(r => r.id === 'phone-one-off');
-  ok(row && row.status === 'PAID' && row.remaining === 0,
-    'the next-period row is PAID with 0 remaining, not held again', row && `${row.status} ${row.remaining}`);
-  ok(next && next.remainingTotal === 0, 'and the next period has nothing left to pay for it', next && String(next.remainingTotal));
+  ok(row && row.status !== 'PAID' && Math.abs(row.remaining - 283.94) < 0.005,
+    'the next-period row is planned with 283.94 remaining, not PAID', row && row.status);
 }
 
 console.log('\n=== 6. the Plan agrees with Talk\'s remaining-bills source ===');
