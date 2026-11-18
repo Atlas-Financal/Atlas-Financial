@@ -764,13 +764,15 @@ test('E19, E27 and E28 read changed on this check and move 0 keys on the pre-G1 
       execFileSync('git', ['show', PRE_G1 + ':scripts/figures-snapshot.js'], { cwd: ROOT, encoding: 'utf8' }));
     fs.symlinkSync(path.join(ROOT, 'public'), path.join(tmp, 'public'), process.platform === 'win32' ? 'junction' : 'dir');
     const pre = require(path.join(tmp, 'scripts/figures-snapshot.js'));
-    // The pre-G1 script still reads the Credit, Bills and Subscriptions rosters,
-    // whose producers were retired under #822. Empty stand-ins let it run; those
-    // sections are outside E19, E27 and E28, so what this proves is unchanged.
+    // The pre-G1 script still reads the Credit, Bills and Subscriptions rosters
+    // and Forecast.deepDive's HELOC opening, whose producers were retired under
+    // #822. Empty stand-ins let it run; those sections are outside E19, E27 and
+    // E28, so what this proves is unchanged.
     const retired = {
       creditAccounts: () => ({ asOf: null, secured: [], cards: [] }),
       householdBills: () => ({ asOf: null, monthlyEquivalentTotal: null, bills: [] }),
       householdSubscriptions: () => ({ asOf: null, monthlyEquivalentTotal: null, subscriptions: [] }),
+      deepDive: () => ({ heloc: null }),
     };
     for (const name of Object.keys(retired)) {
       assert.equal(F[name], undefined, name + ' is no longer a Forecast export');
