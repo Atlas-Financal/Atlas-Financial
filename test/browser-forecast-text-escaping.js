@@ -19,6 +19,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 let chromium;
 try { ({ chromium } = require('playwright')); } catch (_) {
+  // In CI a skip would read as green, so a missing browser fails there.
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.error('browser-forecast-text-escaping: playwright is required in CI.');
+    process.exit(1);
+  }
   console.log('SKIP browser-forecast-text-escaping: playwright is not installed.');
   process.exit(0);
 }

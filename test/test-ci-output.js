@@ -166,7 +166,7 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
     .includes(".then(() => require('./test-assistant-standing-store'))"));
   for (const identity of ['install-runtime', 'install-test', 'privacy-guard', 'risk-label-gate',
     'figures-head-snapshot', 'figures-base-snapshot', 'figures-base-checkout',
-    'acceptance-scoreboard']) {
+    'acceptance-scoreboard', 'browser-forecast-text-escaping', 'browser-page-renderer-escaping']) {
     outcome(run(streams + channelCode, official, identity), 0, identity);
     outcome(run(streams + channelCode + 'process.exit(7);', official, identity), 7, identity);
   }
