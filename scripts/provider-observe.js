@@ -5633,8 +5633,13 @@ function derivedAmountFixedBills(history, opts) {
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
   // minimum), a revolving card's debt, a non-cash or capitalising leg (the
-  // HELOC), or a once schedule is never a candidate. An id that names both a bill and an obligation is neither.
-  const billIds = new Set((plan.bills || []).filter(b => b && typeof b.id === 'string').map(b => b.id));
+  // HELOC), or a once schedule is never a candidate.
+  // An id named by more than one plan row (two bills, two obligations, or a
+  // bill and an obligation) is ambiguous, so it is never a candidate.
+  const idCount = new Map();
+  for (const row of [].concat(plan.bills || [], plan.obligations || [])) {
+    if (row && typeof row.id === 'string') idCount.set(row.id, (idCount.get(row.id) || 0) + 1);
+  }
   // A revolving card's payment (its debt has a limit or a statement close day)
   // is a minimum against a moving balance, never a plain obligation, even
   // when it carries no statement occurrences (lead record on #1369: travel).
@@ -5647,11 +5652,11 @@ function derivedAmountFixedBills(history, opts) {
     && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
     && !revolving(o);
   const bills = new Map();
-  for (const b of plan.bills || []) if (b && typeof b.id === 'string') bills.set(b.id, { row: b, kind: 'bill' });
+  for (const b of plan.bills || []) {
+    if (b && typeof b.id === 'string' && idCount.get(b.id) === 1) bills.set(b.id, { row: b, kind: 'bill' });
+  }
   for (const o of plan.obligations || []) {
-    if (!o || typeof o.id !== 'string') continue;
-    if (billIds.has(o.id)) { bills.delete(o.id); continue; }
-    if (plainObligation(o)) bills.set(o.id, { row: o, kind: 'obligation' });
+    if (o && typeof o.id === 'string' && idCount.get(o.id) === 1 && plainObligation(o)) bills.set(o.id, { row: o, kind: 'obligation' });
   }
   const rules = stampRuleSetClaims(opts.identityRules).filter(rule => rule && rule.direction === 'debit'
     && rule.atlasAccountId && bills.has(rule.eventId));

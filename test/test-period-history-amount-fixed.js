@@ -133,5 +133,43 @@ for (const [label, day, kind, start] of [['current period (first-observed)', 12,
     'a record naming an extra bill id fixes only the plan\'s own bill and adds none');
 }
 
+// #1369 landed after #1370: the record now also carries obligationIds. A part-paid fixed mortgage must round-trip.
+// Invented: a biweekly $800 mortgage due Fri Oct 9 with three completed $800 payments (Aug 28, Sep 11, Sep 25), and
+// $300 paid on Oct 9. By hand the live page holds it still due for 800 - 300 = 500; the capture must equal it.
+console.log('obligation (mortgage) record round-trips');
+{
+  const mpay = (amount, date) => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented mortgage co' });
+  const w = H.baseWorld();
+  w.bills = [];
+  w.obligations = [{ id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Invented mortgage', frequency: 'biweekly',
+    anchor: '2026-10-09', amount: 800, confidence: 'confirmed', payingAccount: 'chequing-a' }];
+  w.debts = [{ id: 'mortgage', label: 'Invented mortgage', balance: 200000, rate: 5, payment: 800, confidence: 'confirmed' }];
+  w.identityRules = (w.identityRules || []).concat([{ eventId: 'mortgage', payeePattern: 'Invented mortgage co',
+    atlasAccountId: 'chequing-a', direction: 'debit' }]);
+  w.transactions = [mpay(300, '2026-10-09')];
+  w.amountHistory = { transactions: ['2026-08-28', '2026-09-11', '2026-09-25'].map(d => mpay(800, d)).concat(w.transactions) };
+  H.productionOpening(w);
+  const input = { data: H.canonicalOf(w, H.planOf(w)), payload: H.rawPayload(w, { captureCash: true }),
+    accountMap: H.accountMapOf(w, { captureCash: true }), identity: H.identityOf(w), periods: [] };
+  const start = '2026-10-09';
+  const live = livePeriod(input, start);
+  const record = live.report.derivedAmountFixed;
+  const mortgage = row => (row && row.bills || []).find(b => b.id === 'mortgage') || {};
+  ok(record && same(record.obligationIds, ['mortgage']) && same(record.billIds, []), 'live: the history derives the invented mortgage fixed',
+    JSON.stringify(record));
+  ok(mortgage(live.row).status === 'still due' && mortgage(live.row).remaining === 500 && mortgage(live.row).actual === 300,
+    'live: the part-paid fixed mortgage is still due for 800 - 300 = 500', JSON.stringify(mortgage(live.row)));
+  const fromRaw = capture('first-observed', input);
+  const stored = fromRaw.content.evidence.input.payload.amountFixedDerivation;
+  ok(same(fromRaw.content.publication, live.row) && same(stored.obligationIds, ['mortgage']) && !deepKeys(fromRaw).has('amountHistory'),
+    'raw history: the captured publication equals live, and the stored record keeps obligationIds and no history rows',
+    JSON.stringify(stored));
+  const fromMemory = capture('first-observed', { ...input, payload: { ...withoutHistory(input.payload), amountFixedDerivation: record } });
+  ok(same(fromMemory.content.publication, live.row), 'memory record: the captured publication equals live');
+  const legacy = capture('first-observed', { ...input, payload: { ...withoutHistory(input.payload),
+    amountFixedDerivation: { source: record.source, status: record.status, window: record.window, billIds: [] } } });
+  ok(mortgage(legacy.content.publication).status === 'PAID', 'a record without obligationIds (a #1370-era record) fixes no obligation: PAID');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll period-history amountFixed checks passed.');
