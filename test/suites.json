@@ -205,6 +205,7 @@
   ["MCP provider account balances and truthful freshness","test-assistant-account-balances.js"],
   ["Lunch Money monthly balance history read (monthly only, unavailable never zero)","test-assistant-balance-history.js"],
   ["payroll: a posted pay one business day late settles its own payday once and never blanks the plan; two credits, two days late or not posted still hold (stopgap until LM recurring matches)","test-payroll-late-posting.js"],
+  ["bill and payroll receipts require affirmative posting evidence on live and replayed inputs","test-positive-posting-receipts.js"],
   ["Lunch Money reviewed recurring items read (schedule evidence only, aliases only, no payee or amount; malformed fields unavailable)","test-assistant-recurring-items.js"],
   ["Lunch Money MCP reads and confirmed bounded edits","test-assistant-lunchmoney.js"],
   ["Lunch Money preserving metadata and reusable cleanup previews","test-assistant-cleanup.js"],
