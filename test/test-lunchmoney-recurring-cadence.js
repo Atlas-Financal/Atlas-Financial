@@ -156,6 +156,7 @@ console.log('7. Budget normalisation honours an end date (Codex P1 on #1289)');
   const ending = cat({ lastDue: '2026-12-31' }, at).dated;
   ok(Math.abs(ending - 4870 / 91) < 1e-9, 'ends Dec 31: two occurrences, 4870 / 91 a month', String(ending));
   ok(cat({ lastDue: '2026-12-31' }, {}).dated === null, 'no window start: the ended bill\'s share is unknown');
+  ok(cat({ lastDue: 'soon' }, at).dated === 80, 'a malformed end date is ignored here exactly as the calendar ignores it: $80');
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }

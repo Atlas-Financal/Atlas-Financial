@@ -21562,7 +21562,8 @@
       // stops does not keep drawing its full monthly equivalent from the
       // category. Without a window start its share is unknown, like a refused
       // schedule.
-      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' ? b.lastDue : null;
+      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue)
+        ? b.lastDue : null;
       if (last && (!scheduleLastIncluded || last < scheduleLastIncluded)) {
         if (!scheduleAsOf) {
           if (b.budgetCategory) {
