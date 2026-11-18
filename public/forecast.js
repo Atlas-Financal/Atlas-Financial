@@ -9592,6 +9592,7 @@
   }
 
   const BILLS_ACCOUNT_ID = 'chequing-a';
+  const WEEKLY_ACCOUNT_ID = 'chequing-b';
   const BILLS_ACCOUNT_LABEL = 'BILLS ACCOUNT (Chequing A)';
 
   function plannedPayerLabel(payingAccount, merchantPayingAccount, plan) {
@@ -13543,6 +13544,7 @@
       .map(({ tx }) => tx.coverageRef));
     const recon = reconcileCardPurchases(transactions, { plan, asOf: day, packet: packet || {}, debts: opts.debts });
     let weeklyFunding = 0, directFunding = 0, cardFunding = 0, pendingBillsHousehold = 0, categoryCardCash = 0;
+    let weeklyCardOutside = 0;
     let fundingEventCount = 0;
     const usedCash = new Set();
     const takeFunding = id => {
@@ -13582,15 +13584,28 @@
         if (!leg || !cycle || leg.date < cycle.start || leg.date > through) return;
         // A Bills leg funds the hold from Bills; a Savings leg funds it from
         // outside Bills. Either way that purchase no longer needs Bills cash.
-        // (Weekly legs never reach here: the reconciler withholds them.)
-        if (![BILLS_ACCOUNT_ID, DESIGNATED_RESERVE_ID].includes(householdCashLocationId(leg))) return;
+        // A Weekly leg spends money Bills already sent to Weekly: its held
+        // purchases were funded by that transfer (weeklyFunding), and the rest
+        // (a minimum, older debt) left the hold, so it comes off weeklyFunding.
+        const location = householdCashLocationId(leg);
         const amount = roundCent((record.allocations || []).filter(part => eligibleCardRefs.has(part.purchaseRef))
           .reduce((sum, part) => sum + part.amount, 0));
+        if (location === WEEKLY_ACCOUNT_ID && sign === 1) {
+          const debit = savingsCents(leg.amount, true);
+          if (debit == null) { issue('card-coverage-unavailable', 'A Weekly card payment amount is unconfirmed.'); return; }
+          weeklyCardOutside = roundCent(weeklyCardOutside + Math.max(0, Math.abs(debit) / 100 - amount));
+          return;
+        }
+        if (![BILLS_ACCOUNT_ID, DESIGNATED_RESERVE_ID].includes(location)) return;
         if (amount && takeFunding(String(leg.id))) cardFunding = roundCent(cardFunding + sign * amount);
       };
       for (const record of policy && policy.payments || []) countParts(record, record.debitRef, 1);
       for (const record of policy && policy.reversals || []) countParts(record, record.cashCreditRef, -1);
     }
+    // Weekly card payments' non-household share reduces the Bills-to-Weekly
+    // funding counted against the hold, never below zero: money Bills did not
+    // send this cycle is not taken back from the hold.
+    if (weeklyCardOutside > 0) weeklyFunding = roundCent(weeklyFunding - Math.min(weeklyCardOutside, Math.max(0, weeklyFunding)));
     for (const tx of transactions) {
       if (tx?.pending !== true || householdCashLocationId(tx) !== BILLS_ACCOUNT_ID || !(tx.amount > 0)) continue;
       if (!eligibleIds.has(String(tx.id)) && tx.pendingMatchingCardPaidBill !== true) {
@@ -14236,13 +14251,16 @@
       };
       // A Bills or Savings leg is a coverage inflow: its cash left an account
       // the household hold does not otherwise count as funding. A payment
-      // from Weekly would also need its Bills-to-Weekly funding reconciled
-      // against the household hold (weeklyFunding); until that is modelled
-      // it withholds rather than releasing protection twice (Codex P1, #849).
-      const billsLeg = pair => {
+      // from Weekly also covers the card once (lead dispatch U3, census 11):
+      // billsAccountPeriodBalance takes its non-household share off the
+      // Bills-to-Weekly funding it counted against the hold, so that money is
+      // not released twice (Codex P1, #849). A reversal back to Weekly has no
+      // such reconciliation and still withholds.
+      const fundedLeg = weeklyOk => pair => {
         const location = householdCashLocationId(pair.cash.tx);
         if (location === BILLS_ACCOUNT_ID || location === DESIGNATED_RESERVE_ID
           || pair.cash.tx.accountRole === 'household-reserve') return true;
+        if (weeklyOk && location === WEEKLY_ACCOUNT_ID) return true;
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
@@ -14260,7 +14278,7 @@
         leg.paired = true;
         notePaid.push({ card: { tx: leg.tx, account, cents: leg.cents }, cash: leg, date: leg.tx.date });
       }
-      const paid = [...creditPairs, ...notePaid, ...payDown].filter(billsLeg);
+      const paid = [...creditPairs, ...notePaid, ...payDown].filter(fundedLeg(true));
       // A cash leg that already represents a scheduled occurrence (a card
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
@@ -14297,7 +14315,7 @@
           pair.scheduled = pair.card.cents;
         } else pair.scheduled = scheduled;
       }
-      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(billsLeg);
+      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(fundedLeg(false));
       // An unpaired posted payment leg on Bills, Weekly or Savings has an
       // unknown destination and withholds (Atlas partial review, #849).
       for (const leg of [...legs.cashDebit, ...legs.cashCredit, ...legs.reserveDebit]) {

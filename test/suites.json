@@ -219,6 +219,7 @@
   ["immediate evidence-qualified card purchase coverage","test-card-purchase-coverage.js"],
   ["owner aggregate card coverage rule: per card, per pay period, posted pairs only","test-card-coverage-aggregate-rule.js"],
   ["TD PAYMENT - THANK YOU card credit pairs with a TFR-TO C/C debit (Grok Bot ruling)","test-td-payment-thank-you.js"],
+  ["a card paid from Weekly covers the card once and no longer blanks the plan","test-card-payment-weekly-funded.js"],
   ["a \"card payment: <card>\" note alone names the card for a TFR-TO C/C debit","test-card-payment-note-pays.js"],
   ["equal same-day payments to two cards pair by their notes, in both directions","test-card-payment-reverse-destination.js"],
   ["TD rewards redemption card credit is a known non-payment credit (Grok Bot ruling)","test-td-rewards-redemption.js"],
