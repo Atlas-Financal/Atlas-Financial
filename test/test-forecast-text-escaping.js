@@ -105,6 +105,6 @@ test('a future-plan card prints an unrecognised flexibility value as text', () =
   const page = loadBudgetPage();
   const html = page.get('futurePlanCardHtml')({ id: 'invented-plan', label: 'Invented plan', flexibility: H.LABEL,
     verdict: 'funded', amount: 100, date: '2026-09-15', confidence: 'confirmed' }, null, false);
-  assert.ok(!html.includes('<img src=x') && html.includes('&quot;&gt;&lt;IMG SRC=X ONERROR=ALERT(1)&gt;'),
+  assert.ok(!html.includes('<IMG SRC=X') && html.includes('&quot;&gt;&lt;IMG SRC=X ONERROR=ALERT(1)&gt;'),
     'the fallback chip escapes the upper-cased value');
 });

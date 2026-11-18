@@ -1,10 +1,13 @@
 'use strict';
 // A Forecast whose published plain text is hostile (stored-XSS proofs).
 //
-// Every object a page-facing Forecast function returns is walked and each
-// non-empty string under a text-shaped key (label, reason, note, message,
-// summary, ...) gets PAYLOAD appended. Ids, statuses, dates and numbers are
-// left alone, so the page still takes its normal branches. Forecast's own
+// Every object a page-facing Forecast function returns is walked and every
+// non-empty string gets PAYLOAD appended, except under keys that name an
+// identity or an enum the page branches on (keys ending in id, kind, status,
+// date or trust: `id`, `debtId`, `incomeTrust`, `dueDate`) and values that
+// are ISO dates (`asOf`, `start`, `end`). Numbers and booleans are left alone.
+// Poisoning every other string, enums included, also proves the page never
+// prints a Forecast code string as markup. Forecast's own
 // internal calls are not wrapped, so the figures are the real ones. Only
 // what the page reads is poisoned: a renderer that writes one of those
 // strings into markup without escaping it is caught.
@@ -12,16 +15,19 @@
 // One source for node and the browser: `install` is self-contained and is
 // passed to Playwright's addInitScript as-is.
 const PAYLOAD = '<img src=z data-poisoned-forecast onerror=alert(9)>';
-const KEY_SOURCE = '(label|reason|note|message|short|summary|why|what|line|headline|title|detail|description|text|caption|name|payee|merchant)$';
+// Keys left clean (case-insensitive suffix match).
+const SKIP_SOURCE = '(id|kind|status|date|trust)$';
+const ISO_DATE = '^\\d{4}-\\d{2}-\\d{2}(T[\\d:.]+Z?)?$';
 
-function wrap(real, payload, keySource) {
-  const keys = new RegExp(keySource, 'i');
+function wrap(real, payload, skipSource, isoSource) {
+  const skip = new RegExp(skipSource, 'i');
+  const iso = new RegExp(isoSource);
   const poison = (value, depth, seen) => {
     if (!value || typeof value !== 'object' || depth > 6 || seen.has(value)) return value;
     seen.add(value);
     for (const key of Object.keys(value)) {
       const x = value[key];
-      if (typeof x === 'string' && x && keys.test(key)) value[key] = x + payload;
+      if (typeof x === 'string' && x && !skip.test(key) && !iso.test(x)) value[key] = x + payload;
       else if (x && typeof x === 'object') poison(x, depth + 1, seen);
     }
     return value;
@@ -38,15 +44,15 @@ function wrap(real, payload, keySource) {
 
 // Browser: replace window.Forecast with the poisoned wrapper as forecast.js
 // publishes it. Self-contained (no closure) so addInitScript can serialise it.
-function install({ payload, keySource, wrapSource }) {
+function install({ payload, skipSource, isoSource, wrapSource }) {
   const wrapFn = new Function(`return (${wrapSource})`)();
   let current;
   Object.defineProperty(window, 'Forecast', { configurable: true,
-    get: () => current, set: real => { current = wrapFn(real, payload, keySource); } });
+    get: () => current, set: real => { current = wrapFn(real, payload, skipSource, isoSource); } });
 }
 
 module.exports = {
-  PAYLOAD, KEY_SOURCE,
-  poisonedForecast: real => wrap(real, PAYLOAD, KEY_SOURCE),
-  browserInit: [install, { payload: PAYLOAD, keySource: KEY_SOURCE, wrapSource: wrap.toString() }],
+  PAYLOAD, SKIP_SOURCE, ISO_DATE,
+  poisonedForecast: real => wrap(real, PAYLOAD, SKIP_SOURCE, ISO_DATE),
+  browserInit: [install, { payload: PAYLOAD, skipSource: SKIP_SOURCE, isoSource: ISO_DATE, wrapSource: wrap.toString() }],
 };
