@@ -5554,6 +5554,20 @@ const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.start
   'criteria.granularity', 'criteria.quantity', 'criteria.anchorDate', 'criteria.currency',
   'criteria.plaidAccountId', 'criteria.manualAccountId', 'matches', 'matches.expectedOccurrenceDates',
   'matches.foundTransactions']);
+// Each reviewed, named item the review does not apply is recorded where it
+// is refused, with its Atlas plan row (only when exactly one plan row has the
+// one event id that names it, else null) and one closed reason code (lead
+// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
+const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
+  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
+  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
+  'expected-dates-mismatch']);
+const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
+// The plan-id shape a served refusal may carry: lowercase, starting with a
+// letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
+function recurringRefusalPlanId(v) {
+  return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
+}
 function sanitizedRecurringEvidence(raw, opts) {
   if (raw == null) return null;
   // A response that claims to continue beyond what it returned (paging keys
@@ -5690,20 +5704,6 @@ function applyRecurringSchedule(bill, schedule) {
   return out;
 }
 
-// Each reviewed, named item the review does not apply is recorded where it
-// is refused, with its Atlas plan row (only when exactly one plan row has the
-// one event id that names it, else null) and one closed reason code (lead
-// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
-const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
-  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
-  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
-  'expected-dates-mismatch']);
-const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
-// The plan-id shape a served refusal may carry: lowercase, starting with a
-// letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
-function recurringRefusalPlanId(v) {
-  return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
-}
 function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   const refused = [];
   const done = schedules => ({ schedules, refused });
@@ -7037,6 +7037,7 @@ const api = {
   applyRecurringObligationSchedule,
   RECURRING_OBLIGATION_FIELDS,
   RECURRING_REFUSAL_CODES,
+  sanitizedRecurringEvidence,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
