@@ -63,8 +63,15 @@ function recurring(value) {
           ? strings(item.matches.missingTransactionDates) : null,
       } })) } };
 }
+// A group parent's children: only the ids and account ids the observer reads
+// (provider-observe groupParentAccountId). No payee, note, amount or metadata.
+const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id'];
 function transaction(row) {
   const out = pick(row, TRANSACTION);
+  if (Object.hasOwn(row, 'children')) {
+    if (!Array.isArray(row.children)) throw new Error('observation-input-invalid');
+    out.children = row.children.map(child => pick(child, CHILD_ACCOUNT));
+  }
   for (const field of ['tags', 'tag_ids', 'tagIds']) if (Object.hasOwn(row, field)) {
     out[field] = row[field] === null ? null : row[field].map(tag);
   }
