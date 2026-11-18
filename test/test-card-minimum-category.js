@@ -244,8 +244,18 @@ check('owner-allocated stable debit cannot manufacture another cycle or obligati
     assert.equal(live.report.cardMinimumCategoryEvidence.payments.length, 0);
     assert.equal(F.representedOccurrence(plan, 'triangle', ORIGINAL, NOW), false);
     assert.ok(plan.opening.representedEvents.some(p => p.id === owner.id && p.date === prior));
-    assert.equal(F.cardMinimumState(plan, NOW).payments.find(p => p.id === owner.id
-      && p.scheduledDate === prior)?.issuerMinimumStatus, 'satisfied');
+    // Grok Bot Q2 (Plan #6, 2026-11-17): when the owner record and the ledger's own category link
+    // name the SAME debit for different occurrences, they disagree and neither counts (To confirm).
+    // A record keyed by another identity (a human label) is not that debit, so it is untouched.
+    const ownerPayment = F.cardMinimumState(plan, NOW).payments.find(p => p.id === owner.id && p.scheduledDate === prior);
+    if (namespace === 'protocol-hash') {
+      assert.equal(ownerPayment, undefined, 'a disagreeing owner record is not counted as sent');
+      assert.deepEqual(live.report.cardMinimumCategoryEvidence.disagreements,
+        [crypto.createHash('sha256').update('lunchmoney-minimum-category:98001').digest('hex')]);
+    } else {
+      assert.equal(ownerPayment?.issuerMinimumStatus, 'satisfied');
+      assert.deepEqual(live.report.cardMinimumCategoryEvidence.disagreements, []);
+    }
     const advice = F.recommend(plan, NOW, { debts: live.data.debts,
       currentPeriodActuals: live.report.currentPeriodActuals });
     const bill = advice.defaultView.bills.find(b => b.id === 'triangle' && b.date === DUE);

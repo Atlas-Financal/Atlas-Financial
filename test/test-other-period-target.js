@@ -7,7 +7,10 @@ for(const [spent,cents] of [[0,0],[137.26,13726],[450,45000],[618.73,61873]]){
  assert.equal(r.hold,Math.max(45000,cents)/100,'consume once: no 450 + actual');
  assert.equal(r.remaining,(45000-cents)/100);assert.equal(r.overspend,Math.max(0,cents-45000)/100);
  assert.equal(p.budgetHold,(47500+Math.max(45000,cents))/100,'six invented category plans sum 475; independent max policy');
- assert.equal(p.balanceAfterDeductions,(140000-47500-Math.max(45000,cents))/100,'active deduction chain consumes the once-only reserve, not target plus actual');
+ // The fixture's invented 93.72 posted chequing debit is filed as Transfer with no proven
+ // other side: it is held To confirm and leaves the remainder once (rank 18).
+ assert.equal(p.predictedEndingBalanceTerms.heldOutflowSpending,93.72);
+ assert.equal(p.balanceAfterDeductions,(140000-47500-Math.max(45000,cents)-9372)/100,'active deduction chain consumes the once-only reserve, not target plus actual; the unproven transfer leaves once');
  assert.equal(p.budgetProgress.household.planned.amount,925,'original total includes one Other plan');
  assert.equal(p.budgetProgress.household.actual.amount,(11037+cents)/100);
  assert.equal(JSON.stringify(f.packet),before,'budget target does not rewrite actual evidence');

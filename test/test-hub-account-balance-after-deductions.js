@@ -137,6 +137,8 @@ function actuals(transactions, extra) {
     transactionCoverage: 'complete',
     transactions: transactions || [],
     representedActuals: [],
+    // As the observer now writes it: the card-minimum owner export was read and owns none of these rows.
+    cardMinimumOwnership: 'available',
   }, extra || {});
 }
 
@@ -560,10 +562,14 @@ console.log('\n=== O. HELOC funding/payment does not duplicate an assigned oblig
   }));
   ok(near(none.periodBillLoad, helocBill),
     'assigned HELOC bill is the one deduction');
-  ok(near(paid.periodBillLoad, none.periodBillLoad)
-      && near(paid.afterHouseholdBudget, none.afterHouseholdBudget)
-      && near(paid.budgetHold, none.budgetHold),
+  // Rank 18: the debit is filed as Transfer and nothing in the ledger proves its other side
+  // (no transfer group, link or mark), so it is held To confirm and leaves the remainder once.
+  // It never becomes a second bill, a bill-load change or a hold change; the assigned bill stays
+  // the one scheduled deduction until the ledger confirms the payment (disclosed, conservative).
+  ok(near(paid.periodBillLoad, none.periodBillLoad) && near(paid.budgetHold, none.budgetHold),
     'later hub → HELOC transfer does not deduct the assigned bill again');
+  ok(near(paid.afterHouseholdBudget, none.afterHouseholdBudget - helocBill),
+    'the unproven transfer leaves the remainder once, held To confirm');
 }
 
 console.log('\n=== P. Lunch Money signed credit is not negative household income ===');

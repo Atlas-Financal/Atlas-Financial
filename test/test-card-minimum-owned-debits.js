@@ -69,8 +69,16 @@ console.log('\n=== (a) accepted, posted records are exported ===');
 
 console.log('\n=== (b) each debit once; conflicts are rejected, never chosen ===');
 {
-  const twice = out(plan({ sent: [record(D1), record(D1, { scheduledDate: '2026-11-07', postedOn: '2026-10-08' })] }));
-  ok(twice.status === 'unavailable' && twice.debitIds === null, 'one debit recorded for two occurrences: Unavailable', JSON.stringify(twice));
+  // Grok Bot Q2: two owner records of one debit disagree; neither is chosen and the debit is To confirm, not Unavailable.
+  const twice = out(plan({ sent: [record(D1), record(D1, { scheduledDate: '2026-11-07', postedOn: '2026-10-08', cashIncludedAsOf: null })] }));
+  ok(twice.status === 'available' && same(twice.debitIds, []) && same(twice.disagreementDebitIds, [D1]),
+    'one debit recorded for two occurrences: owned by neither, named as a disagreement (To confirm)', JSON.stringify(twice));
+  // Grok Bot Q2: the ledger's link names another card or occurrence for an owner-recorded debit.
+  const contradicted = out(plan({ sent: [record(D1)], packet: { ...packetOf([]), disagreements: [D1] } }));
+  ok(contradicted.status === 'available' && same(contradicted.debitIds, []) && same(contradicted.disagreementDebitIds, [D1]),
+    'an owner record the ledger link contradicts: owned by neither, named as a disagreement', JSON.stringify(contradicted));
+  ok(F.cardMinimumState(plan({ sent: [record(D1)], packet: { ...packetOf([]), disagreements: [D1] } }), AS_OF).payments.length === 0,
+    'and the card minimum is not marked sent for it');
   const dupPacket = out(plan({ packet: packetOf([derived(D2), derived(D2, { scheduledDate: '2026-11-12' })]) }));
   ok(dupPacket.status === 'available' && same(dupPacket.debitIds, []),
     'one derived debit offered twice is rejected by the derived validator: not exported', JSON.stringify(dupPacket));
@@ -84,19 +92,29 @@ console.log('\n=== (c) a withdrawn derived record drops out on the next observat
   ok(second.status === 'available' && same(second.debitIds, [D2]), 'next observation without the link: that debit is no longer exported', JSON.stringify(second));
 }
 
-console.log('\n=== (d) an unreadable owner input reads Unavailable ===');
+console.log('\n=== (d) an unreadable owner input reads Unavailable, naming what could not be read ===');
 {
-  for (const [what, p] of [
-    ['a derived packet from another source', plan({ packet: { source: 'other', asOf: AS_OF, payments: [] } })],
-    ['a derived packet without a payments list', plan({ packet: { source: 'lunchmoney-minimum-category', asOf: AS_OF } })],
-    ['a derived packet with no readable date', plan({ packet: { source: 'lunchmoney-minimum-category', asOf: 'soon', payments: [] } })],
-    ['durable records that are not a list', plan({ sent: { debitId: D1 } })],
-    ['a durable record of unconfirmed purpose', plan({ sent: [record(D1, { intent: undefined })] })],
-    ['a durable record missing its identity', plan({ sent: [record(undefined)] })],
-    ['an unconfirmed durable record', plan({ sent: [record(D1, { confirmed: false })] })],
+  // No readable identity: any debit could be the one it owns, so the whole export is Unavailable.
+  for (const [what, p, word] of [
+    ['a derived packet from another source', plan({ packet: { source: 'other', asOf: AS_OF, payments: [] } }), 'ledger minimum links'],
+    ['a derived packet without a payments list', plan({ packet: { source: 'lunchmoney-minimum-category', asOf: AS_OF } }), 'ledger minimum links'],
+    ['a derived packet with no readable date', plan({ packet: { source: 'lunchmoney-minimum-category', asOf: 'soon', payments: [] } }), 'ledger minimum links'],
+    ['durable records that are not a list', plan({ sent: { debitId: D1 } }), 'records'],
+    ['a durable record missing its identity', plan({ sent: [record(undefined)] }), 'evidence'],
   ]) {
     const r = out(p);
-    ok(r.status === 'unavailable' && r.debitIds === null, `${what}: Unavailable`, JSON.stringify(r));
+    ok(r.status === 'unavailable' && r.debitIds === null && r.unreadable.some(u => u.what === word),
+      `${what}: Unavailable, naming "${word}"`, JSON.stringify(r));
+  }
+  // A readable identity: only that debit is unknown; other owned debits are unaffected.
+  for (const [what, bad, word] of [
+    ['a durable record of unconfirmed purpose', record(D1, { intent: undefined }), 'purpose'],
+    ['an unconfirmed durable record', record(D1, { confirmed: false }), 'evidence'],
+  ]) {
+    const r = out(plan({ sent: [bad], packet: packetOf([derived(D2)]) }));
+    ok(r.status === 'available' && same(r.unknownDebitIds, [D1]) && same(r.debitIds, [D2])
+      && r.unreadable.length === 1 && r.unreadable[0].id === 'min-a' && r.unreadable[0].what === word,
+      `${what}: only its own debit is unknown (named "${word}"), the other card's debit is still owned`, JSON.stringify(r));
   }
   const cashGap = out(plan({ sent: [record(D1, { cashIncludedAsOf: undefined })] }));
   ok(cashGap.status === 'available' && same(cashGap.debitIds, [D1]),

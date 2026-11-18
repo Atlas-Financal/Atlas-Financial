@@ -20,7 +20,7 @@ function build(other=137.26,date=asOf,opts={}){
    accounts:plan.startingCash.breakdown.map(r=>({...r}))},transactions:[
    {id:'invented-other',date:start,account:'chequing-b',accountRole:'household-cash',amount:other,categoryLabel:'Uncategorised',currency:'cad',pending:false},
    {id:'invented-grocery',date:start,account:'chequing-b',accountRole:'household-cash',amount:110.37,categoryLabel:'Groceries',currency:'cad',pending:false},
-   {id:'invented-transfer',date:start,account:'chequing-a',accountRole:'household-cash',amount:93.72,categoryLabel:'Transfer',kind:'transfer',currency:'cad',pending:false},
+   ...(opts.noTransfer?[]:[{id:'invented-transfer',date:start,account:'chequing-a',accountRole:'household-cash',amount:93.72,categoryLabel:'Transfer',kind:'transfer',currency:'cad',pending:false}]),
    ...(opts.pendingOther!=null?[{id:'invented-pending-other',date,account:'chequing-b',accountRole:'household-cash',amount:opts.pendingOther,categoryLabel:'Uncategorised',currency:'cad',pending:true}]:[]),
    ...(Array.isArray(opts.extraTx)?opts.extraTx.map((tx,i)=>({id:'invented-extra-'+i,date:start,account:'chequing-b',accountRole:'household-cash',currency:'cad',pending:false,...tx})):[]),
    ...(date>=effective?[{id:'invented-prior-other',date:'2026-09-12',account:'chequing-b',accountRole:'household-cash',amount:83.14,categoryLabel:'Uncategorised',currency:'cad',pending:false}]:[])]};
