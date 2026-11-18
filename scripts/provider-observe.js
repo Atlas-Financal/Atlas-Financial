@@ -4848,7 +4848,7 @@ function paydayGapCompleteFromEvidence(opts) {
       && String(tx.date) < String(paydayDate);
     if (tx.accountRole === 'household-cash'
       && tx.pending === true
-      && tx.pendingPostedDuplicate !== true
+      && (tx.pendingPostedDuplicate !== true || tx.pendingBillCopy === true)
       && inGap) {
       return false;
     }
@@ -5243,6 +5243,35 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // scheduled occurrence, capped below half of that bill's own interval so
 // a short-cycle bill can never claim its neighbour's charge.
 const NEAR_DUE_BILL_DAYS = 3;
+// The one occurrence of a bill nearest a debit date, with its reach: at most
+// NEAR_DUE_BILL_DAYS, capped below half of that bill's own interval. Null
+// when the bill has no occurrence within 45 days. Shared by the near-due
+// candidates and the pending-copy pairing, so both use one window.
+function nearestBillOccurrence(plan, eventId, date) {
+  const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
+    .filter(e => e.id === eventId).map(e => e.date)
+    .filter((d, i, all) => all.indexOf(d) === i).sort();
+  if (!occ.length) return null;
+  const dist = d => Math.abs(Forecast.diffDays(d, date));
+  const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
+  const i = occ.indexOf(nearest);
+  const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
+    i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
+  const interval = Math.min(...gaps);
+  return { date: nearest, off: dist(nearest), reach: Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1),
+    offsetDays: Forecast.diffDays(nearest, date) };
+}
+// The identity rules the near-due candidates and the pending-copy pairing
+// read: an explicit payee identity, debit direction, a mapped account, not a
+// transfer or a trust-on-due rule, naming a plan bill or obligation.
+function nearDueIdentityRules(opts, plan) {
+  return stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
+    && rule.direction === 'debit' && rule.atlasAccountId
+    && rule.transactionKind !== 'transfer'
+    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
+    && rulePayeePatterns(rule).length > 0
+    && isBillOrObligationEvent(plan, rule.eventId));
+}
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
@@ -5270,12 +5299,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   if (window && window.complete === false) return out;
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
-  const rules = stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
-    && rule.direction === 'debit' && rule.atlasAccountId
-    && rule.transactionKind !== 'transfer'
-    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
-    && rulePayeePatterns(rule).length > 0
-    && isBillOrObligationEvent(plan, rule.eventId));
+  const rules = nearDueIdentityRules(opts, plan);
   if (!plan || !rules.length) return out;
   // Posted household-cash debits that pass every gate below except date.
   const eligibleDebit = new Map();
@@ -5283,7 +5307,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     // Posted debits only: unresolved pending cash keeps its incumbent path
     // (it withholds precise funding until it posts or is resolved).
     if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
-    if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
+    // A posted row paired with its own pending copy (pendingPostedDuplicate)
+    // is still the payment: the pending side is the possible replacement,
+    // never counted. Without the hold it would be spent beside the reserve.
+    if (tx.pendingPostedAmbiguous === true) continue;
     const localId = existingLocalId(tx.providerTransactionId);
     if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
@@ -5295,21 +5322,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     for (const rule of rules) {
       if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
-      const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
-        .filter(e => e.id === rule.eventId).map(e => e.date)
-        .filter((d, i, all) => all.indexOf(d) === i).sort();
-      if (!occ.length) continue;
-      const dist = d => Math.abs(Forecast.diffDays(d, date));
-      const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
-      const i = occ.indexOf(nearest);
-      const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
-        i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
-      const interval = Math.min(...gaps);
-      const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
-      const off = dist(nearest);
+      const near = nearestBillOccurrence(plan, rule.eventId, date);
       // Same-day identity is the matcher's to settle or leave ambiguous.
-      if (off < 1 || off > reach) continue;
-      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
+      if (!near || near.off < 1 || near.off > near.reach) continue;
+      found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
@@ -5371,6 +5387,99 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
       else out.delete(row.localId);
     }
+  }
+  return out;
+}
+
+// Lead dispatch 2026-11-18 (after #1315): a bill payment first seen pending
+// on one day and posted on a later day, with no provider link between the two
+// rows, is one payment. The same-day pairing (flagUnresolvedPendingPostedDuplicates)
+// needs equal dates, and a pending identity debit off the due date is never a
+// near-due candidate, so the pending copy was spent beside the bill's reserve
+// or its payment. Here, per occurrence of one bill: exactly one unlinked
+// pending identity debit, within the occurrence's near-due reach (due date
+// included), and exactly one posted payment for that occurrence (the
+// matcher's posted settlement or a held near-due candidate), on the same
+// account, at the same amount to the cent, the pending dated on or before the
+// posted. The pending side takes the existing pendingPostedDuplicate
+// treatment (the posted payment counts once; the pending row stays listed as
+// an unresolved possible replacement, never spent and never dropped) and is
+// also marked pendingBillCopy, so the two places where an unresolved pending
+// row keeps a figure cautious still read it that way: an unclassified copy
+// still makes the category remaining claim classified-incomplete, and a copy
+// in the opening-to-payday gap still leaves that gap unproven. A pending row
+// the same-day pairing already flagged is marked too when it pairs here. The
+// posted payment is not flagged, so every consumer reads it as before.
+// Anything else (two pendings, two posted payments, a pending after the
+// posted row, a different amount or account) is left as it was.
+function pendingBillCopyIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals, nearDueBills) {
+  const out = new Set();
+  const window = opts && opts.transactionWindow;
+  if (window && window.complete === false) return out;
+  const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
+  const mapDoc = opts && opts.accountMap;
+  const rules = nearDueIdentityRules(opts, plan);
+  // Codex P2 on #1319: a posted row dated after the observation date is not
+  // yet in the period's actuals, so it is never evidence that a current
+  // pending row is its copy.
+  const observedOn = parseIsoDate(opts && opts.asOf);
+  if (!plan || !rules.length || !mapDoc || !observedOn) return out;
+  const byLocal = new Map();
+  for (const tx of collapsed || []) {
+    const localId = tx && existingLocalId(tx.providerTransactionId);
+    if (localId) byLocal.set(localId, tx);
+  }
+  const posted = new Map();
+  const addPosted = (key, localId) => {
+    const tx = byLocal.get(localId);
+    if (!tx || tx.pending === true) return;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date || date > observedOn) return;
+    const list = posted.get(key) || [];
+    if (!list.some(row => row.localId === localId)) list.push({ localId, amount, date, account: String(tx.providerAccountId) });
+    posted.set(key, list);
+  };
+  for (const row of representedActuals || []) {
+    if (!row || row.pending === true || !row.id || !row.date || !rules.some(rule => rule.eventId === row.id)) continue;
+    for (const localId of [].concat(row.transactionIds || (row.transactionId ? [row.transactionId] : []))) {
+      addPosted(row.id + '@' + row.date, localId);
+    }
+  }
+  for (const [localId, f] of nearDueBills || []) addPosted(f.id + '@' + f.date, localId);
+  const pending = new Map();
+  for (const tx of collapsed || []) {
+    if (!tx || tx.pending !== true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) continue;
+    const localId = existingLocalId(tx.providerTransactionId);
+    if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+    const mapping = mappingFor(mapDoc, tx.providerAccountId);
+    if (atlasAccountRole(mapping) !== 'household-cash' || !mapping.canonical) continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+    const keys = new Set();
+    for (const rule of rules) {
+      if (mapping.canonical.id !== rule.atlasAccountId) continue;
+      // A pending row has no posted receipt: like the pending-bill disclosure
+      // (collectIdentityHits), it reads the rule's identity fields only, and a
+      // rule that requires posted evidence still never pairs it.
+      if (!matchesIdentityFields(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
+      const near = nearestBillOccurrence(plan, rule.eventId, date);
+      if (!near || near.off > near.reach) continue;
+      keys.add(rule.eventId + '@' + near.date);
+    }
+    if (keys.size !== 1) continue;
+    const key = [...keys][0];
+    const list = pending.get(key) || [];
+    list.push({ localId, amount, date, account: String(tx.providerAccountId) });
+    pending.set(key, list);
+  }
+  for (const [key, pendings] of pending) {
+    const posts = posted.get(key) || [];
+    if (pendings.length !== 1 || posts.length !== 1) continue;
+    const [p] = pendings, [q] = posts;
+    if (p.account !== q.account || Math.abs(p.amount - q.amount) > IDENTITY_AMOUNT_EPSILON || p.date > q.date) continue;
+    out.add(p.localId);
   }
   return out;
 }
@@ -6453,6 +6562,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     asOf,
     ambiguousGroups: opts.ambiguousBillGroups,
   }, linkedLocalIds, existingLocalId, representedActuals);
+  const pendingBillCopies = pendingBillCopyIds(collapsed, {
+    transactionWindow: window,
+    identityRules: opts.identityRules,
+    planForIdentity: opts.planForIdentity,
+    plan: opts.plan,
+    accountMap: mapDoc,
+    asOf,
+  }, linkedLocalIds, existingLocalId, representedActuals, nearDueBills);
   const linkedMisfits = linkedBillMisfitIds(collapsed, {
     identityRules: opts.identityRules,
     planForIdentity: opts.planForIdentity,
@@ -6464,6 +6581,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     else if (tx) tx.representedBill = false;
     if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
       tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+    }
+    if (tx && tx.pending === true && pendingBillCopies.has(tx.id)) {
+      tx.pendingPostedDuplicate = true;
+      tx.pendingBillCopy = true;
     }
     // A near-due candidate is already named on its bill; one naming only.
     if (tx && tx.representedBill !== true && !tx.nearDueBillCandidate && linkedMisfits.has(tx.id)) {
