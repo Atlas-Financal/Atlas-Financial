@@ -3047,10 +3047,10 @@ function nearPaydaySalaryCandidates(input, rules) {
       if (transactionIsTransfer(tx) && !transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)) continue;
       if (rulePayeeExcludePatterns(rule).some(pattern => anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
         || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) continue;
-      // Positive sign of salary, beyond passing the exclusions (#1334 review, lead ruling): an income category the
-      // owner's rule reads as salary, a TENNIS INCOME transfer leg, or a payee matching the rule's salary aliases.
-      const salaryEvidence = (tx.isIncome === true && NEAR_PAYDAY_SALARY_CATEGORY.test(String(tx.categoryLabel || '')))
-        || transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)
+      // Positive sign of salary, beyond passing the exclusions (#1334 review, lead rulings): a TENNIS INCOME transfer
+      // leg, or a payee matching the rule's salary aliases. A category is never enough: the household files non-pay
+      // credits under a generic income category.
+      const salaryEvidence = transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)
         || (Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length > 0
           && payeeMatchesRule(tx, { payeePatterns: rule.salaryReceiptPayeePatterns, payeeMatchMode: 'exact',
             payeeExcludePatterns: ['REFUND', 'REVERSAL', 'REIMBURSEMENT'] }));

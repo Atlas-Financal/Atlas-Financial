@@ -4,8 +4,8 @@
  * near-amount rule, #821 6967081727) but posts before that rule's window settles nothing, so the cash walk counts
  * it as Other Income while the payday is still projected: her pay twice. It now holds the next occurrence (To
  * confirm, plan withheld, posted-income-occurrence-unresolved) when, after the previous occurrence, it is within
- * $5 of that next occurrence's amount within 3 business days before it, or it carries a sign of salary (a salary
- * income category, a TENNIS INCOME transfer leg, or the rule's salary payee alias) at no less than half that
+ * $5 of that next occurrence's amount within 3 business days before it, or it carries a sign of salary (a TENNIS
+ * INCOME transfer leg, or the rule's salary payee alias; never a category) at no less than half that
  * amount on any date in the run-up (#1334 review, lead ruling). A credit with no sign of salary never holds on its
  * own; a credit the near-amount rule placed is never held; and a credit strictly nearer an unclaimed previous
  * payday is its late pay, not the next one early.
@@ -39,12 +39,12 @@ ok(RULES.length === 2 && RULES.every(rule => rule.settlesWhen === 'near-schedule
 
 const TENNIS = 9010;
 let nextId = 800000;
-// A deposit into Bills: by default a direct deposit in the invented salary category (Payroll), not a transfer.
+// A deposit into Bills: by default from the invented salary payee alias (a sign of salary) in the Payroll category, not a transfer.
 const bills = (date, amount, extra = {}) => H.lm({ id: ++nextId, date, amount: -amount, category: extra.category || 'Payroll',
-  account: 'chequing-a', payee: extra.payee || 'Invented deposit', pending: extra.pending, raw: extra.raw,
+  account: 'chequing-a', payee: extra.payee || 'Invented Tennis PAY', pending: extra.pending, raw: extra.raw,
   notes: extra.notes, tagIds: extra.tagIds });
 
-function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount = 2200, categories = [], tags = [] }) {
+function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount = 2200, categories = [], tags = [], shippedPatterns = false }) {
   const w = H.baseWorld(asOf);
   w.categories = w.categories.concat(categories);
   w.tags = tags;
@@ -56,7 +56,7 @@ function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount
     { id: 'amandaSalaryMonthEnd', label: 'Invented salary (month-end)', frequency: 'monthly', day: monthEndDay, amount: monthEndAmount, confidence: 'confirmed' });
   // The shipped rules, with an invented employer alias for the early-receipt hold's salary source.
   w.identityRules = w.identityRules.concat(JSON.parse(JSON.stringify(RULES))
-    .map(rule => ({ ...rule, salaryReceiptPayeePatterns: ['Invented Tennis PAY'] })));
+    .map(rule => shippedPatterns ? rule : ({ ...rule, salaryReceiptPayeePatterns: ['Invented Tennis PAY'] })));
   w.transactions = [H.lm({ id: 799999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
     payee: 'Invented employer' }), ...txs];
   H.productionOpening(w);
@@ -95,7 +95,7 @@ console.log('1. The reproduced case: a plain 2200 Bills credit on Mon Oct 26, as
   ok(JSON.stringify(s.settled) === JSON.stringify(['15@2026-10-15:2000']), 'Oct 15 stays received once at 2000', JSON.stringify(s.settled));
 }
 
-console.log('2. With a sign of salary (here the Payroll category): half or more holds on any date in the run-up');
+console.log('2. With a sign of salary (here the salary payee alias): half or more holds on any date in the run-up');
 for (const [date, amount, held, why] of [
   ['2026-10-16', 2200, true, 'Fri Oct 16, the day after the previous payday, exact'],
   ['2026-10-22', 2195, true, 'Thu Oct 22, $5 under'],
@@ -113,6 +113,11 @@ for (const [date, amount, held, why] of [
   const alias = serve({ asOf: '2026-10-28', txs: [oct15(), H.lm({ id: ++nextId, date: '2026-10-26', amount: -2200,
     account: 'chequing-a', payee: 'Invented Tennis PAY' })] });
   ok(heldOct31(alias), 'an uncategorised credit from the salary payee alias, Mon Oct 26: held', JSON.stringify([alias.held, alias.settled]));
+  // The shipped rules' own salary payee, read from the identity file (not restated here), with no category.
+  const shippedPayee = RULES[0].salaryReceiptPayeePatterns[0];
+  const shipped = serve({ asOf: '2026-10-28', shippedPatterns: true, txs: [oct15(), H.lm({ id: ++nextId, date: '2026-10-26', amount: -2200,
+    account: 'chequing-a', payee: shippedPayee })] });
+  ok(heldOct31(shipped), 'an uncategorised credit from the shipped salary payee, Mon Oct 26: held', JSON.stringify([shipped.held, shipped.settled]));
   const leg = serve({ asOf: '2026-10-28', txs: [oct15(),
     H.lm({ id: ++nextId, date: '2026-10-26', amount: 2200, category: 'Transfer', account: 'tennis', providerAccountId: TENNIS, payee: 'Invented transfer' }),
     bills('2026-10-26', 2200, { category: 'Transfer', payee: 'Invented transfer' })] });
@@ -123,13 +128,16 @@ console.log('3. With no sign of salary, a credit never holds the plan (#1334 rev
 const plain = (date, amount, fields = {}) => H.lm({ id: ++nextId, date, amount: -amount, account: 'chequing-a', ...fields });
 for (const [why, tx] of [
   ['a family e-transfer of 1200, uncategorised', () => plain('2026-10-27', 1200, { payee: 'Invented e-transfer from family' })],
-  ['a family e-transfer of 1200 filed under Gifts', () => plain('2026-10-27', 1200, { payee: 'Invented e-transfer from family', category: 'Gifts' })],
+  ['a family e-transfer of 1200 filed under Gifts', () => plain('2026-10-27', 1200, { payee: 'Invented e-transfer from family', category: 120 })],
   ['a tax refund of 1500, uncategorised', () => plain('2026-10-27', 1500, { payee: 'Invented tax agency' })],
   ['a store return of 1300 filed under Groceries', () => plain('2026-10-27', 1300, { payee: 'Invented grocer', category: 'Groceries' })],
   ['a Savings move of 1500 whose Savings leg is missing', () => plain('2026-10-27', 1500, { payee: 'Invented move from savings' })],
   ['an uncategorised e-transfer of 2198, Tue Oct 20 (8 business days before)', () => plain('2026-10-20', 2198, { payee: 'Invented e-transfer' })],
+  // A category is never a sign of salary (#1334, lead ruling): the household files non-pay credits under Income.
+  ['an Income-category e-transfer of 1100 from a non-salary payee', () => plain('2026-10-27', 1100, { payee: 'Invented e-transfer from tenant', category: 121 })],
+  ['a Payroll-category deposit of 2200 from a non-salary payee, Mon Oct 26', () => plain('2026-10-26', 2200, { payee: 'Invented deposit', category: 'Payroll' })],
 ]) {
-  const s = serve({ asOf: '2026-10-28', categories: [{ id: 120, name: 'Gifts' }], txs: [oct15(), tx()] });
+  const s = serve({ asOf: '2026-10-28', categories: [{ id: 120, name: 'Gifts' }, { id: 121, name: 'Income', is_income: true }], txs: [oct15(), tx()] });
   ok(s.live && JSON.stringify(s.settled) === JSON.stringify(['15@2026-10-15:2000']), `${why}: stays live, nothing settled`,
     JSON.stringify([s.held, s.settled]));
 }
@@ -144,7 +152,7 @@ console.log('4. A late pay for an unclaimed payday is not the next one arriving 
 {
   // As of Thu Oct 22: Wed Oct 21 is 6 days after Oct 15 and 10 before Oct 31, and 4 business days late for Oct 15.
   const late = serve({ asOf: '2026-10-22', txs: [bills('2026-10-21', 2000)] });
-  ok(late.live && late.settled.length === 0, 'Oct 15 unclaimed: a Wed Oct 21 Payroll 2000 holds nothing (Oct 15 stays To confirm)',
+  ok(late.live && late.settled.length === 0, 'Oct 15 unclaimed: a Wed Oct 21 salary-payee 2000 holds nothing (Oct 15 stays To confirm)',
     JSON.stringify([late.held, late.settled]));
   const extra = serve({ asOf: '2026-10-22', txs: [oct15(), bills('2026-10-21', 2000)] });
   ok(extra.held, 'Oct 15 already received: the same credit is an extra pay and holds Oct 31', JSON.stringify([extra.held, extra.settled]));
