@@ -879,7 +879,8 @@ function currentBlock(data, asOf, advice, used, settlement) {
       available: money(row.available),
       overLimit: row.overLimit === true,
       utilizationPct: row.pct == null ? null : round2(row.pct),
-      trust: row.pendingUnknown ? 'unknown' : 'calculated',
+      trust: row.pendingUnknown ? 'unknown' : row.balanceTrust === 'estimated' ? 'estimated' : 'calculated',
+      ...(row.balanceTrust === 'estimated' ? { balanceAsOf: row.balanceAsOf || null, trustReason: row.balanceReason || null } : {}),
     }))
     : null;
   const snapshot = data.debts
@@ -972,6 +973,8 @@ function currentBlock(data, asOf, advice, used, settlement) {
         status: 'ok',
         source: 'Forecast.utilisation',
         totalAvailableCredit: money(used.totalAvailable),
+        ...(used.totalAvailableTrust === 'estimated'
+          ? { totalAvailableCreditTrust: 'estimated', totalAvailableCreditEstimatedFrom: used.totalAvailableEstimatedFrom || [] } : {}),
         overLimitCount: used.overLimitCount,
         securedDebt: snapshot ? money(snapshot.secured) : null,
         monthlyInterest: snapshot ? money(snapshot.monthlyInterest) : null,
@@ -1122,6 +1125,9 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
   const crossingQualifiers = {
     ...(debtSchedAmounts ? { scheduledAmounts: scheduledAmountsProjection(debtSchedAmounts) } : {}),
     ...(crossingsUnknownFrom ? { pendingUnknownFrom: crossingsUnknownFrom } : {}),
+    // Crossings walked from a stale card balance are estimates.
+    ...(debtProj && debtProj.trust === 'estimated'
+      ? { trust: 'estimated', staleBalances: (debtProj.staleBalances || []).map(row => ({ id: row.id, balanceAsOf: row.balanceAsOf })) } : {}),
   };
   const action = advice.currentPeriodAction || null;
   return {
@@ -1454,6 +1460,15 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
           id: row.id,
           label: row.label,
           kind: 'unknown-pending',
+        });
+      }
+      if (row.balanceTrust === 'estimated') {
+        staleOrManual.push({
+          id: row.id,
+          label: row.label,
+          kind: 'stale-balance',
+          balanceAsOf: row.balanceAsOf || null,
+          trust: 'estimated',
         });
       }
     }

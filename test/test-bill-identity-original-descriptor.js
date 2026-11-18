@@ -19,7 +19,8 @@ const GUARDED = { eventId: 'guarded', payeePatterns: ['Cable'], payeeMatchMode: 
   originalNamePatterns: ['INVENTED CABLE BPY'], atlasAccountId: 'chequing-a', direction: 'debit' };
 // Stamped as the observer stamps a whole observation: against the complete rule set.
 const tx = (payee, originalName, extra = {}) =>
-  Observer.stampIdentityDescriptors([{ payee, originalName, ...extra }], [STORAGE, PHOTOS, GUARDED])[0];
+  Observer.stampIdentityDescriptors([{ payee, originalName, pending: false, savingsPostingEvidence: 'posted', ...extra }],
+    [STORAGE, PHOTOS, GUARDED])[0];
 const hit = (t, rule = STORAGE) => Observer.ruleMatchesTransactionIdentity(t, rule);
 
 test('acceptance: bank descriptor matches, survives rename, and a rename cannot forge a match', () => {
@@ -74,8 +75,9 @@ test('a descriptor claimed by a guarded rule keeps the displayed reading for eve
 });
 
 test('an unstamped transaction keeps the incumbent displayed reading', () => {
-  assert.equal(hit({ payee: 'Cloud storage', originalName: 'GOOGLE *STORAGE' }), false);
-  assert.equal(hit({ payee: 'GOOGLE *STORAGE', originalName: 'INVENTED STREAMING CO' }), true);
+  const posted = { pending: false, savingsPostingEvidence: 'posted' };
+  assert.equal(hit({ ...posted, payee: 'Cloud storage', originalName: 'GOOGLE *STORAGE' }), false);
+  assert.equal(hit({ ...posted, payee: 'GOOGLE *STORAGE', originalName: 'INVENTED STREAMING CO' }), true);
 });
 
 test('exclusions still read both fields; credit rules are untouched', () => {
