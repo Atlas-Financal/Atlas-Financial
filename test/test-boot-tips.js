@@ -24,12 +24,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
-let chromium;
-try { ({ chromium } = require('playwright')); } catch { chromium = null; }
-if (!chromium || process.env.ATLAS_SKIP_BROWSER === '1') {
+// Skip guard (test-suites-playwright-reach.js): the hosted npm test jobs
+// install no browser library, so Playwright is loaded only when present.
+let hasPlaywright = true;
+try { require.resolve('playwright'); } catch { hasPlaywright = false; }
+if (!hasPlaywright || process.env.ATLAS_SKIP_BROWSER === '1') {
   console.log('  SKIP  loading-tips browser cases: Playwright Chromium is not available here');
   process.exit(0);
 }
+const { chromium } = require('playwright');
 
 const MONEY = /[\d$€£¢]/;
 let failures = 0;
