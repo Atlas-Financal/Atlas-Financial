@@ -1044,9 +1044,16 @@
   function paintSplit(hero, foot) {
     if (!foot || foot.querySelector('.blend-split')) return;
     const read = selector => printedMagnitude(text(hero.querySelector(selector)));
+    // An extra deduction term the face shows (To confirm, Savings items) is
+    // its own segment between household and BAD, read from its printed slot,
+    // so the shares add up to what the face prints. No slot, no segment.
+    const extras = EXTRA_TERMS
+      .filter(([name]) => hero.querySelector('[data-blend-extra-term="' + name + '"]'))
+      .map(([name]) => ['s-extra', read('[data-blend-extra-term="' + name + '"] .blend-term'), name]);
     const parts = [
       ['s-bills', read('[data-operating-question="04"] .blend-term')],
       ['s-house', read('[data-operating-question="06"] .blend-term')],
+      ...extras,
       ['s-bad', read('[data-blend-term="balanceAfterDeductions"]')],
     ];
     const split = document.createElement('span');
@@ -1060,9 +1067,10 @@
       mark.textContent = '—';
       split.appendChild(mark);
     } else {
-      parts.forEach(([name, amount]) => {
+      parts.forEach(([name, amount, term]) => {
         const segment = document.createElement('i');
         segment.className = name;
+        if (term) segment.setAttribute('data-blend-split-term', term);
         if (amount == null) segment.classList.add('is-untracked');
         else segment.style.setProperty('--w', (amount / total * 100).toFixed(2) + '%');
         split.appendChild(segment);

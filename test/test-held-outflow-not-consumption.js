@@ -185,7 +185,9 @@ function hasBrowser() {
     const face = async extra => H.withBudget(world(extra), async p => p.page.evaluate(() => {
       const slot = document.querySelector('[data-blend-extra-term="heldOutflowSpending"]');
       const note = document.querySelector('[data-budget-held-outflows-browse]');
-      return { slot: slot ? slot.textContent.replace(/\s+/g, ' ').trim() : null,
+      const split = [...document.querySelectorAll('.blend-split > i')].map(i => ({ cls: i.className,
+        term: i.getAttribute('data-blend-split-term'), w: parseFloat(i.style.getPropertyValue('--w')) }));
+      return { slot: slot ? slot.textContent.replace(/\s+/g, ' ').trim() : null, split,
         extras: document.querySelectorAll('[data-blend-extra-term]').length,
         note: note ? note.textContent.replace(/\s+/g, ' ').trim() : null };
     }));
@@ -194,6 +196,18 @@ function hasBrowser() {
     const held = await face([mortgage(), incomeDebit()]);
     ok(held.extras === 1 && /To confirm\s*\$450\.00/.test(held.slot || ''), 'held: one face slot, To confirm $450.00, copied from the term', JSON.stringify(held));
     ok(/To confirm \$450\.00 2 payments · not counted as spending/.test(held.note || ''), 'held: the browse note lists 2 payments, not spending', held.note);
+    // Split bar: hand arithmetic on the invented world. Income 1,400; bills 0;
+    // household 400 (the hold); To confirm 450; BAD 1,400 - 0 - 400 - 450 = 550.
+    // Shares of 1,400: household 28.57%, To confirm 32.14%, BAD 39.29%.
+    const share = (list, cls) => (list.find(seg => seg.cls === cls) || {}).w;
+    ok(none.split.every(seg => seg.cls !== 's-extra') && none.split.length === 3,
+      'control: the split bar has only bills, household and BAD', JSON.stringify(none.split));
+    const extra = held.split.filter(seg => seg.cls === 's-extra');
+    ok(extra.length === 1 && extra[0].term === 'heldOutflowSpending' && Math.abs(extra[0].w - 32.14) < 0.01,
+      'held: the split bar carries To confirm as its own segment at 450 / 1,400 = 32.14%', JSON.stringify(held.split));
+    ok(Math.abs(share(held.split, 's-house') - 28.57) < 0.01 && Math.abs(share(held.split, 's-bad') - 39.29) < 0.01,
+      'held: household 28.57% and BAD 39.29%, so the shares match the printed terms', JSON.stringify(held.split));
+    ok(held.split.map(seg => seg.cls).join(',') === 's-bills,s-house,s-extra,s-bad', 'held: the segment sits between household and BAD');
     await H.closeBrowser();
   }
   console.log(failures ? `\n${failures} FAILED` : '\nAll held-outflow checks passed');

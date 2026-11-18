@@ -2712,6 +2712,7 @@ html.reduce .blend-sky { display: block; }
 .blend-split > i.s-bills { background: var(--blend-bills); }
 .blend-split > i.s-house { background: var(--blend-house); }
 .blend-split > i.s-bad { background: color-mix(in srgb, var(--blend-income) 40%, transparent); }
+.blend-split > i.s-extra { background: color-mix(in srgb, var(--blend-ink) 30%, transparent); }
 .blend-split > i.is-untracked {
   flex: 1 1 12%;
   background: repeating-linear-gradient(-45deg, transparent, transparent 4px, color-mix(in srgb, var(--blend-ink) 22%, transparent) 4px, color-mix(in srgb, var(--blend-ink) 22%, transparent) 5px);
