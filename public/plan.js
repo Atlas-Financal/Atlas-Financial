@@ -1039,17 +1039,21 @@ function paydayGlanceCashNote(alloc, liveOverlay) {
 }
 
 // Dale, 2026-11-18 ("instead of an estimated tag show the last update
-// date"): a figure Forecast publishes as estimated ONLY because a card
-// payment or credit is To confirm (estimateCause 'card-coverage') shows the
-// bank data's date in place of the estimate word. The element keeps
+// date", option A): a figure Forecast publishes as estimated ONLY because a
+// card payment or credit is To confirm (estimateCause 'card-coverage') leads
+// with the bank data's date, followed by a small muted "≈ estimate" mark,
+// in place of the estimate tag. The element keeps
 // data-trust="estimated" and says "estimate" to assistive technology. With no
 // single bank date the caller keeps the estimate word (null here).
 function cardEstimateAsOfHtml(liveOverlay) {
   const date = providerBalanceDate(liveOverlay);
   if (!date) return null;
   const shown = escapeHtml('as of ' + fmtDateLong(date));
+  // Dale chose option A: the date leads, and a small muted "≈ estimate"
+  // mark follows it, so the estimate word stays but is not the headline.
   return `<span class="trust-tag trust-as-of" data-trust="estimated" data-card-estimate-as-of`
-    + ` title="estimate: card payment to confirm" aria-label="${shown}, estimate: card payment to confirm">${shown}</span>`;
+    + ` title="estimate: card payment to confirm" aria-label="${shown}, estimate: card payment to confirm">${shown}`
+    + ` <small class="trust-as-of-mark" data-card-estimate-mark>≈ estimate</small></span>`;
 }
 
 function providerBalanceDate(liveOverlay) {
@@ -5750,8 +5754,8 @@ function budgetDetailSheetHtml() {
 const budgetBrowseKnown = value => typeof value === 'number' && Number.isFinite(value);
 const budgetBrowseEscape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-// asOfHtml: cardEstimateAsOfHtml's date, given only for a figure estimated
-// solely by card coverage; it replaces the ≈ estimated mark.
+// asOfHtml: cardEstimateAsOfHtml's date and small mark, given only for a
+// figure estimated solely by card coverage; it replaces the ≈ estimated mark.
 function budgetBrowseMoney(value, trust, asOfHtml) {
   return budgetBrowseKnown(value) && !['unavailable', 'unknown', 'untrusted'].includes(trust)
     ? trust === 'estimated' && asOfHtml ? `${money2(value)} ${asOfHtml}`

@@ -2,8 +2,10 @@
 // Dale's owner decision (2026-11-18, via the lead): "instead of an estimated
 // tag show the last update date". Where the Budget page shows a figure that
 // Forecast publishes as estimated ONLY because card coverage is an estimate
-// (a card payment or credit To confirm, #1358 and #1367), the visible estimate
-// word becomes "as of <bank data date>". The trust contract is unchanged
+// (a card payment or credit To confirm, #1358 and #1367), the visible label
+// leads with "as of <bank data date>", followed by a small muted "≈ estimate"
+// mark (Dale chose option A: the word stays, no longer the headline). The
+// estimate tag and "≈ estimated" mark it replaces are gone. The trust contract is unchanged
 // underneath: the trust stays 'estimated', the element keeps
 // data-trust="estimated" and tells assistive technology "estimate: card
 // payment to confirm", and the To-confirm row stays. Any other estimate cause
@@ -47,6 +49,8 @@ const cashLeg = (amount, extra = {}) => ['bills', amount, null, 'cash',
 const unknownCredit = ['card', -30, null, 'credit', { payee: 'Invented credit', original_name: 'Invented credit', category_name: 'Payment, Transfer' }];
 const TRAVEL = 'card payment: Travel Visa ...9999';
 const AS_OF = 'as of September 20';
+// Option A: the date first, then the small muted mark, inside the one tag.
+const DATE_THEN_MARK = /data-card-estimate-as-of[^>]*>as of September 20 <small class="trust-as-of-mark" data-card-estimate-mark>≈ estimate<\/small><\/span>/;
 
 // The two Budget surfaces whose figures carry a card-coverage estimate.
 function render(s, overlay = s.observed.data.liveOverlay) {
@@ -82,19 +86,21 @@ for (const [why, s] of [['payment To confirm (#1358)', degraded], ['credit To co
 check(resolved.period.fromTodayFunding.trust === 'calculated' && resolved.period.fromTodayFunding.estimateCause === undefined
   && resolved.advice.paydayShellEstimateCause === undefined, 'confirmed: calculated, no cause');
 
-console.log('2. The page shows the date, never the estimate word, for this cause');
+console.log('2. The page leads with the date, then a small "≈ estimate" mark, for this cause');
 for (const [why, s] of [['payment To confirm', degraded], ['credit To confirm', credit], ['both', both]]) {
   const r = render(s);
   for (const title of ['Money available', 'Current household spending']) {
     const b = block(r.shell, title);
-    check(b.includes(AS_OF) && b.includes('data-card-estimate-as-of'), `${why}: ${title} shows "${AS_OF}"`);
-    check(!/trust-estimated|>estimate</.test(b), `${why}: ${title} shows no estimate word`);
+    check(DATE_THEN_MARK.test(b), `${why}: ${title} shows "${AS_OF}" then the small "≈ estimate" mark`);
+    check(!/trust-estimated/.test(b) && (b.match(/estimate</g) || []).length === 1,
+      `${why}: ${title}: the old estimate tag is gone; the word appears once, in the small mark`);
     check(/data-trust="estimated"/.test(b) && /aria-label="as of September 20, estimate: card payment to confirm"/.test(b)
       && /title="estimate: card payment to confirm"/.test(b), `${why}: ${title} keeps data-trust and the accessible estimate label`);
   }
   const cell = stillPlanned(r.spending);
-  check(cell.includes(AS_OF) && cell.includes('data-card-estimate-as-of') && !/≈|estimated/.test(cell.replace(/data-trust="estimated"|aria-label="[^"]*"|title="[^"]*"/g, '')),
-    `${why}: Still planned shows the date, no ≈ or estimated word (${cell.replace(/<[^>]+>/g, '')})`);
+  check(DATE_THEN_MARK.test(cell) && !/class="est"|budget-cash-sr/.test(cell),
+    `${why}: Still planned shows the date then the small mark, not the ≈ estimated mark (${cell.replace(/<[^>]+>/g, '')})`);
+  check(cell.indexOf('$70.00') < cell.indexOf(AS_OF), `${why}: Still planned: the amount, then the date`);
   check(/data-trust="estimated"/.test(cell), `${why}: Still planned keeps data-trust="estimated"`);
 }
 
@@ -162,8 +168,8 @@ console.log('6. Hostile text never reaches the page raw');
   const r = render(degraded, overlay);
   check(!/<img|<script/.test(r.html) && count(r.html, /data-card-estimate-as-of/g) === 0, 'a hostile date is not a date: no tag, nothing raw');
   const tag = page('cardEstimateAsOfHtml')({ applied: true, operatingPlan: 'live', observedAsOf: '2026-09-20', observedCash: { accounts: [] } });
-  check(tag && /^<span class="trust-tag trust-as-of" data-trust="estimated"/.test(tag) && tag.includes('>as of September 20</span>'),
-    'a valid date renders the tag');
+  check(tag && /^<span class="trust-tag trust-as-of" data-trust="estimated"/.test(tag) && DATE_THEN_MARK.test(tag),
+    'a valid date renders the tag: the date, then the small mark');
   check(page('cardEstimateAsOfHtml')(null) === null && page('cardEstimateAsOfHtml')({}) === null, 'no overlay: null');
 }
 

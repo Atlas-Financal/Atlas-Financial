@@ -573,6 +573,13 @@ body:has(#operating-surface) .site-head-inner {
   color: var(--text-primary);
   background: var(--plane);
 }
+/* Dale, 2026-11-18 (option A): a card-coverage-only estimate leads with
+ * the bank data's date; its "≈ estimate" mark stays, small and muted. */
+.trust-as-of .trust-as-of-mark {
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
 
 
 /* ------------------------------------------------------------------------
