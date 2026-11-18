@@ -1182,6 +1182,20 @@ category. This amendment supersedes the merchant
 sentences of the Household Budget row above; where they disagree, this
 amendment wins.
 
+### Held outflows amendment — lead ruling 2026-11-18 (rank 18, OD-021)
+
+A loan or mortgage payment, or reversed income, is never household
+consumption. A Mortgage-labelled debit, or a debit in an income category,
+that no other owner claims (a represented bill or obligation, a debt or card
+payment, a transfer) is a held outflow: To confirm, outside every spending
+category, Other spending and budget progress. Its cash still leaves once:
+Balance After Deductions and the planned close each deduct it as their own
+named term (`heldOutflowSpending`), exactly as linked savings-item spending,
+never also through the household hold. The Budget lists it in a To confirm
+block; the mortgage-due note stays display-only. Until the owner admits the
+term to the private period-history projection, a period with a non-zero held
+term fails that projection closed.
+
 ### Budget savings-display amendment — owner direction 2026-09-30
 
 Owner dispatch 2026-10-02 adds the separate **From today** proposal:

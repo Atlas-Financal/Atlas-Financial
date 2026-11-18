@@ -117,5 +117,28 @@ console.log('\n=== period history projection: fails closed on a held term (owner
   }
 }
 
-console.log(failures ? `\n${failures} FAILED` : '\nAll held-outflow checks passed');
-process.exit(failures ? 1 : 0);
+function hasBrowser() {
+  try { require.resolve('playwright'); return true; } catch { return false; }
+}
+(async () => {
+  if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
+    console.log('\n  SKIP  page cases: Playwright Chromium is not available here');
+  } else {
+    console.log('\n=== page: the face shows To confirm only when a held term is published ===');
+    const face = async extra => H.withBudget(world(extra), async p => p.page.evaluate(() => {
+      const slot = document.querySelector('[data-blend-extra-term="heldOutflowSpending"]');
+      const note = document.querySelector('[data-budget-held-outflows-browse]');
+      return { slot: slot ? slot.textContent.replace(/\s+/g, ' ').trim() : null,
+        extras: document.querySelectorAll('[data-blend-extra-term]').length,
+        note: note ? note.textContent.replace(/\s+/g, ' ').trim() : null };
+    }));
+    const none = await face([]);
+    ok(none.extras === 0 && none.slot === null && none.note === null, 'control: no extra face slot and no To confirm note', JSON.stringify(none));
+    const held = await face([mortgage(), incomeDebit()]);
+    ok(held.extras === 1 && /To confirm\s*\$450\.00/.test(held.slot || ''), 'held: one face slot, To confirm $450.00, copied from the term', JSON.stringify(held));
+    ok(/To confirm \$450\.00 2 payments · not counted as spending/.test(held.note || ''), 'held: the browse note lists 2 payments, not spending', held.note);
+    await H.closeBrowser();
+  }
+  console.log(failures ? `\n${failures} FAILED` : '\nAll held-outflow checks passed');
+  process.exit(failures ? 1 : 0);
+})();
