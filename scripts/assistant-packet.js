@@ -879,7 +879,8 @@ function currentBlock(data, asOf, advice, used, settlement) {
       available: money(row.available),
       overLimit: row.overLimit === true,
       utilizationPct: row.pct == null ? null : round2(row.pct),
-      trust: row.pendingUnknown ? 'unknown' : 'calculated',
+      trust: row.pendingUnknown ? 'unknown' : row.balanceTrust === 'estimated' ? 'estimated' : 'calculated',
+      ...(row.balanceTrust === 'estimated' ? { balanceAsOf: row.balanceAsOf || null, trustReason: row.balanceReason || null } : {}),
     }))
     : null;
   const snapshot = data.debts
@@ -1403,6 +1404,15 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
           id: row.id,
           label: row.label,
           kind: 'unknown-pending',
+        });
+      }
+      if (row.balanceTrust === 'estimated') {
+        staleOrManual.push({
+          id: row.id,
+          label: row.label,
+          kind: 'stale-balance',
+          balanceAsOf: row.balanceAsOf || null,
+          trust: 'estimated',
         });
       }
     }
