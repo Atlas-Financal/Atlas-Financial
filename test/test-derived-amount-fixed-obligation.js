@@ -31,7 +31,7 @@ const MORTGAGE = { id: 'mortgage', debtId: 'mortgage', effect: 'payment', label:
 const pay = (amount, date) => H.lm({ date, amount, account: 'chequing-a', payee: 'Invented mortgage co', category: 'Utilities' });
 const HISTORY = ['2026-08-28', '2026-09-11', '2026-09-25'];
 
-function world(paid, { history = HISTORY.map(d => pay(800, d)), obligation = MORTGAGE } = {}) {
+function world(paid, { history = HISTORY.map(d => pay(800, d)), obligation = MORTGAGE, withDebts = true } = {}) {
   const w = H.baseWorld();
   w.obligations = [obligation];
   w.debts = [{ id: 'mortgage', label: 'Invented mortgage', balance: 200000, rate: 5, payment: 800, confidence: 'confirmed' }];
@@ -43,7 +43,8 @@ function world(paid, { history = HISTORY.map(d => pay(800, d)), obligation = MOR
   const r = H.observe(w);
   if (r.error) throw r.error;
   const served = r.plan.obligations.find(o => o.id === 'mortgage');
-  const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+  // The Budget page's path supplies debts, so the debt walk caps the obligation (Codex P1 on #1369).
+  const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet, ...(withDebts ? { debts: w.debts } : {}) });
   const period = rec.defaultView.calendarPeriods.find(p => p.start <= w.asOf && p.end >= w.asOf);
   const row = (period.bills || []).find(b => b.id === 'mortgage');
   return { fixed: served.amountFixed === true, row, remaining: period.remainingBills, day0: rec.sim.daily[0].balance, rec };
@@ -57,8 +58,15 @@ console.log('1. A plain payment obligation derived fixed keeps its remainder (D2
     'paid 300 of 800: still due, 300 paid, 500 remaining, and this period holds 500', part.row && JSON.stringify([part.row.status, part.row.actual, part.row.remaining, part.remaining]));
   ok(full.row && full.row.status === 'PAID' && full.row.remaining === 0 && full.remaining === 0, 'paid in full: PAID, nothing held');
   ok(none.row && none.row.status === 'still due' && none.remaining === 800, 'unpaid: still due for 800, as before');
-  ok(part.day0 < full.day0 && part.day0 > none.day0, 'the cash walk holds the remainder: between paid in full and unpaid',
-    `${part.day0} in (${none.day0}, ${full.day0})`);
+  // The walk spreads what it holds about the same way for the remainder as for the whole payment, so by hand the
+  // remainder's share of the unpaid hold is about 500 / 800 = 0.625 (the weekly cap's rounding moves it by under
+  // 0.001); a double-counted payment would give about 200 / 800 = 0.25.
+  const share = (full.day0 - part.day0) / (full.day0 - none.day0);
+  ok(Math.abs(share - 500 / 800) < 0.005, 'with debts supplied (the Budget page\'s path) the cash walk holds 500 of 800, never 200',
+    String(share));
+  const noDebts = world(300, { withDebts: false });
+  ok(Math.abs(noDebts.day0 - part.day0) < 1e-9, 'the same hold with and without debts: the debt walk\'s cap does not count the payment twice',
+    `${noDebts.day0} vs ${part.day0}`);
 }
 
 console.log('2. Without the derivation, the incumbent reading stands');

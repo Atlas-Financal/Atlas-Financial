@@ -2817,8 +2817,14 @@
     if (!event || !(event.amount < 0)) return null;
     // Already the remainder: never measured against the payment again.
     if (event.partlyPaidRemainder === true) return event;
-    const partPaid = fixedBillPartialPayment(event, -event.amount, observed);
-    return partPaid ? { ...event, amount: -partPaid.remainderCents / 100, partlyPaidRemainder: true } : null;
+    // An obligation's cash event may already be capped by the debt walk to
+    // the remainder it absorbed. Measure against the scheduled payment, then
+    // never hold more than that cap (Codex P1 on #1369).
+    const planned = event.fixedPlannedAmount != null ? event.fixedPlannedAmount : -event.amount;
+    const partPaid = fixedBillPartialPayment(event, planned, observed);
+    if (!partPaid) return null;
+    const remainderCents = Math.min(partPaid.remainderCents, Math.round(-event.amount * 100));
+    return remainderCents > 0 ? { ...event, amount: -remainderCents / 100, partlyPaidRemainder: true } : null;
   }
 
   // C3: the forward walk excludes exactly the expected Other Income that
@@ -4444,7 +4450,11 @@
           debtId: o.debtId || null, effect: o.effect || null,
           payingAccount: o.payingAccount || null,
           // D2 for obligations (lead ruling on #1355): derived from its payment history.
-          ...(o.amountFixed === true ? { amountFixed: true } : {}) });
+          // fixedPlannedAmount is the scheduled payment before the debt walk's cap,
+          // so a remainder is measured against it, never against a cap that
+          // already is the remainder (Codex P1 on #1369).
+          ...(o.amountFixed === true && occurrenceAmount != null
+            ? { amountFixed: true, fixedPlannedAmount: occurrenceAmount } : {}) });
       }
       // Capitalising interest stays noncash above. The encoded cash
       // minimum is a separate chequing obligation (Required debt), not a
