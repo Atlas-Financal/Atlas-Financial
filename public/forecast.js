@@ -14183,6 +14183,12 @@
       }
       const near = (a, b) => a.cents === b.cents
         && Math.abs(diffDays(a.tx.date, b.tx.date)) <= CARD_PAYMENT_PAIR_DAYS;
+      // A card leg and a cash leg can pair when they are near, and a TD
+      // "PAYMENT - THANK YOU" credit only with a TD "TFR-TO C/C" debit whose
+      // note names no card or this card.
+      const matches = (card, cash) => near(card, cash)
+        && (!tdPaymentCreditOnly(card.tx) || (cash.tx.tdCardPaymentIdentity === true
+          && (cash.tx.cardPaymentNoteDestination == null || cash.tx.cardPaymentNoteDestination === card.account)));
       // Mutually unique pairing. The card leg fixes the card and the period.
       const pairLegs = (cardLegs, cashLegs, reserveLegs, missing) => {
         const pairs = [];
@@ -14190,10 +14196,11 @@
           const counted = leg.tx.date >= origin;
           // Owner rule (Dale, via the lead): money onto the card counts
           // whatever household account it comes from, Savings included.
-          const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other)
-            && (!tdPaymentCreditOnly(leg.tx) || (other.tx.tdCardPaymentIdentity === true
-              && (other.tx.cardPaymentNoteDestination == null || other.tx.cardPaymentNoteDestination === leg.account))));
-          const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
+          const cash = [...cashLegs, ...reserveLegs].filter(other => matches(leg, other));
+          // The same predicate in both directions (census rank 1): a cash
+          // leg whose note names one card does not also count as "near" an
+          // equal same-day credit on another card.
+          const back = cash.length === 1 ? cardLegs.filter(other => matches(other, cash[0])) : [];
           if (cash.length === 1 && back.length === 1) {
             cash[0].paired = true;
             if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0] });
