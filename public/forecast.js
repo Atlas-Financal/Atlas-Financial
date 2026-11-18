@@ -622,8 +622,26 @@
   // Like firstDue it is a filter, never a rewrite of the calendar. It is set
   // only on the served plan, from an ended reviewed Lunch Money recurring item
   // (scripts/provider-observe.js recurringBillScheduleReview).
+  // `timingBefore` ({from, frequency, day, month, anchor}) is a cutover set
+  // only on the served plan (a reviewed Lunch Money item leading an
+  // obligation that has recorded history, #1289 E1): occurrences before
+  // `from` keep that earlier timing, so recorded statements and payments stay
+  // on their own dates; occurrences on or after `from` follow the row.
   function occurrences(item, start, end) {
-    const dates = cadenceOccurrences(item, start, end);
+    const prior = item && item.timingBefore && typeof item.timingBefore.from === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(item.timingBefore.from) ? item.timingBefore : null;
+    let dates;
+    if (!prior) dates = cadenceOccurrences(item, start, end);
+    else {
+      const before = { ...item };
+      for (const field of ['frequency', 'day', 'month', 'anchor']) {
+        delete before[field];
+        if (Object.prototype.hasOwnProperty.call(prior, field)) before[field] = prior[field];
+      }
+      const cut = addDays(prior.from, -1);
+      dates = (start <= cut ? cadenceOccurrences(before, start, end < cut ? end : cut) : [])
+        .concat(end >= prior.from ? cadenceOccurrences(item, start > prior.from ? start : prior.from, end) : []);
+    }
     const last = item && item.frequency !== 'once' && typeof item.lastDue === 'string'
       && /^\d{4}-\d{2}-\d{2}$/.test(item.lastDue) ? item.lastDue : null;
     return last ? dates.filter(d => d <= last) : dates;
@@ -874,6 +892,8 @@
       frequency: o.frequency,
       day: o.cashDay,
       firstDue: o.cashFirstDue || o.firstDue || null,
+      // E1 cutover for the cash leg: earlier cash days stay on their own day.
+      ...(o.cashTimingBefore ? { timingBefore: o.cashTimingBefore } : {}),
     }, start, end);
     return dates.map(date => ({
       date,

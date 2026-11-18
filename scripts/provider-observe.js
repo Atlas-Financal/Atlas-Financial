@@ -4227,8 +4227,14 @@ function observeCore(input, capture) {
     input.data && input.data.plan, dateOnly(normalized.fetchedAt),
     { amounts: recurringItemAmounts(input.payload && input.payload.recurringItems) });
   const recurringSchedules = recurringReview.schedules;
-  if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
-    const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
+  const obligationSchedules = recurringSchedules.filter(schedule => schedule.obligationId);
+  if (obligationSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.obligations)) {
+    const byId = new Map(obligationSchedules.map(schedule => [schedule.obligationId, schedule]));
+    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, obligations: input.data.plan.obligations.map(row =>
+      row && byId.has(row.id) ? applyRecurringObligationSchedule(row, byId.get(row.id)) : row) } } };
+  }
+  if (recurringSchedules.some(schedule => schedule.billId) && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
+    const byBill = new Map(recurringSchedules.filter(schedule => schedule.billId).map(schedule => [schedule.billId, schedule]));
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
       bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
   }
@@ -5543,7 +5549,13 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     if (items.length !== 1) continue;
     const item = items[0];
     const matches = bills.filter(bill => bill && bill.id === billId);
-    if (matches.length !== 1 || matches[0].frequency === 'once') continue;
+    const obligationMatches = (Array.isArray(plan.obligations) ? plan.obligations : []).filter(row => row && row.id === billId);
+    if (!matches.length && obligationMatches.length === 1) {
+      const schedule = recurringObligationSchedule(item, obligationMatches[0], plan);
+      if (schedule) out.push(schedule);
+      continue;
+    }
+    if (matches.length !== 1 || obligationMatches.length || matches[0].frequency === 'once') continue;
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') continue;
@@ -5570,6 +5582,83 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
   return done(out);
+}
+
+// E1 (lead dispatch 2026-11-18, census 4 and 9; option B, cutover): a card
+// minimum or the HELOC cash minimum takes its planned day from its reviewed
+// Lunch Money item, served plan only. Monthly items on monthly rows only; the
+// amount and every tag stay the plan's. Recorded history is never re-dated:
+// when the row has recorded statements, sent payments or opening
+// representations, the new day applies only from the day after the latest of
+// them (timingBefore / cashTimingBefore keeps the earlier day before it). Any
+// doubt keeps the plan:
+//   - the row is not a monthly card payment or a monthly HELOC cash leg, or
+//     is not paid from household cash, or the item is not monthly, has ended,
+//     or has a date that is not a real day;
+//   - the day would move past the latest known statement's due day;
+//   - the cutover would put two occurrences in one statement cycle or skip
+//     one (the first new occurrence must fall in the calendar month right
+//     after the last earlier-day one, between half a month and a month and a
+//     half after it);
+//   - Lunch Money's expected dates on or after the cutover are not the new
+//     day's.
+const MONTH_DAYS = 365.25 / 12;
+function recurringObligationSchedule(item, row, plan) {
+  const card = row.effect === 'payment' && row.debtId && !row.nonCash && row.frequency === 'monthly';
+  const heloc = row.nonCash && row.cashDay != null && row.frequency === 'monthly';
+  if (!card && !heloc) return null;
+  if (!['chequing-a', 'chequing-b'].includes(row.payingAccount) || item.accountRole !== 'household-cash') return null;
+  if (!realIsoDay(item.anchorDate) || item.endDate) return null;
+  const timing = recurringItemTiming(item);
+  if (!timing || timing.frequency !== 'monthly') return null;
+  const oldDay = Number(card ? row.day : row.cashDay);
+  if (!(oldDay >= 1 && oldDay <= 31)) return null;
+  const statements = card && Array.isArray(row.statementOccurrences) ? row.statementOccurrences : [];
+  const latestStatement = statements.filter(r => r && realIsoDay(r.dueDate)).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).pop();
+  if (latestStatement && timing.day > Number(latestStatement.dueDate.slice(8, 10))) return null;
+  const recorded = [];
+  for (const r of statements) for (const d of [r && r.scheduledDate, r && r.dueDate]) if (realIsoDay(d)) recorded.push(d);
+  for (const r of (card && Array.isArray(row.sentPayments) ? row.sentPayments : [])) {
+    for (const d of [r && r.scheduledDate, r && r.postedOn]) if (realIsoDay(d)) recorded.push(d);
+  }
+  for (const r of (plan.opening && Array.isArray(plan.opening.representedEvents) ? plan.opening.representedEvents : [])) {
+    if (r && r.id === row.id && realIsoDay(r.date)) recorded.push(r.date);
+  }
+  const latest = recorded.sort().pop() || null;
+  const from = latest ? Forecast.addDays(latest, 1) : null;
+  const firstDue = card ? row.firstDue : (row.cashFirstDue || row.firstDue);
+  const newRow = { frequency: 'monthly', day: timing.day, ...(firstDue ? { firstDue } : {}) };
+  if (from && timing.day !== oldDay) {
+    const oldRow = { frequency: 'monthly', day: oldDay, ...(firstDue ? { firstDue } : {}) };
+    const last = Forecast.occurrences(oldRow, Forecast.addDays(from, -62), Forecast.addDays(from, -1)).pop();
+    const next = Forecast.occurrences(newRow, from, Forecast.addDays(from, 62))[0];
+    if (last && next) {
+      // One occurrence per statement cycle: the first new occurrence falls in
+      // the calendar month right after the last earlier-day one, and between
+      // half a month and a month and a half after it.
+      const gap = calendarDaysBetween(last, next);
+      const monthIndex = d => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7));
+      if (monthIndex(next) !== monthIndex(last) + 1 || !(gap >= MONTH_DAYS / 2 && gap <= MONTH_DAYS * 1.5)) return null;
+    }
+  }
+  const expected = item.expectedDates.filter(d => !from || d >= from).sort();
+  if (expected.length) {
+    const dates = Forecast.occurrences({ frequency: 'monthly', day: timing.day }, expected[0], expected[expected.length - 1]);
+    if (!expected.every(d => dates.includes(d))) return null;
+  }
+  const before = from && timing.day !== oldDay ? { from, frequency: 'monthly', day: oldDay } : null;
+  return { obligationId: row.id, recurringId: item.recurringId, kind: card ? 'card' : 'heloc',
+    fields: card ? { day: timing.day, ...(before ? { timingBefore: before } : {}) }
+      : { cashDay: timing.day, ...(before ? { cashTimingBefore: before } : {}) },
+    source: 'lunchmoney-recurring' };
+}
+// The obligation fields a schedule may set; the owner-policy guard allows
+// exactly these to differ, on a scheduled obligation only.
+const RECURRING_OBLIGATION_FIELDS = ['day', 'timingBefore', 'cashDay', 'cashTimingBefore'];
+function applyRecurringObligationSchedule(row, schedule) {
+  const out = { ...row };
+  for (const field of RECURRING_OBLIGATION_FIELDS) if (Object.hasOwn(schedule.fields, field)) out[field] = schedule.fields[field];
+  return out;
 }
 
 // The structural check for that block: exact keys, value types and no
@@ -6734,6 +6823,8 @@ const api = {
   recurringBillSchedules,
   recurringItemAmounts,
   applyRecurringSchedule,
+  applyRecurringObligationSchedule,
+  RECURRING_OBLIGATION_FIELDS,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
