@@ -847,8 +847,8 @@ const App = (() => {
       return treatment;
     };
     // Loading tips (Dale, 2026-11-18): a card under the status line that
-    // shows one short how-to-use-Atlas tip at a time, starting on a random
-    // one, moving on every ~6s or on a tap, with a dot per tip. Static copy
+    // shows one short how-to-use-Atlas tip at a time, starting on a tip that
+    // changes by day, moving on every ~6s or on a tap, with a dot per tip. Static copy
     // only: no figures, no names, nothing read from the data. It is
     // aria-hidden decoration like the treatment, so the notice stays the
     // single role="status" announcer and a rotating line is never read out
@@ -883,7 +883,12 @@ const App = (() => {
       dots.className = 'boot-tip-dots';
       const dotEls = BOOT_TIPS.map(() => { const dot = document.createElement('i'); dots.append(dot); return dot; });
       card.append(label, text, dots);
-      let index = Math.floor(Math.random() * BOOT_TIPS.length), timer = null;
+      // The first tip changes by calendar day rather than at random, so
+      // two renders of the same page on the same day are identical (page
+      // tests compare whole boots); a load usually laps most tips anyway.
+      const today = new Date();
+      const dayKey = today.getFullYear() * 372 + today.getMonth() * 31 + today.getDate();
+      let index = dayKey % BOOT_TIPS.length, timer = null;
       const show = i => {
         index = (i + BOOT_TIPS.length) % BOOT_TIPS.length;
         text.textContent = BOOT_TIPS[index];

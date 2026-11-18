@@ -7,7 +7,8 @@
 //      notice's first child and the status text is unchanged;
 //   2  it moves on by itself after ~6s, and on a tap;
 //   3  every tip is static copy with no money pattern (no digit, no
-//      currency sign), and the list is the same on every load;
+//      currency sign), the list is the same on every load, and two loads on
+//      the same day start on the same tip (a boot is reproducible);
 //   4  under prefers-reduced-motion nothing animates (tip entrance and the
 //      background drift), but the tip still changes;
 //   5  the crit (cancelled) surface carries no tips and no drift;
@@ -126,7 +127,8 @@ const waitLoading = page => page.waitForSelector('[data-boot-notice].is-loading 
       await again.page.goto('http://boot.test/', { waitUntil: 'commit' });
       await waitLoading(again.page);
       const s2 = await state(again.page);
-      ok(s2.dots === s.dots && all.has(s2.text), 'the tip list is the same fixed copy on every load (any start tip)', s2.text);
+      ok(s2.dots === s.dots && all.has(s2.text), 'the tip list is the same fixed copy on every load', s2.text);
+      ok(s2.index === s.index, 'two loads on the same day start on the same tip', `${s.index} / ${s2.index}`);
       await again.context.close();
 
       console.log('5: the cancelled (crit) surface');
@@ -159,7 +161,7 @@ const waitLoading = page => page.waitForSelector('[data-boot-notice].is-loading 
       fs.mkdirSync(outDir, { recursive: true });
       for (const scheme of ['light', 'dark']) {
         const { context, page } = await open(browser, { deviceScaleFactor: 2, colorScheme: scheme, reducedMotion: 'reduce' });
-        await page.addInitScript(() => { Math.random = () => 0.5; });
+        await context.clock.setFixedTime(new Date('2026-11-18T12:00:00'));
         await page.goto('http://boot.test/', { waitUntil: 'commit' });
         await waitLoading(page);
         await page.screenshot({ path: path.join(outDir, `loading-tips-${scheme}-390.png`) });
