@@ -111,5 +111,52 @@ for (const [name, opts] of [['a listed child is missing', { extraChild: true }],
   check(s.packet.transactionCoverage === 'incomplete', name + ': coverage incomplete (got ' + s.packet.transactionCoverage + ')');
   withheld(s, name);
 }
+// 8. Opening rollover with a grouped, noted TD payment (#1322 pre-review): one
+// date rule with ordinary pairing (#1298), so grouping never changes the figure.
+// Run B as of 10-03, confirmed opening 10-02, a new 75 purchase, the 09-20
+// minimum To confirm (25) in this invented opening; Bills 395.
+//  - debit 10-01 (noted Travel Visa), credit 10-02: the debit belongs to the old
+//    period, so no payment here; reserve 75; available 395 - 25 - 75 - 75 = 220.
+//  - mirror, credit 10-01, debit 10-02: one payment by the debit's date, the 75
+//    purchase then 30 to debt; reserve 0; available 395 - 25 - 75 - 0 = 295.
+{
+  const policy = { rule: 'aggregate-per-card-per-pay-period', opening: { asOf: '2026-10-02', confirmed: true,
+    currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
+  const debit = (date, extra) => ['bills', 105, date, 'cash', { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C',
+    category_name: 'Transfer', notes: 'card payment: Travel Visa ...9999', ...extra }];
+  const credit = (date, extra) => ['card', -105, date, 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU',
+    category_name: 'Transfer', ...extra }];
+  for (const [name, dDate, cDate, pays, reserve, avail] of [['debit before the rollover', '2026-10-01', '2026-10-02', 0, 75, 220],
+    ['mirror', '2026-10-02', '2026-10-01', 1, 0, 295]]) {
+    for (const extra of [{}, group]) {
+      const s = run(world([['card', 80, '2026-09-20', 'purchase'], debit(dDate, extra), credit(cDate, extra), ['card', 75, '2026-10-02', 'purchase']],
+        { asOf: '2026-10-03', minimumDate: '2026-09-20', policy }));
+      const why = 'rollover, ' + name + (extra.group_parent_id ? ', grouped' : ', ungrouped');
+      check(s.coverage.status === 'ready', why + ': ready ' + JSON.stringify(s.coverage.issues));
+      check(s.coverage.payments.length === pays, why + ': ' + pays + ' payment(s) (got ' + s.coverage.payments.length + ')');
+      check(s.coverage.reservedCash === reserve, why + ': reserve ' + reserve + ' (got ' + s.coverage.reservedCash + ')');
+      check(s.period.fromTodayFunding.availableNow === avail, why + ': available now ' + avail + ' (got '
+        + s.period.fromTodayFunding.availableNow + ')');
+    }
+  }
+}
+// 9. A grouped debit whose note names another card than the grouped credit's is
+// contradictory and withholds.
+withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...group, notes: 'card payment: TD Cash Back Visa ...8888' }],
+  ['card', -105, null, 'credit', { ...generic, ...group }]])), 'grouped debit noted for another card', 'coverage-payment-group-unconfirmed');
+// 10. An unlisted row standing in for a listed child: the parent lists the debit
+// and a child that is not present, while the credit row (not listed) carries the
+// group id. The count matches, the ids do not: coverage stays incomplete.
+{
+  const s = run(world(grouped, { edit: x => {
+    const [d] = x.payload.transactions.filter(t => t.group_parent_id === 777001);
+    x.payload.transactions.push({ id: 777001, date: x.asOf, amount: 0, payee: 'Invented card payment group',
+      category_name: 'Payment, Transfer', is_group_parent: true, is_pending: false, status: 'reviewed', currency: 'cad', notes: null,
+      children: [{ id: d.id, amount: d.amount, plaid_account_id: null, manual_account_id: d.account_id },
+        { id: 999002, amount: -105, plaid_account_id: null, manual_account_id: 3004 }] });
+  } }));
+  check(s.packet.transactionCoverage === 'incomplete', 'an unlisted stand-in child: coverage incomplete (got ' + s.packet.transactionCoverage + ')');
+  withheld(s, 'an unlisted stand-in child');
+}
 
 console.log(`  PASS  a Lunch Money card-payment group proves the payment's destination (${checks} checks)`);

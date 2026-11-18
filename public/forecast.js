@@ -14311,10 +14311,15 @@
           const shaped = members.map(tx => legOf.get(tx));
           const cash = shaped.filter(m => m && m.kind === 'cashDebit');
           const card = shaped.filter(m => m && m.kind === 'cardCredit');
+          // A debit whose note names a card names its destination itself: a group
+          // that puts it on another card's credit is contradictory (#1322 pre-review).
+          const dest = cash.length === 1 ? cash[0].leg.tx.cardPaymentNoteDestination : null;
           const valid = members.length === 2 && cash.length === 1 && card.length === 1
             && cash[0].leg.tx.accountRole === 'household-cash'
             && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
-            && cash[0].leg.cents === card[0].leg.cents;
+            && cash[0].leg.cents === card[0].leg.cents
+            && (dest == null || dest === card[0].leg.account);
+          const noted = valid ? notePays(cash[0].leg) : null;
           const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
           if (!valid) {
             if (counted) issue('coverage-payment-group-unconfirmed', (card[0] || cash[0] || shaped.find(Boolean))?.leg.tx.coverageRef);
@@ -14322,7 +14327,11 @@
             continue;
           }
           cash[0].leg.paired = true; card[0].leg.paired = true;
-          if (card[0].leg.tx.date >= origin) groupPairs.push({ card: card[0].leg, cash: cash[0].leg });
+          // One date rule with pairLegs (#1298): a debit whose note pays this card
+          // is a payment on the debit's own date, so a credit grouped with it after
+          // an opening rollover cannot count it again, and the mirror is not lost.
+          const date = noted === card[0].leg.account ? cash[0].leg.tx.date : card[0].leg.tx.date;
+          if (date >= origin) groupPairs.push({ card: card[0].leg, cash: cash[0].leg, date });
         }
         for (const kind of Object.keys(legs)) legs[kind] = legs[kind].filter(leg => !grouped.has(leg.tx));
       }

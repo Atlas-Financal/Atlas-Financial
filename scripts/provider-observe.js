@@ -523,11 +523,12 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     // here: BACKLOG.md, LM v2 split pieces.
     parentId: raw.parent_id != null ? String(raw.parent_id)
       : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
-    // U5: how many children Lunch Money lists on a group parent (a count only),
+    // U5: the provider ids of the children Lunch Money lists on a group parent,
     // so the coverage stamp can tell a complete cross-account group from a
-    // partial one. Absent on every other row, so their shape is unchanged.
+    // partial one. Internal (never emitted); absent on every other row, so
+    // their shape is unchanged.
     ...((raw.is_group_parent === true || raw.is_group === true) && Array.isArray(raw.children)
-      ? { groupChildCount: raw.children.length } : {}),
+      ? { groupChildIds: raw.children.map(child => child && isTrustworthyTransactionId(child.id) ? String(child.id) : null) } : {}),
     // Lunch Money v2 transaction recurring_id: the recurring item this row
     // matched. Forecast reads it only to stamp the dogFood flags; it is not
     // published in the served packet.
@@ -6040,9 +6041,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
-  // U5: emitted group-parent id -> the child count Lunch Money lists for it.
-  // Internal to this pass; never emitted.
-  const groupChildCounts = new Map();
+  // U5: emitted group-parent id -> the child provider ids Lunch Money lists for
+  // it; emitted row id -> its provider id. Internal to this pass; never emitted.
+  const groupChildIds = new Map(), providerIdOfRow = new Map();
   const bankDescriptions = new Map();
   const join = [];
   const currencyUnconfirmed = [];
@@ -6379,7 +6380,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
     };
     txs.push(emittedRow);
-    if (Number.isInteger(tx.groupChildCount) && emittedRow.id != null) groupChildCounts.set(String(emittedRow.id), tx.groupChildCount);
+    if (emittedRow.id != null) {
+      providerIdOfRow.set(String(emittedRow.id), tx.providerTransactionId == null ? null : String(tx.providerTransactionId));
+      if (Array.isArray(tx.groupChildIds)) groupChildIds.set(String(emittedRow.id), tx.groupChildIds);
+    }
     // Same-pass crosswalk capture: the exact surviving transaction that
     // produced this emitted row. Strings are copied at emission, so later
     // row mutation (linkage stamps, metadata stripping, merchant
@@ -6603,16 +6607,21 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   // U5 (lead dispatch): a cross-account group parent has no account of its own
   // (#1306) and every consumer skips it once its children are present
   // (skipSplitParent). It is not an unmapped-account gap when exactly the
-  // children Lunch Money lists for it are present as rows and every one of
-  // them is individually mapped. A parent with any child missing or unmapped,
-  // or with no listed children, stays a gap.
+  // children Lunch Money lists for it (by id, each once) are present as rows
+  // and every one of them is individually mapped. A parent with any child
+  // missing, duplicated, unlisted or unmapped, or with no listed children,
+  // stays a gap.
   const completeGroupParent = parent => {
     if (!parent || parent.isGroup !== true || parent.id == null) return false;
-    const expected = groupChildCounts.get(String(parent.id));
-    if (!Number.isInteger(expected) || expected < 1) return false;
+    const expected = groupChildIds.get(String(parent.id));
+    if (!Array.isArray(expected) || !expected.length || expected.some(id => id == null)
+      || new Set(expected).size !== expected.length) return false;
     const children = txs.filter(child => child && child !== parent && child.parentId != null
       && String(child.parentId) === String(parent.id));
-    return children.length === expected && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
+    const present = children.map(child => providerIdOfRow.get(String(child.id)));
+    return children.length === expected.length && new Set(present).size === present.length
+      && present.every(id => id != null && expected.includes(id))
+      && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
   };
   const splitUnreconciled = txs.some(parent => {
     if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
