@@ -117,15 +117,67 @@ console.log('\n=== the opening itself unknown: same release, opening-dependent f
   expectEstimatedFuture(advice, 'opening unknown');
 }
 
+// Not a cash-only failure: every later period stays fully withheld, exactly as
+// before this change. afterHouseholdBudget is Balance After Deductions by
+// another name, so it, its parts and the rows must all stay unpublished.
+function expectWithheldFuture(advice, label) {
+  const asOf = advice.defaultView && advice.defaultView.asOf;
+  const later = (advice.payPeriodViews || []).filter(p => p && p.start > asOf).slice(0, 3);
+  ok(later.length === 3, `${label}: three later periods are present to check`);
+  for (const p of later) {
+    const at = `${label} ${p.start}`;
+    ok(p.operatingPlanUnavailable === true && !Object.hasOwn(p, 'currentCashUnconfirmed'),
+      `${at}: the later period stays unavailable, not an estimate`);
+    ok(['incomeTotal', 'available', 'periodBillLoad', 'afterBills', 'afterRemainingBills', 'budgetHold',
+      'afterHouseholdBudget', 'balanceAfterDeductions'].every(k => p[k] == null),
+      `${at}: income, bills, Household and every total built on them stay withheld`,
+      JSON.stringify([p.incomeTotal, p.afterBills, p.afterHouseholdBudget, p.balanceAfterDeductions]));
+    ok(['income', 'bills', 'householdBudget'].every(k => (p[k] || []).length === 0),
+      `${at}: no income, bill or Household row is listed`);
+    const progress = p.budgetProgress || {};
+    ok(['income', 'bills', 'household'].every(k => !progress[k] || !progress[k].planned
+      || (progress[k].planned.amount == null && progress[k].planned.trust === 'unavailable')),
+      `${at}: no planned progress figure is published`);
+  }
+}
+
 console.log('\n=== an unresolved income occurrence still withholds the future (not a cash-only failure) ===');
 {
-  const advice = run({ ...OPENING_UNKNOWN, incomeReconciliation: { status: 'unavailable', asOf: AS_OF,
-    reason: 'Invented: a scheduled receipt is unresolved.' } });
-  for (const spec of EXPECTED) {
-    const p = row(advice, spec.start);
-    ok(!!p && p.balanceAfterDeductions == null && p.balanceAfterDeductionsTrust === 'unavailable',
-      `income unresolved ${spec.start}: Balance After Deductions stays withheld`, p && p.balanceAfterDeductions);
-  }
+  const income = { status: 'unavailable', asOf: AS_OF, reason: 'Invented: a scheduled receipt is unresolved.' };
+  expectWithheldFuture(run({ ...UNCONFIRMED, incomeReconciliation: income }), 'income unresolved');
+  expectWithheldFuture(run({ ...OPENING_UNKNOWN, incomeReconciliation: income }), 'income unresolved, opening unknown');
+}
+
+console.log('\n=== an unresolved card minimum still withholds the future (not a cash-only failure) ===');
+{
+  // Invented card-minimum world (test/fixtures/card-backfill-data): a confirmed
+  // send whose issuer minimum is unconfirmed leaves card minimums unavailable.
+  const Live = require('../scripts/live-plan');
+  const source = require('./fixtures/card-backfill-data');
+  const x = source('triangle', 'triangle');
+  x.asOf = '2026-10-05';
+  x.data.meta.asOf = x.data.plan.opening.asOf = '2026-10-02';
+  x.data.plan.windowDays = 28;
+  x.data.plan.income[0].anchor = '2026-10-02';
+  x.data.plan.startingCash.breakdown[1].value = 100;
+  x.data.plan.obligations[0] = { id: 'triangle', debtId: 'triangle', effect: 'payment',
+    label: 'Invented card minimum', frequency: 'monthly', day: 7, firstDue: '2026-10-07',
+    amount: 88.88, confidence: 'estimated', payingAccount: 'chequing-a',
+    statementOccurrences: [{ scheduledDate: '2026-10-07', dueDate: '2026-10-08',
+      minimum: 91.23, currency: 'cad', confidence: 'confirmed' }],
+    sentPayments: [{ scheduledDate: '2026-10-07', confirmed: true, intent: 'minimum',
+      debitId: 'invented-bank-debit', postedOn: '2026-10-05', amount: 100, currency: 'cad',
+      fundingAccountId: 'chequing-a', pending: false }] };
+  x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
+  x.payload.transactionWindow = { startDate: '2026-10-02', endDate: x.asOf, complete: true, hasMore: false, truncated: false };
+  x.payload.transactions = [];
+  x.payload.accounts.forEach(a => { a.updated_at = a.balance_last_update = x.asOf + 'T17:00:00Z'; });
+  const live = Live.fromObservation(x);
+  const advice = F.recommend(live.data.plan, x.asOf, { debts: live.data.debts,
+    currentPeriodActuals: live.data.liveOverlay.currentPeriodActuals, ...UNCONFIRMED });
+  ok(advice.cardMinimumPayments && advice.cardMinimumPayments.status === 'unavailable',
+    'card minimum world: card minimums are unavailable');
+  expectWithheldFuture(advice, 'card minimum unresolved');
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }

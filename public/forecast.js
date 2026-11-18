@@ -15364,6 +15364,7 @@
     // estimate rides beside the next period, never as its opening.
     let cardMatchSeedEstimated = false, cardMatchOpeningEstimate = null;
     let unavailableOpeningLost = false;
+    let cashOnlyUnconfirmed;
     // An invalid declared target or buffer leaves the plan's own inputs
     // unreadable: no projected opening or sweep may be re-derived from the
     // fallback walk (it would read as more cash than the plan allows, with the
@@ -15450,9 +15451,18 @@
       // Balance After Deductions, none of which needs an opening, tagged
       // estimated. Its opening stays unknown (openingChainLost), so every
       // opening-dependent close, carry and sweep stays unknown with it.
-      const planUnavailable = opts.operatingPlan === 'unavailable' && role === 'active';
+      // Only a cash-only problem releases a later period: an unresolved
+      // income occurrence or card minimum reaches that period's own income,
+      // bills and Household, so every period stays withheld exactly as before.
+      if (opts.operatingPlan === 'unavailable' && role === 'future' && unavailableOpeningLost
+          && cashOnlyUnconfirmed === undefined) {
+        cashOnlyUnconfirmed = opts.incomeReconciliation?.status !== 'unavailable'
+          && cardMinimumState(plan, asOf, opts).status !== 'unavailable';
+      }
       const unconfirmedOpeningFuture = opts.operatingPlan === 'unavailable'
-        && role === 'future' && unavailableOpeningLost;
+        && role === 'future' && unavailableOpeningLost && cashOnlyUnconfirmed === true;
+      const planUnavailable = opts.operatingPlan === 'unavailable' && !unconfirmedOpeningFuture
+        && (role === 'active' || (role === 'future' && unavailableOpeningLost));
       if (role === 'lookback') {
         if (window.cycle) budgetOpts.cycle = window.cycle;
       } else if (planUnavailable) {
@@ -19127,6 +19137,21 @@
     return period;
   }
 
+  function withholdEstimatedPeriod(period, note) {
+    if (!period) return period;
+    for (const key of ['incomeTotal', 'incomeAdded', 'available', 'periodBillLoad', 'remainingBills',
+      'totalBillsThisPeriod', 'afterBills', 'afterRemainingBills', 'budgetHold', 'afterHouseholdBudget',
+      'balanceAfterDeductions', 'predictedEndingBalance']) if (Object.hasOwn(period, key)) period[key] = null;
+    for (const key of ['incomeTrust', 'periodBillLoadTrust', 'afterBillsTrust', 'budgetHoldTrust',
+      'balanceAfterDeductionsTrust']) period[key] = 'unavailable';
+    for (const key of ['income', 'bills', 'householdBudget']) if (Array.isArray(period[key])) period[key] = [];
+    if (period.budgetProgress && typeof period.budgetProgress === 'object') period.budgetProgress = null;
+    delete period.currentCashUnconfirmed;
+    period.operatingPlanUnavailable = true;
+    period.operatingPlanNote = note;
+    return period;
+  }
+
   function withholdCurrentOperatingClaims(result, opts, plan) {
     const cardUnknown = result && result.cardPurchaseCoverage?.status === 'unavailable';
     const scheduledUnknown = !!(opts && opts.scheduledAmounts
@@ -19236,6 +19261,11 @@
         if (view.leftover) for (const key of ['afterBills', 'afterHouseholdBudget',
           'afterDebtRepayment', 'afterBigPurchases']) view.leftover[key] = null;
         view.extraDebt = { ...(view.extraDebt || {}), allocated: null, status: 'unavailable', reason: note };
+        // Backstop: a later period released as a cash-only estimate cannot
+        // keep any income-, bill- or Household-derived figure once income or
+        // a card minimum is unresolved (afterHouseholdBudget is the withheld
+        // Balance After Deductions by another name).
+        if (view.currentCashUnconfirmed) withholdEstimatedPeriod(view, note);
       }
       if (minimums?.status === 'unavailable') for (const key of ['sim', 'zero']) {
         if (result[key]) result[key] = publishMinimumCashWalk(result[key], minimums);

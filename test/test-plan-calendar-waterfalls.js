@@ -1847,10 +1847,12 @@ console.log('\n=== 18. unavailable current period: the next period is an estimat
   const waterfallFn = /function calendarPeriodWaterfalls\([\s\S]*?\n  \}/.exec(src);
   ok(waterfallFn && /unavailableOpeningLost/.test(waterfallFn[0])
       && /role === 'future' && unavailableOpeningLost/.test(waterfallFn[0])
-      && /operatingPlan === 'unavailable' && role === 'active';/.test(waterfallFn[0])
+      && /role === 'active' \|\| \(role === 'future' && unavailableOpeningLost\)/.test(waterfallFn[0])
+      && /!unconfirmedOpeningFuture/.test(waterfallFn[0])
+      && /cashOnlyUnconfirmed === true/.test(waterfallFn[0])
       && /estimateUnconfirmedOpeningPeriod\(/.test(waterfallFn[0])
       && !/Date\.now/.test(waterfallFn[0]),
-    'calendarPeriodWaterfalls withholds only the active period and estimates dependent future halves from the dated opening, not wall-clock as-of');
+    'calendarPeriodWaterfalls estimates dependent future halves only for a cash-only failure, withholding everything else from the dated opening, not wall-clock as-of');
 }
 
 if (failures) {
