@@ -106,6 +106,11 @@ console.log('4. A genuine second charge still deducts, never vanishes');
   const otherAmount = serve([debit('2026-10-13', { pending: true, amount: 90 }), debit('2026-10-15')]);
   ok(otherAmount.balance === 810 && !otherAmount.rows.some(r => r.duplicate),
     'a pending of a different amount is not paired: it deducts (900 - 90 = 810)', String(otherAmount.balance));
+  // Codex P2 on #1319: a posted row dated after the observation date (Oct 17)
+  // is not yet evidence; the current pending still deducts, as on main.
+  const future = serve([debit('2026-10-16', { pending: true }), debit('2026-10-18')]);
+  ok(future.balance === 800 && !future.rows.some(r => r.duplicate),
+    'a posted row dated after the observation date is not paired: the pending still deducts (800)', String(future.balance));
   const twoPending = serve([debit('2026-10-13', { pending: true }), debit('2026-10-14', { pending: true }), debit('2026-10-15')]);
   ok(!twoPending.rows.some(r => r.duplicate) && twoPending.balance === 700,
     'two pendings near one posted payment: no pairing, both deduct (900 - 200 = 700)', String(twoPending.balance));

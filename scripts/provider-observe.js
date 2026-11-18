@@ -5419,7 +5419,11 @@ function pendingBillCopyIds(collapsed, opts, linkedLocalIds, existingLocalId, re
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
   const rules = nearDueIdentityRules(opts, plan);
-  if (!plan || !rules.length || !mapDoc) return out;
+  // Codex P2 on #1319: a posted row dated after the observation date is not
+  // yet in the period's actuals, so it is never evidence that a current
+  // pending row is its copy.
+  const observedOn = parseIsoDate(opts && opts.asOf);
+  if (!plan || !rules.length || !mapDoc || !observedOn) return out;
   const byLocal = new Map();
   for (const tx of collapsed || []) {
     const localId = tx && existingLocalId(tx.providerTransactionId);
@@ -5431,7 +5435,7 @@ function pendingBillCopyIds(collapsed, opts, linkedLocalIds, existingLocalId, re
     if (!tx || tx.pending === true) return;
     const amount = lunchMoneyDebitAmount(tx.amount);
     const date = parseIsoDate(tx.date);
-    if (!(Number.isFinite(amount) && amount > 0) || !date) return;
+    if (!(Number.isFinite(amount) && amount > 0) || !date || date > observedOn) return;
     const list = posted.get(key) || [];
     if (!list.some(row => row.localId === localId)) list.push({ localId, amount, date, account: String(tx.providerAccountId) });
     posted.set(key, list);
@@ -6564,6 +6568,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     planForIdentity: opts.planForIdentity,
     plan: opts.plan,
     accountMap: mapDoc,
+    asOf,
   }, linkedLocalIds, existingLocalId, representedActuals, nearDueBills);
   const linkedMisfits = linkedBillMisfitIds(collapsed, {
     identityRules: opts.identityRules,
