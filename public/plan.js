@@ -840,7 +840,24 @@ function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
   ].filter(Boolean);
 }
 
-function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
+/* A stale card balance (Forecast.cardBalanceFreshness, #1305): the debt
+ * walk publishes trust 'estimated' with staleBalances, and utilisation rows
+ * carry balanceTrust/balanceAsOf. This prints Forecast's verdict and dates as
+ * one plain note; it decides nothing and computes nothing. Empty when no card
+ * balance is stale, so a current page is unchanged. */
+function staleCardBalanceNote(staleBalances, debts) {
+  const rows = (Array.isArray(staleBalances) ? staleBalances : []).filter(r => r && r.id);
+  if (!rows.length) return '';
+  const label = id => ((debts || []).find(x => x && x.id === id) || {}).label || id;
+  return 'estimate — ' + rows.map(r => `${label(r.id)} balance ${r.balanceAsOf
+    ? 'as of ' + fmtDateLong(r.balanceAsOf) : 'undated'}`).join('; ') + ', before this statement cycle';
+}
+function staleUtilisationRows(util) {
+  return ((util && util.rows) || []).filter(r => r && r.balanceTrust === 'estimated')
+    .map(r => ({ id: r.id, balanceAsOf: r.balanceAsOf || null }));
+}
+
+function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today, staleNote) {
   if (liveOperatingPlanUnavailable(advice, liveOverlay)) {
     return {
       lab: 'Consumer debt',
@@ -855,7 +872,7 @@ function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
     val: today.consumer == null ? 'unavailable' : money(today.consumer),
     tone: overToday.length ? 'alert' : 'warn',
     note: `${money(today.headroom)} of credit left everywhere${overToday.length
-      ? ` — ${overToday.length} facility over its limit` : ''}`,
+      ? ` — ${overToday.length} facility over its limit` : ''}${staleNote ? ` · ${staleNote}` : ''}`,
   };
 }
 
@@ -6813,7 +6830,16 @@ function budgetCardMovementsHtml(ctx) {
     period ? { start: period.start, end: period.end } : null,
     { currentPeriodActuals: overlay?.currentPeriodActuals || null,
       cardPeriodBalanceEvidence: overlay?.cardPeriodBalanceEvidence || null, liveOverlay: overlay });
-  return BudgetCardMovements.html(publication, { money: money2, date: fmtDate });
+  // Forecast's own freshness verdict per card (#1305), so the strip can tag a
+  // stale reported balance; the strip copies it, it does not decide it.
+  const cardFreshness = {};
+  if (typeof Forecast.cardBalanceFreshness === 'function') {
+    for (const debt of ctx.debts || []) {
+      const verdict = debt && debt.id != null ? Forecast.cardBalanceFreshness(debt, ctx.plan, ctx.asOf) : null;
+      if (verdict) cardFreshness[debt.id] = verdict;
+    }
+  }
+  return BudgetCardMovements.html(publication, { money: money2, date: fmtDate, cardFreshness });
 }
 
 function budgetSurfaceHtml(ctx) {
@@ -7215,8 +7241,11 @@ function renderPlanSettlementUnavailable(d, reason) {
   const plan = d.plan;
   const asOf = d.meta.asOf;
   const snap = Forecast.compactSnapshot(d.debts, d.helocHistory);
-  const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
+  const util = Forecast.utilisation(d.debts, d.revolvingExtra, plan);
+  const revolving = util.totalAvailable;
+  const creditStaleNote = staleCardBalanceNote(staleUtilisationRows(util), d.debts);
   let consumer = null;
+  let consumerStaleNote = '';
   try {
     const opening = planDebtProjection(plan, d.debts, asOf, {
       extraFacilities: d.revolvingExtra,
@@ -7224,13 +7253,14 @@ function renderPlanSettlementUnavailable(d, reason) {
     if (opening && Array.isArray(opening.marks) && opening.marks[0]) {
       consumer = opening.marks[0].consumer;
     }
+    if (opening && opening.trust === 'estimated') consumerStaleNote = staleCardBalanceNote(opening.staleBalances, d.debts);
   } catch { consumer = null; }
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   setHtml('snapshot-tiles', [
-    { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' },
+    { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' + (consumerStaleNote ? ` · ${consumerStaleNote}` : '') },
     { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
     { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
-    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
+    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' + (creditStaleNote ? ` · ${creditStaleNote}` : '') },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
       note: helocTrend.note }] : []),
@@ -7408,6 +7438,9 @@ function renderPlan(d, periods, history) {
   const debtProj = planDebtProjection(plan, d.debts, asOf,
     Object.assign({}, advice.simOptions, { weeklyVariable: weekly,
       extraFacilities: d.revolvingExtra }));
+  // Every debt line below is walked from these balances: one shared note.
+  const debtStaleNote = debtProj && debtProj.trust === 'estimated'
+    ? staleCardBalanceNote(debtProj.staleBalances, d.debts) : '';
 
   // The alternative assumptions, decided and evaluated by the engine. This page
   // used to build both: a funding source holding `available: Infinity` for "if
@@ -7463,7 +7496,9 @@ function renderPlan(d, periods, history) {
     : missionResult.status === 'unavailable' ? missionResult.reason
     : missionResult.parts
       .map(p => MISSION_PART[p.id](p)).join(', ')
-      .replace(/^./, c => c.toUpperCase()) + '.';
+      .replace(/^./, c => c.toUpperCase()) + '.'
+      + (debtStaleNote && missionResult.parts.some(p => p.id === 'overLimit' || p.id === 'helocLimit')
+        ? ` (${debtStaleNote}.)` : '');
 
   /* ---- NEXT MOVE — the one thing to do ---- */
   // WHICH of the five outcomes the household reads under "What happens after",
@@ -7546,7 +7581,7 @@ function renderPlan(d, periods, history) {
         ? unavailableNote
         : !cap ? capView.reason || 'The weekly cap split is unavailable.'
         : `groceries, fuel, phones and medical — ${money(cap.foodFuelPlannedWeekly)}/wk of it food and fuel` },
-    currentOperatingConsumerDebtHeroTile(advice, d.liveOverlay, today),
+    currentOperatingConsumerDebtHeroTile(advice, d.liveOverlay, today, debtStaleNote),
   ].filter(Boolean).map(t => `
     <div class="tile ${escapeHtml(t.tone)}">
       <div class="lab">${escapeHtml(t.lab)}</div>
@@ -7734,6 +7769,7 @@ function renderPlan(d, periods, history) {
   }).join('');
 
   $('score-note').innerHTML =
+    (debtStaleNote ? `<b>${escapeHtml(debtStaleNote.replace(/^estimate — /, 'Estimate: '))}</b> — the debt lines are walked from it. ` : '') +
     (gap && fundingPlan ? `Assumes the opening gap is covered by ` +
       `<b>${fundingPlan.parts.map(p => `${money2(p.amount)} from ${escapeHtml(p.short)}`).join(' plus ')}</b>` +
       (fundingPlan.borrowed > 0
@@ -8070,13 +8106,15 @@ function renderPlan(d, periods, history) {
   // Pending charges have already spent the credit they are charged against,
   // so headroom is derived with them included rather than from posted
   // balances alone — the Travel Visa reads $21.69 of room the other way.
-  const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
+  const util = Forecast.utilisation(d.debts, d.revolvingExtra, plan);
+  const revolving = util.totalAvailable;
+  const creditStaleNote = staleCardBalanceNote(staleUtilisationRows(util), d.debts);
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [
-    { lab: 'Consumer debt', val: consumer == null ? 'Unknown' : money(consumer), note: consumer == null ? 'a card\'s pending is unknown' : 'cards and revolving, excluding the house' },
+    { lab: 'Consumer debt', val: consumer == null ? 'Unknown' : money(consumer), note: (consumer == null ? 'a card\'s pending is unknown' : 'cards and revolving, excluding the house') + (debtStaleNote ? ` · ${debtStaleNote}` : '') },
     { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
     { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
-    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
+    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' + (creditStaleNote ? ` · ${creditStaleNote}` : '') },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
       note: helocTrend.note }] : []),
