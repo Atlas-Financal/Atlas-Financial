@@ -9602,6 +9602,7 @@
   }
 
   const BILLS_ACCOUNT_ID = 'chequing-a';
+  const WEEKLY_ACCOUNT_ID = 'chequing-b';
   const BILLS_ACCOUNT_LABEL = 'BILLS ACCOUNT (Chequing A)';
 
   function plannedPayerLabel(payingAccount, merchantPayingAccount, plan) {
@@ -10463,6 +10464,11 @@
   // The packet occurrence key a calendar bill row's settlement read, kept
   // off the published row. Set only when the packet names the occurrence.
   const billRowObservationKeys = new WeakMap();
+  // A future-window bill row whose occurrence the cash walk already settled
+  // as prepaid (representedKeySet at the Forecast as-of) maps to that as-of.
+  // Its cash left before any later opening, so that opening already holds
+  // it (paidBillAlreadyInPaydayOpening). Beside the row, never on it.
+  const prepaidBillSettledBy = new WeakMap();
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const row = calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts);
@@ -10720,7 +10726,26 @@
       // the scheduled amount (problem 9). A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
       // row is not rewritten: it is never PAID and stays out of the close.
-      if (window.role === 'future' && row.date && asOf && row.date > asOf
+      // Owner, Dale (#821 6961042821): an occurrence paid early counts in
+      // the pay period it is planned in. When the cash walk's own settled set
+      // (`represented`, the opening's prepaid occurrence) holds it, the
+      // payment already left cash on or before asOf: the row stays Paid in
+      // its planned period, owes nothing there, and its cash is outside every
+      // later opening. Only when an observed actual covers the occurrence:
+      // a missing amount never counts (representation proves the occurrence,
+      // not the amount), and an observed actual below plan is a partial; both
+      // keep the demotion below, so a future period never holds less than it
+      // may still owe (lead rulings on #821 6961042821 and #1301; partial
+      // remainders are a separate rule). Evidence the walk does not settle on
+      // is demoted too, as before.
+      const coversOccurrence = row.actual != null && Number.isFinite(Number(row.actual))
+        && row.planned != null && Number.isFinite(Number(row.planned)) && Number(row.planned) !== 0
+        && Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
+      const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
+        && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
+        && coversOccurrence;
+      if (prepaidByWalk) prepaidBillSettledBy.set(row, asOf);
+      if (!prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -13107,6 +13132,9 @@
   function paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource) {
     if (!row || !openingAsOf || !row.date) return false;
     if (!rowIsSettledBill(row)) return false;
+    // Prepaid on or before the Forecast as-of: a later opening holds it.
+    const prepaidBy = prepaidBillSettledBy.get(row);
+    if (prepaidBy && prepaidBy < openingAsOf) return true;
     if (row.date < openingAsOf) return true;
     if (row.date > openingAsOf) return false;
     return openingMayHoldSameDayCash(openingSource);
@@ -13532,6 +13560,7 @@
       .map(({ tx }) => tx.coverageRef));
     const recon = reconcileCardPurchases(transactions, { plan, asOf: day, packet: packet || {}, debts: opts.debts });
     let weeklyFunding = 0, directFunding = 0, cardFunding = 0, pendingBillsHousehold = 0, categoryCardCash = 0;
+    let weeklyCardOutside = 0;
     let fundingEventCount = 0;
     const usedCash = new Set();
     const takeFunding = id => {
@@ -13571,15 +13600,28 @@
         if (!leg || !cycle || leg.date < cycle.start || leg.date > through) return;
         // A Bills leg funds the hold from Bills; a Savings leg funds it from
         // outside Bills. Either way that purchase no longer needs Bills cash.
-        // (Weekly legs never reach here: the reconciler withholds them.)
-        if (![BILLS_ACCOUNT_ID, DESIGNATED_RESERVE_ID].includes(householdCashLocationId(leg))) return;
+        // A Weekly leg spends money Bills already sent to Weekly: its held
+        // purchases were funded by that transfer (weeklyFunding), and the rest
+        // (a minimum, older debt) left the hold, so it comes off weeklyFunding.
+        const location = householdCashLocationId(leg);
         const amount = roundCent((record.allocations || []).filter(part => eligibleCardRefs.has(part.purchaseRef))
           .reduce((sum, part) => sum + part.amount, 0));
+        if (location === WEEKLY_ACCOUNT_ID && sign === 1) {
+          const debit = savingsCents(leg.amount, true);
+          if (debit == null) { issue('card-coverage-unavailable', 'A Weekly card payment amount is unconfirmed.'); return; }
+          weeklyCardOutside = roundCent(weeklyCardOutside + Math.max(0, Math.abs(debit) / 100 - amount));
+          return;
+        }
+        if (![BILLS_ACCOUNT_ID, DESIGNATED_RESERVE_ID].includes(location)) return;
         if (amount && takeFunding(String(leg.id))) cardFunding = roundCent(cardFunding + sign * amount);
       };
       for (const record of policy && policy.payments || []) countParts(record, record.debitRef, 1);
       for (const record of policy && policy.reversals || []) countParts(record, record.cashCreditRef, -1);
     }
+    // Weekly card payments' non-household share reduces the Bills-to-Weekly
+    // funding counted against the hold, never below zero: money Bills did not
+    // send this cycle is not taken back from the hold.
+    if (weeklyCardOutside > 0) weeklyFunding = roundCent(weeklyFunding - Math.min(weeklyCardOutside, Math.max(0, weeklyFunding)));
     for (const tx of transactions) {
       if (tx?.pending !== true || householdCashLocationId(tx) !== BILLS_ACCOUNT_ID || !(tx.amount > 0)) continue;
       if (!eligibleIds.has(String(tx.id)) && tx.pendingMatchingCardPaidBill !== true) {
@@ -14229,13 +14271,16 @@
       };
       // A Bills or Savings leg is a coverage inflow: its cash left an account
       // the household hold does not otherwise count as funding. A payment
-      // from Weekly would also need its Bills-to-Weekly funding reconciled
-      // against the household hold (weeklyFunding); until that is modelled
-      // it withholds rather than releasing protection twice (Codex P1, #849).
-      const billsLeg = pair => {
+      // from Weekly also covers the card once (lead dispatch U3, census 11):
+      // billsAccountPeriodBalance takes its non-household share off the
+      // Bills-to-Weekly funding it counted against the hold, so that money is
+      // not released twice (Codex P1, #849). A reversal back to Weekly has no
+      // such reconciliation and still withholds.
+      const fundedLeg = weeklyOk => pair => {
         const location = householdCashLocationId(pair.cash.tx);
         if (location === BILLS_ACCOUNT_ID || location === DESIGNATED_RESERVE_ID
           || pair.cash.tx.accountRole === 'household-reserve') return true;
+        if (weeklyOk && location === WEEKLY_ACCOUNT_ID) return true;
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
@@ -14259,7 +14304,7 @@
         leg.paired = true;
         notePaid.push({ card: { tx: leg.tx, account, cents: leg.cents }, cash: leg, date: leg.tx.date });
       }
-      const paid = [...creditPairs, ...notePaid, ...payDown].filter(billsLeg);
+      const paid = [...creditPairs, ...notePaid, ...payDown].filter(fundedLeg(true));
       // A cash leg that already represents a scheduled occurrence (a card
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
@@ -14296,7 +14341,7 @@
           pair.scheduled = pair.card.cents;
         } else pair.scheduled = scheduled;
       }
-      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(billsLeg);
+      const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(fundedLeg(false));
       // An unpaired posted payment leg on Bills, Weekly or Savings has an
       // unknown destination and withholds (Atlas partial review, #849).
       for (const leg of [...legs.cashDebit, ...legs.cashCredit, ...legs.reserveDebit]) {
@@ -24727,10 +24772,16 @@
   // targets stay on the plan. Income, bills, obligations, and dated
   // commitments stay on expandEvents. This is not a second planner,
   // not a historical store, and not an established household average.
-  const PROVISIONAL_NORMAL_SPENDING_PHRASE =
-    'Normal spending estimate based on 2 pay periods — 1 completed actual + current-period estimate.';
+  // Up to the engine's standard six-period lookback of closed pay periods
+  // feeds the estimate (lead dispatch T3): the most recent closed periods,
+  // newest first, while each one's transaction coverage establishes it.
+  const NORMAL_SPENDING_CLOSED_PERIODS = 6;
+  const provisionalNormalSpendingPhrase = closed =>
+    `Normal spending estimate based on ${closed + 1} pay periods — ${closed} completed actual${closed === 1 ? '' : 's'} + current-period estimate.`;
   const PROVISIONAL_NORMAL_SPENDING_RULE =
     'provisional pay-period normal spending = (completed posted actual + current full-period estimate) / 2';
+  const provisionalNormalSpendingRule = closed => closed === 1 ? PROVISIONAL_NORMAL_SPENDING_RULE
+    : `provisional pay-period normal spending = (sum of ${closed} completed posted actuals + current full-period estimate) / ${closed + 1}`;
 
   function normalSpendingCoverageUsable(state) {
     return !!(state && (state.remainingClaim === 'precise'
@@ -24846,15 +24897,16 @@
   // named category is the incumbent Other spending residual. Owner-target
   // amounts are not added on top. Returns null when the split does not
   // equal the published 14-day amount — the caller keeps one estimate line.
-  function normalSpendingCategoryAttribution(plan, completedSpend, currentSpend, cycleStart, payPeriodAmount) {
-    const completedMap = completedSpend && completedSpend.byCategory;
+  function normalSpendingCategoryAttribution(plan, completedSpends, currentSpend, cycleStart, payPeriodAmount) {
+    const completedMaps = (completedSpends || []).map(row => row && row.byCategory);
     const currentMap = currentSpend && currentSpend.byCategory;
-    if (!completedMap || !currentMap) return null;
+    if (!completedMaps.length || completedMaps.some(map => !map) || !currentMap) return null;
+    const divisor = completedMaps.length + 1;
     const rows = [];
     let named = 0;
     for (const cat of (plan && plan.budget && plan.budget.categories) || []) {
       if (!cat || !cat.id || cat.class === 'reserve') continue;
-      const completed = roundCent(completedMap.get(cat.id) || 0);
+      const completed = roundCent(completedMaps.reduce((sum, map) => sum + (map.get(cat.id) || 0), 0));
       const spent = roundCent(currentMap.get(cat.id) || 0);
       let remaining = 0;
       if (CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0) {
@@ -24863,7 +24915,7 @@
           remaining = roundCent(Math.max(0, planned - spent));
         }
       }
-      const amount = roundCent((completed + roundCent(spent + remaining)) / 2);
+      const amount = roundCent((completed + roundCent(spent + remaining)) / divisor);
       if (!(amount > 0)) continue;
       named = roundCent(named + amount);
       rows.push({
@@ -24886,7 +24938,7 @@
     return rows;
   }
 
-  // Two-period provisional baseline for the Road Ahead walk.
+  // Provisional baseline for the Road Ahead walk: covered closed periods plus the current estimate.
   // Input A is posted actuals on the previous Seaspan cycle.
   // Input B is this cycle's eligible actual-to-date plus the unspent
   // incumbent payday reserve (max(planned, spent) − spent). Not a
@@ -24895,7 +24947,7 @@
   function provisionalRecentNormalSpending(plan, asOf, opts) {
     const day = financialDate(asOf);
     const current = day && spendingCycle(plan, day);
-    const previousList = day ? completedPayPeriodWindows(plan, day, 1) : [];
+    const previousList = day ? completedPayPeriodWindows(plan, day, NORMAL_SPENDING_CLOSED_PERIODS) : [];
     const previous = previousList && previousList[0];
     const completedWindow = periodWindow(previous, 'completed-actual');
     const currentWindow = periodWindow(current, 'current-full-period-estimate');
@@ -24944,8 +24996,24 @@
           reason: currentCoverage && currentCoverage.reason,
         }));
     }
-    const completedSpend = eligibleNormalSpendInWindow(
-      plan, packet, previous.start, previous.end, 'posted-only');
+    // The most recent closed period is established above. Earlier closed
+    // periods join, newest first, while their coverage establishes them; the
+    // first one that does not ends the run (partial history never counts).
+    // An older period also needs the packet to name where its coverage
+    // starts: a missing coverageStart is absence, never complete history,
+    // and must not add $0 periods to the average.
+    const coveredFrom = financialDate(packet.coverageStart);
+    const closedWindows = [previous];
+    for (let i = 1; i < previousList.length; i++) {
+      const w = previousList[i];
+      if (!w || !coveredFrom || coveredFrom > w.start) break;
+      if (!normalSpendingCoverageUsable(lookbackActualsCoverageState(w.start, w.end, opts))) break;
+      closedWindows.push(w);
+    }
+    const completedSpends = closedWindows.map(w => eligibleNormalSpendInWindow(
+      plan, packet, w.start, w.end, 'posted-only'));
+    const completedSpend = completedSpends[0];
+    const completedTotal = roundCent(completedSpends.reduce((sum, row) => sum + row.total, 0));
     const currentMode = currentCoverage.remainingClaim === 'precise'
       ? 'current-precise' : 'posted-only';
     const through = day < current.end ? day : current.end;
@@ -24955,19 +25023,19 @@
     const remainingExpected = currentPeriodRemainingReserve(
       plan, current.start, currentSpend.byCategory);
     const fullPeriodEstimate = roundCent(actualToDate + remainingExpected);
-    const payPeriodAmount = roundCent((completedSpend.total + fullPeriodEstimate) / 2);
+    const payPeriodAmount = roundCent((completedTotal + fullPeriodEstimate) / (completedSpends.length + 1));
     // The 14-day amount is the published figure. Keep the weekly walk
     // rate exact so a full Seaspan cycle applies payPeriodAmount, not a
     // second-rounded weekly * 2 that can drift by one cent.
     const weeklyVariable = payPeriodAmount / 2;
     const categories = normalSpendingCategoryAttribution(
-      plan, completedSpend, currentSpend, current.start, payPeriodAmount);
+      plan, completedSpends, currentSpend, current.start, payPeriodAmount);
     return {
       status: 'ready',
       fallback: null,
       reason: null,
-      phrase: PROVISIONAL_NORMAL_SPENDING_PHRASE,
-      rule: PROVISIONAL_NORMAL_SPENDING_RULE,
+      phrase: provisionalNormalSpendingPhrase(completedSpends.length),
+      rule: provisionalNormalSpendingRule(completedSpends.length),
       payPeriodAmount,
       weeklyVariable,
       trust: 'estimated',
@@ -24980,6 +25048,13 @@
         trust: 'calculated',
         provisional: false,
       }),
+      completedPeriods: closedWindows.map((w, i) => Object.assign({}, periodWindow(w, 'completed-actual'), {
+        status: 'ready',
+        amount: completedSpends[i].total,
+        evidence: 'posted-actual',
+        trust: 'calculated',
+        provisional: false,
+      })),
       currentPeriod: Object.assign({}, currentWindow, {
         status: 'estimated',
         actualToDate,
