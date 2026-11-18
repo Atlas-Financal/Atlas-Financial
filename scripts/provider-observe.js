@@ -3435,7 +3435,7 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     // landing Monday, is unclaimed), not an early one for the next occurrence. Only the
     // occurrence just before the credit decides: when it IS claimed, an extra credit can be the
     // next one arriving early, whatever older occurrences did. Limited to the other scheduled
-    // incomes: payroll and the salary pair keep their rule.
+    // incomes; payroll has its own narrower one-business-day rule below, and the salary pair keeps its rule.
     const previousEvent = events.filter(event => event.date <= asOf)
       .sort((left, right) => left.date.localeCompare(right.date)).pop();
     const earlierUnclaimed = !!previousEvent && !claimedKeys.has(previousEvent.id + '@' + previousEvent.date);
@@ -3455,6 +3455,27 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
         .sort((left, right) => left.date.localeCompare(right.date)).pop() : null);
     const lateOfEarlier = credit => previousEvent ? earlierUnclaimed
       : !!priorEvent && Forecast.diffDays(priorEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
+    // Payroll late posting (census rank 3; a STOPGAP that the LM recurring-matches slice retires). A posted payroll
+    // credit dated within one business day after the payday just before it (Friday's pay landing Monday), when
+    // nothing claimed that payday, is that payday's late posting: it settles that payday once and is never the next
+    // pay arriving early. Business days are Forecast's (Monday to Friday, no holiday calendar), so a payday followed
+    // by a weekday holiday is two business days to the Tuesday and still holds. At most ONE credit is absorbed per
+    // payday: a second qualifying credit is unexplained and holds exactly as before, as does any credit that is not
+    // explicitly posted, not of exactly the scheduled amount, not strictly nearer that payday than the next, or later
+    // than one business day.
+    // A payday whose own receipts already compete (an ambiguous group for that exact occurrence, on any date) is
+    // not unclaimed in the sense this needs: its receipt is unresolved, so a later credit stays held as before.
+    // Only a credit of EXACTLY the payday's scheduled amount is absorbed (#1290 review): Forecast does not settle the
+    // payday from an absorbed credit, so it publishes the scheduled amount. Only then is that equal to what the same
+    // credit would publish on time. A short, tiny or oversized late credit holds exactly as before.
+    const previousAmbiguous = !!previousEvent && (ambiguous || []).some(group => group
+      && String(group.id) === String(previousEvent.id) && String(group.date) === String(previousEvent.date));
+    let payrollLateAbsorbed = 0;
+    const payrollLateOfEarlier = credit => !!previousEvent && earlierUnclaimed && !previousAmbiguous
+      && credit.savingsPostingEvidence === 'posted' && credit.date > previousEvent.date
+      && Math.abs(Math.abs(lunchMoneyDebitAmount(credit.amount)) - Math.abs(Number(previousEvent.amount))) <= IDENTITY_AMOUNT_EPSILON
+      && Forecast.businessDaysAfter(previousEvent.date, credit.date) <= 1
+      && Forecast.diffDays(previousEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
     for (const credit of input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
@@ -3462,7 +3483,10 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
-        if (rule.eventId === 'payroll') { unresolved = true; break; }
+        if (rule.eventId === 'payroll') {
+          if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
+          unresolved = true; break;
+        }
         // A scheduled income other than payroll and the salary pair holds the plan only on a receipt the
         // provider explicitly states as posted (is_pending === false). An absent, null or non-boolean flag
         // is unknown posting evidence (the sanitizer reads it as not pending but marks it 'unknown'): it
@@ -4218,18 +4242,25 @@ function observeCore(input, capture) {
   // so payment evidence and Forecast read the same occurrence dates (Codex P1,
   // #1281). Only day and dateConfidence of a mapper-supplied bill change, on
   // this observation's working copy of the plan; data.json is never written.
+  // Cadence too (#1289), and only with the item's own expected amount.
   const recurringReview = recurringBillScheduleReview(
     sanitizedRecurringEvidence(input.payload && input.payload.recurringItems,
       { identityRules: input.identityRules || (input.identity && input.identity.rules) || [],
         accountMap: mapDoc, existingLocalId: () => null }),
     input.identityRules || (input.identity && input.identity.rules) || [],
-    input.data && input.data.plan, dateOnly(normalized.fetchedAt));
+    input.data && input.data.plan, dateOnly(normalized.fetchedAt),
+    { amounts: recurringItemAmounts(input.payload && input.payload.recurringItems) });
   const recurringSchedules = recurringReview.schedules;
-  if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
-    const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
+  const obligationSchedules = recurringSchedules.filter(schedule => schedule.obligationId);
+  if (obligationSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.obligations)) {
+    const byId = new Map(obligationSchedules.map(schedule => [schedule.obligationId, schedule]));
+    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, obligations: input.data.plan.obligations.map(row =>
+      row && byId.has(row.id) ? applyRecurringObligationSchedule(row, byId.get(row.id)) : row) } } };
+  }
+  if (recurringSchedules.some(schedule => schedule.billId) && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
+    const byBill = new Map(recurringSchedules.filter(schedule => schedule.billId).map(schedule => [schedule.billId, schedule]));
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
-      bill && byBill.has(bill.id) ? { ...bill, day: byBill.get(bill.id).day,
-        dateConfidence: byBill.get(bill.id).dateConfidence } : bill) } } };
+      bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
   }
   const mapped = [];
   const unmapped = [];
@@ -5444,34 +5475,90 @@ function sanitizedRecurringEvidence(raw, opts) {
 
 // S2 (owner decision #821 6956651970 (a)/(b): a REVIEWED Lunch Money
 // recurring item is the authority for its bill's schedule, and "reviewed"
-// confirms the schedule only). For a monthly bill, the reviewed item's
-// anchor day replaces the estimated plan day and its date tag becomes
-// confirmed. The amount, firstDue and the amount tag stay the plan's.
-// Settlement is untouched: an occurrence still reads paid only through a
-// posted payment the incumbent identity rule links. Any doubt keeps the
-// plan's own day and tags: an unavailable read, an item that is not monthly
-// every month, ended or not yet started, an item named by zero or several
-// rules, a bill named by several items, a bill that is not monthly, a paying
-// account whose role does not match, or expected dates that disagree with
-// the anchor day.
+// confirms the schedule only). The amount, firstDue and the amount tag stay
+// the plan's. Settlement is decided elsewhere (identity rules, and for an
+// opt-in rule Lunch Money's own matches).
 // Day leads (owner decision, Dale 2026-11-17: "no friction if the date
-// drifts"; "when we look forward the bills dates need to be as best as they
-// can be"): the reviewed item's anchor day leads every future occurrence,
-// tagged confirmed, even when it differs from the plan's day. The plan's day
-// is the fallback only, kept estimated, for every doubt case above. This
-// retires #1281's anchor-equals-plan cross-check.
-function recurringBillSchedules(block, identityRules, plan, asOf) {
-  return recurringBillScheduleReview(block, identityRules, plan, asOf).schedules;
+// drifts"): the item's anchor day leads every future occurrence, tagged
+// confirmed, even when it differs from the plan's day.
+// Cadence leads (owner decision, Dale 2026-11-18): the item's cadence leads
+// too, wherever Forecast expands it exactly (recurringItemTiming): monthly,
+// quarterly, biweekly and yearly; and an ended item stops the bill after its
+// end date (lastDue). This retires Grok Bot's monthly-only cadence guard.
+// Any doubt keeps the plan's own cadence, day and tags: an unavailable read,
+// a cadence Forecast cannot map, an item not yet started, an item named by
+// zero or several rules, a bill named by several items, a once bill, a
+// paying account whose role does not match, or expected dates the mapped
+// cadence does not produce.
+function recurringBillSchedules(block, identityRules, plan, asOf, opts) {
+  return recurringBillScheduleReview(block, identityRules, plan, asOf, opts).schedules;
 }
-function recurringBillScheduleReview(block, identityRules, plan, asOf) {
+// Each reviewed item's expected amount per occurrence (criteria.amount, an
+// exact decimal string, or null), keyed by provider id, from the read itself.
+// Used only to test consistency; it never becomes a served amount.
+function recurringItemAmounts(raw) {
+  const out = new Map();
+  const items = raw && raw.status === 'read' && raw.read && Array.isArray(raw.read.items) ? raw.read.items : [];
+  for (const item of items) {
+    if (!item || item.providerId == null) continue;
+    const amount = item.criteria && typeof item.criteria.amount === 'string' ? Number(item.criteria.amount) : NaN;
+    out.set(String(item.providerId), Number.isFinite(amount) ? amount : null);
+  }
+  return out;
+}
+// A real calendar day: the ISO shape and a UTC round trip (no Feb 30).
+function realIsoDay(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(value + 'T00:00:00Z');
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+// #1289 blocker 1: a cadence change keeps the plan's per-occurrence amount,
+// so it is safe only when the reviewed item expects about that amount each
+// time. Consistent means within the bill matchers' share (1.5x) either way.
+function recurringAmountConsistent(itemAmount, planAmount) {
+  const a = Math.abs(Number(itemAmount)), b = Math.abs(Number(planAmount));
+  if (!(Number.isFinite(a) && a > 0 && Number.isFinite(b) && b > 0)) return false;
+  return Math.max(a, b) <= Math.min(a, b) * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
+}
+// The bill-schedule fields a reviewed Lunch Money item may set on the served
+// plan (owner decision, Dale 2026-11-18: cadence also comes from Lunch Money).
+const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue'];
+
+// Lunch Money cadence -> a Forecast cadence it can expand exactly; anything
+// else is null (the plan's cadence and day stand, estimated).
+//   month x1 -> monthly on the anchor day
+//   month x3 -> quarterly on the anchor day, phased by the anchor date
+//   week  x2 -> biweekly from the anchor date
+//   year  x1 -> yearly on the anchor's month and day
+function recurringItemTiming(item) {
+  const anchor = item.anchorDate;
+  const day = Number(anchor.slice(8, 10));
+  const month = Number(anchor.slice(5, 7));
+  if (!(day >= 1 && day <= 31) || !(month >= 1 && month <= 12)) return null;
+  if (item.granularity === 'month' && item.quantity === 1) return { frequency: 'monthly', day };
+  if (item.granularity === 'month' && item.quantity === 3) return { frequency: 'quarterly', day, anchor };
+  if (item.granularity === 'week' && item.quantity === 2) return { frequency: 'biweekly', anchor };
+  if (item.granularity === 'year' && item.quantity === 1) return { frequency: 'yearly', month, day };
+  return null;
+}
+
+// Apply a schedule to one bill row (served plan only): its timing fields are
+// replaced by the schedule's, and its date tag becomes confirmed. Amount,
+// firstDue and the amount tag stay the plan's.
+function applyRecurringSchedule(bill, schedule) {
+  const out = { ...bill };
+  for (const field of RECURRING_TIMING_FIELDS) delete out[field];
+  for (const field of RECURRING_TIMING_FIELDS) if (Object.hasOwn(schedule.timing, field)) out[field] = schedule.timing[field];
+  out.dateConfidence = schedule.dateConfidence;
+  return out;
+}
+
+function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   const done = schedules => ({ schedules });
   if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
   const bills = Array.isArray(plan.bills) ? plan.bills : [];
-  const daysIn = iso => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).getUTCDate();
   const byBill = new Map();
   for (const item of block.items) {
-    if (item.granularity !== 'month' || item.quantity !== 1) continue;
-    if (item.endDate && item.endDate < asOf) continue;
     if (item.startDate && item.startDate > asOf) continue;
     const eventIds = new Set();
     for (const rule of identityRules || []) {
@@ -5486,16 +5573,133 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf) {
     if (items.length !== 1) continue;
     const item = items[0];
     const matches = bills.filter(bill => bill && bill.id === billId);
-    if (matches.length !== 1 || matches[0].frequency !== 'monthly') continue;
+    const obligationMatches = (Array.isArray(plan.obligations) ? plan.obligations : []).filter(row => row && row.id === billId);
+    if (!matches.length && obligationMatches.length === 1) {
+      const schedule = recurringObligationSchedule(item, obligationMatches[0], plan, asOf);
+      if (schedule) out.push(schedule);
+      continue;
+    }
+    if (matches.length !== 1 || obligationMatches.length || matches[0].frequency === 'once') continue;
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') continue;
-    const day = Number(item.anchorDate.slice(8, 10));
-    if (!(day >= 1 && day <= 31)) continue;
-    if (!item.expectedDates.every(date => Number(date.slice(8, 10)) === Math.min(day, daysIn(date)))) continue;
-    out.push({ billId, recurringId: item.recurringId, day, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
+    if (!realIsoDay(item.anchorDate) || (item.endDate && !realIsoDay(item.endDate))) continue;
+    const timing = recurringItemTiming(item);
+    if (!timing) continue;
+    // A cadence change leads only when the item's expected amount per
+    // occurrence matches the plan's (the amount stays the plan's). A day move
+    // on the same cadence cannot change the load and needs no amount.
+    if (timing.frequency !== bill.frequency) {
+      const amounts = opts && opts.amounts instanceof Map ? opts.amounts : new Map();
+      if (!recurringAmountConsistent(amounts.get(item.recurringId), bill.amount)) continue;
+    }
+    // An ended item stops the bill after its end date (lastDue).
+    if (item.endDate) timing.lastDue = item.endDate;
+    // Every date Lunch Money expects must be one Forecast expands from the
+    // mapped timing; otherwise the plan's own cadence stands.
+    const probe = { ...timing };
+    const expected = item.expectedDates.slice().sort();
+    if (expected.length) {
+      const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
+      if (!expected.every(date => dates.includes(date))) continue;
+    }
+    out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
   return done(out);
+}
+
+// E1 (lead dispatch 2026-11-18, census 4 and 9; option B, cutover): a card
+// minimum or the HELOC cash minimum takes its planned day from its reviewed
+// Lunch Money item, served plan only. Monthly items on monthly rows only; the
+// amount and every tag stay the plan's. Recorded history is never re-dated:
+// the new day applies only from the day after the latest recorded statement,
+// sent payment or opening representation, and never before the observation
+// date (timingBefore / cashTimingBefore keeps the earlier day before it). Any
+// doubt keeps the plan:
+//   - the row is not a monthly card payment or a monthly HELOC cash leg, or
+//     is not paid from household cash, or the item is not monthly, has ended,
+//     or has a date that is not a real day;
+//   - the day would move past the latest known statement's due day, or, for
+//     a card with no known statement, later than its plan day;
+//   - an occurrence still due from the cutover would be lost (the first new
+//     one must fall in that occurrence's month);
+//   - the cutover would put two occurrences in one statement cycle or skip
+//     one (the first new occurrence must fall in the calendar month right
+//     after the last earlier-day one, between half a month and a month and a
+//     half after it);
+//   - Lunch Money's expected dates on or after the cutover are not the new
+//     day's.
+const MONTH_DAYS = 365.25 / 12;
+function recurringObligationSchedule(item, row, plan, asOf) {
+  const card = row.effect === 'payment' && row.debtId && !row.nonCash && row.frequency === 'monthly';
+  const heloc = row.nonCash && row.cashDay != null && row.frequency === 'monthly';
+  if (!card && !heloc) return null;
+  if (!['chequing-a', 'chequing-b'].includes(row.payingAccount) || item.accountRole !== 'household-cash') return null;
+  if (!realIsoDay(item.anchorDate) || item.endDate) return null;
+  const timing = recurringItemTiming(item);
+  if (!timing || timing.frequency !== 'monthly') return null;
+  const oldDay = Number(card ? row.day : row.cashDay);
+  if (!(oldDay >= 1 && oldDay <= 31)) return null;
+  const statements = card && Array.isArray(row.statementOccurrences) ? row.statementOccurrences : [];
+  const latestStatement = statements.filter(r => r && realIsoDay(r.dueDate)).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).pop();
+  if (latestStatement && timing.day > Number(latestStatement.dueDate.slice(8, 10))) return null;
+  // With no known statement due day, a card's day may only move earlier.
+  if (card && !latestStatement && timing.day > oldDay) return null;
+  const recorded = [];
+  for (const r of statements) for (const d of [r && r.scheduledDate, r && r.dueDate]) if (realIsoDay(d)) recorded.push(d);
+  for (const r of (card && Array.isArray(row.sentPayments) ? row.sentPayments : [])) {
+    for (const d of [r && r.scheduledDate, r && r.postedOn]) if (realIsoDay(d)) recorded.push(d);
+  }
+  for (const r of (plan.opening && Array.isArray(plan.opening.representedEvents) ? plan.opening.representedEvents : [])) {
+    if (r && r.id === row.id && realIsoDay(r.date)) recorded.push(r.date);
+  }
+  // The cutover is never before the observation date (#1293 blocker 1): an
+  // occurrence still due from today keeps its own day unless the new day
+  // replaces it in the same month.
+  const latest = recorded.sort().pop() || null;
+  const afterRecords = latest ? Forecast.addDays(latest, 1) : null;
+  const from = afterRecords && afterRecords > asOf ? afterRecords : asOf;
+  const firstDue = card ? row.firstDue : (row.cashFirstDue || row.firstDue);
+  const newRow = { frequency: 'monthly', day: timing.day, ...(firstDue ? { firstDue } : {}) };
+  if (timing.day !== oldDay) {
+    const oldRow = { frequency: 'monthly', day: oldDay, ...(firstDue ? { firstDue } : {}) };
+    const last = Forecast.occurrences(oldRow, Forecast.addDays(from, -62), Forecast.addDays(from, -1)).pop();
+    const next = Forecast.occurrences(newRow, from, Forecast.addDays(from, 62))[0];
+    const oldNext = Forecast.occurrences(oldRow, from, Forecast.addDays(from, 62))[0];
+    const monthOf = d => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7));
+    // No occurrence still due may be lost: the first new one replaces the
+    // first earlier-day one due from the cutover, in that same month.
+    if (oldNext && (!next || monthOf(next) !== monthOf(oldNext))) return null;
+    if (last && next) {
+      // One occurrence per statement cycle: the first new occurrence falls in
+      // the calendar month right after the last earlier-day one, and between
+      // half a month and a month and a half after it.
+      const gap = calendarDaysBetween(last, next);
+      if (monthOf(next) !== monthOf(last) + 1 || !(gap >= MONTH_DAYS / 2 && gap <= MONTH_DAYS * 1.5)) return null;
+    }
+  }
+  const expected = item.expectedDates.filter(d => !from || d >= from).sort();
+  if (expected.length) {
+    const dates = Forecast.occurrences({ frequency: 'monthly', day: timing.day }, expected[0], expected[expected.length - 1]);
+    if (!expected.every(d => dates.includes(d))) return null;
+  }
+  const before = timing.day !== oldDay ? { from, frequency: 'monthly', day: oldDay } : null;
+  return { obligationId: row.id, recurringId: item.recurringId, kind: card ? 'card' : 'heloc',
+    fields: card ? { day: timing.day, ...(before ? { timingBefore: before } : {}) }
+      : { cashDay: timing.day, ...(before ? { cashTimingBefore: before } : {}) },
+    source: 'lunchmoney-recurring' };
+}
+// The obligation fields a schedule may set; the owner-policy guard allows
+// exactly these to differ, on a scheduled obligation only.
+// Per kind (#1293 note): a card may change only its day and timingBefore, the
+// HELOC only its cash day and cashTimingBefore.
+const RECURRING_OBLIGATION_FIELDS = { card: ['day', 'timingBefore'], heloc: ['cashDay', 'cashTimingBefore'] };
+function applyRecurringObligationSchedule(row, schedule) {
+  const out = { ...row };
+  for (const field of RECURRING_OBLIGATION_FIELDS[schedule.kind] || []) {
+    if (Object.hasOwn(schedule.fields, field)) out[field] = schedule.fields[field];
+  }
+  return out;
 }
 
 // The structural check for that block: exact keys, value types and no
@@ -6658,6 +6862,11 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  recurringItemAmounts,
+  applyRecurringSchedule,
+  applyRecurringObligationSchedule,
+  RECURRING_OBLIGATION_FIELDS,
+  RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,

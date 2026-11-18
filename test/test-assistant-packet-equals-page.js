@@ -153,8 +153,27 @@ function invented(extra) {
     ok(!!pRec && !!aRec, 'both the page and the packet call Forecast.recommend');
     if (!pRec || !aRec) continue;
     ok(pRec.args[1] === aRec.args[1], 'the same as-of date');
-    const recDiff = diffKeys(pRec.args[2], aRec.args[2]);
+    // The packet adds exactly one input, collectHeldTransactions (the held-row
+    // to-do list). It may add only currentPeriodAction.heldTransactions: with
+    // that one field removed, the packet's whole recommend output must equal
+    // the page's, so no figure or tag can move through it.
+    const HELD_FLAG = 'collectHeldTransactions';
+    const recDiff = diffKeys(pRec.args[2], aRec.args[2]).filter(k => k !== HELD_FLAG);
     ok(recDiff.length === 0, 'identical Forecast.recommend inputs', recDiff.join(', '));
+    ok(aRec.args[2][HELD_FLAG] === true && !(HELD_FLAG in pRec.args[2]),
+      'only the packet asks for the held-row list; the page never does');
+    const withoutHeld = advice => {
+      const copy = JSON.parse(JSON.stringify(advice));
+      if (copy.currentPeriodAction) delete copy.currentPeriodAction.heldTransactions;
+      // recommend echoes its options; drop only the flag's own echo.
+      for (const k of ['planOptions', 'simOptions']) if (copy[k]) delete copy[k][HELD_FLAG];
+      return copy;
+    };
+    const outDiff = diffKeys(withoutHeld(pRec.r), withoutHeld(aRec.r));
+    ok(outDiff.length === 0, 'the packet\'s recommend output equals the page\'s apart from the held-row list',
+      outDiff.join(', '));
+    ok(!(pRec.r.currentPeriodAction && 'heldTransactions' in pRec.r.currentPeriodAction),
+      'the page\'s advice carries no held-row list');
     ok(!('revolvingExtra' in aRec.args[2]) && 'extraFacilities' in aRec.args[2],
       'overdraft facilities reach recommend under the key the engine reads (extraFacilities)');
     const pBud = page.calls.budgetBreakdown && page.calls.budgetBreakdown[0];
