@@ -28,7 +28,7 @@ const DUE = '2026-11-10';
 function plan() {
   return {
     defaults: { targetBuffer: 500 }, windowDays: 91,
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf: AS_OF, representedEvents: [{ id: 'fut', date: DUE }] },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
     income: [{ id: 'payroll', label: 'Payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: 4000, confidence: 'confirmed' }],

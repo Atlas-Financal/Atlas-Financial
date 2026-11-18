@@ -356,7 +356,7 @@ console.log('\n=== paydayAllocation opening is chequing-only; savings is not spe
     'raising designated savings does not change additionalCashRequired (no silent rescue)');
 }
 
-console.log('\n=== synthetic fixtures without household chequing ids still open ===');
+console.log('\n=== an explicit breakdown needs both household chequing ids ===');
 {
   const tiny = {
     windowDays: 7,
@@ -366,8 +366,8 @@ console.log('\n=== synthetic fixtures without household chequing ids still open 
     commitments: [{ id: 'due', date: AS_OF, amount: 40, label: 'due' }],
   };
   const sim = F.simulate(tiny, AS_OF, { weeklyVariable: 0, targetBuffer: 0 });
-  ok(near(sim.daily[0].balance, 60) && near(sim.additionalCashRequired, 0),
-    'a synthetic non-chequing breakdown still funds the walk; designated savings is not invented');
+  ok(sim.status === 'unavailable' && sim.daily[0].balance === null && sim.additionalCashRequired === null,
+    'a non-chequing row cannot supply the missing operating cash evidence');
 }
 
 console.log('\n=== amount-only fixtures are unchanged ===');

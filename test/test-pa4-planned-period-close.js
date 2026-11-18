@@ -17,7 +17,7 @@ function plan(bill = 120) {
     windowDays: 120, defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' },
     opening: { asOf: ASOF, paydaySnapshot: { periodStart: '2026-10-02', asOf: '2026-10-02', opening: 500 },
       representedEvents: [{ id: 'payroll', date: '2026-10-02' }] },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 500 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 500 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-10-02', amount: 1000, confidence: 'confirmed' }],
     bills: [{ id: 'b1', label: 'Synthetic bill', frequency: 'monthly', day: 20, amount: bill, confidence: 'confirmed' }],
     obligations: [], commitments: [], budget: { categories: [] },
@@ -482,7 +482,7 @@ test('null carry, cutover-walk fallback: no stale provenance; the fallback discl
 test('income already inside the opening does not taint the close or its carry', () => {
   for (const confidence of ['estimated', 'unknown']) {
     const p = { ...plan(), opening: { asOf: '2026-10-02', representedEvents: [{ id: 'payroll', date: '2026-10-02' },
-      { id: 'gift', date: '2026-10-02' }] }, startingCash: { breakdown: [{ id: 'chequing-a', value: 1600 }] } };
+      { id: 'gift', date: '2026-10-02' }] }, startingCash: { breakdown: [{ id: 'chequing-a', value: 1600 }, { id: 'chequing-b', value: 0 }] } };
     p.income.push({ id: 'gift', frequency: 'once', date: '2026-10-02', amount: 100, confidence });
     const [active, next, after] = periods(F.recommend(p, '2026-10-02', { weeklyVariable: 0, debts: [] }));
     assert.equal(c(active.plannedPeriodClose), 160000, `${confidence}: opening 1600, nothing added`);
@@ -497,7 +497,7 @@ test('income already inside the opening does not taint the close or its carry', 
 test('pooled startingCash opening: an estimated or unknown row qualifies the close and its carry', () => {
   const run1 = tags => {
     const p = { ...plan(), opening: { asOf: '2026-10-02', representedEvents: [{ id: 'payroll', date: '2026-10-02' }] },
-      startingCash: { breakdown: [{ id: 'chequing-a', value: 1500, ...tags }] } };
+      startingCash: { breakdown: [{ id: 'chequing-a', value: 1500, ...tags }, { id: 'chequing-b', value: 0 }] } };
     return periods(F.recommend(p, '2026-10-02', { weeklyVariable: 0, debts: [] }));
   };
   const [a0, n0] = run1({});
@@ -618,7 +618,7 @@ test('future carry: an estimated receipt reaches the next close through a negati
 test('future carry: an estimated budget reserve in one period reaches the next close only through the carry', () => {
   const run1 = targetHistory => {
     const p = { ...plan(), opening: { asOf: '2026-10-02', representedEvents: [{ id: 'payroll', date: '2026-10-02' }] },
-      startingCash: { breakdown: [{ id: 'chequing-a', value: 500 }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', value: 500 }, { id: 'chequing-b', value: 0 }] },
       bills: [{ id: 'b1', label: 'Synthetic bill', frequency: 'monthly', day: 20, amount: 3000, confidence: 'confirmed' }],
       budget: { categories: [{ id: 'other-spend', label: 'Other', targetHistory }] } };
     return periods(F.recommend(p, '2026-10-02', { weeklyVariable: 0, debts: [] }));

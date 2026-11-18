@@ -75,7 +75,7 @@ function policyPlan(asOf, extras) {
     defaults: { targetBuffer: 500 },
     startingCash: {
       amount: OPENING,
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: OPENING, class: 'spendable' }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: OPENING, class: 'spendable' }, { id: 'chequing-b', value: 0 }],
     },
     opening: {
       asOf,

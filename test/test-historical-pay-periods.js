@@ -77,7 +77,7 @@ function historyPlan() {
     startingCash: {
       breakdown: [{
         id: 'chequing-a', label: 'BILLS ACCOUNT', value: LIVE_CASH, class: 'spendable',
-      }],
+      }, { id: 'chequing-b', value: 0 }],
     },
     opening: {
       asOf: AS_OF,
@@ -961,7 +961,7 @@ console.log('\n=== 11. #723 gap (5): a sealed lookback withholds an unknown sche
   {
     const reconPlan = (refundDate) => ({
       defaults: { targetBuffer: 500 },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2300, class: 'spendable' }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2300, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
       opening: { asOf: AS_OF, paydaySnapshot: { periodStart: '2026-09-11', asOf: '2026-09-11', opening: 1000 },
         representedEvents: [] },
       income: [

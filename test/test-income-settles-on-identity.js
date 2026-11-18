@@ -49,7 +49,7 @@ const DATE = '2026-09-03';
 const PAYROLL = 1000, REBATE = 200;
 const plan = (withRebate = true, rebate = REBATE) => ({
   defaults: { targetBuffer: 0 },
-  startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+  startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
   opening: { asOf: AS_OF, representedEvents: [] },
   income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: PAYROLL, confidence: 'confirmed' }]
     .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: DATE, amount: rebate,
@@ -164,7 +164,7 @@ console.log('\n=== 8. the forward walk excludes a held expectation exactly as th
   const walkWorld = (asOf, date, amount, payroll, withRebate, txs) => {
     const p = {
       defaults: { targetBuffer: 0 },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
       opening: { asOf, representedEvents: [] },
       income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: payroll, confidence: 'confirmed' }]
         .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date, amount,
@@ -233,7 +233,7 @@ console.log('\n=== 10. the walk hold follows every input, with no stale state ==
   const asOf = '2026-09-02';
   const mk = withRebate => ({
     defaults: { targetBuffer: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf, representedEvents: [] },
     income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: PAYROLL, confidence: 'confirmed' }]
       .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: asOf, amount: 200,
@@ -263,7 +263,7 @@ console.log('\n=== 10. the walk hold follows every input, with no stale state ==
   const asOf = '2026-11-10';
   const mk = withRebate => ({
     defaults: { targetBuffer: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 1250, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 1250, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf, representedEvents: [] },
     income: withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: '2026-11-17', amount: 340,
       incomeClass: 'other', confidence: 'confirmed' }] : [],
@@ -306,7 +306,7 @@ console.log('\n=== 11. invariant: whenever the calendar holds, the walk equals t
   for (const [label, payroll, date, amount, txs] of shapes) {
     const mk = withRebate => ({
       defaults: { targetBuffer: 0 },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
       opening: { asOf, representedEvents: [] },
       income: (payroll ? [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: payroll, confidence: 'confirmed' }] : [])
         .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date, amount,
@@ -360,7 +360,7 @@ console.log('\n=== 13. an old receipt in the packet never hides a current hold f
   const asOf = '2026-09-02';
   const mk = withRebate => ({
     defaults: { targetBuffer: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf, representedEvents: [] },
     income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: PAYROLL, confidence: 'confirmed' }]
       .concat(withRebate ? [{ id: 'rebate', label: 'Invented rebate', frequency: 'once', date: '2026-09-05', amount: 200,

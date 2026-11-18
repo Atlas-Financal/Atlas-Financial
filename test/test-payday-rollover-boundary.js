@@ -104,7 +104,7 @@ function rolloverPlan(openingAsOf, cash, extraOpening) {
     startingCash: {
       breakdown: [{
         id: 'chequing-a', label: 'BILLS ACCOUNT', value: cash, class: 'spendable',
-      }],
+      }, { id: 'chequing-b', value: 0 }],
     },
     opening: Object.assign({
       asOf: openingAsOf,

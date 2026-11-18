@@ -47,7 +47,7 @@ function slice6Plan(cash, buffer) {
   return {
     defaults: { targetBuffer: buffer, extraDebtMonthly: 0 },
     opening: { asOf: '2026-01-02' },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: cash }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: cash }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Seaspan', frequency: 'biweekly',
       anchor: '2026-01-02', amount: 3000, confidence: 'confirmed' }],
     obligations: [], bills: [], budget: { categories: [] }, commitments: [],

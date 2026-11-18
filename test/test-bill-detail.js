@@ -15,7 +15,7 @@ function fixture() {
     plan: {
       windowDays: 28, opening: { asOf, representedEvents: [{ id: 'bill', date: '2026-08-19' }] },
       defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Synthetic bills account', value: 1000 }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Synthetic bills account', value: 1000 }, { id: 'chequing-b', value: 0 }] },
       income: [{ id: 'payroll', label: 'Synthetic pay', frequency: 'biweekly',
         anchor: '2026-08-14', amount: 1000, confidence: 'confirmed' }],
       obligations: [], commitments: [], budget: { categories: [] },

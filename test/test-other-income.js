@@ -103,6 +103,7 @@ function paydayPlan(extraIncome) {
       amount: OPENING_CASH,
       breakdown: [
         { id: 'chequing-a', label: 'BILLS ACCOUNT', value: OPENING_CASH },
+        { id: 'chequing-b', value: 0 },
       ],
       heldElsewhere: [
         { id: 'amanda-debt-payments', label: 'TENNIS INCOME', value: 4000 },

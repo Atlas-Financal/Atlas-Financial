@@ -24,7 +24,7 @@ function basePlan(pay) {
   return {
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     opening: { asOf: '2026-01-16' }, // a Seaspan payday (anchor 2026-01-02 + 14d)
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Seaspan', frequency: 'biweekly',
       anchor: '2026-01-02', amount: pay, confidence: 'confirmed' }],
     obligations: [], bills: [], budget: { categories: [] },
@@ -244,7 +244,7 @@ function namedFor(live, id) {
 {
   const plan = basePlan(100);
   plan.defaults.targetBuffer = 30;
-  plan.startingCash = { breakdown: [{ id: 'chequing-a', value: 200 }] };
+  plan.startingCash = { breakdown: [{ id: 'chequing-a', value: 200 }, { id: 'chequing-b', value: 0 }] };
   plan.budget.categories = [{ id: 'propertytax', label: 'Property tax', class: 'reserve',
     plannedAmount: 150, planningDate: '2026-01-31', confidence: 'confirmed' }];
   const { sched, live, fcTotal, pathAmt } = runFixture(plan);

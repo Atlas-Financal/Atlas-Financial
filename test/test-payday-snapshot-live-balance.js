@@ -97,7 +97,7 @@ const debts = [
 function hubCash(amount) {
   return {
     amount,
-    breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: amount }],
+    breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: amount }, { id: 'chequing-b', value: 0 }],
   };
 }
 

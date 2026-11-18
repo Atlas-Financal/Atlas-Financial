@@ -57,7 +57,7 @@ function syntheticPlan() {
   return {
     defaults: { targetBuffer: 0 },
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'Chequing A', value: 8000 }],
+      breakdown: [{ id: 'chequing-a', label: 'Chequing A', value: 8000 }, { id: 'chequing-b', value: 0 }],
       heldElsewhere: [{ id: 'amanda-debt-payments', value: 100 }],
     },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },

@@ -76,7 +76,7 @@ const SIM_AS_OF = '2026-12-31';
 const simWorld = regime => {
   const p = {
     defaults: { targetBuffer: 200, extraDebtMonthly: 0, scenario: 'expected' }, windowDays: 91,
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 3000, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 3000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf: SIM_AS_OF },
     budget: { categories: [{ id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedWeekly: 100 }] },
     obligations: [],

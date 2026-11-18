@@ -71,7 +71,7 @@ function fixture(billExtra) {
     windowDays: 28,
     defaults: { targetBuffer: 0 },
     startingCash: {
-      breakdown: [{ id: JOINT, value: OPENING }],
+      breakdown: [{ id: JOINT, value: OPENING }, { id: 'chequing-b', value: 0 }],
       heldElsewhere: [{ id: AMANDA, value: 798.37 }],
     },
     income: [],

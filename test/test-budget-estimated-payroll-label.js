@@ -89,7 +89,7 @@ function timelinePlan(asOf) {
     startingCash: {
       breakdown: [{
         id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable',
-      }],
+      }, { id: 'chequing-b', value: 0 }],
     },
     opening: { asOf },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },

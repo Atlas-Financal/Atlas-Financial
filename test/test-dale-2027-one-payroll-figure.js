@@ -33,6 +33,7 @@ function world(asOf, extra) {
     windowDays: 91,
     startingCash: { breakdown: [
       { id: 'chequing-a', label: 'BILLS ACCOUNT', value: 3000, class: 'spendable' },
+      { id: 'chequing-b', value: 0 },
     ] },
     opening: Object.assign({ asOf }, extra.opening || {}),
     budget: { categories: [

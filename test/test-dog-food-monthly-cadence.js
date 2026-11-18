@@ -118,7 +118,7 @@ function syntheticPlan(payrollAnchor, cadence, cadenceAnchor) {
   return {
     defaults: { targetBuffer: 500, windowDays: 91 },
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }, { id: 'chequing-b', value: 0 }],
     },
     opening: { asOf: payrollAnchor },
     income: [
