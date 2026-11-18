@@ -6508,18 +6508,42 @@ function applyRecurringObligationSchedule(row, schedule) {
 // (cadence, carry-forward) are Forecast's, not this reader's.
 const BUDGET_GRANULARITIES = new Set(['day', 'week', 'month', 'year', 'twice a month']);
 const BUDGET_UNAVAILABLE_REASONS = new Set(['budget-read-failed', 'budget-settings-invalid', 'budget-summary-invalid']);
-const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-id-missing', 'group-id-not-group']);
+const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-id-missing', 'group-id-not-group', 'group-id-invalid',
+  'group-id-duplicate', 'row-id-duplicate', 'categories-read-failed']);
 // An Atlas row id: lower-case words and hyphens, never all digits (the shape
 // of a Lunch Money id).
 const BUDGET_ROW_ID = /^(?=[a-z0-9-]*[a-z])[a-z0-9][a-z0-9-]{0,63}$/;
-// Atlas row id -> the Lunch Money group id it reads, from the plan. Only a
-// positive integer names a group; anything else names nothing.
+// Atlas row id -> the Lunch Money group id it reads, or the reason it reads
+// none, from the plan (lead rulings 2026-11-18). A row that names a group
+// (an id or a label) but whose id is not a positive integer is
+// group-id-invalid; an Atlas row id used twice is row-id-duplicate; a group
+// id two rows share is group-id-duplicate on every sharing row. Each fails
+// closed for its own row(s) only. A row naming no group is left out.
 function budgetRowGroupIds(plan) {
-  const out = new Map();
+  const named = [];
+  const seenRow = new Map();
   for (const row of (plan && plan.budget && Array.isArray(plan.budget.categories)) ? plan.budget.categories : []) {
     if (!row || typeof row.id !== 'string' || !BUDGET_ROW_ID.test(row.id)) continue;
+    seenRow.set(row.id, (seenRow.get(row.id) || 0) + 1);
     const id = row.lunchMoneyCategoryGroupId;
-    if (Number.isSafeInteger(id) && id > 0) out.set(row.id, String(id));
+    const names = id !== undefined || row.lunchMoneyCategoryGroupLabel !== undefined;
+    if (!names) continue;
+    named.push({ rowId: row.id, groupId: Number.isSafeInteger(id) && id > 0 ? String(id) : null });
+  }
+  const groupUses = new Map();
+  for (const n of named) if (n.groupId) groupUses.set(n.groupId, (groupUses.get(n.groupId) || 0) + 1);
+  const out = new Map();
+  for (const n of named) {
+    if (seenRow.get(n.rowId) > 1) out.set(n.rowId, { reason: 'row-id-duplicate' });
+    else if (!n.groupId) out.set(n.rowId, { reason: 'group-id-invalid' });
+    else if (groupUses.get(n.groupId) > 1) out.set(n.rowId, { reason: 'group-id-duplicate' });
+    else out.set(n.rowId, { groupId: n.groupId });
+  }
+  // A labelled row without an id is only waiting for its id; it names nothing
+  // yet and is not published (the shipped plan carries labels before ids).
+  for (const row of (plan && plan.budget && Array.isArray(plan.budget.categories)) ? plan.budget.categories : []) {
+    if (row && typeof row.id === 'string' && out.has(row.id) && row.lunchMoneyCategoryGroupId === undefined
+      && seenRow.get(row.id) === 1) out.delete(row.id);
   }
   return out;
 }
@@ -6568,17 +6592,25 @@ function sanitizedBudgetEvidence(raw, rawCategories, plan) {
   const note = (cat, kind) => { if (!kinds.has(String(cat.id)) || kind === 'group') kinds.set(String(cat.id), kind); };
   for (const cat of Array.isArray(rawCategories) ? rawCategories : []) {
     if (!cat || cat.id == null) continue;
+    // An archived category is not part of its group's budget (lead ruling).
     if (cat.is_group === true && Array.isArray(cat.children)) {
       for (const child of cat.children) {
-        if (child && child.id != null) { addChild(cat.id, child.id); note(child, archived(child) ? 'archived' : 'category'); }
+        if (child && child.id != null) {
+          if (!archived(child)) addChild(cat.id, child.id);
+          note(child, archived(child) ? 'archived' : 'category');
+        }
       }
     }
-    if (cat.group_id != null) addChild(cat.group_id, cat.id);
+    if (cat.group_id != null && !archived(cat)) addChild(cat.group_id, cat.id);
     note(cat, archived(cat) ? 'archived' : cat.is_group === true ? 'group' : 'category');
   }
   const ordered = [...periods.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
   const byRow = {};
-  for (const [rowId, groupId] of [...budgetRowGroupIds(plan)].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  const categoriesRead = Array.isArray(rawCategories);
+  for (const [rowId, named] of [...budgetRowGroupIds(plan)].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (named.reason) { byRow[rowId] = { status: 'unavailable', reason: named.reason }; continue; }
+    if (!categoriesRead) { byRow[rowId] = { status: 'unavailable', reason: 'categories-read-failed' }; continue; }
+    const groupId = named.groupId;
     const kind = kinds.get(groupId);
     if (kind === 'category') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-not-group' }; continue; }
     if (kind !== 'group') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-missing' }; continue; }

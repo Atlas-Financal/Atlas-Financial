@@ -6592,6 +6592,7 @@
             id: c.id,
             label: c.label,
             monthly,
+            dated: c.dated,
             source: c.source || null,
           });
         }
@@ -12510,10 +12511,106 @@
     return 'future';
   }
 
+  // Lunch Money budgets as plan targets (owner decision #821, 2026-11-18:
+  // budget amounts come from Lunch Money; lead rulings C2-C5). The observer
+  // publishes, per Atlas row, one `budgeted` per Lunch Money budget period
+  // (liveOverlay.currentPeriodActuals.lunchMoneyBudgets.byRow). Forecast turns
+  // those periods into dated targets, and every existing reader picks them up
+  // through ownerTargetCategoryAt; Forecast still calculates every published
+  // figure. The provider number is a plan input, never published as is.
+  //   - C3: a date uses the Lunch Money period that contains it (the same
+  //     rule as a dated restatement: applied from its date, not prorated).
+  //   - C2: a payday row holds monthly * 14 / CALENDAR_MONTH_DAYS (the exact
+  //     inverse of ownerTargetMonthly), so its monthly equivalent is the Lunch
+  //     Money budget; a first-seaspan-of-month or every-other-seaspan row
+  //     holds the full monthly budget on its ON payday; any other row's target
+  //     is the monthly budget (C5: also a row with no plan target today).
+  //   - Q2/C4: a period with no budget set carries the last set budget
+  //     forward, tagged estimated with a reason; so do dates after the last
+  //     period read. Before the first set budget, and for a row Lunch Money
+  //     does not resolve, the plan's own target stays in use, tagged as now.
+  //   - Only monthly Lunch Money periods convert; any other period setting
+  //     leaves every row on its plan target.
+  const LUNCH_MONEY_BUDGET_CARRIED = 'lunch-money-budget-carried-forward';
+  function lunchMoneyTargetFields(cat, budgeted) {
+    const amount = roundCent(Number(budgeted));
+    if (cat && cat.plannedPayday != null) {
+      return { plannedWeekly: null, plannedMonthly: null,
+        plannedPayday: isFirstSeaspanOfMonthCadence(cat) || isEveryOtherSeaspanCadence(cat)
+          ? amount : roundCent(amount * 14 / CALENDAR_MONTH_DAYS) };
+    }
+    return { plannedWeekly: null, plannedPayday: null, plannedMonthly: amount };
+  }
+  function lunchMoneyTargetSeries(cat, entry) {
+    if (!entry || entry.status !== 'read' || !Array.isArray(entry.periods)) return null;
+    const periods = entry.periods
+      .filter(p => p && financialDate(p.start) && financialDate(p.end) && p.end >= p.start)
+      .slice().sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    const series = [];
+    let lastSet = null;
+    for (const p of periods) {
+      const set = typeof p.budgeted === 'number' && Number.isFinite(p.budgeted) && p.budgeted >= 0;
+      if (set) lastSet = p.budgeted;
+      if (lastSet == null) continue;
+      series.push(Object.assign({ from: p.start, through: p.end, carried: !set },
+        lunchMoneyTargetFields(cat, lastSet)));
+    }
+    if (!series.length) return null;
+    const last = series[series.length - 1];
+    series.push(Object.assign({ from: addDays(last.through, 1), through: null, carried: true },
+      lunchMoneyTargetFields(cat, lastSet)));
+    return series;
+  }
+  function lunchMoneyTargetAt(cat, date) {
+    const day = financialDate(date);
+    if (!cat || !day || !Array.isArray(cat.lunchMoneyTargets)) return null;
+    return cat.lunchMoneyTargets.find(t => day >= t.from && (t.through == null || day <= t.through)) || null;
+  }
+  // The plan with each resolved row's Lunch Money targets attached. The row's
+  // top-level target fields read the period containing asOf, so an undated
+  // reader sees today's budget; dated readers go through
+  // ownerTargetCategoryAt. Returns the plan unchanged when there is nothing to
+  // apply. Never mutates its input.
+  function withLunchMoneyBudgets(plan, block, asOf) {
+    if (!plan || !plan.budget || !Array.isArray(plan.budget.categories)) return plan;
+    if (!block || block.status !== 'read' || block.granularity !== 'month' || block.quantity !== 1
+      || !block.byRow || typeof block.byRow !== 'object') return plan;
+    let changed = false;
+    const categories = plan.budget.categories.map(cat => {
+      if (!cat || typeof cat.id !== 'string' || !Object.hasOwn(block.byRow, cat.id)) return cat;
+      if (planCategoryTargetInvalid(cat)) return cat;
+      const series = lunchMoneyTargetSeries(cat, block.byRow[cat.id]);
+      if (!series) return cat;
+      changed = true;
+      const planTarget = Object.assign({}, cat);
+      const out = Object.assign({}, cat, { lunchMoneyTargets: series, lunchMoneyPlanTarget: planTarget });
+      const today = lunchMoneyTargetAt(out, asOf);
+      if (today) Object.assign(out, { plannedWeekly: today.plannedWeekly, plannedPayday: today.plannedPayday,
+        plannedMonthly: today.plannedMonthly });
+      return out;
+    });
+    if (!changed) return plan;
+    return Object.assign({}, plan, { budget: Object.assign({}, plan.budget, { categories }) });
+  }
+  // True when the target in effect for cat on date is a Lunch Money budget
+  // carried forward from an earlier period (estimated, with a reason).
+  function lunchMoneyTargetCarried(cat, date) {
+    const hit = lunchMoneyTargetAt(cat, date);
+    return !!(hit && hit.carried);
+  }
+
   // A dated restatement is not retroactive. Keep the retired policy bounded
   // and select it before reading any cadence/monthly/payday target. Without
   // a valid date the new target cannot be asserted.
+  // A Lunch Money target for the date wins (above); before the first set
+  // budget the row's own plan target and its dated history apply as before.
   function ownerTargetCategoryAt(cat, date) {
+    if (cat && Array.isArray(cat.lunchMoneyTargets)) {
+      const hit = lunchMoneyTargetAt(cat, date);
+      if (hit) return Object.assign({}, cat, { plannedWeekly: hit.plannedWeekly,
+        plannedPayday: hit.plannedPayday, plannedMonthly: hit.plannedMonthly });
+      return ownerTargetCategoryAt(cat.lunchMoneyPlanTarget, date);
+    }
     if (!cat || !cat.targetEffectiveFrom) return cat;
     if (!financialDate(cat.targetEffectiveFrom)) return Object.assign({}, cat,
       { plannedWeekly: null, plannedPayday: null, plannedMonthly: null });
@@ -12633,7 +12730,15 @@
   // (a declared plannedPayday), else remaining-days smear of the monthly equivalent.
   // plannedWeekly / plannedMonthly-only keep the smear so incomplete-coverage
   // remaining-days and monthly-only fixtures are not rewritten.
-  function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale) {
+  function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale, dated) {
+    // A monthly Lunch Money target uses the budget whose period contains the
+    // cycle start (C3), the same target the Budget period prints; the
+    // caller's monthly is read at as-of and can be the next month's budget.
+    // It is netted of the category's dated items exactly as budgetBreakdown
+    // nets an owner target (max(0, target - dated); an owner target reserves
+    // no current-regime cash), so a dated bill held as an obligation is never
+    // held again here.
+    const lunchMoneyTarget = lunchMoneyTargetAt(cat, cycleStart);
     cat = ownerTargetCategoryAt(cat, cycleStart);
     const cadencePlanned = essentialCadencePeriodPlanned(plan, cat, cycleStart);
     if (cadencePlanned != null) return cadencePlanned;
@@ -12641,10 +12746,16 @@
       const cyclePlanned = paydayCyclePlanned(cat, cycleStart, plan);
       if (cyclePlanned != null) return roundCent(cyclePlanned);
     }
-    return roundCent((Number(monthly) || 0) * periodScale);
+    const base = lunchMoneyTarget && lunchMoneyTarget.plannedMonthly != null
+      ? Math.max(0, Number(lunchMoneyTarget.plannedMonthly) - (Number(dated) || 0)) : monthly;
+    return roundCent((Number(base) || 0) * periodScale);
   }
 
   function essentialPeriodUsesCyclePlanned(plan, cat, cycleStart) {
+    // A monthly Lunch Money target is cycle-planned: its amount is the budget
+    // whose period contains the cycle start, not the as-of month's.
+    const lunchMoneyTarget = lunchMoneyTargetAt(cat, cycleStart);
+    if (lunchMoneyTarget && lunchMoneyTarget.plannedMonthly != null) return true;
     cat = ownerTargetCategoryAt(cat, cycleStart);
     if (essentialCadencePeriodPlanned(plan, cat, cycleStart) != null) return true;
     if (!(cat && cat.plannedPayday != null)) return false;
@@ -13112,6 +13223,7 @@
       if (cat && cat.id) byId.set(cat.id, cat);
     }
     const items = [];
+    let carriedBudgetRows = false;
     // A declared target that is not a real amount (text, blank, negative) has
     // no quantity. Its category row is printed with every amount unknown and
     // the household hold is stamped unavailable below; it never reads as a
@@ -13141,6 +13253,10 @@
       if (!cat) continue;
       const planned = paydayCyclePlanned(cat, windowStart, plan);
       if (planned == null) continue;
+      // A Lunch Money budget carried forward from an earlier period is an
+      // estimate, and says why (Q2).
+      const budgetCarried = lunchMoneyTargetCarried(byId.get(id), windowStart);
+      if (budgetCarried) carriedBudgetRows = true;
       const weekly = cat.plannedWeekly != null ? roundCent(Number(cat.plannedWeekly)) : null;
       const recon = reconById.get(id) || [];
       // C1: a withheld category's spent is Unknown; its listed rows are a
@@ -13179,7 +13295,13 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
-        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
+        // A carried budget keeps its plan estimated even when Spent is a
+        // possible duplicate too: both amounts stay marked (spentTrust), and
+        // the plan is never upgraded to calculated.
+        ...(budgetCarried && spent != null && possibleDuplicateCategories.has(id)
+          ? { trust: 'estimated', plannedTrust: 'estimated', spentTrust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED }
+          : budgetCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED }
+          : spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });
@@ -13287,6 +13409,7 @@
     // Unknown, while the target itself (its amount, stamp and category rows) stays visible as
     // a target. With no packet at all the plan-only view is unchanged.
     if (coverageLost) holdTrust = 'estimated';
+    if (carriedBudgetRows) holdTrust = 'estimated';
     // C1: a withheld category's hold is a lower-bound target, so every figure
     // built on the total hold (the household term, Balance After Deductions,
     // From-today, the forward walk) takes the coverage-lost path exactly as
@@ -18154,7 +18277,8 @@
       const periodScale = needDays / CALENDAR_MONTH_DAYS;
       const usesCyclePlanned = essentialPeriodUsesCyclePlanned(plan, cat, cycleStart);
       const planned = essentialPeriodPlanned(
-        plan, cat, monthly, cycleStart, periodScale);
+        plan, cat, monthly, cycleStart, periodScale, row.dated);
+      const budgetCarried = lunchMoneyTargetCarried(cat, cycleStart);
       const act = categoryCommittedActual(actuals.byId.get(row.id), coverage.remainingClaim);
       const remaining = useActuals ? roundCent(planned - act.committed) : null;
       if (!(planned > EPSILON) && !(act.posted > EPSILON) && !(act.pending > EPSILON)
@@ -18163,6 +18287,7 @@
         id: row.id,
         label: row.label,
         class: row.class || null,
+        ...(budgetCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
         planned: usesCyclePlanned || useActuals || planned > EPSILON
           ? planned
           : roundCent(monthly * needDays / CALENDAR_MONTH_DAYS),
@@ -18872,14 +18997,14 @@
     const periodPlannedForEssential = row => {
       const cat = budgetCatById.get(row && row.id);
       return essentialPeriodPlanned(
-        plan, cat, row && row.monthly, cycleStart, periodScale);
+        plan, cat, row && row.monthly, cycleStart, periodScale, row && row.dated);
     };
     let essentialsWantedFull = essentialMonthly * periodScale;
     for (const row of essentialNeed.items) {
       const cat = budgetCatById.get(row && row.id);
       if (!essentialPeriodUsesCyclePlanned(plan, cat, cycleStart)) continue;
       const cyclePlanned = essentialPeriodPlanned(
-        plan, cat, row && row.monthly, cycleStart, periodScale);
+        plan, cat, row && row.monthly, cycleStart, periodScale, row && row.dated);
       essentialsWantedFull += cyclePlanned - ((Number(row.monthly) || 0) * periodScale);
     }
     essentialsWantedFull = roundCent(essentialsWantedFull);
@@ -18970,6 +19095,7 @@
       : roundCent(requiredDebtItems.reduce((sum, item) => sum + Number(item.allocated || 0), 0));
 
     const essentialItems = [];
+    let essentialsCarried = false;
     let requiredSum = 0;
     for (const row of essentialNeed.items) {
       const planned = periodPlannedForEssential(row);
@@ -18981,10 +19107,15 @@
       const required = useActuals ? Math.max(0, remainingNeed) : planned;
       if (!(planned > EPSILON) && !(row.monthly > EPSILON) && !(act.committed > EPSILON)) continue;
       requiredSum = roundCent(requiredSum + required);
+      // Q2: a carried-forward Lunch Money budget is an estimate wherever it
+      // reaches; the item says so, and so do the totals built from it below.
+      const itemCarried = lunchMoneyTargetCarried(budgetCatById.get(row.id), cycleStart);
+      if (itemCarried) essentialsCarried = true;
       essentialItems.push({
         id: row.id,
         label: row.label,
         monthly: roundCent(row.monthly),
+        ...(itemCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
         required,
         planned,
         posted: useActuals ? act.posted : null,
@@ -19404,6 +19535,16 @@
       identity: roundCent(allocatedTotal + unallocated),
       actualsCoverage: coverage,
     };
+    // Q2: a carried Lunch Money budget in the essential hold makes the
+    // household figure and everything left after it (extra debt, optional,
+    // the remainder) estimates. Only weakens: an unknown stays unknown.
+    if (essentialsCarried) {
+      result.essentials.trust = 'estimated';
+      result.essentials.estimateReason = LUNCH_MONEY_BUDGET_CARRIED;
+      for (const key of ['household', 'extraDebt', 'optional', 'remainder']) {
+        if (result.paydayShellTrust[key] === 'calculated') result.paydayShellTrust[key] = 'estimated';
+      }
+    }
     // N3: with a packet whose coverage is not proven, today's household hold falls back to the
     // plan. That is a target, never a measured spend: the shell must not print it as calculated.
     if (!useActuals && currentPeriodActualsPacket(opts)) {
@@ -22483,8 +22624,12 @@
       const sinkingHereItems = sinking.items.filter(s => s.category === c.id);
       const sinkingHere = sinkingHereItems.some(s => s.amount == null) ? null
         : sinkingHereItems.reduce((a, s) => a + s.amount, 0);
+      // A Lunch Money budget carried forward from an earlier month is an
+      // estimate (Q2); the monthly target says so, with its reason.
+      const targetCarried = target != null && lunchMoneyTargetCarried(c, targetAsOf);
       return Object.assign({}, c, {
         historical, dated: datedTotal, datedItems: dated.items, target,
+        ...(targetCarried ? { targetTrust: 'estimated', targetEstimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
         current,
         // gross is the pre-dated monthly amount — owner target if one exists,
         // else current-regime (undated current + dated), else the historical
@@ -28833,7 +28978,7 @@
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
-    budgetBreakdown, monthlyFromWeekly,
+    budgetBreakdown, monthlyFromWeekly, withLunchMoneyBudgets, lunchMoneyTargetCarried,
     projectDebts, baselineTrajectory, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,

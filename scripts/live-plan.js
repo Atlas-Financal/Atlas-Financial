@@ -1487,6 +1487,12 @@ function overlayLiveState(input) {
   markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   clearObservedBillsEstimate(next, report, liveAsOf);
   assertOwnerPolicyUntouched(data, next, scheduledBills, scheduledObligations);
+  // Budget targets from Lunch Money budgets (owner decision #821, 2026-11-18).
+  // Forecast derives the dated targets; a row Lunch Money does not resolve
+  // keeps its plan target. Applied after the owner-policy guard, which checks
+  // the overlay against the canonical plan, not this derived input.
+  next.plan = Forecast.withLunchMoneyBudgets(next.plan,
+    report.currentPeriodActuals && report.currentPeriodActuals.lunchMoneyBudgets, cutover.liveAsOf || liveAsOf);
   const cash = Forecast.startingCashAmount(next.plan);
   if (!isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');
   const allRefused = refused.concat(postingRefused).sort((a, b) =>
