@@ -1,11 +1,20 @@
 'use strict';
-/* Future-window demotion (#821 Next up; state-machine map, problem 9).
+/* Future-window demotion (#821 Next up; state-machine map, problem 9),
+ * narrowed by the owner's planned-period rule (Dale, #821 6961042821).
  *
- * A bill occurrence dated after asOf in a role-future window is disclosed as
- * not yet paid (status planned, settlement upcoming, remaining = full
- * amount). It must not also keep the observed actual, the excess disclosure
- * or the observed movement. Synthetic data only. Expected values are literal
- * hand arithmetic, not Forecast helper output.
+ * Part A, receipt only: a bill occurrence dated after asOf in a role-future
+ * window whose receipt the cash walk does NOT settle (no opening
+ * representedEvents entry) is disclosed as not yet paid (status planned,
+ * settlement upcoming, remaining = full amount). It must not also keep the
+ * observed actual, the excess disclosure or the observed movement.
+ *
+ * Part B, walk-settled: when the opening also represents the occurrence, the
+ * cash walk has already settled it, so it counts in the pay period it is
+ * planned in: PAID there, nothing remaining, the observed actual kept, and
+ * not deducted again by that period's cash close.
+ *
+ * Synthetic data only. Expected values are literal hand arithmetic, not
+ * Forecast helper output.
  *
  * Fixture: biweekly payroll 4000 anchored 2026-08-14, as-of 2026-10-09,
  * a 42.00 once-bill on 2026-11-10 (window Nov 6-19, role future) and a second
@@ -25,11 +34,11 @@ const ok = (cond, label, detail = '') => {
 const AS_OF = '2026-10-09';
 const DUE = '2026-11-10';
 
-function plan() {
+function plan(walkSettled) {
   return {
     defaults: { targetBuffer: 500 }, windowDays: 91,
     startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable' }] },
-    opening: { asOf: AS_OF, representedEvents: [{ id: 'fut', date: DUE }] },
+    opening: { asOf: AS_OF, representedEvents: walkSettled ? [{ id: 'fut', date: DUE }] : [] },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
     income: [{ id: 'payroll', label: 'Payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: 4000, confidence: 'confirmed' }],
     bills: [
@@ -40,10 +49,10 @@ function plan() {
   };
 }
 
-function run(actual, extraRows) {
+function run(actual, extraRows, walkSettled) {
   const packet = { representedActuals: [{ id: 'fut', date: DUE, actual }].concat(extraRows || []) };
   const before = JSON.stringify(packet);
-  const advice = F.recommend(plan(), AS_OF, { targetBuffer: 500, debts: [], currentPeriodActuals: packet });
+  const advice = F.recommend(plan(walkSettled), AS_OF, { targetBuffer: 500, debts: [], currentPeriodActuals: packet });
   return { advice, packet, untouched: JSON.stringify(packet) === before };
 }
 function rowIn(views, id) {
@@ -60,7 +69,7 @@ const CASES = [
 ];
 
 for (const [label, actual] of CASES) {
-  console.log('\n=== ' + label + ' ===');
+  console.log('\n=== A. receipt only (walk does not settle): ' + label + ' ===');
   const { advice, untouched } = run(actual);
   // The published rows the Budget timeline reads (payPeriodViews). The
   // Nov 6-19 window is a further-future row, not in calendarPeriods.
@@ -101,6 +110,32 @@ console.log('\n=== non-future and unmatched rows are untouched ===');
   for (const p of advice.payPeriodViews || []) for (const r of p.bills || []) if (r && r.id === 'cur') other = r;
   ok(other && other.actual === 0 && other.excess === undefined && other.remaining === 42,
     'a future bill with no receipt is unchanged: actual 0, remaining 42, no excess');
+}
+
+console.log('\n=== B. walk-settled (opening represents it): Paid in its planned period ===');
+// [label, observed actual, expected paid disclosure, expected excess]
+for (const [label, actual, paid, excess] of [
+  ['underpayment (30.00 of 42.00)', 30, 30, undefined],
+  ['equal payment (42.00)', 42, 42, undefined],
+  ['overpayment (50.00 of 42.00, 8.00 over)', 50, 50, 8],
+]) {
+  const { advice, untouched } = run(actual, null, true);
+  const hit = rowIn(advice.payPeriodViews, 'fut');
+  if (!hit) { ok(false, label + ': row present'); continue; }
+  const { p, r } = hit;
+  ok(p.timelineRole === 'future', label + ': row is in a future window');
+  ok(r.status === 'PAID' && r.glanceKind === 'paid' && r.settlement === 'represented', label + ': PAID / represented');
+  ok(r.remaining === 0, label + ': nothing remaining');
+  ok(r.actual === actual && r.movement === -actual, label + ': observed actual and movement kept', `${r.actual} ${r.movement}`);
+  ok(r.excess === excess, label + ': excess only above plan', String(r.excess));
+  ok(r.planned === 42 && r.amount === 42, label + ': assigned load (planned / amount) unchanged');
+  ok(p.periodBillLoad === 84, label + ': window bill load is still the assigned 84.00', String(p.periodBillLoad));
+  ok(p.balanceAfterDeductions === 4000 - 84, label + ': BAD 4000 − 84 = 3916, the same as receipt-only', String(p.balanceAfterDeductions));
+  ok(p.paidBills === paid && p.remainingBills === 42, label + ': paid ' + paid + ', remaining only the other 42.00',
+    `${p.paidBills} / ${p.remainingBills}`);
+  ok(p.plannedPeriodCloseTerms && p.plannedPeriodCloseTerms.periodBillLoad === 42,
+    label + ': the cash close deducts only the other 42.00', String(p.plannedPeriodCloseTerms && p.plannedPeriodCloseTerms.periodBillLoad));
+  ok(untouched, label + ': source receipt (representedActuals) is not mutated');
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll future-window demotion checks passed');

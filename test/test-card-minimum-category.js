@@ -406,7 +406,9 @@ check('advancing refreshes retain current evidence without claiming future or du
 check('query and observer preserve canonical file', () => {
   assert.equal(fs.readFileSync(path.join(root, 'data.json'), 'utf8'), disk);
 });
-check('next pay-period remains Planned with separate early payment evidence', () => {
+// Dale, #821 6961042821: an occurrence paid early counts in the pay period it is planned in. The
+// opening already settled the next period's minimum, so it reads Paid there and is not held again.
+check('next pay-period minimum paid early reads Paid there and holds nothing again', () => {
   const x = fixture(), r = x.data.plan.obligations[0];
   r.day = 17; r.firstDue = '2035-10-17';
   r.statementOccurrences[0].scheduledDate = r.statementOccurrences[0].dueDate = '2035-10-17';
@@ -416,8 +418,8 @@ check('next pay-period remains Planned with separate early payment evidence', ()
     currentPeriodActuals: live.report.currentPeriodActuals });
   const future = advice.payPeriodViews.find(p => p.bills.some(b => b.id === 'triangle' && b.date === '2035-10-17'));
   assert.ok(future); const row = future.bills.find(b => b.id === 'triangle');
-  assert.deepEqual([future.timelineRole, row.status, row.settlement, future.paidBills, row.remaining],
-    ['next', 'planned', 'upcoming', 0, 43.19]);
+  assert.deepEqual([future.timelineRole, row.status, row.settlement, future.paidBills, row.remaining, future.remainingBills],
+    ['next', 'PAID', 'represented', 43.19, 0, 0]);
   assert.equal(row.cashPaid, 49.37); assert.equal(row.householdPaymentStatus, 'paid');
 });
 check('Forecast refuses malformed derived evidence at its publication boundary', () => {

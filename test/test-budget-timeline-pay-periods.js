@@ -392,14 +392,15 @@ console.log('\n=== 5b. a represented occurrence after asOf stays planned and sta
   ok(futureHits.length === 1 && futureHits[0].start === N2.start
       && futureHits[0].role === 'future',
     'the Nov 10 represented bill is on N+2 once');
-  ok(plannedFace(futureHits[0] && futureHits[0].row),
-    'a represented Nov 10 occurrence after asOf stays planned, not PAID',
+  // Dale, #821 6961042821: an occurrence the opening already settled counts
+  // in the pay period it is planned in, Paid there, with nothing left owed.
+  ok(futureHits[0] && futureHits[0].row.status === 'PAID' && futureHits[0].row.glanceKind === 'paid',
+    'a represented Nov 10 occurrence after asOf reads PAID in its planned period',
     futureHits[0] && futureHits[0].row.status);
-  ok(futureHits[0] && futureHits[0].row.settlement !== 'represented'
-      && futureHits[0].row.settlement === 'upcoming'
-      && near(futureHits[0].row.remaining, 42)
+  ok(futureHits[0] && futureHits[0].row.settlement === 'represented'
+      && near(futureHits[0].row.remaining, 0)
       && near(futureHits[0].row.amount, 42) && near(futureHits[0].row.planned, 42),
-    'that occurrence keeps its amount and is disclosed as not yet paid');
+    'that occurrence keeps its amount and owes nothing more there');
   ok(host && near(host.periodBillLoad, 42),
     'that occurrence stays in the bill load', String(host && host.periodBillLoad));
   ok(host && near(host.balanceAfterDeductions, roundCent(6000 - 42 - holdFor(PETS))),
@@ -410,8 +411,9 @@ console.log('\n=== 5b. a represented occurrence after asOf stays planned and sta
   const nextHits = hits('represented-next', '2026-10-24');
   ok(next === advice.defaultView.calendarPeriods[1],
     'Budget next is still calendarPeriods[1]');
-  ok(nextHits.length === 1 && nextHits[0].role === 'next' && plannedFace(nextHits[0].row),
-    'a represented Oct 24 occurrence on Next Pay Period stays planned',
+  ok(nextHits.length === 1 && nextHits[0].role === 'next' && !plannedFace(nextHits[0].row)
+      && nextHits[0].row.status === 'PAID',
+    'a represented Oct 24 occurrence on Next Pay Period reads PAID there',
     nextHits[0] && nextHits[0].row.status);
   ok(next && near(next.periodBillLoad, roundCent(MORTGAGE + HYDRO + 17)),
     'Next Pay Period bill load adds the 17 once',
@@ -422,14 +424,14 @@ console.log('\n=== 5b. a represented occurrence after asOf stays planned and sta
   ok(billOn(next, 'mortgage', '2026-11-01').length === 1
       && billOn(next, 'hydro', '2026-11-03').length === 1,
     'the incumbent next-period bills are still counted once');
-  ok(nextHits[0] && nextHits[0].row.settlement === 'upcoming'
-      && near(nextHits[0].row.remaining, 17)
+  ok(nextHits[0] && nextHits[0].row.settlement === 'represented'
+      && near(nextHits[0].row.remaining, 0)
       && near(nextHits[0].row.amount, 17),
-    'the Next Pay Period represented bill is remaining, not a settled disclosure');
-  ok(next && near(next.paidBills, 0) && near(next.remainingBills, 1816)
+    'the Next Pay Period represented bill is a settled disclosure, nothing remaining');
+  ok(next && near(next.paidBills, 17) && near(next.remainingBills, 1799)
       && near(next.totalBillsThisPeriod, 1816)
       && near(roundCent(next.paidBills + next.remainingBills), next.totalBillsThisPeriod),
-    'Next paid bills 0 + remaining 1816 = total bills 1816',
+    'Next paid bills 17 + remaining 1799 = total bills 1816',
     [next && next.paidBills, next && next.remainingBills, next && next.totalBillsThisPeriod].join(' / '));
   const n3 = rowByStart(advice, N3.start);
   ok(n3 && near(n3.paidBills, 0) && near(n3.remainingBills, roundCent(MORTGAGE + HYDRO))
@@ -439,10 +441,10 @@ console.log('\n=== 5b. a represented occurrence after asOf stays planned and sta
       && near(n3.balanceAfterDeductions, N3.bad),
     'N+3 paid bills 0 + remaining 1799 = total bills 1799, and BAD stays 3851',
     n3 && [n3.paidBills, n3.remainingBills, n3.totalBillsThisPeriod, n3.balanceAfterDeductions].join(' / '));
-  ok(host && near(host.paidBills, 0) && near(host.remainingBills, 42)
+  ok(host && near(host.paidBills, 42) && near(host.remainingBills, 0)
       && near(host.totalBillsThisPeriod, 42)
       && near(roundCent(host.paidBills + host.remainingBills), host.totalBillsThisPeriod),
-    'N+2 paid bills 0 + remaining 42 = total bills 42');
+    'N+2 paid bills 42 + remaining 0 = total bills 42');
 
   const pastHits = hits('represented-past', '2026-09-28');
   ok(pastHits.length === 1 && pastHits[0].role === 'past'
@@ -484,10 +486,14 @@ console.log('\n=== 5c. live plan keeps the bill load and moves only the paid dis
   const sep = rowByStart(live, '2026-09-11');
   ok(data.meta.asOf === '2026-08-19' && sep && sep.end === '2026-09-24' && sep.timelineRole === 'future',
     'repo as-of 2026-08-19 publishes Sep 11–24 as a future row');
-  ok(sep && near(sep.paidBills, 0) && near(sep.remainingBills, 3424.26)
+  // Dale, #821 6961042821: the opening's represented tdcc / noble-garbage /
+  // heloc occurrences are already settled in the cash walk, so they read
+  // Paid in their planned period: 94.03 + 95.85 + 814.18 = 1004.06 paid,
+  // the rest of the same 3424.26 total remaining, and the same BAD.
+  ok(sep && near(sep.paidBills, 1004.06) && near(sep.remainingBills, roundCent(3424.26 - 1004.06))
       && near(sep.totalBillsThisPeriod, 3424.26)
       && near(roundCent(sep.paidBills + sep.remainingBills), sep.totalBillsThisPeriod),
-    'Sep 11–24 paid bills 0 + remaining 3424.26 = total bills',
+    'Sep 11–24 paid bills 1004.06 + remaining the rest = total bills 3424.26',
     sep && [sep.paidBills, sep.remainingBills, sep.totalBillsThisPeriod].join(' / '));
   const FUTURE_OTHER = 400;
   ok(sep && near(sep.periodBillLoad, 3424.26) && near(sep.incomeTotal, 6652.30)
@@ -501,13 +507,13 @@ console.log('\n=== 5c. live plan keeps the bill load and moves only the paid dis
     ['heloc', '2026-09-21', 814.18],
   ]) {
     const rows = billOn(sep, spec[0], spec[1]);
-    ok(rows.length === 1 && rows[0].status === 'planned' && rows[0].glanceKind === 'planned'
-        && rows[0].settlement === 'upcoming' && near(rows[0].remaining, spec[2])
+    ok(rows.length === 1 && rows[0].status === 'PAID' && rows[0].glanceKind === 'paid'
+        && rows[0].settlement === 'represented' && near(rows[0].remaining, 0)
         && near(rows[0].amount, spec[2]),
-      spec[0] + ' on Sep 11–24 is remaining once, not a paid disclosure');
+      spec[0] + ' on Sep 11–24 is listed once, Paid in its planned period, nothing remaining');
   }
   ok(roundCent(94.03 + 95.85 + 814.18) === 1004.06,
-    'those three lines are the 1004.06 that used to sit in Paid bills');
+    'those three lines are the 1004.06 in Paid bills');
 
   const shifted = F.recommend(data.plan, '2026-09-25', {
     debts: data.debts || [],
