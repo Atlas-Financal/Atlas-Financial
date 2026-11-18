@@ -343,6 +343,17 @@ console.log('\n=== F. partial essential funding ===');
     const text = (new RegExp(line + ':[^<]*<span class="est">≈ [^<]*</span>').exec(estHtml) || [null])[0];
     ok(text != null, `with estimated essentials, "${line}" prints its amount with ≈`, text || '(no ≈)');
   }
+  // A carried item names its reason through the one exported constant.
+  const itemEstimated = Object.assign({}, estimated, { essentials: Object.assign({}, estimated.essentials, {
+    items: estimated.essentials.items.map((item, i) => i === 0
+      ? Object.assign({}, item, { trust: 'estimated', estimateReason: F.LUNCH_MONEY_BUDGET_CARRIED }) : item) }) });
+  const itemHtml = htmlOf(plan, itemEstimated).html;
+  ok(typeof F.LUNCH_MONEY_BUDGET_CARRIED === 'string' && F.LUNCH_MONEY_BUDGET_CARRIED.length > 0,
+    'Forecast exports the carried-forward reason constant', String(F.LUNCH_MONEY_BUDGET_CARRIED));
+  ok(/Lunch Money has no budget set for this month yet/.test(itemHtml),
+    'a carried essential item prints its carried-forward note');
+  ok(!/Lunch Money has no budget set for this month yet/.test(estHtml),
+    'positive control: without a carried item, no carried-forward note');
 }
 
 console.log('\n=== G. reserve is not spend permission ===');
