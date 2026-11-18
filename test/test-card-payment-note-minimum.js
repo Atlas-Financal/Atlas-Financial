@@ -110,6 +110,13 @@ toConfirm(run(world({ note: TRAVEL, credit: true, edit: x => { x.payload.transac
   'note + pending credit');
 // 5. The note names another TD card than the card the credit posted to: no receipt.
 toConfirm(run(world({ note: 'card payment: TD Cash Back Visa ...8888', credit: true })), 'note naming another card');
+// 5b. The card credit is a recorded card payment but not TD's PAYMENT - THANK YOU
+// (an invented payee under "Credit Card Payment"): coverage may pair it, but it
+// is not the TD issuer's receipt, so the minimum stays To confirm.
+toConfirm(run(world({ note: TRAVEL, credit: true, edit: x => {
+  x.payload.categories.push({ id: 9002, name: 'Credit Card Payment', is_income: false, is_group: false });
+  Object.assign(x.payload.transactions[1], { payee: 'Invented card payment', original_name: 'Invented card payment', category_id: 9002 });
+} })), 'note + a non-TD payment credit');
 // 6. Triangle and MBNA (manual, no card feed): a note never confirms them; their minimum reads as it does with no note.
 for (const [card, payee] of [['triangle', 'CAN TIRE MC'], ['mbna', 'MBNA M/C']]) {
   const name = card === 'triangle' ? 'Triangle Mastercard' : 'MBNA';
