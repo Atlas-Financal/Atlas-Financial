@@ -206,6 +206,52 @@ console.log('4b. One home for the card-estimate cause, basis and reasons');
   }
 }
 
+console.log('4c. The payday shell under a card estimate and an income estimate (lead dispatch 2026-11-18)');
+{
+  // The shell decides its card cause from its own trust before the card term,
+  // which is estimated exactly when an income landing TODAY is estimated
+  // (available = opening + today's income). Future income does not enter the
+  // shell's available or household figures, so it cannot make them estimates.
+  const F = require('../public/forecast');
+  const Live = require('../scripts/live-plan');
+  const base = Live.fromObservation(world([purchase, cashLeg(105)]));
+  const shellOf = edit => {
+    const plan = JSON.parse(JSON.stringify(base.data.plan)); edit(plan);
+    const advice = F.recommend(plan, '2026-09-20', { debts: base.data.debts,
+      currentPeriodActuals: base.data.liveOverlay.currentPeriodActuals });
+    const period = advice.payPeriodViews.find(p => p.role === 'active');
+    const html = page('paydayInstructionShellHtml')(advice, period, null, base.data.liveOverlay);
+    return { advice, alloc: advice.paydayAllocation, html };
+  };
+  const plain = shellOf(() => {});
+  check(plain.advice.cardPurchaseCoverage.trust === 'estimated', 'the card estimate is live');
+  // 1. Plan income estimated (and its amount moved): the shell figures do not depend on it.
+  for (const factor of [1, 2, 0.5]) {
+    const r = shellOf(plan => plan.income.forEach(row => { row.confidence = 'estimated'; row.amount *= factor; }));
+    check(r.alloc.available === plain.alloc.available
+      && JSON.stringify(r.alloc.essentials) === JSON.stringify(plain.alloc.essentials),
+      `future income estimated (x${factor}): available and the household allowance do not move`);
+    check(r.advice.paydayShellEstimateCause?.available === F.CARD_ESTIMATE_CAUSE
+      && r.advice.paydayShellEstimateCause?.household === F.CARD_ESTIMATE_CAUSE,
+      `future income estimated (x${factor}): the card is still the only cause, so the card cause stands`);
+  }
+  // 2. An estimated income landing today is part of available: the cause is withheld.
+  const todayIncome = confidence => plan => plan.income.push({ id: 'gift', label: 'Invented gift', frequency: 'once',
+    date: '2026-09-20', amount: 50, confidence });
+  const est = shellOf(todayIncome('estimated'));
+  check(est.alloc.todayIncome === 50 && est.alloc.available === plain.alloc.available + 50,
+    'an income landing today is part of available');
+  check(est.advice.paydayShellTrust.available === 'estimated' && est.advice.paydayShellEstimateCause === undefined,
+    'today\'s income estimated as well: still estimated, and no card cause');
+  check(/trust-estimated">estimate</.test(block(est.html, 'Money available')) && !est.html.includes('data-card-estimate-as-of'),
+    'today\'s income estimated as well: the plain estimate wording, no as-of tag');
+  // 3. The same income confirmed: the card is again the only cause.
+  const conf = shellOf(todayIncome('confirmed'));
+  check(conf.advice.paydayShellEstimateCause?.available === F.CARD_ESTIMATE_CAUSE
+    && block(conf.html, 'Money available').includes('data-card-estimate-as-of'),
+    'today\'s income confirmed: the card cause and its as-of tag stand');
+}
+
 console.log('5. No single bank date: the estimate word stays (never an undated or guessed date)');
 {
   const overlay = JSON.parse(JSON.stringify(degraded.observed.data.liveOverlay));
