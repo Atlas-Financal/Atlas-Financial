@@ -571,7 +571,7 @@ ok((planJs2.match(/once the \$\{money\(fundingGap\)\} gap is covered/g) || []).l
   'the cap qualifier is composed in exactly one place',
   `${(planJs2.match(/once the \$\{money\(fundingGap\)\} gap is covered/g) || []).length} occurrence(s)`);
 ok(/capQualifier/.test(planJs2) &&
-   (planJs2.match(/\$\{capQualifier\}/g) || []).length >= 2,
+   (planJs2.match(/\$\{(?:escapeHtml\()?capQualifier\)?\}/g) || []).length >= 2,
   'and both the tile and the headline read that one value');
 // The first action carries a fixed amount; claiming it restores the buffer is
 // only true when that amount actually reaches the current gap. This asserted
