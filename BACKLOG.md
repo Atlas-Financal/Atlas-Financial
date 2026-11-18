@@ -855,8 +855,6 @@ What remains is the `ci-output.js` identities `codex-review-gate` and
 `ci-output.js` is the live CI privacy relay, so removing them is its own change.
 Not urgent: nothing runs them.
 
-Coverage rule 6 has no currency-conversion path: any non-CAD household cash/reserve row withholds (fails closed). Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
-
 Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
 
 A future period-history runner should treat `history-original-or-closing-conflict` as a retryable duplicate. Source: [PR #831 comment 6689055764](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/831#issuecomment-6689055764).
