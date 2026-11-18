@@ -11586,6 +11586,15 @@
   // (#1316 pre-review). Those names exist for the destination, not this path.
   const CARD_PAYMENT_NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']
     .filter(id => Object.values(CARD_PAYMENT_NOTE_CARDS).includes(id)));
+  // A note may carry a trailing comment after the card (lead, OD-021: notes
+  // are only ever appended to): "<card>[ ...NNNN] - <text>" or
+  // "<card>[ ...NNNN] (<text>)". The comment is ignored, except that one
+  // naming a different table card makes the segment 'unknown'. Any other
+  // words after the name, without that separator, stay 'unknown'.
+  const CARD_PAYMENT_NOTE_COMMENT = /\s(?:-\s|\()/;
+  function cardPaymentNoteNames(text, name) {
+    return new RegExp('(^|[^a-z0-9])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(text);
+  }
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -11593,8 +11602,14 @@
     for (const segment of raw.split(/[;\n\r]/)) {
       const m = /^\s*card payment:\s*(.*)$/i.exec(segment);
       if (!m) continue;
-      const name = m[1].replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
-      found.add(Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown');
+      const cut = m[1].search(CARD_PAYMENT_NOTE_COMMENT);
+      const head = cut === -1 ? m[1] : m[1].slice(0, cut);
+      const comment = cut === -1 ? '' : m[1].slice(cut).toLowerCase();
+      const name = head.replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
+      let id = Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown';
+      if (id !== 'unknown' && Object.keys(CARD_PAYMENT_NOTE_CARDS)
+        .some(other => CARD_PAYMENT_NOTE_CARDS[other] !== id && cardPaymentNoteNames(comment, other))) id = 'unknown';
+      found.add(id);
     }
     if (!found.size) return null;
     return found.size === 1 ? [...found][0] : 'unknown';
