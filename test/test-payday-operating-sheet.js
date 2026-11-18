@@ -29,7 +29,7 @@ function loadComposer() {
   // is the live composition: the Today card plus the compact pay-period content.
   const page = loadBudgetPage({ Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
   return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx),
-    mustLeaveHtml: page.get('mustLeaveHtml'), alreadyPaidHtml: page.get('alreadyPaidHtml'), paydayAllocationSummaryHtml: page.get('paydayAllocationSummaryHtml'), futureGravityHtml: page.get('futureGravityHtml'), weeklyCapView: page.get('weeklyCapView'), money: page.get('money'), money2: page.get('money2') };
+    mustLeaveHtml: page.get('mustLeaveHtml'), alreadyPaidHtml: page.get('alreadyPaidHtml'), futureGravityHtml: page.get('futureGravityHtml'), weeklyCapView: page.get('weeklyCapView'), money: page.get('money'), money2: page.get('money2') };
 }
 
 function defaultGlance(html) {
@@ -447,18 +447,6 @@ console.log('\n=== 5b. leftover lists earned posted actuals, not an invented spe
     },
   })),
     'already paid prints represented payday income as in');
-  const leftover = composer.paydayAllocationSummaryHtml({
-    lines: [{ key: 'obligations', kind: 'obligations', label: 'Bills', amount: 11.54 }],
-    remainder: 88.12,
-    obligations: { allocated: 11.54, wanted: 11.54, shortfall: 0, items: [] },
-    essentials: { allocated: 0, wanted: 0, shortfall: 0 },
-    extraDebt: { allocated: 0 },
-    futureCosts: [],
-    mode: 'between-paydays',
-    payday: '2026-09-11',
-  }, action);
-  ok(/Left after that/.test(leftover) && /Mortgage · Aug 28 · paid/.test(leftover),
-    'folded reservation list still names paid actuals beside leftover cash');
 }
 
 console.log('\n=== 6. operating-answer copies Forecast; page does not recalculate ===');

@@ -178,8 +178,6 @@ console.log('\n=== 3. immediate required payment due today ===');
   ok(!/data-today-decision="pay-today"/.test(html)
       && !/Pay Travel Visa minimum \(\$17\.44\) by Sep 8/.test(html),
     'a separate pay-today dump is not mounted on the default Plan');
-  ok(/function todayDecisionHtml/.test(read('public/plan.js')),
-    'the today-action formatter remains for diagnostic reuse');
 }
 
 console.log('\n=== 4. $0 extra debt with a valid Forecast target ===');
@@ -300,17 +298,13 @@ console.log('\n=== 7. authority boundaries remain intact ===');
   const planSrc = read('public/plan.js');
   const helpers = [
     'function cashGlanceHtml',
-    'function postedThisPeriodHtml',
     'function mustLeaveHtml',
     'function extraDebtGlanceHtml',
-    'function todayDecisionHtml',
     'function spendDecisionHtml',
-    'function paydayAllocationSummaryHtml',
     'function futureGravityHtml',
     'function budgetSurfaceParts',
     'function budgetTodayCashCardHtml',
     'function budgetPayPeriodContentHtml',
-    'function cashUnsafe',
   ];
   for (const name of helpers) {
     const fn = new RegExp(name + '\\([\\s\\S]*?\\n\\}').exec(planSrc);
@@ -323,9 +317,10 @@ console.log('\n=== 7. authority boundaries remain intact ===');
   const household = raw('public/household-view.js');
   ok(!/Forecast\s*\./.test(household) && !/paydayAllocation|currentPeriodAction/.test(household),
     'the readability layer still does not become a planner');
-  ok(/data-today-decision/.test(planSrc) && /data-spend-decision/.test(planSrc)
-    && /data-payday-decision/.test(planSrc),
-    'the decision desk is emitted by the Forecast-consuming renderer');
+  // The today and payday decision formatters had no caller and were deleted;
+  // the spend decision is the one the live renderer emits.
+  ok(/data-spend-decision/.test(planSrc),
+    'the spend decision is emitted by the Forecast-consuming renderer');
 }
 
 if (failures) {

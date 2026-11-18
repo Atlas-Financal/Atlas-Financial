@@ -331,7 +331,6 @@
   ["ATLAS-075 bill amount schedule promo pricing and regular-price restoration","test-bill-amount-schedule.js"],
   ["Dale payday Current Balance assumption","test-dale-payday-current-balance.js"],
   ["live payday pre-BILLS base retain","test-live-payday-bills-base.js"],
-  ["ordered payday action sheet (AF-OPERATE-03)","test-operate-payday-action-sheet.js"],
   ["future financial gravity (AF-OPERATE-05)","test-operate-future-gravity.js"],
   ["required and extra debt answer (AF-OPERATE-06)","test-operate-debt-answer.js"],
   ["payday operating-surface acceptance (AF-OPERATE-07)","test-operate-payday-acceptance.js"],
