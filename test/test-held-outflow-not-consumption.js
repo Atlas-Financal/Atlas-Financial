@@ -120,6 +120,36 @@ console.log('\n=== a completed period: the listed rows and the deducted term sti
     'completed period: rows 400 + 50 = 450 = the published total = the deducted term', JSON.stringify({ listed, total: list && list.total, term: t.heldOutflowSpending }));
 }
 
+console.log('\n=== lost coverage: the held row is still deducted once (#1323 review) ===');
+{
+  // The reviewer's invented world: when the period's actuals are not fully
+  // covered, the household hold counts the known posted rows, so on main a
+  // held row's twin (Other spending) was carried out of cash. The held term
+  // must do the same, or the next period opens 400 too high.
+  //   no debit:      next period opens 2,500 + 1,400 - 400 (hold) + ... = 3,000
+  //   400 held debit: 3,000 - 400 = 2,600 (as main), hold stays 400.
+  const nextOpening = (mode, extra) => {
+    const w = world([H.lm({ date: '2026-10-11', amount: 62.4, category: 'Groceries', account: 'chequing-a', payee: 'Invented grocer' }), ...extra]);
+    const { data, packet, error } = H.dataOf(w);
+    if (error) throw error;
+    packet.transactionCoverage = 'incomplete';
+    if (mode === 'one category withheld') {
+      packet.coverageExceptCategories = true;
+      packet.droppedCategoryRows = [{ date: '2026-10-11', categoryId: 'groceries' }];
+    }
+    const views = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet }).payPeriodViews;
+    const active = views.find(r => r.start === '2026-10-09'), next = views.find(r => r.start === '2026-10-23');
+    return { opening: next && next.opening, hold: active.budgetHold, held: active.heldOutflowsToConfirm };
+  };
+  for (const mode of ['coverage lost', 'one category withheld']) {
+    const control = nextOpening(mode, []), held = nextOpening(mode, [mortgage()]);
+    ok(near(control.opening, 3000), `${mode}, control: next period opens at 3,000`, String(control.opening));
+    ok(near(held.opening, 2600), `${mode}: the held 400 is carried out of cash once, next period opens at 2,600 (not 3,000)`, String(held.opening));
+    ok(near(held.hold, 400) && held.held && near(held.held.total, 400),
+      `${mode}: the hold stays 400 and To confirm deducts the 400`, JSON.stringify({ hold: held.hold, held: held.held && held.held.total }));
+  }
+}
+
 console.log('\n=== period history projection: fails closed on a held term (owner stop pending) ===');
 {
   const reseal = candidate => {

@@ -16239,8 +16239,15 @@
       // item term: linked equals unlinked.
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      // Rank 18: held outflows, the same gate and cycle as the item term.
-      const heldSpendComputed = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true;
+      // Rank 18: held outflows, on the item term's cycle. Unlike the item
+      // term (whose unlinked twin sits in a category the lost-coverage hold
+      // does not count), a held row's twin was Other spending, which that
+      // hold does count from the known rows. So the held term is deducted
+      // whenever its rows are known: actuals ready, coverage lost, or one
+      // category withheld (#1323 review). Never twice: the row is out of
+      // Other and the hold on every path.
+      const heldSpendComputed = (role === 'active' || lookback) && !planUnavailable
+        && (budget.spentReady === true || budget.coverageLost === true);
       const heldSpend = heldSpendComputed
         ? heldOutflowCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, count: 0 };
       const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && budget.hold != null
