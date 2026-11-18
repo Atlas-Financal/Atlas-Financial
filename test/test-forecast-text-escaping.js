@@ -32,7 +32,7 @@ const mod = name => require(path.join(ROOT, 'public', name));
 const ESCAPED = ['&lt;img src=z data-poisoned-forecast', '&lt;script&gt;alert(2)'];
 const RAW_PAYLOADS = [P.PAYLOAD, ...H.PAYLOADS];
 
-function render(data) {
+function render(data, overrides = {}) {
   const writes = [];
   const element = id => ({ id, hidden: false, inert: false, dataset: {}, style: { setProperty() {} },
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
@@ -45,7 +45,11 @@ function render(data) {
     getElementById: id => byId[id] || (byId[id] = element(id)), createElement: () => element(null),
     createElementNS: () => element(null), createTextNode: text => ({ textContent: text }),
     body: element('body'), documentElement: { dataset: {}, style: { setProperty() {} } } };
-  const page = loadBudgetPage({ Forecast: P.poisonedForecast(require(path.join(ROOT, 'public', 'forecast.js'))),
+  const poisoned = P.poisonedForecast(require(path.join(ROOT, 'public', 'forecast.js')));
+  // A world may force one Forecast answer to reach a branch the invented
+  // household cannot reach on its own; every other call is the real one.
+  const forecast = new Proxy(poisoned, { get: (target, prop) => (prop in overrides ? overrides[prop] : target[prop]) });
+  const page = loadBudgetPage({ Forecast: forecast,
     globals: { document, getComputedStyle: () => ({ getPropertyValue: () => '' }),
       BudgetSurface: mod('budget-surface.js'), BudgetCardMovements: mod('budget-card-movements.js'),
       SavingsInventory: mod('savings-inventory.js'), BalanceHistory: mod('balance-history.js'),
@@ -68,11 +72,20 @@ const worlds = {
       (d.plan.startingCash.breakdown || []).forEach(row => { row.value = null; }); return d; },
     reach: ['status-band', 'transfer-note', 'nextmove-card', 'operating-surface-body', 'payday-answer-body'],
   },
+  // Free cash left after the buffer and reserves: the priorities note prints
+  // plan.nextDollar.summary. The invented household never confirms card
+  // coverage, so Forecast.unallocatedCash's verdict is forced to 'leftover'.
+  'leftover cash (forced verdict)': {
+    data: () => { const d = H.hostile(); d.plan.nextDollar = POLICY; return d; },
+    overrides: { unallocatedCash: () => ({ id: 'leftover', ending: 5000, buffer: 500, reserves: 100,
+      cardPurchaseCash: 0, amount: 4400, negative: false }) },
+    reach: ['priorities-note'],
+  },
 };
 
 for (const [name, world] of Object.entries(worlds)) {
   test(`${name}: no Forecast text reaches the page as markup`, () => {
-    const writes = render(world.data());
+    const writes = render(world.data(), world.overrides);
     const raw = writes.filter(([, html]) => RAW_PAYLOADS.some(p => html.includes(p)));
     assert.deepEqual(raw.map(([id, html]) => `${id}: …${html.slice(Math.max(0, html.indexOf('<img') - 80), html.indexOf('<img') + 60)}`), [],
       'every Forecast string is escaped where it is written');
@@ -80,3 +93,10 @@ for (const [name, world] of Object.entries(worlds)) {
     for (const id of world.reach) assert.ok(reached.has(id), `the poisoned text reaches #${id} (escaped), so its branch ran`);
   });
 }
+
+test('the leftover note keeps its own emphasis and escapes the plan summary', () => {
+  const page = loadBudgetPage();
+  const html = page.get('UNALLOCATED_NOTE').leftover(H.NOTE);
+  assert.ok(html.startsWith('<b>This is not spending money.</b>'), 'the note\'s own markup is kept');
+  assert.ok(!html.includes(H.NOTE) && html.includes('&#39;&gt;&lt;script&gt;alert(2)'), 'the summary prints as text');
+});

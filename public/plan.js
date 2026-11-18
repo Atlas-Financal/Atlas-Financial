@@ -442,7 +442,7 @@ const UNALLOCATED_NOTE = {
        already owed to costs that fall outside the 90 days.`,
   leftover: summary =>
     `<b>This is not spending money.</b> It is what is left after the buffer and the reserves, and it is the only
-       money available to reduce debt. ${summary || ''}`,
+       money available to reduce debt. ${escapeHtml(summary || '')}`,
 };
 
 /* ------------------------------------------- the three phases, in words */
