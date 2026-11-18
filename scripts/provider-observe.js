@@ -6457,9 +6457,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         state: reason ? 'unresolved' : row.savingsPostingEvidence,
         reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
     }
-    // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1).
+    // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1),
+    // and so is a held outflow under To confirm (rank 18; it was listed as
+    // Other spending before, so it keeps the same identity fields).
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)
-        && cls.kind !== 'savings-paid') {
+        && cls.kind !== 'savings-paid' && cls.kind !== 'held-outflow') {
       delete row.displayedPayee;
       delete row.originalMerchant;
       delete row.displayedNote;

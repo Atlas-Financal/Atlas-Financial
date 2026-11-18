@@ -25,8 +25,10 @@
 //   mortgage payment: that cash is the secured-debt payment the debt walk
 //   already deducts, so a "Mortgage" row counted again would deduct it twice
 //   (engine guard below; test-household-budget-other-spending.js covers the
-//   waterfall). With no planned mortgage payment it is Other spending
-//   (finish-line audit finding 4).
+//   waterfall). With no planned mortgage payment in the debit's cycle it is
+//   a loan payment no owner claims: held To confirm, never household
+//   spending, and deducted once from BAD as its own term (rank 18, lead
+//   ruling under OD-021; previously Other spending, finish-line audit 4).
 //   7. Atlas #922: the same 240.00 debit when the plan has a bills-only
 //      Insurance / Subscriptions / Telecom budget category the label maps
 //      to, posted and pending: BAD 760.00, listed in Other; pending
@@ -71,7 +73,8 @@ function engine(w) {
   const view = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet })
     .payPeriodViews.find(r => r.start === '2026-10-09');
   const otherRow = view.householdBudget.find(r => r.id === 'other-spending') || {};
-  return { bad: view.balanceAfterDeductions, other: otherRow };
+  return { bad: view.balanceAfterDeductions, other: otherRow, held: view.heldOutflowsToConfirm || null,
+    terms: view.predictedEndingBalanceTerms || null };
 }
 // The payday protected path for one world (Prepare Ahead).
 function protectedPath(w) {
@@ -110,8 +113,8 @@ function mortgageWorld(day) {
 // Grok Bot (Plan #6 thread) on a mortgage payment that posts after its due
 // date's cycle: the mortgage is due Oct 22 (cycle Oct 9 - Oct 22) and the
 // Mortgage-labelled debit posts Oct 23 (cycle Oct 23 - Nov 5), as-of Oct 24.
-// No date matching: the debit is Other spending, to confirm, with a neutral
-// line naming the earlier mortgage still To confirm. Paid Oct 23 from
+// No date matching: the debit is held To confirm (rank 18: never household
+// spending), with a neutral line naming the earlier mortgage still To confirm. Paid Oct 23 from
 // chequing-a, so the observed Bills account reads 2,000 - 400 = 1,600.
 function lateMortgageWorld({ debit = true, ownerMarked = false } = {}) {
   const w = H.baseWorld('2026-10-24');
@@ -134,10 +137,13 @@ function lateEngine(w) {
   const advice = F.recommend(data.plan, '2026-10-24', { debts: data.debts, currentPeriodActuals: packet });
   const view = advice.payPeriodViews.find(r => r.start === '2026-10-23');
   const otherRow = view.householdBudget.find(r => r.id === 'other-spending') || {};
-  return { advice, bad: view.balanceAfterDeductions, other: otherRow,
-    lender: (otherRow.recon || []).find(t => t.displayedPayee === 'Invented lender') };
+  const held = view.heldOutflowsToConfirm || null;
+  return { advice, bad: view.balanceAfterDeductions, other: otherRow, held, terms: view.predictedEndingBalanceTerms || null,
+    lender: ((held && held.recon) || []).find(t => t.displayedPayee === 'Invented lender') };
 }
-function other(s) { return (s.household.match(/Other spending.*?(?=Info: protective spending reserve|$)/) || [''])[0]; }
+function other(s) { return (s.household.match(/Other spending.*?(?=To confirm|Info: protective spending reserve|$)/) || [''])[0]; }
+// The To confirm block (rank 18): held outflows, never spending.
+function toConfirm(s) { return (s.household.match(/To confirm.*?(?=Paid from Savings|Info: protective spending reserve|$)/) || [''])[0]; }
 
 // A case: build the invented world, the hand-derived BAD, the hand-derived
 // Other spending figure (null: the row is not household spending), and the
@@ -228,11 +234,15 @@ const cases = [
   // the planned mortgage payment has an occurrence in the debit's own
   // spending cycle (Oct 9 - Oct 22 here).
   {
-    name: 'a Mortgage debit in a cycle where the planned mortgage falls due only in another cycle is visible and deducted',
+    name: 'a Mortgage debit in a cycle where the planned mortgage falls due only in another cycle is held To confirm and deducted once',
     world: () => mortgageWorld(25),
-    // Oct 25 is in the next cycle: no mortgage bill here, so 1,000 - 400.
-    bad: 600, other: 400, page: '$600.00',
-    async check(s) { H.expectMatch(other(s), /Invented lender/, 'the debit is listed in Other spending'); },
+    // Oct 25 is in the next cycle: no mortgage bill here. It is held, not
+    // spending: Other 0, the held term 400, BAD 1,400 - 400 - 0 - 400 = 600.
+    bad: 600, other: null, held: 400, page: '$600.00',
+    async check(s) {
+      H.expectMatch(toConfirm(s), /Invented lender/, 'the debit is listed under To confirm');
+      H.expectExcludes(other(s), 'Invented lender', 'the debit is not in Other spending');
+    },
   },
   {
     name: 'control: a Mortgage debit in the cycle of a planned mortgage occurrence is the mortgage, counted once',
@@ -268,6 +278,12 @@ function hasBrowser() {
         H.expect(Math.abs(r.other.spent - c.other) < 0.005, `Other spending is ${c.other} (got ${r.other.spent})`);
         H.expect(r.other.needsConfirmation === true, 'Other spending asks for confirmation');
       }
+      if (c.held == null) H.expect(!r.held && !(r.terms && r.terms.heldOutflowSpending), 'nothing is held To confirm');
+      else {
+        H.expect(r.held && Math.abs(r.held.total - c.held) < 0.005, `To confirm holds ${c.held} (got ${r.held && r.held.total})`);
+        H.expect(r.terms && Math.abs(r.terms.heldOutflowSpending - c.held) < 0.005 && r.terms.closes === true,
+          `BAD terms deduct ${c.held} once and close (got ${JSON.stringify(r.terms)})`);
+      }
     });
   }
   await report('engine: a pending unplanned Insurance debit encumbers cash exactly like the same debit labelled Shopping', async () => {
@@ -301,25 +317,27 @@ function hasBrowser() {
     ['one-off, due in the next cycle', { frequency: 'once', date: '2026-10-23' }, mortgageTx],
     ['monthly in the cycle, but the debit has no date', { frequency: 'monthly', day: 12 }, { ...mortgageTx, date: undefined }],
   ]) {
-    await report(`engine: a Mortgage-labelled payment whose planned mortgage is ${what} is counted (Other spending)`, async () => {
+    await report(`engine: a Mortgage-labelled payment whose planned mortgage is ${what} is held To confirm, not spending`, async () => {
       const plan = H.planOf(world());
       plan.obligations = (plan.obligations || []).concat([{ id: 'mortgage', debtId: 'mortgage', effect: 'payment',
         label: 'Mortgage', amount: 1600, confidence: 'confirmed', ...row }]);
       const cls = F.classifyCurrentPeriodTransaction(tx, plan);
-      H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
-        `the Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
+      H.expect(cls.kind === 'held-outflow' && cls.householdSpending === false && cls.needsConfirmation === true,
+        `the Mortgage row is held To confirm, never household spending (got ${JSON.stringify(cls)})`);
     });
   }
-  await report('engine: a Mortgage-labelled payment with no planned mortgage payment is counted (Other spending)', async () => {
+  await report('engine: a Mortgage-labelled payment with no planned mortgage payment is held To confirm, not spending', async () => {
     const cls = F.classifyCurrentPeriodTransaction(mortgageTx, H.planOf(world()));
-    H.expect(cls.householdSpending === true && cls.needsConfirmation === true,
-      `an unplanned Mortgage row is household spending needing confirmation (got ${JSON.stringify(cls)})`);
+    H.expect(cls.kind === 'held-outflow' && cls.householdSpending === false && cls.needsConfirmation === true,
+      `an unplanned Mortgage row is held To confirm, never household spending (got ${JSON.stringify(cls)})`);
   });
-  await report('engine: a Mortgage debit posted after its due date\'s cycle is Other spending, naming the mortgage still To confirm', async () => {
+  await report('engine: a Mortgage debit posted after its due date\'s cycle is held To confirm, naming the mortgage still To confirm', async () => {
     const r = lateEngine(lateMortgageWorld());
-    // 1,400 - 400 (budget) - 400 (the debit, counted once) = 600.
+    // 1,400 - 400 (budget) - 400 (the held debit, its own term, once) = 600.
     H.expect(Math.abs(r.bad - 600) < 0.005, `BAD is 600 (got ${r.bad})`);
-    H.expect(Math.abs(r.other.spent - 400) < 0.005 && r.other.needsConfirmation === true, `Other spending is 400, to confirm (got ${r.other.spent})`);
+    H.expect(!(r.other.spent > 0), `nothing reaches Other spending (got ${r.other.spent})`);
+    H.expect(r.held && Math.abs(r.held.total - 400) < 0.005, `To confirm holds 400 (got ${r.held && r.held.total})`);
+    H.expect(r.terms && r.terms.heldOutflowSpending === 400 && r.terms.closes === true, `BAD terms deduct it once (got ${JSON.stringify(r.terms)})`);
     H.expect(r.lender && r.lender.mortgageDueToConfirm === '2026-10-22', `the row names the Oct 22 mortgage (got ${JSON.stringify(r.lender)})`);
   });
   await report('engine: control: with the Oct 22 mortgage marked paid by the owner, the row carries no mortgage line', async () => {
@@ -362,10 +380,11 @@ function hasBrowser() {
   if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
     console.log('  SKIP  rendered-page cases: Playwright Chromium is not available here');
   } else {
-    await report('page: the late Mortgage debit prints the neutral mortgage line in Other spending', () => H.withBudget(lateMortgageWorld(), async p => {
+    await report('page: the late Mortgage debit prints the neutral mortgage line under To confirm', () => H.withBudget(lateMortgageWorld(), async p => {
       const s = await H.snap(p);
-      H.expectMatch(other(s), /Invented lender/, 'the debit is listed in Other spending');
-      H.expectMatch(other(s), /Mortgage-labelled; the mortgage due Oct 22 is still To confirm/, 'the neutral line names the Oct 22 mortgage');
+      H.expectMatch(toConfirm(s), /Invented lender/, 'the debit is listed under To confirm');
+      H.expectExcludes(other(s), 'Invented lender', 'the debit is not in Other spending');
+      H.expectMatch(toConfirm(s), /Mortgage-labelled; the mortgage due Oct 22 is still To confirm/, 'the neutral line names the Oct 22 mortgage');
     }));
     for (const c of cases) {
       await report('page: ' + c.name, () => H.withBudget(c.world(), async p => {
