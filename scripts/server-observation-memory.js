@@ -68,19 +68,21 @@ function recurring(value) {
 // each period's dates and `budgeted`. Activity, notes and currency text are
 // never retained. Any read that is not a clean 'read' replays as unavailable.
 const BUDGET_SETTINGS = ['budget_period_granularity', 'budget_period_quantity', 'budget_period_anchor_date'];
+// A read budget block keeps its read status even when malformed, so the
+// observer's sanitizer gives a replay the same reason as the live read
+// (budget-settings-invalid / budget-summary-invalid), not a generic failure.
 function budgets(value) {
   if (value?.status !== 'read') return { status: 'unavailable', reason: 'budget-read-failed' };
+  const settings = value.settings && typeof value.settings === 'object' && !Array.isArray(value.settings)
+    ? pick(value.settings, BUDGET_SETTINGS) : null;
   const rows = value.summary && value.summary.categories;
-  if (!value.settings || typeof value.settings !== 'object' || !Array.isArray(rows)) {
-    return { status: 'unavailable', reason: 'budget-read-failed' };
-  }
-  return { status: 'read', settings: pick(value.settings, BUDGET_SETTINGS), summary: {
-    categories: rows.filter(row => row && typeof row === 'object').map(row => ({
+  return { status: 'read', settings, summary: { categories: Array.isArray(rows)
+    ? rows.filter(row => row && typeof row === 'object').map(row => ({
       category_id: row.category_id,
       occurrences: Array.isArray(row.occurrences)
         ? row.occurrences.filter(o => o && typeof o === 'object').map(o => pick(o, ['start_date', 'end_date', 'budgeted']))
         : null,
-    })) } };
+    })) : null } };
 }
 // A group parent's children: only their ids, account ids and parent id
 // (provider-observe groupParentAccountId). No payee, note, amount or metadata.

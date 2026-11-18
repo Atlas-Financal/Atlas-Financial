@@ -1,21 +1,28 @@
 'use strict';
-/* PR A of "budget amounts come from Lunch Money budgets" (owner decision, #821,
- * 2026-11-18; lead rulings Q1-Q5). The observer reads Lunch Money budgets,
- * GET only, and the packet keeps, for each group the plan names, one
- * `budgeted` per Lunch Money budget period:
+/* "Budget amounts come from Lunch Money budgets" (owner decision, #821,
+ * 2026-11-18; lead rulings Q1-Q5 and the 2026-11-18 group-name ruling). The
+ * observer reads Lunch Money budgets, GET only. Each plan budget row names its
+ * Lunch Money category group by exact name; the name is resolved against the
+ * observation's own /categories read (a non-archived group, trimmed, ignoring
+ * case). The packet keeps, per Atlas row id, either one `budgeted` per Lunch
+ * Money budget period:
  *   the group's own budget (level 'group'), else the sum of its categories'
- *   budgets skipping categories with none (level 'children'), else null.
- * FOUNDATION — NOT COMPLETION: Forecast does not read the block yet (PR B),
+ *   budgets skipping categories with none (level 'children'), else null;
+ * or, when the name matches no group (a rename included) or two groups, an
+ * unavailable row with a closed reason. No Lunch Money id leaves.
+ * FOUNDATION — NOT COMPLETION: Forecast does not read the block yet (PR B2),
  * so no figure moves.
  *
  * Proved here, on invented data only:
  *   1. the live fetch sends only GETs: one /budgets/settings and one /summary
  *      with occurrences, from 120 days before today to 200 days after;
- *   2. per named group and period, the budgeted value and level are exactly
+ *   2. per named row and period, the budgeted value and level are exactly
  *      the hand-derived ones below (group first, then children, then null);
- *   3. groups the plan does not name, activity, notes and currency text never
- *      reach the packet; a plan id that is not a Lunch Money integer id names
- *      nothing;
+ *      a name matches after trimming and ignoring case; a missing name, a
+ *      renamed group, an archived group and a name two groups share each fail
+ *      closed for that row only;
+ *   3. groups the plan does not name, every Lunch Money id, activity, notes
+ *      and currency text never reach the packet;
  *   4. the structural sanitizer rejects any other shape;
  *   5. it is absent from the assistant / MCP packet and the figures snapshot;
  *   6. a failed read, or invalid settings, is recorded as unavailable and the
@@ -23,7 +30,8 @@
  *      or without the block;
  *   7. the memory replay copy gives the same block as the live read, for a
  *      catalog naming a group both ways (nested children and a child's
- *      group_id).
+ *      group_id), for a rename and a duplicate, and for a malformed summary
+ *      (the same budget-summary-invalid reason).
  *
  * `node test/test-lunchmoney-budget-read.js`
  */
@@ -55,12 +63,16 @@ async function withStub(routes, fn) {
 }
 
 // Invented catalog: groups 9100 (children 201, 202), 9200 (children 203, 204),
-// 9300 (child 301, not named by the plan).
+// 9300 (child 301, not named by the plan), two groups sharing one name (9500,
+// 9600), and an archived group (9700) carrying a name the plan uses.
 const CATEGORIES = [
   { id: 9100, name: 'Invented food group', is_group: true, children: [{ id: 201, name: 'Invented a' }, { id: 202, name: 'Invented b' }] },
   { id: 9200, name: 'Invented fun group', is_group: true, children: [{ id: 203, name: 'Invented c' }] },
   { id: 204, name: 'Invented d', group_id: 9200 },
   { id: 9300, name: 'Invented other group', is_group: true, children: [{ id: 301, name: 'Invented e' }] },
+  { id: 9500, name: 'Invented twin group', is_group: true, children: [] },
+  { id: 9600, name: 'invented twin group ', is_group: true, children: [] },
+  { id: 9700, name: 'Invented retired group', is_group: true, archived: true, children: [] },
   { id: 108, name: 'Payroll', is_income: true },
 ];
 const OCT = ['2026-10-01', '2026-10-31'], NOV = ['2026-11-01', '2026-11-30'], DEC = ['2026-12-01', '2026-12-31'];
@@ -77,7 +89,9 @@ const summaryRow = (id, oct, nov, dec) => ({ category_id: id,
 //         Dec  group null; children null, null     -> null   null
 //   9200: no group row; children 203 (40, 40, 45) and 204 (null, null, null)
 //         -> 40, 40, 45 'children'
-//   9400: named, absent from catalog and summary  -> null, null, null
+//   'extra' names a group absent from the catalog  -> group-name-missing
+//   'twin' names 9500 and 9600 (case/space-equal)  -> group-name-ambiguous
+//   'retired' names only the archived 9700         -> group-name-missing
 //   9300: not named -> never published (its 999 too)
 const SUMMARY = { aligned: false, categories: [
   summaryRow(9100, 500, null, null),
@@ -87,16 +101,20 @@ const SUMMARY = { aligned: false, categories: [
   summaryRow(204, null, null, null),
   summaryRow(9300, 999, 999, 999),
   summaryRow(301, 999, 999, 999),
+  summaryRow(9500, 777, 777, 777),
+  summaryRow(9600, 777, 777, 777),
+  summaryRow(9700, 777, 777, 777),
 ] };
 const SETTINGS = { budget_period_granularity: 'month', budget_period_quantity: 1, budget_period_anchor_date: '2026-01-01',
   budget_hide_no_activity: false, budget_use_last_day_of_month: false, budget_income_option: 'max',
   budget_rollover_left_to_budget: false };
 const EXPECTED = {
-  9100: [[OCT, 500, 'group'], [NOV, 350.75, 'children'], [DEC, null, null]],
-  9200: [[OCT, 40, 'children'], [NOV, 40, 'children'], [DEC, 45, 'children']],
-  9400: [[OCT, null, null], [NOV, null, null], [DEC, null, null]],
+  groceries: [[OCT, 500, 'group'], [NOV, 350.75, 'children'], [DEC, null, null]],
+  restaurants: [[OCT, 40, 'children'], [NOV, 40, 'children'], [DEC, 45, 'children']],
 };
-const expectedFor = id => EXPECTED[id].map(([[start, end], budgeted, level]) => ({ start, end, budgeted, level }));
+const expectedFor = id => ({ status: 'read',
+  periods: EXPECTED[id].map(([[start, end], budgeted, level]) => ({ start, end, budgeted, level })) });
+const EXPECTED_ROWS = ['extra', 'groceries', 'restaurants', 'retired', 'twin'];
 
 const baseRoutes = (extra = {}) => ({
   '/me': { body: { account_id: 1 } },
@@ -113,17 +131,21 @@ const baseRoutes = (extra = {}) => ({
 const live = (base, now) => O.fetchLunchMoneyLive('invented-token', now, 14,
   { env: { ATLAS_LUNCHMONEY_API_BASE: base } });
 
-// An invented served world whose plan names groups 9100, 9200 and 9400
-// (and one fixture-style id that is not a Lunch Money integer id).
-function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 9400, other: 'fixture-group:x' }, categories = CATEGORIES) {
+// An invented served world whose plan rows name Lunch Money groups. Groceries
+// writes its name with other spacing and case, to prove the match trims and
+// ignores case. Any name the shipped plan carries is cleared first.
+const NAMES = { groceries: '  invented FOOD group ', restaurants: 'Invented fun group', extra: 'Invented missing group',
+  twin: 'Invented twin group', retired: 'Invented retired group' };
+function serve(budgets, names = NAMES, categories = CATEGORIES) {
   const w = H.baseWorld();
   w.transactions = [H.lm({ id: 610001, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
   H.productionOpening(w);
   const data = H.canonicalOf(w, H.planOf(w));
   const rows = data.plan.budget.categories;
-  rows.forEach(row => { if (groupIds[row.id] != null) row.lunchMoneyCategoryGroupId = groupIds[row.id]; });
-  rows.push({ id: 'extra', label: 'Invented extra', class: 'discretionary', lunchMoneyCategoryGroupId: groupIds.extra },
-    { id: 'other-fixture', label: 'Invented fixture', class: 'discretionary', lunchMoneyCategoryGroupId: groupIds.other });
+  rows.forEach(row => { delete row.lunchMoneyCategoryGroupName; if (names[row.id] != null) row.lunchMoneyCategoryGroupName = names[row.id]; });
+  for (const id of ['extra', 'twin', 'retired']) {
+    if (names[id] != null) rows.push({ id, label: 'Invented ' + id, class: 'discretionary', lunchMoneyCategoryGroupName: names[id] });
+  }
   const payload = { ...H.rawPayload(w), categories, ...(budgets === undefined ? {} : { lunchMoneyBudgets: budgets }) };
   const result = Live.fromObservation({ data, payload, accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
   return { data: result.data, packet: result.data.liveOverlay.currentPeriodActuals };
@@ -147,35 +169,61 @@ function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 
     ok(fetched.lunchMoneyBudgets && fetched.lunchMoneyBudgets.status === 'read', 'the read is recorded');
   });
 
-  console.log('2-3. Per named group and period: the group budget, else the children, else null');
+  console.log('2-3. Per named row and period: the group budget, else the children, else null; names fail closed');
   const s = serve(fetched.lunchMoneyBudgets);
   const block = s.packet.lunchMoneyBudgets;
   ok(block && block.status === 'read' && block.granularity === 'month' && block.quantity === 1 && block.anchorDate === '2026-01-01',
-    'the packet carries the block with the budget period settings', JSON.stringify(block && { ...block, byGroup: undefined }));
-  ok(block && JSON.stringify(Object.keys(block.byGroup)) === JSON.stringify(['9100', '9200', '9400']),
-    'exactly the named Lunch Money groups (the fixture-style id names nothing)', JSON.stringify(block && Object.keys(block.byGroup)));
-  for (const id of ['9100', '9200', '9400']) {
-    ok(block && JSON.stringify(block.byGroup[id]) === JSON.stringify(expectedFor(id)),
-      `group ${id} as derived by hand`, JSON.stringify(block && block.byGroup[id]));
+    'the packet carries the block with the budget period settings', JSON.stringify(block && { ...block, byRow: undefined }));
+  ok(block && JSON.stringify(Object.keys(block.byRow)) === JSON.stringify(EXPECTED_ROWS),
+    'exactly the rows that name a group, keyed by Atlas row id', JSON.stringify(block && Object.keys(block.byRow)));
+  for (const id of ['groceries', 'restaurants']) {
+    ok(block && JSON.stringify(block.byRow[id]) === JSON.stringify(expectedFor(id)),
+      `${id} as derived by hand`, JSON.stringify(block && block.byRow[id]));
+  }
+  ok(block && JSON.stringify(block.byRow.extra) === JSON.stringify({ status: 'unavailable', reason: 'group-name-missing' }),
+    'a name no group carries fails closed (group-name-missing)', JSON.stringify(block && block.byRow.extra));
+  ok(block && JSON.stringify(block.byRow.twin) === JSON.stringify({ status: 'unavailable', reason: 'group-name-ambiguous' }),
+    'a name two groups carry (after trim and case) fails closed (group-name-ambiguous)', JSON.stringify(block && block.byRow.twin));
+  ok(block && JSON.stringify(block.byRow.retired) === JSON.stringify({ status: 'unavailable', reason: 'group-name-missing' }),
+    'a name only an archived group carries fails closed (group-name-missing)', JSON.stringify(block && block.byRow.retired));
+  {
+    // Dale renames the food group in Lunch Money: the row reads missing, the
+    // others are unchanged.
+    const renamed = CATEGORIES.map(c => c.id === 9100 ? { ...c, name: 'Invented food group (renamed)' } : c);
+    const r = serve(fetched.lunchMoneyBudgets, NAMES, renamed).packet.lunchMoneyBudgets;
+    ok(r && JSON.stringify(r.byRow.groceries) === JSON.stringify({ status: 'unavailable', reason: 'group-name-missing' }),
+      'a renamed group fails closed for its row (group-name-missing)', JSON.stringify(r && r.byRow.groceries));
+    ok(r && JSON.stringify(r.byRow.restaurants) === JSON.stringify(expectedFor('restaurants')),
+      'and only for its row: the other rows are unchanged');
   }
   const blob = JSON.stringify(block);
-  ok(!blob.includes('9300') && !blob.includes('301') && !blob.includes('999'), 'an unnamed group and its category never leave');
-  ok(!blob.includes('12345') && !blob.includes('Invented budget note') && !/cad|budgeted_amount|activity|available|notes/.test(blob),
+  ok(!blob.includes('9300') && !blob.includes('301') && !blob.includes('999') && !blob.includes('777'),
+    'an unnamed, archived or ambiguous group and its budgets never leave');
+  ok(!/9100|9200|9500|9600|9700|\b20[1-4]\b|Invented/.test(blob), 'no Lunch Money id or group name leaves');
+  ok(!blob.includes('12345') && !blob.includes('Invented budget note') && !/cad|budgeted_amount|activity|"available"|notes/.test(blob),
     'no activity, notes, currency text or raw field names');
   ok(O.currentPeriodActualsLooksSanitized(s.packet), 'positive control: the packet passes the sanitizer');
   const none = serve(fetched.lunchMoneyBudgets, {});
-  ok(none.packet.lunchMoneyBudgets && JSON.stringify(none.packet.lunchMoneyBudgets.byGroup) === '{}',
-    'a plan that names no group publishes no group', JSON.stringify(none.packet.lunchMoneyBudgets));
+  ok(none.packet.lunchMoneyBudgets && JSON.stringify(none.packet.lunchMoneyBudgets.byRow) === '{}',
+    'a plan that names no group publishes no row', JSON.stringify(none.packet.lunchMoneyBudgets));
 
   console.log('4. The structural sanitizer rejects anything else');
   const withBlock = b => ({ ...s.packet, lunchMoneyBudgets: b });
-  const period = patch => withBlock({ ...block, byGroup: { ...block.byGroup, 9100: [{ ...block.byGroup['9100'][0], ...patch }] } });
+  const period = patch => withBlock({ ...block, byRow: { ...block.byRow,
+    groceries: { status: 'read', periods: [{ ...block.byRow.groceries.periods[0], ...patch }] } } });
+  const row = entry => withBlock({ ...block, byRow: { ...block.byRow, groceries: entry } });
   ok(!O.currentPeriodActualsLooksSanitized(period({ activity: 5 })), 'an extra period key');
   ok(!O.currentPeriodActualsLooksSanitized(period({ budgeted: '500' })), 'a budget as text');
   ok(!O.currentPeriodActualsLooksSanitized(period({ level: 'category' })), 'an unknown level');
   ok(!O.currentPeriodActualsLooksSanitized(period({ budgeted: null })), 'null budget with a level');
   ok(!O.currentPeriodActualsLooksSanitized(period({ start: 'soon' })), 'a non-date start');
-  ok(!O.currentPeriodActualsLooksSanitized(withBlock({ ...block, byGroup: { 'Invented group': [] } })), 'a non-numeric group id');
+  ok(!O.currentPeriodActualsLooksSanitized(withBlock({ ...block, byRow: { 'Invented group': { status: 'read', periods: [] } } })),
+    'a row key that is not an Atlas row id');
+  ok(!O.currentPeriodActualsLooksSanitized(withBlock({ ...block, byRow: { 9100: { status: 'read', periods: [] } } })),
+    'an all-digit row key (the shape of a Lunch Money id)');
+  ok(!O.currentPeriodActualsLooksSanitized(row({ status: 'unavailable', reason: 'Invented free text' })), 'a free-text row reason');
+  ok(!O.currentPeriodActualsLooksSanitized(row({ status: 'unavailable', reason: 'group-name-missing', name: 'x' })), 'an extra row key');
+  ok(!O.currentPeriodActualsLooksSanitized(row([])), 'a row that is a bare list');
   ok(!O.currentPeriodActualsLooksSanitized(withBlock({ ...block, notes: 'x' })), 'an extra block key');
   ok(!O.currentPeriodActualsLooksSanitized(withBlock({ ...block, granularity: 'fortnight' })), 'an unknown granularity');
   ok(!O.currentPeriodActualsLooksSanitized(withBlock({ source: 'provider-observe:lunchmoney', status: 'unavailable',
@@ -188,12 +236,12 @@ function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 
     try { packet = Assistant.buildPacket({ data: s.data, periods: [], questionsMarkdown: '' }); } catch (e) { error = e; }
     ok(packet && !error, 'positive control: the assistant packet builds from the same served data', error && error.message);
     const a = JSON.stringify(packet || {});
-    ok(!/lunchMoneyBudgets|byGroup|350\.75/.test(a), 'the assistant packet carries no budget block');
+    ok(!/lunchMoneyBudgets|byRow|350\.75/.test(a), 'the assistant packet carries no budget block');
     const Snapshot = require('../scripts/figures-snapshot.js');
     let snap = null, snapError = null;
     try { snap = Snapshot.buildFiguresSnapshot(s.data, []); } catch (e) { snapError = e; }
     ok(snap && !snapError, 'positive control: the figures snapshot builds from the same served data', snapError && snapError.message);
-    ok(!/lunchMoneyBudgets|byGroup|350\.75/.test(JSON.stringify(snap || {})), 'the figures snapshot carries no budget block');
+    ok(!/lunchMoneyBudgets|byRow|350\.75/.test(JSON.stringify(snap || {})), 'the figures snapshot carries no budget block');
   }
 
   console.log('6. A failed read is unavailable and the observation still serves; nothing else moves');
@@ -228,12 +276,43 @@ function serve(budgets, groupIds = { groceries: 9100, restaurants: 9200, extra: 
       ok(replayed && !error, 'positive control: the live observation is a valid replay input', error && error.message);
       const a = serve(liveRead.lunchMoneyBudgets, undefined, liveRead.categories).packet.lunchMoneyBudgets;
       const b = replayed && serve(replayed.lunchMoneyBudgets, undefined, replayed.categories).packet.lunchMoneyBudgets;
-      ok(a && a.byGroup['9200'][0].budgeted === 100 && a.byGroup['9200'][0].level === 'children',
-        'live: 9200 in October is 40 + 60 = 100 from its children', JSON.stringify(a && a.byGroup['9200'][0]));
-      ok(b && JSON.stringify(b) === JSON.stringify(a), 'replayed: the same block, byte for byte', JSON.stringify(b && b.byGroup['9200'][0]));
+      const oct = x => x && x.byRow.restaurants.periods[0];
+      ok(oct(a) && oct(a).budgeted === 100 && oct(a).level === 'children',
+        'live: restaurants (group 9200) in October is 40 + 60 = 100 from its children', JSON.stringify(oct(a)));
+      ok(b && JSON.stringify(b) === JSON.stringify(a), 'replayed: the same block, byte for byte', JSON.stringify(oct(b)));
+      ok(b && b.byRow.twin.reason === 'group-name-ambiguous' && b.byRow.extra.reason === 'group-name-missing',
+        'replayed: the duplicate and the missing name fail closed exactly as live');
       const kept = replayed && JSON.stringify(replayed.lunchMoneyBudgets);
       ok(kept && !kept.includes('12345') && !kept.includes('Invented budget note') && !/budgeted_amount|activity|notes|cad/.test(kept),
         'the replay copy keeps no activity, notes or currency text');
+    });
+    // A rename, live and replayed.
+    const renamed = CATEGORIES.map(c => c.id === 9100 ? { ...c, name: 'Invented food group (renamed)' } : c);
+    await withStub(baseRoutes({ '/categories': { body: { categories: renamed } } }), async base => {
+      const liveRead = await live(base, '2026-10-14T18:00:00.000Z');
+      const replayed = Memory.sourceInputs(liveRead);
+      const a = serve(liveRead.lunchMoneyBudgets, undefined, liveRead.categories).packet.lunchMoneyBudgets;
+      const b = serve(replayed.lunchMoneyBudgets, undefined, replayed.categories).packet.lunchMoneyBudgets;
+      ok(a.byRow.groceries.reason === 'group-name-missing' && JSON.stringify(b) === JSON.stringify(a),
+        'a rename: live reads group-name-missing, and the replay is byte-identical', JSON.stringify(b && b.byRow.groceries));
+    });
+    // A malformed summary: live and replay give the same reason (carry (b)).
+    await withStub(baseRoutes({ '/summary': { body: { categories: 'not a list' } } }), async base => {
+      const liveRead = await live(base, '2026-10-14T18:00:00.000Z');
+      const replayed = Memory.sourceInputs(liveRead);
+      const a = serve(liveRead.lunchMoneyBudgets, undefined, liveRead.categories).packet.lunchMoneyBudgets;
+      const b = serve(replayed.lunchMoneyBudgets, undefined, replayed.categories).packet.lunchMoneyBudgets;
+      ok(a.reason === 'budget-summary-invalid' && JSON.stringify(b) === JSON.stringify(a),
+        'a malformed summary: live and replay both read budget-summary-invalid', JSON.stringify(b));
+    });
+    // Invalid settings: live and replay give the same reason.
+    await withStub(baseRoutes({ '/budgets/settings': { body: { budget_period_granularity: 'fortnight' } } }), async base => {
+      const liveRead = await live(base, '2026-10-14T18:00:00.000Z');
+      const replayed = Memory.sourceInputs(liveRead);
+      const a = serve(liveRead.lunchMoneyBudgets, undefined, liveRead.categories).packet.lunchMoneyBudgets;
+      const b = serve(replayed.lunchMoneyBudgets, undefined, replayed.categories).packet.lunchMoneyBudgets;
+      ok(a.reason === 'budget-settings-invalid' && JSON.stringify(b) === JSON.stringify(a),
+        'invalid settings: live and replay both read budget-settings-invalid', JSON.stringify(b));
     });
   }
 
