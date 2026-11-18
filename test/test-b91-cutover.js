@@ -104,8 +104,8 @@ ok(camp && near(camp.amount, CAMP) && camp.settledOn === PAYDAY,
   'live fusioncamp row is retained with settledOn 2026-08-14');
 ok(tryouts && near(tryouts.amount, TRYOUTS) && tryouts.settledOn === PAYDAY,
   'live tryouts row is retained with settledOn 2026-08-14');
-ok(F.commitmentStatus(camp) === 'settled' && F.commitmentStatus(tryouts) === 'settled',
-  'derived status is settled; the commitments were not deleted');
+ok(F.commitmentSettledOn(camp) === PAYDAY && F.commitmentSettledOn(tryouts) === PAYDAY,
+  'both rows read settled on 2026-08-14; the commitments were not deleted');
 ok(events9.some(e => e.id === 'fusioncamp' && near(e.amount, -CAMP)),
   'independent: an Aug. 9 opening still reserves $786');
 ok(!events16.some(e => e.id === 'fusioncamp' || e.id === 'tryouts'),

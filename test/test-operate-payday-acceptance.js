@@ -115,7 +115,8 @@ function question(html, number) {
 const PRIOR_SUITES = [
   ['AF-OPERATE-01', 'test-periods-lunchmoney.js'],
   ['AF-OPERATE-02', 'test-operating-surface.js'],
-  ['AF-OPERATE-03', 'test-operate-payday-action-sheet.js'],
+  // AF-OPERATE-03's action sheet (paydayAllocationSheetHtml) had no caller and
+  // was deleted with its suite; Forecast.paydayAllocation keeps its own suite.
   ['AF-OPERATE-05', 'test-operate-future-gravity.js'],
   ['AF-OPERATE-06', 'test-operate-debt-answer.js'],
 ];

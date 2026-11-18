@@ -305,12 +305,12 @@ console.log('\n=== non-purchase movements keep their incumbent identities ===');
   ok(income.kind === 'income',
     '7-Eleven -$50.00 credit flagged income -> income',
     describe(income));
-  // A debit (money leaving) in an income category is never income: it is
-  // household spending that needs confirmation.
+  // A debit (money leaving) in an income category is never income, and never
+  // household spending either (rank 18): it is held To confirm.
   const incomeDebit = classify(rawTx({ categoryLabel: 'Shopping', amount: 50.00, isIncome: true }));
-  ok(incomeDebit.kind === 'unclassified' && incomeDebit.needsConfirmation === true
-      && incomeDebit.householdSpending === true && incomeDebit.reason === 'income-category-debit',
-    '7-Eleven $50.00 debit flagged income -> spending needing confirmation, not income',
+  ok(incomeDebit.kind === 'held-outflow' && incomeDebit.needsConfirmation === true
+      && incomeDebit.householdSpending === false && incomeDebit.reason === 'income-category-debit',
+    '7-Eleven $50.00 debit flagged income -> held To confirm, not income or spending',
     describe(incomeDebit));
   // Another owner still claims an income-flagged debit first, so it is
   // counted once: a card payment stays a card payment, a transfer a transfer.

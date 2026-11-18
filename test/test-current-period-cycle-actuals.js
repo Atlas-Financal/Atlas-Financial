@@ -164,17 +164,15 @@ for (const coverageStart of ['2026-08-19', '2026-09-25', '2026-09-26']) {
     assert.ok(keep.floor && keep.floor.amount === 300 && keep.floor.trust === 'calculated',
       'the known prior unresolved cash debit is the floor under the unknown keep');
     assert.match(keep.reason, /at least .*the rest .*unknown/i);
-    // The page path the household reads, not only the engine.
-    const vm = require('node:vm');
-    const fs = require('node:fs');
-    const { sourceText } = require('./test-source-text');
-    const ctx = vm.createContext({ escapeHtml: require('./app-escape-html'), fmtDate: v => v, fmtDateLong: v => v,
-      money2: n => '$' + Number(n).toFixed(2), Forecast: F, window: {} });
-    vm.runInContext(sourceText(fs.readFileSync(require('node:path').join(__dirname, '../public/plan.js'), 'utf8')), ctx);
-    const sheet = ctx.paydayAllocationSheetHtml(rec.paydayAllocation);
-    assert.match(sheet, /At least \$300\.00/, 'the page shows the floor as "at least"');
-    assert.match(sheet, /unknown until transactions catch up/);
-    assert.ok(!/Forecast requires no separate future-path cash hold/.test(sheet), 'the page never reads the unknown keep as no hold');
+    // The page path the household reads, not only the engine: the Today
+    // card's "Keep for later" on the live Budget surface.
+    const { loadBudgetPage } = require('./lib/budget-page-harness');
+    const card = loadBudgetPage({ Forecast: F }).get('budgetTodayCashCardHtml')({
+      advice: rec, plan, asOf, debts: [], liveOverlay: null });
+    const keepHtml = (/<div class="budget-cash-keep"[\s\S]*?<\/div>/.exec(card) || [''])[0];
+    assert.match(keepHtml, /At least \$300\.00/, 'the page shows the floor as "at least"');
+    assert.match(keepHtml, /unknown until transactions catch up/);
+    assert.ok(!/After bills &amp; essentials/.test(keepHtml), 'the page never reads the unknown keep as a complete hold');
     continue;
   }
   if (coverageStart !== '2026-09-26') checkAllocation(rec.paydayAllocation);

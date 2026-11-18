@@ -63,3 +63,9 @@ Each is the lead's record of Dale's decision.
 | OD-021 | 2026-11-17 | Consulting Grok Bot under rule 17 is paused for the current Lunch Money push; ledger edits stay Dale-confirmed. | `CLAUDE.md` rule 17 ("Consultation paused") | [#821 6964009921](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-6964009921) | settled |
 | OD-022 | 2026-11-17 | When today's cash cannot be confirmed, future pay periods still show their figures tagged estimated, not Unavailable; today's cash stays withheld. | Not yet written into a file; the change goes through the full lane | [#821 6964438984](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-6964438984) | settled |
 | OD-023 | 2026-11-17 | A bill's reviewed Lunch Money recurring item leads its cadence as well as its day; anything Atlas cannot map safely falls back to the plan's cadence, tagged estimated. | Not yet written into a file | [#821 6964438984](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-6964438984) | settled |
+
+## #821, 2026-11-18
+
+| ID | Date | Decision | Rule lives in | Source | Status |
+|---|---|---|---|---|---|
+| OD-024 | 2026-11-18 | Rent received from a tenant into Bills counts as Other Income and is then moved to savings by the owner; it nets to zero. | No change needed: the Bills-to-savings transfer pair is an internal movement in `public/forecast.js` (`householdInternalMovements`), so the pair nets to zero | [#821 6978494592](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-6978494592) | settled |

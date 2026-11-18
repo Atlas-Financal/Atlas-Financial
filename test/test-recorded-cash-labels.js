@@ -19,7 +19,6 @@ eq(index.indexOf('id="recorded-balances"') < index.indexOf('id="road-ahead" hidd
 eq(index.includes('<summary>Recorded account balances</summary>'), true, 'native Budget evidence disclosure');
 const data = fx.data(), before = JSON.stringify(data);
 eq(F.startingCashAmount(data.plan), 1375, 'independent native Bills1215 plus Weekly160; Reserve973.58 excluded');
-eq(F.deepDive(data).cashAmount, 1375, 'Deep Dive prints the identical native scope');
 const advice = F.recommend(data.plan, data.meta.asOf, { debts: data.debts,
   operatingPlan: data.liveOverlay.operatingPlan, observedCash: data.liveOverlay.observedCash,
   currentPeriodActuals: data.liveOverlay.currentPeriodActuals });

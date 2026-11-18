@@ -94,7 +94,10 @@ withheld(run(world([purchase, cashLeg(105), cardCredit(105), cashLeg(105, null, 
   check(debit.cardPaymentNoteDestination === 'travelvisa', 'the observer stamps the named card');
   check(!JSON.stringify(same.packet).includes('card payment:'), 'the note text never enters the packet');
   ready(noted('  CARD PAYMENT: travel visa  '), 'note name is case-insensitive');
-  withheld(noted('card payment: TD Cash Back Visa ...9999'), 'coverage-payment-destination-unconfirmed',
+  // The note alone now names the card (lead dispatch, census rank 1): the
+  // debit pays Cash Back by its note, so the Travel Visa credit is the leg
+  // left without a source. Still withheld; never paired by the amount.
+  withheld(noted('card payment: TD Cash Back Visa ...9999'), 'coverage-payment-source-unconfirmed',
     'note names another card: the amount match does not override it');
   withheld(noted('card payment: Invented Personal Card ...9999'), 'coverage-payment-destination-unconfirmed',
     'note names a card outside the table: unknown, never guessed');
@@ -107,7 +110,7 @@ withheld(run(world([purchase, cashLeg(105), cardCredit(105), cashLeg(105, null, 
     const onTravel = noted(personal);
     check(onTravel.packet.transactions.find(t => t.amount === 105).cardPaymentNoteDestination === 'tdcc',
       'the personal card note stamps tdcc');
-    withheld(onTravel, 'coverage-payment-destination-unconfirmed', 'a TD Personal note never pairs with a Travel Visa credit');
+    withheld(onTravel, 'coverage-payment-source-unconfirmed', 'a TD Personal note never pairs with a Travel Visa credit');
     const onTdcc = run(world([purchase, cashLeg(105, null, { notes: personal }), cardCredit(105)], { card: 'tdcc' }));
     ready(onTdcc, 'the personal card note pairs with a credit on its own card (tdcc)');
     check(onTdcc.coverage.payments.length === 1, 'tdcc: exactly one payment');

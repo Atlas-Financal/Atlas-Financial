@@ -11,11 +11,12 @@
 //
 // Cases:
 //   1. a 50 debit out of chequing in income category "Payroll" is not
-//      income: Income stays 1,400, the 50 shows as Other spending needing a
-//      category, and BAD is 1,000 - 50 = 950 (never 1,050);
+//      income: Income stays 1,400, the 50 is held To confirm (rank 18: never
+//      household spending, deducted once as its own term), and BAD is
+//      1,000 - 50 = 950 (never 1,050);
 //   2. a reversed paycheque (a 1,400 debit in "Payroll") is not a second
-//      income: Income stays 1,400 (never 2,800) and BAD is 1,000 - 1,400 =
-//      -400 (never 2,400);
+//      income: Income stays 1,400 (never 2,800), the 1,400 is held To confirm,
+//      and BAD is 1,000 - 1,400 = -400 (never 2,400);
 //   3. an income-category debit that pays a represented 37 bill is counted
 //      once, as the bill: BAD 1,200 - 150 - 50 - 37 = 963 (Atlas review);
 //   4. positive control: a genuine 50 credit in "Payroll" from another payer
@@ -38,9 +39,11 @@ function paydayBalance(s) {
   return m ? m[1] : '';
 }
 function otherSpending(s) { return H.category(s, 'Other spending'); }
+// The browse note under Spending (rank 18), read from the whole page text.
+function toConfirm(s) { return (s.all.match(/To confirm\s*[−-]?\$[\d,]+\.\d\d\s*\d+ payments? · not counted as spending/) || [''])[0]; }
 
 const cases = [
-  ['a debit in an income category is spending, not income', async () => {
+  ['a debit in an income category is held To confirm, never income or spending', async () => {
     const w = world();
     w.transactions.push(H.lm({ date: '2026-10-12', amount: 50, category: 'Payroll', account: 'chequing-a', payee: 'Invented clawback' }));
     await H.withBudget(w, async p => {
@@ -49,7 +52,8 @@ const cases = [
       H.expect(paydayBalance(s) === '$1,400.00', `payday balance stays 1,400 (got ${paydayBalance(s) || 'nothing'})`);
       H.expectNoMatch(s.income, /Other income\s*\$50\.00/, 'the debit is not other income');
       H.expectNoMatch(s.income, /Received\s*\$50\.00/, 'the debit is not received income');
-      H.expectMatch(otherSpending(s), /Other spending\$50\.00/, 'the debit is Other spending of 50');
+      H.expectMatch(toConfirm(s), /To confirm\s*\$50\.00\s*1 payment · not counted as spending/, 'the debit is held To confirm: 50');
+      H.expect(!otherSpending(s).includes('$50.00'), 'the debit is not Other spending (got ' + (otherSpending(s) || 'no Other row') + ')');
       H.expect(bad(s) === '$950.00', `BAD is 1,000 - 50 = 950 (got ${bad(s) || 'nothing'})`);
     });
   }],
@@ -61,7 +65,8 @@ const cases = [
       H.expectMatch(s.income, /^\W*Income/, 'positive control: the Income step is rendered');
       H.expect(paydayBalance(s) === '$1,400.00', `payday balance stays 1,400, never 2,800 (got ${paydayBalance(s) || 'nothing'})`);
       H.expectExcludes(s.income, '$2,800.00', 'income is never doubled');
-      H.expectMatch(otherSpending(s), /Other spending\$1,400\.00/, 'the reversal is Other spending of 1,400');
+      H.expectMatch(toConfirm(s), /To confirm\s*\$1,400\.00\s*1 payment · not counted as spending/, 'the reversal is held To confirm: 1,400');
+      H.expect(!otherSpending(s).includes('$1,400.00'), 'the reversal is not Other spending (got ' + (otherSpending(s) || 'no Other row') + ')');
       H.expect(bad(s) === '-$400.00', `BAD is 1,000 - 1,400 = -400 (got ${bad(s) || 'nothing'})`);
     });
   }],

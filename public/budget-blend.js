@@ -676,6 +676,7 @@
     paintHeroTop(hero);
     joinResultLabel(hero);
     paintTermSlots(hero);
+    paintExtraTermSlots(hero);
     markResultClosed(hero);
     splitPrintedCents(hero.querySelector('[data-blend-term="balanceAfterDeductions"]'));
     paintAfterFunding(hero);
@@ -921,6 +922,51 @@
     label.textContent = words;
     // After the figure (and its est. chip): the heading text stays as printed.
     slot.parentElement.appendChild(label);
+  }
+
+  // Forecast's own extra deductions (rank 18): a held To confirm term and
+  // linked savings-item spending. Each gets its own face slot only when
+  // Forecast publishes that term for the period, so a normal period's face
+  // is unchanged. The slot copies the printed term; no arithmetic, and the
+  // held money is never shown as Household budget.
+  const EXTRA_TERMS = [
+    ['heldOutflowSpending', 'To confirm'],
+    ['savingsItemSpending', 'Savings items'],
+  ];
+  function paintExtraTermSlots(hero) {
+    hero.querySelectorAll('[data-blend-extra-term], .blend-minus.is-extra').forEach(node => node.remove());
+    hero.classList.remove('has-extra-terms-1', 'has-extra-terms-2');
+    const block = badTermsBlock(hero);
+    const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
+    let anchor = hero.querySelector('[data-operating-question="06"]');
+    if (!block || !anchor) return;
+    let n = 0;
+    EXTRA_TERMS.forEach(([name, label]) => {
+      const row = block.querySelector('[data-bad-term="' + name + '"]');
+      if (!row) return;
+      n += 1;
+      const sep = document.createElement('span');
+      sep.className = 'blend-minus is-extra is-extra-' + n;
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '−';
+      const cell = document.createElement('div');
+      cell.className = 'budget-step blend-extra-term is-extra-' + n;
+      cell.setAttribute('data-blend-extra-term', name);
+      const prompt = document.createElement('span');
+      prompt.className = 'operating-prompt';
+      prompt.textContent = label;
+      const value = document.createElement('span');
+      value.className = 'budget-step-value';
+      const summary = document.createElement('div');
+      summary.className = 'budget-step-summary';
+      summary.append(prompt, value);
+      cell.append(summary);
+      anchor.after(sep);
+      sep.after(cell);
+      paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      anchor = cell;
+    });
+    if (n) hero.classList.add('has-extra-terms-' + n);
   }
 
   function paintTermSlots(hero) {

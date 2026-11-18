@@ -12,10 +12,9 @@
  * a value computed by the code under test.
  *
  * Measured through the engine (Forecast.spendableHouseholdCash,
- * paydayAllocation, recommend, simulate, deepDive, chequingAvailability)
+ * paydayAllocation, recommend, simulate, chequingAvailability)
  * and the page paths that print it: the Budget hero tile and payday
- * "Money available" (public/plan.js) and the Deep Dive cash tile
- * (public/deepdive.js).
+ * "Money available" (public/plan.js).
  *
  * `node test/test-unknown-chequing-opening-spendable.js`
  */
@@ -138,8 +137,6 @@ for (const [name, row] of UNKNOWN_ROWS) {
     'Budget hero tile reader prints unavailable even outside the operating gate', ungated && ungated.val);
   const hero = paydayHero(plan, alloc);
   ok(/>unavailable</.test(hero) && !PRECISE.test(hero), 'payday "Money available" prints unavailable', hero);
-  const dive = F.deepDive({ plan });
-  ok(dive.cashAmount === null, 'deepDive.cashAmount is Unknown', `got ${dive.cashAmount}`);
   const cheq = C.chequingAvailability(plan, OVERDRAFT, null);
   ok(cheq.status === 'unavailable' && cheq.available === null,
     'chequingAvailability is unavailable', `status=${cheq.status} available=${cheq.available}`);
@@ -151,7 +148,6 @@ console.log('\nChequing A 250, Chequing B unknown:true 300');
   const plan = fixture({ id: 'chequing-a', value: 250 }, { id: 'chequing-b', value: 300, unknown: true });
   ok(F.spendableHouseholdCash(plan) === null, 'spendable household cash is Unknown');
   ok(F.paydayAllocation(plan, AS_OF, {}).available === null, 'paydayAllocation.available withheld');
-  ok(F.deepDive({ plan }).cashAmount === null, 'deepDive.cashAmount Unknown');
   ok(C.chequingAvailability(plan, OVERDRAFT, null).status === 'unavailable', 'chequingAvailability unavailable');
 }
 
@@ -215,7 +211,6 @@ for (const [name, aValue, expected] of [
   const alloc = F.paydayAllocation(plan, AS_OF, {});
   ok(alloc.available === expected && alloc.opening === expected && !alloc.openingCash,
     `paydayAllocation.available = ${expected}`, `got ${alloc.available}`);
-  ok(F.deepDive({ plan }).cashAmount === expected, `deepDive.cashAmount = ${expected}`);
   const sim = F.simulate(plan, AS_OF, {});
   ok(sim.status !== 'unavailable' && typeof sim.ending === 'number', 'simulate publishes its walk');
   const tile = planPage.currentOperatingCashHeroTiles(plan, AS_OF, { events: [] }, {}, null)

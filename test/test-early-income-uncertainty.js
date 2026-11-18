@@ -21,7 +21,7 @@ function run(input) {
   eq(out.writesCanonicalState, false, 'no canonical write');
   eq(out.data.plan.income, input.data.plan.income, 'salary amount and calendar untouched');
   eq(out.data.plan.bills, input.data.plan.bills, 'bill policy untouched');
-  const sim = F.simulate(out.data.plan, input.asOf, { horizonDays: 3, weeklyVariable: 0 });
+  const sim = F.simulate(out.data.plan, input.asOf, { horizonDays: input.horizonDays || 3, weeklyVariable: 0 });
   return { ...out, report, sim };
 }
 const retained = [];
@@ -35,7 +35,7 @@ for (const kind of ['amanda', 'payroll']) {
   eq(out.data.liveOverlay.operatingPlan, 'unavailable', kind + ': current operating claims held');
   eq(out.sim.status, 'unavailable', kind + ': standalone cash walk held');
   eq(out.sim.ending, null, kind + ': duplicate projected closing cash withheld, not zero');
-  eq(out.sim.daily.map(row => row.balance), [null, null, null], kind + ': no daily forward cash leak');
+  eq(out.sim.daily.map(row => row.balance), Array(input.horizonDays).fill(null), kind + ': no daily forward cash leak');
   eq(out.sim.events.filter(row => row.kind === 'income').map(row => row.amount), [input.amount], kind + ': planned occurrence retained');
   eq(F.recommendWeekly(out.data.plan, input.asOf), null, kind + ': direct spend permission held');
 }
@@ -45,7 +45,8 @@ for (const kind of ['amanda', 'payroll']) {
 // the gate: Amanda 2800.25 + 1800.25 - 3000 = 1600.50; payroll 3500 + 2500
 // - 3000 = 3000. Neither margin is justified by a second observed receipt.
 for (const kind of ['amanda', 'payroll']) {
-  const input = fixture(kind), date = F.addDays(input.asOf, 2);
+  // The day after the payday (payroll: the plan date + 2, as before; Amanda: after her Oct 31 payday).
+  const input = fixture(kind), date = F.addDays(input.scheduled, 1);
   input.data.plan.commitments = [{ id: 'invented-future-price', label: 'Invented future price',
     date, amount: 3000, flexibility: 'fixed', confidence: 'confirmed' }];
   const out = run(input), plan = out.data.plan, before = JSON.stringify(out.data);
@@ -150,24 +151,54 @@ function negative(name, mutate, kind = 'amanda') {
   eq(Object.hasOwn(out.report, 'incomeReconciliation'), false, name + ': no qualified overlap manufactured');
 }
 const row = (x, id) => x.payload.transactions.find(tx => tx.id === id);
+// The early-receipt hold on its own (#1334 pre-review): a business note on the Bills credit is one of the near-amount
+// rule's exclusions, so the U6 early plain-credit hold ignores that credit, while this hold, which reads the TENNIS
+// INCOME transfer, its leg and the source deposit, never reads the note. With it, each source-side condition is
+// proved by this hold alone: the unchanged packet holds, and every source change below holds nothing.
+const sourceHoldOnly = x => { row(x, 'invented-transfer-credit').notes = 'Invented business note'; };
+{
+  const input = fixture('amanda'); sourceHoldOnly(input);
+  const out = run(input);
+  eq(out.report.incomeReconciliation && out.report.incomeReconciliation.status, 'unavailable',
+    'early-receipt hold alone: the full TENNIS packet holds with the U6 hold excluded');
+}
+const sourceNegative = (name, mutate) => negative(name + ' (early-receipt hold alone)', x => { sourceHoldOnly(x); mutate(x); });
+sourceNegative('no employer receipt', x => x.payload.transactions.shift());
+sourceNegative('coaching source deposit', x => row(x, 'invented-employer-receipt').payee = 'INVENTED COACHING CLIENT');
+sourceNegative('source and transfer amounts differ', x => row(x, 'invented-employer-receipt').amount = -1733.18);
+sourceNegative('non-income source', x => { row(x, 'invented-employer-receipt').is_income = false; row(x, 'invented-employer-receipt').category_name = 'Transfer'; });
+sourceNegative('invented-employer-receipt pending', x => row(x, 'invented-employer-receipt').is_pending = true);
+sourceNegative('invented-employer-receipt foreign currency', x => row(x, 'invented-employer-receipt').currency = 'usd');
+sourceNegative('invented-employer-receipt contradictory', x => row(x, 'invented-employer-receipt').contradictoryEvidence = true);
+// U6 (lead, boundary (ii)): the Bills credit alone is an early pay under the owner's rule (a TENNIS INCOME transfer
+// at the scheduled amount, five business days early), so it holds the plan whatever the source deposit shows. Each
+// case changes only the source deposit; each was a no-hold case before the early plain-credit hold.
+function heldByBillsCredit(name, mutate) {
+  const input = fixture('amanda'); mutate(input);
+  const out = run(input);
+  eq(out.report.incomeReconciliation && out.report.incomeReconciliation.status, 'unavailable',
+    name + ': the early Bills credit alone holds the plan');
+  eq(out.data.plan.opening.representedEvents, [], name + ': the early Bills credit settles nothing');
+}
 negative('no incoming Bills credit', x => x.payload.transactions.pop());
 negative('untransferred external salary', x => x.payload.transactions.splice(1));
-negative('no employer receipt', x => x.payload.transactions.shift());
-negative('coaching merchant', x => row(x, 'invented-employer-receipt').payee = 'INVENTED COACHING CLIENT');
+heldByBillsCredit('no employer receipt', x => x.payload.transactions.shift());
+heldByBillsCredit('coaching source deposit', x => row(x, 'invented-employer-receipt').payee = 'INVENTED COACHING CLIENT');
 negative('wrong payroll merchant', x => x.payload.transactions[0].payee = 'INVENTED OTHER EMPLOYER', 'payroll');
 negative('wrong Bills account', x => row(x, 'invented-transfer-credit').account_id = 'invented-cash-1');
 negative('wrong payroll account', x => x.payload.transactions[0].account_id = 'invented-cash-1', 'payroll');
 negative('wrong external identity', x => x.accountMap.mappings[3].externalId = 'invented-other-source');
 negative('wrong external role', x => x.accountMap.mappings[3].atlasRole = 'household-reserve');
-negative('source and transfer amounts differ', x => row(x, 'invented-employer-receipt').amount = -1733.18);
+heldByBillsCredit('source and transfer amounts differ', x => row(x, 'invented-employer-receipt').amount = -1733.18);
 negative('counterpart amount differs', x => row(x, 'invented-transfer-debit').amount = 1733.18);
-negative('non-income source', x => { row(x, 'invented-employer-receipt').is_income = false; row(x, 'invented-employer-receipt').category_name = 'Transfer'; });
+heldByBillsCredit('non-income source', x => { row(x, 'invented-employer-receipt').is_income = false; row(x, 'invented-employer-receipt').category_name = 'Transfer'; });
 negative('payroll debit', x => x.payload.transactions[0].amount = 2500, 'payroll');
 negative('zero payroll', x => x.payload.transactions[0].amount = 0, 'payroll');
 for (const id of ['invented-employer-receipt', 'invented-transfer-debit', 'invented-transfer-credit']) {
-  negative(id + ' pending', x => row(x, id).is_pending = true);
-  negative(id + ' foreign currency', x => row(x, id).currency = 'usd');
-  negative(id + ' contradictory', x => row(x, id).contradictoryEvidence = true);
+  const check = id === 'invented-employer-receipt' ? heldByBillsCredit : negative;
+  check(id + ' pending', x => row(x, id).is_pending = true);
+  check(id + ' foreign currency', x => row(x, id).currency = 'usd');
+  check(id + ' contradictory', x => row(x, id).contradictoryEvidence = true);
 }
 negative('pending payroll', x => x.payload.transactions[0].is_pending = true, 'payroll');
 negative('foreign payroll', x => x.payload.transactions[0].currency = 'usd', 'payroll');

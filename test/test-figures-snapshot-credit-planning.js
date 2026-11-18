@@ -72,7 +72,7 @@ const PLAN_KEYS_ON_MAIN = [
   'debt.interestOverWindow',   'debt.overLimit.triangle', 'debt.overLimit.travelvisa', 'balance.assets', 'balance.debts',
   'balance.consumerDebtPosted', 'balance.consumerDebtPending',
   'balance.consumerDebtEffective', 'balance.securedDebt', 'heloc.vsLastMonth',
-  'heloc.vsLastMonthVerdict', 'heloc.currentOpening', 'action.next',
+  'heloc.vsLastMonthVerdict', 'action.next',
   'action.nextAmount', 'action.nextDue', 'action.openCount', 'policy.nextDollarTarget',
 ];
 
@@ -600,6 +600,34 @@ console.log('\n=== live household surfaces are covered ===');
     same(snap[`planning.${r.id}.amountMin`], round(r.amountMin))
     && same(snap[`planning.${r.id}.amountMax`], round(r.amountMax))),
     `live ranges (${ranges.map(r => r.id).join(', ') || 'none'}) keep min/max`);
+}
+
+console.log('\n=== 6. The snapshot no longer reads Forecast.deepDive (#822 slice 10 precondition) ===');
+{
+  // The removed Deep Dive page was the only publisher of heloc.currentOpening.
+  // The HELOC's posted opening stays observed through Forecast.utilisation
+  // (revolving.heloc.posted) and the scoreboard (scoreboard.today.heloc).
+  const src = fs.readFileSync(path.join(ROOT, 'scripts/figures-snapshot.js'), 'utf8');
+  ok(!/\bdeepDive\s*\(/.test(src.replace(/\/\/.*$/gm, '')), 'figures-snapshot.js never calls deepDive');
+  // #822 slice 10 retired Forecast.deepDive; nothing may reach for it again.
+  ok(F.deepDive === undefined, 'Forecast no longer exports deepDive');
+  let calls = 0;
+  F.deepDive = () => { calls++; throw new Error('deepDive was retired'); };
+  let creditSnap, liveSnap;
+  try {
+    creditSnap = buildFiguresSnapshot(creditFixture(), null);
+    liveSnap = buildFiguresSnapshot(live, periods);
+  } finally {
+    delete F.deepDive;
+  }
+  ok(calls === 0, 'building the credit fixture and household snapshots calls Forecast.deepDive 0 times', String(calls));
+  ok(!Object.prototype.hasOwnProperty.call(creditSnap, 'heloc.currentOpening')
+    && !Object.prototype.hasOwnProperty.call(liveSnap, 'heloc.currentOpening'),
+    'heloc.currentOpening is no longer a snapshot key');
+  // Invented fixture: the HELOC is posted at 90000 with 0 pending, limit 100000.
+  ok(creditSnap['revolving.heloc.posted'] === 90000 && creditSnap['scoreboard.today.heloc'] === 90000,
+    'the HELOC posted opening (90000) is still observed by revolving.heloc.posted and scoreboard.today.heloc',
+    `${creditSnap['revolving.heloc.posted']} / ${creditSnap['scoreboard.today.heloc']}`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
