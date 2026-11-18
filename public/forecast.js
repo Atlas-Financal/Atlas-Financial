@@ -11340,6 +11340,7 @@
   // Grok Bot (Plan #6, 2026-11-17): "card payment: TD Personal Credit Card".
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
     'td personal credit card': 'tdcc' });
+  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -14168,21 +14169,39 @@
       }
       const near = (a, b) => a.cents === b.cents
         && Math.abs(diffDays(a.tx.date, b.tx.date)) <= CARD_PAYMENT_PAIR_DAYS;
-      // Mutually unique pairing. The card leg fixes the card and the period.
+      // A card leg and a cash leg can pair when they are near, and a TD
+      // "PAYMENT - THANK YOU" credit only with a TD "TFR-TO C/C" debit whose
+      // note names no card or this card.
+      const matches = (card, cash) => near(card, cash)
+        && (!tdPaymentCreditOnly(card.tx) || (cash.tx.tdCardPaymentIdentity === true
+          && (cash.tx.cardPaymentNoteDestination == null || cash.tx.cardPaymentNoteDestination === card.account)));
+      // The card a posted TD "TFR-TO C/C" debit pays by its note: exactly one
+      // card in the fixed name table that the plan maps as a revolving card.
+      const notePays = leg => leg.tx.pending === false && leg.tx.tdCardPaymentIdentity === true
+        && CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)
+        && debtRows.some(d => d.id === leg.tx.cardPaymentNoteDestination) ? leg.tx.cardPaymentNoteDestination : null;
+      // Mutually unique pairing. The card leg fixes the card and the period,
+      // except that a noted debit's own date fixes it (notePays).
       const pairLegs = (cardLegs, cashLegs, reserveLegs, missing) => {
         const pairs = [];
         for (const leg of cardLegs) {
-          const counted = leg.tx.date >= origin;
           // Owner rule (Dale, via the lead): money onto the card counts
           // whatever household account it comes from, Savings included.
-          const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other)
-            && (!tdPaymentCreditOnly(leg.tx) || (other.tx.tdCardPaymentIdentity === true
-              && (other.tx.cardPaymentNoteDestination == null || other.tx.cardPaymentNoteDestination === leg.account))));
-          const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
+          const cash = [...cashLegs, ...reserveLegs].filter(other => matches(leg, other));
+          // The same predicate in both directions (census rank 1): a cash
+          // leg whose note names one card does not also count as "near" an
+          // equal same-day credit on another card.
+          const back = cash.length === 1 ? cardLegs.filter(other => matches(other, cash[0])) : [];
+          // A debit whose note names this card is a payment on the debit's own
+          // date, credit or no credit (#1298 review): one date for both paths,
+          // so a later credit across an opening rollover cannot count it again.
+          const date = cash.length === 1 && back.length === 1 && notePays(cash[0]) === leg.account
+            ? cash[0].tx.date : leg.tx.date;
+          const counted = date >= origin;
           if (cash.length === 1 && back.length === 1) {
             cash[0].paired = true;
-            if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0] });
-          } else if (!counted || leg.tx.pending === true) continue;
+            if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0], date });
+          } else if (leg.tx.date < origin || leg.tx.pending === true) continue;
           else if (!cash.length) issue(missing, leg.tx.coverageRef);
           else issue('coverage-payment-pair-ambiguous', leg.tx.coverageRef);
         }
@@ -14200,8 +14219,21 @@
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
-      const paid = [...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed'), ...payDown]
-        .filter(billsLeg);
+      const creditPairs = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
+      // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
+      // exactly one card in the fixed table is a payment to that card on its
+      // own. A card credit that pairs with it (above) wins and is counted
+      // once; only a debit no card leg claimed is paid by its note here. A
+      // missing, unknown or two-card note is unchanged (destination unconfirmed).
+      const notePaid = [];
+      for (const leg of [...legs.cashDebit, ...legs.reserveDebit]) {
+        const account = notePays(leg);
+        if (leg.paired || leg.tx.date < origin || !account) continue;
+        leg.paired = true;
+        notePaid.push({ card: { tx: leg.tx, account, cents: leg.cents }, cash: leg, date: leg.tx.date });
+      }
+      const paid = [...creditPairs, ...notePaid, ...payDown].filter(billsLeg);
       // A cash leg that already represents a scheduled occurrence (a card
       // minimum, a card-paid bill) settles that occurrence first; only the
       // rest of the pair can cover purchases, so one cash event never
@@ -14267,7 +14299,7 @@
         else if (!row.pending) bucket(row.accountId, row.date)?.purchases.push(row);
       }
       for (const row of refundRows) bucket(row.account, row.tx.date)?.refunds.push(row);
-      for (const pair of paid) bucket(pair.card.account, pair.card.tx.date)?.payments.push(pair);
+      for (const pair of paid) bucket(pair.card.account, pair.date || pair.card.tx.date)?.payments.push(pair);
       for (const pair of reversed) bucket(pair.card.account, pair.card.tx.date)?.reversals.push(pair);
       // Owner amendment (lead, #787, amends 6641053911): per card and period
       // the required inflow is the minimum due in the period plus net new
@@ -15412,6 +15444,7 @@
     // estimate rides beside the next period, never as its opening.
     let cardMatchSeedEstimated = false, cardMatchOpeningEstimate = null;
     let unavailableOpeningLost = false;
+    let cashOnlyUnconfirmed;
     // An invalid declared target or buffer leaves the plan's own inputs
     // unreadable: no projected opening or sweep may be re-derived from the
     // fallback walk (it would read as more cash than the plan allows, with the
@@ -15492,7 +15525,23 @@
       // wall-clock as-of. A later payday window whose opening was the
       // unavailable current period's ending is also not a normal
       // current-looking / future waterfall.
-      const planUnavailable = opts.operatingPlan === 'unavailable'
+      // Owner decision (Dale, 2026-11-17, #821 6964438984): when today's
+      // cash cannot be confirmed, only the current period is withheld. A
+      // later period still publishes its own income, bills, Household and
+      // Balance After Deductions, none of which needs an opening, tagged
+      // estimated. Its opening stays unknown (openingChainLost), so every
+      // opening-dependent close, carry and sweep stays unknown with it.
+      // Only a cash-only problem releases a later period: an unresolved
+      // income occurrence or card minimum reaches that period's own income,
+      // bills and Household, so every period stays withheld exactly as before.
+      if (opts.operatingPlan === 'unavailable' && role === 'future' && unavailableOpeningLost
+          && cashOnlyUnconfirmed === undefined) {
+        cashOnlyUnconfirmed = opts.incomeReconciliation?.status !== 'unavailable'
+          && cardMinimumState(plan, asOf, opts).status !== 'unavailable';
+      }
+      const unconfirmedOpeningFuture = opts.operatingPlan === 'unavailable'
+        && role === 'future' && unavailableOpeningLost && cashOnlyUnconfirmed === true;
+      const planUnavailable = opts.operatingPlan === 'unavailable' && !unconfirmedOpeningFuture
         && (role === 'active' || (role === 'future' && unavailableOpeningLost));
       if (role === 'lookback') {
         if (window.cycle) budgetOpts.cycle = window.cycle;
@@ -16045,6 +16094,7 @@
       if (planUnavailable) {
         previousEnding = null;
         unavailableOpeningLost = true;
+        openingChainLost = true;
       } else if (role === 'active' || (role === 'future' && openingKnown)) {
         // The next period opens from this period's physical cash leftover
         // (availableRemainder) minus the published payday sweep, so the
@@ -16352,6 +16402,8 @@
                     ? 'Opening this pay period. Carried forward, not income.'
                     : null))))),
       });
+      if (unconfirmedOpeningFuture) estimateUnconfirmedOpeningPeriod(periods[periods.length - 1],
+        opts.operatingPlanNote || 'Current plan unavailable. The dated opening is stale.');
     }
     const active = periods.find(p => p.role === 'active') || periods[0] || null;
     if (active && active.role === 'active') {
@@ -19141,6 +19193,50 @@
     return result;
   }
 
+  // A later pay period while today's cash is unconfirmed (#821 6964438984).
+  // Its income, bills, Household and Balance After Deductions do not depend on
+  // the unknown opening, so they stay published, never more certain than
+  // estimated. Decision figures and anything built on the opening are withheld.
+  function estimateUnconfirmedOpeningPeriod(period, note) {
+    if (!period) return period;
+    const estimated = tag => tag === 'unavailable' ? 'unavailable' : 'estimated';
+    for (const key of ['incomeTrust', 'periodBillLoadTrust', 'afterBillsTrust', 'balanceAfterDeductionsTrust'])
+      period[key] = estimated(period[key]);
+    if (period.budgetHold != null) period.budgetHoldTrust = estimated(period.budgetHoldTrust);
+    // Each listed line is capped the same way, on a copy so no shared row changes.
+    const capRow = row => {
+      if (!row || typeof row !== 'object') return row;
+      const copy = { ...row };
+      for (const key of Object.keys(copy)) if (/Trust$/.test(key) && ['calculated', 'verified'].includes(copy[key])) copy[key] = 'estimated';
+      return copy;
+    };
+    for (const key of ['income', 'bills', 'householdBudget']) if (Array.isArray(period[key])) period[key] = period[key].map(capRow);
+    const reason = 'estimate \u2014 ' + note + ' Today\'s cash is not confirmed, so this later period is estimated from its own income, bills and Household budget.';
+    period.currentCashUnconfirmed = { status: 'estimated', reason };
+    period.extraDebt = { ...(period.extraDebt || {}), allocated: null, status: 'unavailable', reason: note };
+    for (const key of ['afterDebtRepayment', 'afterBigPurchases', 'projectedEnding', 'paydaySweep'])
+      if (Object.hasOwn(period, key)) period[key] = null;
+    if (period.leftover) for (const key of ['afterDebtRepayment', 'afterBigPurchases']) period.leftover[key] = null;
+    for (const row of Array.isArray(period.bigPurchases) ? period.bigPurchases : [])
+      if (row && Object.hasOwn(row, 'setAsideThisPayday')) row.setAsideThisPayday = null;
+    return period;
+  }
+
+  function withholdEstimatedPeriod(period, note) {
+    if (!period) return period;
+    for (const key of ['incomeTotal', 'incomeAdded', 'available', 'periodBillLoad', 'remainingBills',
+      'totalBillsThisPeriod', 'afterBills', 'afterRemainingBills', 'budgetHold', 'afterHouseholdBudget',
+      'balanceAfterDeductions', 'predictedEndingBalance']) if (Object.hasOwn(period, key)) period[key] = null;
+    for (const key of ['incomeTrust', 'periodBillLoadTrust', 'afterBillsTrust', 'budgetHoldTrust',
+      'balanceAfterDeductionsTrust']) period[key] = 'unavailable';
+    for (const key of ['income', 'bills', 'householdBudget']) if (Array.isArray(period[key])) period[key] = [];
+    if (period.budgetProgress && typeof period.budgetProgress === 'object') period.budgetProgress = null;
+    delete period.currentCashUnconfirmed;
+    period.operatingPlanUnavailable = true;
+    period.operatingPlanNote = note;
+    return period;
+  }
+
   function withholdCurrentOperatingClaims(result, opts, plan) {
     const cardUnknown = result && result.cardPurchaseCoverage?.status === 'unavailable';
     const scheduledUnknown = !!(opts && opts.scheduledAmounts
@@ -19230,8 +19326,23 @@
       // remainder cannot assert feasibility while this payment is unresolved.
       const views = new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
         ...(result.payPeriodViews || []), ...(income ? [result.nextPeriodView, ...(result.weekViews || [])] : [])]);
+      // An unknown opening alone does not reach a later period's own income,
+      // bills and Household (#821 6964438984): that period keeps Balance After
+      // Deductions, estimated, and loses only its decision figures. An
+      // unresolved income occurrence or card minimum still withholds it.
+      const openingOnly = !!openingCash && incomeState?.status !== 'unavailable'
+        && minimums?.status !== 'unavailable';
+      // Only a period the calendar builder itself released as a later
+      // period, and that starts after the engine's as-of day, stays an
+      // estimate. A finished or current period is withheld as before, even
+      // when it starts after a stale opening.
+      const engineAsOf = result.defaultView?.asOf || null;
       for (const view of views) {
         if (!view || view.end < (income?.asOf || minimums?.asOf)) continue;
+        if (openingOnly && view.currentCashUnconfirmed && engineAsOf && view.start > engineAsOf) {
+          estimateUnconfirmedOpeningPeriod(view, note);
+          continue;
+        }
         view.available = view.balanceAfterDeductions = view.predictedEndingBalance = null;
         view.balanceAfterDeductionsTrust = 'unavailable';
         view.predictedEndingBalanceIdentity = null;
@@ -19239,6 +19350,11 @@
         if (view.leftover) for (const key of ['afterBills', 'afterHouseholdBudget',
           'afterDebtRepayment', 'afterBigPurchases']) view.leftover[key] = null;
         view.extraDebt = { ...(view.extraDebt || {}), allocated: null, status: 'unavailable', reason: note };
+        // Backstop: a later period released as a cash-only estimate cannot
+        // keep any income-, bill- or Household-derived figure once income or
+        // a card minimum is unresolved (afterHouseholdBudget is the withheld
+        // Balance After Deductions by another name).
+        if (view.currentCashUnconfirmed) withholdEstimatedPeriod(view, note);
       }
       if (minimums?.status === 'unavailable') for (const key of ['sim', 'zero']) {
         if (result[key]) result[key] = publishMinimumCashWalk(result[key], minimums);
@@ -19282,6 +19398,12 @@
       result.binding = null;
       result.bindingIsReal = result.holds = null;
       result.gap = null;
+    }
+    // Re-cap every released later period on the final views, after every
+    // decorator has run, so no line added later reads more certain than estimated.
+    for (const view of new Set([...(result.defaultView?.calendarPeriods || []), ...(result.payPeriodViews || []),
+      result.nextPeriodView, ...(result.weekViews || [])])) {
+      if (view && view.currentCashUnconfirmed) estimateUnconfirmedOpeningPeriod(view, note);
     }
     return result;
   }
@@ -19329,7 +19451,9 @@
         : invalidEvidence ? 'Transaction dates or amounts are not established.' : coverage.reason;
     const originalPlan = (rows, amountOf, trustOf) => {
       if (unavailable || !Array.isArray(rows)) return unknown('Original planned amounts are unavailable.');
-      let amount = 0, trust = 'calculated';
+      // A later period published while today's cash is unconfirmed is never
+      // more certain than estimated (#821 6964438984).
+      let amount = 0, trust = period && period.currentCashUnconfirmed ? 'estimated' : 'calculated';
       for (const row of rows) {
         const value = amountOf(row), rowTrust = trustOf(row);
         if (!finite(value) || value < 0 || !trusted(rowTrust)) return unknown('An original planned amount or its trust is unavailable.');

@@ -846,6 +846,72 @@ const App = (() => {
         + '<span class="boot-wordmark">ATLAS</span>';
       return treatment;
     };
+    // Loading tips (Dale, 2026-11-18): a card under the status line that
+    // shows one short how-to-use-Atlas tip at a time, starting on a tip that
+    // changes by day, moving on every ~6s or on a tap, with a dot per tip. Static copy
+    // only: no figures, no names, nothing read from the data. It is
+    // aria-hidden decoration like the treatment, so the notice stays the
+    // single role="status" announcer and a rotating line is never read out
+    // every six seconds. The entrance motion is CSS and stops under
+    // prefers-reduced-motion (the text still changes). The card leaves with
+    // the notice: the crit surface's textContent reset removes it, and the
+    // timer stops itself once the card is no longer in the page.
+    const BOOT_TIPS = Object.freeze([
+      'Bill dates come from Lunch Money. Change a date there and Atlas follows on the next refresh.',
+      '“Paid” comes from Lunch Money’s own match. If a bill looks wrong, fix the match in Lunch Money.',
+      'A note starting “card payment:” followed by the card’s name, on a card payment transfer, tells Atlas which card you paid.',
+      '“Estimated” means a best guess, “calculated” means worked out from real numbers, and “verified” means confirmed.',
+      'Spending lands in the budget row for its Lunch Money category.',
+      '“To confirm” marks something Atlas needs a person to check.',
+      'Tap refresh to fetch the latest from Lunch Money.',
+      'Balance After Deductions is the payday balance minus this pay period’s bills and planned Household spending.',
+      'Future pay periods are estimates. They update as each pay period closes.',
+    ]);
+    const BOOT_TIP_MS = 6000;
+    const buildBootTips = () => {
+      const card = document.createElement('div');
+      card.className = 'boot-tips';
+      card.setAttribute('aria-hidden', 'true');
+      card.setAttribute('data-boot-tips', '');
+      const label = document.createElement('span');
+      label.className = 'boot-tips-label';
+      label.textContent = 'Tip';
+      const text = document.createElement('p');
+      text.className = 'boot-tip';
+      text.setAttribute('data-boot-tip', '');
+      const dots = document.createElement('span');
+      dots.className = 'boot-tip-dots';
+      const dotEls = BOOT_TIPS.map(() => { const dot = document.createElement('i'); dots.append(dot); return dot; });
+      card.append(label, text, dots);
+      // The first tip changes by calendar day rather than at random, so
+      // two renders of the same page on the same day are identical (page
+      // tests compare whole boots); a load usually laps most tips anyway.
+      const today = new Date();
+      const dayKey = today.getFullYear() * 372 + today.getMonth() * 31 + today.getDate();
+      let index = dayKey % BOOT_TIPS.length, timer = null;
+      const show = i => {
+        index = (i + BOOT_TIPS.length) % BOOT_TIPS.length;
+        text.textContent = BOOT_TIPS[index];
+        card.setAttribute('data-boot-tip-index', String(index));
+        dotEls.forEach((d, k) => d.classList.toggle('is-on', k === index));
+        // Restart the CSS entrance; reduced motion turns it off in CSS.
+        text.classList.remove('is-in');
+        void text.offsetWidth;
+        text.classList.add('is-in');
+      };
+      const schedule = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (!card.isConnected) return;
+          show(index + 1);
+          schedule();
+        }, BOOT_TIP_MS);
+      };
+      card.addEventListener('click', () => { show(index + 1); schedule(); });
+      show(index);
+      schedule();
+      return card;
+    };
     let loading = false, activeLoad = null;
     const refresh = document.createElement('button');
     refresh.type = 'button';
@@ -922,6 +988,10 @@ const App = (() => {
           })
           .catch(() => null)
         : Promise.resolve(null));
+      // Every fetch has started; the tips card is built only now, so it
+      // can never delay the data load. It is decoration: if it cannot be
+      // built, the load carries on without it.
+      try { notice.append(buildBootTips()); } catch { /* tips are optional */ }
       Promise.all(wants).then(async ([d, p, h]) => {
         if (controller.signal.aborted) throw new Error('load cancelled');
         // Existing once-wired views capture their initial inputs. A successful
