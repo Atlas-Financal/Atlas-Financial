@@ -1113,7 +1113,7 @@
                     "id": "groceries",
                     "label": "Groceries",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Groceries & superstores",
+                    "lunchMoneyCategoryGroupLabel": "Groceries & superstores",
                     "from": [
                         "Groceries"
                     ],
@@ -1127,7 +1127,7 @@
                     "id": "fuel",
                     "label": "Fuel & transport",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Fuel & transport",
+                    "lunchMoneyCategoryGroupLabel": "Fuel & transport",
                     "from": [
                         "Fuel & transport"
                     ],
@@ -1150,7 +1150,7 @@
                     "id": "household",
                     "label": "Household supplies & utilities",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Household supplies & utilities",
+                    "lunchMoneyCategoryGroupLabel": "Household supplies & utilities",
                     "from": [
                         "Household"
                     ],
@@ -1163,7 +1163,7 @@
                     "id": "health",
                     "label": "Medical & health",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Medical & health",
+                    "lunchMoneyCategoryGroupLabel": "Medical & health",
                     "from": [
                         "Health"
                     ],
@@ -1174,7 +1174,7 @@
                     "id": "telecom",
                     "label": "Phones & internet",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Phones & internet",
+                    "lunchMoneyCategoryGroupLabel": "Phones & internet",
                     "from": [
                         "Telecom"
                     ],
@@ -1186,7 +1186,7 @@
                     "id": "insurance",
                     "label": "Insurance",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Insurance & coverage",
+                    "lunchMoneyCategoryGroupLabel": "Insurance & coverage",
                     "from": [
                         "Insurance"
                     ],
@@ -1197,7 +1197,7 @@
                     "id": "pets",
                     "label": "Pets",
                     "class": "essential",
-                    "lunchMoneyCategoryGroupName": "Pets & pet care",
+                    "lunchMoneyCategoryGroupLabel": "Pets & pet care",
                     "from": [
                         "Pets"
                     ],
@@ -1239,7 +1239,7 @@
                     "id": "tax",
                     "label": "CRA instalments",
                     "class": "reserve",
-                    "lunchMoneyCategoryGroupName": "Taxes & government",
+                    "lunchMoneyCategoryGroupLabel": "Taxes & government",
                     "from": [
                         "Tax"
                     ],
@@ -1250,7 +1250,7 @@
                     "id": "restaurants",
                     "label": "Dining out & takeaway",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Dining out & takeaway",
+                    "lunchMoneyCategoryGroupLabel": "Dining out & takeaway",
                     "from": [
                         "Restaurants",
                         "Fast Food",
@@ -1266,7 +1266,7 @@
                     "id": "shopping",
                     "label": "Shopping",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Shopping & retail",
+                    "lunchMoneyCategoryGroupLabel": "Shopping & retail",
                     "from": [
                         "Shopping",
                         "Personal"
@@ -1278,7 +1278,7 @@
                     "id": "dale-guilt-free",
                     "label": "Dale guilt-free spending",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Dale guilt-free",
+                    "lunchMoneyCategoryGroupLabel": "Dale guilt-free",
                     "from": [
                         "Dale"
                     ],
@@ -1292,7 +1292,7 @@
                     "id": "amanda-guilt-free",
                     "label": "Amanda guilt-free spending",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Amanda guilt-free",
+                    "lunchMoneyCategoryGroupLabel": "Amanda guilt-free",
                     "from": [
                         "Amanda"
                     ],
@@ -1327,7 +1327,7 @@
                     "id": "travel",
                     "label": "Travel",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Travel & lodging",
+                    "lunchMoneyCategoryGroupLabel": "Travel & lodging",
                     "from": [
                         "Travel"
                     ],
@@ -1338,7 +1338,7 @@
                     "id": "sport",
                     "label": "Children & sports",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Children & sports",
+                    "lunchMoneyCategoryGroupLabel": "Children & sports",
                     "from": [
                         "Sport & fitness"
                     ],
@@ -1349,7 +1349,7 @@
                     "id": "entertainment",
                     "label": "Entertainment",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Entertainment & leisure",
+                    "lunchMoneyCategoryGroupLabel": "Entertainment & leisure",
                     "from": [
                         "Entertainment"
                     ],
@@ -1360,7 +1360,7 @@
                     "id": "subscriptions",
                     "label": "Subscriptions",
                     "class": "discretionary",
-                    "lunchMoneyCategoryGroupName": "Subscriptions",
+                    "lunchMoneyCategoryGroupLabel": "Subscriptions",
                     "from": [
                         "Subscriptions"
                     ],

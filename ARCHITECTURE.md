@@ -1712,9 +1712,10 @@ remains GET-only. Unattended production writes remain unauthorized.
 The observation's GET reads include `GET /budgets/settings` and
 `GET /summary` (owner decision, #821, 2026-11-18: budget amounts come from
 Lunch Money budgets; lead ruling Q4). Each plan budget row names its
-Lunch Money category group by exact name, resolved against the same
-observation's `/categories` read (lead ruling, 2026-11-18); a missing,
-renamed or shared name fails closed for that row. Only each resolved row's
+Lunch Money category group by numeric id, checked against the same
+observation's `/categories` read (lead ruling, 2026-11-18); a missing or
+archived id, or one that is a category rather than a group, fails closed
+for that row. Only each resolved row's
 `budgeted` per budget period reaches the packet, keyed by Atlas row id;
 Lunch Money ids, activity, notes and every other group or category are
 dropped. No budget is ever written.

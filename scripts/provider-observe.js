@@ -6332,14 +6332,15 @@ function applyRecurringObligationSchedule(row, schedule) {
 // The structural check for that block: exact keys, value types and no
 // free text. Anything else marks the packet unsanitized.
 // Lunch Money budgets, reduced for the packet (owner decision #821
-// 2026-11-18; lead rulings Q1-Q5, and the 2026-11-18 group-name ruling).
-// Each plan budget row names its Lunch Money category group by exact name
-// (plan.budget.categories[].lunchMoneyCategoryGroupName, the one home of the
-// list). The name is matched against this observation's own /categories
-// read: a non-archived group whose name, trimmed, equals it ignoring case.
-// No name match, or a name matching two groups, fails closed for that row
-// (group-name-missing / group-name-ambiguous); a renamed group is a missing
-// name. The packet is keyed by Atlas row id, so no Lunch Money id leaves.
+// 2026-11-18; lead rulings Q1-Q5, and the 2026-11-18 group-id ruling).
+// Each plan budget row names its Lunch Money category group by numeric id
+// (plan.budget.categories[].lunchMoneyCategoryGroupId, an integer: the one
+// authority; an id survives a rename in Lunch Money). The id is checked
+// against this observation's own /categories read. An id the read does not
+// carry, or carries archived, fails closed for that row
+// (group-id-missing); an id that is a category rather than a group fails
+// closed too (group-id-not-group). The packet is keyed by Atlas row id, so
+// no Lunch Money id leaves.
 // Per Lunch Money budget period, each resolved row gets one `budgeted`:
 //   - the budget Lunch Money holds on the group itself, when it holds one
 //     (level 'group'); otherwise
@@ -6351,20 +6352,18 @@ function applyRecurringObligationSchedule(row, schedule) {
 // (cadence, carry-forward) are Forecast's, not this reader's.
 const BUDGET_GRANULARITIES = new Set(['day', 'week', 'month', 'year', 'twice a month']);
 const BUDGET_UNAVAILABLE_REASONS = new Set(['budget-read-failed', 'budget-settings-invalid', 'budget-summary-invalid']);
-const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-name-missing', 'group-name-ambiguous']);
+const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-id-missing', 'group-id-not-group']);
 // An Atlas row id: lower-case words and hyphens, never all digits (the shape
 // of a Lunch Money id).
 const BUDGET_ROW_ID = /^(?=[a-z0-9-]*[a-z])[a-z0-9][a-z0-9-]{0,63}$/;
-function budgetGroupNameKey(name) {
-  return typeof name === 'string' ? name.trim().toLowerCase() : '';
-}
-// Atlas row id -> the Lunch Money group name it reads, from the plan.
-function budgetRowGroupNames(plan) {
+// Atlas row id -> the Lunch Money group id it reads, from the plan. Only a
+// positive integer names a group; anything else names nothing.
+function budgetRowGroupIds(plan) {
   const out = new Map();
   for (const row of (plan && plan.budget && Array.isArray(plan.budget.categories)) ? plan.budget.categories : []) {
     if (!row || typeof row.id !== 'string' || !BUDGET_ROW_ID.test(row.id)) continue;
-    const key = budgetGroupNameKey(row.lunchMoneyCategoryGroupName);
-    if (key) out.set(row.id, key);
+    const id = row.lunchMoneyCategoryGroupId;
+    if (Number.isSafeInteger(id) && id > 0) out.set(row.id, String(id));
   }
   return out;
 }
@@ -6399,36 +6398,34 @@ function sanitizedBudgetEvidence(raw, rawCategories, plan) {
     byCategory.set(String(row.category_id), occ);
   }
   // group id -> its own category ids, from the categories catalog (nested
-  // children, or a child's group_id); group name -> the group ids carrying it.
+  // children, or a child's group_id); every id the read carries -> whether it
+  // is a live group, an archived one, or a category.
   const children = new Map();
-  const groupsByName = new Map();
+  const kinds = new Map();
   const addChild = (groupId, childId) => {
     if (groupId == null || childId == null) return;
     const key = String(groupId);
     if (!children.has(key)) children.set(key, new Set());
     children.get(key).add(String(childId));
   };
+  const archived = cat => cat.archived === true || cat.is_archived === true;
+  const note = (cat, kind) => { if (!kinds.has(String(cat.id)) || kind === 'group') kinds.set(String(cat.id), kind); };
   for (const cat of Array.isArray(rawCategories) ? rawCategories : []) {
     if (!cat || cat.id == null) continue;
     if (cat.is_group === true && Array.isArray(cat.children)) {
-      for (const child of cat.children) if (child && child.id != null) addChild(cat.id, child.id);
-    }
-    if (cat.group_id != null) addChild(cat.group_id, cat.id);
-    if (cat.is_group === true && cat.archived !== true && cat.is_archived !== true) {
-      const key = budgetGroupNameKey(cat.name);
-      if (key) {
-        if (!groupsByName.has(key)) groupsByName.set(key, new Set());
-        groupsByName.get(key).add(String(cat.id));
+      for (const child of cat.children) {
+        if (child && child.id != null) { addChild(cat.id, child.id); note(child, archived(child) ? 'archived' : 'category'); }
       }
     }
+    if (cat.group_id != null) addChild(cat.group_id, cat.id);
+    note(cat, archived(cat) ? 'archived' : cat.is_group === true ? 'group' : 'category');
   }
   const ordered = [...periods.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
   const byRow = {};
-  for (const [rowId, nameKey] of [...budgetRowGroupNames(plan)].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-    const matches = groupsByName.get(nameKey);
-    if (!matches || matches.size === 0) { byRow[rowId] = { status: 'unavailable', reason: 'group-name-missing' }; continue; }
-    if (matches.size > 1) { byRow[rowId] = { status: 'unavailable', reason: 'group-name-ambiguous' }; continue; }
-    const groupId = [...matches][0];
+  for (const [rowId, groupId] of [...budgetRowGroupIds(plan)].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const kind = kinds.get(groupId);
+    if (kind === 'category') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-not-group' }; continue; }
+    if (kind !== 'group') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-missing' }; continue; }
     const own = byCategory.get(groupId);
     const kids = [...(children.get(groupId) || [])];
     byRow[rowId] = { status: 'read', periods: ordered.map(({ start, end }) => {
