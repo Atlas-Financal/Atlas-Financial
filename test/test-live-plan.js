@@ -2843,9 +2843,10 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
   }
 
   // Owner decision (Dale, 2026-11-18, #821 6967081727): a posted CAD credit into BILLS within $5 of the
-  // occurrence's scheduled amount and within 3 business days of its payday IS the salary, whatever its payee
-  // and whether or not a TENNIS INCOME leg is seen. These four cases were held under the earlier same-day
-  // exact transfer rule; each now settles the occurrence exactly once, never on top of observed cash.
+  // occurrence's scheduled amount and within 3 business days of its payday IS the salary when
+  // it is not a transfer, whatever its payee. These two cases (non-transfer deposits) were held under the earlier
+  // same-day exact transfer rule; each now settles the occurrence exactly once, never on top of observed cash. A BILLS
+  // credit Lunch Money marks as a transfer still needs its TENNIS INCOME debit (#1294 review; the two cases below).
   function assertSalaryRepresentedOnce(label, transactions, cashAdd) {
     const extra = extraFor(transactions, cashAdd);
     const result = overlay(canonical, extra);
@@ -2878,13 +2879,15 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
     'unrelated household transfer',
     [seaspanTx, unrelatedTransferTx, grocerTx].concat(inOutTxs),
     UNRELATED_TRANSFER + SYNTHETIC_PAYROLL);
-  assertSalaryRepresentedOnce(
+  // #1294 review (lead): a credit Lunch Money marks as a transfer is her pay only when its counterpart is a TENNIS
+  // INCOME debit; these two have none, so they are not her pay.
+  assertSalaryNotRepresented(
     'exact-amount BILLS transfer without a TENNIS INCOME counterpart',
     [seaspanTx, billsTransferTx, grocerTx].concat(inOutTxs));
   assertSalaryNotRepresented(
     'exact-amount BILLS transfer sourced from WEEKLY, not TENNIS INCOME',
     [seaspanTx, billsTransferTx, weeklySourceCounterpartTx, grocerTx].concat(inOutTxs));
-  assertSalaryRepresentedOnce(
+  assertSalaryNotRepresented(
     'BILLS transfer plus TENNIS INCOME deposit, without the opposite-leg debit',
     [seaspanTx, billsTransferTx, tennisIncomeDepositTx, grocerTx].concat(inOutTxs));
   assertSalaryNotRepresented(

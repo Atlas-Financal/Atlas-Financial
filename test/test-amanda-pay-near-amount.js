@@ -46,11 +46,15 @@ ok(RULES.length === 2 && RULES.every(rule => rule.settlesWhen === 'near-schedule
 
 const TENNIS = 9010;
 let nextId = 800000;
-const bills = (date, amount, extra = {}) => H.lm({ id: ++nextId, date, amount: -amount, category: 'Transfer',
-  account: 'chequing-a', payee: extra.payee || 'Invented transfer', pending: extra.pending, raw: extra.raw });
+// A deposit into Bills: by default a direct deposit in the invented salary category (Payroll), not a transfer.
+const bills = (date, amount, extra = {}) => H.lm({ id: ++nextId, date, amount: -amount, category: extra.category || 'Payroll',
+  account: 'chequing-a', payee: extra.payee || 'Invented deposit', pending: extra.pending, raw: extra.raw,
+  notes: extra.notes, tagIds: extra.tagIds });
 
-function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount = 2200 }) {
+function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount = 2200, categories = [], tags = [] }) {
   const w = H.baseWorld(asOf);
+  w.categories = w.categories.concat(categories);
+  w.tags = tags;
   w.windowStart = '2026-08-02';
   w.accounts.push({ id: 'tennis', providerId: TENNIS, role: 'household-external', collection: 'cash',
     label: 'Invented tennis income', value: 0, held: true, externalId: 'tennis-income' });
@@ -111,7 +115,10 @@ for (const [date, amount, why] of [
   ['2026-10-21', 2000, 'Wed Oct 21, 4 business days after'],
   ['2026-10-15', 2200, 'the month-end amount on the 15th'],
 ]) {
-  const s = serve({ txs: [bills(date, amount)] });
+  // The owner-confirmed path (a TENNIS INCOME transfer into Bills), so only the amount and the timing decide. A plain
+  // non-salary deposit outside the window is Other Income on main too (BACKLOG: an early credit projected again).
+  const s = serve({ txs: [H.lm({ id: ++nextId, date, amount, category: 'Transfer', account: 'tennis', providerAccountId: TENNIS,
+    payee: 'Invented transfer' }), bills(date, amount, { category: 'Transfer', payee: 'Invented transfer' })] });
   ok(s.live && notReceived(s), `${why}: Oct 15 is not received (income stays 3400 at the scheduled 2000)`,
     JSON.stringify([s.settled, s.income]));
 }
@@ -164,6 +171,40 @@ console.log('4. Fail closed');
   ok(weekly.settled.length === 0, 'a credit into another account than Bills does not qualify');
 }
 
+console.log('4b. Not salary by its ledger marks, or an internal move or transfer (#1294 review)');
+{
+  // Hand-derived: each is a posted Bills credit of 2000 on Thu Oct 15 that amount and timing alone would settle.
+  const cats = [{ id: 201, name: 'Reimbursement', is_income: true }, { id: 202, name: 'Coaching income', is_income: true },
+    { id: 203, name: 'Business income', is_income: true }, { id: 204, name: 'Other income', is_income: true }];
+  const tags = [{ id: 301, name: 'coaching' }];
+  for (const [label, extra] of [
+    ['payee "Invented COACHING", note "coaching" (the review\'s case)', { payee: 'Invented COACHING', notes: 'coaching' }],
+    ['category Reimbursement (the review\'s case)', { category: 201, payee: 'Invented transfer' }],
+    ['category Coaching income', { category: 202 }],
+    ['category Business income', { category: 203 }],
+    ['an income category other than salary (Other income)', { category: 204 }],
+    ['a note saying refund', { notes: 'refund from the club' }],
+    ['a tag "coaching"', { tagIds: [301] }],
+  ]) {
+    const s = serve({ txs: [bills('2026-10-15', 2000, extra)], categories: cats, tags });
+    ok(notReceived(s), `${label}: not her pay`, JSON.stringify(s.settled));
+  }
+  // An internal household move posted a day apart (the review's case): Weekly debit Oct 14, Bills credit Oct 15.
+  const lagged = serve({ txs: [H.lm({ id: ++nextId, date: '2026-10-14', amount: 2000, category: 'Transfer', account: 'chequing-b',
+    payee: 'Invented transfer' }), bills('2026-10-15', 2000, { category: 'Transfer', payee: 'Invented transfer' })] });
+  ok(notReceived(lagged), 'a move from Weekly posted a day earlier is not her pay', JSON.stringify(lagged.settled));
+  const laggedDeposit = serve({ txs: [H.lm({ id: ++nextId, date: '2026-10-12', amount: 2000, category: 'Transfer', account: 'savings',
+    payee: 'Invented transfer' }), bills('2026-10-15', 2000)] });
+  ok(notReceived(laggedDeposit), 'an equal Savings debit 3 business days earlier makes even a non-transfer credit not her pay');
+  const transferNoSource = serve({ txs: [bills('2026-10-15', 2000, { category: 'Transfer', payee: 'Invented transfer' })] });
+  ok(notReceived(transferNoSource), 'a credit LM marks as a transfer, with no TENNIS INCOME leg, is not her pay');
+  // Positive control: the owner-confirmed path, a TENNIS INCOME transfer into Bills, a day apart.
+  const tennis = serve({ txs: [H.lm({ id: ++nextId, date: '2026-10-15', amount: 2000, category: 'Transfer', account: 'tennis',
+    providerAccountId: TENNIS, payee: 'Invented transfer' }), bills('2026-10-16', 2000, { category: 'Transfer', payee: 'Invented transfer' })] });
+  ok(settledOct15(tennis, 2000), 'control: a transfer whose equal debit is on TENNIS INCOME (a day earlier) settles Oct 15',
+    JSON.stringify(tennis.settled));
+}
+
 console.log('5. The TENNIS INCOME source deposit and its transfer are one receipt');
 {
   const source = [
@@ -171,7 +212,7 @@ console.log('5. The TENNIS INCOME source deposit and its transfer are one receip
       payee: 'Invented Tennis PAY' }),
     H.lm({ id: ++nextId, date: '2026-10-16', amount: 2000, category: 'Transfer', account: 'tennis', providerAccountId: TENNIS,
       payee: 'Invented transfer' }),
-    bills('2026-10-16', 2000),
+    bills('2026-10-16', 2000, { category: 'Transfer', payee: 'Invented transfer' }),
   ];
   const s = serve({ txs: source });
   ok(settledOct15(s, 2000) && s.income === 3400 && s.otherIncome === 0,
@@ -195,7 +236,7 @@ console.log('7. The early-receipt hold still guards a salary transfer this rule 
   const packet = (date, amount) => [
     H.lm({ id: ++nextId, date, amount: -amount, category: 'Payroll', account: 'tennis', providerAccountId: TENNIS, payee: 'Invented Tennis PAY' }),
     H.lm({ id: ++nextId, date, amount, category: 'Transfer', account: 'tennis', providerAccountId: TENNIS, payee: 'Invented transfer' }),
-    bills(date, amount),
+    bills(date, amount, { category: 'Transfer', payee: 'Invented transfer' }),
   ];
   // Fri Oct 23 is 5 business days before Sat Oct 31: outside the window, so not settled.
   const early = serve({ asOf: '2026-10-23', txs: packet('2026-10-23', 2200) });

@@ -319,6 +319,10 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+**A plain early income credit is projected again on its payday** · *pre-existing; found in the #1294 review (lead, 2026-11-18)*
+
+A posted credit into Bills that no income rule settles and no hold catches (for example a plain deposit for Amanda's salary more than 3 business days before her payday, outside the owner's near-amount window, #821 6967081727) is counted as Other Income now, and the scheduled occurrence is still projected on its payday. The same holds on main before #1294. Decide whether such a credit should hold the plan, as the early-receipt hold does for a TENNIS INCOME salary transfer, or be left as is. Proof would be an invented early plain credit whose payday is counted once.
+
 **Retire the payroll late-posting stopgap** · *census rank 3 follow-up; NEXT after the LM recurring-matches slice for pay*
 
 `futureIncomeUncertainty` in `scripts/provider-observe.js` absorbs one posted payroll credit within one business day after an unclaimed, unambiguous payday as that payday's late posting (stopgap, #1290). Once pay is settled from Lunch Money's own found_transactions pairing, remove `payrollLateOfEarlier` and its test cases, and drop the `businessDaysAfter` export if nothing else reads it. Closure: the late-Monday case stays live through the LM pairing, and the payday reads received rather than To confirm.

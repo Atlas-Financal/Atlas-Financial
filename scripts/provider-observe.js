@@ -1373,7 +1373,12 @@ const SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT = 'exact-scheduled-amount';
 // credit another rule identifies.
 const SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY = 'near-scheduled-amount-and-payday';
 const NEAR_PAYDAY_RELATION = 'near-projected-payday';
-const NEAR_PAYDAY_EXCLUDED_PAYEES = Object.freeze(['REFUND', 'REVERSAL', 'REIMBURSEMENT']);
+// Words that mark a credit as not salary (owner decision 6967081727: reimbursements, coaching and refunds never
+// qualify), read in the payee, the original bank name, the Lunch Money category, the notes and the tags (#1294 review).
+const NEAR_PAYDAY_EXCLUDED_WORDS = Object.freeze([/REFUND/i, /REVERSAL/i, /REIMBURS/i, /COACH/i, /BUSINESS/i]);
+// An income category counts only when its name says salary, or it is Lunch Money's generic "Income"; any other
+// income category (coaching, business, reimbursement, "Other income") is not her pay.
+const NEAR_PAYDAY_SALARY_CATEGORY = /SALARY|PAYROLL|PAYCHE|\bPAY\b|WAGE|^\s*INCOME\s*$/i;
 const SETTLES_WHEN_TWO_LEG_SUM = 'two-leg-sum';
 const SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE = 'schedule-trust-on-due';
 const INHERITED_PENDING_AUTHORIZATION = 'inherited-pending-authorization';
@@ -2885,10 +2890,6 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
   }
 }
 
-// A salary receipt and its uniquely paired transfer prove more than a generic
-// transfer of the expected amount. Keep source-account business cash excluded:
-// only configured employer payroll aliases, native CAD and a single scheduled
-// salary occurrence bracketed by deposit and transfer can earn this identity.
 // The one shape a near-amount-and-payday rule may take: a credit rule with a
 // positive dollar tolerance and a whole number of business days.
 function nearPaydayRule(rule) {
@@ -2919,12 +2920,30 @@ function nearPaydaySalaryHits(input, rules) {
     && tx.contradictoryEvidence !== true && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && !!parseIsoDate(tx.date) && tx.providerTransactionId != null;
   const householdRole = mapping => !!mapping && ['household-cash', 'household-reserve'].includes(mapping.atlasRole);
-  // An internal household move: a same-day posted debit of the same amount on another household account.
-  const internalMove = (tx, amount) => (input.transactions || []).some(other => other && other !== tx && posted(other)
-    && other.date === tx.date && String(other.providerAccountId) !== String(tx.providerAccountId)
-    && householdRole(mappingFor(mapDoc, other.providerAccountId))
-    && amountsMatchExactly(lunchMoneyDebitAmount(other.amount), Math.abs(amount))
-    && lunchMoneyDebitAmount(other.amount) > 0);
+  // A posted debit of the same amount on another account, within the rule's business-day window of the credit.
+  const equalDebitsNear = (tx, amount, days) => (input.transactions || []).filter(other => other && other !== tx
+    && posted(other) && String(other.providerAccountId) !== String(tx.providerAccountId)
+    && lunchMoneyDebitAmount(other.amount) > 0 && amountsMatchExactly(lunchMoneyDebitAmount(other.amount), Math.abs(amount))
+    && businessDaysApart(other.date, tx.date) <= days);
+  // An internal household move: an equal debit on another household account within the window, the same day or
+  // posted days apart (#1294 review).
+  const internalMove = (tx, amount, days) => equalDebitsNear(tx, amount, days)
+    .some(other => householdRole(mappingFor(mapDoc, other.providerAccountId)));
+  // A credit Lunch Money marks as a transfer (excluded from totals, or a transfer category) is her pay only when its
+  // counterpart is the rule's own salary source account (TENNIS INCOME, the owner-confirmed path): an equal debit there
+  // within the window. Any other transfer is not her pay (#1294 review).
+  const transferFromSalarySource = (tx, amount, days, rule) => {
+    const source = ruleCounterpartExternalId(rule);
+    return !!source && equalDebitsNear(tx, amount, days).some(other => {
+      const mapping = mappingFor(mapDoc, other.providerAccountId);
+      return !!mapping && mapping.atlasRole === EXTERNAL_LIVE_ROLE && mappingExternalId(mapping) === source;
+    });
+  };
+  const textFields = tx => identityPayeeFields(tx).concat(identityOriginalNameFields(tx),
+    [tx.categoryLabel, tx.notes], (Array.isArray(tx.tags) ? tx.tags : []).map(tag => tag && typeof tag === 'object' ? tag.name : tag))
+    .filter(value => typeof value === 'string' && value.trim());
+  const notSalaryIncomeCategory = tx => tx.isIncome === true
+    && !NEAR_PAYDAY_SALARY_CATEGORY.test(String(tx.categoryLabel || ''));
   const hits = [];
   for (const tx of input.transactions || []) {
     if (!posted(tx)) continue;
@@ -2932,12 +2951,13 @@ function nearPaydaySalaryHits(input, rules) {
     if (!(amount < 0)) continue;
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || mapping.atlasRole !== 'household-cash') continue;
-    if (NEAR_PAYDAY_EXCLUDED_PAYEES.some(pattern => anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
-      || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) continue;
+    if (textFields(tx).some(text => NEAR_PAYDAY_EXCLUDED_WORDS.some(word => word.test(text)))) continue;
+    if (notSalaryIncomeCategory(tx)) continue;
     if (others.some(rule => ruleMatchesTransactionIdentity(tx, rule))) continue;
-    if (internalMove(tx, amount)) continue;
     for (const rule of near) {
       if (mapping.canonical.id !== rule.atlasAccountId) continue;
+      if (internalMove(tx, amount, rule.postingBusinessDays)) continue;
+      if (transactionIsTransfer(tx) && !transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)) continue;
       if (rulePayeeExcludePatterns(rule).some(pattern => anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
         || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) continue;
       // Each calendar day within reach of postingBusinessDays business days (a weekend adds at most
@@ -2970,6 +2990,10 @@ function nearPaydaySalaryHits(input, rules) {
   return hits;
 }
 
+// A salary receipt and its uniquely paired transfer prove more than a generic
+// transfer of the expected amount. Keep source-account business cash excluded:
+// only configured employer payroll aliases, native CAD and a single scheduled
+// salary occurrence bracketed by deposit and transfer can earn this identity.
 function salaryReceiptTransferHits(input, rules) {
   const diagnostic = input.salaryDiagnostic;
   const window = input && input.transactionWindow;
