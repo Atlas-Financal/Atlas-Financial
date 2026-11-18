@@ -857,7 +857,9 @@ Not urgent: nothing runs them.
 
 Coverage rule 6 has no currency-conversion path: any non-CAD household cash/reserve row withholds (fails closed). Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
 
-Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
+~~Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).~~ Struck 2026-11-18 (lead ruling): still true, and correct. `chequing-a` is the canonical Bills identity, the same one `REQUIRED_LIVE_CASH_IDS`, the salary attribution and the plan's cash rows use. The account map carries no second Bills marker to derive it from, and a rename fails closed: the stamp reads incomplete and figures withhold.
+
+An Other income credit stays listed "Other income · to confirm" after its same-amount transfer to savings has paired (for example tenant rent moved on to savings, OD-024). The figures already net to zero; only the to-confirm row is noise. When the credit's same-amount Bills-to-savings transfer pairs, the row should drop. Low priority, display only. Source: rent check 2026-11-18 (#821 6978494592).
 
 A future period-history runner should treat `history-original-or-closing-conflict` as a retryable duplicate. Source: [PR #831 comment 6689055764](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/831#issuecomment-6689055764).
 
