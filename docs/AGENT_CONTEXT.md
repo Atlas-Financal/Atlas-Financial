@@ -46,6 +46,7 @@ them into a new master brief.
 | What follows from `plan` | `Forecast` in `public/forecast.js` |
 | Work and findings | `BACKLOG.md` |
 | Questions only the household can answer | `docs/01_OPEN_QUESTIONS.md` |
+| Index of settled owner decisions (pointers only) | `docs/OWNER_DECISIONS.md` |
 
 **Always load first:** `AGENTS.md`, then the numbered read order it
 defines. That order is already long. Do not add skills, lessons, or this
