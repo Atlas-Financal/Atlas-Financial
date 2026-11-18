@@ -1,7 +1,9 @@
 'use strict';
 /* D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed bill paid in part keeps its remainder reserved.
- * "Fixed" is an explicit owner mark on the plan row, `amountFixed: true`: `confirmed` alone is confidence in the planned
- * figure, not a fixed price, so a confirmed bill without the mark is unchanged (section 0).
+ * "Fixed" is `amountFixed: true`, derived from the bill's Lunch Money payment history (owner decision #821, 2026-11-18;
+ * provider-observe derivedAmountFixedBills), never a hand mark: here, three earlier posted payments of exactly $90 on Jul,
+ * Aug and Sep 12. `confirmed` alone is confidence in the planned figure, not a fixed price, so a confirmed bill without
+ * that history is unchanged (section 0).
  *
  *   1. A fixed bill (marked, confirmed planned amount) with one linked posted payment below the planned amount stays still due:
  *      paid shows the amount paid, remaining shows the rest, and the rest is held once (bills still to pay, the cash walk,
@@ -32,13 +34,15 @@ const ok = (cond, label, detail = '') => {
 };
 const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 0.005;
 
-const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro',
-  amountFixed: true };
+const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
 const pay = (amount, date = '2026-10-12') => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' });
+// The history that derives the flag: three posted $90 payments, the newest within two months of the plan date.
+const fixedHistory = () => ({ transactions: ['2026-07-12', '2026-08-12', '2026-09-12'].map(d => pay(90, d)) });
 
 function world(paid, { confidence = 'confirmed', pool = false, day = 12, fixed = true } = {}) {
   const w = H.baseWorld();
-  w.bills = [{ ...HYDRO, confidence, day, ...(fixed ? {} : { amountFixed: undefined }) }];
+  w.bills = [{ ...HYDRO, confidence, day }];
+  if (fixed) w.amountHistory = fixedHistory();
   if (pool) w.savingsPool = true;
   w.transactions = paid ? [pay(paid, '2026-10-' + String(day).padStart(2, '0'))] : [];
   const r = H.observe(w);
@@ -79,10 +83,10 @@ console.log('0. A confirmed bill without the amountFixed mark is unchanged (PAID
     'unmarked confirmed 90 paid 40: PAID, 0 remaining, the Partly paid label only', r && `${r.status} ${r.remaining} ${r.paymentState}`);
   ok(uPart.period.remainingBills === 0 && near(uPart.day0, uFull.day0) && uPart.dv.afterBills === uFull.dv.afterBills,
     'nothing still to pay; the cash walk and after bills equal paid in full', `${uPart.period.remainingBills} ${uPart.day0}/${uFull.day0}`);
-  const flagged = F.expandEvents(H.observe(Object.assign(H.baseWorld(), { bills: [{ ...HYDRO }] })).plan, '2026-10-01', '2026-10-31', {});
-  const unflagged = F.expandEvents(H.observe(Object.assign(H.baseWorld(), { bills: [{ ...HYDRO, amountFixed: undefined }] })).plan, '2026-10-01', '2026-10-31', {});
+  const flagged = F.expandEvents(H.observe(Object.assign(H.baseWorld(), { bills: [{ ...HYDRO }], amountHistory: fixedHistory() })).plan, '2026-10-01', '2026-10-31', {});
+  const unflagged = F.expandEvents(H.observe(Object.assign(H.baseWorld(), { bills: [{ ...HYDRO }] })).plan, '2026-10-01', '2026-10-31', {});
   ok(flagged.some(e => e.id === 'hydro' && e.amountFixed === true) && unflagged.every(e => e.id !== 'hydro' || !('amountFixed' in e)),
-    'the mark rides on the bill\'s events only when the plan row sets it');
+    'the flag rides on the bill\'s events only when its payment history derives it');
 }
 
 console.log('1. A fixed bill paid $40 of $90 stays still due for $50');
@@ -141,6 +145,7 @@ console.log('3b. One pay period later (as of Oct 24): the $50 carries, once');
   const later = paid => {
     const w = H.baseWorld('2026-10-24');
     w.bills = [{ ...HYDRO }];
+    w.amountHistory = fixedHistory();
     w.transactions = paid ? [pay(paid)] : [];
     const r = H.observe(w);
     if (r.error) throw r.error;
@@ -170,6 +175,7 @@ console.log('3c. Only one linked posted instalment is a partial');
   // stands (PAID, nothing held), so no remainder is invented from one of them.
   const w = H.baseWorld();
   w.bills = [{ ...HYDRO }];
+  w.amountHistory = fixedHistory();
   w.transactions = [pay(40)];
   const r = H.observe(w);
   if (r.error) throw r.error;
@@ -188,6 +194,7 @@ console.log('3d. The Bills account closing balance holds the 50 (Codex P1 on #13
   const closing = paid => {
     const w = H.baseWorld();
     w.bills = [{ ...HYDRO }];
+    w.amountHistory = fixedHistory();
     w.transactions = paid ? [pay(paid)] : [];
     const r = H.observe(w);
     if (r.error) throw r.error;
@@ -200,18 +207,26 @@ console.log('3d. The Bills account closing balance holds the 50 (Codex P1 on #13
 
 console.log('3e. A once bill paid in part stays listed after its pay period (Codex P1 on #1320)');
 {
-  const onceLater = paid => {
+  // A once bill never has three payments, so the history never derives it fixed, and a hand mark is dropped from the
+  // served plan (one authority). The Forecast mechanics #1320's P1 fixed are still pinned here by setting the flag on the
+  // plan Forecast reads, which is what the derivation does for a recurring bill.
+  const onceLater = (paid, { markInForecast = true } = {}) => {
     const w = H.baseWorld('2026-10-24');
     w.bills = [{ id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'once', date: '2026-10-12', confidence: 'confirmed', payee: 'Invented hydro',
       amountFixed: true }];
     w.transactions = paid ? [pay(paid)] : [];
     const r = H.observe(w);
     if (r.error) throw r.error;
+    const served = r.plan.bills.find(b => b.id === 'hydro');
+    if (markInForecast) served.amountFixed = true;
     const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
     const current = rec.defaultView.calendarPeriods.find(p => p.start <= w.asOf && p.end >= w.asOf);
-    return { current, row: (current.bills || []).find(b => b.id === 'hydro'), day0: rec.sim.daily[0].balance };
+    return { current, row: (current.bills || []).find(b => b.id === 'hydro'), day0: rec.sim.daily[0].balance,
+      servedMark: Object.hasOwn(served, 'amountFixed') && !markInForecast };
   };
   const oFull = onceLater(90), oPart = onceLater(40);
+  const served = onceLater(40, { markInForecast: false });
+  ok(served.servedMark === false, 'a hand amountFixed mark on a once bill is dropped from the served plan (derived only)');
   ok(oPart.row && oPart.row.status === 'still due' && oPart.row.actual === 40 && oPart.row.remaining === 50 && oPart.current.remainingBills === 50,
     'as of Oct 24: listed still due, 40 paid, 50 remaining; this period holds 50', oPart.row && `${oPart.row.status} ${oPart.row.actual} ${oPart.row.remaining} ${oPart.current.remainingBills}`);
   ok(!oFull.row && oFull.current.remainingBills === 0 && near(oPart.day0, oFull.day0 - 50),
@@ -233,6 +248,7 @@ console.log('5. Paid in part early (due Oct 24, next pay period; paid Oct 21, as
     const w = H.baseWorld();
     w.asOf = '2026-10-21';
     w.bills = [{ ...HYDRO, day: 24, confidence, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];
+    w.amountHistory = fixedHistory();
     w.transactions = paid ? [pay(paid, '2026-10-21')] : [];
     const r = H.observe(w);
     if (r.error) throw r.error;
