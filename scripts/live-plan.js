@@ -1103,7 +1103,9 @@ function paydayGapCashFromReport(report, canonicalPlan, paydayDate) {
       && String(tx.date) < String(paydayDate);
     if (tx.accountRole === 'household-cash'
       && tx.pending === true
-      && tx.pendingPostedDuplicate !== true
+      // A bill's pending copy (provider-observe pendingBillCopyIds) still
+      // leaves the gap unproven, as it did before it was paired.
+      && (tx.pendingPostedDuplicate !== true || tx.pendingBillCopy === true)
       && inGap) {
       pendingGapUnproven = true;
     }
