@@ -826,7 +826,7 @@ re-sourced from a function that stays, or dropped from the snapshot. Either
 is a figures-tooling change (full lane, Atlas). Source: #822 slice 8 scoping,
 2026-11-11.
 
-**Engine helpers no figures-check input observes** · *small*
+~~**Engine helpers no figures-check input observes** · *small*~~ Closed 2026-11-18. Re-probed on main `4a215db6`: all six still moved 0 compared keys. Four were reached by no input; a new invented input, `test/fixtures/figures-inputs/bill-amount-schedule.json`, now reaches them. Planted alone on that input, `billIsHouseholdObligation` ignoring `false` moves 66 keys, `billOccurrenceAmount` +1 on a regular amount 23, the promoted term confidence 5 (the trust tags) and `billScheduleBlocksNormalization` never blocking 3. `carriedPastDue` and `dueOnOrAfter` are read only by `nextDue` / `nextPaymentOut`, the Plan page's next-cash-out tile, the payday coming-up rows and the assistant packet. Those are page-side and outside the check's compared fields, and no input can make them move a compared key. They stay guarded by the registered suites `test-next-due`, `test-next-payment-out` and `test-overdue-next-payment`, which fail on those two defects. The original entry:
 A mutation probe run for #1108 planted one defect at a time in `public/forecast.js`
 and counted the check-snapshot keys that moved, on the household dated opening
 and all 11 invented inputs. Six defects moved 0 keys at #1108's base, so
