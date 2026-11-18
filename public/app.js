@@ -846,53 +846,159 @@ const App = (() => {
         + '<span class="boot-wordmark">ATLAS</span>';
       return treatment;
     };
-    // Loading tips (Dale, 2026-11-18): a card under the status line that
-    // shows one short how-to-use-Atlas tip at a time, starting on a tip that
-    // changes by day, moving on every ~6s or on a tap, with a dot per tip. Static copy
-    // only: no figures, no names, nothing read from the data. It is
-    // aria-hidden decoration like the treatment, so the notice stays the
-    // single role="status" announcer and a rotating line is never read out
-    // every six seconds. The entrance motion is CSS and stops under
-    // prefers-reduced-motion (the text still changes). The card leaves with
-    // the notice: the crit surface's textContent reset removes it, and the
-    // timer stops itself once the card is no longer in the page.
+    // Loading tips and facts (Dale, 2026-11-18): a card under the status
+    // line that shows one short line at a time, moving on every ~6s or on a
+    // tap, with a dot per line. Two kinds of line:
+    //   - Tips: static, plain how-to copy. No figures, no names.
+    //   - Facts: short notes about the household's own spending history,
+    //     built at run time from the published history (periods.json) that
+    //     this page already holds in memory from its last successful load.
+    //     A cold first load holds none, so it shows tips only; a Manual
+    //     Refresh (the long "Checking Lunch Money" wait) shows facts too.
+    //     Facts name a month, a category or a count, never an amount, and
+    //     they compute no new money figure: they only pick which published
+    //     month or category is largest. Nothing is stored. They read only an
+    //     unbroken run of fully covered months (cards included, inside the
+    //     fetched window), counting back from last month; a history not
+    //     marked complete, a gap, or an uncovered month ends the run or drops
+    //     the fact rather than guessing.
+    // The card is aria-hidden decoration like the treatment, so the notice
+    // stays the single role="status" announcer. The entrance motion is CSS
+    // and stops under prefers-reduced-motion (the text still changes). The
+    // card leaves with the notice, and its timer stops once it is gone.
     const BOOT_TIPS = Object.freeze([
-      'Bill dates come from Lunch Money. Change a date there and Atlas follows on the next refresh.',
-      '“Paid” comes from Lunch Money’s own match. If a bill looks wrong, fix the match in Lunch Money.',
-      'A note starting “card payment:” followed by the card’s name, on a card payment transfer, tells Atlas which card you paid.',
-      '“Estimated” means a best guess, “calculated” means worked out from real numbers, and “verified” means confirmed.',
-      'Spending lands in the budget row for its Lunch Money category.',
-      '“To confirm” marks something Atlas needs a person to check.',
-      'Tap refresh to fetch the latest from Lunch Money.',
-      'Balance After Deductions is the payday balance minus this pay period’s bills and planned Household spending.',
-      'Future pay periods are estimates. They update as each pay period closes.',
+      'Bill date looks wrong? Change it in Lunch Money, then tap refresh.',
+      'Bill not showing as paid? Check its match in Lunch Money.',
+      'Paid a card from the bank? Add the note “card payment:” and the card’s name.',
+      'Spending in the wrong row? Change its category in Lunch Money.',
+      '“To confirm” means Atlas needs you to check that item.',
+      '“Estimated” is a best guess. “Calculated” uses real numbers. “Verified” is confirmed.',
+      'Tap refresh any time to get the latest from Lunch Money.',
+      'Balance After Deductions is your payday balance, minus this pay period’s bills and planned household spending.',
+      'Later pay periods are estimates. They firm up as each one closes.',
     ]);
+    // Fact templates: placeholders only, never a figure in the source.
+    const BOOT_FACT_TEMPLATES = Object.freeze({
+      biggestMonth: 'Of the last {total} months, your biggest spending month was {month}.',
+      lightestMonth: 'Of the last {total} months, your lightest spending month was {month}.',
+      topCategory: 'So far this year, your biggest spending category is {category}.',
+      lessThanBefore: 'In {count} of the last {total} months, you spent less than the month before.',
+    });
+    const MONTH_NAMES = Object.freeze(['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December']);
+    const fill = (template, values) => template.replace(/\{(\w+)\}/g, (_, key) => String(values[key]));
+    // Facts from the published history already in memory; [] when there is
+    // none, or when it is not marked complete.
+    const bootFacts = periods => {
+      if (!periods || typeof periods !== 'object' || !periods.source || periods.source.complete !== true) return [];
+      const current = typeof periods.thisMonth === 'string' ? periods.thisMonth : null;
+      // The fetched window's own start (not the first transaction's date):
+      // a month the window starts inside is only partly covered.
+      const windowStart = typeof periods.source.queryWindowStart === 'string' ? periods.source.queryWindowStart : null;
+      const monthName = key => MONTH_NAMES[Number(String(key).slice(5, 7)) - 1] || null;
+      const isMonth = key => typeof key === 'string' && /^\d{4}-\d{2}$/.test(key) && !!monthName(key);
+      if (!isMonth(current) || !windowStart || !/^\d{4}-\d{2}-\d{2}$/.test(windowStart)) return [];
+      // A history held across a month boundary (a tab left open) counts its
+      // months from a month that has ended: no facts until it is reloaded.
+      const now = new Date();
+      if (current !== `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`) return [];
+      const prevMonth = key => {
+        const y = Number(key.slice(0, 4)), m = Number(key.slice(5, 7));
+        return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+      };
+      // The first month the history covers in full: the window start's own
+      // month only when the window starts on its first day.
+      const startMonth = windowStart.slice(0, 7);
+      const firstFull = windowStart.slice(8, 10) === '01' ? startMonth
+        : (() => { const y = Number(startMonth.slice(0, 4)), m = Number(startMonth.slice(5, 7));
+          return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; })();
+      // A month is usable only when it is published, fully covered (cards
+      // included) and has a real spending value.
+      const byMonth = new Map((Array.isArray(periods.monthly) ? periods.monthly : [])
+        .filter(row => row && isMonth(row.m)).map(row => [row.m, row]));
+      const usable = key => {
+        const row = byMonth.get(key);
+        return !!row && key >= firstFull && row.cardsCovered === true
+          && typeof row.spending === 'number' && Number.isFinite(row.spending) && row.spending >= 0;
+      };
+      // An unbroken run of usable months, counting back from last month;
+      // the first gap, uncovered or missing month ends it. Oldest first.
+      const run = [];
+      for (let key = prevMonth(current); run.length < 12 && usable(key); key = prevMonth(key)) run.unshift(byMonth.get(key));
+      const facts = [];
+      // The single largest / smallest month in the run; a tie names nothing.
+      const extreme = pick => {
+        const best = run.reduce((acc, row) => (acc == null || pick(row.spending, acc.spending) ? row : acc), null);
+        return best && run.filter(row => row.spending === best.spending).length === 1 ? best : null;
+      };
+      if (run.length >= 3) {
+        const big = extreme((x, y) => x > y);
+        if (big) facts.push(fill(BOOT_FACT_TEMPLATES.biggestMonth, { total: run.length, month: monthName(big.m) }));
+        const light = extreme((x, y) => x < y);
+        if (light) facts.push(fill(BOOT_FACT_TEMPLATES.lightestMonth, { total: run.length, month: monthName(light.m) }));
+      }
+      // Consecutive months only: the run has no gaps.
+      const recent = run.slice(-6);
+      if (recent.length >= 4) {
+        const total = recent.length - 1;
+        const count = recent.slice(1).filter((row, i) => row.spending < recent[i].spending).length;
+        facts.push(fill(BOOT_FACT_TEMPLATES.lessThanBefore, { count, total }));
+      }
+      // "So far this year" needs the publisher's own year-to-date coverage,
+      // every transaction categorised (categoryClaim 'precise': otherwise
+      // uncategorised spending could change the winner), and every month of
+      // this year, up to last month, fully covered from January.
+      const year = current.slice(0, 4);
+      const ytdBlock = periods.periods && periods.periods.ytd;
+      let yearCovered = firstFull <= `${year}-01` && periods.source.categoryClaim === 'precise'
+        && !!ytdBlock && ytdBlock.coverageComplete === true;
+      for (let key = prevMonth(current); yearCovered && key >= `${year}-01`; key = prevMonth(key)) yearCovered = usable(key);
+      const categories = (yearCovered && Array.isArray(ytdBlock.spending) ? ytdBlock.spending : [])
+        .filter(row => row && (row.type === 'essential' || row.type === 'discretionary')
+          && typeof row.label === 'string' && row.label.trim()
+          && typeof row.total === 'number' && Number.isFinite(row.total) && row.total > 0);
+      const top = categories.reduce((acc, row) => (acc == null || row.total > acc.total ? row : acc), null);
+      if (top && categories.filter(row => row.total === top.total).length === 1) {
+        facts.push(fill(BOOT_FACT_TEMPLATES.topCategory, { category: top.label.trim() }));
+      }
+      return facts;
+    };
     const BOOT_TIP_MS = 6000;
-    const buildBootTips = () => {
+    const buildBootTips = periods => {
+      // Tips, with a fact after every second tip while facts last.
+      const facts = bootFacts(periods);
+      const items = [];
+      BOOT_TIPS.forEach((tip, i) => {
+        items.push({ kind: 'tip', text: tip });
+        if (i % 2 === 1 && facts.length) items.push({ kind: 'fact', text: facts.shift() });
+      });
+      facts.forEach(text => items.push({ kind: 'fact', text }));
       const card = document.createElement('div');
       card.className = 'boot-tips';
       card.setAttribute('aria-hidden', 'true');
       card.setAttribute('data-boot-tips', '');
       const label = document.createElement('span');
       label.className = 'boot-tips-label';
-      label.textContent = 'Tip';
       const text = document.createElement('p');
       text.className = 'boot-tip';
       text.setAttribute('data-boot-tip', '');
       const dots = document.createElement('span');
       dots.className = 'boot-tip-dots';
-      const dotEls = BOOT_TIPS.map(() => { const dot = document.createElement('i'); dots.append(dot); return dot; });
+      const dotEls = items.map(() => { const dot = document.createElement('i'); dots.append(dot); return dot; });
       card.append(label, text, dots);
-      // The first tip changes by calendar day rather than at random, so
+      // The first line changes by calendar day rather than at random, so
       // two renders of the same page on the same day are identical (page
-      // tests compare whole boots); a load usually laps most tips anyway.
+      // tests compare whole boots); a load usually laps most lines anyway.
       const today = new Date();
       const dayKey = today.getFullYear() * 372 + today.getMonth() * 31 + today.getDate();
-      let index = dayKey % BOOT_TIPS.length, timer = null;
+      let index = dayKey % items.length, timer = null;
       const show = i => {
-        index = (i + BOOT_TIPS.length) % BOOT_TIPS.length;
-        text.textContent = BOOT_TIPS[index];
+        index = (i + items.length) % items.length;
+        const item = items[index];
+        label.textContent = item.kind === 'fact' ? 'Did you know?' : 'Tip';
+        text.textContent = item.text;
         card.setAttribute('data-boot-tip-index', String(index));
+        card.setAttribute('data-boot-item-kind', item.kind);
         dotEls.forEach((d, k) => d.classList.toggle('is-on', k === index));
         // Restart the CSS entrance; reduced motion turns it off in CSS.
         text.classList.remove('is-in');
@@ -991,7 +1097,9 @@ const App = (() => {
       // Every fetch has started; the tips card is built only now, so it
       // can never delay the data load. It is decoration: if it cannot be
       // built, the load carries on without it.
-      try { notice.append(buildBootTips()); } catch { /* tips are optional */ }
+      // Facts read only the history this page already holds from its last
+      // successful load (PERIODS), never the data now being fetched.
+      try { notice.append(buildBootTips(PERIODS)); } catch { /* tips are optional */ }
       Promise.all(wants).then(async ([d, p, h]) => {
         if (controller.signal.aborted) throw new Error('load cancelled');
         // Existing once-wired views capture their initial inputs. A successful
