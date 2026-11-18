@@ -941,7 +941,7 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 
 ~~Seed the #1162 replay-reuse slot from the qualified live result, so the first replay after a live refresh also skips compute. Source: #1162 Additional findings.~~ Not built (lead ruling 2026-11-16): the live worker records no disk witness and its check differs from a replay's, so seeding needs a second recorder path and a hand-built replay-shaped check on the page-load publication path, for a gain of one Forecast run per live refresh.
 
-`test/road-ahead-mutation-check.js` fails on unchanged `main` (found 2026-11-16 while pruning baselineTrajectory). Repair it narrowly or record why it is retired. Source: #1198 card.
+~~`test/road-ahead-mutation-check.js` fails on unchanged `main` (found 2026-11-16 while pruning baselineTrajectory). Repair it narrowly or record why it is retired. Source: #1198 card.~~ Repaired 2026-11-18: the eighth mutant's pattern still matched the code shape before 4f1cee1a, so it no longer applied. It now targets the current per-day category split, and all eight mutants are caught on main.
 
 **Declined for now by the owner** (Dale, 2026-11-16, recorded on #821). Not to be built unless Dale reopens them:
 - A Bank-check line on the Budget page (Forecast already publishes `bankCheck` on the current pay-period row; the page keeps not showing it).
