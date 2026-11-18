@@ -138,6 +138,25 @@ console.log('3b. One pay period later (as of Oct 24): the $50 carries, once');
     lPart.closed && `${lPart.closed.actual} ${lPart.past.totalBillsThisPeriod}`);
 }
 
+console.log('3c. Only one linked posted instalment is a partial');
+{
+  // Two linked entries naming the occurrence (here 40 + 50) are not one instalment below plan: the incumbent reading
+  // stands (PAID, nothing held), so no remainder is invented from one of them.
+  const w = H.baseWorld();
+  w.bills = [{ ...HYDRO }];
+  w.transactions = [pay(40)];
+  const r = H.observe(w);
+  if (r.error) throw r.error;
+  const packet = JSON.parse(JSON.stringify(r.packet));
+  const one = (packet.representedActuals || []).find(a => a.id === 'hydro');
+  packet.representedActuals.push({ ...one, actual: 50, transactionId: 'invented-second' });
+  const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: packet });
+  const p = rec.defaultView.calendarPeriods.find(x => x.start <= w.asOf && x.end >= w.asOf);
+  const row = p.bills.find(b => b.id === 'hydro');
+  ok(one && row && row.status === 'PAID' && row.remaining === 0 && p.remainingBills === 0,
+    'two linked entries: not a partial (PAID, nothing still to pay)', row && `${row.status} ${row.remaining} ${p.remainingBills}`);
+}
+
 console.log('4. A variable bill (estimated amount) keeps today\'s behaviour');
 {
   const eFull = world(90, { confidence: 'estimated' }), ePart = world(40, { confidence: 'estimated' });

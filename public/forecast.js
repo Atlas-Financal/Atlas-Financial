@@ -8481,9 +8481,12 @@
       if (typeof amt !== 'number' || !isFinite(amt)) continue;
       const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
         ? String(row.postedOn) : null;
+      const prior = map.get(row.id + '@' + row.date);
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        // How many linked posted entries name this occurrence (D2 reads one).
+        entries: (prior ? prior.entries : 0) + 1,
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -8544,7 +8547,10 @@
     if (!event || event.kind !== 'bill' || !event.id || !event.date || event.id === 'tdfees'
       || event.cardPaid === true || event.confidence !== 'confirmed') return null;
     const seen = observed && observed.get(event.id + '@' + event.date);
-    if (!seen || seen.settlementBasis || typeof seen.actual !== 'number' || !Number.isFinite(seen.actual)) return null;
+    // One linked posted instalment only: several entries for one occurrence
+    // are not one partial payment, so they keep the incumbent reading.
+    if (!seen || seen.settlementBasis || seen.entries !== 1
+      || typeof seen.actual !== 'number' || !Number.isFinite(seen.actual)) return null;
     const state = billPaymentState(planned, seen.actual);
     if (state.state !== 'underpaid' || !(state.paidCents > 0)) return null;
     return { plannedCents: state.plannedCents, paidCents: state.paidCents,
