@@ -2294,6 +2294,9 @@ function applyRecoveryPreview(data, preview, destPath, originalBytes, opts) {
     || installProposal.snapshotPreState !== artifactProposal.snapshotPreState) {
     fail('Recovered artifact bytes drifted before install. Canonical state was not written.');
   }
+  // The surviving opening is judged before anything is installed, so a
+  // refusal leaves positions and snapshots untouched as well as data.json.
+  checkOpeningWrite(data.plan, data.plan, 'Forecast cannot consume the surviving starting cash.');
   installRecoveryArtifacts(artifacts, {
     positionsPath: opts.positionsPath,
     snapshotDir: opts.snapshotDir,
@@ -2303,7 +2306,6 @@ function applyRecoveryPreview(data, preview, destPath, originalBytes, opts) {
   if (Buffer.compare(fs.readFileSync(destPath), originalBytes) !== 0) {
     fail('Recovery modified data.json. Canonical state was not written.');
   }
-  checkOpeningWrite(data.plan, data.plan, 'Forecast cannot consume the surviving starting cash.');
   return {
     positionsWritten: positionsNeeded,
     snapshotWritten: snapshotNeeded,
@@ -3451,6 +3453,7 @@ const api = {
   validateApplied,
   validatePendingApplied,
   validateOpeningApplied,
+  validatePaydayObservationApplied,
   replaceFileAtomically,
   applyPreview,
   assertCanonicalUnchanged,

@@ -198,11 +198,13 @@ base.module.exports.baselineTrajectory = (...args) => {
 // Required operating values are checked before any zero-coercing aggregate.
 // Conservation alone cannot detect a fabricated opening on both ledger sides.
 const cashCases = [
-  ['missing cash object', q => delete q.startingCash],
-  ['null cash object', q => q.startingCash = null],
-  ['string cash object', q => q.startingCash = 'unknown'],
+  // No breakdown and no known amount: the opening is unknown, never ready at
+  // 0 (follow-up to #1386, note 1).
+  ['missing cash object', q => delete q.startingCash, true],
+  ['null cash object', q => q.startingCash = null, true],
+  ['string cash object', q => q.startingCash = 'unknown', true],
   ['array cash object', q => q.startingCash = Object.assign([], q.startingCash)],
-  ['missing breakdown key', q => delete q.startingCash.breakdown],
+  ['missing breakdown key', q => delete q.startingCash.breakdown, true],
   ['null breakdown', q => q.startingCash.breakdown = null, true],
   ['malformed breakdown', q => q.startingCash.breakdown = {}, true],
   ['empty breakdown', q => q.startingCash.breakdown = [], true],
@@ -234,7 +236,8 @@ for (const [name, edit, unavailableOpening = false] of cashCases) {
     const unknownPublication = F.baselineTrajectory(q, [], AS_OF, options);
     assert.equal(unknownPublication.status, 'unavailable', name + ' trajectory is unavailable');
     assert.match(unknownPublication.reason, /chequing opening balance is unknown/, name + ' names the unknown opening');
-    if (q.startingCash.breakdown == null || Array.isArray(q.startingCash.breakdown)) {
+    if (q.startingCash == null || typeof q.startingCash !== 'object'
+      || q.startingCash.breakdown == null || Array.isArray(q.startingCash.breakdown)) {
       assert.equal(base.module.exports.baselineTrajectory(q, [], AS_OF, options).status, 'ready',
         name + ' legacy engine published a trajectory with unproven cash');
     }

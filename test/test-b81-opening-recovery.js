@@ -446,6 +446,45 @@ console.log('=== 1. exact surviving-opening recovery succeeds ===');
     'derived SUMMARY/CREDIT/LIQUIDITY rows match the surviving canonical state');
 }
 
+console.log('\n=== 1b. recovery applies the opening write rule directly (follow-up to #1386) ===');
+{
+  // applyRecoveryPreview called directly: the surviving opening is judged by
+  // Forecast's opening gate on the same plan before and after, so a recovery
+  // never reads a starting cash Forecast cannot consume.
+  const Forecast = require('../public/forecast.js');
+  const run = (stub) => {
+    const pkt = survivingPacket();
+    const ws = workspace(tempDir(), pkt.data, { priorBalances: { 'chequing-b': 200, triangle: 13197, mbna: 1800 } });
+    const { preview } = previewAt(pkt.data, pkt.payload, {
+      accountMap: pkt.map, cutoverAsOf: '2026-08-19', recoverOpeningArtifacts: true,
+      positionsPath: ws.positionsPath, snapshotDir: ws.snapshotDir, balanceMapPath: ws.balanceMapPath,
+      dataPath: ws.dataPath, canonicalSha256: hashFile(ws.dataPath).toUpperCase(),
+    });
+    const bytes = fs.readFileSync(ws.dataPath);
+    const positionsBefore = fs.readFileSync(ws.positionsPath);
+    ws.positionsBefore = positionsBefore;
+    const data = JSON.parse(bytes.toString('utf8'));
+    const real = Forecast.startingCashAmount;
+    if (stub) Forecast.startingCashAmount = stub;
+    try {
+      return { result: C.applyRecoveryPreview(data, preview, ws.dataPath, bytes,
+        { positionsPath: ws.positionsPath, snapshotDir: ws.snapshotDir, balanceMapPath: ws.balanceMapPath }), ws, bytes };
+    } catch (e) { return { error: e.message, ws, bytes }; } finally { Forecast.startingCashAmount = real; }
+  };
+  const control = run(null);
+  ok(!control.error && control.result && control.result.snapshotWritten === true,
+    'control: a complete surviving opening recovers directly', control.error || '');
+  // A complete opening whose starting cash Forecast cannot consume is refused,
+  // and data.json is untouched.
+  const bad = run(() => NaN);
+  ok(bad.error && /Forecast cannot consume the surviving starting cash/.test(bad.error),
+    'a complete opening with an unconsumable starting cash is refused', bad.error || 'accepted');
+  ok(Buffer.compare(fs.readFileSync(bad.ws.dataPath), bad.bytes) === 0, 'and data.json is byte-identical');
+  ok(Buffer.compare(fs.readFileSync(bad.ws.positionsPath), bad.ws.positionsBefore) === 0
+    && !fs.existsSync(path.join(bad.ws.snapshotDir, '2026-08-19.json')),
+    'and nothing was installed: positions unchanged, no snapshot written (the rule runs before install)');
+}
+
 console.log('\n=== 2. data.json remains byte-identical ===');
 {
   const pkt = survivingPacket();

@@ -77,6 +77,59 @@ for (const [label, validate, proposedOk] of [
   }
 }
 
+// Follow-up to #1386 (notes 1-3): the same rule on the opening cutover and
+// the payday-observation persist, and on an opening with no breakdown.
+const NO_BREAKDOWN = amount => {
+  const d = doc([]);
+  d.plan.startingCash = amount === undefined ? {} : { amount };
+  return d;
+};
+const cutover = { openingCutover: { requestedAsOf: '2026-10-14',
+  proposedOpening: { posted: [], pending: [], representedEvents: [] } } };
+const PAYDAY = '2026-10-15';
+const paydayProposal = { paydayDate: PAYDAY, packet: { periodStart: PAYDAY, asOf: PAYDAY,
+  accounts: [{ id: 'chequing-a', value: 250, evidenceDate: PAYDAY, temporalClaim: 'posted-balance-observed-on-household-date' }] } };
+const withPacket = d => { d.plan.opening.paydayAccountObservations = JSON.parse(JSON.stringify(paydayProposal.packet)); return d; };
+for (const [label, validate] of [
+  ['validateOpeningApplied', (b, a) => Refresh.validateOpeningApplied(b, a, cutover)],
+  ['validatePaydayObservationApplied', (b, a) => Refresh.validatePaydayObservationApplied(b, withPacket(a), paydayProposal)],
+]) {
+  console.log(`\n=== ${label} ===`);
+  ok(refusal(() => validate(COMPLETE(), COMPLETE())) === null, 'control: complete to complete applies',
+    refusal(() => validate(COMPLETE(), COMPLETE())) || '');
+  for (const [name, make] of DEGRADED) {
+    const degrade = refusal(() => validate(COMPLETE(), make()));
+    ok(degrade && /would leave the opening cash incomplete/.test(degrade), `degrade (${name}): refused`, degrade || 'accepted');
+    const stays = refusal(() => validate(make(), make()));
+    ok(stays === null, `stays incomplete (${name}): applies, no seed read`, stays || '');
+  }
+  // No breakdown: a known amount is complete (a known 0 included); a null,
+  // missing or non-finite amount is incomplete, never ready at 0.
+  for (const [name, amount] of [['null', null], ['missing', undefined], ['not a number', 'x']]) {
+    const degrade = refusal(() => validate(NO_BREAKDOWN(250), NO_BREAKDOWN(amount)));
+    ok(degrade && /would leave the opening cash incomplete/.test(degrade),
+      `no breakdown, a known amount becomes ${name}: refused`, degrade || 'accepted');
+    const stays = refusal(() => validate(NO_BREAKDOWN(amount), NO_BREAKDOWN(amount)));
+    ok(stays === null, `no breakdown, ${name} amount stays ${name}: applies, no seed read`, stays || '');
+  }
+  ok(refusal(() => validate(NO_BREAKDOWN(0), NO_BREAKDOWN(0))) === null, 'no breakdown, a known 0 stays complete: applies');
+}
+
+console.log('\n=== Forecast: an opening with no breakdown ===');
+{
+  const Forecast = require('../public/forecast.js');
+  for (const [name, cash, ready, amount] of [
+    ['no startingCash', undefined, false, null], ['no amount', {}, false, null], ['amount null', { amount: null }, false, null],
+    ['amount NaN', { amount: NaN }, false, null], ['amount not a number', { amount: 'x' }, false, null], ['amount blank', { amount: '' }, false, null],
+    ['amount 0', { amount: 0 }, true, 0], ['amount "0"', { amount: '0' }, true, 0], ['amount 120', { amount: 120 }, true, 120],
+  ]) {
+    const plan = cash === undefined ? {} : { startingCash: cash };
+    const state = Forecast.openingCashState(plan);
+    ok(state.status === (ready ? 'ready' : 'unavailable') && Forecast.startingCashAmount(plan) === amount,
+      `${name}: ${ready ? 'ready at ' + amount : 'unknown, never ready at 0'}`, `${state.status} ${Forecast.startingCashAmount(plan)}`);
+  }
+}
+
 console.log('\n=== live overlay (scripts/live-plan.js) ===');
 {
   // The read-only live overlay follows the same rule. A world whose opening is
@@ -99,6 +152,33 @@ console.log('\n=== live overlay (scripts/live-plan.js) ===');
       `${name}: the overlay applies${patch ? ' and the opening stays incomplete (no seed read)' : ''}`,
       result.error ? result.error.message : `gate=${gate}`);
   }
+}
+
+console.log('\n=== live overlay: a complete opening made incomplete is refused ===');
+{
+  // The overlay itself never empties a known chequing row, so the degrade is
+  // injected at the last step before the check (the Lunch Money budget
+  // derivation on the overlaid plan): chequing A becomes unknown there.
+  const H = require('./acceptance/harness.js');
+  const Forecast = require('../public/forecast.js');
+  const real = Forecast.withLunchMoneyBudgets;
+  for (const [name, degrade] of [
+    ['chequing A flagged unknown', rows => rows.forEach(r => { if (r.id === 'chequing-a') r.unknown = true; })],
+    ['chequing A duplicated', rows => rows.push({ ...rows.find(r => r.id === 'chequing-a') })],
+  ]) {
+    Forecast.withLunchMoneyBudgets = (...args) => {
+      const plan = real(...args); degrade(plan.startingCash.breakdown); return plan;
+    };
+    const Live = require('../scripts/live-plan');
+    const w = H.baseWorld('2026-10-14');
+    H.productionOpening(w);
+    const plan = H.planOf(w);
+    const why = refusal(() => Live.fromObservation({ data: H.canonicalOf(w, plan), payload: H.rawPayload(w),
+      accountMap: H.accountMapOf(w), identity: H.identityOf(w) }));
+    Forecast.withLunchMoneyBudgets = real;
+    ok(why && /would leave the opening cash incomplete/.test(why), `${name}: the overlay is refused`, why || 'accepted');
+  }
+  Forecast.withLunchMoneyBudgets = real;
 }
 
 console.log('\n=== posted-cash preview artifact ===');
