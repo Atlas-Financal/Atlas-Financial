@@ -1,7 +1,8 @@
 'use strict';
 // The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
-// the windowed and pending transactions, and the recurring-items read (S1).
-const PROVIDER_GETS = 8;
+// the windowed and pending transactions, the recurring-items read (S1), and the
+// budget settings and budget summary reads (Lunch Money budgets, PR A).
+const PROVIDER_GETS = 10;
 // Synthetic source inputs, actual worker/observer/LivePlan and authenticated
 // server routes. No household file edit, configured secret or provider write.
 const fs = require('node:fs');
@@ -77,6 +78,8 @@ async function provider({ accountId = null } = {}) {
       if (url.pathname === '/v2/manual_accounts') return send(200, { manual_accounts: [] });
       if (url.pathname === '/v2/categories') return send(200, { categories: mode === 'malformed' ? {} : payload.categories });
       if (url.pathname === '/v2/tags') return send(200, { tags: payload.tags });
+      if (url.pathname === '/v2/budgets/settings') return send(200, { budget_period_granularity: 'month', budget_period_quantity: 1, budget_period_anchor_date: '2026-01-01' });
+      if (url.pathname === '/v2/summary') return send(200, { aligned: false, categories: [] });
       if (url.pathname === '/v2/transactions') {
         const isPending = url.searchParams.get('is_pending') === 'true';
         const rows = payload.transactions.filter(tx => !isPending || tx.is_pending);
@@ -219,7 +222,7 @@ if (require.main === module) (async () => {
       + independentlyEvaluated.plan.startingCash.breakdown.find(row => row.id === 'chequing-b').value, 1375, 'independent 1215 + 160 chequing proof');
     const firstCount = mock.calls.length; let firstCheck;
     check(await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { firstCheck = value; } }), direct, 'first browser miss equals independent evaluation');
-    await drain(); check(mock.calls.length - firstCount, PROVIDER_GETS, 'first browser read performs eight GETs (seven plus the recurring-items read)');
+    await drain(); check(mock.calls.length - firstCount, PROVIDER_GETS, 'first browser read performs ten GETs (seven, the recurring-items read, and the two budget reads)');
     check(firstCheck, { source: 'provider', qualified: true, checkedAt: CLOCK }, 'live check timestamp');
     const cachedCount = mock.calls.length, workerCount = workers.length, started = performance.now(); let reusedCheck;
     const reused = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { reusedCheck = value; } });

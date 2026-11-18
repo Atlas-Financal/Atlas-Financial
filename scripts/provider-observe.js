@@ -931,6 +931,7 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
     options
   );
   const recurringItems = await fetchRecurringEvidence(token, txUrl, base, options);
+  const lunchMoneyBudgets = await fetchBudgetEvidence(token, base, now, options);
   return {
     provider: 'lunchmoney',
     fetchedAt: now,
@@ -957,7 +958,36 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
       truncated: pendingPage.truncated === true,
     },
     recurringItems,
+    lunchMoneyBudgets,
   };
+}
+
+// Lunch Money budgets (owner decision, #821, 2026-11-18: budget amounts come
+// from Lunch Money; lead rulings Q1-Q5). Two GET reads per observation:
+// /budgets/settings (period granularity, quantity, anchor) and /summary with
+// occurrences, over a window from BUDGET_READ_LOOKBACK_DAYS before today to
+// BUDGET_READ_LOOKAHEAD_DAYS after. A non-aligned range still returns every
+// budget period it fully contains, each with its own dates and `budgeted`.
+// FOUNDATION: Forecast does not read the block yet (PR B), so a failed read
+// is recorded as unavailable and never fails the observation. Cancellation
+// still cancels.
+const BUDGET_READ_LOOKBACK_DAYS = 120;
+const BUDGET_READ_LOOKAHEAD_DAYS = 200;
+async function fetchBudgetEvidence(token, base, now, options) {
+  try {
+    const day = dateOnly(now);
+    if (!day) return { status: 'unavailable', reason: 'budget-read-failed' };
+    const settings = await httpsGetJson(new URL(`${base}/budgets/settings`), token, options);
+    const url = new URL(`${base}/summary`);
+    url.searchParams.set('start_date', Forecast.addDays(day, -BUDGET_READ_LOOKBACK_DAYS));
+    url.searchParams.set('end_date', Forecast.addDays(day, BUDGET_READ_LOOKAHEAD_DAYS));
+    url.searchParams.set('include_occurrences', 'true');
+    const summary = await httpsGetJson(url, token, options);
+    return { status: 'read', settings, summary };
+  } catch (err) {
+    if (options && options.signal && options.signal.aborted) throw err;
+    return { status: 'unavailable', reason: 'budget-read-failed' };
+  }
 }
 
 // Lunch Money reviewed recurring items (owner, #821 6956651970): one GET of
@@ -4875,6 +4905,8 @@ function observeCore(input, capture) {
     // N2: account sync fields reach the coverage stamp without joining the public report.
     accounts: normalized.accounts,
     recurringItems: input.payload && input.payload.recurringItems,
+    lunchMoneyBudgets: input.payload && input.payload.lunchMoneyBudgets,
+    lunchMoneyCategories: input.payload && input.payload.categories,
     // Part (b): the refusals of this observation's one review, never re-derived.
     recurringRefused: recurringReview.refused,
     onCoverageDiagnostic: input.onCoverageDiagnostic,
@@ -5043,7 +5075,8 @@ function currentPeriodActualsLooksSanitized(packet) {
   if (Array.isArray(txs) && txs.some(tx => tx && !transactionLooksSanitized(tx))) {
     return false;
   }
-  return recurringEvidenceLooksSanitized(packet.lunchMoneyRecurring);
+  return recurringEvidenceLooksSanitized(packet.lunchMoneyRecurring)
+    && budgetEvidenceLooksSanitized(packet.lunchMoneyBudgets);
 }
 
 function householdCashIdsFromPlan(plan) {
@@ -5214,54 +5247,41 @@ function parsePlaidMetadataObject(meta) {
   return obj;
 }
 
-function plaidFieldFromMetadata(meta, keys) {
+function plaidFieldsFromMetadata(meta, keys) {
   const obj = parsePlaidMetadataObject(meta);
-  if (!obj) return null;
+  if (!obj) return [];
   const sources = [obj];
   if (obj.transaction && typeof obj.transaction === 'object' && !Array.isArray(obj.transaction)) {
     sources.push(obj.transaction);
   }
-  for (const source of sources) {
-    for (const key of keys) {
-      const value = source[key];
-      if (value != null && value !== '') return String(value);
-    }
-  }
-  return null;
+  return sources.flatMap(source => keys.map(key => source[key]));
 }
 
-function plaidPendingIdFromMetadata(meta) {
-  return plaidFieldFromMetadata(meta, ['pending_transaction_id', 'pendingTransactionId']);
-}
-
-function plaidTransactionIdFromMetadata(meta) {
-  return plaidFieldFromMetadata(meta, ['transaction_id', 'transactionId']);
+function consistentPlaidIdentity(raw, directKeys, metadataKeys) {
+  if (!raw || typeof raw !== 'object') return null;
+  const values = directKeys.map(key => raw[key])
+    .concat([raw.plaid_metadata, raw.plaidMetadata].flatMap(meta => plaidFieldsFromMetadata(meta, metadataKeys)))
+    .filter(value => value != null && value !== '');
+  const [first] = values;
+  return typeof first === 'string' && /^\S+$/.test(first) && values.every(value => value === first) ? first : null;
 }
 
 function plaidTransactionIdFromRaw(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  if (raw.plaidTransactionId != null && raw.plaidTransactionId !== '') {
-    return String(raw.plaidTransactionId);
-  }
-  return plaidTransactionIdFromMetadata(raw.plaid_metadata || raw.plaidMetadata);
+  return consistentPlaidIdentity(raw, ['plaidTransactionId'], ['transaction_id', 'transactionId']);
 }
 
 function plaidPendingTransactionIdFromRaw(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  if (raw.plaidPendingTransactionId != null && raw.plaidPendingTransactionId !== '') {
-    return String(raw.plaidPendingTransactionId);
-  }
-  const fromMeta = plaidPendingIdFromMetadata(raw.plaid_metadata || raw.plaidMetadata);
-  if (fromMeta) return fromMeta;
-  const direct = raw.pending_transaction_id || raw.pendingTransactionId;
-  return direct == null || direct === '' ? null : String(direct);
+  return consistentPlaidIdentity(raw, ['plaidPendingTransactionId', 'pending_transaction_id', 'pendingTransactionId'],
+    ['pending_transaction_id', 'pendingTransactionId']);
 }
 
 function plaidTransactionIdOf(tx) {
+  if (tx?.provider === 'lunchmoney' && Object.hasOwn(tx, 'plaidTransactionId')) return tx.plaidTransactionId;
   return plaidTransactionIdFromRaw(tx);
 }
 
 function plaidPendingTransactionIdOf(tx) {
+  if (tx?.provider === 'lunchmoney' && Object.hasOwn(tx, 'plaidPendingTransactionId')) return tx.plaidPendingTransactionId;
   return plaidPendingTransactionIdFromRaw(tx);
 }
 
@@ -5270,6 +5290,22 @@ function directedPlaidSettlementMate(posted, pending) {
   const have = plaidTransactionIdOf(pending);
   if (!want || !have) return false;
   return want === have;
+}
+
+function postedForPendingSettlement(tx) {
+  // Normalized provider rows always carry explicit posting evidence.
+  // Older normalized fixtures carry the affirmative boolean directly.
+  return tx.pending === false && tx.contradictoryEvidence !== true
+    && (!Object.hasOwn(tx, 'savingsPostingEvidence') || tx.savingsPostingEvidence === 'posted');
+}
+
+function hasDifferentPlaidPredecessor(posted, pending) {
+  if (!postedForPendingSettlement(posted) || pending.contradictoryEvidence === true) return false;
+  const predecessor = plaidPendingTransactionIdOf(posted);
+  const authorization = plaidTransactionIdOf(pending);
+  const postedIdentity = plaidTransactionIdOf(posted);
+  return !!predecessor && !!authorization && predecessor !== authorization
+    && postedIdentity !== authorization && postedIdentity !== predecessor;
 }
 
 function sameSettlementAccount(pending, posted, opts) {
@@ -5326,7 +5362,8 @@ function collapseOwnerConfirmedShopifySettlement(pending, posted, drop, opts) {
     !drop.has(tx) && matchesOwnerConfirmedShopifySettlement(tx, settlementAccountId(tx, opts)));
   // Exactly one unresolved pending and one confirmed-settled posted of this
   // identity. Two such 4-tuples stay uncollapsed — that would be a general rule.
-  if (confirmedPending.length === 1 && confirmedPosted.length === 1) {
+  if (confirmedPending.length === 1 && confirmedPosted.length === 1
+    && !hasDifferentPlaidPredecessor(confirmedPosted[0], confirmedPending[0])) {
     drop.add(confirmedPending[0]);
   }
 }
@@ -5340,7 +5377,7 @@ function collapsePendingPostedBySettlementIdentity(transactions, asOf, opts) {
   for (const tx of list) {
     const treatment = treat(tx);
     if (tx.pending === true && treatment.treatment === 'unresolved') pending.push(tx);
-    else if (tx.pending !== true && treatment.treatment === 'confirmed-settled') posted.push(tx);
+    else if (postedForPendingSettlement(tx)) posted.push(tx);
   }
   if (!pending.length || !posted.length) return list;
   const drop = new Set();
@@ -5377,6 +5414,8 @@ function collapsePendingPostedBySettlementIdentity(transactions, asOf, opts) {
   return remaining;
 }
 
+const distinctPendingByPosted = new WeakMap();
+
 function pendingPostedSurfaceKey(tx, opts) {
   const accountId = settlementAccountId(tx, opts);
   const amount = lunchMoneyDebitAmount(tx && tx.amount);
@@ -5386,10 +5425,10 @@ function pendingPostedSurfaceKey(tx, opts) {
     tx && tx.original_name,
     tx && tx.payee,
   ].find(v => v != null && String(v).trim() !== '');
-  if (!tx || !tx.date || accountId == null || accountId === '' || amount == null || !merchant) {
-    return null;
-  }
-  return [tx.date, String(accountId), Number(amount).toFixed(2), String(merchant)].join('|');
+  if (!tx || amount == null) return null;
+  return Forecast.classifyCurrentPeriodTransaction.spendDuplicateKey({
+    date: tx.date, account: accountId, amount, originalMerchant: merchant,
+  });
 }
 
 function flagUnresolvedPendingPostedDuplicates(transactions, asOf, opts) {
@@ -5398,6 +5437,7 @@ function flagUnresolvedPendingPostedDuplicates(transactions, asOf, opts) {
   const postedByKey = new Map();
   for (const tx of transactions || []) {
     if (!tx) continue;
+    distinctPendingByPosted.delete(tx);
     const key = pendingPostedSurfaceKey(tx, opts);
     if (!key) continue;
     const treatment = treat(tx);
@@ -5414,6 +5454,11 @@ function flagUnresolvedPendingPostedDuplicates(transactions, asOf, opts) {
   for (const [key, pendings] of pendingByKey) {
     const posted = postedByKey.get(key) || [];
     if (pendings.length !== 1 || posted.length !== 1) continue;
+    if (pendings[0].pendingPostedAmbiguous !== true && posted[0].pendingPostedAmbiguous !== true
+      && hasDifferentPlaidPredecessor(posted[0], pendings[0])) {
+      distinctPendingByPosted.set(posted[0], pendings[0]);
+      continue;
+    }
     pendings[0].pendingPostedDuplicate = true;
     posted[0].pendingPostedDuplicate = true;
   }
@@ -6286,6 +6331,117 @@ function applyRecurringObligationSchedule(row, schedule) {
 
 // The structural check for that block: exact keys, value types and no
 // free text. Anything else marks the packet unsanitized.
+// Lunch Money budgets, reduced for the packet (owner decision #821
+// 2026-11-18; lead rulings Q1-Q5). Only the groups the plan names
+// (plan.budget.categories[].lunchMoneyCategoryGroupId) are kept, the same
+// privacy rule as the group routing: no other group or category id leaves.
+// Per Lunch Money budget period, each named group gets one `budgeted`:
+//   - the budget Lunch Money holds on the group itself, when it holds one
+//     (level 'group'); otherwise
+//   - the sum of the budgets on the group's own categories, skipping
+//     categories with none (level 'children'); otherwise
+//   - null (no budget set for that period; level null).
+// Only `budgeted` (the user's primary currency) is kept: activity,
+// available, notes and currency text are dropped. Forecast does not read the
+// block yet (PR B); the planned-amount rules (proration, carry-forward,
+// payday cadence) are Forecast's, not this reader's.
+const BUDGET_GRANULARITIES = new Set(['day', 'week', 'month', 'year', 'twice a month']);
+const BUDGET_UNAVAILABLE_REASONS = new Set(['budget-read-failed', 'budget-settings-invalid', 'budget-summary-invalid']);
+function sanitizedBudgetEvidence(raw, rawCategories, plan) {
+  if (raw == null) return null;
+  const unavailable = reason => ({ source: 'provider-observe:lunchmoney', status: 'unavailable', reason });
+  if (raw.status !== 'read') return unavailable('budget-read-failed');
+  const settings = raw.settings || {};
+  const granularity = settings.budget_period_granularity;
+  const quantity = settings.budget_period_quantity;
+  const anchorDate = parseIsoDate(settings.budget_period_anchor_date);
+  if (!BUDGET_GRANULARITIES.has(granularity) || !Number.isSafeInteger(quantity) || quantity < 1 || !anchorDate) {
+    return unavailable('budget-settings-invalid');
+  }
+  const rows = raw.summary && raw.summary.categories;
+  if (!Array.isArray(rows)) return unavailable('budget-summary-invalid');
+  // category id -> (period key -> budgeted number | null); every period seen.
+  const byCategory = new Map();
+  const periods = new Map();
+  for (const row of rows) {
+    if (!row || !Number.isSafeInteger(row.category_id) || !Array.isArray(row.occurrences)) continue;
+    const occ = new Map();
+    for (const o of row.occurrences) {
+      const start = o && parseIsoDate(o.start_date);
+      const end = o && parseIsoDate(o.end_date);
+      if (!start || !end || end < start) continue;
+      const key = start + '|' + end;
+      periods.set(key, { start, end });
+      const value = typeof o.budgeted === 'number' && Number.isFinite(o.budgeted) ? o.budgeted : null;
+      occ.set(key, value);
+    }
+    byCategory.set(String(row.category_id), occ);
+  }
+  // group id -> its own category ids, from the categories catalog (nested
+  // children, or a child's group_id).
+  const children = new Map();
+  const addChild = (groupId, childId) => {
+    if (groupId == null || childId == null) return;
+    const key = String(groupId);
+    if (!children.has(key)) children.set(key, new Set());
+    children.get(key).add(String(childId));
+  };
+  for (const cat of Array.isArray(rawCategories) ? rawCategories : []) {
+    if (!cat || cat.id == null) continue;
+    if (cat.is_group === true && Array.isArray(cat.children)) {
+      for (const child of cat.children) if (child && child.id != null) addChild(cat.id, child.id);
+    }
+    if (cat.group_id != null) addChild(cat.group_id, cat.id);
+  }
+  const named = [...new Set(((plan && plan.budget && plan.budget.categories) || [])
+    .map(row => row && row.lunchMoneyCategoryGroupId).filter(id => id != null).map(String)
+    // Lunch Money ids are integers; anything else names no Lunch Money group.
+    .filter(id => /^\d+$/.test(id)))].sort();
+  const ordered = [...periods.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const byGroup = {};
+  for (const groupId of named) {
+    const own = byCategory.get(groupId);
+    const kids = [...(children.get(groupId) || [])];
+    byGroup[groupId] = ordered.map(({ start, end }) => {
+      const key = start + '|' + end;
+      const groupValue = own ? own.get(key) : null;
+      if (typeof groupValue === 'number') return { start, end, budgeted: round2(groupValue), level: 'group' };
+      const values = kids.map(id => byCategory.get(id)).filter(Boolean)
+        .map(occ => occ.get(key)).filter(v => typeof v === 'number');
+      if (values.length) return { start, end, budgeted: round2(values.reduce((a, b) => a + b, 0)), level: 'children' };
+      return { start, end, budgeted: null, level: null };
+    });
+  }
+  return { source: 'provider-observe:lunchmoney', status: 'read', granularity, quantity, anchorDate, byGroup };
+}
+
+// Structural check for the packet's budget block: exactly the keys above,
+// dates as dates, numbers as numbers, group ids as digit strings. Anything
+// else fails the packet's sanitization and the block is withheld.
+function budgetEvidenceLooksSanitized(block) {
+  if (block == null) return true;
+  if (typeof block !== 'object' || Array.isArray(block)) return false;
+  const keys = Object.keys(block).sort().join(',');
+  if (block.status === 'unavailable') {
+    return keys === 'reason,source,status' && block.source === 'provider-observe:lunchmoney'
+      && BUDGET_UNAVAILABLE_REASONS.has(block.reason);
+  }
+  if (block.status !== 'read' || keys !== 'anchorDate,byGroup,granularity,quantity,source,status') return false;
+  if (block.source !== 'provider-observe:lunchmoney' || !BUDGET_GRANULARITIES.has(block.granularity)
+    || !Number.isSafeInteger(block.quantity) || block.quantity < 1 || !parseIsoDate(block.anchorDate)) return false;
+  if (!block.byGroup || typeof block.byGroup !== 'object' || Array.isArray(block.byGroup)) return false;
+  for (const [groupId, list] of Object.entries(block.byGroup)) {
+    if (!/^\d+$/.test(groupId) || !Array.isArray(list)) return false;
+    for (const p of list) {
+      if (!p || typeof p !== 'object' || Object.keys(p).sort().join(',') !== 'budgeted,end,level,start') return false;
+      if (!parseIsoDate(p.start) || !parseIsoDate(p.end) || p.end < p.start) return false;
+      if (p.budgeted === null ? p.level !== null
+        : !(typeof p.budgeted === 'number' && Number.isFinite(p.budgeted) && (p.level === 'group' || p.level === 'children'))) return false;
+    }
+  }
+  return true;
+}
+
 function recurringEvidenceLooksSanitized(block) {
   if (block === undefined) return true;
   if (!block || typeof block !== 'object' || Array.isArray(block)) return false;
@@ -6464,6 +6620,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
+  const distinctPendingRows = [];
   // U5: emitted group-parent id -> the child provider ids Lunch Money lists for
   // it; emitted row id -> its provider id. Internal to this pass; never emitted.
   const groupChildIds = new Map(), providerIdOfRow = new Map();
@@ -6803,6 +6960,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
     };
     txs.push(emittedRow);
+    const distinctPending = distinctPendingByPosted.get(tx);
+    if (distinctPending) distinctPendingRows.push([emittedRow, distinctPending.providerTransactionId]);
     if (emittedRow.id != null) {
       providerIdOfRow.set(String(emittedRow.id), tx.providerTransactionId == null ? null : String(tx.providerTransactionId));
       if (Array.isArray(tx.groupChildIds)) groupChildIds.set(String(emittedRow.id), tx.groupChildIds);
@@ -6818,6 +6977,13 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         transactionId: String(tx.providerTransactionId),
       });
     }
+  }
+  // Project only a link within this packet. Plaid IDs and raw provider
+  // transaction IDs stay in the observer.
+  const emittedIds = new Set(txs.map(tx => tx.id));
+  for (const [posted, providerId] of distinctPendingRows) {
+    const pendingId = existingLocalId(providerId);
+    if (pendingId && pendingId !== posted.id && emittedIds.has(pendingId)) posted.distinctPendingId = pendingId;
   }
   const representedActuals = [];
   const linkedLocalIds = new Set();
@@ -7114,6 +7280,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   if (lunchMoneyRecurring && !recurringEvidenceLooksSanitized(lunchMoneyRecurring)) {
     lunchMoneyRecurring = { source: 'provider-observe:lunchmoney', status: 'unavailable', reason: 'recurring-read-failed' };
   }
+  let lunchMoneyBudgets = sanitizedBudgetEvidence(opts.lunchMoneyBudgets, opts.lunchMoneyCategories, opts.plan);
+  if (lunchMoneyBudgets && !budgetEvidenceLooksSanitized(lunchMoneyBudgets)) {
+    lunchMoneyBudgets = { source: 'provider-observe:lunchmoney', status: 'unavailable', reason: 'budget-read-failed' };
+  }
   const packet = {
     schema: 'atlas-current-period-actuals/v1',
     observationAsOf: asOf,
@@ -7153,6 +7323,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     transactions: txs,
     ...(savingsLinks ? { savingsLinks } : {}),
     ...(lunchMoneyRecurring ? { lunchMoneyRecurring } : {}),
+    ...(lunchMoneyBudgets ? { lunchMoneyBudgets } : {}),
     // C1: present only when the sole coverage gap is dropped rows whose one
     // budget category is certain. Dates and category ids only: no amount,
     // payee, merchant or provider id.
@@ -7180,6 +7351,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }));
     packet.transactionCoverage = 'incomplete';
     delete packet.lunchMoneyRecurring;
+    delete packet.lunchMoneyBudgets;
     delete packet.coverageExceptCategories;
     delete packet.droppedCategoryRows;
     packet.paydayGapComplete = false;
@@ -7503,6 +7675,8 @@ const api = {
   displayedItemNote,
   observe,
   fetchLunchMoneyLive,
+  sanitizedBudgetEvidence,
+  budgetEvidenceLooksSanitized,
   resolveLiveToken,
   resolveLiveCredential,
   run,

@@ -38,11 +38,12 @@ const ok = (cond, label, detail = '') => {
 // (hold 400), a 62.40 grocery purchase, a Savings pool, a trip linked by the
 // Trip category (106), as of Oct 14. Hand arithmetic for the active close:
 // 2,500 opening + 1,400 - 400 hold = 3,500; a linked 200 adds an item term of
-// 200 (3,300); an unlinked 200 Restaurants raises that hold to 300 (3,400).
-function run(extra, mode) {
+// 200 (3,300); an unlinked 200 Restaurants raises the hold to 500, since
+// Restaurants becomes max(100, 200) (3,400).
+function run(extra, mode, pool = true) {
   const w = H.baseWorld();
   w.commitments = [{ id: 'trip', label: 'Invented trip', date: '2026-11-20', amount: 600, confidence: 'confirmed', sinkingFund: true }];
-  w.savingsPool = { value: 1000 };
+  if (pool) w.savingsPool = { value: 1000 };
   w.links = [{ categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20',
     effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' }];
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
@@ -78,9 +79,22 @@ console.log('1. A linked charge: counted once when ready, withheld (never omitte
     ok(l.active.plannedPeriodClose == null && l.active.balanceAfterDeductions == null,
       `${mode}: the close and Balance After Deductions are withheld, not published without the charge`,
       JSON.stringify({ close: l.active.plannedPeriodClose, bad: l.active.balanceAfterDeductions }));
-    ok(!l.next || l.next.opening == null, `${mode}: the next period's opening is withheld`, String(l.next && l.next.opening));
+    ok(l.next != null && l.next.opening == null, `${mode}: the next period exists and its opening is withheld`, String(l.next && l.next.opening));
     ok(u.hold === 500, `${mode}: an unlinked 200 purchase IS counted by the hold (max(100, 200) + 300 = 500)`, String(u.hold));
   }
+}
+
+// 1b. Negative case: the same Trip-category charge with no Savings pool is
+// not a savings item. It is ordinary Other spending, so the hold counts it
+// in every mode: 400 + 200 = 600. The carried next opening drops by exactly
+// the 200 (control 3,000, with the charge 2,800), lost coverage included.
+console.log('\n1b. No Savings pool: the charge is ordinary spending, counted in every mode');
+for (const mode of ['ready', 'coverage lost', 'one category withheld']) {
+  const n = run([linked()], mode, false), c = run([], mode, false);
+  ok(n.kind !== 'savings-item' && n.item === 0 && n.hold === 600,
+    `${mode}: not a savings item; the hold counts it (400 + 200 = 600)`, JSON.stringify({ kind: n.kind, item: n.item, hold: n.hold }));
+  ok(n.next != null && c.next != null && c.next.opening === 3000 && n.next.opening === 2800,
+    `${mode}: the next opening drops by the 200 (3,000 to 2,800)`, JSON.stringify({ control: c.next && c.next.opening, charge: n.next && n.next.opening }));
 }
 
 // 2. The S1 seed: the incumbent future-closing fixture carries a known next
