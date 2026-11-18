@@ -1907,7 +1907,10 @@ async function applyForServer(canonical, env, options) {
     if (qualified && !options?.evidence && options?.onObservation) {
       try {
         StageTiming.sync('sourceReplayMs', () => {
-          const inputs = ObservationMemory.sourceInputs(payload);
+          // The fixed-amount derivation replays as its outcome record only (#1355):
+          // the 200-day history rows are never kept.
+          const inputs = ObservationMemory.sourceInputs(report.derivedAmountFixed
+            ? { ...payload, amountFixedDerivation: report.derivedAmountFixed } : payload);
           // A field projection cannot change qualification or a single figure.
           // Future observer inputs therefore cause a cache miss until supported.
           const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, inputs, accountMap));

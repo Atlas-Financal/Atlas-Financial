@@ -75,6 +75,7 @@ const PENDING_QUERY_MAX_PAGES = 20;
 const PENDING_COVERAGE_REQUIRED_EVIDENCE =
   'GET /v2/transactions?is_pending=true with no start_date/end_date, paginated until has_more=false.';
 const Forecast = require('../public/forecast.js');
+const ObservationMemory = require('./server-observation-memory.js');
 
 function fail(message) {
   const err = new Error(message);
@@ -4957,6 +4958,11 @@ function observeCore(input, capture) {
     assembled.derivedAmountFixed = derivedAmountFixedBills(input.payload.amountHistory, {
       plan: input.data && input.data.plan, accountMap: mapDoc, identityRules,
       categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
+  } else if (input.payload && input.payload.amountFixedDerivation !== undefined) {
+    // A replay from observation memory carries the live derivation's outcome
+    // (ObservationMemory.sourceInputs keeps only that record, never the rows).
+    // Memory is bound to the same canonical context, so it derives the same.
+    assembled.derivedAmountFixed = ObservationMemory.amountFixedDerivation(input.payload.amountFixedDerivation);
   }
   if (capture) {
     capture.packet = actualsPass.packet;
