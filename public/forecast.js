@@ -2759,9 +2759,27 @@
     const notRelied = notReliedUponKeySet(plan, opts, start);
     const held = heldOtherIncomeKeys(plan, opts, start, events, callerOpts);
     if (!represented.size && !notRelied.size && !held.size) return events;
-    return events.filter(e => !represented.has(e.id + '@' + e.date)
-      && !notRelied.has(e.id + '@' + e.date)
-      && !(e.kind === 'income' && held.has(e.id + '@' + e.date)));
+    const observed = represented.size ? representedActualMap(opts) : null;
+    const out = [];
+    for (const e of events) {
+      const key = e.id + '@' + e.date;
+      if (notRelied.has(key) || (e.kind === 'income' && held.has(key))) continue;
+      if (!represented.has(key)) { out.push(e); continue; }
+      // D2: the paid part is already in opening cash; only the remainder of a
+      // fixed bill paid in part is still to leave.
+      const remainder = partlyPaidRemainderEvent(e, observed);
+      if (remainder) out.push(remainder);
+    }
+    return out;
+  }
+  // D2: the cash event still owed on a represented fixed bill paid in part:
+  // its remainder only (the paid part is already in opening cash), or null.
+  function partlyPaidRemainderEvent(event, observed) {
+    if (!event || !(event.amount < 0)) return null;
+    // Already the remainder: never measured against the payment again.
+    if (event.partlyPaidRemainder === true) return event;
+    const partPaid = fixedBillPartialPayment(event, -event.amount, observed);
+    return partPaid ? { ...event, amount: -partPaid.remainderCents / 100, partlyPaidRemainder: true } : null;
   }
 
   // C3: the forward walk excludes exactly the expected Other Income that
@@ -4016,6 +4034,7 @@
     const to = addDays(start, -1);
     if (!from || from > to) return [];
     const represented = representedKeySet(plan, opts, start);
+    const observed = represented.size ? representedActualMap(opts) : null;
     const innerTrace = trace ? {} : null;
     const inner = expandEventsInternal(plan, from, to, opts, innerTrace);
     const extra = [];
@@ -4030,8 +4049,13 @@
         if (row && commitmentSettledBy(row, start)) continue;
       }
       const key = event.id + '@' + event.date;
-      if (represented.has(key)) continue;
       if (already && already.has(key)) continue;
+      if (represented.has(key)) {
+        // D2: only the remainder of a fixed bill paid in part is still owed.
+        const remainder = partlyPaidRemainderEvent(event, observed);
+        if (remainder) { extra.push(remainder); if (selected) selected.set(event, remainder); }
+        continue;
+      }
       const carried = cardPaidReserved
         ? Object.assign({}, event, { carriedUnresolved: true })
         : event;
@@ -4421,6 +4445,8 @@
             payerLabel: plannedPayerLabel(fundingAccount, b.payingAccount, plan) } : {}),
           jointCash,
           cardPaid,
+          // D2: only an explicit owner mark makes a bill's amount fixed.
+          ...(b.amountFixed === true ? { amountFixed: true } : {}),
         });
       }
     }
@@ -8481,9 +8507,12 @@
       if (typeof amt !== 'number' || !isFinite(amt)) continue;
       const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
         ? String(row.postedOn) : null;
+      const prior = map.get(row.id + '@' + row.date);
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        // How many linked posted entries name this occurrence (D2 reads one).
+        entries: (prior ? prior.entries : 0) + 1,
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -8514,9 +8543,9 @@
   // paid are magnitudes in dollars. A missing or non-cent value is unknown:
   // no state and no excess is invented. Excess is the paid cents above the
   // planned cents of a settled occurrence; it never changes the settled
-  // status, the remaining (0) or any total. Partial state is not decided
-  // here yet: a paid amount below plan reports state 'underpaid' only, and
-  // the caller keeps its incumbent status. The row publishes the excess only
+  // status, the remaining (0) or any total. A paid amount below plan
+  // reports state 'underpaid' only; fixedBillPartialPayment (D2) decides
+  // whether that leaves a remainder still due. The row publishes the excess only
   // when the planned amount is confirmed (calculated) or estimated
   // (estimated); an unestablished plan publishes none.
   function billPaymentState(planned, paid) {
@@ -8529,6 +8558,31 @@
     const state = paidCents === plannedCents ? 'paid-exact'
       : paidCents > plannedCents ? 'paid-excess' : 'underpaid';
     return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
+  }
+
+  // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
+  // bill paid in part keeps its remainder reserved. The one owner of that
+  // remainder: a bill occurrence whose plan row is explicitly marked
+  // `amountFixed: true` (a contractually fixed payment, marked by the owner),
+  // whose planned amount is confirmed, and whose one linked posted payment,
+  // observed in the packet, is below it. Paid is the observed amount; the
+  // remainder is planned minus paid, in integer cents. `confirmed` alone is
+  // confidence in the planned figure, not a fixed price (a cheaper hydro
+  // charge is not a debt), so every unmarked bill keeps today's PAID with its
+  // Partly paid label. The scheduled-fee pair (tdfees), a card-paid bill and a
+  // schedule-trusted settlement (no payment seen) are not here either.
+  function fixedBillPartialPayment(event, planned, observed) {
+    if (!event || event.kind !== 'bill' || !event.id || !event.date || event.id === 'tdfees'
+      || event.cardPaid === true || event.amountFixed !== true || event.confidence !== 'confirmed') return null;
+    const seen = observed && observed.get(event.id + '@' + event.date);
+    // One linked posted instalment only: several entries for one occurrence
+    // are not one partial payment, so they keep the incumbent reading.
+    if (!seen || seen.settlementBasis || seen.entries !== 1
+      || typeof seen.actual !== 'number' || !Number.isFinite(seen.actual)) return null;
+    const state = billPaymentState(planned, seen.actual);
+    if (state.state !== 'underpaid' || !(state.paidCents > 0)) return null;
+    return { plannedCents: state.plannedCents, paidCents: state.paidCents,
+      remainderCents: state.plannedCents - state.paidCents };
   }
 
   // "Trusted on due date (not seen)": the owner's schedule-trust rule
@@ -8720,13 +8774,16 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const paid = !!(e.id && represented.has(e.id + '@' + e.date));
+      // D2: the same owner as the Bills rows: a fixed bill paid in part is
+      // still required at asOf for its remainder.
+      const partPaid = paid ? fixedBillPartialPayment(e, amt, observed) : null;
       let settlement;
       let actual;
       let remaining;
       if (paid) {
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
-        remaining = 0;
+        remaining = partPaid ? partPaid.remainderCents / 100 : 0;
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8748,6 +8805,7 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(partPaid ? { partlyPaidRemainder: true } : {}),
         ...(paid && observedSettlementBasis(observed, e.id, e.date)
           ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
@@ -8978,7 +9036,8 @@
       if (item.settlement === 'represented') continue;
       if (item.id && skip.has(item.id)) continue;
       const bill = byKey.get((item.id || '') + '@' + item.date);
-      if (bill && bill.settlement === 'represented') continue;
+      // D2: a fixed bill paid in part is still due this payday for its remainder.
+      if (bill && bill.settlement === 'represented' && bill.partlyPaidRemainder !== true) continue;
       const amount = roundCent(item.amount);
       const remaining = bill && bill.remaining != null ? bill.remaining : amount;
       items.push({
@@ -10495,16 +10554,21 @@
   function calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const amt = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     if (!(amt > EPSILON)) return null;
-    const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
+    // D2: a carried remainder of a fixed bill paid in part is what is still
+    // owed; the payment seen already counted it once, so it is never paid.
+    const paid = event.partlyPaidRemainder !== true
+      && calendarOccurrenceRepresented(represented, observed, event.id, event.date);
     const inside = recurringInsideOpening(plan, event, cashAsOf);
     const due = scheduleDate || event.date;
     let settlement;
     let actual;
     let remaining;
+    // D2: a fixed bill paid in part stays still due for its remainder.
+    const partPaid = paid ? fixedBillPartialPayment(event, amt, observed) : null;
     if (paid) {
       settlement = 'represented';
       actual = observedActual(observed, event.id, event.date);
-      remaining = 0;
+      remaining = partPaid ? partPaid.remainderCents / 100 : 0;
     } else if (inside) {
       // Assumed inside the opening cash, so cash walks skip it by its
       // settlement. It is still unconfirmed: the household disclosure keeps
@@ -10536,7 +10600,9 @@
     // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
-    // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
+    // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
+    // before, except on a bill its owner marked `amountFixed: true`, which stays still due for its remainder (D2,
+    // fixedBillPartialPayment).
     // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
     // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
     // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
@@ -10545,7 +10611,8 @@
     const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
       paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
       shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
-    const status = paid ? 'PAID'
+    const status = partPaid ? 'still due'
+      : paid ? 'PAID'
       : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
@@ -10572,6 +10639,7 @@
       cardPaid: event.cardPaid === true,
       glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
+      ...(partPaid ? { partlyPaidRemainder: true } : {}),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
       ...(event.fundingAccount ? { fundingAccount: event.fundingAccount,
@@ -10758,8 +10826,15 @@
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
         && coversOccurrence;
-      if (prepaidByWalk) prepaidBillSettledBy.set(row, asOf);
-      if (!prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+      // D2: a fixed bill paid in part early, on the walk's own settled set:
+      // the paid part left cash on or before asOf, so the row keeps it as
+      // paid in its planned period and owes only its remainder there; a
+      // later opening already holds the paid part.
+      const prepaidPartial = !prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+        && row.partlyPaidRemainder === true && row.settlement === 'represented'
+        && represented && represented.has(row.id + '@' + row.date);
+      if (prepaidByWalk || prepaidPartial) prepaidBillSettledBy.set(row, asOf);
+      if (!prepaidByWalk && !prepaidPartial && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -10787,6 +10862,7 @@
         delete row.shortfall;
         delete row.shortfallTrust;
         delete row.shortfallSource;
+        delete row.partlyPaidRemainder;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -10858,8 +10934,10 @@
       if (overdueOnce && paid) {
         const probe = calendarBillRowFromEvent(
           plan, event, asOf, represented, observed, cashAsOf, due, opts);
-        if (!probe || settledInClosedPeriod(probe, due)) continue;
-        unbackedOnce = true;
+        // D2: a fixed once bill paid in part still owes its remainder, which
+        // the cash walk carries; it stays listed, built on its evidence.
+        if (!probe || (probe.partlyPaidRemainder !== true && settledInClosedPeriod(probe, due))) continue;
+        unbackedOnce = probe.partlyPaidRemainder !== true;
       }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
@@ -10979,7 +11057,7 @@
     const displayedBillAbs = r => {
       if (!r) return 0;
       if (r.movement != null && isFinite(Number(r.movement))) {
-        return Math.abs(Number(r.movement));
+        return Math.abs(Number(r.movement)) + partlyPaidRemainderAbs(r);
       }
       if (r.status === 'PAID') {
         const raw = r.actual != null ? r.actual
@@ -13202,7 +13280,14 @@
   function periodWaterfallBillLoad(bills, openingAsOf, openingSource, amountOf) {
     const amount = amountOf || billAssignedAmount;
     return roundCent((bills || []).reduce((sum, row) => {
-      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) return sum;
+      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) {
+        // D2: a fixed bill paid in part whose paid part is already inside
+        // this opening: the opening holds the paid part, not the remainder.
+        return row && row.partlyPaidRemainder === true && !row.needsDate
+          && paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource)
+          && typeof row.remaining === 'number' && Number.isFinite(row.remaining)
+          ? sum + Math.abs(row.remaining) : sum;
+      }
       return sum + (row.scheduledFeeAllowance
         ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));
@@ -13755,7 +13840,10 @@
           covered: row.minimumCoverage.covered, remaining: row.remaining,
           paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
         const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
-        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')) || row.settlement === 'opening') continue;
+        // D2: a fixed bill paid in part is represented for its paid part only;
+        // its remainder is still cash Bills must hold.
+        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')
+          && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
           issue('remaining-cash-unknown', 'The confidence of a remaining bill cash requirement is unknown.'); continue;
@@ -17571,6 +17659,12 @@
     return { unconfirmedBills: amount, unconfirmedBillsTrust: estimated ? 'estimated' : 'calculated' };
   }
 
+  // D2: a fixed bill paid in part counts its paid movement and its remainder
+  // in a bills total, so its full planned cost appears once.
+  function partlyPaidRemainderAbs(row) {
+    return row && row.partlyPaidRemainder === true && typeof row.remaining === 'number'
+      && Number.isFinite(row.remaining) ? Math.abs(row.remaining) : 0;
+  }
   function periodDisplayedBillAbs(row) {
     if (!row) return 0;
     if (row.movement != null && isFinite(Number(row.movement))) {

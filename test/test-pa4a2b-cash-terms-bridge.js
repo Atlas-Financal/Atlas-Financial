@@ -933,3 +933,18 @@ test('excluded pending twins cannot reach the H split: the reconciler already ho
     }
   }
 });
+
+test('D2: the current-Bills seed holds only the remainder of a bill marked amountFixed and paid in part before as-of', () => {
+  // One confirmed 20 bill on 10-06, represented by the settlement PAY-D. By hand: paid in full (20) the seed excludes the
+  // paid row, 2750; paid 10 of 20 the seed also deducts the 10 still owed, 2750 - 1000 = 1750; an estimated bill paid 10
+  // keeps today's reading (paid), 2750 (lead dispatch D2, 2026-11-18).
+  const other = posted({ id: 'OTHER-D', date: '2026-10-06', amount: 10, atlasAccountId: 'chequing-a',
+    accountRole: 'household-cash', categoryLabel: 'Bills', coverageRef: 'other-d' });
+  const seedFor = (actual, confidence = 'confirmed') => b2Case({
+    bills: [{ id: 'card-bill', label: 'Invented card bill', frequency: 'monthly', day: 6, amount: 20, confidence, amountFixed: true }],
+    represented: [{ id: 'card-bill', date: '2026-10-06', actual, transactionId: 'PAY-D' }],
+    alloc: 1000, otherCash: 1000, extra: [other] }).seed;
+  assert.equal(seedFor(20), 2750, 'paid in full: the paid row is excluded');
+  assert.equal(seedFor(10), 1750, 'paid 10 of 20: the 10 still owed is deducted once');
+  assert.equal(seedFor(10, 'estimated'), 2750, 'an estimated bill keeps today\'s reading');
+});
