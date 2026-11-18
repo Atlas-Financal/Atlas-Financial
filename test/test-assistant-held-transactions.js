@@ -94,6 +94,18 @@ const many = Assistant.heldCurrentPeriodProjection({ plan: {} }, { currentPeriod
 eq([many.count, many.listed, many.complete], [60, 50, false], 'at most fifty rows are listed, and the list says it is incomplete');
 eq(Assistant.heldCurrentPeriodProjection({}, { currentPeriodAction: {} }).status, 'unavailable', 'no list is unavailable, never empty-and-ok');
 
+// 3b. Missing or unusable actuals read unavailable, never an empty all-clear
+// (Codex P2 on #1297, lead's rule 13 ask).
+const noActuals = fixture(); delete noActuals.liveOverlay.currentPeriodActuals;
+eq(heldOf(build(noActuals)).status, 'unavailable', 'missing actuals: the list is unavailable');
+const stale = served([held('tx-held-s', '2026-10-04')]);
+stale.liveOverlay.currentPeriodActuals.coverageThrough = '2026-09-01';
+const staleAdvice = Forecast.recommend(stale.plan, Forecast.budgetAsOf(stale), Forecast.budgetRecommendInputs(stale, {}));
+eq(staleAdvice.currentPeriodAction.categoryRemainingClaim, 'unavailable', 'stale actuals: the page cannot use them');
+eq(heldOf(build(stale)).status, 'unavailable', 'stale actuals: the list is unavailable');
+ok(!/"count":0|"complete":true/.test(JSON.stringify(heldOf(build(stale)))), 'stale actuals: no zero count and no complete flag');
+ok(/not a locator/.test(list.lookup) && /unresolved or ask/.test(list.lookup), 'the lookup says the ordinal is not a locator');
+
 // 4. Nothing reaches the page or the figures snapshot: only the packet asks.
 const pageAdvice = Forecast.recommend(data.plan, Forecast.budgetAsOf(data), Forecast.budgetRecommendInputs(data, {}));
 ok(!('heldTransactions' in pageAdvice.currentPeriodAction), 'Forecast publishes no held list unless asked');

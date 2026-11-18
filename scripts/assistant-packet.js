@@ -1376,7 +1376,7 @@ function heldCurrentPeriodProjection(data, advice) {
     count: rows.length,
     listed: items.length,
     complete: action.unclassified ? items.length === action.unclassified.count : false,
-    lookup: 'Find each one with get_lunchmoney_transactions on its date and account; the ordinal tells rows on the same date and account apart.',
+    lookup: 'Search get_lunchmoney_transactions on each row\'s date and account. The ordinal counts held rows only, grouped by account role; it is not a locator. That search also returns rows Atlas is not holding, and two accounts can share one role. When more rows match than this list holds for that date and role, leave the row unresolved or ask, rather than guess.',
     items: items.map(({ group, ordinal, ...item }) => ({ ...item,
       ordinal: { n: ordinal, of: groups.get(group) } })),
   };

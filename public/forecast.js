@@ -17623,8 +17623,10 @@
       outgoingETransfers: outgoingETransfersPublication(
         useActuals ? actuals.outgoingETransfers.items : null, coverage, opts, asOf, origin),
       // Assistant packet only (opt-in): the rows behind unclassified.count.
-      ...(opts.collectHeldTransactions === true
-        ? { heldTransactions: useActuals ? (actuals.heldTransactions || []) : [] } : {}),
+      // Only when actuals were read: missing or unusable actuals publish no
+      // list, so the packet reads unavailable, never an empty all-clear.
+      ...(opts.collectHeldTransactions === true && useActuals && Array.isArray(actuals.heldTransactions)
+        ? { heldTransactions: actuals.heldTransactions } : {}),
     };
     if (income.status !== 'unavailable') return result;
     for (const row of result.thisPaydayDue.concat(result.thisPeriodGlance)) {
