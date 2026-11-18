@@ -2230,6 +2230,7 @@ body:has([data-budget-surface="unavailable"]) .sitenav {
   margin-top: 0;
 }
 [data-budget-surface="unavailable"] .budget-surface-unavailable,
+[data-budget-surface="unavailable"] .budget-surface-later,
 [data-budget-surface="unavailable"] .budget-blend-card-movements {
   background: var(--blend-glass);
   border: 1px solid var(--blend-line);
@@ -2751,3 +2752,15 @@ html.reduce .blend-sky { display: block; }
   line-height: 1.5;
 }
 .blend-ring-incomplete { justify-self: center; margin-top: 2px; }
+
+/* Later pay periods, estimated, while today's cash is unconfirmed (#821
+   6964438984). Layout only: Forecast's figures and trust words as given. */
+[data-budget-surface="unavailable"] .budget-surface-later { margin-top: 16px; padding: 18px 20px; }
+.estimated-later-period { padding: 12px 0; border-top: 1px solid var(--blend-line); }
+.estimated-later-period:first-of-type { border-top: 0; }
+.estimated-later-range { margin: 0 0 8px; font-size: 1rem; font-weight: 600; }
+.estimated-later-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 0; }
+.estimated-later-term dt { font-size: 0.78rem; color: var(--blend-muted, inherit); }
+.estimated-later-term dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.estimated-later-term .trust-tag.trust-estimated { margin-left: 6px; font-size: 0.7rem; padding: 1px 6px;
+  border: 1px solid var(--warning, currentColor); border-radius: 999px; }

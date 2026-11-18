@@ -8321,7 +8321,17 @@
       if (periodStart && tx.date < periodStart) continue;
       if (asOf && tx.date > asOf) continue;
       if (skipSplitParent(tx, packet)) continue;
-      if (isPossibleReplacementPending(tx, duplicateIds)) continue;
+      if (isPossibleReplacementPending(tx, duplicateIds)) {
+        // A bill payment's pending copy (provider-observe pendingBillCopyIds)
+        // is never spent, but if it is itself unclassified it still makes the
+        // classification incomplete, as it did before it was paired: it may
+        // be a second, unplaced charge.
+        if (tx.pendingBillCopy === true) {
+          const clsCopy = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+          if (classificationIncompleteHouseholdSpend(clsCopy)) { out.unclassified.count += 1; recordHeld(tx, clsCopy); }
+        }
+        continue;
+      }
       const amt = Number(tx.amount);
       if (!isFinite(amt) || amt === 0) {
         const clsZero = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
@@ -9092,6 +9102,7 @@
       minimum: firstDebt && firstDebt.payment != null
         ? roundCent(firstDebt.payment) : null,
       extraThisPayday: roundCent(extraAmount),
+      ...staleBalanceFields(firstDebt),
     } : null;
     const otherCards = revolving
       .filter(row => !first || row.id !== first.id)
@@ -9103,6 +9114,7 @@
           balance: row.balance,
           rate: row.rate,
           minimum: d && d.payment != null ? roundCent(d.payment) : null,
+          ...staleBalanceFields(d),
         };
       });
     return { firstCard, otherCards };
@@ -20619,6 +20631,7 @@
 
   function recommend(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
+    if (Array.isArray(base.debts)) base.debts = withCardBalanceFreshness(base.debts, plan, asOf);
     // One dated owner policy seeds the same native cash/funding publications.
     // The caller plan, observed balances and confirmation history stay immutable.
     if (savingsCombinedPolicy(plan?.savingsEarmarks?.allocationPolicy, asOf)) {
@@ -22172,6 +22185,8 @@
 
   function projectDebts(plan, debts, asOf, opts) {
     opts = opts || {};
+    debts = withCardBalanceFreshness(debts, plan, asOf);
+    const staleCardBalances = staleCardBalanceList(debts);
     const priority = debtPriority(plan, debts || []);
     // Facilities that are not debt records but do carry revolving headroom —
     // the chequing overdraft. Held CONSTANT across the window on purpose: its
@@ -22407,7 +22422,7 @@
     // arrived verified or confirmed; anything else stays estimated.
     const debtInputConfidence = {};
     for (const d of (debts || [])) {
-      if (d && d.id && !(d.id in debtInputConfidence)) debtInputConfidence[d.id] = d.confidence;
+      if (d && d.id && !(d.id in debtInputConfidence)) debtInputConfidence[d.id] = d.balanceTrust === 'estimated' ? 'estimated' : d.confidence;
     }
     // The same, for dated minimums, keyed by date and obligation id — one
     // obligation can fall several times in a window.
@@ -22881,6 +22896,9 @@
       // Everything an extra payment did NOT reach, so an untargeted one is
       // visible rather than silently vanishing into cash.
       untargetedExtra: opts.extraDebtMonthly > 0 && !extraTarget,
+      // A walk from a stale card balance is an estimate (marks, headroom,
+      // consumer totals, interest and crossings all start from it).
+      ...(staleCardBalances.length ? { trust: 'estimated', staleBalances: staleCardBalances } : {}),
     };
   }
 
@@ -23259,7 +23277,8 @@
   // numbers. data.json keeps the rows being summed.
   function publicationTotals(data) {
     data = data || {};
-    const debts = data.debts || [];
+    const debts = withCardBalanceFreshness(data.debts || [], data.plan, data.plan && data.plan.opening && data.plan.opening.asOf);
+    const staleCardBalances = staleCardBalanceList(debts);
     const assets = assetRows(data);
     let totalDebt = 0;
     let annualInterest = 0;
@@ -23340,6 +23359,10 @@
       helocLimit,
       assetRows: assets,
       incomeLines,
+      // Total debt, credit left and net position built on a stale card
+      // balance are estimates; the stale cards are named.
+      ...(staleCardBalances.length ? { totalDebtTrust: 'estimated', creditLeftTrust: 'estimated',
+        financialAccountsOnlyTrust: 'estimated', staleBalances: staleCardBalances } : {}),
     };
   }
 
@@ -24104,8 +24127,63 @@
   // $165.13 of pending charges and the other did not. Derived from the debt
   // records plus the facilities that are not debts (the chequing overdraft),
   // so there is nothing left to drift.
+  // A card balance older than the card's current statement cycle is not a
+  // current balance (lead dispatch T2, 2026-11-18). The cycle starts on the
+  // card's latest statement close day on or before the as-of day, the same
+  // monthly cycle the owner-approved statement cadence accepts. The balance
+  // date is the card's own stamped balanceAsOf, else the plan opening it was
+  // recorded at. A stale balance is still the best known figure, so it is
+  // kept and tagged estimated with its date; it is never promoted. A debt
+  // with no statement close day is not assessed here.
+  function cardStatementCycleStart(asOf, closeDay) {
+    const day = Number(closeDay);
+    if (!financialDate(asOf) || !Number.isInteger(day) || day < 1 || day > 31) return null;
+    const [y, m] = asOf.split('-').map(Number);
+    const at = (year, month) => `${year}-${String(month).padStart(2, '0')}-${
+      String(Math.min(day, daysInMonth(year, month))).padStart(2, '0')}`;
+    const thisMonth = at(y, m);
+    return thisMonth <= asOf ? thisMonth : (m === 1 ? at(y - 1, 12) : at(y, m - 1));
+  }
+  function cardBalanceFreshness(debt, plan, asOf) {
+    if (!debt || debt.secured || debt.statementCloseDay == null) return null;
+    const cycleStart = cardStatementCycleStart(asOf, debt.statementCloseDay);
+    if (!cycleStart) return null;
+    const balanceAsOf = financialDate(debt.balanceAsOf)
+      || (debt.balanceAsOfUnknown === true ? null : financialDate(plan && plan.opening && plan.opening.asOf));
+    if (balanceAsOf && balanceAsOf >= cycleStart) return null;
+    return {
+      status: 'stale', trust: 'estimated', balanceAsOf: balanceAsOf || null, cycleStart,
+      reason: balanceAsOf
+        ? `estimate — balance dated ${balanceAsOf}, before this statement cycle (from ${cycleStart}).`
+        : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
+    };
+  }
+  function staleCardBalanceList(debts) {
+    return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)
+      .map(d => ({ id: d.id, balanceAsOf: d.balanceFreshness.balanceAsOf, cycleStart: d.balanceFreshness.cycleStart }));
+  }
+  // The tag and date a stale card balance carries wherever it is printed.
+  function staleBalanceFields(debt) {
+    const f = debt && debt.balanceTrust === 'estimated' && debt.balanceFreshness;
+    return f ? { balanceTrust: 'estimated', balanceAsOf: f.balanceAsOf, balanceReason: f.reason } : {};
+  }
+  // Copies only the debts whose balance is stale; current debts pass through
+  // unchanged, so a household with current balances sees identical output.
+  function withCardBalanceFreshness(debts, plan, asOf) {
+    if (!Array.isArray(debts)) return debts;
+    let changed = false;
+    const out = debts.map(d => {
+      const freshness = cardBalanceFreshness(d, plan, asOf);
+      if (!freshness || (d && d.balanceFreshness)) return d;
+      changed = true;
+      return { ...d, balanceTrust: 'estimated', balanceFreshness: freshness };
+    });
+    return changed ? out : debts;
+  }
+
   function utilisation(debts, extra, plan) {
     extra = resolveExtraFacilities(extra, plan);
+    debts = withCardBalanceFreshness(debts, plan, plan && plan.opening && plan.opening.asOf);
     const rows = (debts || []).filter(x => x.limit != null).map(x => {
       const unknownPending = pendingUnknown(x);
       const pending = unknownPending ? null : (x.pending || 0);
@@ -24117,6 +24195,7 @@
         overLimit: publishedOverLimit(x.limit, used, unknownPending),
         overLimitBy: publishedOverLimitBy(x.limit, used, unknownPending),
         pct: x.limit ? (used / x.limit) * 100 : null,
+        ...staleBalanceFields(x),
       };
     });
     for (const e of extra || []) {
@@ -24142,6 +24221,9 @@
         ? { totalAvailableUnknownFrom: rows.filter(r => r.pendingUnknown && r.available == null).map(r => r.id) } : {}),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
+      ...(rows.some(r => r.balanceTrust === 'estimated')
+        ? { totalAvailableTrust: 'estimated',
+          totalAvailableEstimatedFrom: rows.filter(r => r.balanceTrust === 'estimated').map(r => r.id) } : {}),
     };
   }
 
@@ -28001,6 +28083,7 @@
   // is $0, not targetBuffer. Planned contributions are not funded.
   // Unavailable walk min or untrusted savings evidence fails closed.
   function baselineTrajectory(plan, debts, asOf, opts) {
+    debts = withCardBalanceFreshness(debts, plan, asOf);
     const ctx = prepareBaselineTrajectoryWalk(plan, debts, asOf, opts);
     if (!ctx || ctx.status !== 'ready') {
       return trajectoryUnavailable(ctx && ctx.reason || 'Forecast could not establish the baseline trajectory.');
@@ -28010,6 +28093,10 @@
     const horizon = ctx.horizon;
     const walkOpts = ctx.walkOpts;
     const debtWalk = ctx.debtWalk;
+    // A debt picture walked from a stale card balance is an estimate.
+    const staleCardBalances = staleCardBalanceList(walkOpts.debts);
+    const debtPictureStatus = staleCardBalances.length ? 'estimated' : 'calculated';
+    const staleCardBalanceNote = staleCardBalances.length ? { staleBalances: staleCardBalances } : {};
     const sim = ctx.sim;
     const events = ctx.events;
     const regime = ctx.regime;
@@ -28080,7 +28167,7 @@
             ? walked.marks[walked.marks.length - 1] : null;
           if (mark) {
             debtPicture = {
-              status: 'calculated',
+              status: debtPictureStatus, ...staleCardBalanceNote,
               asOf: mark.date,
               // Unknown is never $0: a null consumer total stays null, and
               // trajectoryMonthHasPublishedDebt then excludes the month.
@@ -28101,7 +28188,7 @@
         }
       } else {
         debtPicture = {
-          status: 'calculated',
+          status: debtPictureStatus, ...staleCardBalanceNote,
           asOf: span.end,
           consumer: 0,
           secured: 0,
@@ -28376,7 +28463,7 @@
     };
   }
 
-  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
