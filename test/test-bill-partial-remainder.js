@@ -88,6 +88,13 @@ console.log('2. The $50 is held once in cash');
   const poolFull = world(90, { pool: true }).rec.paydayAllocation, poolPart = world(40, { pool: true }).rec.paydayAllocation;
   ok(poolFull && poolPart && poolPart.obligations.wanted === 50 && poolFull.obligations.wanted === 0,
     'the payday plan reserves the 50 (and nothing when paid in full)', `${poolPart && poolPart.obligations.wanted} ${poolFull && poolFull.obligations.wanted}`);
+  // The current-period action list reads the same owner (second Bills row builder, currentPeriodBills).
+  const action = world(40).rec.currentPeriodAction, actionFull = world(90).rec.currentPeriodAction;
+  const aRow = action && (action.bills || []).find(b => b.id === 'hydro');
+  const due = action && (action.thisPaydayDue || []).find(b => b.id === 'hydro');
+  ok(aRow && aRow.remaining === 50 && aRow.actual === 40 && due && due.remaining === 50
+    && !(actionFull.thisPaydayDue || []).some(b => b.id === 'hydro'),
+    'the current-period action list: 50 remaining, listed due this payday (not when paid in full)', `${aRow && aRow.remaining} ${due && due.remaining}`);
 }
 
 console.log('2b. Due and paid in part on the as-of day (Oct 14): the same $50 is held');
@@ -155,6 +162,40 @@ console.log('3c. Only one linked posted instalment is a partial');
   const row = p.bills.find(b => b.id === 'hydro');
   ok(one && row && row.status === 'PAID' && row.remaining === 0 && p.remainingBills === 0,
     'two linked entries: not a partial (PAID, nothing still to pay)', row && `${row.status} ${row.remaining} ${p.remainingBills}`);
+}
+
+console.log('3d. The Bills account closing balance holds the 50 (Codex P1 on #1320)');
+{
+  const closing = paid => {
+    const w = H.baseWorld();
+    w.bills = [{ ...HYDRO }];
+    w.transactions = paid ? [pay(paid)] : [];
+    const r = H.observe(w);
+    if (r.error) throw r.error;
+    return F.billsAccountPeriodBalance(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+  };
+  const bFull = closing(90), bPart = closing(40);
+  ok(bFull && bPart && bPart.remainingBills === 50 && bFull.remainingBills === 0 && near(bPart.amount, bFull.amount - 50),
+    'remaining bills 50 (0 paid in full) and the closing balance 50 lower', bPart && `${bPart.remainingBills} ${bPart.amount} vs ${bFull && bFull.amount}`);
+}
+
+console.log('3e. A once bill paid in part stays listed after its pay period (Codex P1 on #1320)');
+{
+  const onceLater = paid => {
+    const w = H.baseWorld('2026-10-24');
+    w.bills = [{ id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'once', date: '2026-10-12', confidence: 'confirmed', payee: 'Invented hydro' }];
+    w.transactions = paid ? [pay(paid)] : [];
+    const r = H.observe(w);
+    if (r.error) throw r.error;
+    const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
+    const current = rec.defaultView.calendarPeriods.find(p => p.start <= w.asOf && p.end >= w.asOf);
+    return { current, row: (current.bills || []).find(b => b.id === 'hydro'), day0: rec.sim.daily[0].balance };
+  };
+  const oFull = onceLater(90), oPart = onceLater(40);
+  ok(oPart.row && oPart.row.status === 'still due' && oPart.row.actual === 40 && oPart.row.remaining === 50 && oPart.current.remainingBills === 50,
+    'as of Oct 24: listed still due, 40 paid, 50 remaining; this period holds 50', oPart.row && `${oPart.row.status} ${oPart.row.actual} ${oPart.row.remaining} ${oPart.current.remainingBills}`);
+  ok(!oFull.row && oFull.current.remainingBills === 0 && near(oPart.day0, oFull.day0 - 50),
+    'paid in full is not listed; the cash walk holds the same 50 the list shows', `${!!oFull.row} ${oPart.day0} vs ${oFull.day0}`);
 }
 
 console.log('4. A variable bill (estimated amount) keeps today\'s behaviour');

@@ -8746,13 +8746,16 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const paid = !!(e.id && represented.has(e.id + '@' + e.date));
+      // D2: the same owner as the Bills rows: a fixed bill paid in part is
+      // still required at asOf for its remainder.
+      const partPaid = paid ? fixedBillPartialPayment(e, amt, observed) : null;
       let settlement;
       let actual;
       let remaining;
       if (paid) {
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
-        remaining = 0;
+        remaining = partPaid ? partPaid.remainderCents / 100 : 0;
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8774,6 +8777,7 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(partPaid ? { partlyPaidRemainder: true } : {}),
         ...(paid && observedSettlementBasis(observed, e.id, e.date)
           ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
@@ -9004,7 +9008,8 @@
       if (item.settlement === 'represented') continue;
       if (item.id && skip.has(item.id)) continue;
       const bill = byKey.get((item.id || '') + '@' + item.date);
-      if (bill && bill.settlement === 'represented') continue;
+      // D2: a fixed bill paid in part is still due this payday for its remainder.
+      if (bill && bill.settlement === 'represented' && bill.partlyPaidRemainder !== true) continue;
       const amount = roundCent(item.amount);
       const remaining = bill && bill.remaining != null ? bill.remaining : amount;
       items.push({
@@ -10900,8 +10905,10 @@
       if (overdueOnce && paid) {
         const probe = calendarBillRowFromEvent(
           plan, event, asOf, represented, observed, cashAsOf, due, opts);
-        if (!probe || settledInClosedPeriod(probe, due)) continue;
-        unbackedOnce = true;
+        // D2: a fixed once bill paid in part still owes its remainder, which
+        // the cash walk carries; it stays listed, built on its evidence.
+        if (!probe || (probe.partlyPaidRemainder !== true && settledInClosedPeriod(probe, due))) continue;
+        unbackedOnce = probe.partlyPaidRemainder !== true;
       }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
@@ -13804,7 +13811,10 @@
           covered: row.minimumCoverage.covered, remaining: row.remaining,
           paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
         const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
-        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')) || row.settlement === 'opening') continue;
+        // D2: a fixed bill paid in part is represented for its paid part only;
+        // its remainder is still cash Bills must hold.
+        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')
+          && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
           issue('remaining-cash-unknown', 'The confidence of a remaining bill cash requirement is unknown.'); continue;
