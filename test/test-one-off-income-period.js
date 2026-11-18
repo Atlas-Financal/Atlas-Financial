@@ -74,7 +74,7 @@ function planA(extraIncome) {
     defaults: { targetBuffer: 0 },
     windowDays: 91,
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable' }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable' }, { id: 'chequing-b', value: 0 }],
     },
     opening: { asOf: A_AS_OF },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
@@ -181,7 +181,7 @@ console.log('\n=== A6. a real receipt of the one-off is counted once ===');
   const PAYDAY = '2026-09-11';
   const planOn = oneOffDate => ({
     defaults: { targetBuffer: 0 },
-    startingCash: { amount: 1000, breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 1000 }] },
+    startingCash: { amount: 1000, breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 1000 }, { id: 'chequing-b', value: 0 }] },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
     opening: { asOf: PAYDAY, representedEvents: [] },
     income: [

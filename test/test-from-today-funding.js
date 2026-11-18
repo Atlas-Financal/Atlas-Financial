@@ -11,7 +11,6 @@ function state() {
   data.meta.asOf = data.plan.opening.asOf = AS_OF;
   data.plan.opening.priorAsOf = '2026-08-13';
   data.plan.startingCash.breakdown[0].value = 1000;
-  data.plan.startingCash.breakdown.push({ id: 'chequing-b', value: 0 });
   data.plan.defaults.targetBuffer = 50;
   data.plan.bills.push({ id: 'still-due', label: 'Still due', frequency: 'once',
     date: '2026-08-25', amount: 150, confidence: 'confirmed' });

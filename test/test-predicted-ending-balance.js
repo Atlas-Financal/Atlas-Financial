@@ -500,6 +500,7 @@ console.log('\n=== O. Mid-period cutover cash does not double-count pre-cutover 
       amount: CUTOVER_CASH,
       breakdown: [
         { id: 'chequing-a', label: 'BILLS ACCOUNT', value: CUTOVER_CASH },
+        { id: 'chequing-b', value: 0 },
       ],
     },
     opening: { asOf: AS_OF },

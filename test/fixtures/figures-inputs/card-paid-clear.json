@@ -59,6 +59,10 @@
           {
             "id": "chequing-a",
             "value": 500
+          },
+          {
+            "id": "chequing-b",
+            "value": 0
           }
         ]
       },

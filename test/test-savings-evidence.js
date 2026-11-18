@@ -175,10 +175,12 @@ function main() {
   const twin = state(); possiblePair(twin); twin.data.debts[0].pending = 999;
   assert.ok(check(twin).evidenceFailures.some(r => r.code === 'pending-possible-replacement'));
   const cashAndPending = state(); cashAndPending.packet.transactions[0].pendingPostedAmbiguous = true;
-  cashAndPending.data.plan.startingCash.breakdown.pop();
+  // A row with untrusted Savings evidence still leaves the operating
+  // breakdown complete, so the independent pending diagnosis can run.
+  cashAndPending.data.plan.startingCash.breakdown[1].confidence = 'unknown';
   cashAndPending.packet.observationAsOf = '2026-08-19';
   const simultaneous = check(cashAndPending).evidenceFailures;
-  for (const code of ['cash-account-missing-or-duplicate', 'actuals-observation-mismatch', 'pending-settlement-ambiguous']) {
+  for (const code of ['cash-account-untrusted', 'actuals-observation-mismatch', 'pending-settlement-ambiguous']) {
     assert.ok(simultaneous.some(r => r.code === code), code);
   }
   for (const change of [

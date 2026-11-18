@@ -125,9 +125,9 @@ async function main() {
     assert.equal(F.savingsInventory(bad, AS_OF).status, 'invalid');
     assert.equal(F.savingsInventory(bad, AS_OF).incrementalInstructions, 'withheld');
   }
-  const malformed = clone(p); malformed.startingCash.breakdown = [{ id: 'synthetic-cash', value: 73 }];
+  const malformed = clone(p); malformed.startingCash = { amount: 73 };
   malformed.savingsEarmarks.pools = {};
-  assert.equal(F.startingCashAmount(malformed), 73, 'malformed configuration cannot throw in legacy cash fallback');
+  assert.equal(F.startingCashAmount(malformed), 73, 'malformed configuration cannot throw on an aggregate opening');
   assert.equal(F.savingsInventory(malformed, AS_OF).status, 'invalid');
   // Independent cash conservation: 1000 operating + 301.17 + 144.08 reserve.
   // Neither observed reserve replaces history nor enters the operating walk.

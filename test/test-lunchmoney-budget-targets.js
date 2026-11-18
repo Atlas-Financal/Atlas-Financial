@@ -37,7 +37,10 @@ const paydayOf = monthly => cent(monthly * 14 / MONTH_DAYS);
 function invented() {
   return {
     windowDays: 91, defaults: { targetBuffer: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }] },
+    startingCash: { breakdown: [
+      { id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 },
+      { id: 'chequing-b', value: 0 },
+    ] },
     opening: { asOf: '2026-10-09' },
     income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly', anchor: '2026-10-09',
       amount: 4000, confidence: 'confirmed' }],

@@ -9,7 +9,7 @@ module.exports = function budgetLayoutData() {
     plan: {
       windowDays: 91, opening: { asOf: '2026-12-19' },
       startingCash: { breakdown: [{ id: 'chequing-a', label: 'Bills account — synthetic',
-        value: 2500, class: 'spendable' }] },
+        value: 2500, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
       defaults: { targetBuffer: 200, extraDebtMonthly: 0, scenario: 'expected' },
       budget: { basis: 'ytd', categories: [{ id: 'groceries', label: 'Groceries',
         class: 'essential', from: ['Groceries'], plannedPayday: 100 }] },

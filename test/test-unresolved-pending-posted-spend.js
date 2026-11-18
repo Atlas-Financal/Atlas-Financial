@@ -46,7 +46,7 @@ function syntheticPlan() {
   return {
     defaults: { targetBuffer: 500 },
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }, { id: 'chequing-b', value: 0 }],
     },
     opening: { asOf: AS_OF, priorAsOf: '2026-08-28', representedEvents: [] },
     income: [{

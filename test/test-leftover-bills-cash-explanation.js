@@ -537,12 +537,9 @@ console.log('=== E. Unavailable operating plan fails closed; missing BILLS row w
     { id: 'savings', label: 'EMERGENCY SAVING', value: SAVINGS },
   ];
   const missing = recommend(noBills, []);
-  const missingExpl = missing.defaultView.operatingCashExplanation;
-  ok(missingExpl && missingExpl.billsCash == null
-      && missingExpl.leftoverSameAsBillsCash === false
-      && missingExpl.sameContract === false
-      && missingExpl.billsCashIdentity === 'posted-bills-account',
-    'missing chequing-a withholds BILLS cash rather than inventing $0');
+  ok(missing.operatingPlanUnavailable === true && F.spendableHouseholdCash(noBills) === null
+      && missing.defaultView.operatingCashExplanation == null,
+    'missing chequing-a withholds the operating plan and its BILLS cash explanation');
 }
 
 console.log('=== E. C5: an owner-estimated BILLS row is never described as posted cash ===');

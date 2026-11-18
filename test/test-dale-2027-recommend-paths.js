@@ -44,6 +44,7 @@ function world(asOf, assumptions) {
     windowDays: 91,
     startingCash: { breakdown: [
       { id: 'chequing-a', label: 'BILLS ACCOUNT', value: 3000, class: 'spendable' },
+      { id: 'chequing-b', value: 0 },
     ] },
     opening: { asOf },
     budget: { categories: [

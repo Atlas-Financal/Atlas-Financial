@@ -11,7 +11,7 @@ function fixture() {
     windowDays: 42, defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     opening: { asOf, priorAsOf: '2026-08-14',
       representedEvents: [{ id: 'represented-bill', date: '2026-08-17' }] },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 5000 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 5000 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Seaspan synthetic', amount: 1000,
       frequency: 'biweekly', anchor: '2026-08-14', confidence: 'confirmed' }],
     bills: [{ id: 'represented-bill', label: 'Represented bill', amount: 80,

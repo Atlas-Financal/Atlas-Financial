@@ -61,7 +61,7 @@ function cashFixture(income, extraCash) {
     windowDays: 28,
     defaults: { targetBuffer: 0 },
     startingCash: {
-      breakdown: [{ id: JOINT, value: OPENING, class: 'spendable' }],
+      breakdown: [{ id: JOINT, value: OPENING, class: 'spendable' }, { id: 'chequing-a', value: 0 }],
       heldElsewhere: [{ id: AMANDA, value: SESSION_BALANCE, class: 'operational' }],
     },
     income: income || [],

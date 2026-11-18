@@ -104,10 +104,7 @@ function syntheticObligationData(planPatch) {
       windowDays: 21,
       opening: { asOf },
       defaults: { targetBuffer: 0 },
-      startingCash: {
-        amount: 8000,
-        breakdown: [{ id: 'cheq', label: 'Chequing', value: 8000 }],
-      },
+      startingCash: { amount: 8000 },
       income: [{
         id: 'pay',
         label: 'Payroll',

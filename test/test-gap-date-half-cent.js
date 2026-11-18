@@ -29,7 +29,7 @@ function plan(secondBill) {
   return {
     windowDays: 28,
     defaults: { targetBuffer: 100 },
-    startingCash: { asOf: '2026-10-01', breakdown: [{ id: 'chequing-a', label: 'BILLS', value: 0.3 }] },
+    startingCash: { asOf: '2026-10-01', breakdown: [{ id: 'chequing-a', label: 'BILLS', value: 0.3 }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf: '2026-10-01', representedEvents: [] },
     income: [{ id: 'payroll', label: 'Invented salary', frequency: 'biweekly', anchor: '2026-10-14',
       amount: 2000, confidence: 'confirmed' }],

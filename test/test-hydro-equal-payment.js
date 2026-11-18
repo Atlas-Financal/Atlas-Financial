@@ -71,7 +71,7 @@ function fixturePlan() {
   return {
     windowDays: 120,
     defaults: { targetBuffer: 0 },
-    startingCash: { breakdown: [{ id: JOINT, value: 5000 }] },
+    startingCash: { breakdown: [{ id: JOINT, value: 5000 }, { id: 'chequing-b', value: 0 }] },
     income: [],
     obligations: [],
     bills: [

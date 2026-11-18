@@ -281,8 +281,9 @@ for (const sameDate of [true, false]) {
       assert.ok(!result.proposal || result.proposal.contribution === null, `${sameDate}/${id}/${missing}`);
       if (result.proposal) assert.equal(result.proposal.trust, 'unavailable');
       assert.doesNotMatch(result.todayHtml, /Proposed to set aside now|\$250\.00/);
-      if (sameDate) assert.match(result.todayHtml, /data-savings-evidence-reason="cash-/);
-      else assert.equal(result.advice.operatingPlanUnavailable, true, 'advancing failure preserves stale-plan barrier');
+      if (sameDate && missing === 'provider') assert.match(result.todayHtml, /data-savings-evidence-reason="cash-/);
+      else assert.equal(result.advice.operatingPlanUnavailable, true,
+        'a missing opening row or an advancing refresh without complete cash withholds the operating plan');
     }
   }
 }

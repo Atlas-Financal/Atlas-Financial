@@ -125,7 +125,7 @@ check('A3: the date-order result diverges from the arithmetic identity, with exa
 
 const plan = (asOf, income) => ({
   defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' }, windowDays: 200,
-  opening: { asOf }, startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 5000, class: 'spendable' }] },
+  opening: { asOf }, startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 5000, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
   budget: { categories: [{ id: 'groceries', label: 'Groceries', class: 'essential', from: ['Groceries'], plannedWeekly: 100 }] },
   obligations: [], commitments: [],
   bills: [{ id: 'rent', label: 'Rent', frequency: 'monthly', day: 1, amount: 900, confidence: 'confirmed', payingAccount: 'chequing-a' }],

@@ -198,7 +198,7 @@ function syntheticPlan(asOf) {
   return {
     defaults: { targetBuffer: 500 },
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }, { id: 'chequing-b', value: 0 }],
     },
     opening: { asOf: asOf || '2026-08-30' },
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },

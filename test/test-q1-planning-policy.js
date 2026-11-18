@@ -109,7 +109,7 @@ console.log('\n=== independent: a coaching stream would count; live plan has non
   const fixture = {
     windowDays: 30,
     defaults: { targetBuffer: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 100, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 100, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     income: [
       { id: 'payroll', label: 'Pay', frequency: 'once', date: '2026-09-01', amount: 1000, confidence: 'confirmed' },
       { id: 'coaching', label: 'Coaching leftover', frequency: 'once', date: '2026-09-01', amount: 400, confidence: 'estimated' },

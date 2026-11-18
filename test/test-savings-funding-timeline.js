@@ -203,19 +203,21 @@ const cashCases = [
   ['string cash object', q => q.startingCash = 'unknown'],
   ['array cash object', q => q.startingCash = Object.assign([], q.startingCash)],
   ['missing breakdown key', q => delete q.startingCash.breakdown],
-  ['null breakdown', q => q.startingCash.breakdown = null],
-  ['malformed breakdown', q => q.startingCash.breakdown = {}],
-  ['empty breakdown', q => q.startingCash.breakdown = []],
-  ['both operating accounts absent', q => q.startingCash.breakdown = q.startingCash.breakdown.filter(row => row.id === 'savings')],
+  ['null breakdown', q => q.startingCash.breakdown = null, true],
+  ['malformed breakdown', q => q.startingCash.breakdown = {}, true],
+  ['empty breakdown', q => q.startingCash.breakdown = [], true],
+  ['both operating accounts absent', q => q.startingCash.breakdown = q.startingCash.breakdown.filter(row => row.id === 'savings'), true],
   ...['chequing-a', 'chequing-b'].flatMap(id => [
-    [id + ' absent', q => q.startingCash.breakdown = q.startingCash.breakdown.filter(row => row.id !== id)],
-    [id + ' missing value', q => delete q.startingCash.breakdown.find(row => row.id === id).value],
-    ...[null, undefined, '0', '23.45', 'unknown', NaN, Infinity, -Infinity, false, 0.001].map(value =>
-      [id + ' invalid ' + String(value), q => q.startingCash.breakdown.find(row => row.id === id).value = value]),
-    [id + ' duplicate', q => q.startingCash.breakdown.push(clone(q.startingCash.breakdown.find(row => row.id === id)))],
+    [id + ' absent', q => q.startingCash.breakdown = q.startingCash.breakdown.filter(row => row.id !== id), true],
+    [id + ' missing value', q => delete q.startingCash.breakdown.find(row => row.id === id).value, true],
+    ...[null, undefined, 'unknown', NaN, Infinity, -Infinity, false].map(value =>
+      [id + ' invalid ' + String(value), q => q.startingCash.breakdown.find(row => row.id === id).value = value, true]),
+    ...['0', '23.45', 0.001].map(value =>
+      [id + ' invalid for Savings ' + String(value), q => q.startingCash.breakdown.find(row => row.id === id).value = value]),
+    [id + ' duplicate', q => q.startingCash.breakdown.push(clone(q.startingCash.breakdown.find(row => row.id === id))), true],
   ]),
 ];
-for (const [name, edit] of cashCases) {
+for (const [name, edit, unavailableOpening = false] of cashCases) {
   const q = fixture(); edit(q);
   const result = F.savingsFundingTimeline(q, [], AS_OF, options);
   assert.equal(result.status, 'unavailable', name);
@@ -224,23 +226,18 @@ for (const [name, edit] of cashCases) {
   assert.deepEqual(result.payPeriods, [], name + ' publishes no fabricated contribution');
   assert.equal(result.actualContributions, null);
   assert.equal(result.actionPermission, 'not-granted');
-  // The legacy aggregate is deliberately not changed in this narrow repair.
-  // Where its input shape is supported, all incumbent baseline fields remain
-  // identical; malformed shapes retain the same legacy failure outside here.
-  if (q.startingCash?.breakdown && !Array.isArray(q.startingCash.breakdown)) continue;
-  // A present household chequing row with no numeric evidence is Unknown
-  // (ATLAS-078 rulings A/B; Forecast.openingCashState). The legacy engine
-  // counted it as $0 and published a calculated trajectory from that seed;
-  // the stricter contract replaces parity for exactly these cases: the
-  // spendable figure is Unknown and the trajectory is unavailable, never
-  // the $0-seeded months. Every other shape keeps exact legacy parity.
-  if (Array.isArray(q.startingCash?.breakdown) && F.openingCashState(q).status === 'unavailable') {
+  // The wider opening contract can withhold the walk before the Savings
+  // packet runs. Savings still requires its stricter dated, integer-cent
+  // evidence, including for the valid legacy numeric opening controls.
+  if (unavailableOpening) {
     assert.equal(F.spendableHouseholdCash(q), null, name + ' spendable household cash is Unknown');
     const unknownPublication = F.baselineTrajectory(q, [], AS_OF, options);
-    assert.equal(unknownPublication.status, 'unavailable', name + ' trajectory is unavailable, not $0-seeded');
+    assert.equal(unknownPublication.status, 'unavailable', name + ' trajectory is unavailable');
     assert.match(unknownPublication.reason, /chequing opening balance is unknown/, name + ' names the unknown opening');
-    assert.equal(base.module.exports.baselineTrajectory(q, [], AS_OF, options).status, 'ready',
-      name + ' legacy engine published a $0-seeded trajectory here (the defect replaced)');
+    if (q.startingCash.breakdown == null || Array.isArray(q.startingCash.breakdown)) {
+      assert.equal(base.module.exports.baselineTrajectory(q, [], AS_OF, options).status, 'ready',
+        name + ' legacy engine published a trajectory with unproven cash');
+    }
     continue;
   }
   assert.equal(Object.is(F.startingCashAmount(q), base.module.exports.startingCashAmount(q)), true, name + ' incumbent cash helper unchanged');

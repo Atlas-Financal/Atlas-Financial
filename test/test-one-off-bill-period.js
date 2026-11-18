@@ -76,7 +76,7 @@ function served(recurring, oneOff) {
     plan: {
       windowDays: 91,
       opening: { asOf: AS_OF },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 5000 }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented bills account', value: 5000 }, { id: 'chequing-b', value: 0 }] },
       defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' },
       income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly',
         anchor: '2026-09-11', amount: 5000, confidence: 'confirmed' }],

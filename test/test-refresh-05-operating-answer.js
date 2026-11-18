@@ -528,7 +528,7 @@ console.log('\n=== F2. extra-debt target change is visible; baseline is not the 
         windowDays: 21,
         opening: { asOf },
         defaults: { targetBuffer: 0 },
-        startingCash: { breakdown: [{ id: 'chequing-a', value: 5000 }] },
+        startingCash: { breakdown: [{ id: 'chequing-a', value: 5000 }, { id: 'chequing-b', value: 0 }] },
         nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
         income: [],
         obligations: [],

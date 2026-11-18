@@ -51,7 +51,7 @@ function plan(asOf, receiptAmount, payrollAmount = 0, omitAmount = false) {
       paydaySnapshot: { periodStart: '2026-10-30', asOf: '2026-10-30', opening: 50 },
       representedEvents: [{ id: 'payroll', date: '2026-10-30' }],
     },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 50 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 50 }, { id: 'chequing-b', value: 0 }] },
     income: [
       { id: 'payroll', frequency: 'biweekly', anchor: '2026-10-02',
         amount: payrollAmount, confidence: 'confirmed' },

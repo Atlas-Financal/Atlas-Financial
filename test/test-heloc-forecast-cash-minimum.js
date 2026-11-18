@@ -35,7 +35,7 @@ function syntheticPlan() {
     defaults: { scenario: 'expected', targetBuffer: 500, extraDebtMonthly: 0 },
     opening: { asOf: START },
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 20000 }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 20000 }, { id: 'chequing-b', value: 0 }],
     },
     income: [
       {

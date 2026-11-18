@@ -42,7 +42,7 @@ check('A1: the live engine publishes the funding-status fields the shell reprint
   const plan = {
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     opening: { asOf: '2026-01-01' },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Seaspan', frequency: 'biweekly',
       anchor: '2026-01-02', amount: 3000, confidence: 'confirmed' }],
     obligations: [], bills: [], budget: { categories: [] },
@@ -73,7 +73,7 @@ function gapSchedule(roofConfidence) {
   const plan = {
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     opening: { asOf: '2026-01-01' },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Seaspan', frequency: 'biweekly',
       anchor: '2026-01-02', amount: 1000, confidence: 'confirmed' }],
     obligations: [], bills: [], budget: { categories: [] },

@@ -99,7 +99,7 @@ function creditFixture() {
       windowDays: 91,
       defaults: { scenario: 'expected', targetBuffer: 0, extraDebtMonthly: 0 },
       opening: { asOf: CREDIT_AS_OF },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Chequing A', value: 5000 }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Chequing A', value: 5000 }, { id: 'chequing-b', value: 0 }] },
       income: [{ id: 'pay', label: 'Pay', frequency: 'biweekly', anchor: '2026-03-06', amount: 2000, confidence: 'confirmed' }],
       obligations: [
         { id: 'mortgage', debtId: 'mortgage', effect: 'payment', label: 'Mortgage', frequency: 'biweekly',
@@ -130,7 +130,7 @@ function planningFixture() {
       windowDays: 91,
       defaults: { scenario: 'expected', targetBuffer: 0, extraDebtMonthly: 0 },
       opening: { asOf: PLANNING_AS_OF },
-      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Chequing A', value: 50000 }] },
+      startingCash: { breakdown: [{ id: 'chequing-a', label: 'Chequing A', value: 50000 }, { id: 'chequing-b', value: 0 }] },
       income: [{ id: 'pay', label: 'Pay', frequency: 'biweekly', anchor: '2026-03-06', amount: 2000, confidence: 'confirmed' }],
       obligations: [],
       bills: [],
@@ -490,7 +490,7 @@ console.log('\n=== 4d. This-period remainder key is Balance After Deductions, no
       defaults: { scenario: 'expected', targetBuffer: 500, extraDebtMonthly: 0 },
       windowDays: 14,
       startingCash: {
-        breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 593.29 }],
+        breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 593.29 }, { id: 'chequing-b', value: 0 }],
       },
       opening: {
         asOf: '2026-09-18',

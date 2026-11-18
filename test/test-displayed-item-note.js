@@ -184,7 +184,7 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
 {
   const plan = {
     defaults: { targetBuffer: 500 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: 8000 }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf: '2026-08-28', representedEvents: [] },
     income: [{ id: 'payroll', label: 'Payroll', frequency: 'biweekly', anchor: '2026-08-14', amount: 4264, confidence: 'confirmed' }],
     bills: [], obligations: [], commitments: [],
