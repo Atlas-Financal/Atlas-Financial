@@ -2083,11 +2083,11 @@
     if (counts) counts.classList.add('blend-house-status');
     if (other[0]) {
       // Other Spending is a ring like its sibling categories, not a
-      // footer chip: the duplicate chip (amber dot, amount, needs-a-
-      // category badge) is retired. The needs-a-category status already
-      // lives in the detail panel's context line and, in the unassigned
-      // state, in this row's own printed meta — the bridge below carries
-      // both into the ring's accessible name, as it did for the chip.
+      // footer chip: the duplicate chip (amber dot, amount) is retired.
+      // The needs-a-category status lives in the detail panel's context
+      // line and, in the unassigned state, in this row's own printed meta
+      // — the bridge below carries both into the ring's accessible name —
+      // and paintFaceBadges flags it on the ring like any sibling.
       // Differences from the sibling rings, per the agreed rulings: the
       // fill is spent / plan (siblings fill with what remains), and the
       // amber identity is kept via blend-ring-other, outside the colour
@@ -2586,11 +2586,19 @@
           ? bento.querySelector('#blend-bills-more')
           : null;
       const key = cat || bill || label;
-      if (!host || host.classList.contains('blend-other') || host.classList.contains('blend-ring-other') || host.classList.contains('is-over') || host.querySelector('.blend-over-pill') || host.querySelector('[data-blend-badge="' + CSS.escape(key) + '"]')) return;
+      // The Other ring takes its "needs a category" badge like every sibling
+      // ring (lead ruling 2026-11-18): each off-stage attention item has a
+      // visible equivalent on the face. An over-plan ring shows its Over plan
+      // pill instead, which is that item's equivalent.
+      if (!host || host.classList.contains('is-over') || host.querySelector('.blend-over-pill') || host.querySelector('[data-blend-badge="' + CSS.escape(key) + '"]')) return;
       const badge = document.createElement('span');
       badge.className = 'blend-face-badge';
       badge.setAttribute('data-blend-badge', key);
-      badge.textContent = label;
+      // A category ring already prints its own name, so its badge carries
+      // only the state after the last " · " ("needs a category"); a bill
+      // badge sits in the roster beside other bills and keeps the full label.
+      const cut = cat ? label.lastIndexOf(' · ') : -1;
+      badge.textContent = cut > 0 ? label.slice(cut + 3) : label;
       host.appendChild(badge);
     });
   }

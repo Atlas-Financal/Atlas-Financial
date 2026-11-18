@@ -284,8 +284,10 @@ function assertOverflow(face, fraction, what) {
         assert.equal(face.planLabel, 'Planned ', 'bottom totals visibly label the plan');
         assert.match(face.totalsText, /\$925/, 'bottom totals print the published household plan in whole dollars');
         assert.equal(face.totalsAfterRings, true, 'totals sit at the tile bottom, below the rings');
-        assert.deepEqual(face.faceBadges.filter(t => /needs a category/i.test(t)), [],
-          'no needs-a-category face badge is stamped on the Other ring');
+        // Lead ruling 2026-11-18: the off-stage attention item is flagged on
+        // the Other ring like any sibling, once, with the state only.
+        assert.deepEqual(face.faceBadges.filter(t => /needs a category/i.test(t)), ['needs a category'],
+          'the Other ring carries its needs-a-category flag once');
         assert.deepEqual(errors, [], 'no page errors');
         // R2: the liquid level is the spent share — mid-glass here.
         assertLiquidPartial(face.liquidInfo, 'partial Other liquid');
