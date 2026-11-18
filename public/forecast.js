@@ -17808,6 +17808,59 @@
     }
   }
 
+  // Every saved close stays on the timeline (owner direction, Dale,
+  // 2026-11-18: saved periods are kept, and the household can scroll back
+  // through all of them). The rebuilt lookback covers only the latest
+  // completed windows; a closing record older than the earliest of them gets
+  // its own historical view composed from the stored record alone, through
+  // the same reprint as a rebuilt view (applyCapturedPeriodHistory), so every
+  // reprint rule holds: stored figures only, progress withdrawn, no
+  // per-category trust word re-raised. Nothing is rebuilt or estimated for
+  // these periods; a field the record does not keep is absent. Only closing
+  // records qualify, one per period (the first, as in the reprint). A saved
+  // period that overlaps another, or a rebuilt view, is skipped.
+  function prependSavedOnlyCloses(pack, history) {
+    const views = pack && Array.isArray(pack.views) ? pack.views : null;
+    if (!views) return;
+    const closings = capturedHistoryRecords(history).filter(record => record.content.kind === 'closing');
+    if (!closings.length) return;
+    const shown = views.filter(Boolean);
+    const earliest = shown.map(view => view.start).filter(start => typeof start === 'string').sort()[0];
+    if (!earliest) return;
+    const periods = new Map();
+    for (const record of closings) {
+      const { start, end } = record.content.period;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end || end >= earliest) continue;
+      if (!periods.has(start + '|' + end)) periods.set(start + '|' + end, { start, end });
+    }
+    const ordered = [...periods.values()].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+    const kept = ordered.filter((period, i) => !ordered.some((other, j) => j !== i
+      && other.start <= period.end && period.start <= other.end));
+    if (!kept.length) return;
+    const extra = kept.map(period => {
+      const rangeLabel = formatSpendingCycleRange(period.start, period.end);
+      return {
+        id: 'past:' + period.start, label: rangeLabel, rangeLabel, start: period.start, end: period.end,
+        role: 'lookback', lookback: true, projected: false, timelineRole: 'past', evidenceState: 'historical',
+        spendingCycle: { start: period.start, end: period.end, nextPayday: addDays(period.end, 1), rangeLabel,
+          label: 'Spending cycle: ' + rangeLabel },
+      };
+    });
+    // The reprint reads the current period (never changes it) to disclose a
+    // bill the saved close left unpaid that the current period still carries.
+    const current = views.find(view => view && view.timelineRole === 'current');
+    applyCapturedPeriodHistory(current ? extra.concat(current) : extra, history, null);
+    const composed = extra.filter(view => view.capturedClose);
+    if (!composed.length) return;
+    for (const view of composed) view.capturedClose.savedOnly = true;
+    views.unshift(...composed);
+    const timeline = pack.timeline || (pack.timeline = {});
+    const currentIndex = (Number.isInteger(timeline.currentIndex) ? timeline.currentIndex : 0) + composed.length;
+    timeline.currentIndex = currentIndex;
+    timeline.count = views.length;
+    views.forEach((view, i) => { if (view) view.timelineOffset = i - currentIndex; });
+  }
+
   function composePayPeriodTimeline(pastPeriodViews, calendarPeriods, futureRows, bound) {
     const past = (pastPeriodViews || []).slice().reverse().filter(Boolean);
     const periods = calendarPeriods || [];
@@ -21926,6 +21979,7 @@
       publishBudgetPeriodProgress(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetBillDisplayTrust(asOf, payPeriodTimelinePack.views, paydayOpts);
       applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory, base.periodHistoryStatus);
+      prependSavedOnlyCloses(payPeriodTimelinePack, base.periodHistory);
       publishBudgetPeriodBankCheck(plan, asOf, payPeriodTimelinePack.views, paydayOpts, base.periodHistory);
       let savingsFunding, savingsSchedule = planSpendFunding;
       if (plan.savingsEarmarks?.allocationPolicy != null) {
