@@ -3,12 +3,11 @@
  * its payday"). A posted credit into Bills that could be Amanda's pay (it passes every exclusion of the owner's
  * near-amount rule, #821 6967081727) but posts before that rule's window settles nothing, so the cash walk counts
  * it as Other Income while the payday is still projected: her pay twice. It now holds the next occurrence (To
- * confirm, plan withheld, posted-income-occurrence-unresolved) when, after the previous occurrence, it is within
- * $5 of that next occurrence's amount within 3 business days before it, or it carries a sign of salary (a TENNIS
- * INCOME transfer leg, or the rule's salary payee alias; never a category) at no less than half that
- * amount on any date in the run-up (#1334 review, lead ruling). A credit with no sign of salary never holds on its
- * own; a credit the near-amount rule placed is never held; and a credit strictly nearer an unclaimed previous
- * payday is its late pay, not the next one early.
+ * confirm, plan withheld, posted-income-occurrence-unresolved) when, after the previous occurrence, it carries a
+ * sign of salary (a TENNIS INCOME transfer leg, or the rule's salary payee alias; never a category) and is no less
+ * than half that next occurrence's scheduled amount, on any date in the run-up (#1334 review, lead rulings). A
+ * credit with no sign of salary never holds; a credit inside the owner's window is the near-amount matcher's and
+ * is never held; and a credit strictly nearer an unclaimed previous payday is its late pay, not the next one early.
  *
  * Path: invented raw Lunch Money payload -> scripts/live-plan.js (acceptance harness) -> served data ->
  * Forecast.recommend, with the repository's own two salary rules.
