@@ -61,10 +61,6 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   outcome(run(streams), 0);
   outcome(run(streams + 'process.exit(7);'), 7);
   outcome(run(streams + 'process.exit(126);'), 126);
-  // Older repair heads may still use an uncaptured test runner. The
-  // trusted command boundary also captures those success/failure streams.
-  outcome(run(streams, {}, 'repair-tests'), 0, 'repair-tests');
-  outcome(run(streams + 'process.exit(7);', {}, 'repair-tests'), 7, 'repair-tests');
   const nested = 'require("child_process").execFileSync(process.execPath,["-e",'
     + JSON.stringify(streams) + '],{stdio:"inherit"});';
   outcome(run(nested + 'process.exit(9);'), 9);
@@ -169,14 +165,14 @@ async function posting(body, apiError, sourceBase, sourceHead, existing = false,
   assert.ok(fs.readFileSync(path.join(ROOT, 'test/test-assistant-standing-corrections.js'), 'utf8')
     .includes(".then(() => require('./test-assistant-standing-store'))"));
   for (const identity of ['install-runtime', 'install-test', 'privacy-guard', 'risk-label-gate',
-    'figures-head-snapshot', 'figures-base-snapshot', 'figures-base-checkout', 'cursor-models', 'cursor-repair',
+    'figures-head-snapshot', 'figures-base-snapshot', 'figures-base-checkout',
     'acceptance-scoreboard']) {
     outcome(run(streams + channelCode, official, identity), 0, identity);
     outcome(run(streams + channelCode + 'process.exit(7);', official, identity), 7, identity);
   }
-  // The retired repair identities (#822 workflows) are gone: neither runs a
+  // The retired repair identities (#822 workflows) are gone: none runs a
   // command, and exit 78 is an ordinary process failure for every identity.
-  for (const identity of ['codex-review-gate', 'atlas-test-repair-gate']) {
+  for (const identity of ['codex-review-gate', 'atlas-test-repair-gate', 'cursor-repair', 'cursor-models', 'repair-tests']) {
     const retired = Capture.runCaptured(process.execPath, ['-e', 'process.exit(0);'], { identity });
     assert.strictEqual(retired.identity, 'ci-command', identity);
     assert.strictEqual(retired.category, 'invalid-configuration', identity);
