@@ -94,6 +94,13 @@ console.log('3. Outside the window, or not unique: never settled');
   ok(same(both.settled, ['2026-10-09@2026-10-09', '2026-10-23@2026-10-23']),
     'an on-time and a late credit for one payday: the late one is never matched; the on-time match is as on main',
     JSON.stringify([both.pay.status, both.settled]));
+  // Lead blocker on #1325: an early credit for the payday competes too.
+  // Thu Oct 22 1400 plus Sat Oct 24 300: the late credit must not settle Oct 23.
+  const earlyLate = serve(['2026-10-22', '2026-10-24'], { amounts: { '2026-10-24': 300 } });
+  ok(!earlyLate.settled.includes('2026-10-23@2026-10-24') && earlyLate.pay.status !== 'received'
+    && !earlyLate.other.some(o => o.status === 'received'),
+  'an early (Thu) and a late (Sat) credit for one payday: the late one settles nothing; nothing reads received Other income',
+  JSON.stringify([earlyLate.pay.status, earlyLate.settled, earlyLate.other.map(o => o.status)]));
   const twoLate = serve(['2026-10-24', '2026-10-26']);
   ok(!twoLate.settled.some(x => x.startsWith('2026-10-23')) && twoLate.pay.status !== 'received',
     'two late credits for one payday: neither settles', JSON.stringify([twoLate.pay.status, twoLate.settled]));

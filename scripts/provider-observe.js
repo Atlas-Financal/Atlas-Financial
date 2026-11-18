@@ -1919,11 +1919,13 @@ function payrollLateRule(rule) {
     && !rule.settlesWhen && rule.transactionKind !== 'transfer';
 }
 // The late credit must be the only credit of this identity, on its account,
-// from the payday up to the next one; without the transaction list, no late
-// cover (fail closed).
+// from the day after the previous payday up to the next one, so an early
+// credit for the late payday also competes; without the transaction list, no
+// late cover (fail closed).
 function payrollLatePayday(plan, rule, posted, tx, transactions) {
   if (!payrollLateRule(rule) || !plan || !posted || !tx || !Array.isArray(transactions)) return null;
-  const events = scheduledEventsOnRange(plan, Forecast.addDays(posted, -7), Forecast.addDays(posted, 28))
+  const scanFrom = Forecast.addDays(posted, -45);
+  const events = scheduledEventsOnRange(plan, scanFrom, Forecast.addDays(posted, 28))
     .filter(e => e && e.id === rule.eventId).map(e => e.date).sort();
   if (events.includes(posted)) return null;
   const before = events.filter(d => d < posted);
@@ -1934,11 +1936,13 @@ function payrollLatePayday(plan, rule, posted, tx, transactions) {
   if (next && !(Forecast.diffDays(late, posted) < Forecast.diffDays(posted, next))) return null;
   // Settles at the actual amount, as an on-time credit does (lead, 2026-11-18);
   // the matcher itself needs exactly one occurrence on the payday.
+  const prev = before.filter(d => d < late).pop();
+  const windowFrom = prev ? Forecast.addDays(prev, 1) : scanFrom;
   const rival = transactions.some(other => other && other !== tx
     && String(other.providerTransactionId) !== String(tx.providerTransactionId)
     && String(other.providerAccountId) === String(tx.providerAccountId)
     && lunchMoneyDebitAmount(other.amount) < 0 && matchesIdentityFields(other, rule)
-    && other.date >= late && (!next || other.date < next));
+    && other.date >= windowFrom && (!next || other.date < next));
   return rival ? null : late;
 }
 
