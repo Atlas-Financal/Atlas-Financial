@@ -9,7 +9,7 @@
  * a POSTED payroll-identified credit dated within one business day after the
  * payday just before it, when nothing claimed that payday, is that payday's
  * late posting. Since the lead's 2026-11-18 dispatch the matcher settles that
- * payday from it, at its actual amount, exactly as on time; it is never the next pay and is never the next pay. Business
+ * payday from it, at its actual amount, exactly as on time; it is never the next pay. Business
  * days are Forecast's (Monday to Friday, no holiday calendar). A second
  * qualifying credit, a credit two business days late, or a credit not explicitly posted still holds the plan exactly as before.
  *

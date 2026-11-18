@@ -1909,9 +1909,8 @@ function coveringStatementCycleDates(plan, rule, postingDate) {
 // settlement mode and no transfer kind); Amanda's near-amount rule keeps its own
 // window. The late payday must be the payroll occurrence just before the credit,
 // with none on the credit's own date, and strictly nearer than the next one.
-// As in #1290, only a credit of exactly that payday's scheduled amount (within
-// the identity epsilon) is a late posting: a short, tiny or oversized credit a
-// day late is not proven to be the pay and is left as before.
+// Any amount qualifies: the credit settles at what arrived, exactly as an
+// on-time credit does (lead, 2026-11-18); there is no exact-amount gate.
 // Business days are Forecast's (Monday to Friday, no holiday calendar).
 const PAYROLL_LATE_RELATION = 'payroll-late-one-business-day';
 const PAYROLL_LATE_BUSINESS_DAYS = 1;
