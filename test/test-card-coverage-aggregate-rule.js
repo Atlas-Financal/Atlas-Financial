@@ -153,14 +153,21 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     { savingsOpening: 1000 })), 55, 'Savings-funded shortfall stays protected');
 }
 // 6b. Codex P1 on #849: a card payment from Weekly after a Bills-to-Weekly
-// transfer would release household protection already counted as Weekly
-// funding (Bills period end 270 vs available now 200). Until that route is
-// reconciled against the household hold, a Weekly-funded payment withholds.
-withheld(run(world([['card', 80, null, 'purchase'],
-  ['bills', 205, null, 'cash', { payee: 'AB123 TFR-TO 0000', original_name: 'AB123 TFR-TO 0000', category_name: 'Transfer' }],
-  ['weekly', -205, null, 'cash', { payee: 'AB123 TFR-FR 0000', original_name: 'AB123 TFR-FR 0000', category_name: 'Transfer' }],
-  ['weekly', 205, null, 'cash'], ['card', -205, null, 'credit']])),
-'coverage-weekly-funded-payment-unmodeled', 'a Weekly-funded card payment withholds');
+// transfer must not release household protection already counted as Weekly
+// funding. Lead dispatch U3 (census 11) reconciles it: the payment covers the
+// card once, and its non-household share (25 minimum + 100 debt = 125) comes
+// off the 205 Weekly funding. Hand-derived: available now = Bills 295 +
+// Weekly 0 - 0 minimum - 70 groceries left = 225; Bills period end = 295 -
+// (150 - (205 - 125)) = 225. The two views agree.
+{
+  const s = run(world([['card', 80, null, 'purchase'],
+    ['bills', 205, null, 'cash', { payee: 'AB123 TFR-TO 0000', original_name: 'AB123 TFR-TO 0000', category_name: 'Transfer' }],
+    ['weekly', -205, null, 'cash', { payee: 'AB123 TFR-FR 0000', original_name: 'AB123 TFR-FR 0000', category_name: 'Transfer' }],
+    ['weekly', 205, null, 'cash'], ['card', -205, null, 'credit']]));
+  ready(s, 0, 'a Weekly-funded card payment covers the card once');
+  available(s, 225, 'Weekly-funded: available now');
+  assert.equal(s.period.billsAccountPeriodBalance.amount, 225, 'Weekly-funded: Bills period end agrees');
+}
 // 7. A foreign-currency row withholds.
 {
   withheld(run(world([['card', 80, null, 'purchase', { currency: 'usd', to_base: 1.4 }]])), null, 'foreign purchase');
