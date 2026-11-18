@@ -89,6 +89,11 @@ for (const [name, extra, held, bad, close] of [
   const list = r.v.heldOutflowsToConfirm;
   ok(list && near(list.total, held) && list.recon.length === extra.length, `To confirm lists ${extra.length} row(s), total ${held}`,
     JSON.stringify(list && { total: list.total, n: list.recon.length }));
+  // One fact: the listed rows (calendarHouseholdBudget) and the deducted term
+  // (heldOutflowCycleSpend) are separate walks; they must agree to the cent.
+  const listed = list ? Math.round(list.recon.reduce((sum, row) => sum + Number(row.amount) * 100, 0)) : null;
+  ok(listed === Math.round(held * 100) && Math.round((t.heldOutflowSpending || 0) * 100) === listed,
+    'the listed rows sum to exactly the deducted term', `${listed} vs ${t.heldOutflowSpending}`);
   for (const tx of r.packet.transactions.filter(x => x.id !== r.packet.transactions[0].id)) {
     const cls = F.classifyCurrentPeriodTransaction(tx, r.plan, { packet: r.packet, currentPeriodActuals: r.packet });
     ok(cls.kind === 'held-outflow' && cls.householdSpending === false && cls.needsConfirmation === true,
