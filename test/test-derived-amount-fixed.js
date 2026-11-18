@@ -2,7 +2,7 @@
 /* Owner decision (#821, 2026-11-18): whether a plan bill's amount is fixed (`amountFixed`, #1320's D2 remainder rule)
  * comes from its Lunch Money payment history, never a hand mark. One separate bounded read (GET /v2/transactions over
  * 200 days) feeds only that flag. A bill is fixed when the latest min(6, count) of its identified posted CAD payments on
- * the rule's own account, with count >= 3, are all equal to the cent and equal to the plan amount, and the newest is no
+ * the rule's own account for completed occurrences (never the current one, whose payment D2 reads), with count >= 3, are all equal to the cent and equal to the plan amount, and the newest is no
  * older than two of the bill's intervals. Anything uncertain leaves it not fixed. Recomputed on every observation.
  *
  * Path: invented raw Lunch Money payload (with and without the history read) -> scripts/provider-observe.js ->
@@ -58,6 +58,27 @@ console.log('1. The rule');
   const ending = last => [pay(90, '2026-06-13'), pay(90, '2026-07-13'), pay(90, last)];
   ok(fixedFor(ending('2026-08-13')).fixed('hydro'), 'newest payment Aug 13, exactly 62 days before Oct 14: fixed');
   ok(!fixedFor(ending('2026-08-12')).fixed('hydro'), 'newest payment Aug 12, 63 days before Oct 14: not fixed');
+}
+
+console.log('1b. The current occurrence\'s own payment never decides (Codex P1 on #1355)');
+{
+  // The live 200-day read overlaps the current period. By hand: three completed $90 occurrences (Jul, Aug, Sep 12) plus
+  // the current Oct 12 payment of $40, in both reads. The flag must stand, so D2 keeps 90 - 40 = 50 still due.
+  const current = pay(40, '2026-10-12');
+  const s = fixedFor(monthly([90, 90, 90]).concat(current), { transactions: [current] });
+  const rec = F.recommend(s.plan, s.w.asOf, { currentPeriodActuals: s.result.data.liveOverlay.currentPeriodActuals, debts: s.result.data.debts });
+  const period = rec.defaultView.calendarPeriods.find(p => p.start <= s.w.asOf && p.end >= s.w.asOf);
+  const row = period.bills.find(b => b.id === 'hydro');
+  ok(s.fixed('hydro') && row && row.status === 'still due' && row.actual === 40 && row.remaining === 50,
+    'three completed $90 payments plus a current $40 in the history: still fixed, still due with 50 remaining',
+    row && `${s.fixed('hydro')} ${row.status} ${row.actual} ${row.remaining}`);
+  // A price change shows on the first refresh after a completed occurrence at the new price.
+  ok(fixedFor(monthly([90, 90, 90]).concat(pay(85, '2026-10-12'))).fixed('hydro'),
+    'a current payment of 85 alone does not yet turn it off (it may be a partial payment)');
+  ok(!fixedFor(monthly([90, 90, 85]).concat(pay(85, '2026-10-12'))).fixed('hydro'),
+    'once a completed occurrence was paid at 85, it is not fixed');
+  ok(!fixedFor(monthly([90, 90]).concat(pay(90, '2026-10-12'))).fixed('hydro'),
+    'two completed occurrences plus the current one: only two count, not fixed');
 }
 
 console.log('2. Only identified posted CAD payments on the rule\'s own account count');

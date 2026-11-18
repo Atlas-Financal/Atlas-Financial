@@ -36,15 +36,19 @@ const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.ab
 
 const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
 const pay = (amount, date = '2026-10-12') => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' });
-// The history that derives the flag: three posted $90 payments, the newest within two months of the plan date.
-const fixedHistory = () => ({ transactions: ['2026-07-12', '2026-08-12', '2026-09-12'].map(d => pay(90, d)) });
+// The history that derives the flag: three posted $90 payments for completed occurrences (on the bill's own due day),
+// the newest within two months of the plan date. As in production, the 200-day read also carries the current period's
+// payment itself (Codex P1 on #1355): `current` adds it, so a partial payment is in the history and must not turn the
+// flag off.
+const fixedHistory = (current = [], dates = ['2026-07-12', '2026-08-12', '2026-09-12']) =>
+  ({ transactions: dates.map(d => pay(90, d)).concat(current) });
 
 function world(paid, { confidence = 'confirmed', pool = false, day = 12, fixed = true } = {}) {
   const w = H.baseWorld();
   w.bills = [{ ...HYDRO, confidence, day }];
-  if (fixed) w.amountHistory = fixedHistory();
   if (pool) w.savingsPool = true;
   w.transactions = paid ? [pay(paid, '2026-10-' + String(day).padStart(2, '0'))] : [];
+  if (fixed) w.amountHistory = fixedHistory(w.transactions);
   const r = H.observe(w);
   if (r.error) throw r.error;
   const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
@@ -145,8 +149,8 @@ console.log('3b. One pay period later (as of Oct 24): the $50 carries, once');
   const later = paid => {
     const w = H.baseWorld('2026-10-24');
     w.bills = [{ ...HYDRO }];
-    w.amountHistory = fixedHistory();
     w.transactions = paid ? [pay(paid)] : [];
+    w.amountHistory = fixedHistory(w.transactions);
     const r = H.observe(w);
     if (r.error) throw r.error;
     const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
@@ -175,8 +179,8 @@ console.log('3c. Only one linked posted instalment is a partial');
   // stands (PAID, nothing held), so no remainder is invented from one of them.
   const w = H.baseWorld();
   w.bills = [{ ...HYDRO }];
-  w.amountHistory = fixedHistory();
   w.transactions = [pay(40)];
+  w.amountHistory = fixedHistory(w.transactions);
   const r = H.observe(w);
   if (r.error) throw r.error;
   const packet = JSON.parse(JSON.stringify(r.packet));
@@ -194,8 +198,8 @@ console.log('3d. The Bills account closing balance holds the 50 (Codex P1 on #13
   const closing = paid => {
     const w = H.baseWorld();
     w.bills = [{ ...HYDRO }];
-    w.amountHistory = fixedHistory();
     w.transactions = paid ? [pay(paid)] : [];
+    w.amountHistory = fixedHistory(w.transactions);
     const r = H.observe(w);
     if (r.error) throw r.error;
     return F.billsAccountPeriodBalance(r.plan, w.asOf, { currentPeriodActuals: r.packet });
@@ -248,8 +252,9 @@ console.log('5. Paid in part early (due Oct 24, next pay period; paid Oct 21, as
     const w = H.baseWorld();
     w.asOf = '2026-10-21';
     w.bills = [{ ...HYDRO, day: 24, confidence, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];
-    w.amountHistory = fixedHistory();
     w.transactions = paid ? [pay(paid, '2026-10-21')] : [];
+    // Completed: Jun, Jul, Aug 24 (Sep 24 is the latest due on or before Oct 21, so it is the current occurrence).
+    w.amountHistory = fixedHistory(w.transactions, ['2026-06-24', '2026-07-24', '2026-08-24']);
     const r = H.observe(w);
     if (r.error) throw r.error;
     const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });

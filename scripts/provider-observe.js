@@ -5552,9 +5552,11 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // Owner decision (#821, 2026-11-18): whether a plan bill's amount is fixed
 // comes from its Lunch Money payment history, never a hand mark. A bill is
 // fixed when (a) its identified posted CAD debits on the rule's own account in
-// the history window, (b) the latest min(6, count) of them with count >= 3,
-// are (c) all equal to the cent and (d) equal to the plan amount, and (e) the
-// newest is no older than two of the bill's intervals at the window's end.
+// the history window, for completed occurrences only (not the current one,
+// whose payment D2 is reading), (b) the latest min(6, count) of them with
+// count >= 3, are (c) all equal to the cent and (d) equal to the plan amount,
+// and (e) the newest is no older than two of the bill's intervals at the
+// window's end.
 // Anything uncertain (an incomplete or truncated window, a row two bills'
 // rules identify, two payments on one day, a two-leg or minimum-style rule,
 // an amount schedule, a once bill) leaves the bill not fixed. Recomputed on
@@ -5611,7 +5613,19 @@ function derivedAmountFixedBills(history, opts) {
     const planned = Number(bill.amount);
     if (!Number.isFinite(planned) || planned <= 0) continue;
     const plannedCents = Math.round(planned * 100);
-    const sample = rows.slice(-AMOUNT_FIXED_SAMPLE);
+    // Completed occurrences only (Codex P1 on #1355): a payment for the current
+    // occurrence (the latest due on or before the window's end) or a later one
+    // is the settlement D2 is reading, possibly a partial one, so it never
+    // decides whether the price is fixed. Each payment belongs to its nearest
+    // scheduled occurrence; with no resolvable schedule the bill is not fixed.
+    const occ = scheduledEventsOnRange(plan, Forecast.addDays(window.startDate, -interval), Forecast.addDays(end, interval))
+      .filter(e => e && e.id === id).map(e => e.date).filter((d, i, all) => all.indexOf(d) === i).sort();
+    const current = occ.filter(d => d <= end).pop();
+    if (!current) continue;
+    const nearest = date => occ.reduce((best, d) => (Math.abs(Forecast.diffDays(d, date)) < Math.abs(Forecast.diffDays(best, date)) ? d : best), occ[0]);
+    const completed = rows.filter(row => nearest(row.date) < current);
+    if (completed.length < AMOUNT_FIXED_MIN_COUNT) continue;
+    const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
     if (!sample.every(row => row.cents === plannedCents)) continue;
     if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
     out.billIds.push(id);
