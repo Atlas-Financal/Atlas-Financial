@@ -331,6 +331,10 @@ Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money'
 
 Until then the stopgap stands aside only in an observation where LM's pairing took charge of payroll; with no consistent read it applies as before. Proof: the private exact base/head diff, LM's expected dates against Forecast's paydays for 12 months, then Dale's walk (rule 15). Closure is reached when the late-Monday case stays live through the LM pairing and the payday reads received rather than To confirm.
 
+**A grouped Savings card payment counts** · *lead U5 ruling, 2026-11-18; ADDED TO BACKLOG from the U5 PR*
+
+A Lunch Money card-payment group (U5) counts only with a household-cash debit (Bills or Weekly). A group of a Savings (household-reserve) debit and a card credit withholds as "another shape" (`coverage-payment-group-unconfirmed`), although the same payment ungrouped already pairs (owner rule: money onto the card counts from Savings). Next action: decide whether a grouped Savings debit proves the destination like a grouped Bills debit, and if so admit `household-reserve` in `cardPaymentGroup` and the group step of `reconcileCardPurchases` in `public/forecast.js`, with a hand-derived test. Owner: lead.
+
 **LM v2 split pieces keep their split identity** · *lead v1/v2 field check, 2026-11-18; ADDED TO BACKLOG from #1306*
 
 Lunch Money v2 (spec 2.11.2) returns split pieces with `split_parent_id` (and the parent with `is_split_parent`, which `GET /transactions` omits by default). `normalizeLunchMoneyTransaction` in `scripts/provider-observe.js` reads only `parent_id`, and since #1306 the v2 `group_parent_id`, so a v2 split piece has no `parentId`. Nothing double-counts, because the split parent is not returned. The one effect is that `droppedRowCategory`'s "no split identity" exclusion misses a split piece whose amount is unreadable, so its gap is localized to its category instead of withheld globally. Next action: read `split_parent_id` into a split identity the dropped-row rule checks, without feeding it to the group-parent rules. Owner: lead.

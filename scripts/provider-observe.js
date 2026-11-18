@@ -523,6 +523,12 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     // here: BACKLOG.md, LM v2 split pieces.
     parentId: raw.parent_id != null ? String(raw.parent_id)
       : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
+    // U5: the provider ids of the children Lunch Money lists on a group parent,
+    // so the coverage stamp can tell a complete cross-account group from a
+    // partial one. Internal (never emitted); absent on every other row, so
+    // their shape is unchanged.
+    ...((raw.is_group_parent === true || raw.is_group === true) && Array.isArray(raw.children)
+      ? { groupChildIds: raw.children.map(child => child && isTrustworthyTransactionId(child.id) ? String(child.id) : null) } : {}),
     // Lunch Money v2 transaction recurring_id: the recurring item this row
     // matched. Forecast reads it only to stamp the dogFood flags; it is not
     // published in the served packet.
@@ -4682,6 +4688,7 @@ function observeCore(input, capture) {
     pendingCoverage: normalized.pendingCoverage,
     cycleOpensOn: (due, day) => statementCloseDateForDue(due, day) || due,
     isExplicitlyPosted: tx => explicitlyPostedCounts.get(tx.providerTransactionId) === 1,
+    coverageReference: cardCoverageReference,
     alreadyAllocated: tx => (planForIdentity.cardPurchaseCoverage?.payments || []).some(p =>
       p.confirmed === true && (p.debitRef === cardCoverageReference(tx) || p.creditRef === cardCoverageReference(tx))),
     matchesIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
@@ -4758,6 +4765,16 @@ function observeCore(input, capture) {
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
+  // U4: a noted TD minimum payment stays evidence only if card coverage, on
+  // this observation's own packet, paired it with the card's posted credit.
+  if (assembled.cardMinimumCategoryEvidence) {
+    const packet = actualsPass.packet;
+    const receipts = (assembled.cardMinimumCategoryEvidence.payments || []).some(p => p?.evidence === 'card-payment-note')
+      && packet && Array.isArray(packet.transactions)
+      ? Forecast.cardNotePaymentReceipts(packet.transactions, { plan: input.data && input.data.plan,
+        asOf: packet.observationAsOf, packet, debts: input.data && input.data.debts }) : [];
+    assembled.cardMinimumCategoryEvidence = MinimumCategory.qualifyNotePayments(assembled.cardMinimumCategoryEvidence, receipts);
+  }
   // S2: the timing applied above, for live-plan to apply to the served plan.
   // Internal to the report; never served.
   // Present only when a schedule applies, so every other report keeps its shape.
@@ -5421,8 +5438,19 @@ function nearDueIdentityRules(opts, plan) {
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
-  // confirm: a second identity debit near it stays ordinary spending.
-  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
+  // confirm: a second identity debit near it stays ordinary spending. A
+  // pending-only row (pendingOnlyBillActuals, pending: true) is linked
+  // evidence, never a payment: the bill stays reserved, so a posted identity
+  // debit near it (typically that pending charge posting days later without a
+  // provider link) is still held To confirm on the bill. Counting it as
+  // spending while the bill is reserved would deduct the payment twice.
+  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending !== true)
+    .map(row => row.id + '@' + row.date));
+  // The occurrences only a pending-only row stands on. A debit held To confirm
+  // on one of them carries pendingOnlyOccurrence: the pending copy and the
+  // posted debit are not resolved as one payment, so Forecast keeps the
+  // category remaining claim classified-incomplete, as before the hold.
+  const pendingOnly = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending === true)
     .map(row => row.id + '@' + row.date));
   // So is an occurrence the plan opening already names as represented
   // (effective by the observation date), and a recurring occurrence dated
@@ -5477,7 +5505,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
         && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
           (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
-    if (unique.length === 1) out.set(localId, unique[0]);
+    if (unique.length === 1) {
+      out.set(localId, pendingOnly.has(unique[0].id + '@' + unique[0].date)
+        ? { ...unique[0], pendingOnlyOccurrence: true } : unique[0]);
+    }
     eligibleDebit.set(localId, amount);
   }
   // Finish-line audit finding 2: several same-day identity debits for one
@@ -6301,6 +6332,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
+  // U5: emitted group-parent id -> the child provider ids Lunch Money lists for
+  // it; emitted row id -> its provider id. Internal to this pass; never emitted.
+  const groupChildIds = new Map(), providerIdOfRow = new Map();
   const bankDescriptions = new Map();
   const join = [];
   const currencyUnconfirmed = [];
@@ -6637,6 +6671,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
     };
     txs.push(emittedRow);
+    if (emittedRow.id != null) {
+      providerIdOfRow.set(String(emittedRow.id), tx.providerTransactionId == null ? null : String(tx.providerTransactionId));
+      if (Array.isArray(tx.groupChildIds)) groupChildIds.set(String(emittedRow.id), tx.groupChildIds);
+    }
     // Same-pass crosswalk capture: the exact surviving transaction that
     // produced this emitted row. Strings are copied at emission, so later
     // row mutation (linkage stamps, metadata stripping, merchant
@@ -6869,6 +6907,25 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
   // A2: Forecast suppresses a split parent once any child is present, so the
   // present children must reconcile to the parent to the cent.
+  // U5 (lead dispatch): a cross-account group parent has no account of its own
+  // (#1306) and every consumer skips it once its children are present
+  // (skipSplitParent). It is not an unmapped-account gap when exactly the
+  // children Lunch Money lists for it (by id, each once) are present as rows
+  // and every one of them is individually mapped. A parent with any child
+  // missing, duplicated, unlisted or unmapped, or with no listed children,
+  // stays a gap.
+  const completeGroupParent = parent => {
+    if (!parent || parent.isGroup !== true || parent.id == null) return false;
+    const expected = groupChildIds.get(String(parent.id));
+    if (!Array.isArray(expected) || !expected.length || expected.some(id => id == null)
+      || new Set(expected).size !== expected.length) return false;
+    const children = txs.filter(child => child && child !== parent && child.parentId != null
+      && String(child.parentId) === String(parent.id));
+    const present = children.map(child => providerIdOfRow.get(String(child.id)));
+    return children.length === expected.length && new Set(present).size === present.length
+      && present.every(id => id != null && expected.includes(id))
+      && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
+  };
   const splitUnreconciled = txs.some(parent => {
     if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
     const children = txs.filter(child => child && child !== parent && child.parentId != null
@@ -6897,7 +6954,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   // droppedCategoryRows (Forecast actualsCoverageState, localizedDrops opt-in).
   const otherCoverageGap = cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
       || syncEvidence.some(row => row.syncEvidence === 'failed')
-      || txs.some(tx => tx && tx.accountRole === 'unmapped')
+      || txs.some(tx => tx && tx.accountRole === 'unmapped' && !completeGroupParent(tx))
       || positiveEvidenceGap;
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';
@@ -7008,7 +7065,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad').length);
   count('card-coverage-unconfirmed', cardCoverageUnconfirmed.length);
   count('dropped-row', diagnosticDroppedRows.size);
-  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped').length);
+  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped' && !completeGroupParent(tx)).length);
   count('posting-status-unconfirmed', inWindowCoverageRows.filter(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence)).length);
   count('split-unreconciled', splitUnreconciled ? 1 : 0);
   count('transactions-missing', collectionPresent ? 0 : 1);
