@@ -144,6 +144,66 @@ console.log('4. Other estimate causes keep their wording');
   const cellStale = stillPlanned(page('budgetSpendingSectionHtml')(staleAdvice.payPeriodViews.find(p => p.role === 'active'),
     { advice: staleAdvice, asOf: '2026-09-20', liveOverlay: observed.data.liveOverlay }));
   check(!cellStale.includes('data-card-estimate-as-of'), 'an estimated Bills balance as well: Still planned keeps its estimate wording');
+  // #1373's recorded case: NO card estimate (the payment is confirmed) and an
+  // estimated Bills balance. Forecast publishes no card cause, so the page
+  // shows the estimate wording and never the card's as-of date.
+  const noCard = Live.fromObservation(world([purchase, cashLeg(105, { notes: TRAVEL })]));
+  noCard.data.plan.startingCash.breakdown.forEach(row => { if (row.id === 'chequing-a') row.confidence = 'estimated'; });
+  const noCardAdvice = F.recommend(noCard.data.plan, '2026-09-20', { debts: noCard.data.debts,
+    currentPeriodActuals: noCard.data.liveOverlay.currentPeriodActuals });
+  const noCardPeriod = noCardAdvice.payPeriodViews.find(p => p.role === 'active');
+  check(noCardAdvice.cardPurchaseCoverage.trust !== 'estimated', 'no card estimate: coverage is not an estimate');
+  check(noCardPeriod.fromTodayFunding.estimateCause === undefined
+    && !Object.values(noCardAdvice.paydayShellEstimateCause || {}).includes(F.CARD_ESTIMATE_CAUSE),
+    'no card estimate and an estimated Bills balance: no card cause is published');
+  const noCardHtml = page('paydayInstructionShellHtml')(noCardAdvice, noCardPeriod, null, noCard.data.liveOverlay)
+    + page('budgetSpendingSectionHtml')(noCardPeriod, { advice: noCardAdvice, asOf: '2026-09-20', liveOverlay: noCard.data.liveOverlay });
+  check(count(noCardHtml, /data-card-estimate-as-of/g) === 0, 'no card estimate and an estimated Bills balance: no as-of tag');
+  // #1373 pre-review note: with no card estimate, fromTodayFunding has no
+  // fundingTrustExceptCard. A figure estimated only by a FORWARD funding term
+  // (here an invented future commitment whose amount is an estimate) must
+  // never read that absence as "calculated without the card" and gain the
+  // card cause.
+  const fwd = Live.fromObservation(world([purchase, cashLeg(105, { notes: TRAVEL })]));
+  fwd.data.plan.commitments = [{ id: 'roof', label: 'Invented roof', date: '2026-12-15', amount: 400, confidence: 'estimated' }];
+  const fwdAdvice = F.recommend(fwd.data.plan, '2026-09-20', { debts: fwd.data.debts,
+    currentPeriodActuals: fwd.data.liveOverlay.currentPeriodActuals });
+  const fwdPeriod = fwdAdvice.payPeriodViews.find(p => p.role === 'active');
+  check(fwdAdvice.cardPurchaseCoverage.trust !== 'estimated' && fwdPeriod.fromTodayFunding.trust === 'estimated',
+    'a forward-funding estimate with no card estimate: the figure is estimated (' + fwdPeriod.fromTodayFunding.trust + ')');
+  check(fwdPeriod.fromTodayFunding.estimateCause === undefined
+    && !Object.values(fwdAdvice.paydayShellEstimateCause || {}).includes(F.CARD_ESTIMATE_CAUSE),
+    'a forward-funding estimate with no card estimate: no card cause is published');
+  const fwdCell = stillPlanned(page('budgetSpendingSectionHtml')(fwdPeriod, { advice: fwdAdvice, asOf: '2026-09-20',
+    liveOverlay: fwd.data.liveOverlay }));
+  check(/≈/.test(fwdCell) && /estimated/.test(fwdCell) && !fwdCell.includes('data-card-estimate-as-of'),
+    'a forward-funding estimate with no card estimate: Still planned keeps the plain estimate wording, no as-of tag');
+}
+
+console.log('4b. One home for the card-estimate cause, basis and reasons');
+{
+  const F = require('../public/forecast');
+  check(F.CARD_ESTIMATE_CAUSE === 'card-coverage' && page('Forecast.CARD_ESTIMATE_CAUSE') === F.CARD_ESTIMATE_CAUSE,
+    'Forecast owns the cause code, and the page reads the same one');
+  check(Object.isFrozen(F.CARD_ESTIMATE_REASONS) && Object.keys(F.CARD_ESTIMATE_REASONS).sort().join() ===
+    ['card-coverage-rows-unconfirmed', 'card-credit-purpose-unconfirmed', 'card-payment-destination-unconfirmed', 'card-payment-source-unconfirmed'].join(),
+    'Forecast owns the closed basis set and one fixed reason each');
+  const est = basis => ({ status: 'ready', trust: 'estimated', estimateBasis: basis });
+  check(F.cardCoverageEstimateBasis(est('card-credit-purpose-unconfirmed')) === 'card-credit-purpose-unconfirmed'
+    && F.cardCoverageEstimateBasis(est('not-a-basis')) === 'card-coverage-rows-unconfirmed'
+    && F.cardCoverageEstimateBasis({ status: 'ready', trust: 'calculated' }) === null
+    && F.cardCoverageEstimateBasis({ status: 'unavailable', trust: 'estimated' }) === null && F.cardCoverageEstimateBasis(null) === null,
+    'cardCoverageEstimateBasis: its own basis, the combined fallback, or null when not an estimate');
+  // No consumer keeps its own copy: each reason text and basis code is
+  // written only in public/forecast.js.
+  for (const f of ['scripts/assistant-packet.js', 'scripts/operating-answer.js', 'public/plan.js']) {
+    const src = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    for (const [basis, reason] of Object.entries(F.CARD_ESTIMATE_REASONS)) {
+      check(!src.includes(reason), `${f} keeps no copy of the ${basis} reason`);
+      check(!src.includes(`'${basis}'`), `${f} keeps no copy of the ${basis} code`);
+    }
+    check(!/=== 'card-coverage'/.test(src), `${f} compares no literal card-coverage cause`);
+  }
 }
 
 console.log('5. No single bank date: the estimate word stays (never an undated or guessed date)');
