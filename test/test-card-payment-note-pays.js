@@ -107,13 +107,15 @@ withheld(run(world([purchase, ['bills', 105, null, 'cash', { payee: 'Invented ca
     const why = 'two TD cards, ' + (order ? 'purchases first' : 'debits first');
     ready(s, why);
     check(s.coverage.reservedCash === 0, why + ': reserve 0');
-    const byCard = account => s.coverage.payments.filter(p => p.account === account || p.cardId === account || p.debtId === account);
+    // Payments name their card by accountLabel (the plan's debt label).
+    const byCard = label => s.coverage.payments.filter(p => p.accountLabel === label);
     check(s.coverage.payments.length === 2, why + ': two payments (got ' + s.coverage.payments.length + ')');
     const total = s.coverage.payments.reduce((a, p) => a + p.minimumPayment + p.backfill + p.cardPayment, 0);
     check(Math.round(total * 100) === 14500, why + ': 105 + 40 = 145 applied once each (got ' + total + ')');
     check(s.period.fromTodayFunding.availableNow === 325, why + ': available now 355 - 0 - 30 - 0 = 325 (got '
       + s.period.fromTodayFunding.availableNow + ')');
-    check(byCard('cashback').length <= 1 && byCard('travelvisa').length <= 1, why + ': at most one payment per card');
+    check(byCard('Invented Cash Back').length === 1 && byCard('Invented card').length === 1,
+      why + ': exactly one payment per card ' + JSON.stringify(s.coverage.payments.map(p => p.accountLabel)));
   }
   // The Cash Back note on a debit whose credit landed on Travel Visa: the debit
   // pays Cash Back by its note; the Travel Visa credit has no source and withholds.
