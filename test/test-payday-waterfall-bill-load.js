@@ -256,9 +256,10 @@ console.log('\n=== 4. Observed actual does not rewrite the assigned load ===');
   });
   const active = period(advice.defaultView, 'this-pay-period');
   const rowA = (active.bills || []).find(r => r.id === 'bill-a');
-  ok(rowA && rowA.status === 'PAID' && rowA.actual != null && near(rowA.actual, 900)
+  // D2 (lead dispatch 2026-11-18): a confirmed (fixed) bill paid in part stays still due for its remainder, 100 here.
+  ok(rowA && rowA.status === 'still due' && rowA.actual != null && near(rowA.actual, 900) && near(rowA.remaining, 100)
       && near(assignedAmount(rowA), BILL_A),
-    'actual $900 is settlement evidence; planned assignment stays $1,000');
+    'actual $900 is settlement evidence (100 still due); planned assignment stays $1,000');
   ok(near(active.periodBillLoad, LOAD) && near(active.afterBills, AFTER_BILLS),
     'waterfall still deducts the assigned $1,500, not the $900 actual');
   ok(!near(active.afterBills, roundCent(FROZEN - 900 - BILL_B)),

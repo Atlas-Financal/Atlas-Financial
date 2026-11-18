@@ -90,8 +90,11 @@ console.log('(a) The tolerance is 1.5 times the scheduled amount, upper bound on
 for (const [amount, paid] of [[15, true], [10, true], [22.5, true], [22.51, false], [23, false]]) {
   const res = run([{ ...STREAM }], [debit('2026-10-12', amount, 'Invented mart', 'Subscriptions')]);
   const b = res.bill('stream');
-  ok(paid ? (b && b.status === 'PAID') : toConfirm(b, 15),
-    `a ${amount} same-day payment ${paid ? 'settles' : 'does not settle'} the 15 bill`, desc(b));
+  // D2 (lead dispatch 2026-11-18): the 10 still links to this confirmed (fixed) 15 bill, and the bill stays still due
+  // for the 5 it did not cover (test-bill-partial-remainder.js); the others settle it in full.
+  const expected = amount < 15 ? !!(b && b.settlement === 'represented' && b.status === 'still due' && b.remaining === 5)
+    : paid ? !!(b && b.status === 'PAID') : toConfirm(b, 15);
+  ok(expected, `a ${amount} same-day payment ${!paid ? 'does not settle' : amount < 15 ? 'links to (5 still due)' : 'settles'} the 15 bill`, desc(b));
 }
 {
   // A rule that states its own amount semantics keeps them: amount-at-least
