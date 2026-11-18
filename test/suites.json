@@ -496,6 +496,7 @@
   ["food and fuel monthly figures","test-food-fuel.js"],
   ["phase titles and risk list","test-plan-phases.js"],
   ["HELOC current-opening agreement (B19)","test-heloc-current-opening.js"],
+  ["Assistant packet names the card-coverage issue codes behind a withheld answer","test-assistant-card-coverage-issue-codes.js"],
   ["coupled cash and debt","test-debt.js"],
   ["debt absorption covers the cash horizon","test-debt-absorption-horizon.js"],
   ["amortising payoff stops later interest share","test-amortizing-payoff-horizon.js"],
