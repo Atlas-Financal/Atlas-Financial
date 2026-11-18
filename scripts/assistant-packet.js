@@ -239,6 +239,22 @@ function operatingPlanUnavailable(data, advice) {
     || (advice && advice.cardCoverageUnavailable === true);
 }
 
+// The card-coverage issue codes behind a withheld operating answer, so a
+// reader can see which check is holding without reconstructing it. Only the
+// closed code vocabulary passes: lowercase words joined by hyphens under the
+// `coverage-` prefix. No transaction ref, amount, date, account or note can
+// pass that shape. Forecast already strips refs before publishing; this is
+// the packet's own check, not a trust in that upstream shape.
+const CARD_COVERAGE_ISSUE_CODE = /^coverage-[a-z]+(?:-[a-z]+)*$/;
+function cardCoverageIssueCodes(advice) {
+  if (!advice || advice.cardCoverageUnavailable !== true) return null;
+  const issues = advice.cardPurchaseCoverage && advice.cardPurchaseCoverage.issues;
+  if (!Array.isArray(issues)) return null;
+  const codes = [...new Set(issues.map(issue => issue && issue.code)
+    .filter(code => typeof code === 'string' && code.length <= 80 && CARD_COVERAGE_ISSUE_CODE.test(code)))].sort();
+  return codes.length ? codes.slice(0, 32) : null;
+}
+
 function operatingPlanNote(data, advice) {
   const overlay = data && data.liveOverlay;
   return (advice && advice.operatingPlanNote)
@@ -936,6 +952,7 @@ function currentBlock(data, asOf, advice, used, settlement) {
     spendableHouseholdCash: advice?.cardCoverageUnavailable === true
       && !(data.liveOverlay && data.liveOverlay.operatingPlan === 'unavailable')
       ? { status: 'unavailable', value: null, reason: unavailableReason,
+        ...(cardCoverageIssueCodes(advice) ? { cardCoverageIssues: cardCoverageIssueCodes(advice) } : {}),
         observedCash: Number.isFinite(spendable) ? money(spendable) : null,
         asOf, source: 'Forecast.recommend' }
       : openingCash.status === 'unavailable'
@@ -1051,9 +1068,11 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
   if (!advice) return unavailable('forecast-unavailable');
   if (operatingPlanUnavailable(data, advice)) {
     const reason = operatingPlanNote(data, advice);
+    const cardCoverageIssues = cardCoverageIssueCodes(advice);
     return {
       status: 'unavailable',
       reason,
+      ...(cardCoverageIssues ? { cardCoverageIssues } : {}),
       source: 'Forecast.recommend',
       recommendation: unavailable(reason),
       horizon: unavailable(reason),

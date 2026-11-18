@@ -237,9 +237,9 @@ console.log('\n=== 4. The coverage gate is its own gate: current Unknown, later 
   }
   // A withheld future cost never prints as a zero set-aside.
   const gated = advice('truncated', false).a.paydayAllocation;
-  ok(gated.futureCosts.length > 0 && gated.futureCosts.every(r => r.allocated === null)
-      && !/data-allocation-state="future:/.test(pageCtx.paydayAllocationSheetHtml(gated) || ''),
-    'a withheld future cost is null and prints no zero-valued set-aside row');
+  // (The action sheet that printed these rows had no caller and was deleted.)
+  ok(gated.futureCosts.length > 0 && gated.futureCosts.every(r => r.allocated === null),
+    'a withheld future cost is null, never a zero-valued set-aside');
   ok(advice('truncated', true).a.payPeriodViews.every(v => !(v.bigPurchases || []).some(r => r.setAsideThisPayday === 0 && v.householdActualsUnavailable === true)),
     'a big-purchase set-aside in the lost period is Unknown, never 0');
   // The assistant packet, through the real builder: estimated with the reason, never ok; the

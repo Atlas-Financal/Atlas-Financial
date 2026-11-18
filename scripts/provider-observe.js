@@ -3834,26 +3834,34 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
         .sort((left, right) => left.date.localeCompare(right.date)).pop() : null);
     const lateOfEarlier = credit => previousEvent ? earlierUnclaimed
       : !!priorEvent && Forecast.diffDays(priorEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
-    // Payroll late posting (census rank 3; a STOPGAP that the LM recurring-matches slice retires). A posted payroll
-    // credit dated within one business day after the payday just before it (Friday's pay landing Monday), when
-    // nothing claimed that payday, is that payday's late posting: it settles that payday once and is never the next
-    // pay arriving early. Business days are Forecast's (Monday to Friday, no holiday calendar), so a payday followed
+    // Payroll late-posting hold-off (#1290). Since #1325 the matcher itself SETTLES a plain payroll credit one
+    // business day late (payrollLatePayday), and a settled credit is in `used`, so it never reaches this check: the
+    // matcher is the one path for every late pay it settles. What remains here is narrower and settles nothing: it
+    // only keeps the plan live, with the payday still To confirm and the figures estimated, for an exact-amount late
+    // credit the matcher declined. Three cases remain (test/test-payroll-late-hold-off-remaining.js): (a) another
+    // credit of the same identity competes for the payday (an early one, say), so the matcher's late cover stands
+    // down; (b) the credit also fits another income's occurrence, so the matcher leaves it unresolved; (c) a payroll
+    // rule that is not the plain shape (it names a posting-date rule or a settlement mode), which the late cover does
+    // not read. A posted payroll credit dated within one business day after the payday just before it (Friday's pay
+    // landing Monday), when nothing claimed that payday, is that payday's late posting and is never the next pay
+    // arriving early. Business days are Forecast's (Monday to Friday, no holiday calendar), so a payday followed
     // by a weekday holiday is two business days to the Tuesday and still holds. At most ONE credit is absorbed per
     // payday: a second qualifying credit is unexplained and holds exactly as before, as does any credit that is not
     // explicitly posted, not of exactly the scheduled amount, not strictly nearer that payday than the next, or later
     // than one business day.
     // A payday whose own receipts already compete (an ambiguous group for that exact occurrence, on any date) is
     // not unclaimed in the sense this needs: its receipt is unresolved, so a later credit stays held as before.
-    // Only a credit of EXACTLY the payday's scheduled amount is absorbed (#1290 review): Forecast does not settle the
-    // payday from an absorbed credit, so it publishes the scheduled amount. Only then is that equal to what the same
-    // credit would publish on time. A short, tiny or oversized late credit holds exactly as before.
+    // Only a credit of EXACTLY the payday's scheduled amount is absorbed (#1290 review): this hold-off settles nothing,
+    // so Forecast publishes the payday's scheduled amount, which equals the credit only when the amounts are equal.
+    // A short, tiny or oversized late credit the matcher declined holds exactly as before.
     const previousAmbiguous = !!previousEvent && (ambiguous || []).some(group => group
       && String(group.id) === String(previousEvent.id) && String(group.date) === String(previousEvent.date));
     let payrollLateAbsorbed = 0;
     // Q1: when Lunch Money's own pairing took authority over payroll in THIS observation (stampLunchMoneyMatched
     // stamped a payroll deposit, with a payday or with none), LM decides which payday each linked deposit settles,
-    // so this stopgap stands aside. When the read is absent, unavailable or inconsistent, nothing is stamped and
-    // the stopgap applies as before. Its removal is the closure step once the item is named (BACKLOG).
+    // so this hold-off stands aside. When the read is absent, unavailable or inconsistent, nothing is stamped and
+    // the hold-off applies as before. Its removal is the closure step once the item is named (BACKLOG), when LM's
+    // pairing decides cases (a) to (c) above.
     const payrollLmMatched = (input.transactions || []).some(tx => {
       const lm = tx && typeof tx === 'object' ? LM_MATCHED.get(tx) : null;
       return !!lm && lm.eventId === 'payroll';

@@ -34,7 +34,8 @@ const cases = [
     const w = world();
     w.transactions.push(
       H.lm({ date: '2026-10-10', amount: 40, category: 'Groceries', payee: 'Invented grocer A' }),
-      H.lm({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer A' }));
+      // #1234 (LEDGER A item 3, rule 17): only a ledger-linked refund nets; Lunch Money sends a grouped pair as one group-parent row.
+      H.lm({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer A', raw: { is_group_parent: true } }));
     await H.withBudget(w, async p => {
       const s = await H.snap(p);
       H.expectMatch(groceries(s), /Spent \$30\.00/, 'groceries spent is 40 - 10');
@@ -50,7 +51,8 @@ const cases = [
     w.transactions.push(
       H.lm({ date: '2026-10-10', amount: 15, category: 'Groceries', payee: 'Invented grocer B' }),
       H.lm({ date: '2026-10-11', amount: 5, category: 'Restaurants', payee: 'Invented diner B' }),
-      H.lm({ date: '2026-10-12', amount: -25, category: 'Groceries', payee: 'Invented grocer B' }));
+      // #1234: the linked (group-parent) form.
+      H.lm({ date: '2026-10-12', amount: -25, category: 'Groceries', payee: 'Invented grocer B', raw: { is_group_parent: true } }));
     await H.withBudget(w, async p => {
       const s = await H.snap(p);
       H.expectMatch(groceries(s), /Spent [−-]\$10\.00/, 'groceries spent is 15 - 25');
@@ -80,7 +82,8 @@ const cases = [
       H.lm({ date: '2026-10-03', amount: 70, category: 'Groceries', payee: 'Invented grocer D' }),
       H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
       H.lm({ date: '2026-10-10', amount: 30, category: 'Groceries', payee: 'Invented grocer E' }),
-      H.lm({ date: '2026-10-12', amount: -20, category: 'Groceries', payee: 'Invented grocer D' }),
+      // #1234: the linked (group-parent) form.
+      H.lm({ date: '2026-10-12', amount: -20, category: 'Groceries', payee: 'Invented grocer D', raw: { is_group_parent: true } }),
     ];
     await H.withBudget(w, async p => {
       const now = await H.snap(p);

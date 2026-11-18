@@ -11,6 +11,7 @@ const crypto = require('node:crypto');
 const cp = require('node:child_process');
 const { chromium } = require('playwright');
 const fixture = require('./fixtures/savings-daily-consumer-data');
+const Later = require('./browser-estimated-later-periods-guard.js');
 const root = path.resolve(__dirname, '..');
 const assets = path.join(root, 'public');
 const origin = 'http://bills-source.test';
@@ -93,7 +94,11 @@ async function inspect(page, state, width, phase, includeDetail = true) {
     const card = page.locator('[data-budget-surface="unavailable"] [data-budget-surface-section="unavailable"]');
     hero = await visibleText(card, label + ' Current plan unavailable');
     check(label + ' names the unknown chequing opening', () => assert.match(hero, /household chequing opening balance is unknown/));
-    const surface = await page.locator('[data-budget-surface]').evaluate(element => element.textContent);
+    // The "Later pay periods" card (#1312) is checked on its own; the rest of the surface keeps no precise figure.
+    const later = await page.evaluate(Later.readLaterPeriods);
+    check(label + ' the Later pay periods card lists only later periods, each figure an estimate (#1312)', () =>
+      assert.deepEqual(Later.laterPeriodFailures(later, '2026-10-05'), []));
+    const surface = await page.evaluate(Later.textWithoutLaterPeriods, '[data-budget-surface]');
     check(label + ' no precise figure on the withheld surface', () => assert.doesNotMatch(surface, /[$]\s?\d/));
     const heroCount = await page.locator('[data-budget-cash-hero]').count();
     const savingsCount = await page.locator('[data-operating-question="savings"]').count();
@@ -102,6 +107,8 @@ async function inspect(page, state, width, phase, includeDetail = true) {
     receipt.observations.push({ width, state: state.name, phase, hero: 'Current plan unavailable', savings: null, proposal: null });
     return;
   }
+  const laterAvailable = await page.evaluate(Later.readLaterPeriods);
+  check(label + ' no Later pay periods card while today\'s plan is available', () => assert.equal(laterAvailable.boxes.length, 0));
   if (phase === 'next-period') {
     // budget-blend.css deliberately hides today's balance on a noncurrent
     // selection. Check that actual display rule, then the visible value on Back.
