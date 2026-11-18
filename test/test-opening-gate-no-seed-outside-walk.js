@@ -50,9 +50,17 @@ function world(shape, v) {
   }
   return w;
 }
+// The engine cases shape the opening after the observer applied the live
+// overlay: the overlay itself refuses an observed account with no opening
+// row, so the incomplete breakdown is set on the served plan directly.
 function served(shape, v) {
-  const { data, packet, error } = H.dataOf(world(shape, v));
+  const { data, packet, error } = H.dataOf(world(null, v));
   if (error) throw error;
+  if (shape) {
+    const rows = data.plan.startingCash.breakdown;
+    const a = rows.find(r => r.id === 'chequing-a'), b = rows.find(r => r.id === 'chequing-b'), s = rows.find(r => r.id === 'savings');
+    data.plan.startingCash.breakdown = SHAPES[shape](a, b, s, v);
+  }
   return { plan: data.plan, opts: { debts: data.debts, currentPeriodActuals: packet } };
 }
 function flat(o, p = '', out = {}, seen = new WeakSet()) {
