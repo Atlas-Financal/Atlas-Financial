@@ -172,6 +172,12 @@ console.log('6. A retained last full picture is shown unchanged, under a banner 
     { source: 'provider', checkedAt: null, attemptedAt: null, reason: '<b>x</b>' });
   check(render(odd).html.includes("Today's update couldn't be completed: the current bank data is unavailable."),
     'an unknown reason reads the default line');
+  // A complete refresh withheld as a whole shows the last non-withheld picture
+  // (test/test-last-non-withheld-picture.js) with its own line.
+  const withheldToday = Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
+    { source: 'provider', checkedAt: '2026-09-21T16:30:00Z', attemptedAt: '2026-09-21T16:30:00Z', reason: 'current-plan-withheld' });
+  check(render(withheldToday).html.includes("Today's update couldn't be completed: today&#39;s figures are on hold until something is confirmed."),
+    'the withheld-today reason reads its own line');
   const badTime = JSON.parse(JSON.stringify(picture));
   badTime.liveOverlay.retainedRefresh.observedAt = '<img src=x onerror=alert(1)>';
   const badHtml = render(badTime).html;

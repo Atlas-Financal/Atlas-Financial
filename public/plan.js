@@ -1108,6 +1108,9 @@ const RETAINED_PICTURE_REASONS = Object.freeze({
   'live-refresh-invalidated': 'the refresh was superseded before it finished.',
   'live-refresh-busy': 'another refresh was already running.',
   'current-observation-unavailable': 'the current bank data is unavailable.',
+  // Today's refresh completed, but its plan is withheld as a whole (Dale,
+  // 2026-11-18): the last non-withheld picture is shown instead.
+  'current-plan-withheld': 'today\'s figures are on hold until something is confirmed.',
 });
 function retainedPictureBannerHtml(liveOverlay) {
   const retained = liveOverlay?.retainedRefresh;
