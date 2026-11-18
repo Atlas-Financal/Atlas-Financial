@@ -973,7 +973,10 @@ async function fetchAmountHistory(token, now, base, options) {
   const url = lunchMoneyTransactionsUrl(now, AMOUNT_HISTORY_DAYS, base);
   const window = { startDate: url.startDate, endDate: url.endDate };
   try {
-    const page = await fetchLunchMoneyTransactionsPaged(url, token, options);
+    // Coverage diagnostics describe the observation window only; the history
+    // overlaps it, so its rows are never counted a second time.
+    const { onCoverageDiagnostic, ...quiet } = options || {};
+    const page = await fetchLunchMoneyTransactionsPaged(url, token, quiet);
     return { transactions: page.transactions || [], transactionWindow: { ...window,
       complete: page.complete === true, hasMore: page.hasMore, truncated: page.truncated === true } };
   } catch (err) {

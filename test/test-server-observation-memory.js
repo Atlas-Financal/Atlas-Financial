@@ -1,7 +1,8 @@
 'use strict';
 // The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
 // the windowed and pending transactions, and the recurring-items read (S1).
-const PROVIDER_GETS = 8;
+// Seven reads, the recurring-items read and the 200-day fixed-amount history read (#1355).
+const PROVIDER_GETS = 9;
 // Synthetic source inputs, actual worker/observer/LivePlan and authenticated
 // server routes. No household file edit, configured secret or provider write.
 const fs = require('node:fs');
@@ -219,7 +220,7 @@ if (require.main === module) (async () => {
       + independentlyEvaluated.plan.startingCash.breakdown.find(row => row.id === 'chequing-b').value, 1375, 'independent 1215 + 160 chequing proof');
     const firstCount = mock.calls.length; let firstCheck;
     check(await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { firstCheck = value; } }), direct, 'first browser miss equals independent evaluation');
-    await drain(); check(mock.calls.length - firstCount, PROVIDER_GETS, 'first browser read performs eight GETs (seven plus the recurring-items read)');
+    await drain(); check(mock.calls.length - firstCount, PROVIDER_GETS, 'first browser read performs nine GETs (seven, the recurring-items read and the fixed-amount history read)');
     check(firstCheck, { source: 'provider', qualified: true, checkedAt: CLOCK }, 'live check timestamp');
     const cachedCount = mock.calls.length, workerCount = workers.length, started = performance.now(); let reusedCheck;
     const reused = await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { reusedCheck = value; } });
@@ -427,7 +428,7 @@ if (require.main === module) (async () => {
       mock.release();
       const [dataA, dataB] = await Promise.all([serveA, serveB]);
       await drain();
-      check(mock.calls.length - beforeCalls, PROVIDER_GETS, 'two concurrent serves share one eight-GET provider fetch');
+      check(mock.calls.length - beforeCalls, PROVIDER_GETS, 'two concurrent serves share one nine-GET provider fetch');
       check(checkA, checkB, 'coalesced waiters receive the identical check');
       check(receiptPacket(dataA, checkA, '2026-08-20T18:20:00.000Z').metadata.sourceCheck,
         receiptPacket(dataB, checkB, '2026-08-20T18:20:00.000Z').metadata.sourceCheck,
