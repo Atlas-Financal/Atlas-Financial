@@ -6870,7 +6870,7 @@ function paydayAnswerHtml(ctx) {
           }</div>`
         : ''
     }${
-      r.trust === 'estimated' && r.estimateReason === 'lunch-money-budget-carried-forward'
+      r.trust === 'estimated' && r.estimateReason === Forecast.LUNCH_MONEY_BUDGET_CARRIED
         ? '<div class="payday-item-note">Estimated: Lunch Money has no budget set for this month yet, so last month\'s is used.</div>' : ''
     }</td><td>${r.trust === 'estimated'
       ? est(money2(hasRemaining && r.remaining != null ? r.remaining : r.required))
@@ -6884,7 +6884,7 @@ function paydayAnswerHtml(ctx) {
     essentialSummary = `<p class="payday-qual">Required for period: ${essMoney(ess.wanted)}</p>
       <p class="payday-qual">Cash available for essentials: ${essMoney(ess.allocated)}</p>${
         short > 0
-          ? `<p class="payday-qual">Essential shortfall: ${money2(short)}. This is not the full amount needed, and it is not a spending allowance.</p>`
+          ? `<p class="payday-qual">Essential shortfall: ${essMoney(short)}. This is not the full amount needed, and it is not a spending allowance.</p>`
           : ''
       }${
         attributed === 'unattributed'
