@@ -8349,7 +8349,16 @@
       if (cls.kind === 'income') { out.excluded.income = roundCent(out.excluded.income + amt); continue; }
       if (cls.kind === 'business') { out.excluded.business = roundCent(out.excluded.business + amt); continue; }
       if (cls.kind === 'external') { out.excluded.external = roundCent(out.excluded.external + amt); continue; }
-      if (cls.kind === 'bill') { out.excluded.bills = roundCent((out.excluded.bills || 0) + amt); continue; }
+      if (cls.kind === 'bill') {
+        out.excluded.bills = roundCent((out.excluded.bills || 0) + amt);
+        // A debit held To confirm on an occurrence only a pending-only row
+        // stands on (provider-observe pendingOnlyOccurrence) is not spent,
+        // but the pair is unresolved: it may be a second, unplaced charge, so
+        // the classification stays incomplete, as it was before the hold.
+        if (cls.reason === 'near-due-bill-unconfirmed' && tx.nearDueBillCandidate
+          && tx.nearDueBillCandidate.pendingOnlyOccurrence === true) { out.unclassified.count += 1; recordHeld(tx, cls); }
+        continue;
+      }
       if (cls.kind === 'refund') {
         // G3a: a posted refund identified as a refund of one named household
         // category nets against that category's spend. Anything else stays

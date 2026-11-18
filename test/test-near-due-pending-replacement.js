@@ -32,6 +32,9 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
 };
 
+// Every trust, confidence and claim field in the recommend() output.
+const TAG_KEY = /trust|confidence|claim|certain|verified|precis/i;
+
 let nextId = 990000;
 const debit = (date, { pending = false, raw } = {}) => H.lm({ id: ++nextId, date, amount: 100, account: 'chequing-a',
   payee: 'Invented Hydro', category: 'Utilities', pending, raw });
@@ -56,7 +59,18 @@ function serve(txs, asOf = '2026-10-17') {
     date: t.date, pending: t.pending === true,
     cls: F.classifyCurrentPeriodTransaction(t, r.data.plan, { currentPeriodActuals: packet }),
   }));
-  return { bill, rows, remaining: current.remainingBills, balance: current.balanceAfterDeductions,
+  const tags = {};
+  (function walk(o, path, seen) {
+    if (!o || typeof o !== 'object' || seen.has(o)) return;
+    seen.add(o);
+    for (const k of Object.keys(o)) {
+      const v = o[k], q = path + '.' + k;
+      if (TAG_KEY.test(k) && (typeof v !== 'object' || v === null)) tags[q] = v;
+      walk(v, q, seen);
+    }
+  })(adv, '', new Set());
+  return { bill, rows, tags, claim: adv.currentPeriodAction.categoryRemainingClaim,
+    remaining: current.remainingBills, balance: current.balanceAfterDeductions,
     paid: (packet.representedActuals || []).filter(x => x.id === 'hydro').map(x => x.date + (x.pending ? ':pending' : ':posted')) };
 }
 const spends = row => row.cls.householdSpending === true;
@@ -97,6 +111,22 @@ console.log('3. Unchanged cases');
     && spends(second.rows.find(r => r.date === '2026-10-17')),
     'paid on the due date plus another payment two days later: the second is spending (800), as on main',
     JSON.stringify([second.bill.status, second.balance]));
+}
+
+console.log('4. No trust, confidence or claim field moves from main (pending on the 15th, posted on the 17th)');
+{
+  // Captured from main c5250847 for this exact invented case (before the
+  // hold): the category remaining claim reads classified-incomplete there.
+  const onMain = require('./fixtures/near-due-pending-replacement-main-tags.json');
+  const s = serve([debit('2026-10-15', { pending: true }), debit('2026-10-17')]);
+  const keys = new Set([...Object.keys(onMain), ...Object.keys(s.tags)]);
+  const moved = [...keys].filter(k => s.tags[k] !== onMain[k]);
+  ok(Object.keys(onMain).length > 100 && moved.length === 0,
+    `all ${Object.keys(onMain).length} fields equal main, so none moves toward certainty`, JSON.stringify(moved.map(k => [k, onMain[k], s.tags[k]])));
+  ok(s.claim === 'classified-incomplete', 'the unresolved pending copy keeps the category remaining claim classified-incomplete, never precise', s.claim);
+  // Control: a posted payment late on its own (no pending copy) keeps main's claim too.
+  const late = serve([debit('2026-10-17')]);
+  ok(late.claim === 'precise', 'control: a lone late posted payment held To confirm reads precise, as on main', late.claim);
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
