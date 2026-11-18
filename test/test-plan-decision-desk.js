@@ -241,7 +241,7 @@ console.log('\n=== 6. mobile-responsive section headings stack above content ===
 {
   const css = raw('public/styles.css');
   const household = raw('public/household-view.css');
-  const mobile = /@media \(max-width:700px\) \{[\s\S]*?\.current-period-category > span/.exec(css);
+  const mobile = /@media \(max-width:700px\) \{[\s\S]*?\n\}/.exec(css);
   ok(mobile && /grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(mobile[0]),
     'narrow layout gives the operating question a single full-width column');
   ok(mobile && /operating-answer \{ grid-column:\s*auto/.test(mobile[0])
@@ -259,7 +259,7 @@ console.log('\n=== 6b. mobile waterfall rows wrap instead of clipping ===');
   const planSrc = read('public/plan.js');
   const lineRule = /\.operating-line \{[\s\S]*?\n\}/.exec(css);
   const lastChildRule = /\.operating-line span:last-child \{[\s\S]*?\n\}/.exec(css);
-  const mobile = /@media \(max-width:700px\) \{[\s\S]*?\.current-period-category > span/.exec(css);
+  const mobile = /@media \(max-width:700px\) \{[\s\S]*?\n\}/.exec(css);
   ok(lineRule && /min-width:\s*0/.test(lineRule[0]),
     'operating-line can shrink inside a card instead of forcing overflow');
   ok(/\.operating-line > span \{ min-width:\s*0; \}/.test(css)
