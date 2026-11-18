@@ -12525,13 +12525,13 @@
       const set = typeof p.budgeted === 'number' && Number.isFinite(p.budgeted) && p.budgeted >= 0;
       if (set) lastSet = p.budgeted;
       if (lastSet == null) continue;
-      series.push(Object.assign({ from: p.start, through: p.end, budgeted: roundCent(lastSet),
-        carried: !set }, lunchMoneyTargetFields(cat, lastSet)));
+      series.push(Object.assign({ from: p.start, through: p.end, carried: !set },
+        lunchMoneyTargetFields(cat, lastSet)));
     }
     if (!series.length) return null;
     const last = series[series.length - 1];
-    series.push(Object.assign({ from: addDays(last.through, 1), through: null, budgeted: roundCent(lastSet),
-      carried: true }, lunchMoneyTargetFields(cat, lastSet)));
+    series.push(Object.assign({ from: addDays(last.through, 1), through: null, carried: true },
+      lunchMoneyTargetFields(cat, lastSet)));
     return series;
   }
   function lunchMoneyTargetAt(cat, date) {
