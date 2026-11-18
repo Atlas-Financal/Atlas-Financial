@@ -77,11 +77,11 @@ confirmed occurrence is withheld rather than retimed. Unsupported payroll after
 the authorized year is not published. The unchanged baseline is compared with
 immutable main for both ordinary and payroll-regime inputs.
 
-Run `node test/test-savings-funding-timeline.js` and `npm test`. The existing
-`node test/browser-planned-savings-clarity.js` also verifies the new publication
-through the actual browser-loaded Forecast, using the same independent invented
-ledger. It covers eight existing UI states at 1440, 390 and 320px, including
-missing data, keyboard Info reachability and exact focus restoration.
+Run `node test/test-savings-funding-timeline.js` and `npm test`. The browser
+proof that once lived in `test/browser-planned-savings-clarity.js` was retired on
+2026-11-18 (#904 triage). Its claims are covered by the node suites and by
+`test/browser-savings-stock-pending.js` on the current Budget face (stock values,
+placement, keyboard order, Info reachability and exact focus restoration).
 
 | Unchanged existing Savings sheet | Desktop | 320px |
 |---|---|---|

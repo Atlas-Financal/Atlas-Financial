@@ -8,6 +8,7 @@
 //   C5 engine identity: Git checkout, deploy-commit fallback, refusal
 //   C6 offer() is fire-and-forget: never throws, single-flight, throttled
 //   C7 a real qualified refresh is served while the store hangs (timing)
+//   C9 an in-flight capture worker never holds process shutdown
 //   C8 the same decisions against a real local PostgreSQL (UNRUN unless
 //      ATLAS_PERIOD_HISTORY_LOCAL_PG_BIN is set)
 const test = require('node:test');
@@ -156,6 +157,39 @@ test('C6 offer() is fire-and-forget: never throws, single-flight, throttled, don
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(lines.at(-1).closing, 'history-capture-failed');
   assert.ok(lines.every(line => Object.keys(line).join() === 'type,closing,opening'), 'fixed fields only');
+});
+
+test('C9 an in-flight capture worker never holds process shutdown', async () => {
+  // The owner unrefs whatever worker it starts.
+  const { EventEmitter } = require('node:events');
+  let unrefs = 0, worker = null;
+  const spawn = () => { worker = new EventEmitter(); worker.terminate = async () => {}; worker.unref = () => { if (worker.listenerCount('message') === 1) unrefs++; }; return worker; };
+  const owner = Capture.create({ spawn, log: () => {} });
+  assert.equal(owner.offer({ canonical: {}, evidence: { payload: {} }, env: { [Capture.FLAG]: 'on' }, day: 'd1' }), 'started');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(unrefs, 1, 'the started worker is unref\'d, after its message listener (which re-refs it)');
+  worker.emit('exit', 1);
+  // A real process: a real worker that never finishes is in flight, and no
+  // other handle is open. The process must exit on its own, long before the
+  // worker timeout; a ref'd worker keeps it alive until the kill below.
+  const { spawn: run } = require('node:child_process');
+  const child = [
+    "const { Worker } = require('node:worker_threads');",
+    `const Capture = require(${JSON.stringify(require.resolve('../scripts/period-history-refresh-capture'))});`,
+    "const owner = Capture.create({ log: () => {}, gate: { tryAcquire: () => () => {} },",
+    "  spawn: () => new Worker('setInterval(() => {}, 1e9)', { eval: true }) });",
+    "const r = owner.offer({ canonical: {}, evidence: { payload: {} }, env: { [Capture.FLAG]: 'on' }, day: 'd1' });",
+    "if (r !== 'started') { console.error(r); process.exit(3); }",
+    "setImmediate(() => console.log('in-flight'));"
+  ].join('\n');
+  const proc = run(process.execPath, ['-e', child], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  proc.stdout.on('data', d => { out += d; });
+  const killer = setTimeout(() => proc.kill('SIGKILL'), 15000);
+  const [code, signal] = await new Promise(resolve => proc.once('exit', (c, s) => resolve([c, s])));
+  clearTimeout(killer);
+  assert.equal(out.trim(), 'in-flight', 'the worker was started');
+  assert.deepEqual([code, signal], [0, null], 'the process exited on its own while the capture was in flight');
 });
 
 test('C7 a qualified refresh is served while capture is still running', async () => {

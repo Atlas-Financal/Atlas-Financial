@@ -13,6 +13,7 @@
  * `node test/browser-unknown-chequing-opening-budget.js`
  */
 const H = require('./acceptance/harness.js');
+const Later = require('./browser-estimated-later-periods-guard.js');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -27,15 +28,25 @@ async function render(patch) {
   if (patch) w.dataPatch = d => patch(d.plan.startingCash.breakdown);
   const p = await H.openBudget(H.dataOf(w).data);
   try {
+    // The "Later pay periods" card (#1312) is read and checked on its own; every other figure is scanned
+    // with it left out, so the no-precise-figure checks still cover each opening-seeded total.
+    const later = await p.page.evaluate(Later.readLaterPeriods);
+    const asOf = await p.page.evaluate(() => App.data.meta.asOf);
     // Visible page text plus every Budget-surface leaf's text (collapsed
-    // disclosures included), one entry per line.
-    const body = await p.page.evaluate(() => [document.body.innerText,
-      ...[...document.querySelectorAll('[data-budget-surface] *')]
-        .filter(e => !e.children.length).map(e => e.textContent.replace(/\s+/g, ' ').trim())]
-      .join('\n'));
-    const surface = await p.page.evaluate(() => [...document.querySelectorAll('[data-budget-surface]')]
-      .map(e => e.textContent.replace(/\s+/g, ' ').trim()).join(' | '));
-    return { body, surface, errors: p.errors.slice() };
+    // disclosures included), one entry per line, without the later-period card.
+    const body = await p.page.evaluate(() => {
+      const boxes = [...document.querySelectorAll('[data-estimated-later-periods]')];
+      const shown = boxes.map(box => box.style.display);
+      boxes.forEach(box => { box.style.display = 'none'; });
+      const text = [document.body.innerText,
+        ...[...document.querySelectorAll('[data-budget-surface] *')]
+          .filter(e => !e.children.length && !e.closest('[data-estimated-later-periods]'))
+          .map(e => e.textContent.replace(/\s+/g, ' ').trim())].join('\n');
+      boxes.forEach((box, i) => { box.style.display = shown[i]; });
+      return text;
+    });
+    const surface = (await p.page.evaluate(Later.textWithoutLaterPeriods, '[data-budget-surface]')).replace(/\s+/g, ' ').trim();
+    return { body, surface, later, asOf, errors: p.errors.slice() };
   } finally { await p.close(); }
 }
 
@@ -48,6 +59,7 @@ async function render(patch) {
       'the page prints the hand-computed Money available $2,500.00');
     ok(PRECISE.test(known.body), 'precise figures are present when the opening is known');
     ok(!known.body.includes(REASON), 'no unknown-opening note when every row is known');
+    ok(!known.later.boxes.length, 'no Later pay periods card while today\'s plan is available');
 
     // With only Chequing B unknown, the Bills account (Chequing A) balance is
     // still genuinely known and is its own publication (ATLAS-078): exactly
@@ -63,6 +75,9 @@ async function render(patch) {
       ok(!page.errors.length, 'page boots without errors', page.errors.join('; '));
       ok(page.body.includes(REASON), 'the page names the unknown chequing opening');
       ok(/Current plan unavailable/.test(page.body), 'the current plan reads unavailable');
+      const laterFailures = Later.laterPeriodFailures(page.later, page.asOf);
+      ok(page.later.boxes.length === 1 && !laterFailures.length,
+        'the Later pay periods card lists only later periods, each figure an estimate (#1312)', laterFailures.join('; '));
       const precise = page.body.split('\n').filter(line => PRECISE.test(line)
         && !(billsKnown && BILLS_ONLY.test(line.trim())));
       if (billsKnown) ok(page.body.split('\n').some(line => BILLS_ONLY.test(line.trim())),

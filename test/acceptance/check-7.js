@@ -52,10 +52,10 @@ const scenarios = [
     async run(H) {
       const w = txWorld(H);
       w.transactions.push(
-        H.lm({ id: 700, date: '2026-10-11', amount: 30, category: 'Groceries', payee: 'Invented bakery', pending: true }),
+        H.lm({ id: 700, date: '2026-10-11', amount: 30, category: 'Groceries', payee: 'Invented bakery', pending: true,
+          raw: { plaid_metadata: { transaction_id: 'invented-plaid-700' } } }),
         H.lm({ id: 701, date: '2026-10-12', amount: 30, category: 'Groceries', payee: 'Invented bakery',
-          raw: { pending_transaction_id: 700, plaid_metadata: { pending_transaction_id: 'invented-plaid-700' } } }));
-      w.transactions[1].plaid_metadata = { transaction_id: 'invented-plaid-700' };
+          raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-700' } } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expect(H.occurrences(s.household, 'Invented bakery') === 1, `bakery listed once (got ${H.occurrences(s.household, 'Invented bakery')})`);
@@ -267,8 +267,8 @@ const scenarios = [
       w.transactions.push(
         H.lm({ ...card, id: 910, date: '2026-10-10', amount: 40, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-910' } } }),
         H.lm({ ...card, id: 911, date: '2026-10-11', amount: 25, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-911' } } }),
-        H.lm({ ...card, id: 912, date: '2026-10-11', amount: 40, raw: { pending_transaction_id: 910, plaid_metadata: { pending_transaction_id: 'invented-plaid-910' } } }),
-        H.lm({ ...card, id: 913, date: '2026-10-12', amount: 25, raw: { pending_transaction_id: 911, plaid_metadata: { pending_transaction_id: 'invented-plaid-911' } } }));
+        H.lm({ ...card, id: 912, date: '2026-10-11', amount: 40, raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-910' } } }),
+        H.lm({ ...card, id: 913, date: '2026-10-12', amount: 25, raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-911' } } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expect(H.occurrences(s.household, 'Amazon.ca') === 2, `7.13: two Amazon rows, listed once each (got ${H.occurrences(s.household, 'Amazon.ca')})`);

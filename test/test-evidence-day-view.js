@@ -1,8 +1,8 @@
 'use strict';
 // The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
 // the windowed and pending transactions, and the recurring-items read (S1).
-// Seven reads, the recurring-items read and the 200-day fixed-amount history read (#1355).
-const PROVIDER_GETS = 9;
+// Seven reads, the recurring-items read, the two budget reads and the 200-day fixed-amount history read (#1355).
+const PROVIDER_GETS = 11;
 // OD-2 (#821, owner 2026-11-11): the same provider evidence gives the same
 // Budget whatever the request clock or a restart. Invented household only
 // (test/fixtures/budget-surface-data.js); the repository's loopback fake

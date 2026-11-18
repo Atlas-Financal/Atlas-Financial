@@ -73,9 +73,10 @@ console.log('\n=== the readability layer does not become a financial authority =
     'works only from already-rendered presentation content');
   ok(!/See data quality details/.test(src) && !/See current-period details/.test(src),
     'the readability layer does not add leftover diagnostic disclosures to the default Plan');
-  ok(/Hold this week's spend until/.test(src)
-    && !/No payment or transfer is required today/.test(src),
-    'the first-screen action language is one coherent next move');
+  // The question-six "Hold this week's spend" summary read a card no renderer
+  // emits and was deleted; the retired wording still must not return.
+  ok(!/No payment or transfer is required today/.test(src),
+    'the retired "no payment or transfer" wording does not return');
   ok(/Current Balance/.test(src),
     'the compact cash prompt is Current Balance');
 }
@@ -94,13 +95,8 @@ console.log('\n=== trust caveats are translated, not deleted ===');
     'an unavailable remaining-spend claim stays visible in ordinary language');
 }
 
-console.log('\n=== current values are copied, not recalculated ===');
-{
-  ok(H.cashValueFromNote('Current spendable cash: $123.45 · Spendable cash. Not credit.') === '$123.45',
-    'cash display copies a synthetic already-rendered value');
-  ok(H.cashValueFromNote('No cash value here') === null,
-    'missing rendered cash does not invent one');
-}
+// (The cash-from-note helper fed only the deleted question-six summary; it
+// went with it.)
 
 console.log('\n=== default-view prompts survive household-view enhance ===');
 {
