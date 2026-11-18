@@ -74,5 +74,42 @@ paidOnce(run(world([purchase, ['weekly', 105, null, 'cash', { ...generic, ...gro
     && split.period.fromTodayFunding.availableNow === plain.period.fromTodayFunding.availableNow,
   'same-account group (a split) reads as ungrouped (available ' + split.period.fromTodayFunding.availableNow + ')');
 }
+// 6b. A split of a card-payment debit (two "Credit Card Payment" pieces on Bills,
+// one group, one account) beside the card's credit: it reads exactly as the
+// same pieces ungrouped, never as a group of another shape.
+{
+  const ccp = { payee: 'Invented card payment', original_name: 'Invented card payment', category_name: 'Credit Card Payment' };
+  const rows = extra => [purchase, ['bills', 60, null, 'cash', { ...ccp, ...extra }], ['bills', 45, null, 'cash', { ...ccp, ...extra }],
+    ['card', -105, null, 'credit', ccp]];
+  const split = run(world(rows(group))), plain = run(world(rows({})));
+  check(split.coverage.status === plain.coverage.status && JSON.stringify(issues(split)) === JSON.stringify(issues(plain)),
+    'a split card-payment debit reads as ungrouped: ' + JSON.stringify(issues(split)) + ' vs ' + JSON.stringify(issues(plain)));
+  check(!issues(split).includes('coverage-payment-group-unconfirmed'), 'a split is never a group of another shape');
+}
+// 7. Real Lunch Money returns the group's own parent row too: no account of its
+// own (it spans two), listing its children. A complete group (exactly the listed
+// children present, each on a mapped account) is not a coverage gap, and the
+// payment pays once as in case 1. A parent listing a child that is not present,
+// or a child on an unmapped account, keeps the history incomplete and withholds.
+const withParent = ({ extraChild = false, childAccount = null } = {}) => x => {
+  const kids = x.payload.transactions.filter(t => t.group_parent_id === 777001);
+  if (childAccount) kids[0].account_id = childAccount;
+  x.payload.transactions.push({ id: 777001, date: x.asOf, amount: 0, payee: 'Invented card payment group',
+    category_name: 'Payment, Transfer', is_group_parent: true, is_pending: false, status: 'reviewed', currency: 'cad', notes: null,
+    children: [...kids.map(t => ({ id: t.id, amount: t.amount, plaid_account_id: null, manual_account_id: t.account_id })),
+      ...(extraChild ? [{ id: 999001, amount: 1, plaid_account_id: null, manual_account_id: 3001 }] : [])] });
+};
+for (const [name, rows] of orders(grouped)) {
+  const s = run(world(rows, { edit: withParent() }));
+  check(s.packet.transactionCoverage === 'complete', 'complete group with its parent row, ' + name + ': coverage complete (got '
+    + s.packet.transactionCoverage + ')');
+  paidOnce(s, 'complete group with its parent row, ' + name);
+  check(s.period.householdBudget[0].spent === 80, 'complete group with its parent row, ' + name + ': groceries spent 80, once');
+}
+for (const [name, opts] of [['a listed child is missing', { extraChild: true }], ['a child is on an unmapped account', { childAccount: 3999 }]]) {
+  const s = run(world(grouped, { edit: withParent(opts) }));
+  check(s.packet.transactionCoverage === 'incomplete', name + ': coverage incomplete (got ' + s.packet.transactionCoverage + ')');
+  withheld(s, name);
+}
 
 console.log(`  PASS  a Lunch Money card-payment group proves the payment's destination (${checks} checks)`);

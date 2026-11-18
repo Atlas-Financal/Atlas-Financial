@@ -7854,7 +7854,10 @@
   function hasUnresolvedAccountActuals(packet) {
     const txs = packet && packet.transactions;
     if (!Array.isArray(txs)) return false;
-    return txs.some(tx => tx && tx.accountRole === 'unmapped');
+    // A group parent whose children are present is skipped by every consumer
+    // (skipSplitParent); the observer's coverage stamp already withholds when
+    // any listed child is missing or unmapped (U5).
+    return txs.some(tx => tx && tx.accountRole === 'unmapped' && !skipSplitParent(tx, packet));
   }
 
   function actualsCoverageState(asOf, periodStart, opts, failures) {
@@ -25349,7 +25352,7 @@
     const rowIncomplete = coverage === 'incomplete' && (
       Array.isArray(packet.cardCoverageUnconfirmed) && packet.cardCoverageUnconfirmed.length > 0
       || Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length > 0
-      || transactions.some(row => row?.accountRole === 'unmapped'));
+      || transactions.some(row => row?.accountRole === 'unmapped' && !skipSplitParent(row, packet)));
     const fetchComplete = (coverage === 'complete' || coverage?.complete === true)
       && transactionCoverageStatus(packet) === 'complete' || rowIncomplete;
     const sourceWindow = packet.savingsFetchCoverage;

@@ -523,6 +523,11 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     // here: BACKLOG.md, LM v2 split pieces.
     parentId: raw.parent_id != null ? String(raw.parent_id)
       : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
+    // U5: how many children Lunch Money lists on a group parent (a count only),
+    // so the coverage stamp can tell a complete cross-account group from a
+    // partial one. Null for every other row.
+    groupChildCount: (raw.is_group_parent === true || raw.is_group === true) && Array.isArray(raw.children)
+      ? raw.children.length : null,
     // Lunch Money v2 transaction recurring_id: the recurring item this row
     // matched. Forecast reads it only to stamp the dogFood flags; it is not
     // published in the served packet.
@@ -6035,6 +6040,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     return localByProvider.get(String(providerId)) || null;
   };
   const txs = [];
+  // U5: emitted group-parent id -> the child count Lunch Money lists for it.
+  // Internal to this pass; never emitted.
+  const groupChildCounts = new Map();
   const bankDescriptions = new Map();
   const join = [];
   const currencyUnconfirmed = [];
@@ -6371,6 +6379,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
     };
     txs.push(emittedRow);
+    if (Number.isInteger(tx.groupChildCount) && emittedRow.id != null) groupChildCounts.set(String(emittedRow.id), tx.groupChildCount);
     // Same-pass crosswalk capture: the exact surviving transaction that
     // produced this emitted row. Strings are copied at emission, so later
     // row mutation (linkage stamps, metadata stripping, merchant
@@ -6591,6 +6600,20 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
   // A2: Forecast suppresses a split parent once any child is present, so the
   // present children must reconcile to the parent to the cent.
+  // U5 (lead dispatch): a cross-account group parent has no account of its own
+  // (#1306) and every consumer skips it once its children are present
+  // (skipSplitParent). It is not an unmapped-account gap when exactly the
+  // children Lunch Money lists for it are present as rows and every one of
+  // them is individually mapped. A parent with any child missing or unmapped,
+  // or with no listed children, stays a gap.
+  const completeGroupParent = parent => {
+    if (!parent || parent.isGroup !== true || parent.id == null) return false;
+    const expected = groupChildCounts.get(String(parent.id));
+    if (!Number.isInteger(expected) || expected < 1) return false;
+    const children = txs.filter(child => child && child !== parent && child.parentId != null
+      && String(child.parentId) === String(parent.id));
+    return children.length === expected && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
+  };
   const splitUnreconciled = txs.some(parent => {
     if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
     const children = txs.filter(child => child && child !== parent && child.parentId != null
@@ -6619,7 +6642,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   // droppedCategoryRows (Forecast actualsCoverageState, localizedDrops opt-in).
   const otherCoverageGap = cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
       || syncEvidence.some(row => row.syncEvidence === 'failed')
-      || txs.some(tx => tx && tx.accountRole === 'unmapped')
+      || txs.some(tx => tx && tx.accountRole === 'unmapped' && !completeGroupParent(tx))
       || positiveEvidenceGap;
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';
@@ -6730,7 +6753,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad').length);
   count('card-coverage-unconfirmed', cardCoverageUnconfirmed.length);
   count('dropped-row', diagnosticDroppedRows.size);
-  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped').length);
+  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped' && !completeGroupParent(tx)).length);
   count('posting-status-unconfirmed', inWindowCoverageRows.filter(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence)).length);
   count('split-unreconciled', splitUnreconciled ? 1 : 0);
   count('transactions-missing', collectionPresent ? 0 : 1);
