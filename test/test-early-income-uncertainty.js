@@ -151,6 +151,25 @@ function negative(name, mutate, kind = 'amanda') {
   eq(Object.hasOwn(out.report, 'incomeReconciliation'), false, name + ': no qualified overlap manufactured');
 }
 const row = (x, id) => x.payload.transactions.find(tx => tx.id === id);
+// The early-receipt hold on its own (#1334 pre-review): a business note on the Bills credit is one of the near-amount
+// rule's exclusions, so the U6 early plain-credit hold ignores that credit, while this hold, which reads the TENNIS
+// INCOME transfer, its leg and the source deposit, never reads the note. With it, each source-side condition is
+// proved by this hold alone: the unchanged packet holds, and every source change below holds nothing.
+const sourceHoldOnly = x => { row(x, 'invented-transfer-credit').notes = 'Invented business note'; };
+{
+  const input = fixture('amanda'); sourceHoldOnly(input);
+  const out = run(input);
+  eq(out.report.incomeReconciliation && out.report.incomeReconciliation.status, 'unavailable',
+    'early-receipt hold alone: the full TENNIS packet holds with the U6 hold excluded');
+}
+const sourceNegative = (name, mutate) => negative(name + ' (early-receipt hold alone)', x => { sourceHoldOnly(x); mutate(x); });
+sourceNegative('no employer receipt', x => x.payload.transactions.shift());
+sourceNegative('coaching source deposit', x => row(x, 'invented-employer-receipt').payee = 'INVENTED COACHING CLIENT');
+sourceNegative('source and transfer amounts differ', x => row(x, 'invented-employer-receipt').amount = -1733.18);
+sourceNegative('non-income source', x => { row(x, 'invented-employer-receipt').is_income = false; row(x, 'invented-employer-receipt').category_name = 'Transfer'; });
+sourceNegative('invented-employer-receipt pending', x => row(x, 'invented-employer-receipt').is_pending = true);
+sourceNegative('invented-employer-receipt foreign currency', x => row(x, 'invented-employer-receipt').currency = 'usd');
+sourceNegative('invented-employer-receipt contradictory', x => row(x, 'invented-employer-receipt').contradictoryEvidence = true);
 // U6 (lead, boundary (ii)): the Bills credit alone is an early pay under the owner's rule (a TENNIS INCOME transfer
 // at the scheduled amount, five business days early), so it holds the plan whatever the source deposit shows. Each
 // case changes only the source deposit; each was a no-hold case before the early plain-credit hold.
