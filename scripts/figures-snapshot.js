@@ -409,10 +409,10 @@ if (helocSnap.heloc) {
   put('heloc.vsLastMonth', helocSnap.heloc.delta);
   put('heloc.vsLastMonthVerdict', helocSnap.heloc.id);
 }
-const dive = F.deepDive(data);
-if (dive.heloc && dive.heloc.current != null) {
-  put('heloc.currentOpening', dive.heloc.current);
-}
+// The HELOC's posted opening balance is observed as revolving.heloc.posted
+// (Forecast.utilisation, which the Budget page and /assistant publish) and as
+// scoreboard.today.heloc. The Deep Dive page that printed it on its own was
+// removed (#822), so the snapshot no longer reads Forecast.deepDive.
 
 /* ---- what the household is told to do ----------------------------------- */
 const first = (plan.actions || [])[0];
