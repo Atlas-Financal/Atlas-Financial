@@ -157,9 +157,8 @@ test('estimated trust carries forward into periods that open from an estimated c
 
 test('card reserve shortfall: disclosed on the active period, estimated, never deducted from the plan', () => {
   const p = plan(), pkt = actuals(true);
-  // PA-4a-2b (Atlas 6538656590, ruling 8): the below-reserve branch is soft
-  // only on qualified operating cash, so both chequing rows are present.
-  p.startingCash.breakdown.push({ id: 'chequing-b', value: 0 });
+  // PA-4a-2b (Atlas 6538656590, ruling 8): both opening rows qualify this
+  // cash for the soft below-reserve branch.
   pkt.transactions[0].amount = 5000; // a purchase larger than the known Bills balance
   const a = F.recommend(p, ASOF, { weeklyVariable: 0, debts: [], currentPeriodActuals: pkt });
   assert.deepEqual(a.cardPurchaseCoverage.issues.map(i => i.code).sort(),
@@ -362,7 +361,7 @@ function noncombined(confidence, breakdown) {
     firstDue: '2026-10-10', amount: 120, confidence }];
   return periods(F.recommend(p, ASOF, { weeklyVariable: 0, debts: [], currentPeriodActuals: actuals(false) }));
 }
-const SINGLE = [{ id: 'chequing-a', value: 500 }];
+const SINGLE = [{ id: 'chequing-a', value: 500 }, { id: 'chequing-b', value: 0 }];
 const SPLIT = [{ id: 'chequing-a', value: 300 }, { id: 'chequing-b', value: 200 }];
 
 for (const [label, breakdown, nextOpening] of [['pooled opening', SINGLE, 138000], ['account split', SPLIT, 118000]]) {
