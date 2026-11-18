@@ -1102,18 +1102,13 @@ function paydayOpeningCashKnown(plan) {
   const finite = value => typeof value === 'number' ? Number.isFinite(value)
     : typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value));
   const cash = plan && plan.startingCash;
-  const rows = cash && cash.breakdown;
-  if (!Array.isArray(rows) || !rows.length) return finite(cash && cash.amount);
-  const chequingIds = ['chequing-a', 'chequing-b'];
-  const hasChequing = rows.some(row => row && chequingIds.includes(row.id));
-  // Reconstruction needs each required operating observation exactly once.
-  // Duplicate rows would let Forecast sum the same original cash twice.
-  if (hasChequing && chequingIds.some(id => rows.filter(row => row && row.id === id).length !== 1)) return false;
-  const pools = Array.isArray(plan.savingsEarmarks && plan.savingsEarmarks.pools)
-    ? plan.savingsEarmarks.pools : [];
-  const spendable = rows.filter(row => row && (hasChequing ? chequingIds.includes(row.id)
-    : row.id !== 'savings' && !pools.some(pool => pool && pool.accountId === row.id)));
-  return spendable.length > 0 && spendable.every(row => row.unknown !== true && finite(row.value));
+  // Forecast's opening gate is the one rule for an explicit breakdown (both
+  // operating accounts exactly once, each known); this mirror never decides
+  // it separately. The aggregate-only form additionally needs a recorded
+  // amount: never Number(null/blank) -> zero.
+  if (!cash || typeof cash !== 'object') return false;
+  if (!Object.hasOwn(cash, 'breakdown')) return finite(cash.amount);
+  return Forecast.openingCashState(plan).status === 'ready';
 }
 
 // Retain Forecast's payday-morning figure on the live clone. Use the
