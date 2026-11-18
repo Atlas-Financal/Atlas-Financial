@@ -39,6 +39,7 @@ function paydayComposer() {
       grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
       grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
       grab(planSrc, /^const fmtMonth = .*$/m, 'fmtMonth'),
+      grab(planSrc, /^const est = .*$/m, 'est'),
       grab(planSrc, /^function weeklyCapView\([\s\S]*?\n\}$/m, 'weeklyCapView'),
       grab(planSrc, /^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
       grab(planSrc, /^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
@@ -330,6 +331,18 @@ console.log('\n=== F. partial essential funding ===');
     'and states the shortfall rather than implying allocated is the full need');
   ok(/does not choose which essential category is underfunded/.test(html),
     'and does not invent a category-level cut');
+  ok(!/≈/.test((/Essential shortfall[^<]*/.exec(html) || [''])[0]),
+    'positive control: a calculated shortfall carries no estimate mark');
+  // A carried-forward Lunch Money budget makes the essentials an estimate
+  // (#1372 Q2). The shortfall built from them is an estimate too, as are the
+  // required and available lines (lead follow-up on #1372).
+  const estimated = Object.assign({}, alloc, { essentials: Object.assign({}, alloc.essentials,
+    { trust: 'estimated', estimateReason: F.LUNCH_MONEY_BUDGET_CARRIED }) });
+  const estHtml = htmlOf(plan, estimated).html;
+  for (const line of ['Required for period', 'Cash available for essentials', 'Essential shortfall']) {
+    const text = (new RegExp(line + ':[^<]*<span class="est">≈ [^<]*</span>').exec(estHtml) || [null])[0];
+    ok(text != null, `with estimated essentials, "${line}" prints its amount with ≈`, text || '(no ≈)');
+  }
 }
 
 console.log('\n=== G. reserve is not spend permission ===');

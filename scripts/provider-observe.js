@@ -6607,7 +6607,7 @@ function sanitizedBudgetEvidence(raw, rawCategories, plan) {
   const ordered = [...periods.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
   const byRow = {};
   const categoriesRead = Array.isArray(rawCategories);
-  for (const [rowId, named] of [...budgetRowGroupIds(plan)].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [rowId, named] of [...budgetRowGroupIds(plan)].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
     if (named.reason) { byRow[rowId] = { status: 'unavailable', reason: named.reason }; continue; }
     if (!categoriesRead) { byRow[rowId] = { status: 'unavailable', reason: 'categories-read-failed' }; continue; }
     const groupId = named.groupId;
