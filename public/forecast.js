@@ -15590,8 +15590,18 @@
   // this cause, so the page can show the bank data's date in place of the
   // estimate word. The trust itself is unchanged (still 'estimated').
   // withoutCard is the same figure's trust with the card term removed.
+  // The one cause code the page reads (Forecast.CARD_ESTIMATE_CAUSE).
+  const CARD_ESTIMATE_CAUSE = 'card-coverage';
   function cardEstimateCause(trust, withoutCard) {
-    return trust === 'estimated' && withoutCard === 'calculated' ? 'card-coverage' : null;
+    return trust === 'estimated' && withoutCard === 'calculated' ? CARD_ESTIMATE_CAUSE : null;
+  }
+  // The closed estimate basis of an estimated, ready card coverage, for every
+  // consumer outside Forecast (assistant packet, operating answer): its own
+  // basis when recognised, else the combined one; null when not estimated.
+  function cardCoverageEstimateBasis(coverage) {
+    if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
+    return Object.hasOwn(CARD_ESTIMATE_REASONS, coverage.estimateBasis || '')
+      ? coverage.estimateBasis : CARD_ROWS_ESTIMATE_BASIS;
   }
   function cardCoverageTrust(coverage) {
     return coverage && coverage.status === 'ready' && coverage.trust === 'estimated' ? 'estimated' : 'calculated';
@@ -21695,7 +21705,7 @@
       // cause survives only while its figure's published trust is still
       // 'estimated' (a later downgrade to unknown drops it).
       const paydayShellEstimateCause = Object.fromEntries(Object.entries((alloc && alloc.paydayShellEstimateCause) || {})
-        .filter(([key, cause]) => cause === 'card-coverage' && paydayShellTrust[key] === 'estimated'));
+        .filter(([key, cause]) => cause === CARD_ESTIMATE_CAUSE && paydayShellTrust[key] === 'estimated'));
       const action = currentPeriodAction(plan, asOf, Object.assign({}, dalePaydayOpts, {
         paydayAllocation: alloc,
       }));
@@ -29051,7 +29061,8 @@
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
-    visaPaymentReconciliation, visaPaymentPublication };
+    visaPaymentReconciliation, visaPaymentPublication,
+    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it

@@ -2733,7 +2733,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   const cardAsOf = cardEstimateAsOfHtml(liveOverlay);
   const trustTag = key => {
     const trust = shellTrust[key];
-    if (trust === 'estimated' && shellCause[key] === 'card-coverage' && cardAsOf) return ' ' + cardAsOf;
+    if (trust === 'estimated' && shellCause[key] === Forecast.CARD_ESTIMATE_CAUSE && cardAsOf) return ' ' + cardAsOf;
     if (trust === 'estimated') return ' <span class="trust-tag trust-estimated">estimate</span>';
     if (trust === 'calculated') return ' <span class="trust-tag">calculated</span>';
     return null;
@@ -6139,7 +6139,7 @@ function budgetSpendingSectionHtml(period, ctx) {
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
     <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed, savedClose })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null,
-        remainingKnown && funding.estimateCause === 'card-coverage' ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
+        remainingKnown && funding.estimateCause === Forecast.CARD_ESTIMATE_CAUSE ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
