@@ -309,16 +309,18 @@
   // the unmemoised path exactly as before. A call that throws is never
   // cached: the error is raised before the store. A NaN from a malformed
   // string is the same value either way. Each memo clears at its bound, so
-  // a long-running process cannot grow it without limit.
+  // a long-running process cannot grow it without limit. They are created on
+  // first use, so loading the module constructs no Map of its own here.
   const DATE_MEMO_LIMIT = 8192;
-  const toUtcMemo = new Map();
-  const addDaysMemo = new Map();
+  let toUtcMemo = null;
+  let addDaysMemo = null;
   function toUTCUnmemoised(iso) {
     const [y, m, d] = iso.split('-').map(Number);
     return Date.UTC(y, m - 1, d);
   }
   function toUTC(iso) {
     if (typeof iso !== 'string') return toUTCUnmemoised(iso);
+    if (!toUtcMemo) toUtcMemo = new Map();
     let ms = toUtcMemo.get(iso);
     if (ms === undefined) {
       ms = toUTCUnmemoised(iso);
@@ -333,6 +335,7 @@
   function addDays(iso, n) {
     if (typeof iso !== 'string' || typeof n !== 'number') return fromUTC(toUTC(iso) + n * 86400000);
     const key = n + '|' + iso;
+    if (!addDaysMemo) addDaysMemo = new Map();
     let out = addDaysMemo.get(key);
     if (out === undefined) {
       out = fromUTC(toUTC(iso) + n * 86400000);
