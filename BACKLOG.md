@@ -908,7 +908,16 @@ Merchant names in the test suites: revisit with the repo-private decision.
 
 **Owner decision (Dale):** the savings pools inventory (assigned to goals, backed, unallocated) is only in the legacy "Savings accounts & evidence" disclosure. The Budget face clips that off-screen, so nobody can see it, and it is no longer a Tab stop. Show it on the face, or retire it? Source: TESTS triage 2026-11-16, lead answer H.
 
-**HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.
+~~**HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.~~ Done 2026-11-18. Re-run on main `1530281f` with `CHROME_PATH=/opt/pw-browsers/chromium` and `ATLAS_RELEASE_ENGINE=chromium`: 20 of 116 browser suites failed and none timed out.
+- 12 are the setup-only suites listed below, unchanged.
+- 7 were stale and are repaired or retired, one PR per root cause:
+  - #1342, three refund suites: the ledger-linked refund form #1234 nets;
+  - #1346, `browser-unknown-chequing-opening-budget` and `browser-bills-opening-source-transition`: #1312's estimated later periods;
+  - #1347, `browser-budget-attention-order`: the footer was removed, and the attention list is offstage by design;
+  - #1350, `browser-planned-savings-clarity` retired, its uncovered claims ported to `browser-savings-stock-pending`.
+- 1, `browser-household-panel-viewport`, was load-sensitive and passes alone.
+
+No page defect was found; the one candidate (a bill attention item) has its face equivalent in the Bills header count, per the lead.
 
 Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae7b811`. Stale suites are repaired or retired one PR per root cause; page defects found on the way go to the lead. These need setup, not repair:
 
@@ -920,7 +929,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 - `browser-budget-blend-proof`, `browser-budget-signed-cents`, `browser-river-geometry-proof`, `browser-savings-latest-known-allocation`, `browser-budget-river-readability`: a clean checkout and an evidence directory outside it. A `node_modules` symlink makes the checkout dirty, because `.gitignore`'s `node_modules/` does not match a symlink.
 - `browser-tile-separation`: a one-off proof generator. It needs `--label before|after` and overwrites `docs/proof/tile-separation-2026-10-10/`.
 
-`browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive.
+`browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive (again on 2026-11-18: it fails with three suites at once and passes alone).
 
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
