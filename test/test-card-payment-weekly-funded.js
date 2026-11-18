@@ -88,5 +88,14 @@ for (const [name, rows] of orders([purchase, ['weekly', 105, null, 'cash']])) {
   const bills = go(rows('bills'));
   check(bills.coverage.status === 'ready' && bills.coverage.reservedCash === 80, 'a reversal back to Bills uncovers the 80 purchase');
 }
+// 6. A noted Weekly debit with no credit (#1298's note path, combined with this
+// change): a TD "TFR-TO C/C" from Weekly whose note names Travel Visa pays the
+// card once, exactly as the paired Weekly payment in case 1 does.
+// Available now 625; Bills end 350; Bills cash 500.
+for (const [name, rows] of orders([purchase, ['weekly', 105, null, 'cash', { payee: 'AB123 TFR-TO C/C',
+  original_name: 'AB123 TFR-TO C/C', category_name: 'Transfer', notes: 'card payment: Travel Visa ...9999' }]])) {
+  const b = figures(go(rows), 625, 350, 'noted Weekly debit, ' + name);
+  check(b.observedCash === 500, 'noted Weekly debit, ' + name + ': Bills cash 500');
+}
 
 console.log(`  PASS  a card paid from Weekly covers the card once and no longer blanks the plan (${checks} checks)`);
