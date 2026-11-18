@@ -131,7 +131,6 @@ test('readers that do not know ownerPaid still treat the row as unpaid with its 
   // Forecast's settledOn readers.
   assert.equal(F.commitmentSettledOn(row), null);
   assert.equal(F.commitmentSettledBy(row, '2026-12-31'), false);
-  assert.equal(F.commitmentStatus(row), 'unsettled');
   // The opts-free inventory goal (no relief index) keeps the stated target.
   const inventory = F.savingsInventory(x.plan, x.asOf);
   const goal = inventory.pools.flatMap(p => p.plannedGoals).find(g => g.key === 'commitment:near');

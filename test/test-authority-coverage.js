@@ -50,7 +50,6 @@ const FORECAST_NON_AUTHORITY = new Set([
   'occurrences',
   'commitmentSettledOn',
   'commitmentSettledBy',
-  'commitmentStatus',
   'commitmentNeed',
   'viewRange',
   'billIsHouseholdObligation',

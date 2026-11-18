@@ -394,20 +394,6 @@ ok(JSON.stringify(healthHonestA.types) === JSON.stringify(['discretionary', 'ess
   && JSON.stringify(healthHonestB.types) === JSON.stringify(['discretionary', 'essential']),
   'both orderings preserve the same mixed source types');
 
-const diveHonestA = F.deepDive({ plan: { startingCash: { amount: 0 } } }, periodFrom(honestA));
-const diveHonestB = F.deepDive({ plan: { startingCash: { amount: 0 } } }, periodFrom(honestB));
-const diveCollapseA = F.deepDive({ plan: { startingCash: { amount: 0 } } }, periodFrom(collapseA));
-const diveCollapseB = F.deepDive({ plan: { startingCash: { amount: 0 } } }, periodFrom(collapseB));
-
-ok(diveHonestA.period.discretionary === 35 && diveHonestB.period.discretionary === 35,
-  'historical discretionary is $35 (Restaurants only) in both honest orderings',
-  `${diveHonestA.period.discretionary} / ${diveHonestB.period.discretionary}`);
-ok(diveCollapseA.period.discretionary === 35 && diveCollapseB.period.discretionary === 100,
-  'first-event collapse makes Deep Dive discretionary $35 vs $100 — the live defect',
-  `${diveCollapseA.period.discretionary} vs ${diveCollapseB.period.discretionary}`);
-ok(diveHonestA.period.discretionary === diveHonestB.period.discretionary
-  && diveCollapseA.period.discretionary !== diveCollapseB.period.discretionary,
-  'honest discretionary is order-independent; collapsed discretionary is not');
 ok(F.publishedSpendType(healthHonestA.types || [healthHonestA.type]) === 'unknown'
   && F.publishedSpendType(healthHonestB.types || [healthHonestB.type]) === 'unknown',
   'household-facing Health class is unknown in both honest orderings');

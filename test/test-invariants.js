@@ -1498,7 +1498,10 @@ const allScripts = ['app', 'forecast', 'plan']
 // leaving data.json, still fails here.
 const RETAINED_WITHOUT_READER = ['upcomingNote', 'debtsNote', 'utilisationNote', 'assetsNote', 'netWorth',
   'helocSummary', 'helocUse', 'helocUseNote', 'helocChains', 'cashflow', 'cashflowNote', 'incomeWarning',
-  'incomeNote', 'spendingNote', 'counterparties', 'coachPayment', 'unexplained', 'questions',
+  'incomeNote',
+  // Its only reader (Forecast.deepDive's Cash Back Visa cycle fit) was retired in #822 slice 10.
+  'interestCheck',
+  'spendingNote', 'counterparties', 'coachPayment', 'unexplained', 'questions',
   // Its only reader (the Modeller page script) was deleted with the legacy pages.
   'mortgage'];
 const orphans = Object.keys(data).filter(k => !new RegExp('\\.' + k + '\\b').test(allScripts));
