@@ -932,7 +932,8 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
 async function fetchRecurringEvidence(token, txUrl, base, options) {
   try {
     const read = await require('./provider-recurring-items.js').fetchRecurringItems({
-      startDate: txUrl.startDate, endDate: txUrl.endDate, includeSuggested: false, token, base,
+      startDate: txUrl.startDate, endDate: Forecast.addDays(txUrl.endDate, RECURRING_READ_LOOKAHEAD_DAYS),
+      includeSuggested: false, token, base,
       fetchOptions: { signal: options && options.signal },
     });
     return { status: 'read', read };
@@ -1334,6 +1335,23 @@ const WEEKEND_NEXT_BUSINESS_DAY = 'same-day-or-weekend-next-business-day';
 const COVER_DUE_ON_OR_BEFORE_POSTING = 'covers-due-on-or-before-posting';
 const COVER_EARLY_OR_DUE_ON_OR_BEFORE_POSTING = 'covers-early-or-due-on-or-before-posting';
 const COVER_STATEMENT_CYCLE_OR_LATEST_DUE = 'covers-statement-cycle-or-latest-due';
+// S3 (lead ruling 2026-11-17, after #1284; Grok Bot asked): a rule that
+// names exactly one reviewed Lunch Money recurring item may opt in with
+// settlementFrom 'lunchmoney-matched-occurrences'. When that item's own
+// matches are consistent, Lunch Money's pairing decides which occurrence each
+// linked payment settles. Atlas adds no matching of its own: it only orders
+// LM's matched dates and found payments when their counts agree. Otherwise the rule's
+// incumbent postingDateRule applies unchanged.
+const SETTLEMENT_FROM_LM_MATCHED = 'lunchmoney-matched-occurrences';
+const LM_MATCHED_RELATION = 'lunchmoney-matched-occurrence';
+// The recurring read reaches this far past the transaction window's end, so
+// Lunch Money can report the next expected occurrence a payment made early
+// was matched to. Same GET, wider end date.
+const RECURRING_READ_LOOKAHEAD_DAYS = 31;
+// The pairing is held beside each transaction object, never on it, so it
+// cannot reach the report, the packet or replay memory. A copied row carries
+// no pairing and falls back to the incumbent rule (fail closed).
+const LM_MATCHED = new WeakMap();
 // Opt-in bounded late window (adopted bills blueprint #787 6595179923:
 // explicit identity windows, two days): a rule that names this
 // postingDateRule matches a payment posted on the due date or up to two days
@@ -1841,10 +1859,12 @@ function coveringStatementCycleDates(plan, rule, postingDate) {
   return [upcoming[0].date];
 }
 
-function postingDateRelation(scheduledDate, postingDate, rule) {
+function postingDateRelation(scheduledDate, postingDate, rule, tx) {
   const scheduled = parseIsoDate(scheduledDate);
   const posted = parseIsoDate(postingDate);
   if (!scheduled || !posted) return null;
+  const lm = tx && LM_MATCHED.get(tx);
+  if (lm && rule && lm.eventId === rule.eventId && lm.date === scheduled) return LM_MATCHED_RELATION;
   if (scheduled === posted) return 'same-day';
   if (rule && rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER) {
     const latest = Forecast.addDays(scheduled, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
@@ -1919,9 +1939,14 @@ function coveringEarlyOrDueDates(plan, rule, postingDate) {
   return [];
 }
 
-function coveringScheduledDates(plan, rule, postingDate) {
+function coveringScheduledDates(plan, rule, postingDate, tx) {
   const posted = parseIsoDate(postingDate);
   if (!plan || !rule || !rule.eventId || !posted) return [];
+  // S3: when Lunch Money's own matches for the rule's reviewed item are
+  // consistent (stampLunchMoneyMatched), they alone name the occurrence a
+  // linked payment settles; one LM did not match settles none.
+  const lm = tx && LM_MATCHED.get(tx);
+  if (lm && lm.eventId === rule.eventId) return lm.date ? [lm.date] : [];
   if (rule.postingDateRule === COVER_STATEMENT_CYCLE_OR_LATEST_DUE) {
     return coveringStatementCycleDates(plan, rule, posted);
   }
@@ -2684,10 +2709,10 @@ function collectIdentityHits(tx, input, rules) {
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
     if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
+    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
-      const relation = postingDateRelation(scheduledDate, tx.date, rule);
+      const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);
       if (!relation) continue;
       if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST) {
         const need = Math.abs(Number(scheduled[0].amount));
@@ -2993,6 +3018,86 @@ function salaryReceiptTransferHits(input, rules) {
   return hits;
 }
 
+// S3: read which occurrences Lunch Money itself matched for an opt-in rule's
+// reviewed recurring item, and stamp each linked transaction of that rule
+// with the occurrence LM paired it to (LM_MATCHED date) or none (null). The
+// Lunch Money spec gives matches.expected_occurrence_dates,
+// found_transactions ({date, transaction_id}) and missing_transaction_dates
+// ("expected but none was found"); it does not pair a found transaction to a
+// date. So an expected date not in missing is LM-matched, and the matched
+// dates and found transactions are paired in date order only when everything
+// agrees. Every one of these must hold, or the rule is left to its incumbent
+// postingDateRule (fail closed to today's behaviour):
+//   - the read is complete, the rule's one item is reviewed, and no other rule
+//     names it;
+//   - missing dates are a subset of expected dates, with no duplicates;
+//   - every found transaction is in this observation, posted, on the rule's
+//     account, in its currency, money out, and carries the rule's link;
+//   - the found count equals the matched-date count;
+//   - every matched date is exactly one scheduled occurrence of the bill;
+//   - each paired payment's amount is consistent with that occurrence.
+function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring) {
+  for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
+  const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
+    && rule.eventId && rule.direction === 'debit' && ruleLunchMoneyRecurringIds(rule).length === 1);
+  const applied = [];
+  const read = rawRecurring && rawRecurring.status === 'read' ? rawRecurring.read : null;
+  if (!rules.length || !plan || !read || !Array.isArray(read.items) || read.unexpectedPaginationEvidence !== false) return applied;
+  const isDate = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+  for (const rule of rules) {
+    const id = ruleLunchMoneyRecurringIds(rule)[0];
+    if ((identityRules || []).filter(other => other && ruleLunchMoneyRecurringIds(other).includes(id)).length !== 1) continue;
+    const items = read.items.filter(item => item && String(item.providerId) === id);
+    if (items.length !== 1 || items[0].status !== 'reviewed') continue;
+    const m = items[0].matches;
+    if (!m || !Array.isArray(m.expectedOccurrenceDates) || !Array.isArray(m.missingTransactionDates)
+      || !Array.isArray(m.foundTransactions)) continue;
+    const expected = m.expectedOccurrenceDates, missing = m.missingTransactionDates;
+    if (!expected.every(isDate) || !missing.every(isDate) || new Set(expected).size !== expected.length
+      || new Set(missing).size !== missing.length || !missing.every(d => expected.includes(d))) continue;
+    const matched = expected.filter(d => !missing.includes(d)).sort();
+    const found = m.foundTransactions;
+    if (!found.every(f => f && f.transactionId != null && isDate(f.date))) continue;
+    const linked = (transactions || []).filter(tx => tx && ruleMatchesTransactionIdentity(tx, rule));
+    // Grok Bot's guard (LM-matched route): when Lunch Money lists one
+    // transaction more than once, it has matched it to several due dates.
+    // None of the matched dates reads Paid and no linked payment of the rule
+    // settles anything in this observation.
+    const ids = found.map(f => String(f.transactionId));
+    // The incumbent To confirm follows: each linked payment is the bill of no
+    // occurrence and its line names the bill (linkedBillMisfit), while every
+    // occurrence stays due and reserved.
+    if (new Set(ids).size !== ids.length) {
+      for (const tx of linked) LM_MATCHED.set(tx, { eventId: rule.eventId, date: null });
+      applied.push({ eventId: rule.eventId, reusedTransaction: true });
+      continue;
+    }
+    const foundTx = found.map(f => {
+      const rows = linked.filter(tx => String(tx.providerTransactionId) === String(f.transactionId));
+      return rows.length === 1 ? rows[0] : null;
+    });
+    const accepted = tx => {
+      if (!tx || tx.pending !== false || tx.contradictoryEvidence === true) return false;
+      const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
+      if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
+      return ruleCurrencyQualified(tx, rule) && lunchMoneyDebitAmount(tx.amount) > 0;
+    };
+    if (!foundTx.every(accepted) || foundTx.length !== matched.length) continue;
+    const pairs = foundTx.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))
+      || String(a.providerTransactionId).localeCompare(String(b.providerTransactionId)))
+      .map((tx, i) => ({ tx, date: matched[i] }));
+    const consistent = pairs.every(({ tx, date }) => {
+      const occ = scheduledOccurrence(plan, rule.eventId, date);
+      return occ.length === 1 && billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), occ[0].amount);
+    });
+    if (!consistent) continue;
+    for (const tx of linked) LM_MATCHED.set(tx, { eventId: rule.eventId, date: null });
+    for (const { tx, date } of pairs) LM_MATCHED.set(tx, { eventId: rule.eventId, date });
+    applied.push({ eventId: rule.eventId, matchedDates: matched.length });
+  }
+  return applied;
+}
+
 function representedEventHitGroups(input) {
   const diagnostic = input.salaryDiagnostic;
   const empty = { unique: [], ambiguous: [] };
@@ -3030,10 +3135,10 @@ function representedEventHitGroups(input) {
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
       if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date)) {
+      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
-        const relation = postingDateRelation(scheduledDate, tx.date, rule);
+        const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);
         if (!relation) continue;
         if (rule.settlesWhen === SETTLES_WHEN_AMOUNT_AT_LEAST) {
           const need = Math.abs(Number(scheduled[0].amount));
@@ -4234,6 +4339,8 @@ function observeCore(input, capture) {
   const planForIdentity = Object.assign({}, (input.data && input.data.plan) || {}, {
     debts: (input.data && input.data.debts) || [],
   });
+  stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
+    input.payload && input.payload.recurringItems);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
@@ -5190,8 +5297,8 @@ function linkedBillFirstFailedCheck(tx, rules, plan, mapDoc) {
     else if ((rule.direction === 'credit' && !(amount < 0)) || (rule.direction === 'debit' && !(amount > 0))) {
       failed = 'direction';
     } else {
-      const dates = coveringScheduledDates(plan, rule, tx.date)
-        .filter(date => postingDateRelation(date, tx.date, rule)
+      const dates = coveringScheduledDates(plan, rule, tx.date, tx)
+        .filter(date => postingDateRelation(date, tx.date, rule, tx)
           && scheduledOccurrence(plan, rule.eventId, date).length === 1);
       if (!dates.length) failed = 'date';
       else if (!dates.some(date => linkedBillAmountFits(rule, amount, scheduledOccurrence(plan, rule.eventId, date)))) {

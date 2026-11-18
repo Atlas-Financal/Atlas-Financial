@@ -112,7 +112,7 @@ function serve(w, recurringItems) {
   // An invalid start date reads back as null: it must not pass as "no start date".
   const badStartNamed = item(7123463, 'reviewed', { criteria: { start_date: '2026-13-45' } });
 
-  console.log('1. One GET of /recurring_items, for the transaction window, suggestions not requested');
+  console.log('1. One GET of /recurring_items, from the transaction window start to 31 days past its end, suggestions not requested');
   let fetched;
   await withStub(baseRoutes({ body: { recurring_items: [...rawItems, malformedNamed, badStartNamed] } }), async (base, seen) => {
     fetched = await live(base, '2026-10-14T18:00:00.000Z');
@@ -121,8 +121,11 @@ function serve(w, recurringItems) {
     const rec = seen.filter(r => r.path === '/v2/recurring_items');
     ok(rec.length === 1, 'exactly one recurring read', String(rec.length));
     const tx = seen.find(r => r.path === '/v2/transactions' && r.query.start_date);
-    ok(rec[0] && tx && rec[0].query.start_date === tx.query.start_date && rec[0].query.end_date === tx.query.end_date,
-      'its range is the transaction window', JSON.stringify(rec[0] && rec[0].query));
+    // S3: the same read reaches 31 days past the window's end (Oct 14 + 31 =
+    // Nov 14) so Lunch Money can report the next expected occurrence.
+    ok(rec[0] && tx && rec[0].query.start_date === tx.query.start_date && tx.query.end_date === '2026-10-14'
+      && rec[0].query.end_date === '2026-11-14',
+      'its range is the transaction window, ending 31 days later', JSON.stringify(rec[0] && rec[0].query));
     ok(rec[0] && rec[0].query.include_suggested === 'false', 'suggestions are not requested');
     ok(fetched.recurringItems && fetched.recurringItems.status === 'read', 'the read is recorded');
   });

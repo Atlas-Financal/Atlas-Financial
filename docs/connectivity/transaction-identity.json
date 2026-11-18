@@ -447,7 +447,8 @@
       "requiredCurrency": "cad",
       "requiredPostingEvidence": "posted",
       "postingDateRule": "covers-early-or-due-on-or-before-posting",
-      "note": "Owner 2026-11-11 (Dale via Money, 8:02 PM PT): the band rehearsal money is a bill, so the bill can be marked paid. Identity is the Lunch Money recurring link alone (recurring item Band rehearsal space, monthly from 2026-11-01): a posted native-CAD BILLS ACCOUNT debit whose recurring_id is that item, early-or-due relation because the due day is estimated. Payee, original name, Interac e-transfer descriptor, notes (Lunch Money returns the recurring description there once linked) and amount are not identity. An unlinked e-transfer of the same amount does not settle it. The shared amount-consistency bound still applies. Not a generic e-transfer rule; not schedule-trust; no Lunch Money write."
+      "settlementFrom": "lunchmoney-matched-occurrences",
+      "note": "Owner 2026-11-11 (Dale via Money, 8:02 PM PT): the band rehearsal money is a bill, so the bill can be marked paid. Identity is the Lunch Money recurring link alone (recurring item Band rehearsal space, monthly from 2026-11-01): a posted native-CAD BILLS ACCOUNT debit whose recurring_id is that item, early-or-due relation because the due day is estimated. Payee, original name, Interac e-transfer descriptor, notes (Lunch Money returns the recurring description there once linked) and amount are not identity. An unlinked e-transfer of the same amount does not settle it. The shared amount-consistency bound still applies. Not a generic e-transfer rule; not schedule-trust; no Lunch Money write. S3 (lead ruling 2026-11-17, after #1284; Grok Bot asked): when Lunch Money's own matches for this item are consistent, they decide which occurrence each linked payment settles (settlementFrom); otherwise the early-or-due relation above applies unchanged."
     }
   ]
 }
