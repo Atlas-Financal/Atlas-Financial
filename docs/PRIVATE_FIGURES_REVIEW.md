@@ -6,8 +6,9 @@ or removed, and every declared field class is observed by at least one input; a
 declared class that no input observes reads INCOMPLETE and fails. Changed
 figures or a missing baseline remain incomplete until the owner has seen the
 figure-level diff and reconciled every intended change against the merge card,
-as CLAUDE.md requires (its pace rule 16 names the one case where the owner's
-earlier direct approval of the exact change stands in for that look). A green count formatter, an evidence receipt, and a
+as CLAUDE.md requires (its pace rule 16 names the cases where that look is
+not needed: the owner's earlier direct approval of the exact change, or a
+private diff showing 0 household fields moved, recorded by a non-builder). A green count formatter, an evidence receipt, and a
 builder's assertion do not perform that owner look.
 
 An unchanged public result says only that no captured field moved on the
