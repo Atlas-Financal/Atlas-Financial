@@ -2,8 +2,10 @@
 /* Census rank 3 (lead dispatch 2026-11-17): a paycheque that posts one business
  * day late no longer blanks the live plan.
  *
- * A STOPGAP: the LM recurring-matches slice (pay settled from Lunch Money's own
- * expected/found pairing) retires it.
+ * Since #1325 the matcher settles these late credits itself; the hold-off in
+ * futureIncomeUncertainty keeps only the cases the matcher declines, pinned in
+ * test/test-payroll-late-hold-off-remaining.js. Naming Dale's pay item (BACKLOG)
+ * retires it.
  *
  * Rule (scripts/provider-observe.js futureIncomeUncertainty, payroll only):
  * a POSTED payroll-identified credit dated within one business day after the

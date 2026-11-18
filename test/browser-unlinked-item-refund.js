@@ -76,7 +76,8 @@ const cases = [
       w.transactions.push(
         H.lm({ date: '2026-10-10', amount: 80, category: 'Restaurants', tagIds: [201], payee: 'Invented trip diner' }),
         H.lm({ date: '2026-10-11', amount: 30, category: 'Restaurants', payee: 'Invented home diner' }),
-        H.lm({ date: '2026-10-12', amount: -10, category: 'Restaurants', ...refund }));
+        // #1234 (LEDGER A item 3, rule 17): only a ledger-linked refund nets; Lunch Money sends a grouped pair as one group-parent row.
+        H.lm({ date: '2026-10-12', amount: -10, category: 'Restaurants', ...refund, raw: { is_group_parent: true } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expectMatch(eatingOut(s), /Spent \$20\.00/, why + ': the refund nets, 30 - 10');

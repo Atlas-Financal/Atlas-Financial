@@ -126,7 +126,8 @@ const cases = [
     const w = withCard(world());
     w.transactions.push(
       card({ date: '2026-10-10', amount: 40, category: 'Groceries', payee: 'Invented grocer F' }),
-      card({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer F' }));
+      // #1234 (LEDGER A item 3, rule 17): only a ledger-linked refund nets; Lunch Money sends a grouped pair as one group-parent row.
+      card({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer F', raw: { is_group_parent: true } }));
     await H.withBudget(w, async p => {
       const s = await H.snap(p);
       H.expectMatch(H.category(s, 'Groceries'), /Spent \$30\.00/, 'groceries spent is 40 - 10');
