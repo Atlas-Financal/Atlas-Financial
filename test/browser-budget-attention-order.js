@@ -81,6 +81,9 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
       });
       assert.deepEqual(offstage, { offstage: true, controls: true, retired: true },
         'the attention list is offstage and its controls are out of the Tab order, by design');
+      // 991d5c2d removed the page footer the old ordering check measured against; it must stay removed, so the
+      // attention block (already proved last, in #budget-attention-bottom) has no footer to precede.
+      assert.equal(await page.locator('.blend-quiet > footer').count(), 0, 'no page footer is rendered (991d5c2d)');
       const capture = async name => {
         if (!screenshots) return;
         await page.evaluate(async () => { await document.fonts.ready; });
@@ -119,6 +122,12 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
       // The offstage control is not a pointer target by design; a programmatic click still opens its detail.
       await page.locator(selectors[0]).evaluate(el => el.click());
       assert.equal(await page.locator('[data-budget-detail-sheet][open]').count(), 1);
+      await page.keyboard.press('Escape');
+      // The pointer path a person uses: a real click on the visible face equivalent (the Other ring) opens the same
+      // Other spending detail.
+      await page.locator('[data-blend-cat="other-spending"]').first().click();
+      assert.equal(await page.locator('[data-budget-detail-sheet][open]').count(), 1, 'a real click on the Other ring opens its detail');
+      assert.match(await page.locator('[data-budget-detail-body]').innerText(), /^\s*Other spending/i, 'the ring opens the Other spending detail');
       await page.keyboard.press('Escape');
       await page.close();
       console.log(`PASS ${width}px: bottom order, content/figures, keyboard, repeat, refresh and resize`);
