@@ -169,8 +169,10 @@ console.log('Scheduled fees (Grok Bot, rule 17, LEDGER A item 1), and no shortfa
   }
 }
 {
-  // An early payment linked to a bill due in the NEXT pay period: Forecast resets that future row to planned/upcoming, remaining
-  // 90, actual 0. It must carry no shortfall claim, so the Bills list cannot say "$50.00 still to pay" off a reset row.
+  // An early PARTIAL payment linked to a bill due in the NEXT pay period: Forecast resets that future row to planned/upcoming,
+  // remaining 90, actual 0, so that period never holds less than it may still owe. A full early payment reads Paid there
+  // (Dale, #821 6961042821; test-early-paid-planned-period.js); a partial does not (lead ruling, partial remainders are a
+  // separate rule). It must carry no shortfall claim, so the Bills list cannot say "$50.00 still to pay" off a reset row.
   const w = H.baseWorld();
   w.asOf = '2026-10-21';
   w.bills = [{ ...HYDRO, day: 24, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];

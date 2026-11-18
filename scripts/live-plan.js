@@ -532,6 +532,43 @@ function applyPostedOverlay(data, change) {
   fail(`Refusing overlay of ${change.locator} field ${change.field}`);
 }
 
+// The live opening advances to today, but a card balance is only as recent
+// as its evidence. Stamp the date each card's balance was true on its debt
+// row so Forecast can tag a balance older than the card's statement cycle as
+// estimated (lead dispatch T2). Applied overlay: its evidence date. Otherwise
+// a same-value observation dated no later than today, else the canonical
+// opening the balance was recorded at. Only cards with a statement close day.
+function stampCardBalanceDates(data, report, proposed, historicalOpeningAsOf, liveAsOf) {
+  const overlayDate = new Map();
+  for (const change of proposed || []) {
+    if (change.collection === 'debts' && change.field === 'balance') overlayDate.set(change.id, change.evidenceDate || null);
+  }
+  const matchDate = new Map();
+  for (const row of reconRows(report)) {
+    const parsed = C.parseLocator(row && row.canonicalTarget);
+    if (!parsed || parsed.collection !== 'debts' || parsed.field) continue;
+    if (!postedBalanceRow(row) || row.status !== 'MATCH' || !trustworthyNumeric(row)) continue;
+    const date = liveEvidenceDate(row);
+    if (date && (!liveAsOf || date <= liveAsOf)) {
+      if (!matchDate.has(parsed.id) || date > matchDate.get(parsed.id)) matchDate.set(parsed.id, date);
+    }
+  }
+  const opening = Forecast.financialDate(historicalOpeningAsOf);
+  for (const debt of data.debts || []) {
+    if (!debt || debt.statementCloseDay == null) continue;
+    let date = overlayDate.has(debt.id) ? Forecast.financialDate(overlayDate.get(debt.id)) : null;
+    if (!overlayDate.has(debt.id)) {
+      const matched = matchDate.get(debt.id);
+      date = matched && (!opening || matched > opening) ? matched : opening;
+    }
+    // An undatable card balance is stale, never quietly current: Forecast
+    // would otherwise fall back to the advanced (today's) opening.
+    debt.balanceAsOf = date || null;
+    if (date) delete debt.balanceAsOfUnknown;
+    else debt.balanceAsOfUnknown = true;
+  }
+}
+
 function applyPendingOverlay(data, change) {
   const parsed = C.parseLocator(change.locator);
   if (!parsed || parsed.collection !== 'debts' || parsed.field !== 'pending'
@@ -1412,6 +1449,7 @@ function overlayLiveState(input) {
     if (change.field === 'pending') applyPendingOverlay(next, change);
     else applyPostedOverlay(next, change);
   }
+  stampCardBalanceDates(next, report, proposed, historicalOpeningAsOf, cutover.liveAsOf || liveAsOf);
   markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   clearObservedBillsEstimate(next, report, liveAsOf);
   assertOwnerPolicyUntouched(data, next, scheduledBills, scheduledObligations);
