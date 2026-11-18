@@ -5450,8 +5450,24 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   // on one of them carries pendingOnlyOccurrence: the pending copy and the
   // posted debit are not resolved as one payment, so Forecast keeps the
   // category remaining claim classified-incomplete, as before the hold.
-  const pendingOnly = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending === true)
-    .map(row => row.id + '@' + row.date));
+  // The posted debit reads as that pending charge posting only when it is the
+  // pending amount to the cent (one pending row). Any other amount may be a
+  // separate charge beside a bill still pending, so it stays ordinary spending
+  // and the pending bill stays reserved (#1315 re-review note; lead 2026-11-18):
+  // the cautious reading never lets a gap or a second charge vanish.
+  const pendingOnlyCents = new Map();
+  for (const row of representedActuals || []) {
+    if (!row || !row.id || !row.date || row.pending !== true) continue;
+    const key = row.id + '@' + row.date;
+    const list = pendingOnlyCents.get(key) || [];
+    list.push(Math.round(Number(row.actual) * 100));
+    pendingOnlyCents.set(key, list);
+  }
+  const pendingOnly = new Set(pendingOnlyCents.keys());
+  const pendingCopyOf = (key, amount) => {
+    const list = pendingOnlyCents.get(key);
+    return !!(list && list.length === 1 && Number.isFinite(list[0]) && list[0] === Math.round(amount * 100));
+  };
   // So is an occurrence the plan opening already names as represented
   // (effective by the observation date), and a recurring occurrence dated
   // before the settlement opening boundary, which Forecast prints Paid
@@ -5503,6 +5519,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
+        && (!pendingOnly.has(f.id + '@' + f.date) || pendingCopyOf(f.id + '@' + f.date, amount))
         && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
           (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
     if (unique.length === 1) {
