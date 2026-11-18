@@ -471,6 +471,46 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
   .boot-static .boot-blocks-mark rect:not(.boot-mark-bg),
   [data-boot-notice].is-loading .boot-blocks-mark rect:not(.boot-mark-bg) { animation:none; transform:none; }
 }
+/* Loading tips (Dale, 2026-11-18): one rotating how-to tip under the
+   status line, plus a slow brand-colour drift behind the whole loading
+   screen. Both are scoped to the live loading state only, so the crit
+   surface stays fully static; both are CSS only and stop under reduced
+   motion (the tip text still changes). */
+[data-boot-notice].is-loading { isolation:isolate; overflow:hidden; }
+[data-boot-notice].is-loading::before { content:''; position:absolute; inset:-20%; z-index:-1;
+  pointer-events:none;
+  background:radial-gradient(260px 260px at 30% 35%, rgba(12,154,106,.13), rgba(12,154,106,0) 70%),
+    radial-gradient(300px 300px at 72% 62%, rgba(210,63,138,.11), rgba(210,63,138,0) 70%);
+  animation:boot-drift 16s ease-in-out infinite alternate; }
+@keyframes boot-drift {
+  0% { transform:translate(-4%, -3%) rotate(0deg); }
+  100% { transform:translate(4%, 3%) rotate(8deg); }
+}
+.boot-tips { order:2; box-sizing:border-box; width:min(360px, 100%); margin-top:10px;
+  padding:14px 16px 12px; border-radius:14px; cursor:pointer;
+  background:var(--raised); border:1px solid var(--grid);
+  box-shadow:0 6px 24px rgba(11,12,16,.08); text-align:left;
+  -webkit-tap-highlight-color:transparent; user-select:none; }
+.boot-tips-label { display:block; font-size:.72rem; font-weight:700; letter-spacing:.14em;
+  text-transform:uppercase; color:#5650e0; margin-bottom:6px; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .boot-tips-label { color:#a7a3ff; }
+}
+:root[data-theme="dark"] .boot-tips-label { color:#a7a3ff; }
+.boot-tip { margin:0; min-height:3.9em; font-size:.92rem; line-height:1.4; color:var(--text-primary); }
+.boot-tip.is-in { animation:boot-tip-in .45s ease-out both; }
+@keyframes boot-tip-in {
+  from { opacity:0; transform:translateY(6px); }
+  to { opacity:1; transform:none; }
+}
+.boot-tip-dots { display:flex; gap:6px; margin-top:10px; }
+.boot-tip-dots i { width:6px; height:6px; border-radius:50%; background:var(--grid);
+  transition:width .3s ease, background-color .3s ease; }
+.boot-tip-dots i.is-on { width:16px; border-radius:3px; background:#5650e0; }
+@media (prefers-reduced-motion: reduce) {
+  [data-boot-notice].is-loading::before, .boot-tip.is-in { animation:none; }
+  .boot-tip-dots i { transition:none; }
+}
 @media (max-width:480px) {
   .boot-static, [data-boot-notice] { padding:20px 16px; }
   .boot-static-mark, .boot-treatment-mark { width:76px; height:76px; }
