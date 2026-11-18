@@ -109,11 +109,13 @@ eq(oldSyncHtml.replace(/<p class="mutedtext" data-account-last-updated>[\s\S]*?<
 const oldSyncedDated = Live.withLatestCompleteRefresh({ data: oldSynced, checkedAt }, failure);
 eq(oldSyncedDated.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'later failed attempt cannot retime the retained sync metadata');
 yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained Budget preserves the same Last updated line');
-// OD-3 (#821, owner 2026-11-11): a dated view with a "Last updated" line shows
-// that line only. Byte proof against the same cohort without sync metadata:
-// the note leaves, the footer arrives, and every other byte (trust tags, the
-// dated "Balance at this refresh" heading, approximate markers, Unavailable
-// labels) is identical.
+// OD-3 (#821, owner 2026-11-11): a dated view carries no dated-plan note when
+// a "Last updated" line can be printed. Since Dale's 2026-11-18 decision a
+// retained view always carries the "last full picture" banner instead of the
+// note, and keeps the Last updated line (the bank's own sync) when known.
+// Byte proof against the same cohort without sync metadata: only the footer
+// differs, and every other byte (trust tags, the dated "Balance at this
+// refresh" heading, approximate markers, Unavailable labels) is identical.
 {
   const footer = /<p class="mutedtext" data-account-last-updated>[\s\S]*?<\/p>/;
   const note = /<p class="note-box" data-latest-complete-refresh>[\s\S]*?<\/p>/;
@@ -123,18 +125,22 @@ yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained
     const withSync = Live.withLatestCompleteRefresh({ data: source, checkedAt }, failure);
     const withoutSync = structuredClone(withSync); delete withoutSync.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
     const footerOnly = page.render(withSync), noteOnly = page.render(withoutSync);
-    yes(!footerOnly.includes('data-latest-complete-refresh') && !renderer.exports.strip(footerOnly).includes('Dated plan, not current balances'),
-      label + ': a dated view with Last updated carries no dated-plan note');
-    yes(footer.test(footerOnly) && !footer.test(noteOnly), label + ': the small Last updated line is the freshness signal');
-    yes(note.test(noteOnly), label + ': without a Last updated line the dated note still discloses the view');
-    eq(footerOnly.replace(footer, ''), noteOnly.replace(note, ''), label + ': only the note goes; every other byte is unchanged');
+    const banner = /<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>Showing the last full picture from [^<]+<\/p>/;
+    yes(!footerOnly.includes('data-latest-complete-refresh') && !note.test(noteOnly),
+      label + ': a retained view carries no dated-plan note, with or without Last updated');
+    yes(banner.test(footerOnly) && banner.test(noteOnly), label + ': the last-full-picture banner discloses the view either way');
+    yes(footer.test(footerOnly) && !footer.test(noteOnly), label + ': the small Last updated line (the bank\'s own sync) stays when known');
+    eq(footerOnly.replace(footer, ''), noteOnly, label + ': only the footer differs; every other byte is unchanged');
     yes(renderer.exports.strip(footerOnly).includes('Balance at this refresh'), label + ': the dated balance heading stays');
   }
 }
 const html = page.render(dated), text = renderer.exports.strip(html);
-yes(html.includes('data-latest-complete-refresh'), 'actual Budget path discloses retained state');
+// Dale, 2026-11-18: the banner discloses the retained state on the Budget.
+yes(html.includes('data-budget-retained-banner') && html.includes('data-budget-retained-picture'),
+  'actual Budget path discloses retained state (banner, muted page)');
 yes(text.includes('Aug 20, 2026') && text.includes('11:00 a.m.') && /PDT|GMT-7|UTC-7/.test(text), 'original household date and time shown');
-yes(text.includes('Dated plan, not current balances'), 'dated figures not sold as today fresh');
+yes(text.includes('Showing the last full picture from') && text.includes("Today's update couldn't be completed"),
+  'dated figures not sold as today fresh');
 yes(text.includes('Balance at this refresh'), 'Budget balance heading dated');
 yes(!text.includes('Available to fund now'), 'retained funding not claimed as now');
 page.context.retainedData = dated;
@@ -296,7 +302,7 @@ async function controllerProof() {
       mock.mode('ok'); mock.payload(synced);
       at(3 * gap); const before = mock.calls.length;
       const loads = await Promise.all([1, 2, 3].map(() => read(env, { preferObservation: true })));
-      eq(mock.calls.length - before, 8, 'after recovery, concurrent ordinary loads share one coalesced provider check');
+      eq(mock.calls.length - before, 11, 'after recovery, concurrent ordinary loads share one coalesced provider check (eleven GETs: seven, recurring items, two budget reads, the fixed-amount history read)');
       for (const load of loads) {
         eq(load.check.qualified, true, 'after recovery an ordinary load shows the new qualified check');
         eq(load.data.liveOverlay.retainedRefresh, undefined, 'the new sync is current, not the retained cohort');
@@ -520,7 +526,7 @@ async function controllerProof() {
       eq(mock.calls.length, beforeReload, 'reload does not mask failure with a newly minted source check');
       eq(reload.data.liveOverlay.retainedRefresh.attempt, forced.data.liveOverlay.retainedRefresh.attempt, 'reload keeps true attempt receipt');
       const activeHtml = page.render(reload.data);
-      yes(activeHtml.includes('data-latest-complete-refresh') && renderer.exports.strip(activeHtml).includes('Aug 20, 2026'), 'served packet reaches actual Budget dated renderer');
+      yes(activeHtml.includes('data-budget-retained-banner') && renderer.exports.strip(activeHtml).includes('Aug 20, 2026'), 'served packet reaches actual Budget dated renderer (the last-full-picture banner)');
       eq(F.scheduledAmountState(reload.data.plan, Fixture.AS_OF, '2026-11-18').status,
         F.scheduledAmountState(first.data.plan, Fixture.AS_OF, '2026-11-18').status, 'served fallback does not strengthen Unknown gate');
       yes(!JSON.stringify(reload.data).includes('SYNTHETIC-CREDENTIAL-CANARY'), 'served data excludes provider credential');

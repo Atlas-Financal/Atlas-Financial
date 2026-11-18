@@ -14,7 +14,7 @@ const cases = [
   ['substitute cumulative cash', 'standalonePeriodResult(stage3Amount, stage3Status)', 'standalonePeriodResult(cash.amount, stage3Status)'],
   ['round fractional debt after grouping', 'amount: e.amount < 0 ? -roundCent(-e.amount) : roundCent(e.amount),', 'amount: e.amount,'],
   ['last-category residual at each boundary',
-    /const weights = contributing\.map\(c => Math\.round\(Number\(c\.planned\) \* 100\)\);[\s\S]*?amount: \(after\[i\] - before\[i\]\) \/ 100,\n          status: 'calculated',\n        \}\);\n      \}/,
+    /const weights = contributing\.map\(c => Math\.round\(Number\(c\.planned\) \* 100\)\);[\s\S]*?amount: residualCents \/ 100,\r?\n          status: 'calculated',\r?\n        \}\);\r?\n      \}/,
     `const through = days => reconcileTrajectoryLineAmounts(contributing.map(c => ({
           label: c.label || c.id || 'Household budget',
           amount: roundCent((Number(c.planned) / WEEKS_PER_MONTH) * days / 7),

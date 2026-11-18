@@ -47,7 +47,6 @@ const SUITES = [
   'test-weekly-cap.js',
   'test-food-fuel.js',
   'test-plan-phases.js',
-  'test-deepdive.js',
   'test-debt.js',
   'test-invariants.js',
   'test-authority-coverage.js',

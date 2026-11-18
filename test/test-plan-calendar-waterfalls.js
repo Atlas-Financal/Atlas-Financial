@@ -1702,7 +1702,7 @@ console.log('\n=== 17. a monthly-backed payday row stays $3,600/year, not $3,900
     row && String(roundCent(Number(row.planned) * (365.25 / 14))));
 }
 
-console.log('\n=== 18. unavailable current period fail-closes the dependent next period ===');
+console.log('\n=== 18. unavailable current period: the next period is an estimate, its opening-dependent closes withheld ===');
 {
   const independentAddDays = (iso, days) => {
     const ms = Date.parse(String(iso) + 'T00:00:00Z') + days * 86400000;
@@ -1739,6 +1739,7 @@ console.log('\n=== 18. unavailable current period fail-closes the dependent next
     operatingPlan: 'unavailable',
     operatingPlanNote: 'Current plan unavailable. The dated opening is stale.',
   });
+  const liveP2Probe = period(F.recommend(plan, openingAsOf, { targetBuffer: 500, debts }).defaultView, 'next-pay-period');
   const unView = unavailable.defaultView;
   const unP1 = period(unView, 'this-pay-period');
   const unP2 = period(unView, 'next-pay-period');
@@ -1746,26 +1747,38 @@ console.log('\n=== 18. unavailable current period fail-closes the dependent next
     'unavailable walk keeps the dated opening as-of; it does not invent Aug 31');
   ok(unP1 && unP1.role === 'active' && unP1.operatingPlanUnavailable === true,
     'This Pay Period stays the dated-opening active window and is unavailable');
-  ok(unP2 && unP2.role === 'future' && unP2.operatingPlanUnavailable === true,
-    'Next Pay Period stays future (role still from the dated opening) and inherits unavailable');
+  // Owner decision (Dale, #821 6964438984; owner stop 2 approved): the later
+  // half stays visible as an estimate from its own income, bills and
+  // Household budget. Everything that needs the unknown opening stays withheld.
+  ok(unP2 && unP2.role === 'future' && unP2.operatingPlanUnavailable !== true
+      && unP2.currentCashUnconfirmed && unP2.currentCashUnconfirmed.status === 'estimated',
+    'Next Pay Period stays future (role still from the dated opening) and is an estimate, not unavailable');
   ok(unP2.openingKnown !== true && unP2.opening == null && unP2.currentBalance == null,
     'later half does not invent an opening after the unavailable current period');
-  ok((unP2.income || []).length === 0 && unP2.incomeAdded == null && unP2.available == null,
-    'later half does not publish arriving income or Available/leftover');
-  ok((unP2.bills || []).length === 0
-      && unP2.remainingBills == null
-      && unP2.totalBillsThisPeriod == null
-      && (unP2.householdBudget || []).length === 0
-      && unP2.budgetHold == null
-      && unP2.spendingCycle == null
-      && unP2.afterRemainingBills == null
-      && unP2.afterHouseholdBudget == null
-      && unP2.afterDebtRepayment == null
-      && unP2.projectedEnding == null,
-    'later half does not publish bills, Household Budget, or leftover chain');
-  ok(!(unP2.income || []).some(r => r.id === 'payroll' || r.id === 'amandaEnd')
-      && !(unP2.bills || []).some(r => r.id === 'netflix'),
-    'later half does not list the independent Aug 28/31 income or Netflix bill');
+  ok((unP2.income || []).some(r => r.id === 'payroll' && r.date === '2026-08-14')
+      && (unP2.income || []).some(r => r.id === 'amanda15' && r.date === '2026-08-15')
+      && near(unP2.available, laterIncomeSum)
+      && unP2.incomeTrust === 'estimated',
+    'later half publishes only its own independent Aug 14/15 income, tagged estimated');
+  const independentBad = roundCent(laterIncomeSum - unP2.totalBillsThisPeriod - unP2.budgetHold);
+  ok((unP2.bills || []).some(r => r.id === 'netflix')
+      && (unP2.householdBudget || []).length > 0
+      && near(unP2.totalBillsThisPeriod, liveP2Probe.totalBillsThisPeriod)
+      && near(unP2.budgetHold, liveP2Probe.budgetHold)
+      && near(unP2.balanceAfterDeductions, independentBad)
+      && near(unP2.balanceAfterDeductions, liveP2Probe.balanceAfterDeductions)
+      && unP2.balanceAfterDeductionsTrust === 'estimated'
+      && unP2.periodBillLoadTrust === 'estimated',
+    'later half Balance After Deductions = income − bills − Household budget, equal to the trusted walk, tagged estimated');
+  ok(unP2.afterDebtRepayment == null
+      && unP2.projectedEnding == null
+      && unP2.paydaySweep == null
+      && unP2.plannedPeriodClose == null,
+    'later half withholds every opening-dependent close (debt leftover, projected ending, payday sweep, planned close)');
+  ok(!(unP2.income || []).some(r => r.date === '2026-08-28' || r.date === '2026-08-31')
+      && !JSON.stringify(unP2).includes('"calculated"')
+      && !JSON.stringify(unP2).includes('"verified"'),
+    'later half lists no Aug 28/31 income and carries no calculated or verified tag');
 
   const unHtml = composer.operatingSurfaceHtml({
     advice: unavailable,
@@ -1834,9 +1847,12 @@ console.log('\n=== 18. unavailable current period fail-closes the dependent next
   const waterfallFn = /function calendarPeriodWaterfalls\([\s\S]*?\n  \}/.exec(src);
   ok(waterfallFn && /unavailableOpeningLost/.test(waterfallFn[0])
       && /role === 'future' && unavailableOpeningLost/.test(waterfallFn[0])
-      && !/operatingPlan === 'unavailable' && role === 'active';/.test(waterfallFn[0])
+      && /role === 'active' \|\| \(role === 'future' && unavailableOpeningLost\)/.test(waterfallFn[0])
+      && /!unconfirmedOpeningFuture/.test(waterfallFn[0])
+      && /cashOnlyUnconfirmed === true/.test(waterfallFn[0])
+      && /estimateUnconfirmedOpeningPeriod\(/.test(waterfallFn[0])
       && !/Date\.now/.test(waterfallFn[0]),
-    'calendarPeriodWaterfalls fail-closes dependent future halves from the dated opening, not wall-clock as-of');
+    'calendarPeriodWaterfalls estimates dependent future halves only for a cash-only failure, withholding everything else from the dated opening, not wall-clock as-of');
 }
 
 if (failures) {

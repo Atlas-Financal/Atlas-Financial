@@ -211,6 +211,7 @@ function transferTx(id, accountId, amount, payee) {
   return {
     id, account_id: accountId, date: '2026-08-31', amount, payee,
     category_id: 24, exclude_from_totals: true, is_pending: false, status: 'reviewed',
+    currency: 'cad', // a Lunch Money row always carries its currency; the Q2 salary rule reads only native CAD
   };
 }
 
@@ -397,7 +398,11 @@ console.log('\n=== 3. August 31 no transfer yet — core unresolved inbound ==='
     'double-count of unproven salary is impossible on this opening');
 }
 
-console.log('\n=== 4. Ambiguous TENNIS INCOME counterparts ===');
+// Owner decision (Dale, 2026-11-18, #821 6967081727): the BILLS credit's amount and timing identify Amanda's
+// salary; the TENNIS INCOME legs no longer do. Two TENNIS INCOME debits beside ONE qualifying BILLS credit are
+// therefore not ambiguous: the one credit settles the occurrence once. Two qualifying BILLS credits, or one
+// credit fitting two paydays, stay To confirm (test/test-amanda-pay-near-amount.js).
+console.log('\n=== 4. Two TENNIS INCOME debits beside one qualifying BILLS credit ===');
 {
   const A = 1600;
   const B = 100;
@@ -421,16 +426,15 @@ console.log('\n=== 4. Ambiguous TENNIS INCOME counterparts ===');
   };
   const result = overlay(canonical, extra);
   ok(result.data.liveOverlay.applied === true, 'ambiguous pair still overlays trusted cash');
-  ok(!represented(result.data.plan, 'amandaSalaryMonthEnd', '2026-08-31'),
-    'ambiguous salary is not represented');
-  const unresolved = notRelied(result.data.plan, 'amandaSalaryMonthEnd', '2026-08-31');
-  ok(unresolved && unresolved.reason === 'same-day-inbound-ambiguous'
-      && unresolved.candidateCount >= 2,
-    'ambiguity is surfaced on notReliedUponEvents');
+  const rows = ((result.data.plan.opening && result.data.plan.opening.representedEvents) || [])
+    .filter(row => row && row.id === 'amandaSalaryMonthEnd' && row.date === '2026-08-31');
+  ok(rows.length === 1, 'the one BILLS credit represents the salary exactly once');
+  ok(!notRelied(result.data.plan, 'amandaSalaryMonthEnd', '2026-08-31'),
+    'the represented salary is not also not-relied-upon');
   const advice = recommend(withoutCoverageRule(result.data), '2026-08-31');
   ok(near(Forecast.startingCashAmount(result.data.plan), independentChequing)
         && advice.paydayAllocation.available === null && advice.cardCoverageUnavailable === true,
-    'ambiguous salary contributes $0');
+    'the salary is not added again on top of observed cash');
 }
 
 console.log('\n=== 5. Wrong source: WEEKLY SPENDING → BILLS is not salary ===');

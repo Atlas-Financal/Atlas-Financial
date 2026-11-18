@@ -53,10 +53,6 @@
     return n === 1 ? value : `${n} items: ${value}`;
   }
 
-  function cashValueFromNote(value) {
-    const match = /Current spendable cash:\s*([^·]+)/i.exec(clean(value));
-    return match ? clean(match[1]) : null;
-  }
 
   function friendlySpendingNote(value) {
     const source = clean(value);
@@ -70,20 +66,7 @@
     return out;
   }
 
-  function firstDirectChild(parent, predicate) {
-    return Array.from((parent && parent.children) || []).find(predicate) || null;
-  }
 
-  function makeFact(doc, label, value) {
-    const item = doc.createElement('div');
-    item.className = 'household-fact';
-    const key = doc.createElement('span');
-    key.textContent = label;
-    const val = doc.createElement('b');
-    val.textContent = value;
-    item.append(key, val);
-    return item;
-  }
 
   function enhanceQuestionOne(doc, body) {
     const q = body.querySelector('[data-operating-question="01"]');
@@ -166,70 +149,10 @@
     if (prompt && q.getAttribute('data-operating-question') === '06') {
       prompt.textContent = 'Credit card to pay off first';
     }
-    if (answer.querySelector('[data-today-decision]')) return true;
-
-    const card = answer.querySelector('[data-current-period-action]');
-    if (!card) return false;
-
-    const movement = firstDirectChild(card, el => el.matches && (
-      el.matches('p.operating-lead') || el.matches('p.current-period-withheld')
-    ));
-    const todayRows = Array.from(card.querySelectorAll('[data-current-today-action]'));
-    const note = Array.from(answer.querySelectorAll('.operating-note'))
-      .find(el => /Current spendable cash:/i.test(clean(el.textContent)));
-    const cash = note ? cashValueFromNote(note.textContent) : null;
-    const paydayNode = card.querySelector('[data-current-next-payday]');
-    const payday = paydayNode
-      ? clean(paydayNode.textContent).replace(/\s+payday$/i, '')
-      : null;
-    const unsafe = Array.from(card.querySelectorAll('p')).some(el =>
-      /current-period constraint/i.test(clean(el.textContent))
-      || /payday-refuse/.test(el.className)
-    ) || !!card.querySelector('.payday-refuse');
-
-    if (!movement && !todayRows.length && !cash && !payday) return false;
-
-    const summary = doc.createElement('div');
-    summary.className = 'household-now';
-    summary.setAttribute('data-today-decision', unsafe ? 'hold' : (todayRows.length ? 'pay-today' : 'none'));
-
-    const lead = doc.createElement('p');
-    lead.className = unsafe ? 'household-primary household-tight' : 'household-primary';
-    const movementText = movement ? clean(movement.textContent) : '';
-    if (todayRows.length) {
-      lead.textContent = 'Pay these today.';
-    } else if (unsafe) {
-      lead.textContent = payday
-        ? `Hold this week's spend until ${payday}.`
-        : "Hold this week's spend.";
-    } else if (movementText === 'No money movement is required today.') {
-      lead.textContent = payday
-        ? `This week's spend until ${payday}.`
-        : 'Nothing to pay today.';
-    } else {
-      lead.textContent = movementText || 'Today’s action is shown below.';
-    }
-    summary.appendChild(lead);
-
-    if (todayRows.length) {
-      const actions = doc.createElement('div');
-      actions.className = 'household-today-actions';
-      for (const row of todayRows) actions.appendChild(row.cloneNode(true));
-      summary.appendChild(actions);
-    }
-
-    if (cash || payday) {
-      const facts = doc.createElement('div');
-      facts.className = 'household-facts';
-      if (cash) facts.appendChild(makeFact(doc, 'Spendable cash · not credit', cash));
-      if (payday) facts.appendChild(makeFact(doc, 'Next payday', payday));
-      summary.appendChild(facts);
-    }
-
-    const kept = Array.from(answer.children);
-    answer.replaceChildren(summary);
-    for (const node of kept) answer.appendChild(node);
-    return true;
+    // The rest of this question's enhancement read a current-period action
+    // card (data-current-period-action) that no renderer emits; it was
+    // deleted with it. The prompt wording above is the live part.
+    return false;
   }
 
   function aggregateList(doc, list) {
@@ -294,7 +217,6 @@
   return {
     aggregateTexts,
     friendlyDiagnostic,
-    cashValueFromNote,
     friendlySpendingNote,
     enhance,
     boot,

@@ -108,6 +108,7 @@ check('A2: $0 extra — the publication still carries the focus and the next tar
 
 const planSource = sourceText(fs.readFileSync(path.join(__dirname, '../public/plan.js'), 'utf8'));
 const context = vm.createContext({
+  escapeHtml: require('./app-escape-html'),
   Forecast: F,
   money2: n => (n < 0 ? '−$' : '$') + Math.abs(Number(n)).toLocaleString('en-CA',
     { minimumFractionDigits: 2, maximumFractionDigits: 2 }),

@@ -36,6 +36,12 @@ const POSITIONS = path.join(ROOT, 'docs', 'positions.csv');
 const SNAPSHOT_DIR = path.join(ROOT, 'snapshots');
 const QUESTIONS = path.join(ROOT, 'docs', '01_OPEN_QUESTIONS.md');
 const PASS = 'synthetic-site-password';
+// Clock margin in seconds. The verifier allows no clock skew (jose's default) and runs in a separate server process,
+// so a valid token's not-before sits this far in the past, matching the expired cases' distance on the other side.
+// Before, a valid token was only 1 second clear of not-before, so a backward clock step of 1 second or more between
+// signing and verifying rejected a valid token. The expired (now - 30) and not-yet-valid (now + 300) cases keep their
+// strength: a verifier that allowed 30 seconds or more of skew still fails them.
+const CLOCK_MARGIN = 30;
 const SECRET = 'synthetic-session-secret';
 const ASSISTANT_TOKEN = 'synthetic-assistant-token-32chars!!';
 const WRONG_TOKEN = 'wrong-assistant-token-32chars!!!!';
@@ -44,6 +50,9 @@ let failures = 0;
 const ok = (cond, label, detail = '') => {
   if (!cond) failures++;
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? '  — ' + detail : ''}`);
+  // CI records a failed check's name only from a TAP "not ok - <name>" line (scripts/ci-output.js), so a
+  // one-off CI failure names the check that failed.
+  if (!cond) console.log(`not ok - ${label}`);
 };
 const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -334,7 +343,7 @@ async function startOAuthIssuer() {
       .setIssuer(overrides.issuer || issuer)
       .setAudience(overrides.audience || resource)
       .setIssuedAt(now)
-      .setNotBefore(overrides.notBefore === undefined ? now - 1 : overrides.notBefore)
+      .setNotBefore(overrides.notBefore === undefined ? now - CLOCK_MARGIN : overrides.notBefore)
       .setExpirationTime(overrides.expiresAt === undefined ? now + 300 : overrides.expiresAt)
       .sign(key);
   }
@@ -1150,7 +1159,7 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
         .setIssuer(iss)
         .setAudience(resource)
         .setIssuedAt(now)
-        .setNotBefore(now - 1)
+        .setNotBefore(now - CLOCK_MARGIN)
         .setExpirationTime(now + 300)
         .sign(pair.privateKey);
     }
@@ -1237,7 +1246,7 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
       'the incumbent static assistant token cannot authenticate MCP', `status ${opaque.status}`);
 
     const now = Math.floor(Date.now() / 1000);
-    const expiredToken = await oauth.sign(resource, { expiresAt: now - 30 });
+    const expiredToken = await oauth.sign(resource, { expiresAt: now - CLOCK_MARGIN });
     const expired = await mcp({ authorization: `Bearer ${expiredToken}` }, initialize);
     ok(expired.status === 401, 'expired OAuth access token fails closed', `status ${expired.status}`);
     const futureToken = await oauth.sign(resource, { notBefore: now + 300 });
@@ -1559,7 +1568,7 @@ console.log('\n=== HTTP fail-closed without assistant token ===');
     const writeShaped = [AssistantMcp.REQUIRED_SCOPE, LunchMoney.READ_SCOPE, LunchMoney.WRITE_SCOPE].join(' ');
     for (const [label, overrides] of [
       ['wrong signing key', { scope: writeShaped, key: oauth.otherPrivateKey }],
-      ['expired', { scope: writeShaped, expiresAt: Math.floor(Date.now() / 1000) - 30 }],
+      ['expired', { scope: writeShaped, expiresAt: Math.floor(Date.now() / 1000) - CLOCK_MARGIN }],
       ['wrong audience', { scope: writeShaped, audience: `${base}/not-atlas` }],
       ['wrong issuer', { scope: writeShaped, issuer: 'https://evil.example/' }],
     ]) {

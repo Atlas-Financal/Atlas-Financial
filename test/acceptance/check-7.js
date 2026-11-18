@@ -52,10 +52,10 @@ const scenarios = [
     async run(H) {
       const w = txWorld(H);
       w.transactions.push(
-        H.lm({ id: 700, date: '2026-10-11', amount: 30, category: 'Groceries', payee: 'Invented bakery', pending: true }),
+        H.lm({ id: 700, date: '2026-10-11', amount: 30, category: 'Groceries', payee: 'Invented bakery', pending: true,
+          raw: { plaid_metadata: { transaction_id: 'invented-plaid-700' } } }),
         H.lm({ id: 701, date: '2026-10-12', amount: 30, category: 'Groceries', payee: 'Invented bakery',
-          raw: { pending_transaction_id: 700, plaid_metadata: { pending_transaction_id: 'invented-plaid-700' } } }));
-      w.transactions[1].plaid_metadata = { transaction_id: 'invented-plaid-700' };
+          raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-700' } } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expect(H.occurrences(s.household, 'Invented bakery') === 1, `bakery listed once (got ${H.occurrences(s.household, 'Invented bakery')})`);
@@ -229,8 +229,9 @@ const scenarios = [
     id: '7.12', basis: 'audit', name: 'a debit in an income category is never counted as income (D6)',
     // #962 D6. A 50 debit out of chequing in the income category "Payroll"
     // is money leaving, not income received. Income stays the 1,400 salary,
-    // the 50 sits in Other spending (needs a category), and the remainder is
-    // 1,400 - 400 planned household - 50 = 950, never 1,050.
+    // the 50 is held To confirm (rank 18, lead ruling under OD-021: never
+    // household spending; previously Other spending), and the remainder is
+    // 1,400 - 400 planned household - 50 held = 950, never 1,050.
     async run(H) {
       const w = txWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-12', amount: 50, category: 'Payroll', account: 'chequing-a', payee: 'Invented clawback' }));
@@ -241,7 +242,8 @@ const scenarios = [
         H.expect(payday === '$1,400.00', `D6: income stays 1,400 (got ${payday || 'nothing'})`);
         H.expectNoMatch(s.income, /Other income\s*\$50\.00/, 'D6: the debit is not other income');
         H.expectNoMatch(s.income, /Received\s*\$50\.00/, 'D6: the debit is not received income');
-        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$50\.00/, 'D6: the debit is Other spending of 50');
+        H.expectMatch(s.all, /To confirm\s*\$50\.00\s*1 payment · not counted as spending/, 'D6: the debit is held To confirm: 50');
+        H.expect(!H.category(s, 'Other spending').includes('50.00'), 'D6: the debit is not Other spending');
         const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
         const bad = m ? m[1].replace('−', '-') : '';
         H.expect(bad === '$950.00', `D6: 1,400 - 400 - 50 = 950 (got ${bad || 'nothing'})`);
@@ -265,8 +267,8 @@ const scenarios = [
       w.transactions.push(
         H.lm({ ...card, id: 910, date: '2026-10-10', amount: 40, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-910' } } }),
         H.lm({ ...card, id: 911, date: '2026-10-11', amount: 25, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-plaid-911' } } }),
-        H.lm({ ...card, id: 912, date: '2026-10-11', amount: 40, raw: { pending_transaction_id: 910, plaid_metadata: { pending_transaction_id: 'invented-plaid-910' } } }),
-        H.lm({ ...card, id: 913, date: '2026-10-12', amount: 25, raw: { pending_transaction_id: 911, plaid_metadata: { pending_transaction_id: 'invented-plaid-911' } } }));
+        H.lm({ ...card, id: 912, date: '2026-10-11', amount: 40, raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-910' } } }),
+        H.lm({ ...card, id: 913, date: '2026-10-12', amount: 25, raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-911' } } }));
       await H.withBudget(w, async p => {
         const s = await H.snap(p);
         H.expect(H.occurrences(s.household, 'Amazon.ca') === 2, `7.13: two Amazon rows, listed once each (got ${H.occurrences(s.household, 'Amazon.ca')})`);

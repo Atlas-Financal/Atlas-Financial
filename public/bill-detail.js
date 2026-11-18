@@ -138,6 +138,87 @@
     return '<div><dt>' + escape(label) + '</dt><dd>' + escape(value) + '</dd></div>';
   }
 
+  // Dale (2026-11-18): the "Last 6 months" box. Prints this row's published
+  // payment series (liveOverlay.billPaymentHistory) through
+  // Forecast.billPaymentHistorySummary, which owns the buckets, average and
+  // range. Dates and amounts only; every value is calculated from Lunch Money
+  // and carries the read date. Without a current series it says Unavailable
+  // and why. A month with no identified payment is an empty bar, never $0.
+  const HISTORY_REASONS = {
+    observation: 'the live Lunch Money read is not current',
+    'history-unavailable': 'the Lunch Money payment history could not be read',
+    'history-incomplete': 'the Lunch Money payment history read was incomplete',
+    'history-too-short': 'the payment history read does not reach back six months',
+    'no-identity': 'this bill has no payment identity to find its payments by',
+    'paid-in-parts': 'this bill is paid in parts, so one debit is not one payment',
+    'duplicate-record': 'Lunch Money returned one of this bill\u2019s payments more than once',
+    summary: 'the payment history could not be summarised',
+  };
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthLabel = m => MONTH_NAMES[Number(m.slice(5, 7)) - 1] + ' ' + m.slice(0, 4);
+  function historyUnavailable(reason) {
+    return '<section class="bill-detail-history" data-bill-history data-bill-history-status="unavailable"'
+      + ' data-bill-history-reason="' + escape(reason) + '"><h4>Last 6 months</h4>'
+      + '<p class="bill-history-unavailable">Unavailable</p>'
+      + '<p>Unavailable · ' + escape(HISTORY_REASONS[reason] || HISTORY_REASONS.summary) + '.</p>'
+      + '<p>Average: Unavailable · Range: Unavailable.</p></section>';
+  }
+  function historyHtml(row, data) {
+    const overlay = data && data.liveOverlay;
+    const asOf = data && data.plan && data.plan.opening && data.plan.opening.asOf;
+    const series = overlay && overlay.billPaymentHistory;
+    if (!row || !text(row.id) || !overlay || overlay.applied !== true || overlay.operatingPlan === 'unavailable'
+      || !date(asOf) || overlay.effectiveAsOf !== asOf || overlay.observedAsOf !== asOf
+      || (data.meta && data.meta.asOf !== asOf)) return historyUnavailable('observation');
+    if (!series || series.source !== 'lunchmoney-payment-history') return historyUnavailable('history-unavailable');
+    if (series.status !== 'complete') return historyUnavailable(HISTORY_REASONS[series.reason] ? series.reason : 'history-unavailable');
+    if (series.asOf !== asOf || !Array.isArray(series.bills)) return historyUnavailable('observation');
+    const entries = series.bills.filter(item => item && item.billId === row.id);
+    if (!entries.length) return historyUnavailable('no-identity');
+    if (entries.length > 1) return historyUnavailable('summary');
+    if (entries[0].status === 'unavailable') return historyUnavailable(['paid-in-parts', 'duplicate-record'].includes(entries[0].reason) ? entries[0].reason : 'summary');
+    const F = forecast();
+    const summary = F && typeof F.billPaymentHistorySummary === 'function'
+      ? F.billPaymentHistorySummary(entries[0], series.months) : null;
+    if (!summary) return historyUnavailable('summary');
+    const read = escape(series.asOf);
+    const peak = Math.max(0, ...summary.months.map(m => m.total || 0));
+    const bars = summary.months.map(m => {
+      const paid = m.total != null;
+      const share = paid && peak > 0 ? Math.max(4, Math.round(m.total / peak * 100)) : 0;
+      const label = monthLabel(m.month);
+      // One payment: its date (the amount is the bar's). Several: each date and amount.
+      // A month where a shared-payee row was left out says so, never "No payment identified".
+      const left = m.leftOut === true;
+      const detail = (!paid ? (left ? 'Payment left out (shared payee)' : 'No payment identified')
+        : m.payments.length === 1 ? m.payments[0].date
+          : m.payments.map(p => p.date + ' ' + money(p.amount)).join(', '))
+        + (paid && left ? ' · a payment left out (shared payee)' : '');
+      return '<li data-bill-history-month="' + escape(m.month) + '" data-bill-history-paid="' + (paid ? 'true' : 'false') + '"'
+        + (left ? ' data-bill-history-left-out="true"' : '')
+        + ' style="--bill-history-share:' + share + '%"'
+        + ' aria-label="' + escape(label + ': ' + (paid ? money(m.total) + ' paid, ' + detail : detail)) + '">'
+        + '<span class="bill-history-bar" aria-hidden="true"></span>'
+        + '<span class="bill-history-month">' + escape(label) + '</span>'
+        + '<span class="bill-history-amount">' + escape(paid ? money(m.total) : '—') + '</span>'
+        + '<span class="bill-history-dates">' + escape(detail) + '</span></li>';
+    }).join('');
+    const stats = summary.average == null
+      ? 'Average: not enough history · Range: not enough history'
+      : 'Average payment: ' + money(summary.average) + ' · Range: ' + money(summary.min) + ' – ' + money(summary.max);
+    const left = entries[0].excludedAmbiguous;
+    const leftNote = Number.isInteger(left) && left > 0
+      ? '<p data-bill-history-excluded>' + escape(String(left)) + (left === 1 ? ' payment matched' : ' payments matched')
+        + ' another bill too and ' + (left === 1 ? 'is' : 'are') + ' left out.</p>' : '';
+    return '<section class="bill-detail-history" data-bill-history data-bill-history-status="complete">'
+      + '<h4>Last 6 months</h4>'
+      + '<p class="bill-history-source">Calculated · source: Lunch Money posted payments · read ' + read + '</p>'
+      + '<ol class="bill-history-months">' + bars + '</ol>'
+      + '<p data-bill-history-stats>' + escape(stats) + ' · calculated · Lunch Money, read ' + read + '.</p>'
+      + leftNote
+      + '<p>An empty month means no payment was identified for this bill, not that $0 was paid. A month marked left out had a payment that also matched another bill.</p></section>';
+  }
+
   // summary contains only plain display strings from the incumbent row printer
   // (glanceLineLabel/glanceSignedMoney); it is escaped, never trusted markup.
   // Replacing this HTML on refresh/period switch intentionally closes details
@@ -237,7 +318,8 @@
           + (row.excessReview === true ? ' · Review in Lunch Money' : '')) : '')
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
       + fact('Published confidence', text(row.confidence) || 'Unavailable')
-      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + otherProof + '</div></details>';
+      + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + otherProof
+      + historyHtml(row, data) + '</div></details>';
   }
   const VISA_REASONS = {
     'payment-intent-unconfirmed': 'Link the Bills debit and confirm which purchases this payment covers. Amount and timing do not prove its purpose.',
@@ -276,7 +358,23 @@
           + '<p>Opening and earlier purchases carry forward until confirmed coverage or refund. This disclosure does not add them to current-period spending.</p>'
           : '<p>Confirm the opening and purchase/payment evidence before using available cash. Earlier coverage has not been established.</p>')
         + '</div></details>' : '';
-    if (!payments.length) return carry;
+    // Lead dispatch 2026-11-18 (Dale): a card payment whose card is
+    // unconfirmed, or a card credit whose purpose is unconfirmed, counts
+    // toward no card and is listed here To confirm. Printed as
+    // supplied by Forecast (cardPurchaseCoverage.toConfirm); no money math.
+    const fromLabel = id => id === 'chequing-a' ? 'Bills' : id === 'savings' ? 'Savings' : 'A household account';
+    const pendingRows = (coverage && coverage.trust === 'estimated' && Array.isArray(coverage.toConfirm)
+      ? coverage.toConfirm : []).filter(row => row && typeof row === 'object');
+    const toConfirm = pendingRows.length
+      ? '<div class="visa-payment-to-confirm" data-card-payment-to-confirm data-trust="estimated"><h4>To confirm</h4>'
+        + pendingRows.map(row => '<div class="operating-line" data-card-payment-to-confirm-row><span>'
+          + escape(text(row.question) || 'To confirm: which card did this pay?') + '</span><span>'
+          + escape(date(row.date) ? row.date : 'Date unavailable') + ' · ' + escape(money(row.amount))
+          + (text(row.onCard) ? ' · on ' + escape(text(row.onCard)) : ' · from ' + escape(fromLabel(row.fromAccount)))
+          + '</span></div>').join('')
+        + '<p>Until each row is confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p></div>'
+      : '';
+    if (!payments.length) return carry + toConfirm;
     const blocks = payments.map(row => {
       if (!row || typeof row !== 'object') return '';
       const label = text(row.accountLabel) || 'Visa';
@@ -297,9 +395,9 @@
     }).join('');
     // Purchases live in their original category transaction rows. Keep this
     // drawer for payment allocation evidence, without a second purchase list.
-    return carry + '<div class="visa-payment-backfill" data-visa-payment-backfill><h4>Card payment allocations</h4>'
+    return carry + toConfirm + '<div class="visa-payment-backfill" data-visa-payment-backfill><h4>Card payment allocations</h4>'
       + blocks + '<p>Household allocation and issuer minimum confirmation are separate.</p></div>';
   }
 
-  return { html, evidence, candidates, visaPaymentsHtml };
+  return { html, historyHtml, evidence, candidates, visaPaymentsHtml };
 });

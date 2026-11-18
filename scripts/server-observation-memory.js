@@ -5,10 +5,10 @@
 const { isDeepStrictEqual } = require('node:util');
 const SCHEMA = 'atlas-provider-observation-memory/v1';
 const ACCOUNT = 'id name display_name institution_name institution type subtype type_name currency balance available_balance available credit_limit limit updated_at balance_as_of balance_last_update date_last_fetched last_fetch plaid_last_successful_update status'.split(' ');
-const CATEGORY = 'id name display_name is_income exclude_from_totals exclude_from_budget is_group is_group_parent archived is_archived'.split(' ');
+const CATEGORY = 'id name display_name is_income exclude_from_totals exclude_from_budget is_group is_group_parent archived is_archived group_id'.split(' ');
 // Keep the recurring source identity already consumed by the observer. Dropping
 // it changes replay evidence and defeats exact-input Forecast reuse.
-const TRANSACTION = 'id account_id plaid_account_id manual_account_id date amount currency payee original_name originalName notes note external_id externalId pending_transaction_id pendingTransactionId plaid_id plaidId plaidTransactionId plaidPendingTransactionId is_group is_group_parent has_children parent_id recurring_id is_pending status kind mcc plaid_mcc category_id category_name categoryName is_income exclude_from_totals exclude_from_budget contradictoryEvidence confirmedSettlement'.split(' ');
+const TRANSACTION = 'id account_id plaid_account_id manual_account_id date amount currency payee original_name originalName notes note external_id externalId pending_transaction_id pendingTransactionId plaid_id plaidId plaidTransactionId plaidPendingTransactionId is_group is_group_parent has_children parent_id group_parent_id recurring_id is_pending status kind mcc plaid_mcc category_id category_name categoryName is_income exclude_from_totals exclude_from_budget contradictoryEvidence confirmedSettlement'.split(' ');
 const WINDOW = 'startDate endDate complete hasMore truncated'.split(' ');
 const PENDING = [...WINDOW, 'basis'];
 function pick(row, fields) {
@@ -63,8 +63,93 @@ function recurring(value) {
           ? strings(item.matches.missingTransactionDates) : null,
       } })) } };
 }
+// Lunch Money budgets (PR A, #821 2026-11-18): only the fields the observer's
+// budget reader consumes -- the period settings, and per category its id and
+// each period's dates and `budgeted`. Activity, notes and currency text are
+// never retained. Any read that is not a clean 'read' replays as unavailable.
+const BUDGET_SETTINGS = ['budget_period_granularity', 'budget_period_quantity', 'budget_period_anchor_date'];
+// A read budget block keeps its read status even when malformed, so the
+// observer's sanitizer gives a replay the same reason as the live read
+// (budget-settings-invalid / budget-summary-invalid), not a generic failure.
+function budgets(value) {
+  if (value?.status !== 'read') return { status: 'unavailable', reason: 'budget-read-failed' };
+  const settings = value.settings && typeof value.settings === 'object' && !Array.isArray(value.settings)
+    ? pick(value.settings, BUDGET_SETTINGS) : null;
+  const rows = value.summary && value.summary.categories;
+  return { status: 'read', settings, summary: { categories: Array.isArray(rows)
+    ? rows.filter(row => row && typeof row === 'object').map(row => ({
+      category_id: row.category_id,
+      occurrences: Array.isArray(row.occurrences)
+        ? row.occurrences.filter(o => o && typeof o === 'object').map(o => pick(o, ['start_date', 'end_date', 'budgeted']))
+        : null,
+    })) : null } };
+}
+// The fixed-amount derivation record (#1355): only its outcome -- source,
+// status, the history window's dates and the derived bill and obligation ids. The 200-day
+// history rows themselves are never retained. Anything not in exactly this
+// clean shape replays as unavailable, so it fixes no bill.
+function amountFixedDerivation(value) {
+  const day = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const window = value && value.window;
+  const clean = value && typeof value === 'object' && value.source === 'lunchmoney-payment-history'
+    && value.status === 'complete' && window && day(window.startDate) && day(window.endDate)
+    && Array.isArray(value.billIds) && value.billIds.every(id => typeof id === 'string' && id.length > 0)
+    && (value.obligationIds === undefined || (Array.isArray(value.obligationIds)
+      && value.obligationIds.every(id => typeof id === 'string' && id.length > 0)));
+  if (!clean) return { source: 'lunchmoney-payment-history', status: 'unavailable', window: null, billIds: [], obligationIds: [] };
+  return { source: value.source, status: 'complete', window: { startDate: window.startDate, endDate: window.endDate },
+    billIds: Array.from(new Set(value.billIds)).sort(),
+    obligationIds: Array.from(new Set(value.obligationIds || [])).sort() };
+}
+// The bill sheet's payment history (Dale, 2026-11-18): per plan row only its id
+// and its payments' dates and amounts, the six month keys and the read date.
+// Anything not in exactly this clean shape replays as unavailable.
+const BILL_HISTORY_REASONS = new Set(['history-unavailable', 'history-incomplete', 'history-too-short']);
+function billPaymentHistory(value) {
+  const day = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    && new Date(v + 'T00:00:00Z').toISOString().slice(0, 10) === v;
+  const month = v => typeof v === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+  const cents = v => typeof v === 'number' && Number.isFinite(v) && v > 0 && Math.abs(Math.round(v * 100) - v * 100) < 1e-6;
+  const unavailable = reason => ({ source: 'lunchmoney-payment-history', status: 'unavailable',
+    reason: BILL_HISTORY_REASONS.has(reason) ? reason : 'history-unavailable', asOf: null, months: [], bills: [] });
+  if (!value || typeof value !== 'object' || value.source !== 'lunchmoney-payment-history') return unavailable();
+  if (value.status !== 'complete') return unavailable(value.reason);
+  const months = value.months;
+  const ids = new Set();
+  const cleanBill = row => {
+    if (!row || typeof row !== 'object' || typeof row.billId !== 'string' || !row.billId || ids.has(row.billId)
+      || !Array.isArray(row.payments)) return null;
+    ids.add(row.billId);
+    if (row.status === 'unavailable') return ['paid-in-parts', 'duplicate-record'].includes(row.reason) && row.payments.length === 0
+      ? { billId: row.billId, status: 'unavailable', reason: row.reason, payments: [] } : null;
+    if (row.status !== 'complete' || !row.payments.every(p => p && day(p.date) && cents(p.amount)
+      && months.includes(p.date.slice(0, 7)) && p.date <= value.asOf)) return null;
+    if ((row.excludedAmbiguous === undefined) !== (row.excludedAmbiguousMonths === undefined)) return null;
+    if (row.excludedAmbiguous !== undefined && !(Number.isInteger(row.excludedAmbiguous) && row.excludedAmbiguous > 0
+      && Array.isArray(row.excludedAmbiguousMonths) && row.excludedAmbiguousMonths.length > 0
+      && row.excludedAmbiguousMonths.length <= row.excludedAmbiguous
+      && row.excludedAmbiguousMonths.every((m, i, all) => months.includes(m) && (i === 0 || m > all[i - 1])))) return null;
+    return { billId: row.billId, status: 'complete',
+      payments: row.payments.map(p => ({ date: p.date, amount: p.amount })),
+      ...(row.excludedAmbiguous !== undefined
+        ? { excludedAmbiguous: row.excludedAmbiguous, excludedAmbiguousMonths: row.excludedAmbiguousMonths.slice() } : {}) };
+  };
+  if (!day(value.asOf) || !Array.isArray(months) || months.length !== 6 || !months.every(month)
+    || months[5] !== value.asOf.slice(0, 7) || !months.every((m, i) => i === 0 || m > months[i - 1])
+    || !Array.isArray(value.bills)) return unavailable();
+  const bills = value.bills.map(cleanBill);
+  if (bills.some(row => !row)) return unavailable();
+  return { source: value.source, status: 'complete', asOf: value.asOf, months: months.slice(), bills };
+}
+// A group parent's children: only their ids, account ids and parent id
+// (provider-observe groupParentAccountId). No payee, note, amount or metadata.
+const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id', 'group_parent_id'];
 function transaction(row) {
   const out = pick(row, TRANSACTION);
+  if (Object.hasOwn(row, 'children')) {
+    if (!Array.isArray(row.children)) throw new Error('observation-input-invalid');
+    out.children = row.children.map(child => pick(child, CHILD_ACCOUNT));
+  }
   for (const field of ['tags', 'tag_ids', 'tagIds']) if (Object.hasOwn(row, field)) {
     out[field] = row[field] === null ? null : row[field].map(tag);
   }
@@ -93,7 +178,12 @@ function sourceInputs(payload) {
     transactions: payload.transactions.map(transaction),
     transactionWindow: pick(payload.transactionWindow, WINDOW),
     pendingCoverage: pick(payload.pendingCoverage, PENDING),
-    ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}) };
+    ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}),
+    ...(Object.hasOwn(payload, 'lunchMoneyBudgets') ? { lunchMoneyBudgets: budgets(payload.lunchMoneyBudgets) } : {}),
+    ...(Object.hasOwn(payload, 'amountFixedDerivation')
+      ? { amountFixedDerivation: amountFixedDerivation(payload.amountFixedDerivation) } : {}),
+    ...(Object.hasOwn(payload, 'billPaymentHistory')
+      ? { billPaymentHistory: billPaymentHistory(payload.billPaymentHistory) } : {}) };
   const numeric = value => typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()) && Number.isFinite(Number(value));
   const id = value => typeof value === 'string' && value.length > 0 || typeof value === 'number' && Number.isFinite(value);
@@ -160,4 +250,4 @@ function create() {
     },
   });
 }
-module.exports = { SCHEMA, sourceInputs, completeTransactionCohort, create };
+module.exports = { SCHEMA, sourceInputs, amountFixedDerivation, billPaymentHistory, completeTransactionCohort, create };

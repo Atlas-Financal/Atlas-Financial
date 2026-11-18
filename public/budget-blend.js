@@ -676,6 +676,7 @@
     paintHeroTop(hero);
     joinResultLabel(hero);
     paintTermSlots(hero);
+    paintExtraTermSlots(hero);
     markResultClosed(hero);
     splitPrintedCents(hero.querySelector('[data-blend-term="balanceAfterDeductions"]'));
     paintAfterFunding(hero);
@@ -923,6 +924,52 @@
     slot.parentElement.appendChild(label);
   }
 
+  // Forecast's own extra deductions (rank 18): a held To confirm term and
+  // linked savings-item spending. Each gets its own face slot only when
+  // Forecast publishes that term for the period, so a normal period's face
+  // is unchanged. The slot copies the printed term; no arithmetic, and the
+  // held money is never shown as Household budget.
+  const EXTRA_TERMS = [
+    ['heldOutflowSpending', 'To confirm'],
+    ['savingsItemSpending', 'Savings items'],
+  ];
+  const EXTRA_SEGMENT = { heldOutflowSpending: 's-held', savingsItemSpending: 's-item' };
+  function paintExtraTermSlots(hero) {
+    hero.querySelectorAll('[data-blend-extra-term], .blend-minus.is-extra').forEach(node => node.remove());
+    hero.classList.remove('has-extra-terms-1', 'has-extra-terms-2');
+    const block = badTermsBlock(hero);
+    const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
+    let anchor = hero.querySelector('[data-operating-question="06"]');
+    if (!block || !anchor) return;
+    let n = 0;
+    EXTRA_TERMS.forEach(([name, label]) => {
+      const row = block.querySelector('[data-bad-term="' + name + '"]');
+      if (!row) return;
+      n += 1;
+      const sep = document.createElement('span');
+      sep.className = 'blend-minus is-extra is-extra-' + n;
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '−';
+      const cell = document.createElement('div');
+      cell.className = 'budget-step blend-extra-term is-extra-' + n;
+      cell.setAttribute('data-blend-extra-term', name);
+      const prompt = document.createElement('span');
+      prompt.className = 'operating-prompt';
+      prompt.textContent = label;
+      const value = document.createElement('span');
+      value.className = 'budget-step-value';
+      const summary = document.createElement('div');
+      summary.className = 'budget-step-summary';
+      summary.append(prompt, value);
+      cell.append(summary);
+      anchor.after(sep);
+      sep.after(cell);
+      paintTermFace(value, name, termDisplay(row, status), 'blend-term');
+      anchor = cell;
+    });
+    if (n) hero.classList.add('has-extra-terms-' + n);
+  }
+
   function paintTermSlots(hero) {
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
@@ -1001,8 +1048,14 @@
     const parts = [
       ['s-bills', read('[data-operating-question="04"] .blend-term')],
       ['s-house', read('[data-operating-question="06"] .blend-term')],
-      ['s-bad', read('[data-blend-term="balanceAfterDeductions"]')],
     ];
+    // One segment per extra term slot on the face, read from that slot's
+    // printed figure, in face order (paintExtraTermSlots). None: unchanged.
+    EXTRA_TERMS.forEach(([name]) => {
+      const sel = '[data-blend-extra-term="' + name + '"] [data-blend-term="' + name + '"]';
+      if (hero.querySelector(sel)) parts.push([EXTRA_SEGMENT[name], read(sel)]);
+    });
+    parts.push(['s-bad', read('[data-blend-term="balanceAfterDeductions"]')]);
     const split = document.createElement('span');
     split.className = 'blend-split';
     split.setAttribute('aria-hidden', 'true');
@@ -2037,11 +2090,11 @@
     if (counts) counts.classList.add('blend-house-status');
     if (other[0]) {
       // Other Spending is a ring like its sibling categories, not a
-      // footer chip: the duplicate chip (amber dot, amount, needs-a-
-      // category badge) is retired. The needs-a-category status already
-      // lives in the detail panel's context line and, in the unassigned
-      // state, in this row's own printed meta — the bridge below carries
-      // both into the ring's accessible name, as it did for the chip.
+      // footer chip: the duplicate chip (amber dot, amount) is retired.
+      // The needs-a-category status lives in the detail panel's context
+      // line and, in the unassigned state, in this row's own printed meta
+      // — the bridge below carries both into the ring's accessible name —
+      // and paintFaceBadges flags it on the ring like any sibling.
       // Differences from the sibling rings, per the agreed rulings: the
       // fill is spent / plan (siblings fill with what remains), and the
       // amber identity is kept via blend-ring-other, outside the colour
@@ -2540,11 +2593,19 @@
           ? bento.querySelector('#blend-bills-more')
           : null;
       const key = cat || bill || label;
-      if (!host || host.classList.contains('blend-other') || host.classList.contains('blend-ring-other') || host.classList.contains('is-over') || host.querySelector('.blend-over-pill') || host.querySelector('[data-blend-badge="' + CSS.escape(key) + '"]')) return;
+      // The Other ring takes its "needs a category" badge like every sibling
+      // ring (lead ruling 2026-11-18): each off-stage attention item has a
+      // visible equivalent on the face. An over-plan ring shows its Over plan
+      // pill instead, which is that item's equivalent.
+      if (!host || host.classList.contains('is-over') || host.querySelector('.blend-over-pill') || host.querySelector('[data-blend-badge="' + CSS.escape(key) + '"]')) return;
       const badge = document.createElement('span');
       badge.className = 'blend-face-badge';
       badge.setAttribute('data-blend-badge', key);
-      badge.textContent = label;
+      // A category ring already prints its own name, so its badge carries
+      // only the state after the last " · " ("needs a category"); a bill
+      // badge sits in the roster beside other bills and keeps the full label.
+      const cut = cat ? label.lastIndexOf(' · ') : -1;
+      badge.textContent = cut > 0 ? label.slice(cut + 3) : label;
       host.appendChild(badge);
     });
   }
@@ -2962,19 +3023,30 @@
       const paymentEvidence = document.createElement('div');
       paymentEvidence.className = 'blend-payment-evidence';
       matching.appendChild(paymentEvidence);
+      // BillDetail's own "Last 6 months" section (Forecast-summarised payment
+      // history), moved into the sheet as printed. Without it the box keeps
+      // its Unavailable placeholder.
+      const printed = body.querySelector(':scope > [data-bill-history]');
       // Keep the original linked-payment evidence and every warning. No
       // candidate matching, financial calculations or prototype actions.
-      original.filter(node => node !== heading && node !== facts).forEach(node => paymentEvidence.appendChild(node));
+      original.filter(node => node !== heading && node !== facts && node !== printed)
+        .forEach(node => paymentEvidence.appendChild(node));
       const history = document.createElement('section');
       history.className = 'blend-bill-history';
       const historyTitle = document.createElement('h3');
       historyTitle.textContent = 'Last 6 months';
-      const unavailable = document.createElement('div');
-      unavailable.className = 'blend-history-unavailable';
-      unavailable.textContent = 'Unavailable';
-      const historyNote = document.createElement('p');
-      historyNote.textContent = 'Average: Unavailable · Range: Unavailable.';
-      history.append(historyTitle, unavailable, historyNote);
+      history.appendChild(historyTitle);
+      if (printed) {
+        printed.querySelector(':scope > h4')?.remove();
+        history.appendChild(printed);
+      } else {
+        const unavailable = document.createElement('div');
+        unavailable.className = 'blend-history-unavailable';
+        unavailable.textContent = 'Unavailable';
+        const historyNote = document.createElement('p');
+        historyNote.textContent = 'Average: Unavailable · Range: Unavailable.';
+        history.append(unavailable, historyNote);
+      }
       body.append(matching, history, published);
     });
   }

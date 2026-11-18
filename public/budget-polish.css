@@ -573,6 +573,13 @@ body:has(#operating-surface) .site-head-inner {
   color: var(--text-primary);
   background: var(--plane);
 }
+/* Dale, 2026-11-18 (option A): a card-coverage-only estimate leads with
+ * the bank data's date; its "≈ estimate" mark stays, small and muted. */
+.trust-as-of .trust-as-of-mark {
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
 
 
 /* ------------------------------------------------------------------------
@@ -646,4 +653,15 @@ body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated
 .blend-detail-sheet .card-movement-panel .card-movement-details > summary,
 .blend-detail-sheet .budget-savings-info > div > details > summary {
   font-size:13px; font-weight:500; color:var(--blend-ink-2);
+}
+
+/* Dale, 2026-11-18: the last full picture, shown unchanged while today's
+ * update could not be completed. The banner says so; the page is muted so its
+ * figures do not read as today's. */
+.budget-retained-banner {
+  border-left: 3px solid var(--warning);
+}
+.budget-retained-picture {
+  filter: saturate(0.55);
+  opacity: 0.88;
 }

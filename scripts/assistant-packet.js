@@ -239,6 +239,78 @@ function operatingPlanUnavailable(data, advice) {
     || (advice && advice.cardCoverageUnavailable === true);
 }
 
+// The card-coverage issue codes behind a withheld operating answer, so a
+// reader can see which check is holding without reconstructing it. Only the
+// closed code vocabulary passes: lowercase words joined by hyphens under the
+// `coverage-` prefix. No transaction ref, amount, date, account or note can
+// pass that shape. Forecast already strips refs before publishing; this is
+// the packet's own check, not a trust in that upstream shape.
+const CARD_COVERAGE_ISSUE_CODE = /^coverage-[a-z]+(?:-[a-z]+)*$/;
+function cardCoverageIssueCodes(advice) {
+  if (!advice || advice.cardCoverageUnavailable !== true) return null;
+  const issues = advice.cardPurchaseCoverage && advice.cardPurchaseCoverage.issues;
+  if (!Array.isArray(issues)) return null;
+  const codes = [...new Set(issues.map(issue => issue && issue.code)
+    .filter(code => typeof code === 'string' && code.length <= 80 && CARD_COVERAGE_ISSUE_CODE.test(code)))].sort();
+  return codes.length ? codes.slice(0, 32) : null;
+}
+
+// Lead ruling on #1358 (B2): card coverage published as an ESTIMATE (a card
+// payment's card, or a card credit's purpose, is unconfirmed). Only the closed
+// basis, a fixed reason and a count leave Forecast here: no ref, date, amount
+// or note.
+// One fixed reason per closed basis (Forecast's cardPurchaseCoverage
+// .estimateBasis); an unrecognised basis falls back to the combined one.
+const CARD_ESTIMATE_REASONS = Object.freeze({
+  'card-payment-destination-unconfirmed': 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
+  'card-credit-purpose-unconfirmed': 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and every card purchase stays reserved as if unpaid.',
+  'card-payment-source-unconfirmed': 'A card payment reached a card but where it came from is not confirmed, so it counts toward no card and every card purchase stays reserved as if unpaid.',
+  'card-coverage-rows-unconfirmed': 'More than one card payment or credit is not confirmed, so none of them counts toward any card and every card purchase stays reserved as if unpaid.',
+});
+function cardCoverageEstimate(advice) {
+  const coverage = advice && advice.cardPurchaseCoverage;
+  if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
+  const basis = Object.hasOwn(CARD_ESTIMATE_REASONS, coverage.estimateBasis || '')
+    ? coverage.estimateBasis : 'card-coverage-rows-unconfirmed';
+  return { basis, reason: CARD_ESTIMATE_REASONS[basis],
+    toConfirmCount: Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0 };
+}
+// A published section under the estimate: a graded tag (or none) becomes
+// estimated; unknown or unavailable stays as it is (never more certain).
+function tagCardEstimate(section, estimate) {
+  if (!section || typeof section !== 'object' || section.status === 'unavailable') return section;
+  const trust = section.trust == null || section.trust === 'calculated' ? 'estimated' : section.trust;
+  return { ...section, trust, cardCoverageEstimate: estimate };
+}
+// Projections that walk forward at the weekly cap: withheld under the estimate.
+function withheldForCardEstimate(source, estimate) {
+  return { status: 'unavailable', source, reason: 'Projection waits until the card payment is confirmed. ' + estimate.reason,
+    cardCoverageEstimate: estimate };
+}
+function applyCardEstimate(packet, advice) {
+  const estimate = cardCoverageEstimate(advice);
+  if (!estimate) return packet;
+  const current = packet.current || {};
+  for (const key of ['spendableHouseholdCash', 'nextSignificantObligations']) {
+    if (current[key]) current[key] = tagCardEstimate(current[key], estimate);
+  }
+  const forecast = packet.forecast;
+  if (forecast && forecast.status !== 'unavailable') {
+    for (const key of ['recommendation', 'currentPeriodAction', 'budgetCap', 'paydayAllocation',
+      'predictedEndingBalance', 'upcomingModeledCommitments', 'majorPlanFunding']) {
+      if (forecast[key]) forecast[key] = tagCardEstimate(forecast[key], estimate);
+    }
+    if (forecast.horizon && forecast.horizon.status !== 'unavailable') {
+      forecast.horizon = { ...forecast.horizon, minBalance: null, minDate: null,
+        minReason: 'The projected low point waits until the card payment is confirmed.', cardCoverageEstimate: estimate };
+    }
+    if (forecast.facilityCrossings) forecast.facilityCrossings = withheldForCardEstimate('Forecast.projectDebts', estimate);
+    packet.forecast = { ...forecast, trust: 'estimated', cardCoverageEstimate: estimate };
+  }
+  if (packet.planning) packet.planning.trajectory = withheldForCardEstimate('Forecast.baselineTrajectory', estimate);
+  return packet;
+}
+
 function operatingPlanNote(data, advice) {
   const overlay = data && data.liveOverlay;
   return (advice && advice.operatingPlanNote)
@@ -879,7 +951,8 @@ function currentBlock(data, asOf, advice, used, settlement) {
       available: money(row.available),
       overLimit: row.overLimit === true,
       utilizationPct: row.pct == null ? null : round2(row.pct),
-      trust: row.pendingUnknown ? 'unknown' : 'calculated',
+      trust: row.pendingUnknown ? 'unknown' : row.balanceTrust === 'estimated' ? 'estimated' : 'calculated',
+      ...(row.balanceTrust === 'estimated' ? { balanceAsOf: row.balanceAsOf || null, trustReason: row.balanceReason || null } : {}),
     }))
     : null;
   const snapshot = data.debts
@@ -935,6 +1008,7 @@ function currentBlock(data, asOf, advice, used, settlement) {
     spendableHouseholdCash: advice?.cardCoverageUnavailable === true
       && !(data.liveOverlay && data.liveOverlay.operatingPlan === 'unavailable')
       ? { status: 'unavailable', value: null, reason: unavailableReason,
+        ...(cardCoverageIssueCodes(advice) ? { cardCoverageIssues: cardCoverageIssueCodes(advice) } : {}),
         observedCash: Number.isFinite(spendable) ? money(spendable) : null,
         asOf, source: 'Forecast.recommend' }
       : openingCash.status === 'unavailable'
@@ -972,6 +1046,8 @@ function currentBlock(data, asOf, advice, used, settlement) {
         status: 'ok',
         source: 'Forecast.utilisation',
         totalAvailableCredit: money(used.totalAvailable),
+        ...(used.totalAvailableTrust === 'estimated'
+          ? { totalAvailableCreditTrust: 'estimated', totalAvailableCreditEstimatedFrom: used.totalAvailableEstimatedFrom || [] } : {}),
         overLimitCount: used.overLimitCount,
         securedDebt: snapshot ? money(snapshot.secured) : null,
         monthlyInterest: snapshot ? money(snapshot.monthlyInterest) : null,
@@ -1048,9 +1124,11 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
   if (!advice) return unavailable('forecast-unavailable');
   if (operatingPlanUnavailable(data, advice)) {
     const reason = operatingPlanNote(data, advice);
+    const cardCoverageIssues = cardCoverageIssueCodes(advice);
     return {
       status: 'unavailable',
       reason,
+      ...(cardCoverageIssues ? { cardCoverageIssues } : {}),
       source: 'Forecast.recommend',
       recommendation: unavailable(reason),
       horizon: unavailable(reason),
@@ -1122,6 +1200,9 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
   const crossingQualifiers = {
     ...(debtSchedAmounts ? { scheduledAmounts: scheduledAmountsProjection(debtSchedAmounts) } : {}),
     ...(crossingsUnknownFrom ? { pendingUnknownFrom: crossingsUnknownFrom } : {}),
+    // Crossings walked from a stale card balance are estimates.
+    ...(debtProj && debtProj.trust === 'estimated'
+      ? { trust: 'estimated', staleBalances: (debtProj.staleBalances || []).map(row => ({ id: row.id, balanceAsOf: row.balanceAsOf })) } : {}),
   };
   const action = advice.currentPeriodAction || null;
   return {
@@ -1289,6 +1370,8 @@ function actualsBlock(data, periods, advice, settlement) {
         historicalMonthly: money(row.historical),
         plannedMonthly: money(row.planned),
         source: row.source || null,
+        // A carried-forward Lunch Money budget is an estimate (Q2).
+        ...(row.targetTrust === 'estimated' ? { plannedTrust: 'estimated', estimateReason: row.targetEstimateReason || null } : {}),
       }))
       : unavailable('budget-breakdown-unavailable'),
     currentPeriodCategories: settlementWithheld
@@ -1302,6 +1385,7 @@ function actualsBlock(data, periods, advice, settlement) {
         posted: money(row.posted),
         pending: money(row.pending),
         remaining: money(row.remaining),
+        ...(row.trust === 'estimated' ? { plannedTrust: 'estimated', estimateReason: row.estimateReason || null } : {}),
       }))
       : unavailable('current-period-categories-unavailable'),
     exclusionsCoverageConfidence: {
@@ -1382,6 +1466,57 @@ function heldCurrentPeriodProjection(data, advice) {
   };
 }
 
+// Part (b) (lead dispatch 2026-11-17, Option S): each reviewed Lunch Money
+// recurring item Atlas did not apply, from the one review provider-observe
+// ran (currentPeriodActuals.lunchMoneyRecurring.refused). Each closed reason
+// code reads as one fixed sentence; the Atlas row is re-checked against the
+// plan. No Lunch Money id, amount, payee or date is published. Read-only: it
+// builds no matching or reconciliation logic.
+const RECURRING_REFUSALS = Object.freeze({
+  'not-started': ['schedule', 'It has not started yet.'],
+  'rule-names-no-event': ['link', 'The rule that names it points at no Atlas bill.'],
+  'several-rules': ['link', 'More than one rule names it, so Atlas cannot tell which bill it is.'],
+  'several-items': ['link', 'More than one recurring item names this bill.'],
+  'no-plan-row': ['link', 'The bill it names is not in the plan.'],
+  'plan-row-ambiguous': ['link', 'More than one plan row has the id it names.'],
+  'plan-row-unsupported': ['row', 'This kind of plan row does not take its schedule from Lunch Money.'],
+  'once-bill': ['row', 'The plan has this bill as a one-time payment.'],
+  'account-mismatch': ['account', 'The plan row and the item are not both paid from household chequing.'],
+  'date-invalid': ['schedule', 'One of its dates is not a real calendar day.'],
+  'item-ended': ['schedule', 'It has ended, and this kind of plan row does not take an end date.'],
+  'cadence-unmapped': ['schedule', 'Atlas cannot follow how often it repeats.'],
+  'cadence-amount-unconfirmed': ['amount', 'It repeats on a different cadence from the plan, and its expected amount does not confirm the plan\'s.'],
+  'day-after-statement-due': ['schedule', 'Its day would fall later than Atlas can confirm against the card statement.'],
+  'cutover-unsafe': ['schedule', 'Moving to its day would skip or double a payment in one cycle.'],
+  'expected-dates-mismatch': ['schedule', 'The dates Lunch Money expects do not fit how often it repeats.'],
+});
+const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
+const RECURRING_REFUSALS_MAX = 50;
+function recurringRefusalsProjection(data) {
+  const actuals = data && data.liveOverlay && data.liveOverlay.currentPeriodActuals;
+  const block = actuals && actuals.lunchMoneyRecurring;
+  if (!block || block.status !== 'read' || !Array.isArray(block.refused) || !block.dropped) {
+    return unavailable('recurring-review-unavailable');
+  }
+  const plan = (data && data.plan) || {};
+  const ids = rows => new Set((Array.isArray(rows) ? rows : []).map(row => row && row.id).filter(id => typeof id === 'string'));
+  const bills = ids(plan.bills), obligations = ids(plan.obligations);
+  const items = block.refused.slice(0, RECURRING_REFUSALS_MAX).map((row, i) => {
+    const [reasonClass, reason] = Object.hasOwn(RECURRING_REFUSALS, row && row.reasonCode)
+      ? RECURRING_REFUSALS[row.reasonCode] : RECURRING_REFUSAL_DEFAULT;
+    return { key: 'refused-' + (i + 1),
+      billId: row && bills.has(row.billId) ? row.billId : null,
+      obligationId: row && obligations.has(row.obligationId) ? row.obligationId : null,
+      reasonClass, reason };
+  });
+  const dropped = key => Number.isSafeInteger(block.dropped[key]) && block.dropped[key] >= 0 ? block.dropped[key] : null;
+  return { status: 'ok', source: 'provider-observe:lunchmoney',
+    count: block.refused.length, listed: items.length, complete: items.length === block.refused.length,
+    items,
+    notApplied: { notReviewed: dropped('not-reviewed'), notNamed: dropped('not-named'), scheduleInvalid: dropped('schedule-invalid') },
+    note: 'Reviewed Lunch Money recurring items Atlas did not apply; the plan\'s own schedule stands for each. notApplied counts items set aside before review: suggestions, items no rule names, and items whose schedule did not read.' };
+}
+
 function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
   const overlay = data && data.liveOverlay;
   const refused = Array.isArray(overlay && overlay.refused)
@@ -1403,6 +1538,15 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
           id: row.id,
           label: row.label,
           kind: 'unknown-pending',
+        });
+      }
+      if (row.balanceTrust === 'estimated') {
+        staleOrManual.push({
+          id: row.id,
+          label: row.label,
+          kind: 'stale-balance',
+          balanceAsOf: row.balanceAsOf || null,
+          trust: 'estimated',
         });
       }
     }
@@ -1432,6 +1576,7 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
       heldCurrentPeriod: heldCurrentPeriodProjection(data, advice),
     },
     providerGaps,
+    recurringScheduleRefusals: recurringRefusalsProjection(data),
     liveOverlayFailed: overlay && overlay.applied === false
       ? { reason: overlay.reason || 'overlay-failed' }
       : null,
@@ -1550,6 +1695,7 @@ function buildPacket(opts) {
     actuals: actualsBlock(data, periods, advice, settlement),
     uncertainty: uncertaintyBlock(data, periods, questionsMarkdown, advice),
   };
+  applyCardEstimate(packet, advice);
   if (!looksSanitized(packet)) {
     throw new Error('Assistant packet is not sanitized.');
   }
@@ -1562,6 +1708,8 @@ function tokenConfigured(env) {
 }
 
 module.exports = {
+  recurringRefusalsProjection,
+  RECURRING_REFUSALS,
   SCHEMA,
   CURRENT_PERIOD_BILLS_MAX,
   TOKEN_MIN_LENGTH,

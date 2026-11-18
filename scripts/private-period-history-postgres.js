@@ -64,9 +64,10 @@ const PUBLICATION = Object.freeze({
 });
 const TERMS = Object.freeze({
   predictedEndingBalanceTerms: { periodIncome: NUM, assignedBills: NUM, householdBudgetHold: NUM,
-    savingsItemSpending: NUM, balanceAfterDeductions: NUM, identity: STR, closes: BOOL },
+    savingsItemSpending: NUM, heldOutflowSpending: NUM, balanceAfterDeductions: NUM, identity: STR, closes: BOOL },
   plannedPeriodCloseTerms: { opening: NUM, incomeAdded: NUM, periodBillLoad: NUM, budgetHold: NUM,
-    annualSavingsNeed: NUM, earlierCardPurchaseReserve: NUM, savingsItemSpending: NUM, identity: STR, deficit: BOOL },
+    annualSavingsNeed: NUM, earlierCardPurchaseReserve: NUM, savingsItemSpending: NUM, heldOutflowSpending: NUM,
+    identity: STR, deficit: BOOL },
 });
 // Plan-defined rows only. Transaction-level `recon` / `pendingRecon` lists,
 // payer labels and unplanned other-income items are never projected.

@@ -52,8 +52,6 @@ console.log('=== A. cash — one edit of Chequing A ===');
   const assetDelta = independentAssets(after) - independentAssets(before);
   const pubBefore = F.publicationTotals(before);
   const pubAfter = F.publicationTotals(after);
-  const diveBefore = F.deepDive(before);
-  const diveAfter = F.deepDive(after);
 
   ok(near(spendableDelta, 1000), 'independent spendable sum rises $1,000');
   ok(assetDelta === 1000, 'independent asset sum rises $1,000');
@@ -63,8 +61,6 @@ console.log('=== A. cash — one edit of Chequing A ===');
     'published asset total rises $1,000');
   ok(near(pubAfter.financialAccountsOnly - pubBefore.financialAccountsOnly, 1000),
     'financial-account net worth rises $1,000');
-  ok(near(diveAfter.cashAmount - diveBefore.cashAmount, 1000),
-    'Deep Dive spendable cash rises $1,000');
   ok(after.assets.find(a => a.cash === 'chequing-a').value == null,
     'the linked Chequing A asset row was not edited');
   ok(!Object.prototype.hasOwnProperty.call(after.plan.startingCash, 'amount'),

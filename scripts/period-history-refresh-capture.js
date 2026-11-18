@@ -184,6 +184,11 @@ function create({ log = line => console.log(line), clock = () => Date.now(), spa
           worker.once('message', finish);
           worker.once('error', () => finish(null));
           worker.once('exit', () => finish(null));
+          // An in-flight capture never holds process shutdown. Its store
+          // write is one BEGIN..COMMIT, so an exit mid-capture keeps nothing
+          // partial, and the next refresh after restart offers the day again.
+          // After the listeners: adding a 'message' listener re-refs a worker.
+          if (typeof worker.unref === 'function') worker.unref();
         } catch (_) { finish(null); }
       });
       return 'started';

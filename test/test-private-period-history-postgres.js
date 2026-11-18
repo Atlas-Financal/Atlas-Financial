@@ -148,6 +148,40 @@ test('P3b balance terms keep every reconciling deduction Forecast publishes', ()
   assert.deepEqual(p.plannedPeriodCloseTerms, pub.plannedPeriodCloseTerms);
 });
 
+test('P3c a held-outflow period persists, closes its identity and round-trips (owner decision 2026-11-18)', { skip }, async () => {
+  // Invented world: income 200; plannedPayday 40+15+10+5+5+5 = 80 hold; a 400
+  // Mortgage-labelled debit from household cash (chequing-a) that no owner
+  // claims is held To confirm (#1323) and deducted once as its own term.
+  // The planned close is checked as an identity over its own published terms.
+  const data = input();
+  data.payload.categories.push({ id: 'invented-mortgage', name: 'Mortgage' });
+  data.payload.transactions.push({ id: 'Invented-mortgage-debit', account_id: 'Invented-account-0', date: START, amount: '400.00',
+    currency: 'cad', category_id: 'invented-mortgage', payee: 'Invented lender', original_name: 'INVENTED LENDER', notes: null,
+    tags: [], is_pending: false, updated_at: START + 'T17:58:00Z', balance_last_update: START + 'T17:58:00Z' });
+  const candidate = capture(data);
+  const full = candidate.content.publication;
+  const bad = full.predictedEndingBalanceTerms, close = full.plannedPeriodCloseTerms;
+  assert.equal(bad.heldOutflowSpending, 400, 'Forecast publishes the held term in the BAD terms');
+  assert.equal(close.heldOutflowSpending, 400, 'and in the planned-close terms');
+  assert.equal(bad.periodIncome - bad.assignedBills - bad.householdBudgetHold - (bad.savingsItemSpending || 0) - bad.heldOutflowSpending,
+    bad.balanceAfterDeductions, 'the BAD terms close with the held term');
+  assert.equal(bad.balanceAfterDeductions, 200 - 0 - 80 - 400, 'hand arithmetic: 200 - 0 - 80 - 400 = -280');
+  assert.equal(bad.closes, true);
+  assert.match(close.identity, /-and-held-outflow-spending$/, 'the close identity names the held term');
+  assert.equal(close.opening + close.incomeAdded - close.periodBillLoad - close.budgetHold - close.annualSavingsNeed
+    - (close.earlierCardPurchaseReserve || 0) - (close.savingsItemSpending || 0) - close.heldOutflowSpending,
+  full.plannedPeriodClose, 'the planned-close terms close with the held term');
+  const w = pgWorld();
+  const store = await Pg.openPeriodHistoryPostgres({ env: env(), Client: w.Client });
+  const result = await store.append({ enabled: true, candidate });
+  const stored = (await store.read({ revisionId: result.revisionId })).content.publication;
+  assert.deepEqual(stored.predictedEndingBalanceTerms, bad, 'BAD terms round-trip exactly, held term included');
+  assert.deepEqual(stored.plannedPeriodCloseTerms, close, 'planned-close terms round-trip exactly, held term included');
+  assert.equal(stored.balanceAfterDeductions, full.balanceAfterDeductions);
+  assert.equal(stored.plannedPeriodClose, full.plannedPeriodClose);
+  assert.equal(JSON.stringify(stored).includes('Invented lender'), false, 'the held row\'s payee is not stored');
+});
+
 test('P4 stored records outside the pinned shape fail closed on read', { skip }, async () => {
   const candidate = capture(input());
   const breakers = [

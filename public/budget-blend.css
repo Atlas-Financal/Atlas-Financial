@@ -583,6 +583,22 @@ body:has([data-budget-bento]) .sitenav {
 }
 .blend-minus.is-bills { grid-column: 2; }
 .blend-minus.is-house { grid-column: 4; }
+/* Rank 18: Forecast's extra deduction terms (To confirm; savings items),
+   painted only when published, after Household budget on the same row. */
+.budget-blend-hero-layout.has-extra-terms-1 { grid-template-columns: repeat(7, max-content); }
+.budget-blend-hero-layout.has-extra-terms-2 { grid-template-columns: repeat(9, max-content); }
+.blend-minus.is-extra-1 { grid-column: 6; }
+.blend-minus.is-extra-2 { grid-column: 8; }
+.budget-bento .blend-hero .blend-extra-term.is-extra-1 { grid-column: 7; grid-row: 2; }
+.budget-bento .blend-hero .blend-extra-term.is-extra-2 { grid-column: 9; grid-row: 2; }
+.budget-bento .blend-hero .blend-extra-term .budget-step-value {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: baseline;
+  justify-content: flex-start;
+  column-gap: 8px;
+}
+.budget-bento .blend-hero .blend-extra-term .budget-step-value > .blend-term { flex: 0 0 auto; }
 
 .blend-hero .calendar-waterfall-head,
 .blend-hero .budget-period-flow-heading { display: none; }
@@ -656,18 +672,18 @@ body:has([data-budget-bento]) .sitenav {
   white-space: nowrap;
   overflow: visible;
 }
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value {
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-value {
   display: flex;
   flex-flow: row nowrap;
   align-items: baseline;
   justify-content: flex-start;
   column-gap: 8px;
 }
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value > .blend-term {
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-value > .blend-term {
   flex: 0 0 auto;
 }
 
-.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value [data-budget-ratio] {
+.budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-value [data-budget-ratio] {
   position: fixed;
   width: 1px;
   height: 1px;
@@ -2230,6 +2246,7 @@ body:has([data-budget-surface="unavailable"]) .sitenav {
   margin-top: 0;
 }
 [data-budget-surface="unavailable"] .budget-surface-unavailable,
+[data-budget-surface="unavailable"] .budget-surface-later,
 [data-budget-surface="unavailable"] .budget-blend-card-movements {
   background: var(--blend-glass);
   border: 1px solid var(--blend-line);
@@ -2281,6 +2298,12 @@ dialog.budget-detail-sheet[open] {
   .blend-income .blend-big { font-size: clamp(22px, 6.2vw, 36px); }
   .budget-bento .budget-blend-hero-layout {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  .budget-bento .budget-blend-hero-layout.has-extra-terms-1 {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+  .budget-bento .budget-blend-hero-layout.has-extra-terms-2 {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
   }
   .budget-bento .blend-hero .blend-hero-top .budget-today-cash {
     grid-column: auto;
@@ -2347,8 +2370,8 @@ dialog.budget-detail-sheet[open] {
     white-space: nowrap;
     text-align: right;
   }
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value,
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value [data-budget-ratio] {
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-value,
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-value [data-budget-ratio] {
     font-size: 16px;
   }
   .budget-bento .blend-hero .blend-minus {
@@ -2356,8 +2379,8 @@ dialog.budget-detail-sheet[open] {
     margin-top: 16px;
     font-size: 16px;
   }
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .operating-prompt,
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-title {
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .operating-prompt,
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-title {
     font-size: 11px;
     white-space: normal;
   }
@@ -2387,6 +2410,14 @@ dialog.budget-detail-sheet[open] {
   .budget-bento .blend-hero [data-operating-question="07"] { grid-column: 1; grid-row: 5; }
   .budget-bento .blend-hero .blend-hero-foot { grid-row: 6; }
   .budget-bento .blend-hero .blend-hero-panel { grid-row: 7; }
+  .budget-bento .blend-hero .blend-extra-term.is-extra-1 { grid-column: 1; grid-row: 5; }
+  .budget-bento .blend-hero .blend-extra-term.is-extra-2 { grid-column: 1; grid-row: 6; }
+  .budget-bento .blend-hero.has-extra-terms-1 [data-operating-question="07"] { grid-row: 6; }
+  .budget-bento .blend-hero.has-extra-terms-1 .blend-hero-foot { grid-row: 7; }
+  .budget-bento .blend-hero.has-extra-terms-1 .blend-hero-panel { grid-row: 8; }
+  .budget-bento .blend-hero.has-extra-terms-2 [data-operating-question="07"] { grid-row: 7; }
+  .budget-bento .blend-hero.has-extra-terms-2 .blend-hero-foot { grid-row: 8; }
+  .budget-bento .blend-hero.has-extra-terms-2 .blend-hero-panel { grid-row: 9; }
   dialog.budget-detail-sheet[open] {
     inset: auto 0 0 0;
     width: 100%;
@@ -2402,7 +2433,7 @@ dialog.budget-detail-sheet[open] {
 
 @media (max-width: 480px) {
   .blend-after-funding { flex-wrap: wrap; font-size: 13px; }
-  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"]) .budget-step-value {
+  .budget-bento .blend-hero :is([data-operating-question="02"], [data-operating-question="04"], [data-operating-question="06"], .blend-extra-term) .budget-step-value {
     flex-wrap: wrap;
   }
   .budget-bento > .blend-income { grid-column: 1 / -1; grid-row: 4; }
@@ -2680,6 +2711,8 @@ html.reduce .blend-sky { display: block; }
 }
 .blend-split > i.s-bills { background: var(--blend-bills); }
 .blend-split > i.s-house { background: var(--blend-house); }
+.blend-split > i.s-held { background: var(--blend-over); }
+.blend-split > i.s-item { background: var(--blend-goals); }
 .blend-split > i.s-bad { background: color-mix(in srgb, var(--blend-income) 40%, transparent); }
 .blend-split > i.is-untracked {
   flex: 1 1 12%;
@@ -2751,3 +2784,15 @@ html.reduce .blend-sky { display: block; }
   line-height: 1.5;
 }
 .blend-ring-incomplete { justify-self: center; margin-top: 2px; }
+
+/* Later pay periods, estimated, while today's cash is unconfirmed (#821
+   6964438984). Layout only: Forecast's figures and trust words as given. */
+[data-budget-surface="unavailable"] .budget-surface-later { margin-top: 16px; padding: 18px 20px; }
+.estimated-later-period { padding: 12px 0; border-top: 1px solid var(--blend-line); }
+.estimated-later-period:first-of-type { border-top: 0; }
+.estimated-later-range { margin: 0 0 8px; font-size: 1rem; font-weight: 600; }
+.estimated-later-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 0; }
+.estimated-later-term dt { font-size: 0.78rem; color: var(--blend-muted, inherit); }
+.estimated-later-term dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.estimated-later-term .trust-tag.trust-estimated { margin-left: 6px; font-size: 0.7rem; padding: 1px 6px;
+  border: 1px solid var(--warning, currentColor); border-radius: 999px; }

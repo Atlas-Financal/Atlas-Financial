@@ -10,6 +10,7 @@ const Forecast = require('../public/forecast');
 const Live = require('./live-plan');
 const Observer = require('./provider-observe');
 const Operating = require('./operating-answer');
+const ObservationMemory = require('./server-observation-memory');
 
 // New captures write v2. Legacy v1 records stay readable byte-for-byte; they
 // carry no completeness metadata, so their completeness reads as 'unknown'.
@@ -80,6 +81,19 @@ const BASELINES = KINDS.slice(0, 3);
 const SECRET_KEY = /password|secret|credential|authorization|cookie|session|token|api[_-]?key|^env$/i;
 const PAYLOAD_KEYS = ['provider', 'fetchedAt', 'accounts', 'plaid_accounts', 'manual_accounts', 'assets',
   'transactions', 'categories', 'tags', 'transactionWindow', 'transaction_window', 'pendingCoverage', 'pending_coverage'];
+// The fixed-amount derivation (#1355) is kept as its clean outcome record
+// only, through the same cleaner observation memory uses, so a captured close
+// applies amountFixed exactly as the live page did. The 200-day history rows
+// (`amountHistory`) are never kept: capture() turns them into the record, and
+// without either, no bill is fixed.
+function capturePayload(source) {
+  const payload = Object.fromEntries(PAYLOAD_KEYS.filter(key => Object.hasOwn(source, key))
+    .map(key => [key, source[key]]));
+  if (Object.hasOwn(source, 'amountFixedDerivation')) {
+    payload.amountFixedDerivation = ObservationMemory.amountFixedDerivation(source.amountFixedDerivation);
+  }
+  return payload;
+}
 const ENTRY = /^\d{8}-[a-f0-9]{64}\.json$/;
 const STAGE = /^\.stage-[a-f0-9]{32}$/;
 
@@ -370,8 +384,7 @@ function capture(input, { now = () => new Date() } = {}) {
   // Runtime-owned clock; the CLI cannot backdate a reconstruction into original.
   // The function seam permits a synthetic clock in isolated tests only.
   const capturedAt = instant(now().toISOString());
-  const payload = Object.fromEntries(PAYLOAD_KEYS.filter(key => Object.hasOwn(clean.payload, key))
-    .map(key => [key, clean.payload[key]]));
+  const payload = capturePayload(clean.payload);
   const fetchedAt = instant(payload.fetchedAt);
   if (fetchedAt > capturedAt) fail('history-source-time-invalid');
   const evidenceInput = { data: clean.data, payload, accountMap: clean.accountMap, identity: clean.identity, periods: clean.periods };
@@ -379,7 +392,15 @@ function capture(input, { now = () => new Date() } = {}) {
   try {
     Observer.assertLiveMap(clean.accountMap, { data: clean.data });
     normalized = Observer.normalizeLunchMoneyPayload(payload);
-    refreshed = Live.fromObservation(evidenceInput);
+    // A caller holding the raw 200-day history (the operator CLI) derives the
+    // record exactly as live does; only the record is kept, never the rows.
+    const derives = Object.hasOwn(clean.payload, 'amountHistory') && !Object.hasOwn(clean.payload, 'amountFixedDerivation');
+    refreshed = Live.fromObservation(derives
+      ? { ...evidenceInput, payload: { ...payload, amountHistory: clean.payload.amountHistory } } : evidenceInput);
+    if (derives) payload.amountFixedDerivation = ObservationMemory.amountFixedDerivation(refreshed.report.derivedAmountFixed);
+    // The bill sheet's payment series is a page view, never period history:
+    // a captured close keeps no per-bill payment rows (Dale, 2026-11-18).
+    if (refreshed.data && refreshed.data.liveOverlay) delete refreshed.data.liveOverlay.billPaymentHistory;
     asOf = date(Operating.asOfFrom(refreshed.data, {}));
     forecastOptions = Operating.recommendOpts(refreshed.data, {});
     // Retain the caller's existing monthly source; never borrow today's file on replay.
@@ -446,8 +467,7 @@ function latestClosedPeriod(clean) {
   // as-of, take the Forecast cycle containing it, and walk back one cycle.
   // The named period is the most recent one that has fully ended; earlier
   // missed periods are not backfilled by this seam and stay not-captured.
-  const payload = Object.fromEntries(PAYLOAD_KEYS.filter(key => Object.hasOwn(clean.payload, key))
-    .map(key => [key, clean.payload[key]]));
+  const payload = capturePayload(clean.payload);
   let refreshed, asOf;
   try {
     Observer.assertLiveMap(clean.accountMap, { data: clean.data });

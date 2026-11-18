@@ -1113,6 +1113,8 @@
                     "id": "groceries",
                     "label": "Groceries",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Groceries & superstores",
+                    "lunchMoneyCategoryGroupId": 3808583,
                     "from": [
                         "Groceries"
                     ],
@@ -1126,6 +1128,8 @@
                     "id": "fuel",
                     "label": "Fuel & transport",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Fuel & transport",
+                    "lunchMoneyCategoryGroupId": 3808585,
                     "from": [
                         "Fuel & transport"
                     ],
@@ -1148,6 +1152,8 @@
                     "id": "household",
                     "label": "Household supplies & utilities",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Household supplies & utilities",
+                    "lunchMoneyCategoryGroupId": 3808586,
                     "from": [
                         "Household"
                     ],
@@ -1160,6 +1166,8 @@
                     "id": "health",
                     "label": "Medical & health",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Medical & health",
+                    "lunchMoneyCategoryGroupId": 3808587,
                     "from": [
                         "Health"
                     ],
@@ -1170,6 +1178,8 @@
                     "id": "telecom",
                     "label": "Phones & internet",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Phones & internet",
+                    "lunchMoneyCategoryGroupId": 3808588,
                     "from": [
                         "Telecom"
                     ],
@@ -1181,6 +1191,8 @@
                     "id": "insurance",
                     "label": "Insurance",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Insurance & coverage",
+                    "lunchMoneyCategoryGroupId": 3808589,
                     "from": [
                         "Insurance"
                     ],
@@ -1191,6 +1203,8 @@
                     "id": "pets",
                     "label": "Pets",
                     "class": "essential",
+                    "lunchMoneyCategoryGroupLabel": "Pets & pet care",
+                    "lunchMoneyCategoryGroupId": 3808590,
                     "from": [
                         "Pets"
                     ],
@@ -1232,6 +1246,8 @@
                     "id": "tax",
                     "label": "CRA instalments",
                     "class": "reserve",
+                    "lunchMoneyCategoryGroupLabel": "Taxes & government",
+                    "lunchMoneyCategoryGroupId": 3808605,
                     "from": [
                         "Tax"
                     ],
@@ -1242,6 +1258,8 @@
                     "id": "restaurants",
                     "label": "Dining out & takeaway",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Dining out & takeaway",
+                    "lunchMoneyCategoryGroupId": 3808584,
                     "from": [
                         "Restaurants",
                         "Fast Food",
@@ -1257,6 +1275,8 @@
                     "id": "shopping",
                     "label": "Shopping",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Shopping & retail",
+                    "lunchMoneyCategoryGroupId": 3808591,
                     "from": [
                         "Shopping",
                         "Personal"
@@ -1268,6 +1288,8 @@
                     "id": "dale-guilt-free",
                     "label": "Dale guilt-free spending",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Dale guilt-free",
+                    "lunchMoneyCategoryGroupId": 3808596,
                     "from": [
                         "Dale"
                     ],
@@ -1281,6 +1303,8 @@
                     "id": "amanda-guilt-free",
                     "label": "Amanda guilt-free spending",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Amanda guilt-free",
+                    "lunchMoneyCategoryGroupId": 3808597,
                     "from": [
                         "Amanda"
                     ],
@@ -1315,6 +1339,8 @@
                     "id": "travel",
                     "label": "Travel",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Travel & lodging",
+                    "lunchMoneyCategoryGroupId": 3808592,
                     "from": [
                         "Travel"
                     ],
@@ -1325,6 +1351,8 @@
                     "id": "sport",
                     "label": "Children & sports",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Children & sports",
+                    "lunchMoneyCategoryGroupId": 3808593,
                     "from": [
                         "Sport & fitness"
                     ],
@@ -1335,6 +1363,8 @@
                     "id": "entertainment",
                     "label": "Entertainment",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Entertainment & leisure",
+                    "lunchMoneyCategoryGroupId": 3808594,
                     "from": [
                         "Entertainment"
                     ],
@@ -1345,6 +1375,8 @@
                     "id": "subscriptions",
                     "label": "Subscriptions",
                     "class": "discretionary",
+                    "lunchMoneyCategoryGroupLabel": "Subscriptions",
+                    "lunchMoneyCategoryGroupId": 3808595,
                     "from": [
                         "Subscriptions"
                     ],

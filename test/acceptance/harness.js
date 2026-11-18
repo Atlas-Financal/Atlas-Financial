@@ -135,7 +135,7 @@ function planOf(w) {
     startingCash: { breakdown: w.accounts.filter(a => !a.held).map(a => ({ id: a.id, label: a.label, value: a.value, evidenceDate: w.asOf, confidence: a.confidence || 'confirmed' })) },
     income: clone(w.income),
     bills: clone(w.bills),
-    obligations: [],
+    obligations: clone(w.obligations || []),
     commitments: clone(w.commitments),
     groups: clone(w.groups),
     funding: { options: [] },
@@ -171,7 +171,7 @@ function accountMapOf(w, { captureCash = false } = {}) {
     // Reserve accounts are mapped only when a Savings pool is configured:
     // the observer refuses a reserve role without one.
     mappings: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).map(a => ({ providerAccountId: String(a.providerId), atlasRole: captureCash && a.reserve && !w.savingsPool ? 'household-cash' : a.role,
-      canonical: { id: a.id, collection: a.collection } })),
+      canonical: { id: a.id, collection: a.collection }, ...(a.externalId ? { externalId: a.externalId } : {}) })),
   };
 }
 
@@ -185,6 +185,10 @@ function rawPayload(w, { captureCash = false } = {}) {
     transactionWindow: { startDate: w.windowStart, endDate: w.asOf, ...w.coverage },
     pendingCoverage: w.pendingCoverage,
     fetchedAt: w.asOf + 'T18:00:00.000Z',
+    // The fixed-amount history read (derivedAmountFixedBills): present only when a world sets it.
+    ...(w.amountHistory ? { amountHistory: { transactions: w.amountHistory.transactions || [],
+      transactionWindow: { startDate: w.amountHistory.startDate || '2026-04-01', endDate: w.amountHistory.endDate || w.asOf,
+        complete: true, ...(w.amountHistory.coverage || {}) } } } : {}),
   };
 }
 

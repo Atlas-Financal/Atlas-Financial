@@ -56,21 +56,34 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
         const placement = await page.evaluate(() => {
           const section = document.querySelector('[data-budget-browse="attention"]');
           const bottom = document.getElementById('budget-attention-bottom');
-          const footer = document.querySelector('.blend-quiet > footer');
           const before = node => !!(node && node.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING);
           return { bottom: section.parentNode === bottom,
             afterSurface: before(document.getElementById('operating-surface')),
             afterSavings: before(document.querySelector('.budget-savings-accounts')),
             afterBalances: before(document.getElementById('recorded-balances')),
-            beforeFooter: !!(footer && (section.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)),
             attentionVisible: !section.closest('details:not([open])') };
         });
         assert.deepEqual(placement, { bottom: true, afterSurface: true, afterSavings: true,
-          afterBalances: true, beforeFooter: true, attentionVisible: true }, `attention after every Budget block: browser errors ${JSON.stringify(errors)}`);
+          afterBalances: true, attentionVisible: true }, `attention after every Budget block: browser errors ${JSON.stringify(errors)}`);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         assert.match(await page.locator('[data-budget-period-result]').innerText(), /1,632\.01/);
       };
       await order();
+      // By design (paintFaceBadges and retireHiddenTabStops, public/budget-blend.js) the attention list is moved offstage
+      // and its controls leave the Tab order; their visible face equivalents are checked by
+      // test/test-budget-attention-face-flags.js. Assert that contract here, so the programmatic click below cannot hide
+      // a change to it.
+      const offstage = await page.evaluate(() => {
+        const section = document.querySelector('[data-budget-browse="attention"]');
+        const controls = [...section.querySelectorAll('a[href], button, summary, input, select, textarea, [tabindex]')];
+        return { offstage: section.classList.contains('blend-offstage'), controls: controls.length > 0,
+          retired: controls.every(el => el.getAttribute('tabindex') === '-1') };
+      });
+      assert.deepEqual(offstage, { offstage: true, controls: true, retired: true },
+        'the attention list is offstage and its controls are out of the Tab order, by design');
+      // 991d5c2d removed the page footer the old ordering check measured against; it must stay removed, so the
+      // attention block (already proved last, in #budget-attention-bottom) has no footer to precede.
+      assert.equal(await page.locator('.blend-quiet > footer').count(), 0, 'no page footer is rendered (991d5c2d)');
       const capture = async name => {
         if (!screenshots) return;
         await page.evaluate(async () => { await document.fonts.ready; });
@@ -106,8 +119,15 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
       }
       for (let i = 0; i < 3; i++) await page.evaluate(() => App.rerender());
       await order();
-      await page.locator(selectors[0]).click();
+      // The offstage control is not a pointer target by design; a programmatic click still opens its detail.
+      await page.locator(selectors[0]).evaluate(el => el.click());
       assert.equal(await page.locator('[data-budget-detail-sheet][open]').count(), 1);
+      await page.keyboard.press('Escape');
+      // The pointer path a person uses: a real click on the visible face equivalent (the Other ring) opens the same
+      // Other spending detail.
+      await page.locator('[data-blend-cat="other-spending"]').first().click();
+      assert.equal(await page.locator('[data-budget-detail-sheet][open]').count(), 1, 'a real click on the Other ring opens its detail');
+      assert.match(await page.locator('[data-budget-detail-body]').innerText(), /^\s*Other spending/i, 'the ring opens the Other spending detail');
       await page.keyboard.press('Escape');
       await page.close();
       console.log(`PASS ${width}px: bottom order, content/figures, keyboard, repeat, refresh and resize`);
