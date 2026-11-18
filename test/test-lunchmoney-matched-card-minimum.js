@@ -34,9 +34,9 @@ let nextId = 94100;
 const pay = (date, amount, extra = {}) => ({ id: ++nextId, account_id: 3001, date, amount, currency: 'cad',
   payee: 'Invented card payment', category_name: 'Credit card payment', is_pending: false, recurring_id: Number(ID), ...extra });
 
-function fixture({ payments = [], optIn = true, statement = {}, windowStart = '2026-09-01' } = {}) {
+function fixture({ payments = [], optIn = true, statement = {}, windowStart = '2026-09-01', asOf = '2026-10-05' } = {}) {
   const x = source('triangle', 'triangle');
-  x.asOf = '2026-10-05';
+  x.asOf = asOf;
   x.data.meta.asOf = '2026-10-02';
   x.data.plan.opening.asOf = '2026-10-02';
   x.data.plan.windowDays = 28;
@@ -126,6 +126,25 @@ console.log('3b. A fetched window that starts inside the cycle settles nothing')
   withheld(serve(fixture({ payments: p, windowStart: '2026-10-01' }), lmRead(['2026-10-07'], p)), 'window from Oct 1 (Sep 20 could be hidden)');
   withheld(serve(fixture({ payments: p, windowStart: '2026-09-08' }), lmRead(['2026-10-07'], p)), 'window from Sep 8 (one day short of the cycle)');
   ok(settled(serve(fixture({ payments: p, windowStart: '2026-09-07' }), lmRead(['2026-10-07'], p))), 'window from Sep 7 (the cycle\'s first day) settles');
+}
+
+console.log('3c. The paired payment must itself post inside the cycle');
+{
+  // Lead blocker on 5dad8665: LM paired a payment dated before the cycle
+  // (Sep 6; the cycle runs from Sep 7 to Oct 8) with Oct 7. It pays no part
+  // of the Oct 7 cycle, so it settles nothing; the cycle's first day settles.
+  const before = [pay('2026-09-06', 100)];
+  withheld(serve(fixture({ payments: before }), lmRead(['2026-10-07'], before)), 'paid Sep 6, the day before the cycle');
+  const first = [pay('2026-09-07', 100)];
+  ok(settled(serve(fixture({ payments: first }), lmRead(['2026-10-07'], first))), 'paid Sep 7, the cycle\'s first day, settles');
+  // After the due date (Oct 8): observed on Oct 10, a payment on Oct 9 is
+  // after the cycle and settles nothing; one on Oct 8, the due date, settles.
+  const after = [pay('2026-10-09', 100)];
+  const late = serve(fixture({ payments: after, asOf: '2026-10-10' }), lmRead(['2026-10-07'], after));
+  ok(late.applied === true && late.represented.length === 0, 'paid Oct 9, the day after the due date: nothing settles',
+    JSON.stringify(late.represented.map(c => [c.date, c.postingDate])));
+  const due = [pay('2026-10-08', 100)];
+  ok(settled(serve(fixture({ payments: due, asOf: '2026-10-10' }), lmRead(['2026-10-07'], due))), 'paid Oct 8, the due date, settles');
 }
 
 console.log('4. No confirmed statement: the plan\'s estimated minimum never counts');

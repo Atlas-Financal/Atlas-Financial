@@ -3027,7 +3027,9 @@ function salaryReceiptTransferHits(input, rules) {
 // one payment with the cycle, where:
 //   - the cycle has a CONFIRMED statement (statementOccurrences, confidence
 //     confirmed) whose scheduled date is the paired occurrence;
-//   - the payment is at least that statement's minimum; and
+//   - the payment posted inside the cycle (after the previous occurrence, up
+//     to the statement's due date) and is at least that statement's minimum;
+//     and
 //   - no other linked payment of the rule posted in that cycle (after the
 //     previous occurrence, up to the statement's due date), and the fetched
 //     transaction window is complete and starts no later than the cycle's
@@ -3048,6 +3050,9 @@ function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
   const previous = Forecast.occurrences(row, Forecast.addDays(original, -62), Forecast.addDays(original, -1)).pop() || Forecast.addDays(original, -31);
   if (!txWindow || txWindow.complete !== true || !realIsoDay(txWindow.startDate)
     || txWindow.startDate > Forecast.addDays(previous, 1)) return false;
+  // The paired payment itself must post inside the cycle: a payment before
+  // the cycle starts, or after the statement is due, pays no part of it.
+  if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
   const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
     && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
   return others.length === 0;
