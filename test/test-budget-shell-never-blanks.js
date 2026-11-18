@@ -1,5 +1,10 @@
 'use strict';
 // Dale, 2026-11-18: "The budget page for no reason should ever go blank."
+// and "If we have a failure where the whole page goes down we should just keep
+// it at the last full picture." Section 6: when today's refresh fails, the
+// retained last full picture (already served wholesale by the server) shows
+// unchanged under a banner, in a muted state. Sections 1-5: with no picture
+// retained, the fallback.
 // When the current plan is withheld as a whole (liveOverlay.operatingPlan
 // 'unavailable'), the Budget surface used to drop the whole current pay
 // period. It now keeps it as a shell: the period's dates, each figure
@@ -134,6 +139,41 @@ console.log('5. The reason is escaped');
   const shell = section(html, 'period-unknown');
   check(!shell.includes('<img') && shell.includes('&lt;img') && !/title="[^"]*"[^>]*onerror/.test(shell), 'markup in the reason never reaches the page raw');
   check(shell.includes('data-budget-unavailable-shell'), 'and the shell still renders');
+}
+
+console.log('6. A retained last full picture is shown unchanged, under a banner (Dale, 2026-11-18)');
+{
+  // The server serves the retained last complete publication wholesale when
+  // today's refresh fails (live-plan withLatestCompleteRefresh).
+  const base = observed([purchase, paidLeg]);
+  const picture = Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
+    { source: 'provider', qualified: false, checkedAt: '2026-09-21T16:30:00Z', attemptedAt: '2026-09-21T16:30:00Z',
+      reason: 'provider-unavailable' });
+  const plain = render(base).html, shown = render(picture).html;
+  const banner = (shown.match(/<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>([^<]*)<\/p>/) || [])[1];
+  check(banner === 'Showing the last full picture from Sep 20, 2026, 10:00 a.m. PDT. Today\'s update couldn\'t be completed: the bank connection did not answer.',
+    'the banner names the picture\'s time and a one-line reason (got ' + banner + ')');
+  check(/data-budget-surface="pay-period"/.test(shown) && !shown.includes('data-budget-unavailable-shell'), 'the full page is shown, not the shell');
+  check(/<div class="budget-retained-picture" data-budget-retained-picture>/.test(shown), 'the page is in its muted state');
+  check(!/data-account-last-updated|data-latest-complete-refresh/.test(shown), 'the banner replaces the small OD-3 line here');
+  check(/data-budget-evidence-dated="2026-09-20"/.test(shown), 'the period chip still reads as of the picture\'s day');
+  const amounts = html => (html.match(/\$[\d,]+\.\d\d/g) || []).sort().join(' ');
+  check(amounts(shown) === amounts(plain) && amounts(shown).length > 0,
+    'every amount is exactly the publication\'s own: nothing recomputed or mixed in');
+  check(!/data-budget-retained-banner|data-budget-retained-picture/.test(plain), 'a current page has no banner and no muted state');
+  // Reasons come from the closed set; anything else reads the default line.
+  const odd = Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
+    { source: 'provider', checkedAt: null, attemptedAt: null, reason: '<b>x</b>' });
+  check(render(odd).html.includes("Today's update couldn't be completed: the current bank data is unavailable."),
+    'an unknown reason reads the default line');
+  const badTime = JSON.parse(JSON.stringify(picture));
+  badTime.liveOverlay.retainedRefresh.observedAt = '<img src=x onerror=alert(1)>';
+  const badHtml = render(badTime).html;
+  check(badHtml.includes('Showing the last full picture from an earlier refresh (time unavailable).') && !badHtml.includes('<img'),
+    'an unreadable time is never printed raw');
+  // No retained picture (a cold restart with the provider down): the shell.
+  check(render(Live.withoutCompleteRefresh(base)).html.includes('data-budget-unavailable-shell'),
+    'with no picture retained, the shell-with-unknowns is the fallback');
 }
 
 console.log(`\nAll Budget shell checks passed (${checks}).`);

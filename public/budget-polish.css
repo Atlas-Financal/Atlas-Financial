@@ -654,3 +654,14 @@ body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated
 .blend-detail-sheet .budget-savings-info > div > details > summary {
   font-size:13px; font-weight:500; color:var(--blend-ink-2);
 }
+
+/* Dale, 2026-11-18: the last full picture, shown unchanged while today's
+ * update could not be completed. The banner says so; the page is muted so its
+ * figures do not read as today's. */
+.budget-retained-banner {
+  border-left: 3px solid var(--warning);
+}
+.budget-retained-picture {
+  filter: saturate(0.55);
+  opacity: 0.88;
+}

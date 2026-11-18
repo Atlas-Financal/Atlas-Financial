@@ -1081,12 +1081,47 @@ function providerBalanceDate(liveOverlay) {
   return null;
 }
 
+// The retained picture's own time (its complete cohort), household time zone.
+function retainedPictureTime(retained) {
+  return retained && typeof retained.observedAt === 'string' && Number.isFinite(Date.parse(retained.observedAt))
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(retained.observedAt))
+    : null;
+}
+
+// Dale, 2026-11-18: "If we have a failure where the whole page goes down we
+// should just keep it at the last full picture." The server already serves
+// the retained last complete publication wholesale (live-plan
+// withLatestCompleteRefresh: its own financial date stays Forecast's basis,
+// nothing is mixed with today's partial data). This banner says so plainly,
+// replacing OD-3's small "Last updated" line in this failure state only.
+// One line per closed attempt reason (live-plan withLatestCompleteRefresh).
+const RETAINED_PICTURE_REASONS = Object.freeze({
+  'provider-unavailable': 'the bank connection did not answer.',
+  'provider-request-timeout': 'the bank connection did not answer in time.',
+  'stale-live-cash-evidence': 'the bank balances were not current.',
+  'missing-live-cash-evidence': 'a bank balance was missing.',
+  'pending-freshness-unproven': 'pending transactions could not be confirmed as current.',
+  'posted-window-truncated': 'the transaction history came back incomplete.',
+  'posted-window-unproven': 'the transaction history could not be confirmed complete.',
+  'live-refresh-unavailable': 'the refresh did not finish.',
+  'live-refresh-timeout': 'the refresh took too long.',
+  'live-refresh-invalidated': 'the refresh was superseded before it finished.',
+  'live-refresh-busy': 'another refresh was already running.',
+  'current-observation-unavailable': 'the current bank data is unavailable.',
+});
+function retainedPictureBannerHtml(liveOverlay) {
+  const retained = liveOverlay?.retainedRefresh;
+  if (!retained) return '';
+  const time = retainedPictureTime(retained) || 'an earlier refresh (time unavailable)';
+  const reason = RETAINED_PICTURE_REASONS[retained.attempt?.reason] || RETAINED_PICTURE_REASONS['current-observation-unavailable'];
+  return `<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>`
+    + `Showing the last full picture from ${escapeHtml(time)}. Today's update couldn't be completed: ${escapeHtml(reason)}</p>`;
+}
+
 function latestCompleteRefreshNote(liveOverlay) {
   const retained = liveOverlay?.retainedRefresh;
   if (!retained) return null;
-  const time = typeof retained.observedAt === 'string' && Number.isFinite(Date.parse(retained.observedAt))
-    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(retained.observedAt))
-    : 'date/time unavailable';
+  const time = retainedPictureTime(retained) || 'date/time unavailable';
   return `Latest complete refresh: ${time}. Dated plan, not current balances. Current refresh ${retained.attempt?.checkedAt ? 'incomplete' : 'unavailable'}.`;
 }
 
@@ -6677,15 +6712,21 @@ function budgetSurfaceHtml(ctx) {
   // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
   // the small "Last updated" line only. The note stays only when no such line
   // can be printed, so a dated view is never shown without any freshness line.
-  const dated = updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
+  // Superseded for a retained picture (Dale, 2026-11-18): the banner below
+  // says it is the last full picture, and why today's update failed.
+  const retained = !!ctx.liveOverlay?.retainedRefresh;
+  const dated = retained || updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
   // A dated or retained view marks its evidence day so the current-period chip reads
   // "As of <day>", never "Now" (public/budget-blend.js).
   const evidenceDay = ctx.liveOverlay?.retainedRefresh && Forecast.financialDate(ctx.asOf) ? Forecast.financialDate(ctx.asOf) : null;
+  const body = budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
+    + BudgetSurface.html(ctx, budgetSurfaceParts());
   return (evidenceDay ? `<span hidden data-budget-evidence-dated="${escapeHtml(evidenceDay)}"></span>` : '')
+    + retainedPictureBannerHtml(ctx.liveOverlay)
     + (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
-    + budgetSavedHistoryUnavailableHtml(payPeriodSelection(ctx.advice || {}, ctx.planPayPeriodId).period)
-    + BudgetSurface.html(ctx, budgetSurfaceParts())
-    + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
+    // A retained picture is shown unchanged, in a muted page state.
+    + (retained ? `<div class="budget-retained-picture" data-budget-retained-picture>${body}</div>` : body)
+    + (updated && !retained ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
 }
 
 function paydayAnswerHtml(ctx) {
