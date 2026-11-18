@@ -817,7 +817,7 @@ Decide whether to delete them from `data.json` (and stop producing them) or
 keep them as a record. `test-question-status.js` still checks
 `data.json.questions` against `docs/01_OPEN_QUESTIONS.md`.
 
-**Precondition for #822 slice 10: the snapshot still calls `Forecast.deepDive`** · *small*
+~~**Precondition for #822 slice 10: the snapshot still calls `Forecast.deepDive`** · *small*~~ Done 2026-11-18: `heloc.currentOpening` is dropped from the snapshot. Its only publisher was the removed Deep Dive page, and the same posted HELOC opening stays observed as `revolving.heloc.posted` (`Forecast.utilisation`) and `scoreboard.today.heloc`. `test-figures-snapshot-credit-planning` section 6 asserts the snapshot calls `deepDive` 0 times. Outside dead-page code and its own tests, nothing now calls `deepDive`; deleting it is slice 10. The original entry:
 `scripts/figures-snapshot.js` reads `heloc.currentOpening` from
 `Forecast.deepDive(data)` and `balance.assets` from
 `Forecast.publicationTotals(data)`. Slice 10 removes the dead-page exports
