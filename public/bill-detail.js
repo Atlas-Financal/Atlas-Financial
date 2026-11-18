@@ -283,7 +283,7 @@
     const pendingRows = (coverage && coverage.trust === 'estimated' && Array.isArray(coverage.toConfirm)
       ? coverage.toConfirm : []).filter(row => row && typeof row === 'object');
     const toConfirm = pendingRows.length
-      ? '<div class="visa-payment-to-confirm" data-card-payment-to-confirm><h4>To confirm</h4>'
+      ? '<div class="visa-payment-to-confirm" data-card-payment-to-confirm data-trust="estimated"><h4>To confirm</h4>'
         + pendingRows.map(row => '<div class="operating-line" data-card-payment-to-confirm-row><span>'
           + escape(text(row.question) || 'To confirm: which card did this pay?') + '</span><span>'
           + escape(date(row.date) ? row.date : 'Date unavailable') + ' · ' + escape(money(row.amount))

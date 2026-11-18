@@ -216,6 +216,12 @@ console.log('7. The Budget payment section shows the To-confirm row');
   check(html.includes('To confirm: which card did this pay?') && html.includes('2026-09-20') && html.includes('$105.00')
     && html.includes('from Bills'), 'it shows the question, date, amount and the account it left');
   check(/counts toward no card/.test(html) && /estimates/.test(html), 'it says the payment counts toward no card and the figures are estimates');
+  check(/data-card-payment-to-confirm data-trust="estimated"/.test(html), 'the block is tagged as an estimate');
+  // Every printed string is escaped: a planted markup string never reaches the page raw.
+  const planted = { ...degraded.period.cardPurchaseCoverage, toConfirm: [{ question: '<img src=x onerror=alert(1)>',
+    date: '2026-09-20', amount: 105, fromAccount: '<b>x</b>' }] };
+  const escaped = Detail.visaPaymentsHtml([], planted);
+  check(!escaped.includes('<img') && !escaped.includes('<b>') && escaped.includes('&lt;img'), 'every printed string is escaped');
   const two = run(world([purchase, cashLeg(60), cashLeg(45)]));
   check((Detail.visaPaymentsHtml(two.period.visaPaymentBackfill, two.period.cardPurchaseCoverage)
     .match(/data-card-payment-to-confirm-row/g) || []).length === 2, 'two unconfirmed payments: two rows');
