@@ -24036,6 +24036,17 @@
   // until evidence supersedes the estimate. This function
   // remains the only statutory calculator.
   const SEASPAN_CURRENT_ANNUAL = 158091;
+  // Raise date (lead ruling 2026-11-18): Dale's raise anniversary
+  // is 1 March (household interview 2026-08-12). Payroll applied the 2026
+  // raise from Sun 2026-02-22, the start of the 14-day pay period that
+  // contains 1 March (source_intake EMPLOYMENT_PENSION_FACTS_2026-08-13).
+  // NEXT_EFFECTIVE is that observed date rolled forward one year. It lands
+  // the estimated raise on the cheque whose pay period contains the 1 March
+  // anniversary. Do not replace it with the literal 1 March: under the
+  // period-start rule below that would move the raise one cheque later.
+  // The regime lookup takes a cheque's period start as payday minus 13
+  // days, which is not payroll's own period (about payday minus 19 to
+  // minus 6); the two agree on which cheque first carries the raise.
   const SEASPAN_RAISE_LAST_EFFECTIVE = '2026-02-22';
   const SEASPAN_RAISE_NEXT_EFFECTIVE = '2027-02-22';
   const SEASPAN_OPTIONAL_PENSION_FROM = '2026-06-19';
