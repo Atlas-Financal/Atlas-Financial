@@ -159,6 +159,25 @@ console.log('4. Other estimate causes keep their wording');
   const noCardHtml = page('paydayInstructionShellHtml')(noCardAdvice, noCardPeriod, null, noCard.data.liveOverlay)
     + page('budgetSpendingSectionHtml')(noCardPeriod, { advice: noCardAdvice, asOf: '2026-09-20', liveOverlay: noCard.data.liveOverlay });
   check(count(noCardHtml, /data-card-estimate-as-of/g) === 0, 'no card estimate and an estimated Bills balance: no as-of tag');
+  // #1373 pre-review note: with no card estimate, fromTodayFunding has no
+  // fundingTrustExceptCard. A figure estimated only by a FORWARD funding term
+  // (here an invented future commitment whose amount is an estimate) must
+  // never read that absence as "calculated without the card" and gain the
+  // card cause.
+  const fwd = Live.fromObservation(world([purchase, cashLeg(105, { notes: TRAVEL })]));
+  fwd.data.plan.commitments = [{ id: 'roof', label: 'Invented roof', date: '2026-12-15', amount: 400, confidence: 'estimated' }];
+  const fwdAdvice = F.recommend(fwd.data.plan, '2026-09-20', { debts: fwd.data.debts,
+    currentPeriodActuals: fwd.data.liveOverlay.currentPeriodActuals });
+  const fwdPeriod = fwdAdvice.payPeriodViews.find(p => p.role === 'active');
+  check(fwdAdvice.cardPurchaseCoverage.trust !== 'estimated' && fwdPeriod.fromTodayFunding.trust === 'estimated',
+    'a forward-funding estimate with no card estimate: the figure is estimated (' + fwdPeriod.fromTodayFunding.trust + ')');
+  check(fwdPeriod.fromTodayFunding.estimateCause === undefined
+    && !Object.values(fwdAdvice.paydayShellEstimateCause || {}).includes(F.CARD_ESTIMATE_CAUSE),
+    'a forward-funding estimate with no card estimate: no card cause is published');
+  const fwdCell = stillPlanned(page('budgetSpendingSectionHtml')(fwdPeriod, { advice: fwdAdvice, asOf: '2026-09-20',
+    liveOverlay: fwd.data.liveOverlay }));
+  check(/≈/.test(fwdCell) && /estimated/.test(fwdCell) && !fwdCell.includes('data-card-estimate-as-of'),
+    'a forward-funding estimate with no card estimate: Still planned keeps the plain estimate wording, no as-of tag');
 }
 
 console.log('4b. One home for the card-estimate cause, basis and reasons');
