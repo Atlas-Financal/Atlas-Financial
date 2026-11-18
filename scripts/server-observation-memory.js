@@ -268,9 +268,12 @@ function create() {
       // The clear slot follows the display slot, except that a withheld
       // publication keeps the earlier clear picture. When the display slot
       // empties (a newer publication that cannot be retained) the clear slot
-      // empties too: no picture older than a superseding one is kept.
-      const clearDisplay = !nextDisplay ? null
-        : planWithheld(nextDisplay.data) ? slot?.clearDisplay || null : nextDisplay;
+      // empties too: no picture older than a superseding one is kept. A
+      // withheld publication under a different display context also drops it,
+      // so a return to the old context cannot revive a superseded picture.
+      const kept = slot?.clearDisplay && isDeepStrictEqual(slot.clearDisplay.context, nextDisplay?.context)
+        ? slot.clearDisplay : null;
+      const clearDisplay = !nextDisplay ? null : planWithheld(nextDisplay.data) ? kept : nextDisplay;
       slot = { context, evidence: { schema: SCHEMA, payload: sourceInputs(evidence.payload) },
         display: nextDisplay, clearDisplay };
     },
