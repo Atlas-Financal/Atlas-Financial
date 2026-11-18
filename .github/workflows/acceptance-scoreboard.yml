@@ -6,10 +6,17 @@
 # file fails to load, or when the run is partial. A marked scenario that
 # starts passing is reported, not failed.
 #
+# The same job then runs the two browser escaping twins
+# (test/browser-forecast-text-escaping.js, test/browser-page-renderer-escaping.js):
+# they catch Forecast or page text rendered as markup in a real browser.
+#
 # Not a required status check; making it required is a ruleset decision for
-# the lead/owner. The scoreboard's own output stays private (ci-output.js);
-# only the outcome and the ids of the scenarios that tripped the gate are
-# printed. Run `npm run scoreboard -- --verbose` locally for detail.
+# the lead/owner. In practice a red run still stops a merge, because the
+# lead's enqueue gate stops on any red check run.
+#
+# All output stays private (ci-output.js); only the outcome and the ids of the
+# scenarios that tripped the gate are printed. Run
+# `npm run scoreboard -- --verbose` locally for detail.
 name: acceptance scoreboard
 
 on:
@@ -62,4 +69,18 @@ jobs:
             echo "scoreboard report missing"
             status=1
           fi
+          exit "${status}"
+
+      # Hostile Forecast and page text must stay text in real Chromium.
+      # Output stays private (ci-output.js); only the outcome is printed.
+      # Both twins run even when the first fails.
+      - name: Run the browser escaping twins
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          status=0
+          node scripts/ci-output.js --identity browser-forecast-text-escaping -- \
+            node test/browser-forecast-text-escaping.js || status=1
+          node scripts/ci-output.js --identity browser-page-renderer-escaping -- \
+            node test/browser-page-renderer-escaping.js || status=1
           exit "${status}"

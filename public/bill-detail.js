@@ -276,7 +276,23 @@
           + '<p>Opening and earlier purchases carry forward until confirmed coverage or refund. This disclosure does not add them to current-period spending.</p>'
           : '<p>Confirm the opening and purchase/payment evidence before using available cash. Earlier coverage has not been established.</p>')
         + '</div></details>' : '';
-    if (!payments.length) return carry;
+    // Lead dispatch 2026-11-18 (Dale): a card payment whose card is
+    // unconfirmed, or a card credit whose purpose is unconfirmed, counts
+    // toward no card and is listed here To confirm. Printed as
+    // supplied by Forecast (cardPurchaseCoverage.toConfirm); no money math.
+    const fromLabel = id => id === 'chequing-a' ? 'Bills' : id === 'savings' ? 'Savings' : 'A household account';
+    const pendingRows = (coverage && coverage.trust === 'estimated' && Array.isArray(coverage.toConfirm)
+      ? coverage.toConfirm : []).filter(row => row && typeof row === 'object');
+    const toConfirm = pendingRows.length
+      ? '<div class="visa-payment-to-confirm" data-card-payment-to-confirm data-trust="estimated"><h4>To confirm</h4>'
+        + pendingRows.map(row => '<div class="operating-line" data-card-payment-to-confirm-row><span>'
+          + escape(text(row.question) || 'To confirm: which card did this pay?') + '</span><span>'
+          + escape(date(row.date) ? row.date : 'Date unavailable') + ' · ' + escape(money(row.amount))
+          + (text(row.onCard) ? ' · on ' + escape(text(row.onCard)) : ' · from ' + escape(fromLabel(row.fromAccount)))
+          + '</span></div>').join('')
+        + '<p>Until each row is confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p></div>'
+      : '';
+    if (!payments.length) return carry + toConfirm;
     const blocks = payments.map(row => {
       if (!row || typeof row !== 'object') return '';
       const label = text(row.accountLabel) || 'Visa';
@@ -297,7 +313,7 @@
     }).join('');
     // Purchases live in their original category transaction rows. Keep this
     // drawer for payment allocation evidence, without a second purchase list.
-    return carry + '<div class="visa-payment-backfill" data-visa-payment-backfill><h4>Card payment allocations</h4>'
+    return carry + toConfirm + '<div class="visa-payment-backfill" data-visa-payment-backfill><h4>Card payment allocations</h4>'
       + blocks + '<p>Household allocation and issuer minimum confirmation are separate.</p></div>';
   }
 

@@ -287,6 +287,14 @@ function projectFromAdvice(advice, data, opts, asOf) {
       mode: planUnavailable ? null : (action.mode || (advice && advice.mode) || null),
       nextPayday: planUnavailable ? null : (action.nextPayday || null),
       noMovementToday: planUnavailable ? false : action.noMovementToday === true,
+      // Lead ruling on #1358 (B2): a card payment's card is unconfirmed, so the
+      // permission rests on an estimated card coverage (cautious, never above).
+      ...(!planUnavailable && advice && advice.cardPurchaseCoverage && advice.cardPurchaseCoverage.status === 'ready'
+        && advice.cardPurchaseCoverage.trust === 'estimated'
+        ? { trust: 'estimated', estimateBasis: ['card-payment-destination-unconfirmed', 'card-credit-purpose-unconfirmed', 'card-payment-source-unconfirmed']
+            .includes(advice.cardPurchaseCoverage.estimateBasis) ? advice.cardPurchaseCoverage.estimateBasis : 'card-coverage-rows-unconfirmed',
+          toConfirmCount: Array.isArray(advice.cardPurchaseCoverage.toConfirm) ? advice.cardPurchaseCoverage.toConfirm.length : 0 }
+        : {}),
     },
     futureCostProtection: {
       source: 'Forecast.paydayAllocation.futureCosts / protectedPath',

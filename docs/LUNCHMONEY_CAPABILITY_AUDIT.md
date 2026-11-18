@@ -29,7 +29,7 @@ Code was required for exactly one of them (below).
 |---|---|---|
 | Historical account balances | `GET /balance_history` (monthly) | **Implemented — see below** |
 | New/changed transaction reads | `GET /transactions` with `created_since` / `updated_since`, plus `recurring_id`, `tag_id`, `status` filters and `include_files` | Missing — NEXT PR candidate |
-| Budget summaries | `GET /summary`, `GET /budgets/settings` | Missing — Engine handoff (below); budgets themselves (`PUT`/`DELETE /budgets`) are a write and a Forecast-authority question, not plumbing |
+| Budget summaries | `GET /summary`, `GET /budgets/settings` | **Implemented** (owner decision, #821, 2026-11-18): read once per live observation by `scripts/provider-observe.js`, which keeps only `budgeted` per budget period for each plan budget row, its Lunch Money group named by numeric id (`lunchMoneyCategoryGroupId`; the row's `lunchMoneyCategoryGroupLabel` is a human label only and is never matched). Its Forecast consumer is the next PR (Engine handoff 1, below). Budget writes (`PUT`/`DELETE /budgets`) stay missing: a write, outside the GET-only grant |
 | Recurring-item reads | `GET /recurring_items`, `GET /recurring_items/{id}` | List read **implemented once**, in `scripts/provider-recurring-items.js`, with two consumers: (1) the observer (S1, owner decision #821 6956651970) uses `scripts/provider-recurring-items.js`, restored 2026-11-17 for its first consumer, once per live observation for the transaction window, and keeps only reviewed, rule-named items as schedule fields (FOUNDATION, read by nothing yet); (2) the assistant tool `get_lunchmoney_recurring_items` (reviewed items, schedule evidence only, aliases only; owner approval 2026-11-17, LEDGER A S0) projects the same module's output and makes no request of its own. The by-id read stays missing. The `recurring-audit.js` discovery script stays removed |
 | Receipt attachments | `POST /transactions/{id}/attachments`, `GET /transactions/attachments/{file_id}` (signed URL), `DELETE` | Missing — write path; reuse #560's safeguards when built |
 | Group workflows | `POST /transactions/group`, `DELETE /transactions/group/{id}`, `DELETE /transactions/split/{id}` (unsplit) | Missing — write path (split creation already exists via the bounded preview path) |
@@ -99,11 +99,13 @@ Muse owns connection plumbing, retrieval, interface components and tests.
 The following change financial classification, calculations or allocation and
 are handed to Engine; this PR deliberately does not implement them:
 
-1. **Budget summaries.** When `GET /summary` / `GET /budgets/settings` reads
-   are plumbed in a later PR, Engine decides whether and how provider
-   budgeted/available figures may be displayed next to Forecast figures
-   without creating a second planning authority. Provider `budgeted` /
-   `available` must never be published as Forecast figures.
+1. **Budget summaries.** The reads are plumbed (above). Dale's decision
+   (#821, 2026-11-18) is that each budget row's planned amount comes from
+   its Lunch Money budget. Provider `budgeted` is a plan input, the same as
+   an owner target: Forecast still calculates every published figure from
+   it (cadence, carry-forward, holds), so there is no second planning
+   authority. Provider `budgeted` / `available` are never published as
+   Forecast figures themselves, and `available` is not read.
 2. **Card purchase/payment reconciliation.** Engine owns the allocation
    decision (which purchase a card payment settles, minimum-payment identity,
    settlement timing). Plumbing may supply matched transaction evidence only.

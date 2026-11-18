@@ -661,12 +661,20 @@ function assertOwnerPolicyUntouched(before, after, scheduledBills, scheduledObli
       return ordered;
     });
   };
+  // amountFixed is derived on every bill and obligation (applyDerivedAmountFixed),
+  // never the canonical row's: that one key is set aside on both sides; nothing else may differ.
+  const withoutAmountFixed = rows => (Array.isArray(rows) ? rows.map(row => {
+    if (!row || typeof row !== 'object' || !Object.hasOwn(row, 'amountFixed')) return row;
+    const { amountFixed, ...rest } = row;
+    return rest;
+  }) : rows);
   for (const key of keys) {
     const afterValue = key === 'bills'
-      ? canonicalTiming((before.plan || {}).bills, (after.plan || {}).bills)
-      : key === 'obligations' ? obligationTiming((before.plan || {}).obligations, (after.plan || {}).obligations)
+      ? withoutAmountFixed(canonicalTiming((before.plan || {}).bills, (after.plan || {}).bills))
+      : key === 'obligations' ? withoutAmountFixed(obligationTiming((before.plan || {}).obligations, (after.plan || {}).obligations))
       : (after.plan || {})[key];
-    if (JSON.stringify((before.plan || {})[key]) !== JSON.stringify(afterValue)) {
+    const beforeValue = key === 'bills' || key === 'obligations' ? withoutAmountFixed((before.plan || {})[key]) : (before.plan || {})[key];
+    if (JSON.stringify(beforeValue) !== JSON.stringify(afterValue)) {
       fail(`Live overlay must not rewrite plan.${key}.`);
     }
   }
@@ -1380,6 +1388,29 @@ function clearObservedBillsEstimate(next, report, liveAsOf) {
   if (observed) delete row.confidence;
 }
 
+// Owner decision (#821, 2026-11-18): a bill's amountFixed comes only from its
+// Lunch Money payment history (provider-observe derivedAmountFixedBills), never a
+// hand mark. Every served bill loses any amountFixed it carried, then a bill
+// the derivation names gets amountFixed: true. Without a complete history
+// read, no bill is fixed.
+function applyDerivedAmountFixed(plan, report) {
+  const derived = report && report.derivedAmountFixed;
+  const complete = derived && derived.status === 'complete';
+  const fixed = new Set(complete && Array.isArray(derived.billIds) ? derived.billIds : []);
+  for (const bill of (plan && plan.bills) || []) {
+    if (!bill) continue;
+    delete bill.amountFixed;
+    if (fixed.has(bill.id)) bill.amountFixed = true;
+  }
+  // Obligations too (lead ruling on #1355: the mortgage), from the same derivation.
+  const fixedObligations = new Set(complete && Array.isArray(derived.obligationIds) ? derived.obligationIds : []);
+  for (const obligation of (plan && plan.obligations) || []) {
+    if (!obligation) continue;
+    delete obligation.amountFixed;
+    if (fixedObligations.has(obligation.id)) obligation.amountFixed = true;
+  }
+}
+
 function overlayLiveState(input) {
   const data = input && input.data;
   if (!data || !data.plan || !Array.isArray(data.debts)) fail('Canonical data is missing plan or debts.');
@@ -1427,6 +1458,7 @@ function overlayLiveState(input) {
     bills[i] = O.applyRecurringSchedule(bills[i], schedule);
     scheduledBills.add(bills[i].id);
   }
+  applyDerivedAmountFixed(next.plan, report);
   const cutover = applyLiveCutover(next, report, historicalOpeningAsOf);
   // Rebuild from fresh evidence. Absence on a later fetch is not proof that
   // a previously observed receipt funds an additional future occurrence.
@@ -1455,6 +1487,12 @@ function overlayLiveState(input) {
   markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   clearObservedBillsEstimate(next, report, liveAsOf);
   assertOwnerPolicyUntouched(data, next, scheduledBills, scheduledObligations);
+  // Budget targets from Lunch Money budgets (owner decision #821, 2026-11-18).
+  // Forecast derives the dated targets; a row Lunch Money does not resolve
+  // keeps its plan target. Applied after the owner-policy guard, which checks
+  // the overlay against the canonical plan, not this derived input.
+  next.plan = Forecast.withLunchMoneyBudgets(next.plan,
+    report.currentPeriodActuals && report.currentPeriodActuals.lunchMoneyBudgets, cutover.liveAsOf || liveAsOf);
   const cash = Forecast.startingCashAmount(next.plan);
   if (!isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');
   const allRefused = refused.concat(postingRefused).sort((a, b) =>
@@ -1571,6 +1609,7 @@ function failedOverlay(canonical, reason, extra) {
   logLiveFailure(sanitized);
   const next = clone(canonical);
   if (next.plan) delete next.plan.cardMinimumCategoryEvidence;
+  if (next.plan) applyDerivedAmountFixed(next.plan, null);
   const historicalOpeningAsOf = (canonical.plan && canonical.plan.opening && canonical.plan.opening.asOf)
     || (canonical.meta && canonical.meta.asOf) || null;
   const report = extra && extra.report;
@@ -1882,7 +1921,10 @@ async function applyForServer(canonical, env, options) {
     if (qualified && !options?.evidence && options?.onObservation) {
       try {
         StageTiming.sync('sourceReplayMs', () => {
-          const inputs = ObservationMemory.sourceInputs(payload);
+          // The fixed-amount derivation replays as its outcome record only (#1355):
+          // the 200-day history rows are never kept.
+          const inputs = ObservationMemory.sourceInputs(report.derivedAmountFixed
+            ? { ...payload, amountFixedDerivation: report.derivedAmountFixed } : payload);
           // A field projection cannot change qualification or a single figure.
           // Future observer inputs therefore cause a cache miss until supported.
           const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, inputs, accountMap));
@@ -1962,7 +2004,7 @@ async function acquireServerObservation(canonical, env, options) {
     credential.token,
     now,
     livePostedHistoryDays(canonical, now),
-    { env: env || process.env, signal: options && options.signal,
+    { env: env || process.env, signal: options && options.signal, amountHistory: true,
       onHouseholdIdentity: options?.onHouseholdIdentity,
       onCoverageDiagnostic: options?.onCoverageDiagnostic }
   );
@@ -2038,7 +2080,8 @@ async function run(argv) {
     const payload = await O.fetchLunchMoneyLive(
       await O.resolveLiveToken(),
       now,
-      livePostedHistoryDays(data, now, identity)
+      livePostedHistoryDays(data, now, identity),
+      { amountHistory: true }
     );
     result = fromObservation({ data, payload, accountMap, identity });
   } else {

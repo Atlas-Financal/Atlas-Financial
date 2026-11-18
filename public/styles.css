@@ -1237,99 +1237,6 @@ footer strong { color:var(--text-secondary); font-weight:600; }
 .future-gravity-note { font-size:.78rem; }
 .operating-limit { margin:7px 0 0; color:var(--text-secondary); font-size:.88rem; }
 .operating-limit.warn { color:var(--critical); }
-.allocation-sheet { margin-top:14px; }
-.allocation-available, .allocation-remainder, .allocation-reconcile {
-  display:flex; justify-content:space-between; gap:18px; align-items:baseline;
-  font-variant-numeric:tabular-nums;
-}
-.allocation-available { padding:14px 16px; border-radius:12px; background:var(--plane); }
-.allocation-available span { font-size:.82rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
-.allocation-available b { font-size:1.65rem; letter-spacing:-.02em; }
-.allocation-list { margin-top:12px; border-top:1px solid var(--grid); }
-.allocation-line {
-  display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:10px; align-items:start;
-  padding:13px 0; border-bottom:1px solid var(--grid);
-}
-.allocation-step {
-  display:grid; place-items:center; width:22px; height:22px; margin-top:1px; border-radius:50%;
-  background:var(--plane); color:var(--s1); font-size:.68rem; font-weight:750;
-}
-.allocation-label { font-size:.96rem; font-weight:650; line-height:1.35; }
-.allocation-action {
-  display:inline-block; margin-right:7px; color:var(--s1); font-size:.68rem; font-weight:750;
-  letter-spacing:.06em; text-transform:uppercase;
-}
-.allocation-trust { margin-top:3px; color:var(--text-secondary); font-size:.78rem; line-height:1.35; }
-.allocation-value { font-weight:750; font-variant-numeric:tabular-nums; min-width:0; overflow-wrap:anywhere; text-align:right; }
-.allocation-state {
-  display:flex; justify-content:space-between; gap:18px; align-items:start; padding:10px 0;
-  border-bottom:1px solid var(--grid); color:var(--text-secondary); font-size:.88rem;
-}
-.allocation-state b { color:var(--text-primary); }
-.allocation-state small { display:block; margin-top:2px; line-height:1.35; }
-.allocation-state > span:last-child { font-weight:700; font-variant-numeric:tabular-nums; min-width:0; overflow-wrap:anywhere; }
-.allocation-empty { margin:12px 0; color:var(--text-secondary); }
-.allocation-remainder { margin-top:12px; padding-top:12px; border-top:2px solid var(--border); font-size:.96rem; }
-.allocation-reconcile { margin-top:8px; color:var(--text-secondary); font-size:.79rem; }
-.allocation-unresolved { margin-top:12px; color:var(--text-secondary); font-size:.84rem; }
-.allocation-unresolved summary { cursor:pointer; font-weight:650; color:var(--critical); }
-.allocation-unresolved ul { margin:8px 0 0; padding-left:20px; }
-.allocation-unresolved li { margin:7px 0; }
-.allocation-unresolved li span { display:block; margin-top:2px; }
-.allocation-safety {
-  margin:12px 0 0; padding:9px 11px; border-left:3px solid var(--border);
-  color:var(--text-secondary); font-size:.8rem; line-height:1.4;
-}
-.allocation-unavailable { margin-top:10px; padding:12px; border:1px solid var(--border); border-radius:10px; }
-.current-period-card { margin-top:2px; }
-.current-period-meta {
-  display:flex; justify-content:space-between; gap:16px; align-items:baseline;
-  padding:12px 14px; border-radius:11px; background:var(--plane);
-}
-.current-period-meta span, .current-period-quick-item > span {
-  color:var(--muted); font-size:.75rem; font-weight:750; letter-spacing:.06em; text-transform:uppercase;
-}
-.current-period-meta b { text-align:right; font-size:.92rem; }
-.current-period-quick { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
-.current-period-quick-item { padding:11px 13px; border:1px solid var(--grid); border-radius:10px; }
-.current-period-quick-item > span { display:block; margin-bottom:4px; }
-.current-period-quick-item b { font-size:.94rem; }
-.current-period-quick-item .operating-amount { margin:0; font-size:1.35rem; }
-.current-period-quick-item .payday-refuse { font-size:.88rem; }
-.current-period-block { margin-top:16px; }
-.current-period-block h3 {
-  margin:0 0 6px; color:var(--muted); font-size:.75rem; font-weight:750;
-  letter-spacing:.06em; text-transform:uppercase;
-}
-.current-period-row {
-  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:start;
-  padding:10px 0; border-bottom:1px solid var(--grid); font-size:.9rem;
-}
-.current-period-row > div:first-child > span,
-.current-period-values span,
-.current-period-category > div > span {
-  display:block; margin-top:3px; color:var(--text-secondary); font-size:.77rem; line-height:1.35;
-}
-.current-period-values { text-align:right; font-variant-numeric:tabular-nums; min-width:0; overflow-wrap:anywhere; }
-.current-period-values span:first-child { margin-top:0; color:var(--text-primary); font-weight:650; }
-.current-period-empty { margin:7px 0 0; color:var(--text-secondary); font-size:.84rem; }
-.current-period-category-head, .current-period-category {
-  display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:14px; align-items:baseline;
-}
-.current-period-category-head {
-  padding:7px 0; color:var(--muted); font-size:.7rem; font-weight:750;
-  letter-spacing:.05em; text-transform:uppercase;
-}
-.current-period-category {
-  padding:9px 0; border-bottom:1px solid var(--grid); font-size:.88rem;
-  font-variant-numeric:tabular-nums;
-}
-.current-period-category > span { min-width:78px; text-align:right; }
-.current-period-withheld {
-  margin:7px 0; color:var(--critical); font-size:.82rem; line-height:1.4;
-}
-.current-period-category .current-period-withheld { margin:0; }
-.current-period-unavailable { padding:12px; border:1px solid var(--border); border-radius:10px; }
 #payday-answer[hidden],
 #road-ahead[hidden] { display:none !important; }
 .secondary-section { margin-top:24px; }
@@ -1360,23 +1267,7 @@ footer strong { color:var(--text-secondary); font-weight:600; }
   .plan-look-field { min-width:0; }
   .carryover-list { padding-left:16px; padding-right:16px; }
   [data-payday-carryover-trend] > .operating-note { padding-left:16px; padding-right:16px; }
-  .allocation-line { grid-template-columns:25px minmax(0,1fr); gap:8px; }
-  .allocation-value { grid-column:2; justify-self:start; text-align:left; }
-  .allocation-available { flex-wrap:wrap; }
-  .allocation-available b { font-size:1.45rem; overflow-wrap:anywhere; }
-  .allocation-reconcile { display:block; }
-  .allocation-reconcile span { display:block; margin-top:3px; }
-  .allocation-state { flex-wrap:wrap; }
-  .allocation-state > span:last-child { text-align:left; }
-  .current-period-meta { display:block; }
-  .current-period-meta b { display:block; margin-top:4px; text-align:left; overflow-wrap:anywhere; }
-  .current-period-row { grid-template-columns:minmax(0,1fr); gap:6px; }
-  .current-period-values { text-align:left; }
   .operating-line { grid-template-columns:minmax(0,1fr) fit-content(38%); column-gap:12px; font-size:.92rem; }
-  .current-period-category-head, .current-period-category {
-    grid-template-columns:minmax(0,1fr) minmax(0,auto) minmax(0,auto); gap:8px;
-  }
-  .current-period-category > span { min-width:0; overflow-wrap:anywhere; }
 }
 
 .payday-card { padding:22px 24px; }

@@ -32,7 +32,7 @@ const mod = name => require(path.join(ROOT, 'public', name));
 const ESCAPED = ['&lt;img src=z data-poisoned-forecast', '&lt;script&gt;alert(2)'];
 const RAW_PAYLOADS = [P.PAYLOAD, ...H.PAYLOADS];
 
-function render(data, overrides = {}) {
+function render(data, overrides = {}, periods = null) {
   const writes = [];
   const element = id => ({ id, hidden: false, inert: false, dataset: {}, style: { setProperty() {} },
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
@@ -54,7 +54,7 @@ function render(data, overrides = {}) {
       BudgetSurface: mod('budget-surface.js'), BudgetCardMovements: mod('budget-card-movements.js'),
       SavingsInventory: mod('savings-inventory.js'), BalanceHistory: mod('balance-history.js'),
       BillDetail: mod('bill-detail.js'), DisplayName: mod('display-name.js') } });
-  page.get('renderPlan')(data, null, null);
+  page.get('renderPlan')(data, periods, null);
   return writes;
 }
 
@@ -70,6 +70,7 @@ const RENDERERS = {
   'the current pay period lists a transaction payee': new RegExp(`class="household-budget-tx-payee">[^<]*${M}`),
   'the household budget names a category': new RegExp(`class="household-budget-name">[^<]*${M}`),
 };
+const REAL_FORECAST = require(path.join(ROOT, 'public', 'forecast.js'));
 const POLICY = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated', summary: H.NOTE };
 const worlds = {
   // A revolving hostile card under the owner's highest-interest policy: the
@@ -86,6 +87,10 @@ const worlds = {
     data: () => { const d = H.hostile(); d.debts[0].structure = 'Revolving'; d.plan.nextDollar = POLICY;
       (d.plan.startingCash.breakdown || []).forEach(row => { row.value = null; }); return d; },
     reach: ['status-band', 'transfer-note', 'nextmove-card', 'operating-surface-body', 'payday-answer-body'],
+    // The Credit cards strip still renders with today's plan unavailable; the
+    // pay-period payee and category rows do not.
+    sections: { 'the Credit cards strip prints a card name': RENDERERS['the Credit cards strip prints a card name'],
+      'a card activity panel names its card': RENDERERS['a card activity panel names its card'] },
   },
   // Free cash left after the buffer and reserves: the priorities note prints
   // plan.nextDollar.summary. The invented household never confirms card
@@ -97,11 +102,27 @@ const worlds = {
     reach: ['priorities-note'],
     sections: RENDERERS,
   },
+  // No feasible weekly cap: the cap headline prints the cap's reason, which
+  // names the failing constraint. The invented household never reaches a
+  // computed-but-infeasible cap, so Forecast.recommend's verdict is forced to
+  // 'infeasible' with a hostile constraint label (every other field is the
+  // real recommendation), and an invented spending history lets
+  // Forecast.budgetBreakdown publish the cap the headline belongs to.
+  'no feasible cap (forced verdict)': {
+    data: () => { const d = H.hostile(); d.plan.nextDollar = POLICY; return d; },
+    overrides: { recommend: (...args) => Object.assign(REAL_FORECAST.recommend(...args),
+      { mode: 'infeasible', weekly: 120, infeasible: { label: H.LABEL, date: '2026-09-01', shortfall: 250 } }) },
+    periods: { periods: { ytd: { label: 'Invented YTD', months: 1,
+      spending: [{ label: 'Groceries', total: 900 }, { label: 'Gas', total: 300 }, { label: 'Restaurants', total: 200 }] } } },
+    reach: [],
+    sections: { 'the cap headline prints the failing constraint as text':
+      /class="cap-qual">There is no feasible weekly cap\. &quot;&gt;&lt;img src=x onerror=alert\(1\)&gt; fails/ },
+  },
 };
 
 for (const [name, world] of Object.entries(worlds)) {
   test(`${name}: no Forecast text reaches the page as markup`, () => {
-    const writes = render(world.data(), world.overrides);
+    const writes = render(world.data(), world.overrides, world.periods);
     const raw = writes.filter(([, html]) => RAW_PAYLOADS.some(p => html.includes(p)));
     assert.deepEqual(raw.map(([id, html]) => `${id}: …${html.slice(Math.max(0, html.indexOf('<img') - 80), html.indexOf('<img') + 60)}`), [],
       'every Forecast string is escaped where it is written');

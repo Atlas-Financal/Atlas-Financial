@@ -71,7 +71,8 @@ scenarios, not authenticated production screenshots or household observations.
 | Unconfirmed assignments | [Before / after](comparison-unconfirmed-1440.png) | [Before / after](comparison-unconfirmed-320.png) |
 | Confirmed invented backing | [Before / after](comparison-backed-ready-1440.png) | [Before / after](comparison-backed-ready-320.png) |
 
-Reproduce the focused proof with `node test/test-planned-savings-clarity.js` and
-`node test/browser-planned-savings-clarity.js` (Playwright and a browser required).
+Reproduce the focused proof with `node test/test-planned-savings-clarity.js`. Its
+browser half now lives in `test/browser-savings-stock-pending.js` (Playwright and a
+browser required); the original browser suite was retired on 2026-11-18 (#904 triage).
 The merge card records exact-head full-suite results and remaining platform or
 hosted-check blockers. This draft does not grant merge or deployment approval.

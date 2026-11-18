@@ -49,11 +49,23 @@ const withheld = (s, code, why) => {
   if (code) check(issues(s).includes(code), why + ': ' + code + ' in ' + JSON.stringify(issues(s)));
 };
 
+// Since the lead's 2026-11-18 dispatch (Dale, stop 2) a posted unruled credit
+// is counted as neither payment nor refund, exactly as a ruled one is: an
+// estimate with one To-confirm row and the ruled figures (the 105 pair still
+// covers the 25 minimum and the 80 purchase).
+const toConfirm = (s, why, reserve = 0, available = 325, spent = 80) => {
+  check(s.coverage.status === 'ready' && s.coverage.trust === 'estimated', why + ': an estimate');
+  check(s.coverage.estimateBasis === 'card-credit-purpose-unconfirmed', why + ': its basis');
+  check(s.coverage.toConfirm.length === 1 && s.coverage.toConfirm[0].amount === 30, why + ': one To-confirm row, the 30');
+  check(s.coverage.reservedCash === reserve, why + ': reserve ' + reserve);
+  check(s.period.householdBudget[0].spent === spent, why + ': no refund against groceries');
+  check(s.period.fromTodayFunding.availableNow === available, why + ': available now ' + available + ' (got '
+    + s.period.fromTodayFunding.availableNow + ')');
+};
 // 0. Control: the pair alone.
 ruled(run(world(pair)), 'pair alone');
-// 1. Today's behaviour without the ruling's wording: To confirm.
-withheld(run(world([...pair, rewards(30, { original_name: 'Invented credit' })])),
-  'coverage-payment-or-credit-purpose-unconfirmed', 'an unruled card credit');
+// 1. Without the ruling's wording: To confirm.
+toConfirm(run(world([...pair, rewards(30, { original_name: 'Invented credit' })])), 'an unruled card credit');
 // 2. Both ruled descriptions, case and surrounding spaces ignored.
 for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption', '  rewards redemption ', 'TD POINTS REDEMPTION']) {
   const s = run(world([...pair, rewards(30, { original_name: original })]));
@@ -66,13 +78,12 @@ for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption', '  rewards
 // 3. Nothing looser.
 for (const original of ['REWARDS REDEMPTION REVERSAL', 'REWARD REDEMPTION', 'REWARDS  REDEMPTION', 'TD POINTS',
   'POINTS REDEMPTION', 'PAYMENT - THANK YOU REWARDS REDEMPTION']) {
-  withheld(run(world([...pair, rewards(30, { original_name: original })])),
-    'coverage-payment-or-credit-purpose-unconfirmed', '"' + original + '" is not a ruled description');
+  toConfirm(run(world([...pair, rewards(30, { original_name: original })])), '"' + original + '" is not a ruled description');
 }
 // 4. The displayed payee alone is not the bank description.
-withheld(run(world([...pair, rewards(30, { payee: 'REWARDS REDEMPTION', original_name: 'Invented credit' })])),
-  'coverage-payment-or-credit-purpose-unconfirmed', 'payee wording over another bank description');
-// 5. Pending keeps today's behaviour (To confirm).
+toConfirm(run(world([...pair, rewards(30, { payee: 'REWARDS REDEMPTION', original_name: 'Invented credit' })])),
+  'payee wording over another bank description');
+// 5. Pending keeps today's behaviour: withheld.
 withheld(run(world([...pair, rewards(30, { is_pending: true })])),
   'coverage-payment-or-credit-purpose-unconfirmed', 'a pending rewards redemption');
 // 6. A debit with either description is not covered: To confirm.
@@ -81,8 +92,13 @@ for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption']) {
     'coverage-purchase-purpose-unconfirmed', 'a debit described "' + original + '"');
 }
 // 7. It is never a payment: equal to a TFR-TO C/C debit, it does not pair.
-withheld(run(world([purchase, cashLeg(105), rewards(105)])),
-  'coverage-payment-destination-unconfirmed', 'a 105 rewards credit beside a 105 TFR-TO C/C debit');
+{
+  // The debit then pays no card. Since the lead's 2026-11-18 dispatch (Dale)
+  // that degrades: an estimate, the debit To confirm, never paired.
+  const s = run(world([purchase, cashLeg(105), rewards(105)]));
+  check(s.coverage.trust === 'estimated' && s.coverage.toConfirm.length === 1 && s.coverage.payments.length === 0,
+    'a 105 rewards credit beside a 105 TFR-TO C/C debit: never a payment; the debit is To confirm');
+}
 // 8. It pays no minimum: alone, the 25 minimum stays unpaid exactly as with no credit.
 {
   const none = run(world([purchase]));
@@ -96,8 +112,11 @@ withheld(run(world([purchase, cashLeg(105), rewards(105)])),
   check(withCredit.period.householdBudget[0].spent === 80, 'no refund against groceries');
 }
 // 9. Only on a mapped TD card: the same credit on another card is To confirm.
-withheld(run(world([...pair, ['card2', 40, null, 'purchase'], rewards(30, {}, 'card2')], { twoCards: true })),
-  'coverage-payment-or-credit-purpose-unconfirmed', 'not a mapped TD card (invented mbna)');
+// The second card's 40 grocery purchase stays reserved (reserve 40) and
+// groceries spent is 80 + 40 = 120, so groceries left is 30: available now
+// = 395 - 40 - 30 = 325.
+toConfirm(run(world([...pair, ['card2', 40, null, 'purchase'], rewards(30, {}, 'card2')], { twoCards: true })),
+  'not a mapped TD card (invented mbna)', 40, 325, 120);
 // 10. Every mapped TD card: the world's card mapped as tdcc and as cashback.
 for (const card of ['tdcc', 'cashback']) {
   const s = run(world([purchase, rewards(30)], { card }));
