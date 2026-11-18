@@ -11590,7 +11590,8 @@
   // are only ever appended to): "<card>[ ...NNNN] - <text>" or
   // "<card>[ ...NNNN] (<text>)". The comment is ignored, except that one
   // naming a different table card makes the segment 'unknown'. Any other
-  // words after the name, without that separator, stay 'unknown'.
+  // words after the name, without that separator, stay 'unknown'. Runs of
+  // whitespace in the name and the comment count as one space.
   const CARD_PAYMENT_NOTE_COMMENT = /\s(?:-\s|\()/;
   function cardPaymentNoteNames(text, name) {
     return new RegExp('(^|[^a-z0-9])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(text);
@@ -11604,8 +11605,8 @@
       if (!m) continue;
       const cut = m[1].search(CARD_PAYMENT_NOTE_COMMENT);
       const head = cut === -1 ? m[1] : m[1].slice(0, cut);
-      const comment = cut === -1 ? '' : m[1].slice(cut).toLowerCase();
-      const name = head.replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
+      const comment = cut === -1 ? '' : m[1].slice(cut).replace(/\s+/g, ' ').toLowerCase();
+      const name = head.replace(/\s*\.{3}\s*\d+\s*$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
       let id = Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown';
       if (id !== 'unknown' && Object.keys(CARD_PAYMENT_NOTE_CARDS)
         .some(other => CARD_PAYMENT_NOTE_CARDS[other] !== id && cardPaymentNoteNames(comment, other))) id = 'unknown';
