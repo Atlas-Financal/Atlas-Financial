@@ -1920,29 +1920,36 @@ function payrollLateRule(rule) {
 }
 // The late credit must be the only credit of this identity, on its account,
 // from the day after the previous payday up to the next one, so an early
-// credit for the late payday also competes; without the transaction list, no
-// late cover (fail closed).
+// credit for the late payday also competes. A credit that is itself the
+// previous payday's own late posting is that payday's, not a rival, so a pay
+// that is late every time settles every time. Without the transaction list,
+// no late cover (fail closed).
 function payrollLatePayday(plan, rule, posted, tx, transactions) {
   if (!payrollLateRule(rule) || !plan || !posted || !tx || !Array.isArray(transactions)) return null;
   const scanFrom = Forecast.addDays(posted, -45);
   const events = scheduledEventsOnRange(plan, scanFrom, Forecast.addDays(posted, 28))
     .filter(e => e && e.id === rule.eventId).map(e => e.date).sort();
-  if (events.includes(posted)) return null;
-  const before = events.filter(d => d < posted);
-  const late = before[before.length - 1];
+  // The payday a credit on `date` would be a late posting of, by date alone.
+  const lateBy = date => {
+    if (events.includes(date)) return null;
+    const payday = events.filter(d => d < date).pop();
+    if (!payday || Forecast.businessDaysAfter(payday, date) > PAYROLL_LATE_BUSINESS_DAYS) return null;
+    const after = events.find(d => d > date);
+    return after && !(Forecast.diffDays(payday, date) < Forecast.diffDays(date, after)) ? null : payday;
+  };
+  const late = lateBy(posted);
   if (!late) return null;
-  if (Forecast.businessDaysAfter(late, posted) > PAYROLL_LATE_BUSINESS_DAYS) return null;
-  const next = events.find(d => d > posted);
-  if (next && !(Forecast.diffDays(late, posted) < Forecast.diffDays(posted, next))) return null;
   // Settles at the actual amount, as an on-time credit does (lead, 2026-11-18);
   // the matcher itself needs exactly one occurrence on the payday.
-  const prev = before.filter(d => d < late).pop();
+  const prev = events.filter(d => d < late).pop();
+  const next = events.find(d => d > posted);
   const windowFrom = prev ? Forecast.addDays(prev, 1) : scanFrom;
   const rival = transactions.some(other => other && other !== tx
     && String(other.providerTransactionId) !== String(tx.providerTransactionId)
     && String(other.providerAccountId) === String(tx.providerAccountId)
     && lunchMoneyDebitAmount(other.amount) < 0 && matchesIdentityFields(other, rule)
-    && other.date >= windowFrom && (!next || other.date < next));
+    && other.date >= windowFrom && (!next || other.date < next)
+    && !(prev && lateBy(other.date) === prev));
   return rival ? null : late;
 }
 

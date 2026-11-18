@@ -27,7 +27,7 @@ const ok = (cond, label, detail = '') => {
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-function serve(dates, { amounts = {}, extraIncome = [], extraRules = [] } = {}) {
+function serve(dates, { amounts = {}, extraIncome = [], extraRules = [], first = '2026-10-09' } = {}) {
   let id = 883000;
   const pay = (date, amount = 1400) => H.lm({ id: ++id, date, amount: -amount, category: 'Payroll', account: 'chequing-a',
     payee: 'Invented employer' });
@@ -35,7 +35,7 @@ function serve(dates, { amounts = {}, extraIncome = [], extraRules = [] } = {}) 
   w.windowStart = '2026-10-01';
   w.income = w.income.concat(extraIncome);
   w.identityRules = w.identityRules.concat(extraRules);
-  w.transactions = [pay('2026-10-09'), ...dates.map(d => pay(d, amounts[d]))];
+  w.transactions = [...(first ? [pay(first)] : []), ...dates.map(d => pay(d, amounts[d]))];
   H.productionOpening(w);
   const r = Live.fromObservation({ data: H.canonicalOf(w, H.planOf(w)), payload: H.rawPayload(w),
     accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
@@ -81,6 +81,16 @@ for (const [label, date] of [['Saturday Oct 24', '2026-10-24'], ['Monday Oct 26'
     ok(received(s, amount) && same(s.settled, ['2026-10-09@2026-10-09', '2026-10-23@2026-10-24']) && s.income === t.income,
       `a late credit of ${amount} settles the payday once at its actual ${amount}, as on time`, JSON.stringify([s.pay.actual, s.income, t.income, s.settled]));
   }
+}
+
+console.log('2b. Late every time: each payday settles once (lead ask on #1325)');
+{
+  // Oct 9 paid Sat Oct 10, then Oct 23 paid Sat Oct 24: the Oct 10 credit is
+  // Oct 9's own late posting, not a rival for Oct 23.
+  const s = serve(['2026-10-24'], { first: '2026-10-10' });
+  ok(same(s.settled, ['2026-10-09@2026-10-10', '2026-10-23@2026-10-24']) && received(s, 1400),
+    'two late pays in a row: Oct 9 from Oct 10 and Oct 23 from Oct 24, each once, received and complete',
+    JSON.stringify([s.pay.status, s.settled, s.income, s.completeness]));
 }
 
 console.log('3. Outside the window, or not unique: never settled');
