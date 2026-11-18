@@ -663,8 +663,11 @@ function forecastAdvice(data, periods, settlementEvidence) {
   const plan = data && data.plan;
   const asOf = Forecast.budgetAsOf(data);
   if (!plan || !asOf) return null;
-  return Forecast.recommend(plan, asOf,
-    Forecast.budgetRecommendInputs(data, { periods, settlementEvidence }));
+  // collectHeldTransactions only adds currentPeriodAction.heldTransactions
+  // (projected by heldCurrentPeriodProjection below); every figure is the page's.
+  return Forecast.recommend(plan, asOf, Object.assign(
+    Forecast.budgetRecommendInputs(data, { periods, settlementEvidence }),
+    { collectHeldTransactions: true }));
 }
 
 function projectDebtsFromAdvice(data, asOf, advice) {
@@ -1310,6 +1313,126 @@ function actualsBlock(data, periods, advice, settlement) {
   };
 }
 
+// Held current-period transactions: the to-do list behind
+// unclassified.count, so the morning Lunch Money sort can clear prompts.
+// Closed vocabulary only. Each item carries a packet-local key, its date,
+// its Atlas account role, its Atlas budget row (a plan category id or
+// 'uncategorised', else null), a coarse reason class, one fixed plain
+// sentence, and its place among rows with the same date and role. Never an
+// amount, payee, bank description, note, raw provider or category id, or
+// Forecast's raw reason code. Nothing here reaches the page or the snapshot:
+// only this packet asks Forecast for the list.
+const HELD_REASONS = {
+  'missing': ['data', 'Lunch Money gave Atlas too little about this transaction to place it.'],
+  'unmapped-account': ['account', 'It is on an account Atlas has no mapping for.'],
+  'unmapped-label': ['category', 'Its Lunch Money category matches no Atlas budget row.'],
+  'no-category': ['category', 'It has no Lunch Money category.'],
+  'ambiguous-category': ['category', 'Its Lunch Money category matches more than one Atlas budget row.'],
+  'lunchmoney-label-unbudgeted-merchant-row': ['category', 'Its category points to a row Atlas does not budget for.'],
+  'no-target-category-spend': ['category', 'It is filed to a category with no Atlas target.'],
+  'non-calendar-category-spend': ['category', 'It is filed to a category Atlas does not budget by pay period.'],
+  'no-row-category-refund': ['category', 'It looks like a refund but is not linked to a budget row.'],
+  'income-category-debit': ['category', 'It is filed as income, but money went out.'],
+  'payee-category-contradiction': ['merchant', 'Its payee and its Lunch Money category disagree.'],
+  'fuel-merchant-missing': ['merchant', 'It is filed as fuel but has no merchant to confirm it.'],
+  'convenience-store-unconfirmed-fuel': ['merchant', 'It is filed as fuel at a store that may not sell fuel.'],
+  'canadian-tire-unconfirmed': ['merchant', 'Atlas cannot tell which budget row this store purchase belongs to.'],
+  'grocery-merchant-missing': ['merchant', 'It is filed as groceries but has no merchant to confirm it.'],
+  'grocery-merchant-unconfirmed': ['merchant', 'It is filed as groceries at a store Atlas has not confirmed.'],
+  'pets-not-dog-food': ['merchant', 'It is filed as pets but is not from a confirmed pet-food store.'],
+  'personal-unassigned': ['owner', 'It is personal spending not yet assigned to one person.'],
+  'bills-only-unmatched': ['bill', 'It is filed to a bills-only category but matches no planned bill.'],
+  'possible-card-paid-bill-new-price': ['bill', 'It may be a card-paid bill at a new price.'],
+};
+const HELD_DEFAULT = ['other', 'Atlas could not place it in a budget row.'];
+const HELD_UNCATEGORISED = ['category', 'It is filed as uncategorised.'];
+const HELD_ROLES = new Set(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage',
+  'household-external', 'unmapped']);
+const HELD_MAX = 50;
+
+function heldCurrentPeriodProjection(data, advice) {
+  const action = advice && advice.currentPeriodAction;
+  const rows = action && Array.isArray(action.heldTransactions) ? action.heldTransactions : null;
+  if (!rows) return unavailable('held-transactions-unavailable');
+  const categories = data && data.plan && data.plan.budget && Array.isArray(data.plan.budget.categories)
+    ? data.plan.budget.categories : [];
+  const budgetRows = new Set(categories.map(row => row && row.id).filter(id => typeof id === 'string'));
+  const groups = new Map();
+  const items = rows.slice(0, HELD_MAX).map((row, index) => {
+    const date = typeof row.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.date) ? row.date : null;
+    const accountRole = HELD_ROLES.has(row.accountRole) ? row.accountRole : null;
+    const budgetRow = row.budgetRow === 'uncategorised' || row.budgetRow === 'other-spend'
+      || budgetRows.has(row.budgetRow) ? row.budgetRow : null;
+    const [reasonClass, reason] = Object.hasOwn(HELD_REASONS, row.reason) ? HELD_REASONS[row.reason]
+      : row.reason == null && row.budgetRow === 'uncategorised' ? HELD_UNCATEGORISED : HELD_DEFAULT;
+    const group = date + '|' + accountRole;
+    groups.set(group, (groups.get(group) || 0) + 1);
+    return { key: 'held-' + (index + 1), date, accountRole, budgetRow, reasonClass, reason,
+      ordinal: groups.get(group), group };
+  });
+  return {
+    status: 'ok',
+    source: 'Forecast.currentPeriodAction (held rows behind unclassified.count)',
+    count: rows.length,
+    listed: items.length,
+    complete: action.unclassified ? items.length === action.unclassified.count : false,
+    lookup: 'Search get_lunchmoney_transactions on each row\'s date and account. The ordinal counts held rows only, grouped by account role; it is not a locator. That search also returns rows Atlas is not holding, and two accounts can share one role. When more rows match than this list holds for that date and role, leave the row unresolved or ask, rather than guess.',
+    items: items.map(({ group, ordinal, ...item }) => ({ ...item,
+      ordinal: { n: ordinal, of: groups.get(group) } })),
+  };
+}
+
+// Part (b) (lead dispatch 2026-11-17, Option S): each reviewed Lunch Money
+// recurring item Atlas did not apply, from the one review provider-observe
+// ran (currentPeriodActuals.lunchMoneyRecurring.refused). Each closed reason
+// code reads as one fixed sentence; the Atlas row is re-checked against the
+// plan. No Lunch Money id, amount, payee or date is published. Read-only: it
+// builds no matching or reconciliation logic.
+const RECURRING_REFUSALS = Object.freeze({
+  'not-started': ['schedule', 'It has not started yet.'],
+  'rule-names-no-event': ['link', 'The rule that names it points at no Atlas bill.'],
+  'several-rules': ['link', 'More than one rule names it, so Atlas cannot tell which bill it is.'],
+  'several-items': ['link', 'More than one recurring item names this bill.'],
+  'no-plan-row': ['link', 'The bill it names is not in the plan.'],
+  'plan-row-ambiguous': ['link', 'More than one plan row has the id it names.'],
+  'plan-row-unsupported': ['row', 'This kind of plan row does not take its schedule from Lunch Money.'],
+  'once-bill': ['row', 'The plan has this bill as a one-time payment.'],
+  'account-mismatch': ['account', 'The plan row and the item are not both paid from household chequing.'],
+  'date-invalid': ['schedule', 'One of its dates is not a real calendar day.'],
+  'item-ended': ['schedule', 'It has ended, and this kind of plan row does not take an end date.'],
+  'cadence-unmapped': ['schedule', 'Atlas cannot follow how often it repeats.'],
+  'cadence-amount-unconfirmed': ['amount', 'It repeats on a different cadence from the plan, and its expected amount does not confirm the plan\'s.'],
+  'day-after-statement-due': ['schedule', 'Its day would fall later than Atlas can confirm against the card statement.'],
+  'cutover-unsafe': ['schedule', 'Moving to its day would skip or double a payment in one cycle.'],
+  'expected-dates-mismatch': ['schedule', 'The dates Lunch Money expects do not fit how often it repeats.'],
+});
+const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
+const RECURRING_REFUSALS_MAX = 50;
+function recurringRefusalsProjection(data) {
+  const actuals = data && data.liveOverlay && data.liveOverlay.currentPeriodActuals;
+  const block = actuals && actuals.lunchMoneyRecurring;
+  if (!block || block.status !== 'read' || !Array.isArray(block.refused) || !block.dropped) {
+    return unavailable('recurring-review-unavailable');
+  }
+  const plan = (data && data.plan) || {};
+  const ids = rows => new Set((Array.isArray(rows) ? rows : []).map(row => row && row.id).filter(id => typeof id === 'string'));
+  const bills = ids(plan.bills), obligations = ids(plan.obligations);
+  const items = block.refused.slice(0, RECURRING_REFUSALS_MAX).map((row, i) => {
+    const [reasonClass, reason] = Object.hasOwn(RECURRING_REFUSALS, row && row.reasonCode)
+      ? RECURRING_REFUSALS[row.reasonCode] : RECURRING_REFUSAL_DEFAULT;
+    return { key: 'refused-' + (i + 1),
+      billId: row && bills.has(row.billId) ? row.billId : null,
+      obligationId: row && obligations.has(row.obligationId) ? row.obligationId : null,
+      reasonClass, reason };
+  });
+  const dropped = key => Number.isSafeInteger(block.dropped[key]) && block.dropped[key] >= 0 ? block.dropped[key] : null;
+  return { status: 'ok', source: 'provider-observe:lunchmoney',
+    count: block.refused.length, listed: items.length, complete: items.length === block.refused.length,
+    items,
+    notApplied: { notReviewed: dropped('not-reviewed'), notNamed: dropped('not-named'), scheduleInvalid: dropped('schedule-invalid') },
+    note: 'Reviewed Lunch Money recurring items Atlas did not apply; the plan\'s own schedule stands for each. notApplied counts items set aside before review: suggestions, items no rule names, and items whose schedule did not read.' };
+}
+
 function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
   const overlay = data && data.liveOverlay;
   const refused = Array.isArray(overlay && overlay.refused)
@@ -1357,8 +1480,10 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
         }
         : null,
       categoryRemainingClaim: action ? action.categoryRemainingClaim : null,
+      heldCurrentPeriod: heldCurrentPeriodProjection(data, advice),
     },
     providerGaps,
+    recurringScheduleRefusals: recurringRefusalsProjection(data),
     liveOverlayFailed: overlay && overlay.applied === false
       ? { reason: overlay.reason || 'overlay-failed' }
       : null,
@@ -1489,6 +1614,8 @@ function tokenConfigured(env) {
 }
 
 module.exports = {
+  recurringRefusalsProjection,
+  RECURRING_REFUSALS,
   SCHEMA,
   CURRENT_PERIOD_BILLS_MAX,
   TOKEN_MIN_LENGTH,
@@ -1501,6 +1628,8 @@ module.exports = {
   versionIdentifier,
   looksSanitized,
   projectDecisionPosture,
+  heldCurrentPeriodProjection,
+  HELD_REASONS,
   projectBaselineTrajectory,
   loadPeriods,
   tokenConfigured,
