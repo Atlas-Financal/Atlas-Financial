@@ -1201,6 +1201,24 @@ projection persists `heldOutflowSpending` in both term sets (owner decision,
 Dale, 2026-11-18, #821), so a held-term period is stored with terms that
 still close.
 
+**Unproven Transfer / Payment debits** (Grok Bot's rule 17 answer on
+transfers and its #1149 conditions; lead, 2026-11-18). A posted debit from a
+household chequing account that the ledger files as Transfer or Payment
+(label or generic kind hint), whose other side the ledger does not prove, is
+also a held outflow under the same term. Proof is the ledger's own: a
+Lunch Money group or proven internal movement, a represented bill, a card
+payment by its identity or category, a card-payment cash leg the card
+reconciler accepted, a near-due bill hold, or a debit the card-minimum owner
+counts (`Forecast.cardMinimumOwnedDebits`, carried by the observer only as the
+boolean `cardMinimumOwned`; debit identities stay server-side). Names and
+amounts prove nothing. A pending one is unchanged. When the owner record and
+the ledger's link disagree (card or occurrence), neither counts it: it is
+held and named. When the owner record cannot be read, the term is Unavailable
+and names what could not be read, never 0. `heldOutflowReader` in
+`public/forecast.js` is the one reader every held-outflow consumer uses. An
+unlinked Transfer can overlap a scheduled bill not yet confirmed; that is the
+conservative side, and the ledger owns the cure.
+
 ### Budget savings-display amendment — owner direction 2026-09-30
 
 Owner dispatch 2026-10-02 adds the separate **From today** proposal:
