@@ -6787,6 +6787,9 @@
     for (const [key, pendings] of pendingByKey) {
       const posted = postedByKey.get(key) || [];
       if (pendings.length !== 1 || posted.length !== 1) continue;
+      // The observer proves the posted row replaced a different pending
+      // authorization. This link refers to this exact packet-local peer.
+      if (pendings[0].id != null && posted[0].distinctPendingId === String(pendings[0].id)) continue;
       for (const tx of pendings.concat(posted)) {
         if (tx && tx.id != null) flagged.add(String(tx.id));
       }
@@ -6801,6 +6804,8 @@
   }
 
   function confirmedHouseholdAmount(tx, duplicateIds) {
+    // A possible replacement withholds its pending side only. A proven
+    // separate authorization is still an independent pending debit.
     if (isPossibleReplacementPending(tx, duplicateIds)) return 0;
     const amt = Number(tx && tx.amount);
     return isFinite(amt) ? amt : 0;
@@ -12517,6 +12522,7 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  classifyCurrentPeriodTransaction.spendDuplicateKey = spendDuplicateKey;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
   // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank

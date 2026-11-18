@@ -13,16 +13,24 @@ const assert = require('node:assert/strict');
 const H = require('./acceptance/harness.js');
 const F = require('../public/forecast.js');
 
-function rows(extra) {
+function observation(extra) {
   const w = H.baseWorld();
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })]
     .concat(extra.map(H.lm));
   const { data, packet, error } = H.dataOf(w);
   assert.equal(error, null);
-  const view = F.recommend(data.plan, data.meta.asOf, { currentPeriodActuals: packet, debts: data.debts }).defaultView;
-  const period = (view.calendarPeriods || []).find(p => p.id === 'this-pay-period');
-  assert.ok(period, 'positive control: the current pay period is published');
-  return id => period.householdBudget.find(r => r.id === id);
+  const budgetRows = actuals => {
+    const view = F.recommend(data.plan, data.meta.asOf, { currentPeriodActuals: actuals, debts: data.debts }).defaultView;
+    const period = (view.calendarPeriods || []).find(p => p.id === 'this-pay-period');
+    assert.ok(period, 'positive control: the current pay period is published');
+    return id => period.householdBudget.find(r => r.id === id);
+  };
+  return { packet, budgetRows };
+}
+
+function rows(extra) {
+  const { packet, budgetRows } = observation(extra);
+  return budgetRows(packet);
 }
 
 let failures = 0;
@@ -32,6 +40,79 @@ function check(name, fn) {
 }
 
 const cafe = { date: '2026-10-11', amount: 6.5, category: 'Restaurants', payee: 'Invented cafe' };
+const independentAuth = 'invented-cafe-visible-auth';
+const otherAuth = 'invented-cafe-replaced-auth';
+const pendingCafe = { ...cafe, pending: true, raw: { plaid_metadata: { transaction_id: independentAuth } } };
+function postedCafe(predecessor, extra = {}) {
+  const identity = { transaction_id: 'invented-cafe-posting', pending_transaction_id: predecessor, ...extra };
+  return { ...cafe, raw: { plaid_metadata: identity } };
+}
+
+check('a different affirmative predecessor preserves both equal purchases on live and replayed packets', () => {
+  const { packet, budgetRows } = observation([pendingCafe, { ...postedCafe(otherAuth), originalName: 'INVENTED-CAFE' }]);
+  const pending = packet.transactions.find(row => row.pending && row.amount === 6.5);
+  const posted = packet.transactions.find(row => row.pending === false && row.amount === 6.5);
+  assert.match(pending.id, /^tx-\d+$/);
+  assert.equal(posted.distinctPendingId, pending.id, 'only the exact packet-local peer is named');
+  assert.ok(!JSON.stringify(packet).includes(independentAuth) && !JSON.stringify(packet).includes(otherAuth));
+  for (const actuals of [packet, H.clone(packet)]) {
+    const eating = budgetRows(actuals)('restaurants');
+    // Two independent purchases: 6.50 + 6.50 = 13.00. From 100 leaves 87.
+    assert.equal(eating.spent, 13);
+    assert.equal(eating.remaining, 87);
+    assert.equal(eating.estimateReason, undefined);
+    assert.equal(eating.recon.length, 2);
+    assert.ok(eating.recon.every(row => row.pendingPostedDuplicate !== true));
+  }
+  posted.distinctPendingId = 'tx-999';
+  assert.equal(budgetRows(packet)('restaurants').estimateReason, 'possible-duplicate',
+    'a statement about another row cannot establish distinctness for this pair');
+});
+
+check('a directed replacement drops its authorization and takes the posted amount once', () => {
+  const eating = rows([pendingCafe, { ...postedCafe(independentAuth), amount: 7.25 }])('restaurants');
+  // One purchase: the 6.50 authorization clears as 7.25. 100 - 7.25 = 92.75.
+  assert.equal(eating.spent, 7.25);
+  assert.equal(eating.remaining, 92.75);
+  assert.deepEqual(eating.recon.map(row => [row.amount, row.pending === true]), [[7.25, false]]);
+});
+
+check('posting one authorization leaves another equal pending purchase after collapse', () => {
+  const earlierAuth = { ...pendingCafe, raw: { plaid_metadata: { transaction_id: otherAuth } } };
+  const eating = rows([earlierAuth, pendingCafe, postedCafe(otherAuth)])('restaurants');
+  // Three feed rows but only two purchases: 6.50 posted + 6.50 independent.
+  assert.equal(eating.spent, 13);
+  assert.equal(eating.recon.length, 2);
+  assert.ok(eating.recon.every(row => row.pendingPostedDuplicate !== true));
+});
+
+check('missing, malformed or conflicting predecessors leave the look-alike unresolved', () => {
+  const different = postedCafe(otherAuth);
+  for (const posted of [
+    postedCafe(undefined),
+    postedCafe(true),
+    postedCafe(otherAuth, { transaction: { pending_transaction_id: independentAuth } }),
+    { ...different, raw: { ...different.raw, pending_transaction_id: independentAuth } },
+    { ...different, raw: { ...different.raw, plaidMetadata: { pending_transaction_id: independentAuth } } },
+  ]) {
+    const eating = rows([pendingCafe, posted])('restaurants');
+    // Pending remains listed but unconfirmed. Posted 6.50 leaves 93.50.
+    assert.equal(eating.spent, 6.5);
+    assert.equal(eating.remaining, 93.5);
+    assert.equal(eating.estimateReason, 'possible-duplicate');
+    assert.equal(eating.recon.length, 2);
+    assert.ok(eating.recon.every(row => row.pendingPostedDuplicate === true));
+  }
+});
+
+check('a directed ID cannot collapse an authorization when the other row has unknown posting state', () => {
+  const directed = postedCafe(independentAuth);
+  const { packet, budgetRows } = observation([pendingCafe, { ...directed, raw: { ...directed.raw, is_pending: null } }]);
+  assert.deepEqual(packet.transactions.filter(row => row.amount === 6.5).map(row => [row.savingsPostingEvidence, row.pendingPostedDuplicate]),
+    [['pending', true], ['unknown', true]]);
+  assert.equal(budgetRows(packet)('restaurants').spent, null, 'neither row proves a posted total');
+});
+
 check('a pending look-alike tags its category spent estimated and keeps both rows listed', () => {
   const row = rows([cafe, { ...cafe, pending: true }]);
   const eating = row('restaurants');
