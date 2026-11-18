@@ -2788,9 +2788,27 @@
     const notRelied = notReliedUponKeySet(plan, opts, start);
     const held = heldOtherIncomeKeys(plan, opts, start, events, callerOpts);
     if (!represented.size && !notRelied.size && !held.size) return events;
-    return events.filter(e => !represented.has(e.id + '@' + e.date)
-      && !notRelied.has(e.id + '@' + e.date)
-      && !(e.kind === 'income' && held.has(e.id + '@' + e.date)));
+    const observed = represented.size ? representedActualMap(opts) : null;
+    const out = [];
+    for (const e of events) {
+      const key = e.id + '@' + e.date;
+      if (notRelied.has(key) || (e.kind === 'income' && held.has(key))) continue;
+      if (!represented.has(key)) { out.push(e); continue; }
+      // D2: the paid part is already in opening cash; only the remainder of a
+      // fixed bill paid in part is still to leave.
+      const remainder = partlyPaidRemainderEvent(e, observed);
+      if (remainder) out.push(remainder);
+    }
+    return out;
+  }
+  // D2: the cash event still owed on a represented fixed bill paid in part:
+  // its remainder only (the paid part is already in opening cash), or null.
+  function partlyPaidRemainderEvent(event, observed) {
+    if (!event || !(event.amount < 0)) return null;
+    // Already the remainder: never measured against the payment again.
+    if (event.partlyPaidRemainder === true) return event;
+    const partPaid = fixedBillPartialPayment(event, -event.amount, observed);
+    return partPaid ? { ...event, amount: -partPaid.remainderCents / 100, partlyPaidRemainder: true } : null;
   }
 
   // C3: the forward walk excludes exactly the expected Other Income that
@@ -4045,6 +4063,7 @@
     const to = addDays(start, -1);
     if (!from || from > to) return [];
     const represented = representedKeySet(plan, opts, start);
+    const observed = represented.size ? representedActualMap(opts) : null;
     const innerTrace = trace ? {} : null;
     const inner = expandEventsInternal(plan, from, to, opts, innerTrace);
     const extra = [];
@@ -4059,8 +4078,13 @@
         if (row && commitmentSettledBy(row, start)) continue;
       }
       const key = event.id + '@' + event.date;
-      if (represented.has(key)) continue;
       if (already && already.has(key)) continue;
+      if (represented.has(key)) {
+        // D2: only the remainder of a fixed bill paid in part is still owed.
+        const remainder = partlyPaidRemainderEvent(event, observed);
+        if (remainder) { extra.push(remainder); if (selected) selected.set(event, remainder); }
+        continue;
+      }
       const carried = cardPaidReserved
         ? Object.assign({}, event, { carriedUnresolved: true })
         : event;
@@ -4450,6 +4474,8 @@
             payerLabel: plannedPayerLabel(fundingAccount, b.payingAccount, plan) } : {}),
           jointCash,
           cardPaid,
+          // D2: only an explicit owner mark makes a bill's amount fixed.
+          ...(b.amountFixed === true ? { amountFixed: true } : {}),
         });
       }
     }
@@ -7914,7 +7940,10 @@
   function hasUnresolvedAccountActuals(packet) {
     const txs = packet && packet.transactions;
     if (!Array.isArray(txs)) return false;
-    return txs.some(tx => tx && tx.accountRole === 'unmapped');
+    // A group parent whose children are present is skipped by every consumer
+    // (skipSplitParent); the observer's coverage stamp already withholds when
+    // any listed child is missing or unmapped (U5).
+    return txs.some(tx => tx && tx.accountRole === 'unmapped' && !skipSplitParent(tx, packet));
   }
 
   function actualsCoverageState(asOf, periodStart, opts, failures) {
@@ -8419,7 +8448,16 @@
       if (cls.kind === 'income') { out.excluded.income = roundCent(out.excluded.income + amt); continue; }
       if (cls.kind === 'business') { out.excluded.business = roundCent(out.excluded.business + amt); continue; }
       if (cls.kind === 'external') { out.excluded.external = roundCent(out.excluded.external + amt); continue; }
-      if (cls.kind === 'bill') { out.excluded.bills = roundCent((out.excluded.bills || 0) + amt); continue; }
+      if (cls.kind === 'bill') {
+        out.excluded.bills = roundCent((out.excluded.bills || 0) + amt);
+        // A debit held To confirm on an occurrence only a pending-only row
+        // stands on (provider-observe pendingOnlyOccurrence) is not spent,
+        // but the pair is unresolved: it may be a second, unplaced charge, so
+        // the classification stays incomplete, as it was before the hold.
+        if (cls.reason === 'near-due-bill-unconfirmed' && tx.nearDueBillCandidate
+          && tx.nearDueBillCandidate.pendingOnlyOccurrence === true) { out.unclassified.count += 1; recordHeld(tx, cls); }
+        continue;
+      }
       if (cls.kind === 'refund') {
         // G3a: a posted refund identified as a refund of one named household
         // category nets against that category's spend. Anything else stays
@@ -8541,9 +8579,12 @@
       if (typeof amt !== 'number' || !isFinite(amt)) continue;
       const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
         ? String(row.postedOn) : null;
+      const prior = map.get(row.id + '@' + row.date);
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        // How many linked posted entries name this occurrence (D2 reads one).
+        entries: (prior ? prior.entries : 0) + 1,
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -8574,9 +8615,9 @@
   // paid are magnitudes in dollars. A missing or non-cent value is unknown:
   // no state and no excess is invented. Excess is the paid cents above the
   // planned cents of a settled occurrence; it never changes the settled
-  // status, the remaining (0) or any total. Partial state is not decided
-  // here yet: a paid amount below plan reports state 'underpaid' only, and
-  // the caller keeps its incumbent status. The row publishes the excess only
+  // status, the remaining (0) or any total. A paid amount below plan
+  // reports state 'underpaid' only; fixedBillPartialPayment (D2) decides
+  // whether that leaves a remainder still due. The row publishes the excess only
   // when the planned amount is confirmed (calculated) or estimated
   // (estimated); an unestablished plan publishes none.
   function billPaymentState(planned, paid) {
@@ -8589,6 +8630,31 @@
     const state = paidCents === plannedCents ? 'paid-exact'
       : paidCents > plannedCents ? 'paid-excess' : 'underpaid';
     return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
+  }
+
+  // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
+  // bill paid in part keeps its remainder reserved. The one owner of that
+  // remainder: a bill occurrence whose plan row is explicitly marked
+  // `amountFixed: true` (a contractually fixed payment, marked by the owner),
+  // whose planned amount is confirmed, and whose one linked posted payment,
+  // observed in the packet, is below it. Paid is the observed amount; the
+  // remainder is planned minus paid, in integer cents. `confirmed` alone is
+  // confidence in the planned figure, not a fixed price (a cheaper hydro
+  // charge is not a debt), so every unmarked bill keeps today's PAID with its
+  // Partly paid label. The scheduled-fee pair (tdfees), a card-paid bill and a
+  // schedule-trusted settlement (no payment seen) are not here either.
+  function fixedBillPartialPayment(event, planned, observed) {
+    if (!event || event.kind !== 'bill' || !event.id || !event.date || event.id === 'tdfees'
+      || event.cardPaid === true || event.amountFixed !== true || event.confidence !== 'confirmed') return null;
+    const seen = observed && observed.get(event.id + '@' + event.date);
+    // One linked posted instalment only: several entries for one occurrence
+    // are not one partial payment, so they keep the incumbent reading.
+    if (!seen || seen.settlementBasis || seen.entries !== 1
+      || typeof seen.actual !== 'number' || !Number.isFinite(seen.actual)) return null;
+    const state = billPaymentState(planned, seen.actual);
+    if (state.state !== 'underpaid' || !(state.paidCents > 0)) return null;
+    return { plannedCents: state.plannedCents, paidCents: state.paidCents,
+      remainderCents: state.plannedCents - state.paidCents };
   }
 
   // "Trusted on due date (not seen)": the owner's schedule-trust rule
@@ -8781,13 +8847,16 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const paid = !!(e.id && represented.has(e.id + '@' + e.date));
+      // D2: the same owner as the Bills rows: a fixed bill paid in part is
+      // still required at asOf for its remainder.
+      const partPaid = paid ? fixedBillPartialPayment(e, amt, observed) : null;
       let settlement;
       let actual;
       let remaining;
       if (paid) {
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
-        remaining = 0;
+        remaining = partPaid ? partPaid.remainderCents / 100 : 0;
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8809,6 +8878,7 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(partPaid ? { partlyPaidRemainder: true } : {}),
         ...(paid && observedSettlementBasis(observed, e.id, e.date)
           ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
@@ -9039,7 +9109,8 @@
       if (item.settlement === 'represented') continue;
       if (item.id && skip.has(item.id)) continue;
       const bill = byKey.get((item.id || '') + '@' + item.date);
-      if (bill && bill.settlement === 'represented') continue;
+      // D2: a fixed bill paid in part is still due this payday for its remainder.
+      if (bill && bill.settlement === 'represented' && bill.partlyPaidRemainder !== true) continue;
       const amount = roundCent(item.amount);
       const remaining = bill && bill.remaining != null ? bill.remaining : amount;
       items.push({
@@ -10556,16 +10627,21 @@
   function calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const amt = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     if (!(amt > EPSILON)) return null;
-    const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
+    // D2: a carried remainder of a fixed bill paid in part is what is still
+    // owed; the payment seen already counted it once, so it is never paid.
+    const paid = event.partlyPaidRemainder !== true
+      && calendarOccurrenceRepresented(represented, observed, event.id, event.date);
     const inside = recurringInsideOpening(plan, event, cashAsOf);
     const due = scheduleDate || event.date;
     let settlement;
     let actual;
     let remaining;
+    // D2: a fixed bill paid in part stays still due for its remainder.
+    const partPaid = paid ? fixedBillPartialPayment(event, amt, observed) : null;
     if (paid) {
       settlement = 'represented';
       actual = observedActual(observed, event.id, event.date);
-      remaining = 0;
+      remaining = partPaid ? partPaid.remainderCents / 100 : 0;
     } else if (inside) {
       // Assumed inside the opening cash, so cash walks skip it by its
       // settlement. It is still unconfirmed: the household disclosure keeps
@@ -10597,7 +10673,9 @@
     // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
-    // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
+    // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
+    // before, except on a bill its owner marked `amountFixed: true`, which stays still due for its remainder (D2,
+    // fixedBillPartialPayment).
     // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
     // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
     // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
@@ -10606,7 +10684,8 @@
     const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
       paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
       shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
-    const status = paid ? 'PAID'
+    const status = partPaid ? 'still due'
+      : paid ? 'PAID'
       : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
@@ -10633,6 +10712,7 @@
       cardPaid: event.cardPaid === true,
       glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
+      ...(partPaid ? { partlyPaidRemainder: true } : {}),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
       ...(event.fundingAccount ? { fundingAccount: event.fundingAccount,
@@ -10819,8 +10899,15 @@
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
         && coversOccurrence;
-      if (prepaidByWalk) prepaidBillSettledBy.set(row, asOf);
-      if (!prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+      // D2: a fixed bill paid in part early, on the walk's own settled set:
+      // the paid part left cash on or before asOf, so the row keeps it as
+      // paid in its planned period and owes only its remainder there; a
+      // later opening already holds the paid part.
+      const prepaidPartial = !prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+        && row.partlyPaidRemainder === true && row.settlement === 'represented'
+        && represented && represented.has(row.id + '@' + row.date);
+      if (prepaidByWalk || prepaidPartial) prepaidBillSettledBy.set(row, asOf);
+      if (!prepaidByWalk && !prepaidPartial && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -10848,6 +10935,7 @@
         delete row.shortfall;
         delete row.shortfallTrust;
         delete row.shortfallSource;
+        delete row.partlyPaidRemainder;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -10919,8 +11007,10 @@
       if (overdueOnce && paid) {
         const probe = calendarBillRowFromEvent(
           plan, event, asOf, represented, observed, cashAsOf, due, opts);
-        if (!probe || settledInClosedPeriod(probe, due)) continue;
-        unbackedOnce = true;
+        // D2: a fixed once bill paid in part still owes its remainder, which
+        // the cash walk carries; it stays listed, built on its evidence.
+        if (!probe || (probe.partlyPaidRemainder !== true && settledInClosedPeriod(probe, due))) continue;
+        unbackedOnce = probe.partlyPaidRemainder !== true;
       }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
@@ -11040,7 +11130,7 @@
     const displayedBillAbs = r => {
       if (!r) return 0;
       if (r.movement != null && isFinite(Number(r.movement))) {
-        return Math.abs(Number(r.movement));
+        return Math.abs(Number(r.movement)) + partlyPaidRemainderAbs(r);
       }
       if (r.status === 'PAID') {
         const raw = r.actual != null ? r.actual
@@ -13281,7 +13371,14 @@
   function periodWaterfallBillLoad(bills, openingAsOf, openingSource, amountOf) {
     const amount = amountOf || billAssignedAmount;
     return roundCent((bills || []).reduce((sum, row) => {
-      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) return sum;
+      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) {
+        // D2: a fixed bill paid in part whose paid part is already inside
+        // this opening: the opening holds the paid part, not the remainder.
+        return row && row.partlyPaidRemainder === true && !row.needsDate
+          && paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource)
+          && typeof row.remaining === 'number' && Number.isFinite(row.remaining)
+          ? sum + Math.abs(row.remaining) : sum;
+      }
       return sum + (row.scheduledFeeAllowance
         ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));
@@ -13839,7 +13936,10 @@
           covered: row.minimumCoverage.covered, remaining: row.remaining,
           paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
         const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
-        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')) || row.settlement === 'opening') continue;
+        // D2: a fixed bill paid in part is represented for its paid part only;
+        // its remainder is still cash Bills must hold.
+        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')
+          && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
           issue('remaining-cash-unknown', 'The confidence of a remaining bill cash requirement is unknown.'); continue;
@@ -14167,7 +14267,36 @@
     // payment leg on that card. Recognised by that alone, it pairs only
     // with a TD "TFR-TO C/C" debit (see pairLegs).
     const tdPaymentCreditOnly = tx => !recordedPaymentLike(tx) && tx.pending === false && isTdCardPaymentCredit(tx);
-    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx);
+    // Lead dispatch U5: a Lunch Money group is the household's own record that
+    // its two rows are one card payment, when it spans two accounts and holds
+    // exactly one posted household-cash debit and one posted revolving-card
+    // credit of equal cents. Its rows are payment legs; reconcileCardPurchases
+    // pairs them with each other only (see groupPairs).
+    const groupMembers = new Map();
+    for (const tx of input) {
+      if (tx && tx.parentId != null && tx.isGroup !== true) {
+        const id = String(tx.parentId);
+        if (!groupMembers.has(id)) groupMembers.set(id, []);
+        groupMembers.get(id).push(tx);
+      }
+    }
+    // Lead ruling (#1322, rule 17): the category wins, as in #1316. A group in
+    // which either row carries a spending category is not a card payment; its
+    // rows read exactly as ungrouped (a refund stays a refund).
+    const spendingCategory = row => classifyCurrentPeriodTransaction({ ...row, amount: Math.abs(Number(row.amount)) },
+      plan, { packet }).householdSpending === true;
+    const spendingGroup = id => (groupMembers.get(String(id)) || []).some(spendingCategory);
+    const cardPaymentGroup = tx => {
+      const members = tx && tx.parentId != null ? groupMembers.get(String(tx.parentId)) : null;
+      if (!members || members.length !== 2 || spendingGroup(tx.parentId)) return false;
+      const accountOf = row => [row.atlasAccountId, row.accountId, row.account].find(id => id != null && id !== '');
+      if (accountOf(members[0]) == null || accountOf(members[0]) === accountOf(members[1])) return false;
+      const debit = members.find(row => row.accountRole === 'household-cash' && savingsCents(row.amount, true) > 0);
+      const credit = members.find(row => isRevolvingCardAccount(row) && savingsCents(row.amount, true) < 0);
+      return !!debit && !!credit && debit !== credit && debit.pending === false && credit.pending === false
+        && savingsCents(debit.amount, true) === -savingsCents(credit.amount, true);
+    };
+    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx) || cardPaymentGroup(tx);
     for (const tx of input) {
       if (tx && (cardLike(tx) || paymentLike(tx)) && !savingsDate(tx.date)) issue('coverage-date-unconfirmed');
       // Under the aggregate rule every card row before the opening is
@@ -14372,7 +14501,53 @@
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
-      const creditPairs = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // Lead dispatch U5: Lunch Money's own card-payment link. A posted group
+      // (its rows share a parentId) that spans more than one account and holds
+      // exactly one household-cash debit and one card-payment credit of equal
+      // cents proves where that payment went: the two pair directly, whatever
+      // their dates or notes. Any other cross-account group holding a payment
+      // leg withholds. A same-account group (a split) and ungrouped legs pair
+      // as before. Grouped legs never pair outside their group.
+      const groupPairs = [];
+      {
+        const accountOf = tx => [tx.atlasAccountId, tx.accountId, tx.account].find(id => id != null && id !== '');
+        const legOf = new Map();
+        for (const [kind, list] of Object.entries(legs)) for (const leg of list) legOf.set(leg.tx, { kind, leg });
+        const groupIds = new Set([...legOf.keys()].filter(tx => tx.parentId != null).map(tx => String(tx.parentId)));
+        const grouped = new Set();
+        for (const id of groupIds) {
+          const members = input.filter(tx => tx && tx.parentId != null && String(tx.parentId) === id);
+          if (new Set(members.map(accountOf)).size < 2 || spendingGroup(id)) continue;
+          for (const tx of members) grouped.add(tx);
+          const shaped = members.map(tx => legOf.get(tx));
+          const cash = shaped.filter(m => m && m.kind === 'cashDebit');
+          const card = shaped.filter(m => m && m.kind === 'cardCredit');
+          // A debit whose note names a card names its destination itself: a group
+          // that puts it on another card's credit is contradictory (#1322 pre-review).
+          const dest = cash.length === 1 ? cash[0].leg.tx.cardPaymentNoteDestination : null;
+          const valid = members.length === 2 && cash.length === 1 && card.length === 1
+            && cash[0].leg.tx.accountRole === 'household-cash'
+            && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
+            && cash[0].leg.cents === card[0].leg.cents
+            && (dest == null || dest === card[0].leg.account);
+          const noted = valid ? notePays(cash[0].leg) : null;
+          const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
+          if (!valid) {
+            if (counted) issue('coverage-payment-group-unconfirmed', (card[0] || cash[0] || shaped.find(Boolean))?.leg.tx.coverageRef);
+            for (const m of shaped) if (m) m.leg.paired = true;
+            continue;
+          }
+          cash[0].leg.paired = true; card[0].leg.paired = true;
+          // One date rule with pairLegs (#1298): a debit whose note pays this card
+          // is a payment on the debit's own date, so a credit grouped with it after
+          // an opening rollover cannot count it again, and the mirror is not lost.
+          const date = noted === card[0].leg.account ? cash[0].leg.tx.date : card[0].leg.tx.date;
+          if (date >= origin) groupPairs.push({ card: card[0].leg, cash: cash[0].leg, date });
+        }
+        for (const kind of Object.keys(legs)) legs[kind] = legs[kind].filter(leg => !grouped.has(leg.tx));
+      }
+      const creditPairs = [...groupPairs,
+        ...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed')];
       // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
       // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
       // exactly one card in the fixed table is a payment to that card on its
@@ -17592,6 +17767,12 @@
     return { unconfirmedBills: amount, unconfirmedBillsTrust: estimated ? 'estimated' : 'calculated' };
   }
 
+  // D2: a fixed bill paid in part counts its paid movement and its remainder
+  // in a bills total, so its full planned cost appears once.
+  function partlyPaidRemainderAbs(row) {
+    return row && row.partlyPaidRemainder === true && typeof row.remaining === 'number'
+      && Number.isFinite(row.remaining) ? Math.abs(row.remaining) : 0;
+  }
   function periodDisplayedBillAbs(row) {
     if (!row) return 0;
     if (row.movement != null && isFinite(Number(row.movement))) {
@@ -25479,7 +25660,7 @@
     const rowIncomplete = coverage === 'incomplete' && (
       Array.isArray(packet.cardCoverageUnconfirmed) && packet.cardCoverageUnconfirmed.length > 0
       || Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length > 0
-      || transactions.some(row => row?.accountRole === 'unmapped'));
+      || transactions.some(row => row?.accountRole === 'unmapped' && !skipSplitParent(row, packet)));
     const fetchComplete = (coverage === 'complete' || coverage?.complete === true)
       && transactionCoverageStatus(packet) === 'complete' || rowIncomplete;
     const sourceWindow = packet.savingsFetchCoverage;
