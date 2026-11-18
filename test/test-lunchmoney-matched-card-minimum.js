@@ -34,7 +34,7 @@ let nextId = 94100;
 const pay = (date, amount, extra = {}) => ({ id: ++nextId, account_id: 3001, date, amount, currency: 'cad',
   payee: 'Invented card payment', category_name: 'Credit card payment', is_pending: false, recurring_id: Number(ID), ...extra });
 
-function fixture({ payments = [], optIn = true, statement = {} } = {}) {
+function fixture({ payments = [], optIn = true, statement = {}, windowStart = '2026-09-01' } = {}) {
   const x = source('triangle', 'triangle');
   x.asOf = '2026-10-05';
   x.data.meta.asOf = '2026-10-02';
@@ -47,7 +47,7 @@ function fixture({ payments = [], optIn = true, statement = {} } = {}) {
     ...(statement === null ? {} : { statementOccurrences: [{ scheduledDate: '2026-10-07', dueDate: '2026-10-08',
       minimum: 91.23, currency: 'cad', confidence: 'confirmed', ...statement }] }) };
   x.payload.fetchedAt = x.asOf + 'T18:00:00Z';
-  x.payload.transactionWindow = { startDate: '2026-09-08', endDate: x.asOf, complete: true, hasMore: false, truncated: false };
+  x.payload.transactionWindow = { startDate: windowStart, endDate: x.asOf, complete: true, hasMore: false, truncated: false };
   x.payload.transactions = payments;
   x.payload.accounts.forEach(a => { a.updated_at = x.asOf + 'T17:00:00Z'; a.balance_last_update = x.asOf + 'T17:00:00Z'; });
   // The card's rule: identified by its Lunch Money recurring link alone.
@@ -114,6 +114,18 @@ console.log('3. Two payments in the cycle settle nothing');
   // only the one-payment-per-cycle check refuses it.
   const p = [pay('2026-09-20', 40), pay('2026-10-05', 100)];
   withheld(serve(fixture({ payments: p }), lmRead(['2026-10-07'], [p[1]])), 'two linked payments in one cycle (LM counted one)');
+}
+
+console.log('3b. A fetched window that starts inside the cycle settles nothing');
+{
+  // Codex finding on #1296: the window must reach back to the cycle's first
+  // day (Sep 7). A window from Oct 1 would hide a Sep 20 payment, so it
+  // cannot rule out a second payment and withholds, even though the one
+  // payment it shows qualifies.
+  const p = [pay('2026-10-05', 100)];
+  withheld(serve(fixture({ payments: p, windowStart: '2026-10-01' }), lmRead(['2026-10-07'], p)), 'window from Oct 1 (Sep 20 could be hidden)');
+  withheld(serve(fixture({ payments: p, windowStart: '2026-09-08' }), lmRead(['2026-10-07'], p)), 'window from Sep 8 (one day short of the cycle)');
+  ok(settled(serve(fixture({ payments: p, windowStart: '2026-09-07' }), lmRead(['2026-10-07'], p))), 'window from Sep 7 (the cycle\'s first day) settles');
 }
 
 console.log('4. No confirmed statement: the plan\'s estimated minimum never counts');

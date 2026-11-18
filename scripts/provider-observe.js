@@ -3029,11 +3029,13 @@ function salaryReceiptTransferHits(input, rules) {
 //     confirmed) whose scheduled date is the paired occurrence;
 //   - the payment is at least that statement's minimum; and
 //   - no other linked payment of the rule posted in that cycle (after the
-//     previous occurrence, up to the statement's due date).
+//     previous occurrence, up to the statement's due date), and the fetched
+//     transaction window is complete and starts no later than the cycle's
+//     first day, so an earlier payment in the cycle cannot be missing.
 // Otherwise today's withholding stands: a payment below the minimum, two
 // payments in a cycle, or no confirmed statement (the plan's estimated
 // minimum never counts). coveringStatementCycleDates is untouched.
-function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked) {
+function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
   const row = ((plan && plan.obligations) || []).find(item => item && item.id === rule.eventId);
   if (!row || row.effect !== 'payment' || !Array.isArray(row.statementOccurrences)) return false;
   const original = Forecast.statementOccurrenceIdentity(plan, rule.eventId, date);
@@ -3044,6 +3046,8 @@ function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked) {
   if (statement.confidence !== 'confirmed' || !realIsoDay(statement.dueDate) || !(Number.isFinite(minimum) && minimum > 0)) return false;
   if (!(lunchMoneyDebitAmount(tx.amount) + IDENTITY_AMOUNT_EPSILON >= minimum)) return false;
   const previous = Forecast.occurrences(row, Forecast.addDays(original, -62), Forecast.addDays(original, -1)).pop() || Forecast.addDays(original, -31);
+  if (!txWindow || txWindow.complete !== true || !realIsoDay(txWindow.startDate)
+    || txWindow.startDate > Forecast.addDays(previous, 1)) return false;
   const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
     && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
   return others.length === 0;
@@ -3073,7 +3077,7 @@ function lmMatchedCardMinimum(tx, rule) {
 //   - the found count equals the matched-date count;
 //   - every matched date is exactly one scheduled occurrence of the bill;
 //   - each paired payment's amount is consistent with that occurrence.
-function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring) {
+function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow) {
   for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
   const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
     && rule.eventId && rule.direction === 'debit' && ruleLunchMoneyRecurringIds(rule).length === 1);
@@ -3134,7 +3138,7 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     const card = cardMinimumNeedsConfirmation(plan, rule.eventId, accountMap);
     for (const { tx, date } of pairs) {
       LM_MATCHED.set(tx, { eventId: rule.eventId, date,
-        ...(card ? { cardMinimum: lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked) } : {}) });
+        ...(card ? { cardMinimum: lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) } : {}) });
     }
     applied.push({ eventId: rule.eventId, matchedDates: matched.length });
   }
@@ -4417,7 +4421,7 @@ function observeCore(input, capture) {
     debts: (input.data && input.data.debts) || [],
   });
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
-    input.payload && input.payload.recurringItems);
+    input.payload && input.payload.recurringItems, normalized.transactionWindow);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
