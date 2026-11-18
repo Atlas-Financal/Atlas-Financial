@@ -184,5 +184,16 @@ for (const name of ['Triangle Mastercard', 'MBNA']) {
   check(s.state.status === 'ready' && s.state.payments[0].minimumConfirmationSource === 'household-category',
     'category with a note naming another card: the category wins, as on main');
 }
+// 8. The packet's card-minimum ownership mark follows the QUALIFIED evidence (Codex P1 on #1388):
+// a noted debit the card's credit pairs stays owned; one it does not pair is never left marked owned.
+{
+  const owned = packet => (packet.transactions || []).filter(tx => tx.cardMinimumOwned === true).length;
+  const paired = run(world({ note: TRAVEL, credit: true }));
+  check(paired.live.report.currentPeriodActuals.cardMinimumOwnership === 'available'
+    && owned(paired.live.report.currentPeriodActuals) === 1, 'paired note: the debit is marked owned once');
+  const unpaired = run(world({ note: TRAVEL }));
+  check(unpaired.live.report.currentPeriodActuals.cardMinimumOwnership === 'available'
+    && owned(unpaired.live.report.currentPeriodActuals) === 0, 'unpaired note: no row stays marked owned');
+}
 
 console.log(`  PASS  a noted TD minimum is confirmed by the card's paired credit, else To confirm (${checks} checks)`);

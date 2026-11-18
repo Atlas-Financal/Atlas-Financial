@@ -259,7 +259,28 @@ for (const mutate of [
       delete tx.recurringId;
     }
   }
-  assert.deepEqual(fresh, JSON.parse(JSON.stringify(oldObserver.exports.observe(input))),
+  const historical = JSON.parse(JSON.stringify(oldObserver.exports.observe(input)));
+  // Authorized addition (rank 18, unproven Transfer / Payment debits): the packet carries the
+  // card-minimum owner export's status. This fixture has no durable card-minimum record, so the
+  // status follows the derived minimum packet alone, read from the independently loaded
+  // observer's own report: a calendar-dated packet is 'available', an undated one 'unavailable'.
+  assert.ok(!(noLink.data.plan.obligations || []).some(row => row && row.sentPayments != null),
+    'this fixture carries no durable card-minimum record');
+  const derivedAsOf = historical.cardMinimumCategoryEvidence && historical.cardMinimumCategoryEvidence.asOf;
+  const dated = typeof derivedAsOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(derivedAsOf);
+  assert.equal(fresh.currentPeriodActuals.cardMinimumOwnership, dated ? 'available' : 'unavailable',
+    'the authorized card-minimum ownership status matches the derived packet');
+  assert.ok((fresh.currentPeriodActuals.transactions || []).every(tx => !Object.hasOwn(tx, 'cardMinimumOwned')),
+    'no row is stamped owned without an owner record');
+  delete fresh.currentPeriodActuals.cardMinimumOwnership;
+  // Grok Bot (#1149 condition 3): the undated derived packet is named as unreadable.
+  assert.deepEqual(fresh.currentPeriodActuals.cardMinimumUnreadable,
+    dated ? undefined : [{ label: null, what: 'ledger minimum links' }], 'the authorized unreadable naming');
+  delete fresh.currentPeriodActuals.cardMinimumUnreadable;
+  // The derived packet's disagreements list comes from scripts/card-minimum-category.js, which the
+  // historical observer also loads, so both reports carry it; no owner record, so it is empty.
+  assert.deepEqual(fresh.cardMinimumCategoryEvidence.disagreements, [], 'no owner record, so no disagreement');
+  assert.deepEqual(fresh, historical,
     'no-link entire observer report retains the independently loaded pre-change shape');
   const opts = { ...x.opts, currentPeriodActuals: p, debts: [] };
   const a = F.recommend(x.plan, x.asOf, opts);

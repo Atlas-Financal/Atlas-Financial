@@ -1,0 +1,93 @@
+'use strict';
+// Invented worlds for "Money out, to confirm": the Budget surface household (observed
+// 2026-08-20) plus extra legs on its two chequing accounts. A leg is a debit when its amount is
+// positive (money out) and a credit when negative. A POSTED leg moves the opening of its account
+// by the same amount so the observed closing balance stays as invented; a pending one does not.
+const fx = require('./budget-surface-data');
+const Live = require('../../scripts/live-plan');
+const O = require('../../scripts/provider-observe');
+
+const ACCOUNT = { 1001: 'chequing-a', 1002: 'chequing-b' };
+const CATEGORY = { shopping: 14, transfer: 17, payment: 18 };
+
+// Options: `confirmed` makes every estimated input of the household confirmed (so the remainder and
+// planned close read calculated until a money-out term makes them estimated); `refile` is a map of
+// an existing transaction id to a label, re-filing only that transaction as Transfer or Payment.
+// `card` adds an invented card purchase (id 94801, on the card, dated Aug 18) and a card-side payment credit
+// (id 94802, Aug 19) of the given amount; `card.declare` is a function (refs) -> payment record to declare in the
+// card-coverage ledger, where refs = { debit, credit, purchase } are the coverage references of the first leg, the
+// credit and the purchase. The leg that pays it is an ordinary Transfer leg in `legs`.
+// `manualCards` adds two invented manual cards with no card feed, MBNA and Triangle, each with a minimum
+// (45 and 35, due Aug 22, paid from chequing-a), so a note naming either has a bill to belong to.
+function world(legs = [], { confirmed = false, refile = {}, card = null, minimumOwner = false, durableMinimum = false, manualCards = false } = {}) {
+  const data = fx.canonical();
+  const payload = fx.payload();
+  if (manualCards) {
+    for (const [id, label, amount] of [['mbna', 'Invented MBNA card', 45], ['triangle', 'Invented Triangle card', 35]]) {
+      data.debts.push({ id, label, structure: 'Revolving', secured: false, balance: 1000, pending: 0, limit: 3000, rate: 19.99 });
+      data.plan.obligations.push({ id: id + '-minimum', label: label + ' minimum', debtId: id, effect: 'payment',
+        frequency: 'monthly', day: 22, amount, confidence: 'confirmed', payingAccount: 'chequing-a' });
+    }
+  }
+  payload.categories.push({ id: 17, name: 'Transfer', is_income: false, exclude_from_totals: true });
+  payload.categories.push({ id: 18, name: 'Payment, Transfer', is_income: false, exclude_from_totals: true });
+  if (confirmed) {
+    data.plan.income.find(row => row.id === 'partner').confidence = 'confirmed';
+    data.plan.bills.find(row => row.id === 'hydro').confidence = 'confirmed';
+    data.plan.commitments.forEach(row => { row.confidence = 'confirmed'; });
+  }
+  for (const [txId, label] of Object.entries(refile)) {
+    payload.transactions.find(tx => String(tx.id) === String(txId)).category_id = CATEGORY[label];
+  }
+  // `minimumOwner` gives the travel-visa minimum obligation (chequing-a, due Aug 22) the household's ledger identity rule for its
+  // issuer, and the card a statement close, so a debit in the exact category 'Minimum payment - TD Travel Visa' (both exclude
+  // flags set) is accepted by the minimum-payment owner (scripts/card-minimum-category.js) as that obligation's payment.
+  const identity = minimumOwner ? { ...fx.identity, rules: [...fx.identity.rules,
+    { eventId: 'card-minimum', payeePattern: 'Synthetic card issuer', atlasAccountId: 'chequing-a', direction: 'debit' }] } : fx.identity;
+  if (minimumOwner) data.debts.find(debt => debt.id === 'travelvisa').statementCloseDay = 15;
+  // `durableMinimum`: the travel-visa minimum already has a confirmed durable sentPayments record whose protocol debit identity
+  // is the first leg's provider id (94001), the shape an accepted incumbent owner leaves. The category derivation then declines
+  // to allocate that debit again, so it is owned by the durable record, not by new category evidence.
+  if (durableMinimum) {
+    const hash = require('node:crypto').createHash('sha256').update('lunchmoney-minimum-category:94001').digest('hex');
+    // An object overrides fields of that record (a withdrawn or unreadable owner record).
+    data.plan.obligations.find(row => row.id === 'card-minimum').sentPayments = [Object.assign({ scheduledDate: '2026-08-22', confirmed: true,
+      intent: 'minimum', debitId: hash, postedOn: '2026-08-18', amount: 60, currency: 'cad', fundingAccountId: 'chequing-a',
+      pending: false, cashIncludedAsOf: '2026-08-20', movementIdentity: { source: 'lunchmoney-minimum-category', debitId: hash } },
+      typeof durableMinimum === 'object' ? durableMinimum : {})];
+    data.plan.opening.representedEvents = [{ id: 'card-minimum', date: '2026-08-22', effectiveAsOf: '2026-08-20' }];
+  }
+  let id = 94000;
+  for (const leg of legs) {
+    // A leg may carry its own ledger category: { categoryName, excludeBudget, excludeTotals } (the name is the whole label),
+    // `groupParent`, the id of a Lunch Money group it belongs to (the ledger's own link of its other side), and `notes`.
+    if (leg.categoryName && !payload.categories.some(c => c.name === leg.categoryName)) {
+      payload.categories.push({ id: 9100 + payload.categories.length, name: leg.categoryName, is_income: false, is_group: false,
+        exclude_from_budget: leg.excludeBudget !== false, exclude_from_totals: leg.excludeTotals !== false });
+    }
+    payload.transactions.push({ id: ++id, account_id: leg.account || 1002, date: leg.date || '2026-08-19',
+      amount: leg.amount, currency: 'cad', payee: leg.payee || 'Synthetic recipient',
+      ...(leg.original ? { original_name: leg.original } : {}),
+      ...(leg.kind ? { kind: leg.kind } : {}),
+      ...(leg.groupParent ? { group_parent_id: leg.groupParent } : {}),
+      ...(leg.notes ? { notes: leg.notes } : {}),
+      category_id: leg.categoryName ? payload.categories.find(c => c.name === leg.categoryName).id : CATEGORY[leg.category], is_pending: leg.pending === true, status: leg.pending ? 'pending' : 'cleared' });
+    if (leg.pending !== true) {
+      data.plan.startingCash.breakdown.find(row => row.id === ACCOUNT[leg.account || 1002]).value += leg.amount;
+    }
+  }
+  if (card) {
+    payload.transactions.push({ id: 94801, account_id: 2001, date: '2026-08-18', amount: card.amount, currency: 'cad',
+      payee: 'Synthetic card purchase', category_id: CATEGORY.shopping, is_pending: false, status: 'cleared' });
+    payload.transactions.push({ id: 94802, account_id: 2001, date: '2026-08-19', amount: -card.amount, currency: 'cad',
+      payee: 'PAYMENT - THANK YOU', category_id: CATEGORY.payment, is_pending: false, status: 'cleared' });
+    if (card.declare) {
+      const ref = id => O.cardCoverageReference(O.normalizeLunchMoneyTransaction(payload.transactions.find(tx => tx.id === id)));
+      const made = card.declare({ debit: ref(94001), credit: ref(94802), purchase: ref(94801) });
+      data.plan.cardPurchaseCoverage.payments = Array.isArray(made) ? made : [made];
+    }
+  }
+  return Live.fromObservation({ data, payload, accountMap: fx.map, identity }).data;
+}
+
+module.exports = { world };

@@ -2180,6 +2180,13 @@ function householdBudgetMetric(label, amount, opts) {
       const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
         ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
         : '';
+      // Display-only (Forecast owns it; Grok Bot, #1149 conditions 2 and 3): why
+      // a Transfer / Payment debit with no proven other side is held To confirm.
+      const transferHeld = tx.cardMinimumDisagreement === true
+        ? `<span class="household-budget-tx-alert" data-tx-minimum-disagreement>Owner record and ledger link disagree (card or occurrence)</span>`
+        : tx.cardMinimumUnknown === true
+          ? `<span class="household-budget-tx-alert" data-tx-minimum-unknown>May be a card minimum; the card-minimum record could not be read</span>`
+          : '';
       // Display-only (Forecast owns it): linked to one bill but doesn't fit
       // it; counted here once and the bill stays To confirm.
       const misfit = tx.linkedBillMisfit;
@@ -2210,7 +2217,7 @@ function householdBudgetMetric(label, amount, opts) {
       const card = coverageState ? `<span class="household-budget-tx-card"><svg aria-hidden="true" viewBox="0 0 20 16" focusable="false"><rect x="1" y="1" width="18" height="14" rx="2"/><path d="M1 5h18M4 11h4"/></svg>Card purchase${coverage.accountLabel ? ` · ${esc(coverage.accountLabel)}` : ''} · ${esc(cardText)}</span>` : '';
       return `<li class="household-budget-tx${coverageState && coverageState !== 'resolved' ? ' is-card-coverage-open' : ''}"${idAttr}${coverageState ? ` data-card-coverage="${coverageState}"` : ''} data-tx-pending="${tx.pending === true ? 'true' : 'false'}">
         <time${dateAttr}>${esc(dateText)}</time>
-        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${linkedMisfit}${card}</span>
+        <span class="household-budget-tx-payee">${esc(payeeRaw)}${pending}${possibleDuplicate}${unexpected}${possibleBill}${mortgageDue}${transferHeld}${linkedMisfit}${card}</span>
         <span class="household-budget-tx-amount">${money2(tx.amount)}</span>
       </li>`;
     }).join('');
@@ -2475,9 +2482,16 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   function heldOutflowsHtml(period) {
     const held = period && period.heldOutflowsToConfirm;
     if (!held || !Array.isArray(held.recon) || !held.recon.length) return '';
+    // Grok Bot condition 3: an Unavailable term names what could not be read.
+    const unreadable = held.total == null && Array.isArray(held.cardMinimumUnreadable)
+      ? held.cardMinimumUnreadable.filter(item => item && typeof item.what === 'string') : [];
+    const unreadableNote = held.total == null && Array.isArray(held.cardMinimumUnreadable)
+      ? `<p class="household-budget-context" data-budget-held-unreadable>Unavailable. Could not read ${unreadable.length
+        ? unreadable.map(item => `${escapeHtml(item.label || 'a card minimum')} (${escapeHtml(item.what)})`).join(', ')
+        : 'the card-minimum record'}.</p>` : '';
     return `<div class="household-budget-other" data-budget-category="to-confirm" data-budget-held-outflows>
       <h3 class="household-budget-name">To confirm</h3>
-      <dl class="household-budget-metrics">${householdBudgetMetric('Not counted as spending', held.total, { recon: held.recon, id: 'to-confirm', unavailableText: 'Unavailable', listRows: true })}</dl>
+      <dl class="household-budget-metrics">${householdBudgetMetric('Not counted as spending', held.total, { recon: held.recon, id: 'to-confirm', unavailableText: 'Unavailable', listRows: true })}</dl>${unreadableNote}
     </div>`;
   }
   return `<div class="payday-household-budget" data-payday-household-budget>

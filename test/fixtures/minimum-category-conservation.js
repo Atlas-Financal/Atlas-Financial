@@ -29,6 +29,9 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     source: 'lunchmoney-minimum-category',
     asOf: historicalObserver.householdFinancialDate(input, report.observations),
     payments: [],
+    // Grok Bot Q2 addition: debits the ledger link and an owner record disagree on. No owner
+    // records in these ledgers, so exactly empty.
+    disagreements: [],
   };
   // Authorized addition (outgoing e-transfer review list): the sanitized
   // packet now stamps an identity boolean on every row and carries the
@@ -79,6 +82,22 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
   assert.ok(!Object.hasOwn(expected.currentPeriodActuals, 'savingsMovementUnconfirmed'),
     'historical actuals predate the account-scoped Savings provenance leaf');
   expected.currentPeriodActuals.savingsMovementUnconfirmed = [];
+  // Card-minimum owner export status (rank 18, Transfer / Payment; lead ruling (B)): the packet carries only the
+  // export's status, and no row is stamped owned. These salary-only ledgers have no durable
+  // card-minimum record, so the status follows the derived minimum packet alone: readable
+  // (a calendar asOf) is 'available'; a derivation the observer could not date (asOf null)
+  // cannot say which debits it owns, so it is 'unavailable' (Grok Bot (d)). The date is the
+  // expectation above, computed from the historical observer, not from the code under test.
+  assert.ok(!Object.hasOwn(expected.currentPeriodActuals, 'cardMinimumOwnership'),
+    'historical packet predates the card-minimum ownership status');
+  assert.ok(!(input.data.plan.obligations || []).some(row => row && row.sentPayments != null),
+    'salary ledgers carry no durable card-minimum record');
+  const derivedAsOf = expected.cardMinimumCategoryEvidence.asOf;
+  const derivedDated = typeof derivedAsOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(derivedAsOf);
+  expected.currentPeriodActuals.cardMinimumOwnership = derivedDated ? 'available' : 'unavailable';
+  // Grok Bot (#1149 condition 3): an unreadable source is named; an undated derived packet is the
+  // ledger minimum links, with no obligation label.
+  if (!derivedDated) expected.currentPeriodActuals.cardMinimumUnreadable = [{ label: null, what: 'ledger minimum links' }];
   const rawWindow = input.payload.transactionWindow || input.payload.transaction_window || {};
   const originalDate = keys => {
     const values = keys.filter(key => Object.hasOwn(rawWindow, key)).map(key => rawWindow[key]);

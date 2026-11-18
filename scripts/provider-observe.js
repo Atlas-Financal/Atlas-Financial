@@ -4947,6 +4947,9 @@ function observeCore(input, capture) {
       ? Forecast.cardNotePaymentReceipts(packet.transactions, { plan: input.data && input.data.plan,
         asOf: packet.observationAsOf, packet, debts: input.data && input.data.debts }) : [];
     assembled.cardMinimumCategoryEvidence = MinimumCategory.qualifyNotePayments(assembled.cardMinimumCategoryEvidence, receipts);
+    // The packet's ownership marks follow the qualified evidence, never the provisional.
+    restampCardMinimumOwnership(packet, actualsPass.join, input.data && input.data.plan,
+      assembled.cardMinimumCategoryEvidence);
   }
   // S2: the timing applied above, for live-plan to apply to the served plan.
   // Internal to the report; never served.
@@ -6799,6 +6802,56 @@ function recurringEvidenceLooksSanitized(block) {
     && item.foundTransactionLocalIds.every(id => typeof id === 'string' && /^tx-\d+$/.test(id)));
 }
 
+// The card-minimum owner's export (Forecast.cardMinimumOwnedDebits, the one
+// authority), read here so the debit identities stay server-side (lead ruling
+// on #1149, 2026-11-17): a row the owner counts carries only a boolean, and the
+// packet carries the export's status and what it could not read (an obligation
+// label and a word). Refresh-time: a durable record added later is read on the
+// next refresh.
+function cardMinimumOwnership(plan, evidence, asOf) {
+  const owned = Forecast.cardMinimumOwnedDebits(Object.assign({}, plan || {},
+    evidence !== undefined ? { cardMinimumCategoryEvidence: evidence } : {}), asOf);
+  const sets = owned.status === 'available' ? {
+    owned: new Set(owned.debitIds), unknown: new Set(owned.unknownDebitIds || []),
+    disagreed: new Set(owned.disagreementDebitIds || []) } : null;
+  return {
+    status: owned.status === 'available' ? 'available' : 'unavailable',
+    unreadable: (owned.unreadable || []).map(item => ({ label: item.label || null, what: item.what })),
+    // 'owned' | 'unknown' | 'disagreement' | null for one provider transaction id.
+    mark(providerTransactionId) {
+      if (!sets || providerTransactionId == null || providerTransactionId === '') return null;
+      const id = require('crypto').createHash('sha256')
+        .update(MinimumCategory.SOURCE + ':' + providerTransactionId).digest('hex');
+      return sets.owned.has(id) ? 'owned' : sets.unknown.has(id) ? 'unknown'
+        : sets.disagreed.has(id) ? 'disagreement' : null;
+    },
+  };
+}
+function cardMinimumFlags(mark) {
+  return mark === 'owned' ? { cardMinimumOwned: true } : mark === 'unknown' ? { cardMinimumUnknown: true }
+    : mark === 'disagreement' ? { cardMinimumDisagreement: true } : {};
+}
+const CARD_MINIMUM_FLAGS = ['cardMinimumOwned', 'cardMinimumUnknown', 'cardMinimumDisagreement'];
+// Re-mark the packet's rows from the QUALIFIED minimum evidence (Codex P1 on
+// #1388): the pass marks rows before qualifyNotePayments drops a noted minimum
+// card coverage did not pair, so a dropped candidate must not stay owned. Rows
+// are found through the pass's own join (local id -> provider transaction id).
+function restampCardMinimumOwnership(packet, join, plan, evidence) {
+  if (!packet || !Array.isArray(packet.transactions)) return packet;
+  const ownership = cardMinimumOwnership(plan, evidence, packet.observationAsOf);
+  const providerIds = new Map((Array.isArray(join) ? join : []).map(row => [row.localId, row.transactionId]));
+  for (const tx of packet.transactions) {
+    if (!tx) continue;
+    for (const flag of CARD_MINIMUM_FLAGS) delete tx[flag];
+    if (!(Number(tx.amount) > 0) || tx.pending === true) continue;
+    Object.assign(tx, cardMinimumFlags(ownership.mark(providerIds.get(tx.id))));
+  }
+  packet.cardMinimumOwnership = ownership.status;
+  if (ownership.unreadable.length) packet.cardMinimumUnreadable = ownership.unreadable;
+  else delete packet.cardMinimumUnreadable;
+  return packet;
+}
+
 function sanitizedCurrentPeriodActuals(report, opts) {
   return sanitizedCurrentPeriodActualsPass(report, opts).packet;
 }
@@ -6916,6 +6969,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const tagsById = tagIndexFromPayload(report);
   const mapDoc = opts.accountMap;
   assertSavingsLinks(mapDoc);
+  // The card-minimum owner's export (cardMinimumOwnership below). The pass marks
+  // rows with the evidence it is given; the observer assembly re-marks them once
+  // the minimum evidence is qualified (restampCardMinimumOwnership).
+  const minimumOwnership = cardMinimumOwnership(opts.plan, report && report.cardMinimumCategoryEvidence, asOf);
+  const cardMinimumMark = tx => minimumOwnership.mark(tx && tx.providerTransactionId);
   const linkBlock = mapDoc?.savingsLinks;
   const privateLinks = (linkBlock?.links || []).map((link, i) => ({ ...link, ref: 'link-' + (i + 1),
     target: Forecast.savingsLinkTarget(opts.plan, link.goalRef, link.occurrenceDate, linkBlock.anchorRevision, asOf) }));
@@ -7250,6 +7308,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       daleGuiltFreeMerchant: flags.daleGuiltFreeMerchant,
       amazonMerchant: flags.amazonMerchant,
       cardPaymentIdentity: flags.cardPaymentIdentity,
+      ...(amount > 0 && tx.pending !== true ? cardMinimumFlags(cardMinimumMark(tx)) : {}),
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
       // TD "PAYMENT - THANK YOU" card credit (Grok Bot ruling): only the
@@ -7642,6 +7701,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    cardMinimumOwnership: minimumOwnership.status,
+    // What the card-minimum owner could not read: obligation label and a word, never an identity.
+    ...(minimumOwnership.unreadable.length ? { cardMinimumUnreadable: minimumOwnership.unreadable } : {}),
     ...(savingsLinks ? { savingsLinks } : {}),
     ...(lunchMoneyRecurring ? { lunchMoneyRecurring } : {}),
     ...(lunchMoneyBudgets ? { lunchMoneyBudgets } : {}),
