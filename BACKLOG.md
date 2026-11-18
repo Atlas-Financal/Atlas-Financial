@@ -319,6 +319,10 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+**Amanda's early pay can still count twice when it carries no sign of salary or arrives split** · *#1334 review non-blocking note (lead, 2026-11-18)*
+
+U6 holds the next payday only on a credit with positive salary evidence (a salary income category, a TENNIS INCOME transfer leg, or the rule's payee alias) at half or more of the amount. Her pay can still count twice in the run-up when it arrives early with none of that evidence and more than $5 off or more than 3 business days early, or as two credits each under half. Decide whether either case needs a hold, given that a blank plan is a real cost. Proof would be an invented early split pay whose payday is counted once.
+
 **Card payment pairing: a payment-like card credit pairs with a TD debit without reading the debit's note** · *pre-existing; #1298 review obs 4 (a), lead 2026-11-18*
 
 In `reconcileCardPurchases` (`public/forecast.js`), a card credit that is payment-like through its own fields pairs with an equal TD household debit without checking that debit's note, so a debit whose note names a different card can still pair with it. Decide whether a conflicting debit note should withhold the pair, as the group step does. Proof would be an invented TD debit noted for one card beside an equal payment-like credit on another, which pairs with neither.

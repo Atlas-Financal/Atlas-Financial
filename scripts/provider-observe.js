@@ -3047,7 +3047,14 @@ function nearPaydaySalaryCandidates(input, rules) {
       if (transactionIsTransfer(tx) && !transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)) continue;
       if (rulePayeeExcludePatterns(rule).some(pattern => anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
         || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) continue;
-      candidates.push({ tx, amount, rule, mapping });
+      // Positive sign of salary, beyond passing the exclusions (#1334 review, lead ruling): an income category the
+      // owner's rule reads as salary, a TENNIS INCOME transfer leg, or a payee matching the rule's salary aliases.
+      const salaryEvidence = (tx.isIncome === true && NEAR_PAYDAY_SALARY_CATEGORY.test(String(tx.categoryLabel || '')))
+        || transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)
+        || (Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length > 0
+          && payeeMatchesRule(tx, { payeePatterns: rule.salaryReceiptPayeePatterns, payeeMatchMode: 'exact',
+            payeeExcludePatterns: ['REFUND', 'REVERSAL', 'REIMBURSEMENT'] }));
+      candidates.push({ tx, amount, rule, mapping, salaryEvidence });
     }
   }
   return candidates;
@@ -3766,20 +3773,24 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       && Forecast.businessDaysAfter(previousEvent.date, credit.date) <= 1
       && Forecast.diffDays(previousEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
-    // The early plain-credit hold (U6, boundary (ii)), for the near-amount-and-payday salary rules only. A posted
-    // candidate after the previous occurrence, that the matcher did not place, holds the next occurrence when it is
-    // within the rule's tolerance of that occurrence's scheduled amount on any date in the run-up, or is dated
-    // within the rule's business days before that payday at no less than half its scheduled amount (an early and
-    // off-amount pay). Otherwise the cash walk counts it as Other Income while the payday is still projected, so the
-    // pay is counted twice. It fails closed: an unrelated credit of that shape withholds the plan.
+    // The early plain-credit hold (U6, boundary (ii) as narrowed by the #1334 review), for the near-amount-and-payday
+    // salary rules only. A posted candidate after the previous occurrence, that the matcher did not place, holds the
+    // next occurrence when it carries positive salary evidence (salaryEvidence) and is no less than half that
+    // occurrence's scheduled amount, on any date in the run-up (an early, possibly off-amount, pay). Otherwise the
+    // cash walk counts her early pay as Other Income while the payday is still projected, so the pay is counted twice.
+    // A credit within the rule's tolerance and business days of the payday is the matcher's (settled, or competing To
+    // confirm), so it is never held here. A credit with no sign of salary never withholds the plan. When the occurrence just
+    // before the credit was claimed by nothing, a credit strictly nearer to it than to the next payday is that
+    // occurrence's late pay (left To confirm, not relied on), not the next one arriving early, so it holds nothing,
+    // as lateOfEarlier reads the other scheduled incomes.
     const futureEvent = events.find(event => event.date > asOf);
     if (futureEvent && group.some(nearPaydayRule)) {
       const scheduled = Math.abs(Number(futureEvent.amount));
-      unresolved = nearPaydayEarly.some(({ tx, amount, rule }) => ids.has(rule.eventId)
+      const lateForPrevious = tx => !!previousEvent && earlierUnclaimed
+        && Forecast.diffDays(previousEvent.date, tx.date) < Forecast.diffDays(tx.date, futureEvent.date);
+      unresolved = nearPaydayEarly.some(({ tx, amount, rule, salaryEvidence }) => ids.has(rule.eventId)
         && native(tx) && afterPrevious(tx) && tx.date < futureEvent.date
-        && (Math.abs(Math.abs(amount) - scheduled) <= rule.amountToleranceDollars + IDENTITY_AMOUNT_EPSILON
-          || (businessDaysApart(tx.date, futureEvent.date) <= rule.postingBusinessDays
-            && Math.abs(amount) >= scheduled / 2 - IDENTITY_AMOUNT_EPSILON)));
+        && salaryEvidence === true && !lateForPrevious(tx) && Math.abs(amount) >= scheduled / 2 - IDENTITY_AMOUNT_EPSILON);
     }
     for (const credit of unresolved ? [] : input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
