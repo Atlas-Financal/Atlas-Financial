@@ -21573,7 +21573,7 @@
           }
           continue;
         }
-        const count = occurrences(b, scheduleAsOf, scheduleLastIncluded).length;
+        const count = billNeedsDate(b) ? 0 : occurrences(b, scheduleAsOf, scheduleLastIncluded).length;
         addDated(b.budgetCategory, count * b.amount / monthsInWindow, b.label, 'bill');
         continue;
       }
