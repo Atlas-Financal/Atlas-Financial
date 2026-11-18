@@ -14,8 +14,7 @@
  * Measured through the engine (Forecast.spendableHouseholdCash,
  * paydayAllocation, recommend, simulate, chequingAvailability)
  * and the page paths that print it: the Budget hero tile and payday
- * "Money available" (public/plan.js) and the Deep Dive cash tile
- * (public/deepdive.js).
+ * "Money available" (public/plan.js).
  *
  * `node test/test-unknown-chequing-opening-spendable.js`
  */

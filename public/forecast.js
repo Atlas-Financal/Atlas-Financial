@@ -16310,16 +16310,17 @@
       // never as a household cost. Atlas P2 on 4d90a156: a completed
       // (lookback) period's actuals excluded the same item spending, so its
       // historical remainder keeps the deduction too, on its own cycle.
-      // Lead pre-review of 0d919cb5: the term follows the hold's own actuals
-      // readiness. When this period's actuals are not covered (spentReady
-      // false), the hold deducts no observed spending, so neither does the
-      // item term: linked equals unlinked.
+      // The term needs this period's actuals ready (spentReady). Under lost
+      // coverage a linked charge is in neither this term nor the hold (it
+      // sits in no category); the close and next opening are then withheld,
+      // not understated, because a linked charge needs a Savings pool and the
+      // pool's S1 seed is null without complete coverage
+      // (test-savings-item-lost-coverage).
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      // Rank 18: held outflows, on the item term's cycle. Unlike the item
-      // term (whose unlinked twin sits in a category the lost-coverage hold
-      // does not count), a held row's twin was Other spending, which that
-      // hold does count from the known rows. So the held term is deducted
+      // Rank 18: held outflows, on the item term's cycle. A held row's twin
+      // was Other spending, which the lost-coverage hold counts from the
+      // known rows (as it counts any known category row). So the held term is deducted
       // whenever its rows are known: actuals ready, coverage lost, or one
       // category withheld (#1323 review). Never twice: the row is out of
       // Other and the hold on every path.
