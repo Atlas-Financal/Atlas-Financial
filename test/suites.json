@@ -544,6 +544,7 @@
   ["Each reviewed Lunch Money recurring item Atlas did not apply is served as its plan row and one closed reason code, and the assistant packet reads it as a fixed sentence; no provider id or amount (lead dispatch 2026-11-17 part (b))","test-lunchmoney-recurring-refusals.js"],
   ["A card minimum or the HELOC cash leg takes its planned day from its reviewed Lunch Money item, from a cutover after its recorded history, never past the statement due day and never two in a cycle (E1)","test-lunchmoney-recurring-obligation-day.js"],
   ["An opt-in bill settles the occurrences Lunch Money itself matched, only when its matches are consistent; otherwise the incumbent rule applies (S3)","test-lunchmoney-matched-occurrences.js"],
+  ["A near-due bill payment seen pending, then posted days later without a provider link, is deducted once: the posted copy stays held To confirm","test-near-due-pending-replacement.js"],
   ["Dale's pay settles from Lunch Money's own recurring match: early, on time or late, once, at its actual amount; otherwise the incumbent matcher and the late-posting stopgap apply (Q1)","test-seaspan-pay-lm-matched.js"],
   ["a stale Bills estimate tag is dropped only when the bank feed observed that balance fresh on this refresh","test-observed-bills-estimate.js"],
   ["provider balance that is blank, false or non-numeric is unknown, never $0","test-provider-balance-unknown-not-zero.js"],

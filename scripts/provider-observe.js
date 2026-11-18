@@ -5149,8 +5149,13 @@ const NEAR_DUE_BILL_DAYS = 3;
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
-  // confirm: a second identity debit near it stays ordinary spending.
-  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
+  // confirm: a second identity debit near it stays ordinary spending. A
+  // pending-only row (pendingOnlyBillActuals, pending: true) is linked
+  // evidence, never a payment: the bill stays reserved, so a posted identity
+  // debit near it (typically that pending charge posting days later without a
+  // provider link) is still held To confirm on the bill. Counting it as
+  // spending while the bill is reserved would deduct the payment twice.
+  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending !== true)
     .map(row => row.id + '@' + row.date));
   // So is an occurrence the plan opening already names as represented
   // (effective by the observation date), and a recurring occurrence dated
