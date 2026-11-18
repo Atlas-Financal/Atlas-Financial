@@ -64,8 +64,10 @@ console.log('Rule 1: a shortfall reads Partly paid');
   const { row, period } = worldFor(HYDRO, [pay(40)]);
   ok(row && row.paymentState === 'partly-paid' && row.shortfall === 50 && row.shortfallTrust === 'calculated',
     '40 posted on a 90 bill: partly paid, 50.00 short (calculated)', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall, t: row.shortfallTrust }));
-  ok(row && row.status === 'PAID' && row.remaining === 0 && row.actual === 40 && row.planned === 90,
-    'status, remaining, actual and planned are unchanged (a label, not a figure change)', row && `${row.status} ${row.remaining} ${row.actual}/${row.planned}`);
+  // D2 (lead dispatch 2026-11-18): a fixed (confirmed) bill paid in part stays still due for its remainder; the
+  // remainder is held (test/test-bill-partial-remainder.js). The paid amount and planned amount are as before.
+  ok(row && row.status === 'still due' && row.remaining === 50 && row.actual === 40 && row.planned === 90,
+    'a fixed bill paid in part: still due, 50 remaining, actual 40 of 90 planned', row && `${row.status} ${row.remaining} ${row.actual}/${row.planned}`);
   ok(period && period.paidBills === 40, 'the paid-bills total still counts the 40 that left (unchanged)', period && period.paidBills);
   const line = text(ctx.rowHtml(row));
   ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line) && !/\bPaid ·/.test(line) && !/over planned/.test(line),
