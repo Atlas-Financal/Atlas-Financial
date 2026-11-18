@@ -48,7 +48,7 @@ function render(data, overrides = {}) {
   const poisoned = P.poisonedForecast(require(path.join(ROOT, 'public', 'forecast.js')));
   // A world may force one Forecast answer to reach a branch the invented
   // household cannot reach on its own; every other call is the real one.
-  const forecast = new Proxy(poisoned, { get: (target, prop) => (prop in overrides ? overrides[prop] : target[prop]) });
+  const forecast = new Proxy(poisoned, { get: (target, prop) => (Object.hasOwn(overrides, prop) ? overrides[prop] : target[prop]) });
   const page = loadBudgetPage({ Forecast: forecast,
     globals: { document, getComputedStyle: () => ({ getPropertyValue: () => '' }),
       BudgetSurface: mod('budget-surface.js'), BudgetCardMovements: mod('budget-card-movements.js'),
@@ -99,4 +99,12 @@ test('the leftover note keeps its own emphasis and escapes the plan summary', ()
   const html = page.get('UNALLOCATED_NOTE').leftover(H.NOTE);
   assert.ok(html.startsWith('<b>This is not spending money.</b>'), 'the note\'s own markup is kept');
   assert.ok(!html.includes(H.NOTE) && html.includes('&#39;&gt;&lt;script&gt;alert(2)'), 'the summary prints as text');
+});
+
+test('a future-plan card prints an unrecognised flexibility value as text', () => {
+  const page = loadBudgetPage();
+  const html = page.get('futurePlanCardHtml')({ id: 'invented-plan', label: 'Invented plan', flexibility: H.LABEL,
+    verdict: 'funded', amount: 100, date: '2026-09-15', confidence: 'confirmed' }, null, false);
+  assert.ok(!html.includes('<img src=x') && html.includes('&quot;&gt;&lt;IMG SRC=X ONERROR=ALERT(1)&gt;'),
+    'the fallback chip escapes the upper-cased value');
 });

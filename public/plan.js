@@ -1435,7 +1435,7 @@ function futurePlanCardHtml(row, payday, timingUnresolved) {
       <div class="future-gravity-meta">
         <span>${escapeHtml(futurePlanTiming(row))}</span>
         <span class="chip ${confidenceClass}">${escapeHtml(confidence.toUpperCase())}</span>
-        <span class="chip e">${flexibility}</span>
+        <span class="chip e">${escapeHtml(flexibility)}</span>
         ${timingUnresolved ? '<span class="chip w">EXACT DATE UNRESOLVED</span>' : ''}
       </div>
       ${meaning ? `<p class="future-gravity-meaning">${meaning}</p>` : ''}
