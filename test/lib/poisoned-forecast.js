@@ -3,9 +3,10 @@
 //
 // Every object a page-facing Forecast function returns is walked and every
 // non-empty string gets PAYLOAD appended, except under keys that name an
-// identity or an enum the page branches on (keys ending in id, kind, status,
-// date or trust: `id`, `debtId`, `incomeTrust`, `dueDate`) and values that
-// are ISO dates (`asOf`, `start`, `end`). Numbers and booleans are left alone.
+// identity, a date, a trust tag or a structural discriminator (SKIP_SOURCE:
+// `id`, `debtId`, `incomeTrust`, `dueDate`, `source`, `currency`, ...) and
+// values that are ISO dates (`asOf`, `start`, `end`). Numbers and booleans
+// are left alone.
 // Poisoning every other string, enums included, also proves the page never
 // prints a Forecast code string as markup. Forecast's own
 // internal calls are not wrapped, so the figures are the real ones. Only
@@ -15,8 +16,12 @@
 // One source for node and the browser: `install` is self-contained and is
 // passed to Playwright's addInitScript as-is.
 const PAYLOAD = '<img src=z data-poisoned-forecast onerror=alert(9)>';
-// Keys left clean (case-insensitive suffix match).
-const SKIP_SOURCE = '(id|kind|status|date|trust)$';
+// Keys left clean (case-insensitive suffix match): identities, dates and
+// trust tags, plus the structural discriminators renderers branch on or
+// validate (a poisoned `source` or `currency` makes the Credit cards strip
+// reject its publication and print nothing, which would hide its escaping).
+const SKIP_SOURCE = '(id|kind|status|date|trust|source|schema|currency|role|mode|policy|provenance|verdict'
+  + '|structure|direction|completeness|type|state|code|scope|frequency|confidence|class|tone|unit|coverage|settlement)$';
 const ISO_DATE = '^\\d{4}-\\d{2}-\\d{2}(T[\\d:.]+Z?)?$';
 
 function wrap(real, payload, skipSource, isoSource) {

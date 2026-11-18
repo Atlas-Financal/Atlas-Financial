@@ -58,6 +58,8 @@ function render(data, overrides = {}) {
   return writes;
 }
 
+// The Credit cards strip's card name, carrying the escaped poisoned text.
+const CARD_TITLE = /class="card-movement-title">[^<]*&lt;img src=z data-poisoned-forecast/;
 const POLICY = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated', summary: H.NOTE };
 const worlds = {
   // A revolving hostile card under the owner's highest-interest policy: the
@@ -65,6 +67,9 @@ const worlds = {
   'debt policy': {
     data: () => { const d = H.hostile(); d.debts[0].structure = 'Revolving'; d.plan.nextDollar = POLICY; return d; },
     reach: ['operating-surface-body', 'phases', 'nextmove-card', 'status-band'],
+    // Named renderers inside an area, so a poisoned discriminator that makes
+    // a renderer reject its publication (and print nothing) cannot pass.
+    sections: { 'the Credit cards strip prints a card name': CARD_TITLE },
   },
   // Unknown chequing opening: every "Current plan unavailable" note.
   'plan unavailable': {
@@ -80,6 +85,7 @@ const worlds = {
     overrides: { unallocatedCash: () => ({ id: 'leftover', ending: 5000, buffer: 500, reserves: 100,
       cardPurchaseCash: 0, amount: 4400, negative: false }) },
     reach: ['priorities-note'],
+    sections: { 'the Credit cards strip prints a card name': CARD_TITLE },
   },
 };
 
@@ -91,6 +97,9 @@ for (const [name, world] of Object.entries(worlds)) {
       'every Forecast string is escaped where it is written');
     const reached = new Set(writes.filter(([, html]) => ESCAPED.some(e => html.includes(e))).map(([id]) => id));
     for (const id of world.reach) assert.ok(reached.has(id), `the poisoned text reaches #${id} (escaped), so its branch ran`);
+    for (const [label, re] of Object.entries(world.sections || {})) {
+      assert.ok(writes.some(([, html]) => re.test(html)), `${label} (escaped), so that renderer ran`);
+    }
   });
 }
 
