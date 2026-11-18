@@ -120,6 +120,32 @@ ok(controlPast.length === 6 && controlPast[0].start === '2030-03-15',
     'one view per period: the first closing, as in the reprint');
 }
 
+// T3b: a saved close that left a bill unpaid (saved before the carry rules)
+// still discloses that the current period carries it, as it does inside the
+// rebuilt lookback (Codex P2 on #1381). The saved figures are untouched.
+{
+  const bill = { id: 'invented-oneoff', label: 'Invented one-off', frequency: 'once', date: '2030-02-10', amount: 30,
+    confidence: 'confirmed', payingAccount: 'chequing-a' };
+  const raw = input({ day: '2030-02-16', kind: 'closing', periodStart: START, bills: [bill] });
+  delete raw.kind; delete raw.periodStart;
+  const [clean, now] = at(raw);
+  const record = Pg.project(History.captureClosing(clean, { now }));
+  const stored = record.content.publication.bills.find(row => row.id === bill.id);
+  stored.status = 'unknown'; delete stored.carriedToCurrentPeriod;
+  const carried = day => {
+    const plan = input({ day, kind: 'first-observed', periodStart: day, bills: [bill] }).data.plan;
+    const advice = F.recommend(plan, day, { debts: [], periods: [], periodHistory: [record] });
+    const current = advice.payPeriodViews.find(view => view.timelineRole === 'current');
+    const row = (advice.payPeriodViews.find(view => view.start === START)?.bills || []).find(r => r.id === bill.id);
+    return { row, currentCarries: (current.bills || []).some(r => r.id === bill.id && r.date === bill.date) };
+  };
+  const inside = carried('2030-02-20'), beyond = carried(AS_OF);
+  ok(inside.row?.alsoCarriedToCurrent === true && inside.currentCarries, 'control: inside the lookback the carry is disclosed');
+  ok(beyond.currentCarries && beyond.row?.alsoCarriedToCurrent === true,
+    'beyond the lookback the saved-only close discloses the same carry');
+  ok(beyond.row.amount === stored.amount && beyond.row.status === 'unknown', 'the saved row stays as saved');
+}
+
 // T4: the page.
 {
   const advice = run([feb]);

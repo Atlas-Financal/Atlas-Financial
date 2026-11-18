@@ -17838,7 +17838,10 @@
           label: 'Spending cycle: ' + rangeLabel },
       };
     });
-    applyCapturedPeriodHistory(extra, history, null);
+    // The reprint reads the current period (never changes it) to disclose a
+    // bill the saved close left unpaid that the current period still carries.
+    const current = views.find(view => view && view.timelineRole === 'current');
+    applyCapturedPeriodHistory(current ? extra.concat(current) : extra, history, null);
     const composed = extra.filter(view => view.capturedClose);
     if (!composed.length) return;
     for (const view of composed) view.capturedClose.savedOnly = true;
