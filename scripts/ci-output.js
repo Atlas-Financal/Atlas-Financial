@@ -8,7 +8,8 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const COMMAND_IDS = new Set(['figures-base-checkout', 'figures-head-snapshot', 'figures-base-snapshot',
   'figures-comment', 'install-runtime', 'install-test',
-  'privacy-guard', 'risk-label-gate', 'acceptance-scoreboard']);
+  'privacy-guard', 'risk-label-gate', 'acceptance-scoreboard',
+  'browser-forecast-text-escaping', 'browser-page-renderer-escaping']);
 const SUITE_FILE = /^(?:test|probe)-[a-z0-9-]+\.js$/;
 const SIGNALS = new Set(['SIGABRT', 'SIGALRM', 'SIGBUS', 'SIGHUP', 'SIGINT',
   'SIGKILL', 'SIGPIPE', 'SIGQUIT', 'SIGSEGV', 'SIGTERM']);
