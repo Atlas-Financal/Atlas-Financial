@@ -12,9 +12,11 @@
 #
 # Not a required status check; making it required is a ruleset decision for
 # the lead/owner. In practice a red run still stops a merge, because the
-# lead's enqueue gate stops on any red check run. The scoreboard's own output stays private (ci-output.js);
-# only the outcome and the ids of the scenarios that tripped the gate are
-# printed. Run `npm run scoreboard -- --verbose` locally for detail.
+# lead's enqueue gate stops on any red check run.
+#
+# All output stays private (ci-output.js); only the outcome and the ids of the
+# scenarios that tripped the gate are printed. Run
+# `npm run scoreboard -- --verbose` locally for detail.
 name: acceptance scoreboard
 
 on:
