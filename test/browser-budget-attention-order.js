@@ -62,7 +62,9 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
             afterSurface: before(document.getElementById('operating-surface')),
             afterSavings: before(document.querySelector('.budget-savings-accounts')),
             afterBalances: before(document.getElementById('recorded-balances')),
-            beforeFooter: !!(footer && (section.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)),
+            // 991d5c2d removed the Budget page footer; while none is rendered there is nothing to precede, and if one
+            // returns the attention block must still come before it.
+            beforeFooter: !footer || !!(section.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING),
             attentionVisible: !section.closest('details:not([open])') };
         });
         assert.deepEqual(placement, { bottom: true, afterSurface: true, afterSavings: true,
@@ -71,6 +73,40 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
         assert.match(await page.locator('[data-budget-period-result]').innerText(), /1,632\.01/);
       };
       await order();
+      // By design (paintFaceBadges, public/budget-blend.js) the attention list is moved offstage and its controls leave the
+      // Tab order; each item needs a visible equivalent on the face (lead ruling, 2026-11-18):
+      // - a category item: its badge on the category ring, or the ring's own over-budget state;
+      // - a bill item: the visible Bills header "To confirm N" flag, whose N covers every bill attention item;
+      // - an Other-spending item: the Other ring's "needs a category" flag. KNOWN GAP until that flag lands (it is being
+      //   added in page code); while absent the case is logged, and once present it must be visible.
+      const map = await page.evaluate(() => {
+        const shown = el => !!el && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+        const items = [...document.querySelectorAll('[data-budget-browse="attention"] .budget-attention-item')];
+        const flag = [...document.querySelectorAll('.blend-bills-head .blend-flag')].find(el => /To confirm\s+\d+/.test(el.textContent));
+        const rows = items.map(item => {
+          const cat = item.getAttribute('data-budget-category-open'), bill = item.getAttribute('data-budget-bill-open');
+          if (bill) return { key: bill, kind: 'bill' };
+          const host = cat && document.querySelector('[data-blend-cat="' + CSS.escape(cat) + '"]');
+          const other = !!host && (host.classList.contains('blend-other') || host.classList.contains('blend-ring-other'));
+          if (other) {
+            const needs = host.querySelector('[data-blend-needs-category]');
+            return { key: cat, kind: 'other', flagPresent: !!needs, equivalent: shown(needs) };
+          }
+          const badge = host && host.querySelector('[data-blend-badge="' + CSS.escape(cat || '') + '"]');
+          const over = !!host && (host.classList.contains('is-over') || !!host.querySelector('.blend-over-pill'));
+          return { key: cat, kind: 'category', equivalent: shown(badge) || (shown(host) && over) };
+        });
+        return { rows, billFlag: shown(flag) ? Number((flag.textContent.match(/To confirm\s+(\d+)/) || [])[1]) : null };
+      });
+      assert.ok(map.rows.length > 0, 'the invented world raises attention items');
+      for (const row of map.rows.filter(r => r.kind === 'category')) assert.equal(row.equivalent, true, `attention item ${row.key}: its badge or over-budget ring is visible`);
+      const bills = map.rows.filter(r => r.kind === 'bill');
+      if (bills.length) assert.ok(map.billFlag != null && map.billFlag >= bills.length,
+        `the visible Bills header "To confirm N" covers all ${bills.length} bill attention item(s) (got ${map.billFlag})`);
+      for (const row of map.rows.filter(r => r.kind === 'other')) {
+        if (row.flagPresent) assert.equal(row.equivalent, true, `attention item ${row.key}: the Other ring's needs-a-category flag is visible`);
+        else console.log(`KNOWN GAP ${width}px: attention item ${row.key} has no Other-ring needs-a-category flag yet`);
+      }
       const capture = async name => {
         if (!screenshots) return;
         await page.evaluate(async () => { await document.fonts.ready; });
@@ -106,7 +142,8 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
       }
       for (let i = 0; i < 3; i++) await page.evaluate(() => App.rerender());
       await order();
-      await page.locator(selectors[0]).click();
+      // The offstage control is not a pointer target by design; a programmatic click still opens its detail.
+      await page.locator(selectors[0]).evaluate(el => el.click());
       assert.equal(await page.locator('[data-budget-detail-sheet][open]').count(), 1);
       await page.keyboard.press('Escape');
       await page.close();
