@@ -906,6 +906,8 @@ Merchant names in the test suites: revisit with the repo-private decision.
 
 ~~Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.~~ Done: the label reads "Refund not linked", and the harness exercises same-card and other-card refunds (Grok Bot, rule 17). Reserving a pending look-alike charge is not built: pending never counts.
 
+If #road-ahead is ever shown again: first give its forward-walk mounts a withheld path on sim.cardPurchaseCoverage unavailable/estimated (reuse renderPlanSettlementUnavailable). Today `#plan-window`, `#c-forecast`, `#hero-ledger`, `#wk-table`, `#wk-cards`, `#cal-months` and `#cal-agenda` print the raw forward walk even when card coverage is withheld; they are safe only because the section ships `hidden inert aria-hidden="true"`, which `test/test-operating-surface.js` pins. Source: GUARDS on #1358; lead ruling (B) 2026-11-18.
+
 **Owner decision (Dale):** the savings pools inventory (assigned to goals, backed, unallocated) is only in the legacy "Savings accounts & evidence" disclosure. The Budget face clips that off-screen, so nobody can see it, and it is no longer a Tab stop. Show it on the face, or retire it? Source: TESTS triage 2026-11-16, lead answer H.
 
 The Budget attention list was raised as the same case; resolved by the Other-ring flag (#1348). The face keeps that list off-screen by design and shows each item on the face: a bill to confirm on its bill row, and Other spending's "needs a category" as a badge on the Other ring. `test/browser-budget-attention-order.js` (not in `suites.json`) still expects the list on the page; its owner narrows it to the face equivalents. Source: lead, 2026-11-18, from UNKNOWN's browser triage on main 1530281f.

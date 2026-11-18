@@ -67,6 +67,13 @@ console.log('=== homepage order and secondary detail ===');
   ok(!/Why \/ Road ahead/.test(html)
     && /id="road-ahead"[^>]*hidden/.test(html),
     'Why / Road ahead is not a default Plan disclosure');
+  // The forward-walk mounts (#plan-window, #c-forecast, #hero-ledger,
+  // #wk-table, #wk-cards, #cal-months, #cal-agenda) have no card-coverage
+  // withheld path and stay safe only while #road-ahead is never shown
+  // (BACKLOG, 2026-11-18). Unhiding it must fail here first.
+  const roadTag = (/<section id="road-ahead"[^>]*>/.exec(html) || [''])[0];
+  ok(/\shidden(\s|>)/.test(roadTag) && /\sinert(\s|>)/.test(roadTag) && /aria-hidden="true"/.test(roadTag),
+    '#road-ahead ships hidden, inert and aria-hidden (its forward walk has no withheld path)', roadTag);
   for (const id of ['payday-answer-body', 'status-band', 'nextmove-card', 'cap-headline',
     'major-plans-list', 'risk-list', 'hero-ledger', 'balance-history']) {
     ok((html.match(new RegExp(`id="${id}"`, 'g')) || []).length === 1,
