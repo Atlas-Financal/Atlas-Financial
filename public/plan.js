@@ -6830,7 +6830,16 @@ function budgetCardMovementsHtml(ctx) {
     period ? { start: period.start, end: period.end } : null,
     { currentPeriodActuals: overlay?.currentPeriodActuals || null,
       cardPeriodBalanceEvidence: overlay?.cardPeriodBalanceEvidence || null, liveOverlay: overlay });
-  return BudgetCardMovements.html(publication, { money: money2, date: fmtDate });
+  // Forecast's own freshness verdict per card (#1305), so the strip can tag a
+  // stale reported balance; the strip copies it, it does not decide it.
+  const cardFreshness = {};
+  if (typeof Forecast.cardBalanceFreshness === 'function') {
+    for (const debt of ctx.debts || []) {
+      const verdict = debt && debt.id != null ? Forecast.cardBalanceFreshness(debt, ctx.plan, ctx.asOf) : null;
+      if (verdict) cardFreshness[debt.id] = verdict;
+    }
+  }
+  return BudgetCardMovements.html(publication, { money: money2, date: fmtDate, cardFreshness });
 }
 
 function budgetSurfaceHtml(ctx) {

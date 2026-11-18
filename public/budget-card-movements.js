@@ -54,11 +54,21 @@
   // same-day statement and an undated one print exactly as before.
   const staleManual = (card, asOf) => card.manualStatement === true && typeof asOf === 'string'
     && typeof card.reportedBalance?.date === 'string' && card.reportedBalance.date < asOf;
-  const balance = (card, money, day, asOf) => {
+  // A stale card balance (Forecast.cardBalanceFreshness, passed in by the
+  // page as format.cardFreshness[id]) prints Forecast's verdict instead:
+  // "estimate · as of <date>" (or "estimate · undated"). Copied, not decided.
+  const staleEstimate = (card, format) => {
+    const verdict = format && format.cardFreshness && card && card.id != null ? format.cardFreshness[card.id] : null;
+    return verdict && verdict.trust === 'estimated' ? verdict : null;
+  };
+  const balance = (card, money, day, asOf, format) => {
     const reported = card.reportedBalance;
     if (!reported || typeof reported.amount !== 'number' || !Number.isFinite(reported.amount))
       return '<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance is-unavailable">Unavailable</span>';
-    const note = staleManual(card, asOf) ? ` <small class="card-movement-asof" data-card-movement-asof>as of ${day(reported.date)}</small>` : '';
+    const stale = staleEstimate(card, format);
+    const note = stale
+      ? ` <small class="card-movement-estimate" data-card-movement-estimate>estimate · ${stale.balanceAsOf ? 'as of ' + day(stale.balanceAsOf) : 'undated'}</small>`
+      : staleManual(card, asOf) ? ` <small class="card-movement-asof" data-card-movement-asof>as of ${day(reported.date)}</small>` : '';
     return `<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance">${money(reported.amount)}${note}</span>`;
   };
   const movement = (card, money, day) => {
@@ -149,7 +159,7 @@
     const lead = card => {
       const stock = reported(card);
       return stock
-        ? `<p class="card-movement-lead">Reported balance ${money(stock.amount)} · ${day(stock.date)}${card.manualStatement ? ' · Manual statement observation' : ''}</p>`
+        ? `<p class="card-movement-lead">Reported balance ${money(stock.amount)} · ${day(stock.date)}${card.manualStatement ? ' · Manual statement observation' : ''}${staleEstimate(card, format) ? ` · <span data-card-movement-estimate>estimate — ${escape(staleEstimate(card, format).reason || 'balance older than this statement cycle')}</span>` : ''}</p>`
         : '<p class="card-movement-lead">Reported balance Unavailable</p>';
     };
     // The period endpoints and their remnant evidence sit behind one
@@ -166,7 +176,7 @@
       <span class="card-movement-amount ${tx.pending ? '' : 'is-' + escape(tx.direction)}">${tx.direction === 'up' ? '+' : tx.direction === 'down' ? '−' : ''}${money(tx.magnitude)}</span></div>`;
     const transaction = safe(transactionRow, () =>
       '<div class="card-movement-row" data-card-movement-transaction="unavailable"><span><b>Transaction unavailable</b><small>This row could not be read</small></span><span class="card-movement-amount">Unavailable</span></div>');
-    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money, day, pub.asOf)}${movement(card, money, day)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
+    const trigger = safe(card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${escape(card.id)}" aria-haspopup="dialog"><span class="card-movement-title">${escape(card.id === 'mbna' ? 'Amazon' : card.label)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span>${balance(card, money, day, pub.asOf, format)}${movement(card, money, day)}<span class="card-movement-sr">Show ${escape(card.label)} activity</span></button>`,
       card => `<button type="button" class="card-movement-trigger" data-budget-card-toggle="${cardId(card)}" data-card-movement-unavailable="true" aria-haspopup="dialog"><span class="card-movement-title">${cardName(card)}<span class="card-movement-chevron" aria-hidden="true">⌄</span></span><span class="card-movement-balance is-unavailable">Unavailable</span><span class="card-movement-sr">Show ${cardName(card)} activity</span></button>`);
     return `<section class="card-movement-strip" data-budget-card-movements data-card-period-start="${escape(pub.start)}" data-card-period-end="${escape(pub.end)}" aria-label="Credit cards">
       <div class="card-movement-heading"><h2>Credit cards</h2><p>Posted${pub.through ? ' through ' + day(pub.through) : ' activity not observed'}</p></div>

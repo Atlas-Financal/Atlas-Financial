@@ -24,7 +24,7 @@ const plan = { opening: { asOf: AS_OF }, windowDays: 60, startingCash: { amount:
   defaults: { targetBuffer: 0 } };
 const debts = balanceAsOf => [{ id: 'invented-card', label: 'Invented card', structure: 'Revolving', secured: false,
   balance: 400, pending: 0, rate: 19.99, limit: 2000, payment: 25, statementCloseDay: 17, confidence: 'confirmed', balanceAsOf }];
-const page = loadBudgetPage();
+const page = loadBudgetPage({ globals: { BudgetCardMovements: require('../public/budget-card-movements.js') } });
 const note = page.get('staleCardBalanceNote');
 const utilRows = page.get('staleUtilisationRows');
 const heroTile = page.get('currentOperatingConsumerDebtHeroTile');
@@ -61,6 +61,31 @@ console.log('\n=== the note is printed escaped ===');
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'plan.js'), 'utf8');
   ok(/escapeHtml\(debtStaleNote\.replace/.test(src) && /<div class="note">\$\{escapeHtml\(t\.note\)\}<\/div>/.test(src),
     'the score note and tile notes pass the note through escapeHtml');
+}
+
+console.log('\n=== the visible Credit cards strip tags a stale reported balance ===');
+{
+  const strip = page.get('budgetCardMovementsHtml');
+  // The strip lists the household's known card identities for the current
+  // pay period, so the invented card takes a strip id and the plan an
+  // invented biweekly income that makes a current period.
+  const stripPlan = Object.assign({}, plan, { income: [{ id: 'payroll', label: 'Invented payroll',
+    frequency: 'biweekly', anchor: '2026-09-18', amount: 3000, confidence: 'confirmed' }] });
+  const render = asOfDate => {
+    const ds = debts(asOfDate).map(d => Object.assign({}, d, { id: 'travelvisa' }));
+    const advice = F.recommend(stripPlan, AS_OF, { targetBuffer: 0, debts: ds });
+    return strip({ advice, plan: stripPlan, asOf: AS_OF, debts: ds, liveOverlay: null });
+  };
+  const stale = render('2026-09-10');
+  const trigger = (/<button type="button" class="card-movement-trigger" data-budget-card-toggle="travelvisa"[\s\S]*?<\/button>/.exec(stale) || [''])[0];
+  ok(/data-card-movement-estimate>estimate · as of [^<]+<\/small>/.test(trigger),
+    'stale: the card row prints "estimate · as of <date>" beside the reported balance', trigger.slice(0, 400));
+  ok(!/data-card-movement-asof/.test(trigger), 'stale: the estimate replaces the plain as-of note');
+  ok(/card-movement-lead[^>]*>[^<]*· <span data-card-movement-estimate>estimate — /.test(stale),
+    'stale: the card panel lead line carries the estimate and its reason');
+  const current = render('2026-09-18');
+  ok(/data-budget-card-toggle="travelvisa"/.test(current) && !/data-card-movement-estimate/.test(current),
+    'current: the strip shows the card with no estimate tag');
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }

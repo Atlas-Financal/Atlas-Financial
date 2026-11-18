@@ -24,7 +24,7 @@ const root = path.join(__dirname, '..');
 const AS_OF = '2026-09-20';
 const data = balanceAsOf => ({
   meta: { asOf: AS_OF }, accounts: [], revolvingExtra: [],
-  debts: [{ id: 'invented-card', label: 'Invented card', structure: 'Revolving', secured: false,
+  debts: [{ id: 'travelvisa', label: 'Invented card', structure: 'Revolving', secured: false,
     balance: 400, pending: 0, rate: 19.99, limit: 2000, payment: 25, statementCloseDay: 17,
     confidence: 'confirmed', balanceAsOf }],
   plan: {
@@ -62,6 +62,16 @@ const data = balanceAsOf => ({
         hero: (document.getElementById('hero-tiles') || document.body).textContent.replace(/\s+/g, ' '),
         score: (document.getElementById('score-note') || {}).textContent || '',
       }));
+      // The visible Budget surface (not the hidden diagnostics section): the
+      // Credit cards strip's row for the stale card.
+      const row = page.locator('#operating-surface-body [data-budget-card-toggle="travelvisa"]');
+      const rowText = (await row.count()) ? (await row.first().innerText()).replace(/\s+/g, ' ') : '';
+      if (label === 'stale') {
+        assert.equal(await row.first().isVisible(), true, 'stale: the card row is visible on the Budget');
+        assert.match(rowText, /estimate · as of /, 'stale: the visible card row says estimate · as of <date>');
+      } else {
+        assert.doesNotMatch(rowText, /estimate/, 'current: the visible card row carries no estimate');
+      }
       const note = /estimate — Invented card balance as of [^,]+, before this statement cycle/;
       if (label === 'stale') {
         assert.match(text.tiles, /Consumer debt[\s\S]*estimate — Invented card balance as of/, 'stale: Consumer debt tile carries the note');
