@@ -12704,6 +12704,10 @@
   // plannedWeekly / plannedMonthly-only keep the smear so incomplete-coverage
   // remaining-days and monthly-only fixtures are not rewritten.
   function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale) {
+    // A monthly Lunch Money target uses the budget whose period contains the
+    // cycle start (C3), the same target the Budget period prints; the
+    // caller's monthly is read at as-of and can be the next month's budget.
+    const lunchMoneyTarget = lunchMoneyTargetAt(cat, cycleStart);
     cat = ownerTargetCategoryAt(cat, cycleStart);
     const cadencePlanned = essentialCadencePeriodPlanned(plan, cat, cycleStart);
     if (cadencePlanned != null) return cadencePlanned;
@@ -12711,10 +12715,15 @@
       const cyclePlanned = paydayCyclePlanned(cat, cycleStart, plan);
       if (cyclePlanned != null) return roundCent(cyclePlanned);
     }
-    return roundCent((Number(monthly) || 0) * periodScale);
+    const base = lunchMoneyTarget && lunchMoneyTarget.plannedMonthly != null ? lunchMoneyTarget.plannedMonthly : monthly;
+    return roundCent((Number(base) || 0) * periodScale);
   }
 
   function essentialPeriodUsesCyclePlanned(plan, cat, cycleStart) {
+    // A monthly Lunch Money target is cycle-planned: its amount is the budget
+    // whose period contains the cycle start, not the as-of month's.
+    const lunchMoneyTarget = lunchMoneyTargetAt(cat, cycleStart);
+    if (lunchMoneyTarget && lunchMoneyTarget.plannedMonthly != null) return true;
     cat = ownerTargetCategoryAt(cat, cycleStart);
     if (essentialCadencePeriodPlanned(plan, cat, cycleStart) != null) return true;
     if (!(cat && cat.plannedPayday != null)) return false;
@@ -13254,8 +13263,13 @@
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
-        ...(budgetCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
-        ...(spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
+        // A carried budget keeps its plan estimated even when Spent is a
+        // possible duplicate too: both amounts stay marked (spentTrust), and
+        // the plan is never upgraded to calculated.
+        ...(budgetCarried && spent != null && possibleDuplicateCategories.has(id)
+          ? { trust: 'estimated', plannedTrust: 'estimated', spentTrust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED }
+          : budgetCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED }
+          : spent != null && possibleDuplicateCategories.has(id) ? possibleDuplicateTrust : {}),
         recon: actualsReady ? recon : [],
         pendingRecon,
       });

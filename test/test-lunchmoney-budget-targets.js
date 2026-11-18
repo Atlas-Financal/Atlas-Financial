@@ -207,5 +207,59 @@ console.log('7. Wired through the live plan: the served plan carries the targets
     'every other row is untouched');
 }
 
+console.log('8. The essential cash reserve uses the same cycle-start budget as the Budget period (Codex P1)');
+{
+  // Household (a monthly row) is budgeted 300 in October and 600 in
+  // November. On Nov 2 the pay period started Oct 23, so the Budget period
+  // prints October's 300 and the reserve must use it too. Proof without
+  // reading Forecast's arithmetic back: the reserve equals the reserve of a
+  // plan whose November budget is also 300.
+  const base = invented();
+  base.budget.categories = base.budget.categories.filter(c => c.id === 'household');
+  const block = nov => ({ ...BLOCK, byRow: { household: { status: 'read', periods: [P(...OCT, 300), P(...NOV, nov)] } } });
+  const reserve = nov => {
+    const alloc = F.paydayAllocation(F.withLunchMoneyBudgets(base, block(nov), '2026-11-02'), '2026-11-02', {});
+    const item = ((alloc.essentials && alloc.essentials.items) || []).find(i => i.id === 'household');
+    return item ? item.required : null;
+  };
+  const changed = reserve(600), flat = reserve(300);
+  ok(changed != null && near(changed, flat), 'a November budget change does not move the reserve of a cycle that started in October',
+    `${changed} vs ${flat}`);
+  const [oct23] = periods(F.withLunchMoneyBudgets(base, block(600), '2026-11-02'), '2026-11-02');
+  ok(oct23 && oct23.start === '2026-10-23' && near(row(oct23, 'household').planned, paydayOf(300)),
+    `and the Budget period prints October's ${paydayOf(300)}`, String(oct23 && row(oct23, 'household').planned));
+}
+
+console.log('9. A carried budget with a possible-duplicate Spent keeps both estimates (Codex P2)');
+{
+  const H = require('./acceptance/harness.js');
+  // Invented look-alike pair (the test-pending-lookalike setup): a pending
+  // and a posted 6.50 cafe purchase with different authorizations.
+  const cafe = { date: '2026-10-11', amount: 6.5, category: 'Restaurants', payee: 'Invented cafe' };
+  const w = H.baseWorld();
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+    H.lm({ ...cafe, originalName: 'INVENTED-CAFE', raw: { plaid_metadata: { transaction_id: 'invented-cafe-posting',
+      pending_transaction_id: 'invented-cafe-replaced-auth' } } }),
+    H.lm({ ...cafe, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-cafe-visible-auth' } } })];
+  const { data, packet } = H.dataOf(w);
+  // Restaurants: September budget 300, October not set, so October carries 300.
+  const block = { ...BLOCK, byRow: { restaurants: { status: 'read', periods: [P('2026-09-01', '2026-09-30', 300), P(...OCT, null)] } } };
+  const view = F.recommend(F.withLunchMoneyBudgets(data.plan, block, data.meta.asOf), data.meta.asOf,
+    { currentPeriodActuals: packet, debts: data.debts }).defaultView;
+  const period = (view.calendarPeriods || []).find(p => p.id === 'this-pay-period');
+  const eating = row(period, 'restaurants');
+  ok(eating && near(eating.planned, paydayOf(300)) && near(eating.spent, 13),
+    `positive control: restaurants carries ${paydayOf(300)} and spent 13 (two possible duplicates)`, JSON.stringify(eating && [eating.planned, eating.spent]));
+  ok(eating && eating.trust === 'estimated' && eating.plannedTrust === 'estimated' && eating.spentTrust === 'estimated'
+    && eating.estimateReason === 'lunch-money-budget-carried-forward',
+    'the plan stays estimated (never calculated), Spent is estimated, and the carry-forward reason is kept',
+    JSON.stringify(eating && { trust: eating.trust, plannedTrust: eating.plannedTrust, spentTrust: eating.spentTrust, reason: eating.estimateReason }));
+  // Without the carry, the incumbent possible-duplicate tag is unchanged.
+  const plainView = F.recommend(data.plan, data.meta.asOf, { currentPeriodActuals: packet, debts: data.debts }).defaultView;
+  const plain = row((plainView.calendarPeriods || []).find(p => p.id === 'this-pay-period'), 'restaurants');
+  ok(plain && plain.plannedTrust === 'calculated' && plain.estimateReason === 'possible-duplicate' && plain.spentTrust === undefined,
+    'without a carried budget the possible-duplicate tag is exactly as before', JSON.stringify(plain && [plain.plannedTrust, plain.estimateReason]));
+}
+
 console.log(failures ? `\n${failures} failure(s)` : '\nall cases pass');
 process.exit(failures ? 1 : 0);

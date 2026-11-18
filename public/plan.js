@@ -2195,11 +2195,12 @@ function householdBudgetCategoryHtml(row, opts = {}) {
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
   // Forecast's plannedTrust, when present, is the plan's own trust; an
   // estimated row with a calculated plan (a possible duplicate) estimates
-  // Spent and Remaining only.
+  // Spent and Remaining only. spentTrust marks Spent estimated alongside an
+  // estimated plan (a carried Lunch Money budget with a possible duplicate).
   const rowEstimated = row.confidence === 'estimated' || row.trust === 'estimated';
   const estimated = (!other || datedOtherPlan) && rowEstimated;
   const plannedEstimated = estimated && (row.plannedTrust == null || row.plannedTrust === 'estimated');
-  const spentEstimated = rowEstimated && row.plannedTrust === 'calculated';
+  const spentEstimated = rowEstimated && (row.plannedTrust === 'calculated' || row.spentTrust === 'estimated');
   const name = row.label || '';
   const context = other
     ? (row.note || 'Not yet assigned to a budget category')
