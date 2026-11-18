@@ -2344,8 +2344,8 @@
   // null, missing or non-finite amount is unknown, never ready at 0. A known
   // 0 is a real opening and stays ready.
   function knownOpeningAmount(amount) {
-    if (amount == null || (typeof amount === 'string' && amount.trim() === '')) return false;
-    return Number.isFinite(Number(amount));
+    if (typeof amount === 'number') return Number.isFinite(amount);
+    return typeof amount === 'string' && amount.trim() !== '' && Number.isFinite(Number(amount));
   }
   function openingCashState(plan) {
     const cash = (plan && plan.startingCash) || {};

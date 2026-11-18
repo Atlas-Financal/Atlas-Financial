@@ -121,6 +121,8 @@ console.log('\n=== Forecast: an opening with no breakdown ===');
   for (const [name, cash, ready, amount] of [
     ['no startingCash', undefined, false, null], ['no amount', {}, false, null], ['amount null', { amount: null }, false, null],
     ['amount NaN', { amount: NaN }, false, null], ['amount not a number', { amount: 'x' }, false, null], ['amount blank', { amount: '' }, false, null],
+    ['amount true', { amount: true }, false, null], ['amount false', { amount: false }, false, null], ['amount []', { amount: [] }, false, null],
+    ['amount [5]', { amount: [5] }, false, null], ['amount object', { amount: {} }, false, null], ['amount Infinity', { amount: Infinity }, false, null],
     ['amount 0', { amount: 0 }, true, 0], ['amount "0"', { amount: '0' }, true, 0], ['amount 120', { amount: 120 }, true, 120],
   ]) {
     const plan = cash === undefined ? {} : { startingCash: cash };
@@ -166,19 +168,23 @@ console.log('\n=== live overlay: a complete opening made incomplete is refused =
     ['chequing A flagged unknown', rows => rows.forEach(r => { if (r.id === 'chequing-a') r.unknown = true; })],
     ['chequing A duplicated', rows => rows.push({ ...rows.find(r => r.id === 'chequing-a') })],
   ]) {
-    Forecast.withLunchMoneyBudgets = (...args) => {
-      const plan = real(...args); degrade(plan.startingCash.breakdown); return plan;
-    };
-    const Live = require('../scripts/live-plan');
-    const w = H.baseWorld('2026-10-14');
-    H.productionOpening(w);
-    const plan = H.planOf(w);
-    const why = refusal(() => Live.fromObservation({ data: H.canonicalOf(w, plan), payload: H.rawPayload(w),
-      accountMap: H.accountMapOf(w), identity: H.identityOf(w) }));
-    Forecast.withLunchMoneyBudgets = real;
+    let why;
+    try {
+      Forecast.withLunchMoneyBudgets = (...args) => {
+        const plan = real(...args); degrade(plan.startingCash.breakdown); return plan;
+      };
+      const Live = require('../scripts/live-plan');
+      const w = H.baseWorld('2026-10-14');
+      H.productionOpening(w);
+      const plan = H.planOf(w);
+      why = refusal(() => Live.fromObservation({ data: H.canonicalOf(w, plan), payload: H.rawPayload(w),
+        accountMap: H.accountMapOf(w), identity: H.identityOf(w) }));
+    } finally {
+      Forecast.withLunchMoneyBudgets = real; // never leaks into later sections
+    }
     ok(why && /would leave the opening cash incomplete/.test(why), `${name}: the overlay is refused`, why || 'accepted');
   }
-  Forecast.withLunchMoneyBudgets = real;
+  ok(Forecast.withLunchMoneyBudgets === real, 'the budget derivation is restored after the overlay cases');
 }
 
 console.log('\n=== posted-cash preview artifact ===');
