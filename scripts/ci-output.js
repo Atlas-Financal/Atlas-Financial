@@ -8,13 +8,13 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const COMMAND_IDS = new Set(['figures-base-checkout', 'figures-head-snapshot', 'figures-base-snapshot',
   'figures-comment', 'cursor-repair', 'cursor-models', 'repair-tests', 'install-runtime', 'install-test',
-  'privacy-guard', 'risk-label-gate', 'codex-review-gate', 'atlas-test-repair-gate', 'acceptance-scoreboard']);
+  'privacy-guard', 'risk-label-gate', 'acceptance-scoreboard']);
 const SUITE_FILE = /^(?:test|probe)-[a-z0-9-]+\.js$/;
 const SIGNALS = new Set(['SIGABRT', 'SIGALRM', 'SIGBUS', 'SIGHUP', 'SIGINT',
   'SIGKILL', 'SIGPIPE', 'SIGQUIT', 'SIGSEGV', 'SIGTERM']);
 const CATEGORIES = new Set(['none', 'capture-failed', 'invalid-configuration', 'missing-suite',
   'spawn-failed', 'signal-terminated', 'unsupported-platform', 'storage-failed',
-  'assertion-failed', 'process-failed', 'private-artifact-blocked']);
+  'assertion-failed', 'process-failed']);
 // Failing TAP subtest names (#1270 dispatch). The only child text ever made
 // public. A name is shown only when all of these hold, else '[redacted]':
 //  - it is a literal substring of the suite's own committed source, so it was
@@ -76,11 +76,9 @@ function startSuite(identity) {
   if (!validIdentity(identity)) throw new Error('invalid-ci-identity');
   fs.writeSync(1, JSON.stringify({ type: 'ci-suite-start', identity }) + '\n');
 }
-function categoryFor(error, stderrFile, identity) {
+function categoryFor(error, stderrFile) {
   if (error.signal) return 'signal-terminated';
   if (error.status == null) return 'spawn-failed';
-  if (error.status === 78 && ['codex-review-gate', 'atlas-test-repair-gate'].includes(identity))
-    return 'private-artifact-blocked';
   let text = '';
   try { text = fs.readFileSync(stderrFile, 'utf8'); } catch { /* Never echo read errors. */ }
   if (/posix-durable-store-required/.test(text)) return 'unsupported-platform';
@@ -132,7 +130,7 @@ function runCaptured(command, args, options = {}) {
       Object.assign(result, { status: 'pass', category: 'none', exitCode: 0 });
       result.syntheticProofVerified = identity === 'test-ci-output.js';
     } catch (error) {
-      Object.assign(result, { category: categoryFor(error, result.stderrFile, identity),
+      Object.assign(result, { category: categoryFor(error, result.stderrFile),
         exitCode: Number.isInteger(error.status) ? error.status : null,
         signal: SIGNALS.has(error.signal) ? error.signal : null });
       if (result.category === 'spawn-failed') result.executed = false;
