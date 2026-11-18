@@ -57,7 +57,9 @@ function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount
   w.income.push(
     { id: 'amandaSalary15', label: 'Invented salary (15th)', frequency: 'monthly', day: 15, firstDue: '2026-08-15', amount: 2000, confidence: 'confirmed' },
     { id: 'amandaSalaryMonthEnd', label: 'Invented salary (month-end)', frequency: 'monthly', day: monthEndDay, amount: monthEndAmount, confidence: 'confirmed' });
-  w.identityRules = w.identityRules.concat(JSON.parse(JSON.stringify(RULES)));
+  // The shipped rules, with an invented employer alias for the early-receipt hold's salary source.
+  w.identityRules = w.identityRules.concat(JSON.parse(JSON.stringify(RULES))
+    .map(rule => ({ ...rule, salaryReceiptPayeePatterns: ['Invented Tennis PAY'] })));
   w.transactions = [H.lm({ id: 799999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
     payee: 'Invented employer' }), ...txs];
   H.productionOpening(w);
@@ -71,6 +73,7 @@ function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount
     .find(row => row.id === id && row.date === date) || null;
   return {
     live: r.data.liveOverlay.operatingPlan === 'live',
+    held: r.data.liveOverlay.operatingPlan === 'unavailable',
     settled: (packet.representedActuals || []).filter(x => /^amandaSalary/.test(x.id))
       .map(x => x.id.replace('amandaSalary', '') + '@' + x.date + ':' + Math.abs(x.actual)).sort(),
     rowOf,
@@ -184,6 +187,28 @@ console.log('6. Zero second cash and replay');
   const again = serve({ txs: [bills('2026-10-19', 1998)] });
   ok(isDeepStrictEqual(s.served.liveOverlay.currentPeriodActuals.representedActuals, again.served.liveOverlay.currentPeriodActuals.representedActuals)
     && s.income === again.income, 'the same observation twice gives the same result');
+}
+
+console.log('7. The early-receipt hold still guards a salary transfer this rule did not settle');
+{
+  // A TENNIS INCOME salary packet: the employer deposit, its TENNIS INCOME debit and the Bills credit, all one day.
+  const packet = (date, amount) => [
+    H.lm({ id: ++nextId, date, amount: -amount, category: 'Payroll', account: 'tennis', providerAccountId: TENNIS, payee: 'Invented Tennis PAY' }),
+    H.lm({ id: ++nextId, date, amount, category: 'Transfer', account: 'tennis', providerAccountId: TENNIS, payee: 'Invented transfer' }),
+    bills(date, amount),
+  ];
+  // Fri Oct 23 is 5 business days before Sat Oct 31: outside the window, so not settled.
+  const early = serve({ asOf: '2026-10-23', txs: packet('2026-10-23', 2200) });
+  ok(early.held && early.settled.length === 0,
+    'a month-end salary transfer 5 business days early is not settled and holds the plan (never counted beside Oct 31)',
+    JSON.stringify([early.held, early.settled]));
+  // Fri Oct 30 is 0 business days before Sat Oct 31: inside the window, so settled once and live.
+  const near = serve({ asOf: '2026-10-30', txs: packet('2026-10-30', 2200) });
+  ok(near.live && JSON.stringify(near.settled) === JSON.stringify(['MonthEnd@2026-10-31:2200']),
+    'the same transfer on Fri Oct 30 settles Oct 31 once and the plan is live', JSON.stringify([near.live, near.settled]));
+  const off = serve({ asOf: '2026-10-30', txs: packet('2026-10-30', 2210) });
+  ok(off.held && off.settled.length === 0, 'one $10 off the scheduled amount is not settled and holds the plan',
+    JSON.stringify([off.held, off.settled]));
 }
 
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }

@@ -2980,6 +2980,7 @@ function salaryReceiptTransferHits(input, rules) {
   const salaryRules = (rules || []).filter(rule => {
     const eligible = rule
     && ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
+    && !nearPaydayRule(rule)
     && rule.transactionKind === 'transfer' && rule.direction === 'credit'
     && rule.atlasAccountId === 'chequing-a' && ruleCounterpartExternalId(rule)
     && Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length;
@@ -3597,7 +3598,13 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       const mapping = mappingFor(input.accountMap, credit.providerAccountId);
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
-        if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
+        // A near-amount-and-payday salary rule is never matched by identity (only nearPaydaySalaryHits settles
+        // it), so this hold reads the rule's TENNIS INCOME transfer shape directly: a transfer credit with its
+        // counterpart and salary source, below. One it did not settle stays held (an early or off-amount pay).
+        const holdIdentity = nearPaydayRule(rule)
+          ? transactionIsTransfer(credit) && !!ruleCounterpartExternalId(rule)
+          : ruleMatchesTransactionIdentity(credit, rule);
+        if (!holdIdentity) continue;
         if (rule.eventId === 'payroll') {
           if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
           unresolved = true; break;
