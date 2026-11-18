@@ -319,6 +319,10 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+**A plain early income credit is projected again on its payday** · *pre-existing; found in the #1294 review (lead, 2026-11-18)*
+
+A posted credit into Bills that no income rule settles and no hold catches (for example a plain deposit for Amanda's salary more than 3 business days before her payday, outside the owner's near-amount window, #821 6967081727) is counted as Other Income now, and the scheduled occurrence is still projected on its payday. The same holds on main before #1294. Decide whether such a credit should hold the plan, as the early-receipt hold does for a TENNIS INCOME salary transfer, or be left as is. Proof would be an invented early plain credit whose payday is counted once.
+
 **Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*
 
 Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money's own recurring match: a linked deposit settles the payday LM paired it to, early, on time or late, once, at its actual amount. FOUNDATION: the household payroll rule names no item yet. Closure, one PR:

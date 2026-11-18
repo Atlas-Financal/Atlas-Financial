@@ -1398,6 +1398,24 @@ const DUE_OR_UP_TO_TWO_DAYS_AFTER = 'due-or-up-to-two-days-after';
 const DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS = 2;
 const SETTLES_WHEN_AMOUNT_AT_LEAST = 'amount-at-least';
 const SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT = 'exact-scheduled-amount';
+// Q2, owner decision (Dale, 2026-11-18, #821 6967081727): Amanda's two salary
+// streams. A posted CAD credit into the rule's account settles an occurrence
+// once, at its actual amount, when it is within amountToleranceDollars of THAT
+// occurrence's scheduled amount and posts within postingBusinessDays business
+// days (Forecast's Monday-to-Friday count) before or after the projected payday.
+// Amount and timing are the identity here; nothing else is. Fail closed: two
+// qualifying credits for one occurrence, or one credit qualifying for two
+// occurrences, settle nothing (To confirm). Never a pending row, an excluded
+// payee (refund, reversal, reimbursement), an internal household transfer, or a
+// credit another rule identifies.
+const SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY = 'near-scheduled-amount-and-payday';
+const NEAR_PAYDAY_RELATION = 'near-projected-payday';
+// Words that mark a credit as not salary (owner decision 6967081727: reimbursements, coaching and refunds never
+// qualify), read in the payee, the original bank name, the Lunch Money category, the notes and the tags (#1294 review).
+const NEAR_PAYDAY_EXCLUDED_WORDS = Object.freeze([/REFUND/i, /REVERSAL/i, /REIMBURS/i, /COACH/i, /BUSINESS/i]);
+// An income category counts only when its name says salary, or it is Lunch Money's generic "Income"; any other
+// income category (coaching, business, reimbursement, "Other income") is not her pay.
+const NEAR_PAYDAY_SALARY_CATEGORY = /SALARY|PAYROLL|PAYCHE|\bPAY\b|WAGE|^\s*INCOME\s*$/i;
 const SETTLES_WHEN_TWO_LEG_SUM = 'two-leg-sum';
 const SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE = 'schedule-trust-on-due';
 const INHERITED_PENDING_AUTHORIZATION = 'inherited-pending-authorization';
@@ -1743,6 +1761,7 @@ function ruleHasIdentity(rule, diagnostic) {
   if (typeof diagnostic?.record !== 'function') diagnostic = null;
   if (!rule || !rule.eventId) return false;
   if (rule.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) return true;
+  if (nearPaydayRule(rule)) return true;
   if (rule.transactionKind === 'transfer') {
     const present = !!ruleCounterpartExternalId(rule);
     diagnostic?.record(rule.eventId, 'externalIdentity', present,
@@ -1770,6 +1789,8 @@ function ruleMatchesTransactionIdentity(tx, rule) {
 // here. Only a posted receipt can settle it.
 function matchesIdentityFields(tx, rule) {
   if (!tx || !rule) return false;
+  // A near-amount-and-payday rule is matched only by nearPaydaySalaryHits.
+  if (rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) return false;
   // An explicit posting qualifier also constrains candidate-only paths.
   if (Object.hasOwn(rule, 'requiredPostingEvidence')
       && (rule.requiredPostingEvidence !== 'posted' || !hasPostedReceipt(tx))) {
@@ -2919,6 +2940,106 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
   }
 }
 
+// The one shape a near-amount-and-payday rule may take: a credit rule with a
+// positive dollar tolerance and a whole number of business days.
+function nearPaydayRule(rule) {
+  return !!rule && rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY && rule.direction === 'credit'
+    && !!rule.atlasAccountId && Number.isFinite(rule.amountToleranceDollars) && rule.amountToleranceDollars > 0
+    && Number.isInteger(rule.postingBusinessDays) && rule.postingBusinessDays >= 0;
+}
+
+// Business days between a posting and the projected payday, either side
+// (Forecast.businessDaysAfter: Monday to Friday, no holiday calendar).
+function businessDaysApart(left, right) {
+  return left <= right ? Forecast.businessDaysAfter(left, right) : Forecast.businessDaysAfter(right, left);
+}
+
+// Q2 (owner decision 6967081727): the hits of the near-amount-and-payday rules.
+// Each qualifying credit is pushed under every occurrence it qualifies for; the
+// incumbent classifier then leaves two credits for one occurrence unresolved,
+// and representedEventHitGroups leaves every occurrence a shared credit
+// qualifies for To confirm, before any occurrence is classified.
+function nearPaydaySalaryHits(input, rules) {
+  const window = input && input.transactionWindow;
+  if (!window || window.complete !== true || !parseIsoDate(window.startDate) || !parseIsoDate(window.endDate)) return [];
+  const near = (rules || []).filter(nearPaydayRule);
+  if (!near.length || !input.plan) return [];
+  const others = (rules || []).filter(rule => rule && !nearPaydayRule(rule) && rule.direction === 'credit');
+  const mapDoc = input.accountMap;
+  const posted = tx => tx && tx.pending === false && tx.savingsPostingEvidence === 'posted'
+    && tx.contradictoryEvidence !== true && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
+    && !!parseIsoDate(tx.date) && tx.providerTransactionId != null;
+  const householdRole = mapping => !!mapping && ['household-cash', 'household-reserve'].includes(mapping.atlasRole);
+  // A posted debit of the same amount on another account, within the rule's business-day window of the credit.
+  const equalDebitsNear = (tx, amount, days) => (input.transactions || []).filter(other => other && other !== tx
+    && posted(other) && String(other.providerAccountId) !== String(tx.providerAccountId)
+    && lunchMoneyDebitAmount(other.amount) > 0 && amountsMatchExactly(lunchMoneyDebitAmount(other.amount), Math.abs(amount))
+    && businessDaysApart(other.date, tx.date) <= days);
+  // An internal household move: an equal debit on another household account within the window, the same day or
+  // posted days apart (#1294 review).
+  const internalMove = (tx, amount, days) => equalDebitsNear(tx, amount, days)
+    .some(other => householdRole(mappingFor(mapDoc, other.providerAccountId)));
+  // A credit Lunch Money marks as a transfer (excluded from totals, or a transfer category) is her pay only when its
+  // counterpart is the rule's own salary source account (TENNIS INCOME, the owner-confirmed path): an equal debit there
+  // within the window. Any other transfer is not her pay (#1294 review).
+  const transferFromSalarySource = (tx, amount, days, rule) => {
+    const source = ruleCounterpartExternalId(rule);
+    return !!source && equalDebitsNear(tx, amount, days).some(other => {
+      const mapping = mappingFor(mapDoc, other.providerAccountId);
+      return !!mapping && mapping.atlasRole === EXTERNAL_LIVE_ROLE && mappingExternalId(mapping) === source;
+    });
+  };
+  const textFields = tx => identityPayeeFields(tx).concat(identityOriginalNameFields(tx),
+    [tx.categoryLabel, tx.notes], (Array.isArray(tx.tags) ? tx.tags : []).map(tag => tag && typeof tag === 'object' ? tag.name : tag))
+    .filter(value => typeof value === 'string' && value.trim());
+  const notSalaryIncomeCategory = tx => tx.isIncome === true
+    && !NEAR_PAYDAY_SALARY_CATEGORY.test(String(tx.categoryLabel || ''));
+  const hits = [];
+  for (const tx of input.transactions || []) {
+    if (!posted(tx)) continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    if (!(amount < 0)) continue;
+    const mapping = mappingFor(mapDoc, tx.providerAccountId);
+    if (!mapping || !mapping.canonical || mapping.atlasRole !== 'household-cash') continue;
+    if (textFields(tx).some(text => NEAR_PAYDAY_EXCLUDED_WORDS.some(word => word.test(text)))) continue;
+    if (notSalaryIncomeCategory(tx)) continue;
+    if (others.some(rule => ruleMatchesTransactionIdentity(tx, rule))) continue;
+    for (const rule of near) {
+      if (mapping.canonical.id !== rule.atlasAccountId) continue;
+      if (internalMove(tx, amount, rule.postingBusinessDays)) continue;
+      if (transactionIsTransfer(tx) && !transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)) continue;
+      if (rulePayeeExcludePatterns(rule).some(pattern => anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
+        || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) continue;
+      // Each calendar day within reach of postingBusinessDays business days (a weekend adds at most
+      // two days per five), read from the income's own schedule.
+      const reach = rule.postingBusinessDays + 2 * Math.ceil((rule.postingBusinessDays + 1) / 5) + 2;
+      const events = scheduledEventsOnRange(input.plan, Forecast.addDays(tx.date, -reach), Forecast.addDays(tx.date, reach))
+        .filter(event => event && event.id === rule.eventId && event.kind === 'income' && event.amount > 0);
+      for (const event of events) {
+        if (businessDaysApart(tx.date, event.date) > rule.postingBusinessDays) continue;
+        if (!(Math.abs(Math.abs(amount) - Math.abs(Number(event.amount))) <= rule.amountToleranceDollars + IDENTITY_AMOUNT_EPSILON)) continue;
+        if (scheduledOccurrence(input.plan, rule.eventId, event.date).length !== 1) continue;
+        hits.push({
+          id: rule.eventId,
+          date: event.date,
+          postingDate: tx.date,
+          postingDateRelation: NEAR_PAYDAY_RELATION,
+          direction: 'credit',
+          providerTransactionId: tx.providerTransactionId,
+          providerAccountId: tx.providerAccountId,
+          payee: tx.payee,
+          identity: 'near-scheduled-amount-and-payday',
+          amountNotUsed: false,
+          observedAmount: amount,
+          atlasAccountId: mapping.canonical.id,
+          settlesWhen: SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY,
+        });
+      }
+    }
+  }
+  return hits;
+}
+
 // A salary receipt and its uniquely paired transfer prove more than a generic
 // transfer of the expected amount. Keep source-account business cash excluded:
 // only configured employer payroll aliases, native CAD and a single scheduled
@@ -2933,6 +3054,7 @@ function salaryReceiptTransferHits(input, rules) {
   const salaryRules = (rules || []).filter(rule => {
     const eligible = rule
     && ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
+    && !nearPaydayRule(rule)
     && rule.transactionKind === 'transfer' && rule.direction === 'credit'
     && rule.atlasAccountId === 'chequing-a' && ruleCounterpartExternalId(rule)
     && Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length;
@@ -3232,7 +3354,7 @@ function representedEventHitGroups(input) {
   const mapDoc = input.accountMap;
   const eventHits = new Map();
   const counterpartAmbiguous = new Map();
-  for (const hit of salaryReceiptTransferHits(input, rules)) {
+  for (const hit of nearPaydaySalaryHits(input, rules).concat(salaryReceiptTransferHits(input, rules))) {
     const key = hit.id + '@' + hit.date;
     const list = eventHits.get(key) || [];
     list.push(hit);
@@ -3341,7 +3463,25 @@ function representedEventHitGroups(input) {
   }
   const unique = [];
   const ambiguous = [];
+  // Q2 (owner decision 6967081727): one near-amount-and-payday credit that qualifies for two or more
+  // occurrences leaves every one of them To confirm. Found across ALL qualifying hits, before any occurrence
+  // is classified, so an occurrence that is also ambiguous for another reason cannot hide the reuse.
+  const nearKeysByTx = new Map();
   for (const [key, hits] of eventHits) {
+    for (const hit of hits) {
+      if (!hit || hit.settlesWhen !== SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) continue;
+      const keys = nearKeysByTx.get(String(hit.providerTransactionId)) || new Set();
+      keys.add(key);
+      nearKeysByTx.set(String(hit.providerTransactionId), keys);
+    }
+  }
+  const nearShared = new Set([...nearKeysByTx.values()].filter(keys => keys.size > 1).flatMap(keys => [...keys]));
+  for (const [key, hits] of eventHits) {
+    if (nearShared.has(key)) {
+      ambiguous.push({ key, id: hits[0] && hits[0].id, date: hits[0] && hits[0].date, hits,
+        reason: 'transaction-consumed-twice' });
+      continue;
+    }
     const twoLegHits = hits.filter(hit => hit && hit.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM);
     const otherHits = hits.filter(hit => !hit || hit.settlesWhen !== SETTLES_WHEN_TWO_LEG_SUM);
     // A pure shape keeps the incumbent decision. Standing bell is the
@@ -3611,8 +3751,14 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       const mapping = mappingFor(input.accountMap, credit.providerAccountId);
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
-        // A possible payroll receipt may still justify a hold.
-        if (!matchesIdentityFields(credit, rule)) continue;
+        // A possible payroll receipt may still justify a hold. A near-amount-and-payday salary rule is never
+        // matched by identity (only nearPaydaySalaryHits settles it), so this hold reads the rule's TENNIS INCOME
+        // transfer shape directly: a transfer credit with its counterpart and salary source, below. One it did not
+        // settle stays held (an early or off-amount pay).
+        const holdIdentity = nearPaydayRule(rule)
+          ? transactionIsTransfer(credit) && !!ruleCounterpartExternalId(rule)
+          : matchesIdentityFields(credit, rule);
+        if (!holdIdentity) continue;
         if (rule.eventId === 'payroll') {
           if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
           unresolved = true; break;

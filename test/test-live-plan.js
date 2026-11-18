@@ -2528,14 +2528,14 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
   const salaryRules = (identity.rules || []).filter(r =>
     r && (r.eventId === 'amandaSalary15' || r.eventId === 'amandaSalaryMonthEnd'));
   ok(salaryRules.length === 2
-      && salaryRules.every(r => r.transactionKind === 'transfer'
-        && r.atlasAccountId === 'chequing-a'
+      && salaryRules.every(r => r.atlasAccountId === 'chequing-a'
         && r.direction === 'credit'
-        && r.counterpartExternalId === 'tennis-income'
-        && r.settlesWhen === 'exact-scheduled-amount'
+        && r.settlesWhen === 'near-scheduled-amount-and-payday'
+        && r.amountToleranceDollars === 5
+        && r.postingBusinessDays === 3
         && !r.payeePattern
         && !(r.payeePatterns || []).length),
-    'salary identity is BILLS transfer uniquely paired to TENNIS INCOME, not amount alone');
+    'salary identity is a BILLS credit within $5 and 3 business days of the payday (owner decision #821 6967081727)');
   ok(!(identity.rules || []).some(r =>
       r && (r.eventId === 'amandaSalary15' || r.eventId === 'amandaSalaryMonthEnd')
       && /tennis/i.test(JSON.stringify([r.payeePattern, r.payeePatterns]))),
@@ -2660,9 +2660,9 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
     .find(c => c.id === 'amandaSalaryMonthEnd' && c.date === LIVE_DAY);
   const seaspanHit = (observed.report.representedEventCandidates || [])
     .find(c => c.id === 'payroll' && c.date === PAYDAY_AS_OF);
-  ok(amandaHit && amandaHit.identity === 'transfer+counterpart+account+date'
-      && amandaHit.amountNotUsed === true,
-    'observer identity-matches the TENNIS INCOME→BILLS pair; amount is a guard, not identity');
+  ok(amandaHit && amandaHit.identity === 'near-scheduled-amount-and-payday'
+      && amandaHit.amountNotUsed === false,
+    'observer matches the BILLS credit by amount and timing (owner decision #821 6967081727)');
   ok(near(amandaHit.observedAmount, -OWNER_CONFIRMED_MONTH_END)
       && amandaHit.atlasAccountId === 'chequing-a',
     'matched salary actual is the exact scheduled transfer into BILLS');
@@ -2842,11 +2842,35 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
       label + ' served opening is the live as-of');
   }
 
-  assertSalaryNotRepresented(
-    'same-day unknown payee even at the scheduled amount',
+  // Owner decision (Dale, 2026-11-18, #821 6967081727): a posted CAD credit into BILLS within $5 of the
+  // occurrence's scheduled amount and within 3 business days of its payday IS the salary when
+  // it is not a transfer, whatever its payee. These two cases (non-transfer deposits) were held under the earlier
+  // same-day exact transfer rule; each now settles the occurrence exactly once, never on top of observed cash. A BILLS
+  // credit Lunch Money marks as a transfer still needs its TENNIS INCOME debit (#1294 review; the two cases below).
+  function assertSalaryRepresentedOnce(label, transactions, cashAdd) {
+    const extra = extraFor(transactions, cashAdd);
+    const result = overlay(canonical, extra);
+    ok(result.data.liveOverlay.applied === true
+        && result.data.liveOverlay.operatingPlan === Live.OPERATING_PLAN_LIVE,
+      label + ' applies trusted current cash');
+    ok((result.data.plan.opening.representedEvents || [])
+        .filter(c => c.id === 'amandaSalaryMonthEnd' && c.date === LIVE_DAY).length === 1,
+      label + ' represents the month-end salary exactly once');
+    ok(!(result.data.plan.opening.notReliedUponEvents || [])
+        .some(c => c.id === 'amandaSalaryMonthEnd' && c.date === LIVE_DAY),
+      label + ' does not also leave it unresolved');
+    const expectedCash = Math.round((
+      Number(extra.tweaks['chequing-a']) +
+      Number(cashValue(canonical, 'chequing-b'))
+    ) * 100) / 100;
+    ok(near(Forecast.startingCashAmount(result.data.plan), expectedCash),
+      label + ' opening is the observed household-cash sum (the salary is inside it, not added again)');
+  }
+  assertSalaryRepresentedOnce(
+    'same-day unknown payee at the scheduled amount',
     [seaspanTx, amountOnlyTx, grocerTx].concat(inOutTxs));
-  assertSalaryNotRepresented(
-    'direct household TENNIS BC payee, even at the scheduled amount',
+  assertSalaryRepresentedOnce(
+    'direct household TENNIS BC payee at the scheduled amount',
     [seaspanTx, tennisBcPayeeTx, expTx, grocerTx].concat(inOutTxs));
   assertSalaryNotRepresented(
     'TENNIS INCOME account deposit / reimbursement',
@@ -2855,8 +2879,10 @@ console.log('\n=== 21. named paycheck identity supplies actuals and applies when
     'unrelated household transfer',
     [seaspanTx, unrelatedTransferTx, grocerTx].concat(inOutTxs),
     UNRELATED_TRANSFER + SYNTHETIC_PAYROLL);
+  // #1294 review (lead): a credit Lunch Money marks as a transfer is her pay only when its counterpart is a TENNIS
+  // INCOME debit; these two have none, so they are not her pay.
   assertSalaryNotRepresented(
-    'unrelated exact-amount BILLS transfer without a TENNIS INCOME counterpart',
+    'exact-amount BILLS transfer without a TENNIS INCOME counterpart',
     [seaspanTx, billsTransferTx, grocerTx].concat(inOutTxs));
   assertSalaryNotRepresented(
     'exact-amount BILLS transfer sourced from WEEKLY, not TENNIS INCOME',
