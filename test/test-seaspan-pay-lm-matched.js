@@ -87,7 +87,9 @@ console.log('1. Late and short: LM paired a Mon Oct 12 deposit of 1350 to Fri Oc
   ok(s.income === 1350, 'this period\'s income is the actual 1350: never the scheduled 1400, never 2750', String(s.income));
   ok(JSON.stringify(s.future) === JSON.stringify(FUTURE), 'the next paydays are 1400 once each: the deposit is never the next pay', JSON.stringify(s.future));
   const control = serve({ txs: [pay('2026-10-12', 1350)], optIn: false });
-  ok(control.held && control.settled.length === 0, 'control (no opt-in): the late, short deposit holds the plan, as on main');
+  // Lead dispatch 2026-11-18: one business day late settles at the actual amount without the opt-in too.
+  ok(control.live && JSON.stringify(control.settled) === JSON.stringify(['2026-10-09:1350']) && control.income === 1350,
+    'control (no opt-in): the late, short deposit settles Oct 9 once at 1350', JSON.stringify([control.live, control.settled, control.income]));
 }
 
 console.log('2. Late by two business days: LM paired a Tue Oct 13 deposit to Oct 9');
@@ -134,8 +136,9 @@ console.log('5. The incumbent matcher and #1290\'s stopgap are the fallback');
   for (const [label, lm] of [['no recurring read', undefined], ['an unavailable read', { status: 'unavailable' }],
     ['a read without the item', { status: 'read', read: { unexpectedPaginationEvidence: false, items: [] } }]]) {
     const late = serve({ txs: [pay('2026-10-12')], lm });
-    ok(late.live && JSON.stringify(late.settled) === JSON.stringify([]) && late.income === 1400,
-      `with ${label}, a linked Monday deposit of 1400 is absorbed by the stopgap: live, never 2800`, JSON.stringify([late.live, late.income]));
+    // Lead dispatch 2026-11-18: one business day late at the exact pay now settles the payday once.
+    ok(late.live && JSON.stringify(late.settled) === JSON.stringify(['2026-10-09:1400']) && late.income === 1400,
+      `with ${label}, a linked Monday deposit of 1400 settles Oct 9 once: live, never 2800`, JSON.stringify([late.live, late.settled, late.income]));
   }
   const suggested = lmRead({ expected: E, missing: ['2026-10-23'], found: [pay('2026-10-12')] });
   suggested.read.items[0].status = 'suggested';

@@ -124,18 +124,6 @@ const answer = [
   { start: '2026-11-20', income: 1830, billsPlanned: 124.75, billsPaid: 89.75, groceries: 26.25, other: 6.75, spending: 33 },
 ];
 
-function knownGap(label, actual, expected, current, reason) {
-  try {
-    assert.deepEqual(actual, expected, label);
-  } catch (error) {
-    if (error.code !== 'ERR_ASSERTION') throw error;
-    assert.deepEqual(actual, current, label + ': known mismatch changed');
-    console.log('KNOWN GAP ' + label + ' — ' + reason);
-    return;
-  }
-  assert.fail(label + ' now agrees with the answer key. Replace the known gap with a regular assertion.');
-}
-
 const selected = [];
 for (const row of answer) {
   const matching = advice.payPeriodViews.filter(view => view.start === row.start);
@@ -147,12 +135,12 @@ for (const row of answer) {
   assert.deepEqual([progress.income.planned.amount, view.incomeTotal], [row.income, row.income], row.start + ' income plan and headline');
   if (row.start === '2026-10-23') {
     const pay = view.income.find(item => item.id === 'payroll');
-    knownGap('late October pay',
-      [pay.status, pay.actual, progress.income.actual.amount, progress.income.actual.completeness,
-        view.income.filter(item => item.id.startsWith('other-income:')).length],
-      ['received', -1200, 1830, 'complete', 0],
-      ['planned', null, 630, 'partial', 1],
-      'The unique posted employer credit a day late stays unresolved instead of settling the Oct 23 payday.');
+    // The unique posted employer credit a day late (Sat Oct 24) settles the
+    // Fri Oct 23 payday once at its actual amount: it is Ari's second pay, not
+    // Other income, and the period's income is complete (formerly a known gap).
+    assert.deepEqual([pay.status, pay.actual, progress.income.actual.amount, progress.income.actual.completeness,
+      view.income.filter(item => item.id.startsWith('other-income:')).length],
+    ['received', -1200, 1830, 'complete', 0], 'late October pay settles the Oct 23 payday once');
   } else {
     assert.deepEqual([progress.income.actual.amount, progress.income.actual.completeness], [row.income, 'complete'],
       row.start + ' confirmed income');
