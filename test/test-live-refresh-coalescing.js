@@ -1,7 +1,7 @@
 'use strict';
 // The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
 // the windowed and pending transactions, and the recurring-items read (S1).
-const PROVIDER_GETS = 8;
+const PROVIDER_GETS = 10;
 // Real workers and loopback provider calls. Every input is synthetic; no live
 // credential, household file edit, provider write or completed response cache.
 const threads = require('node:worker_threads');
@@ -87,6 +87,8 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       if (url.pathname === '/v2/manual_accounts') return send(200, { manual_accounts: [] });
       if (url.pathname === '/v2/categories') return send(200, { categories: payload.categories });
       if (url.pathname === '/v2/tags') return send(200, { tags: [] });
+      if (url.pathname === '/v2/budgets/settings') return send(200, { budget_period_granularity: 'month', budget_period_quantity: 1, budget_period_anchor_date: '2026-01-01' });
+      if (url.pathname === '/v2/summary') return send(200, { aligned: false, categories: [] });
       if (url.pathname === '/v2/transactions') {
         const isPending = url.searchParams.get('is_pending') === 'true';
         const body = { has_more: false, transactions: payload.transactions.filter(tx => !isPending || tx.is_pending)
@@ -166,7 +168,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       mock.release();
       const expected = await Live.applyForServer(canonical, env);
       check(expected.liveOverlay.applied, true, 'reference is a qualified live publication');
-      check(mock.calls.length, PROVIDER_GETS, 'reference performs all eight provider GETs (seven plus the recurring-items read)');
+      check(mock.calls.length, PROVIDER_GETS, 'reference performs all ten provider GETs (seven, the recurring-items read, and the two budget reads)');
       mock.hold();
       const before = workers.length, callsBefore = mock.calls.length, original = structuredClone(canonical);
       const inputs = [canonical, structuredClone(canonical), structuredClone(canonical), canonical];
@@ -185,7 +187,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       check(results[1], expected, 'result mutation cannot affect another caller');
       check(canonical, original, 'canonical input unchanged');
       await drain();
-      check(mock.calls.length - callsBefore, PROVIDER_GETS, 'one complete eight-GET observation serves all callers');
+      check(mock.calls.length - callsBefore, PROVIDER_GETS, 'one complete ten-GET observation serves all callers');
       const sharedTiming = timings.at(-1);
       check(sharedTiming.waiterCount, 4, 'sanitized lifecycle counts shared callers');
       check(sharedTiming.outcome, 'completed', 'timing describes worker completion');

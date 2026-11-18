@@ -2711,6 +2711,8 @@ html.reduce .blend-sky { display: block; }
 }
 .blend-split > i.s-bills { background: var(--blend-bills); }
 .blend-split > i.s-house { background: var(--blend-house); }
+.blend-split > i.s-held { background: var(--blend-over); }
+.blend-split > i.s-item { background: var(--blend-goals); }
 .blend-split > i.s-bad { background: color-mix(in srgb, var(--blend-income) 40%, transparent); }
 .blend-split > i.is-untracked {
   flex: 1 1 12%;

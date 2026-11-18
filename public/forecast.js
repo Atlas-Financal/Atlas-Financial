@@ -3737,8 +3737,11 @@
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
       breachesBuffer: below(min.balance, buffer),
-      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
-      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
+      // Lead ruling on #1358 (B2): withheld under an estimated card coverage too.
+      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : ending - simulationCashFloor(full),
+      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
         start: full.start, end: full.end, days: full.daily.length,
         min: full.min, ending: full.ending, events: full.events, totals: full.totals,
@@ -3850,8 +3853,11 @@
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
       breachesBuffer: below(min.balance, buffer),
-      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' ? null : ending - simulationCashFloor(full),
-      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' ? null : Math.max(0, ending - simulationCashFloor(full)),
+      // Lead ruling on #1358 (B2): withheld under an estimated card coverage too.
+      endingSurplus: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : ending - simulationCashFloor(full),
+      extraDebtCapacity: full.cardPurchaseCoverage?.status === 'unavailable' || cardCoverageTrust(full.cardPurchaseCoverage) === 'estimated'
+        ? null : Math.max(0, ending - simulationCashFloor(full)),
       knowledge: {
         start: full.start, end: full.end, days: full.daily.length,
         min: full.min, ending: full.ending, events: full.events, totals: full.totals,
@@ -4955,10 +4961,13 @@
       shortfall: additionalCashRequiredFromWalkMin(min.balance),
       additionalCashRequired: additionalCashRequiredFromWalkMin(min.balance),
       breachesBuffer: below(min.balance, buffer),
-      endingSurplus: coverage.status === 'unavailable' ? null : balance - cashFloor,
+      // Lead ruling on #1358 (B2): under an estimated card coverage the walk
+      // spends the lower, cautious cap, so its forward surplus can exceed the
+      // truth. Withheld exactly as when coverage is unavailable.
+      endingSurplus: coverage.status === 'unavailable' || cardCoverageTrust(coverage) === 'estimated' ? null : balance - cashFloor,
       // Room for extra repayment, measured at the end of the window — cash
       // above the buffer once everything has cleared. Bounded by zero.
-      extraDebtCapacity: coverage.status === 'unavailable' ? null : Math.max(0, balance - cashFloor),
+      extraDebtCapacity: coverage.status === 'unavailable' || cardCoverageTrust(coverage) === 'estimated' ? null : Math.max(0, balance - cashFloor),
     };
     if (savingsEarmarksEnabled(plan) && Array.isArray(plan.savingsEarmarks.pools)
         && plan.savingsEarmarks.pools.some(pool => pool && pool.role === 'purpose-reserve')) {
@@ -5553,7 +5562,10 @@
     // withholds when uncovered card purchases are unknown (cash held for them
     // cannot be measured, so no verdict can assert feasibility).
     const coverageState = cardCoverageState(plan, asOf, opts);
-    const fundingUnknown = coverageState.status === 'unavailable'
+    // Lead ruling on #1358 (B2): an estimated card coverage walks at the lower
+    // cap, so a plan could read funded earlier than the truth: no verdict.
+    const coverageEstimated = cardCoverageTrust(coverageState) === 'estimated';
+    const fundingUnknown = coverageState.status === 'unavailable' || coverageEstimated
       || income.status === 'unavailable'
       || scheduledAmountState(plan, asOf, horizon.end, opts).status === 'unavailable';
     const weekly = opts.weeklyVariable != null ? opts.weeklyVariable : 0;
@@ -5702,7 +5714,8 @@
           fundingMargin: null, remainingIdentity: null, deferred: null,
           fundingStatus: 'unavailable',
           ...(income.status === 'unavailable' ? { fundingReason: income.reason }
-            : coverageState.status === 'unavailable' && coverageState.reason ? { fundingReason: coverageState.reason } : {}) } : {}),
+            : coverageState.status === 'unavailable' && coverageState.reason ? { fundingReason: coverageState.reason }
+              : coverageEstimated ? { fundingReason: coverageState.estimateReason } : {}) } : {}),
       };
     });
   }
@@ -6258,7 +6271,10 @@
         plannedCostTrustWordStatus(costs.concat(seq.filter(row => row && !row.date && row.flexibility !== 'optional'))),
         trajectoryEventsStatus((sim.events || []).filter(e => e && e.kind === 'income')),
         liveRowTrust || 'calculated',
-        hasSpendingBasis ? spendingBasis.status : 'calculated'),
+        hasSpendingBasis ? spendingBasis.status : 'calculated',
+        // Lead dispatch 2026-11-18 (Dale): an unconfirmed card-payment
+        // destination makes every figure on this card coverage an estimate.
+        cardCoverageTrust(sim.cardPurchaseCoverage)),
       paydays: rows, gap: gap || (prePayday.length ? (() => {
         const overdueRequirement = prePayday.reduce((sum, row) => sum + row.baseRequirement - (row.actualSaved || 0), 0);
         return {
@@ -6335,6 +6351,11 @@
     const income = incomeReconciliationState(plan, asOf);
     if (income.status === 'unavailable') return { ...denied, status: 'unavailable',
       reason: income.reason, permitted: null, borrowed: null, interest: null,
+      feasible: null, capacity: null };
+    // Lead ruling on #1358 (B2): no planned borrowing on an estimated card coverage.
+    const debtCoverage = cardCoverageState(plan, asOf, opts);
+    if (cardCoverageTrust(debtCoverage) === 'estimated') return { ...denied, status: 'unavailable',
+      reason: debtCoverage.estimateReason, permitted: null, borrowed: null, interest: null,
       feasible: null, capacity: null };
 
     const facilityId = opts.plannedDebtFacility || null;
@@ -6828,7 +6849,7 @@
   // collapse to one transaction. Confirmed household spend counts the
   // posted side once; the still-visible pending stays recon/pending
   // exposure and is not a second confirmed spend.
-  function pendingPostedDuplicateIdSet(packet) {
+  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds) {
     const flagged = new Set();
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const pendingByKey = new Map();
@@ -6848,6 +6869,16 @@
     for (const [key, pendings] of pendingByKey) {
       const posted = postedByKey.get(key) || [];
       if (pendings.length !== 1 || posted.length !== 1) continue;
+      // A different authorization can be a reissue of the same purchase.
+      // The exact packet-local link admits its amount only to an estimate.
+      const [pending] = pendings;
+      const [posting] = posted;
+      if (pendingEstimateIds && pending.id != null && posting.distinctPendingId === String(pending.id)
+        && posting.pending === false && posting.savingsPostingEvidence === 'posted'
+        && [pending, posting].every(tx => tx.pendingPostedDuplicate !== true
+          && tx.pendingPostedAmbiguous !== true && tx.contradictoryEvidence !== true)) {
+        pendingEstimateIds.add(String(pending.id));
+      }
       for (const tx of pendings.concat(posted)) {
         if (tx && tx.id != null) flagged.add(String(tx.id));
       }
@@ -6862,6 +6893,7 @@
   }
 
   function confirmedHouseholdAmount(tx, duplicateIds) {
+    // Withhold the pending side of every possible replacement.
     if (isPossibleReplacementPending(tx, duplicateIds)) return 0;
     const amt = Number(tx && tx.amount);
     return isFinite(amt) ? amt : 0;
@@ -12729,6 +12761,7 @@
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
   classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  classifyCurrentPeriodTransaction.spendDuplicateKey = spendDuplicateKey;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
   // #962 C1: the classifier's own category-refund test (G3a), read by the observer to keep a bank
@@ -12774,6 +12807,7 @@
         : ((cls && (cls.includeReason || cls.reason)) || null),
       pending,
       pendingPostedDuplicate: duplicate,
+      ...(extra && extra.pendingAmountEstimated === true ? { pendingAmountEstimated: true } : {}),
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
@@ -12926,15 +12960,14 @@
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
     // A pending row that only looks like a posted one (same date, account,
-    // amount and merchant) may be a second real purchase. Spent still counts
-    // the posted side once, but until the pair resolves the category's spent
-    // is an estimate, never a precise calculated total, and the pending row
-    // stays listed.
+    // amount and merchant) stays listed with a possible-duplicate warning.
+    // A distinct authorization can contribute to estimated spending.
     const possibleDuplicateCategories = new Set();
     // The plan itself is unchanged, so its trust stays as published.
     const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
-    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const pendingEstimateIds = new Set();
+    const duplicateIds = pendingPostedDuplicateIdSet(packet, pendingEstimateIds);
     // Resolve coverage against the complete ledger, before selecting a category
     // or cycle. Older/ambiguous liabilities still govern the trust of each row.
     const cardCoverage = useActuals && packet
@@ -12954,18 +12987,21 @@
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
         Object.assign({}, opts, { categoryRefunds: true }))) {
+        const catId = cls.atlasRow || cls.categoryId;
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
+        const pendingAmountEstimated = actualsReady && !withheldCategories.has(catId)
+          && tx.id != null && pendingEstimateIds.has(String(tx.id));
         const row = reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate,
+          pendingAmountEstimated,
           cardPurchaseCoverage: amt > 0 && isRevolvingCardAccount(tx)
             ? cardCoverageAnnotation(tx, cardCoverage) : null });
         if (otherSpendingEvidenceEligible(cls)) {
           confirmationRecon.push(row);
           confirmationSpent = roundCent(
-            confirmationSpent + confirmedHouseholdAmount(tx, duplicateIds)
+            confirmationSpent + (row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds))
           );
           continue;
         }
-        const catId = cls.atlasRow || cls.categoryId;
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
@@ -13025,7 +13061,7 @@
     // G3a: an identified refund row is negative and nets, signed, within its
     // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
-      if (r && r.pendingPostedDuplicate === true && r.pending === true) return s;
+      if (r && r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true) return s;
       return s + (Number(r && r.amount) || 0);
     }, 0));
     const byId = new Map();
@@ -13214,6 +13250,8 @@
     // it does on a global withhold; only the category rows stay per-row.
     const anyWithheld = items.some(row => withheldCategories.has(row.id));
     if (anyWithheld) holdTrust = 'estimated';
+    if (items.some(row => row.spent != null && (lookback || row.planned == null || row.spent > row.planned)
+      && row.recon.some(tx => tx.pendingAmountEstimated === true))) holdTrust = 'estimated';
     return {
       items,
       // An invalid declared target has no quantity, so the total hold is
@@ -13513,6 +13551,8 @@
       plannedPeriodCloseReason: [
         cardMatchUnresolved ? 'Planned remainder: card purchase and payment matching is unresolved, so this is an estimated plan, not verified safe-to-spend cash or proof that card balances are paid.' : null,
         base === 'estimated' ? 'Planned remainder: an input to this close (or an earlier period it carries from) is estimated.' : null,
+        cardState === 'none' && cardDetail === CARD_DESTINATION_ESTIMATE_BASIS
+          ? 'A card payment\'s card is not confirmed, so it is applied to no card and card purchases stay reserved.' : null,
       ].filter(Boolean).join(' ') || null,
     };
   }
@@ -14224,6 +14264,9 @@
       purchases: [], active: [], payments: [], issues: [] }, annotations: new Map(), paymentAllocations: new Map() };
     const issues = [];
     const issue = (code, ref) => issues.push({ code, ...(ref ? { ref } : {}) });
+    // Posted debits out of a household account whose destination card is
+    // unconfirmed: applied to no card, listed To confirm (see the pairing below).
+    const destinationUnconfirmed = [];
     const opening = policy && policy.opening;
     const validOpening = opening && opening.confirmed === true && savingsDate(opening.asOf)
       && (aggregate || opening.asOf <= asOf) && opening.currency === 'cad'
@@ -14622,10 +14665,26 @@
       }
       const reversed = pairLegs(legs.cardDebit, legs.cashCredit, [], 'coverage-payment-reversal-unconfirmed').filter(fundedLeg(false));
       // An unpaired posted payment leg on Bills, Weekly or Savings has an
-      // unknown destination and withholds (Atlas partial review, #849).
+      // unknown destination (Atlas partial review, #849). Dale's direction
+      // (lead dispatch 2026-11-18): one unconfirmed card payment never blanks
+      // the plan. A DEBIT out of a household account has already left that
+      // account (its observed balance holds it), so it is applied to no card:
+      // every card purchase stays reserved as if unpaid, which can only
+      // understate the money left, never overstate it. It is listed To
+      // confirm and the coverage is published as an estimate (below). A
+      // CREDIT back into Bills from an unknown card still withholds: ignoring
+      // money that came back could leave a purchase looking covered. So does
+      // a debit out of Weekly (below).
       for (const leg of [...legs.cashDebit, ...legs.cashCredit, ...legs.reserveDebit]) {
         if (!leg.paired && leg.tx.date >= origin && leg.tx.pending === false) {
-          issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
+          // Only a debit out of Bills or Savings degrades. A Weekly debit's cash
+          // was already counted against the household hold through the
+          // Bills-to-Weekly funding, so ignoring it is not proven cautious.
+          const location = householdCashLocationId(leg.tx);
+          const fromBillsOrSavings = location === BILLS_ACCOUNT_ID || location === DESIGNATED_RESERVE_ID
+            || leg.tx.accountRole === 'household-reserve';
+          if (legs.cashCredit.includes(leg) || !fromBillsOrSavings) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
+          else destinationUnconfirmed.push(leg);
         }
       }
       // Walk each card's pay periods in order; the queue holds uncovered
@@ -15019,6 +15078,10 @@
     const bills = (plan.startingCash?.breakdown || []).filter(row => row.id === 'chequing-a');
     if (bills.length !== 1 || typeof bills[0].value !== 'number' || !Number.isFinite(bills[0].value)
       || bills[0].unknown === true || bills[0].value < knownReserve) issue('coverage-bills-backing-unconfirmed');
+    // An unconfirmed destination degrades only on its own. When anything else
+    // already withholds, it withholds with it exactly as before.
+    if (issues.length) for (const leg of destinationUnconfirmed) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
+    const destinationEstimate = !issues.length && destinationUnconfirmed.length > 0;
     // Opening carry can fall inside a cycle. Only a corresponding visible
     // category row replaces its fallback, never a date boundary, equal amount
     // or mere presence in the provider packet. Forecast owns both selections.
@@ -15071,6 +15134,14 @@
         minimumCoverage: minimumCoverage.map(({ paymentRefs, paymentIndexes, ...row }) => ({ ...row,
           paymentIds: paymentIndexes.filter(index => index != null).map(index => 'coverage-payment-' + (index + 1)) })) } : {}),
       reservedCash: issues.length ? null : knownReserve, knownObservedReserve: knownReserve,
+      // Dale's direction (lead dispatch 2026-11-18): the payment is applied to
+      // no card, so every figure built on this coverage is an ESTIMATE (it
+      // can only understate the money left). Each payment is one To-confirm row.
+      ...(destinationEstimate ? { trust: 'estimated', estimateBasis: CARD_DESTINATION_ESTIMATE_BASIS,
+        estimateReason: 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
+        toConfirm: destinationUnconfirmed.map(leg => ({ question: 'To confirm: which card did this pay?',
+          date: leg.tx.date, amount: leg.cents / 100,
+          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })) } : {}),
       purchases: publishedPurchases, active: publishedPurchases.filter(row => row.remaining > 0),
       earlierPeriods,
       payments: publishedPayments, issues: issues.map(({ code }) => ({ code })),
@@ -15249,6 +15320,14 @@
   // estimated planning projection. Missing amounts or history, an
   // unavailable card minimum, or an absent/invalid/unknown Bills balance
   // stay hard holds. Verified coverage and available-now are unchanged.
+  // Lead dispatch 2026-11-18 (Dale): card coverage published as an estimate
+  // because one or more card payments' destination card is unconfirmed.
+  const CARD_DESTINATION_ESTIMATE_BASIS = 'card-payment-destination-unconfirmed';
+  // The trust a figure built on this card coverage may carry: 'estimated'
+  // while a payment's destination card is unconfirmed, else 'calculated'.
+  function cardCoverageTrust(coverage) {
+    return coverage && coverage.status === 'ready' && coverage.trust === 'estimated' ? 'estimated' : 'calculated';
+  }
   const CARD_MATCH_ISSUES = new Set(['coverage-opening-unconfirmed',
     'coverage-payment-or-credit-purpose-unconfirmed', 'coverage-bills-backing-unconfirmed']);
   function cardMatchOnlyHold(plan, coverage) {
@@ -15336,6 +15415,7 @@
     // exclusion as the remaining-requirement loop below.
     const heldCards = new Set(), heldRefs = new Map();
     for (const row of budget.items) for (const r of (row && row.recon) || []) {
+      if (r && r.pendingAmountEstimated === true) return unknown('household-budget-unavailable');
       if (!r || (r.pendingPostedDuplicate === true && r.pending === true)) continue;
       const source = rowSource(r);
       if (!source) return unknown('household-row-untraceable');
@@ -16266,16 +16346,17 @@
       // never as a household cost. Atlas P2 on 4d90a156: a completed
       // (lookback) period's actuals excluded the same item spending, so its
       // historical remainder keeps the deduction too, on its own cycle.
-      // Lead pre-review of 0d919cb5: the term follows the hold's own actuals
-      // readiness. When this period's actuals are not covered (spentReady
-      // false), the hold deducts no observed spending, so neither does the
-      // item term: linked equals unlinked.
+      // The term needs this period's actuals ready (spentReady). Under lost
+      // coverage a linked charge is in neither this term nor the hold (it
+      // sits in no category); the close and next opening are then withheld,
+      // not understated, because a linked charge needs a Savings pool and the
+      // pool's S1 seed is null without complete coverage
+      // (test-savings-item-lost-coverage).
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      // Rank 18: held outflows, on the item term's cycle. Unlike the item
-      // term (whose unlinked twin sits in a category the lost-coverage hold
-      // does not count), a held row's twin was Other spending, which that
-      // hold does count from the known rows. So the held term is deducted
+      // Rank 18: held outflows, on the item term's cycle. A held row's twin
+      // was Other spending, which the lost-coverage hold counts from the
+      // known rows (as it counts any known category row). So the held term is deducted
       // whenever its rows are known: actuals ready, coverage lost, or one
       // category withheld (#1323 review). Never twice: the row is out of
       // Other and the hold on every path.
@@ -16747,14 +16828,15 @@
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
           ...(heldSpend?.cents > 0 ? { heldOutflowSpending: heldSpend.cents / 100 } : {}),
-        }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust],
+        }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust, ...(lookback ? [] : [cardCoverageTrust(cardCoverage)])],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'
             : activeCardClose.status === 'hard' ? 'hard' : 'unqualified')
           : cardMatchEstimateEligible(plan, cardCoverage, opts) ? 'match' : 'hard', cardCoverage.reason,
         projected && openingKnown && !openingCarried
           ? 'The planned period close is unavailable: its opening comes from a fallback cash walk whose trust is not established.'
-          : null, activeCardClose && activeCardClose.reason),
+          : null, activeCardClose ? activeCardClose.reason
+          : !lookback && cardCoverageTrust(cardCoverage) === 'estimated' ? CARD_DESTINATION_ESTIMATE_BASIS : undefined),
         ...(role === 'active' && cardReserveShortfallDisclosure(plan, cardCoverage)
           ? { cardReserveShortfall: cardReserveShortfallDisclosure(plan, cardCoverage) } : {}),
 
@@ -19249,14 +19331,30 @@
       result.protectedPath.coverageFloor = { amount: roundCent(Math.max(0, pendingCash)),
         trust: 'calculated', basis: 'known unresolved household cash debits (pending principal)' };
     }
-    if (cardCoverage.status === 'unavailable') {
-      if (opts.operatingPlan !== 'unavailable') result.available = null;
-      result.paydayShellTrust.available = 'unknown';
+    // Lead dispatch 2026-11-18 (Dale): with a card payment's destination
+    // unconfirmed, the cautious figures stay live as ESTIMATES (available,
+    // the household allowance, weekly cap, spend permission: every card
+    // purchase stays reserved, so they can only understate). Proposals that
+    // MOVE money (extra debt, the future path, optional, the remainder) are
+    // withheld exactly as when coverage is unavailable: they are not made on
+    // an estimate, and they need not shrink when the reserve grows.
+    const cardEstimated = cardCoverageTrust(cardCoverage) === 'estimated';
+    if (cardCoverage.status === 'unavailable' || cardEstimated) {
+      const reason = cardEstimated
+        ? 'Proposals to move money wait until the card payment is confirmed. ' + cardCoverage.estimateReason
+        : cardCoverage.reason;
+      if (cardEstimated) {
+        result.paydayShellTrust.available = 'estimated';
+        result.paydayShellTrust.household = 'estimated';
+      } else {
+        if (opts.operatingPlan !== 'unavailable') result.available = null;
+        result.paydayShellTrust.available = 'unknown';
+      }
       result.extraDebt = { status: 'unavailable', allocated: null, absorbable: null,
-        target: null, consequence: null, reason: cardCoverage.reason };
-      result.protectedPath = protectedPathUnavailable(cardCoverage.reason);
-      withholdFutureCostAndLiquidityClaims(result, cardCoverage.reason);
-      result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
+        target: null, consequence: null, reason };
+      result.protectedPath = protectedPathUnavailable(reason);
+      withholdFutureCostAndLiquidityClaims(result, reason);
+      if (!cardEstimated) result.weeklyCap = result.spendPermission = result.supportedAllowance = null;
       result.movable = result.unallocated = result.remainder = null;
       result.optional = [];
       result.lines = result.lines.filter(row => ['obligations', 'essentials'].includes(row.kind));
@@ -19961,7 +20059,8 @@
         if (!finite(row.spent) || !trusted(rowTrust)) { missing = true; continue; }
         amount = roundCent(amount + row.spent);
         const recon = Array.isArray(row.recon) ? row.recon : [];
-        pending ||= recon.some(tx => tx.pending === true && tx.pendingPostedDuplicate !== true);
+        pending ||= recon.some(tx => tx.pending === true
+          && (tx.pendingPostedDuplicate !== true || tx.pendingAmountEstimated === true));
         if (rowTrust === 'estimated') trust = 'estimated';
         evidence.push({ id: row.id, spent: row.spent, otherSpending: row.otherSpending === true, recon });
       }
@@ -20869,6 +20968,21 @@
           }
         }
       }
+      // Lead ruling on #1358 (B2): under an estimated card coverage the payday
+      // schedule walks forward at the lower, cautious cap, so its later capacity
+      // can exceed the truth. Today's available now stays (it is at or below the
+      // truth); its proposals and every later payday are withheld.
+      if (cardCoverageTrust(coverage) === 'estimated') {
+        const reason = 'The funding plan beyond today waits until the card payment is confirmed. ' + coverage.estimateReason;
+        const today = current && current.fromTodayFunding;
+        if (today && today.status !== 'unavailable') {
+          Object.assign(today, { contribution: null, cashAfterProposal: null, gap: null, originalPaydayPlan: null,
+            proposalReason: reason,
+            items: (today.items || []).map(item => ({ ...item, contribution: null, cumulativeProposed: null,
+              remainingGap: null, projectedFullyFunded: null })) });
+        }
+        return unavailable(reason);
+      }
       const schedule = planSpendPaydayFunding(plan, asOf, sim, seq, plans, null, basis);
       if (!schedule || schedule.status === 'unavailable') return unavailable(
         schedule && schedule.reason || 'Budget funding schedule unavailable.');
@@ -21258,8 +21372,15 @@
       });
       const dalePaydayOpts = withDalePayrollWalkAdjustment(paydayOpts, dalePayroll);
       const alloc = paydayAllocation(plan, asOf, dalePaydayOpts);
-      const planSpendFunding = planSpendPaydayFunding(
+      const planSpendFundingWalked = planSpendPaydayFunding(
         plan, asOf, knowledgeSim, sequence, plans, alloc);
+      // Lead ruling on #1358 (B2): the schedule walks forward at the cap, so
+      // under an estimated card coverage its later paydays can exceed the truth.
+      const walkCoverage = knowledgeSim && knowledgeSim.cardPurchaseCoverage;
+      const planSpendFunding = cardCoverageTrust(walkCoverage) === 'estimated'
+        ? { ...planSpendFundingWalked, status: 'unavailable', paydays: [], gap: null, fundingTrust: 'unavailable',
+          reason: 'The funding plan waits until the card payment is confirmed. ' + walkCoverage.estimateReason }
+        : planSpendFundingWalked;
       // Trust packet for the payday instruction shell (AMANDA SLICE 1).
       // Forecast publishes the trust state of every figure the shell
       // reprints; the page renders only this published state and fails
@@ -26842,7 +26963,9 @@
     const fundingTrust = periodWaterfallCombinedTrust(...periods.flatMap(p => [p.incomeTrust, p.periodBillLoadTrust,
       p.budgetHoldTrust ?? 'calculated']), ...cashRows.filter(r => HOUSEHOLD_CHEQUING_IDS.includes(r.id))
       .map(r => r.confidence === 'estimated' || r.status === 'estimated' ? 'estimated' : 'calculated'),
-      ...derived.items.map(item => item.trust));
+      ...derived.items.map(item => item.trust),
+      // Lead dispatch 2026-11-18 (Dale): an unconfirmed card-payment destination.
+      cardCoverageTrust(coverage));
     if (fundingTrust === 'unavailable') return unknown('The protected funding path has unavailable trust evidence.');
     // Savings audit (PR 3): keep the backing's Saved tag when it is weaker
     // than the row's own need tag; never upgrade it.

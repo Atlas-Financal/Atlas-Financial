@@ -44,13 +44,15 @@ for (const [name, rows] of orders(grouped)) paidOnce(run(world(rows)), 'grouped 
 withheld(run(world([purchase, ['bills', 105, null, 'cash', generic], ['card', -105, null, 'credit', generic]])),
   'ungrouped generic pair (as today)', 'coverage-payment-or-credit-purpose-unconfirmed');
 // 3. A grouped TD pair pays once, and an extra ungrouped TD debit of the same amount
-// does not join it: it has no destination of its own and withholds.
+// does not join it: it has no destination of its own. Since the lead's
+// 2026-11-18 dispatch (Dale) it is applied to no card and listed To confirm.
 const tdDebit = ref => ['bills', 105, null, 'cash', { payee: ref + ' TFR-TO C/C', original_name: ref + ' TFR-TO C/C', category_name: 'Transfer' }];
 const tdCredit = ['card', -105, null, 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU', category_name: 'Transfer', ...group }];
 paidOnce(run(world([purchase, [...tdDebit('AB123').slice(0, 4), { ...tdDebit('AB123')[4], ...group }], tdCredit])), 'grouped TD pair');
 {
   const s = run(world([purchase, [...tdDebit('AB123').slice(0, 4), { ...tdDebit('AB123')[4], ...group }], tdCredit, tdDebit('CD456')]));
-  withheld(s, 'grouped TD pair + an outside equal TD debit', 'coverage-payment-destination-unconfirmed');
+  check(s.coverage.status === 'ready' && s.coverage.trust === 'estimated' && s.coverage.toConfirm.length === 1,
+    'grouped TD pair + an outside equal TD debit: an estimate, the outside debit To confirm');
   check(s.coverage.payments.length === 1, 'the grouped pair is still the one payment; the outside debit never joins it');
 }
 // 4. Any other group shape withholds.

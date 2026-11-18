@@ -90,6 +90,43 @@ fs.mkdirSync(output, { recursive: true });
         await page.close();
         if (cases.length % 12 === 0) console.log('PASS savings pending ' + width + 'px: clear/unresolved, dated/mixed, current/future');
       }
+    // Stock-row edge values and face placement (ported from the retired browser-planned-savings-clarity).
+    // Hand values from the fixture: a known zero balance prints $0.00 (not unknown); missing or duplicate stock
+    // prints Unavailable; a one-day-older account report prints the latest dated sum 301.17 + 190.12 = 491.29
+    // (b66a6f49, latest dated stock with its balance date); the row carries the bullet marker and no progress bar, sits above the
+    // fixed mobile navigation, and follows the final result (07) in keyboard order.
+    for (const width of [1440, 390, 320]) for (const [mode, value] of [['stock-zero', '$0.00'], ['stock-missing', 'Unavailable'],
+      ['stock-duplicate', 'Unavailable'], ['stale', '$491.29'], ['backed-ready', '$500.03']]) {
+      const data = fixture(mode), before = JSON.stringify(data);
+      const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+      page.on('pageerror', error => errors.push(error.message));
+      await page.route('**/*', route => {
+        const url = new URL(route.request().url());
+        if (url.origin !== 'http://savings-pending.test') { external.push(url.origin); return route.abort(); }
+        if (url.pathname === '/data.json') return route.fulfill({ json: data });
+        if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(url.pathname)) return route.fulfill({ json: null });
+        const file = path.resolve(root, 'public', '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
+        if (!file.startsWith(path.join(root, 'public') + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
+        return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css'
+          : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
+      });
+      await page.goto('http://savings-pending.test/');
+      const summary = page.locator('[data-operating-question="savings"] > details > summary');
+      await summary.waitFor();
+      const label = mode + ' ' + width + 'px';
+      eq((await summary.locator('.budget-step-value').innerText()).trim(), value, label + ': stock value');
+      eq((await summary.locator('.operating-number').innerText()).trim(), '•', label + ': bullet marker, not an operator');
+      eq(await summary.locator('.budget-waterfall-track,.budget-waterfall-bar,.budget-progress-track').count(), 0, label + ': no progress bar');
+      await summary.evaluate(el => window.scrollBy(0, el.getBoundingClientRect().top - 120));
+      eq(await summary.evaluate(el => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom < innerHeight - 80; }), true,
+        label + ': stock row visible above the fixed mobile navigation');
+      const result = page.locator('[data-operating-question="07"] > details > summary').first();
+      await result.focus(); await page.keyboard.press('Tab');
+      eq(await summary.evaluate(el => el === document.activeElement), true, label + ': the stock row follows the final result in keyboard order');
+      eq(await page.evaluate(() => JSON.stringify(App.data)), before, label + ': inputs unchanged');
+      await page.close();
+    }
+    console.log('PASS savings stock edge values and placement: 5 modes x 3 widths');
     eq(errors, []); eq(external, []);
     fs.writeFileSync(path.join(output, 'verification.json'), JSON.stringify({ executionHead, cases, checks, errors, external,
       syntheticOnly: true, productionCredentialsUsed: false }, null, 2));

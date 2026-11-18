@@ -339,9 +339,9 @@ Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money'
 
 Since #1325 the matcher settles a plain payroll credit one business day late itself, so the stopgap only keeps the plan live for an exact-amount late credit the matcher declines: a competing same-identity credit, a credit that also fits another income, or a payroll rule that is not the plain shape (`test/test-payroll-late-hold-off-remaining.js`). Removing it before LM's pairing decides those would blank the plan in each. Until then the stopgap stands aside only in an observation where LM's pairing took charge of payroll; with no consistent read it applies as before. Proof: the private exact base/head diff, LM's expected dates against Forecast's paydays for 12 months, then Dale's walk (rule 15). Closure is reached when the late-Monday case stays live through the LM pairing and the payday reads received rather than To confirm.
 
-**Linked savings-item spending is carried when actuals coverage is lost** · *#1323 review (rank 18), 2026-11-18; ADDED TO BACKLOG*
+~~**Linked savings-item spending is carried when actuals coverage is lost** · *#1323 review (rank 18), 2026-11-18; ADDED TO BACKLOG*~~
 
-`savingsItemCycleSpend` is deducted from Balance After Deductions and the planned close only when `budget.spentReady` is true. When actuals coverage is lost, or one category is withheld, the item term is 0 while the linked charges (kind `savings-item`) are out of every category and Other, so the household cash carried to the next period does not deduct them. The gate is deliberate on main ("linked equals unlinked": an unlinked category purchase is not counted by the lost-coverage hold either), so both understate together. #1323 repaired only the held-outflow term, whose twin was Other spending (which the lost-coverage hold does count). Next action: decide whether known posted linked charges are carried out of cash on the lost-coverage paths, as held outflows now are, with a hand-derived carry test. Owner: lead.
+~~`savingsItemCycleSpend` is deducted from Balance After Deductions and the planned close only when `budget.spentReady` is true. When actuals coverage is lost, or one category is withheld, the item term is 0 while the linked charges (kind `savings-item`) are out of every category and Other, so the household cash carried to the next period does not deduct them. The gate is deliberate on main ("linked equals unlinked": an unlinked category purchase is not counted by the lost-coverage hold either), so both understate together. #1323 repaired only the held-outflow term, whose twin was Other spending (which the lost-coverage hold does count). Next action: decide whether known posted linked charges are carried out of cash on the lost-coverage paths, as held outflows now are, with a hand-derived carry test. Owner: lead.~~ Closed, no code change (lead, 2026-11-18): verified that nothing published understates. A linked charge needs a Savings pool, whose S1 seed is null under lost coverage, so the close and next opening are withheld; an unlinked category purchase IS counted by the lost-coverage hold, so the "both understate together" premise was wrong. Pinned by `test/test-savings-item-lost-coverage.js`; the forecast comment is corrected.
 
 **A grouped Savings card payment counts** · *lead U5 ruling, 2026-11-18; ADDED TO BACKLOG from the U5 PR*
 
@@ -848,18 +848,11 @@ blocking. Either no input exercises the branch or no compared key reads it.
 For each: add an invented input that reaches it, or record why no published
 figure depends on it. Source: #1108 repair, 2026-11-11.
 
-**Dead-code cleanup of the retired repair identities in `ci-output.js`** · *small*
-The retired repair/review-sync scripts and their tests were removed under #822.
-What remains is the `ci-output.js` identities `codex-review-gate` and
-`atlas-test-repair-gate` (and their exit-78 mapping), which no workflow uses.
-`ci-output.js` is the live CI privacy relay, so removing them is its own change.
-Not urgent: nothing runs them.
-
-Coverage rule 6 has no currency-conversion path: any non-CAD household cash/reserve row withholds (fails closed). Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).
+~~**Dead-code cleanup of the retired repair identities in `ci-output.js`** · *small* The retired repair/review-sync scripts and their tests were removed under #822. What remains is the `ci-output.js` identities `codex-review-gate` and `atlas-test-repair-gate` (and their exit-78 mapping), which no workflow uses. `ci-output.js` is the live CI privacy relay, so removing them is its own change. Not urgent: nothing runs them.~~ Done in `agent/ci-output-retired-identities`: both identities, their exit-78 mapping and the `private-artifact-blocked` category removed from `ci-output.js`; every live identity's public record and exit code unchanged.
 
 ~~Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).~~ Struck 2026-11-18 (lead ruling): still true, and correct. `chequing-a` is the canonical Bills identity, the same one `REQUIRED_LIVE_CASH_IDS`, the salary attribution and the plan's cash rows use. The account map carries no second Bills marker to derive it from, and a rename fails closed: the stamp reads incomplete and figures withhold.
 
-An Other income credit stays listed "Other income · to confirm" after its same-amount transfer to savings has paired (for example tenant rent moved on to savings, OD-024). The figures already net to zero; only the to-confirm row is noise. When the credit's same-amount Bills-to-savings transfer pairs, the row should drop. Low priority, display only. Source: rent check 2026-11-18 (#821 6978494592).
+An Other income credit near payday stays "to confirm" after the payday is proven. Finding 1's hold (`possible-scheduled-income-receipt`) holds an income credit within 3 days of a scheduled payday no identity has proven, when it reaches half the paycheque: it adds $0 and the paycheque stays counted at plan. The hold never releases. With invented data (credit three days before payday, paycheque posted and identity-matched on payday), the credit is still held a day after payday; suspected cause, not confirmed: the completed window proves the hold against its own packet, which ends before the payday. A same-amount transfer to savings does not change it. Releasing the hold is safe only when the credit stays in household cash: when the owner moves it on to savings (tenant rent, OD-024), the onward Bills-to-savings transfer is an internal move that deducts nothing, so releasing it into Other income would overstate Balance After Deductions; today's $0 hold is the cautious result for that pattern (lead ruling 2026-11-18). Open question: how to tell the two cases apart without Atlas-side matching (rule 17). Source: rent check 2026-11-18 (#821 6978494592); verification and lead ruling 2026-11-18.
 
 A future period-history runner should treat `history-original-or-closing-conflict` as a retryable duplicate. Source: [PR #831 comment 6689055764](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/831#issuecomment-6689055764).
 
@@ -873,7 +866,7 @@ A Savings-paid non-item household purchase stays in the household hold (conserva
 
 The period-history engine-commit fallback to `RENDER_GIT_COMMIT` applies on any `git rev-parse` failure (no git binary, dubious ownership, corrupt checkout), not only a missing `.git`; the engine-file dirty check is then skipped, though `filesFingerprint` still records what ran. Source: [PR #861 comment 6699577646](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861#issuecomment-6699577646).
 
-The capture-on-refresh worker is not unref'd, so an in-flight capture can hold server shutdown for up to its bounds (120 s). Source: [PR #861 comment 6699577646](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861#issuecomment-6699577646).
+~~The capture-on-refresh worker is not unref'd, so an in-flight capture can hold server shutdown for up to its bounds (120 s). Source: [PR #861 comment 6699577646](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861#issuecomment-6699577646).~~ Done 2026-11-18 (agent/capture-worker-unref): the owner unrefs the worker after attaching its listeners; `test/test-period-history-refresh-capture.js` C9 proves a real process exits while a capture is in flight.
 
 The period-history projection holds no savings pool, savings-goal or held-balance fields, so a captured close cannot show its savings balance (it shows Unknown). Source: [PR #861 card](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861).
 
@@ -913,9 +906,22 @@ Merchant names in the test suites: revisit with the repo-private decision.
 
 ~~Card-to-card refunds are not exercised in the harness, and there is no label for `refund-unlinked`. Source: #880 follow-up.~~ Done: the label reads "Refund not linked", and the harness exercises same-card and other-card refunds (Grok Bot, rule 17). Reserving a pending look-alike charge is not built: pending never counts.
 
+If #road-ahead is ever shown again: first give its forward-walk mounts a withheld path on sim.cardPurchaseCoverage unavailable/estimated (reuse renderPlanSettlementUnavailable). Today `#plan-window`, `#c-forecast`, `#hero-ledger`, `#wk-table`, `#wk-cards`, `#cal-months` and `#cal-agenda` print the raw forward walk even when card coverage is withheld; they are safe only because the section ships `hidden inert aria-hidden="true"`, which `test/test-operating-surface.js` pins. Source: GUARDS on #1358; lead ruling (B) 2026-11-18.
+
 **Owner decision (Dale):** the savings pools inventory (assigned to goals, backed, unallocated) is only in the legacy "Savings accounts & evidence" disclosure. The Budget face clips that off-screen, so nobody can see it, and it is no longer a Tab stop. Show it on the face, or retire it? Source: TESTS triage 2026-11-16, lead answer H.
 
-**HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.
+The Budget attention list was raised as the same case; resolved by the Other-ring flag (#1348). The face keeps that list off-screen by design and shows each item on the face: a bill to confirm on its bill row, and Other spending's "needs a category" as a badge on the Other ring. `test/browser-budget-attention-order.js` (not in `suites.json`) now follows the offstage list and proves the pointer path on the Other ring (#1347). Source: lead, 2026-11-18, from UNKNOWN's browser triage on main 1530281f.
+
+~~**HIGH priority — triage right after the current wave:** 18 browser suites fail on assertions and 19 time out. Source: #904 follow-up.~~ Done 2026-11-18. Re-run on main `1530281f` with `CHROME_PATH=/opt/pw-browsers/chromium` and `ATLAS_RELEASE_ENGINE=chromium`: 20 of 116 browser suites failed and none timed out.
+- 12 are the setup-only suites listed below, unchanged.
+- 7 were stale and are repaired or retired, one PR per root cause:
+  - #1342, three refund suites: the ledger-linked refund form #1234 nets;
+  - #1346, `browser-unknown-chequing-opening-budget` and `browser-bills-opening-source-transition`: #1312's estimated later periods;
+  - #1347, `browser-budget-attention-order`: the footer was removed, and the attention list is offstage by design;
+  - #1350, `browser-planned-savings-clarity` retired, its uncovered claims ported to `browser-savings-stock-pending`.
+- 1, `browser-household-panel-viewport`, was load-sensitive and passes alone.
+
+No page defect was found; the one candidate (a bill attention item) has its face equivalent in the Bills header count, per the lead.
 
 Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae7b811`. Stale suites are repaired or retired one PR per root cause; page defects found on the way go to the lead. These need setup, not repair:
 
@@ -927,7 +933,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 - `browser-budget-blend-proof`, `browser-budget-signed-cents`, `browser-river-geometry-proof`, `browser-savings-latest-known-allocation`, `browser-budget-river-readability`: a clean checkout and an evidence directory outside it. A `node_modules` symlink makes the checkout dirty, because `.gitignore`'s `node_modules/` does not match a symlink.
 - `browser-tile-separation`: a one-off proof generator. It needs `--label before|after` and overwrites `docs/proof/tile-separation-2026-10-10/`.
 
-`browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive.
+`browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive (again on 2026-11-18: it fails with three suites at once and passes alone).
 
 ~~Talk says only "due today" for overdue items. Source: #883 follow-up.~~ Retired 2026-11-11 with Talk (B103).
 
