@@ -22006,6 +22006,8 @@
 
   function projectDebts(plan, debts, asOf, opts) {
     opts = opts || {};
+    debts = withCardBalanceFreshness(debts, plan, asOf);
+    const staleCardBalances = staleCardBalanceList(debts);
     const priority = debtPriority(plan, debts || []);
     // Facilities that are not debt records but do carry revolving headroom —
     // the chequing overdraft. Held CONSTANT across the window on purpose: its
@@ -22715,6 +22717,9 @@
       // Everything an extra payment did NOT reach, so an untargeted one is
       // visible rather than silently vanishing into cash.
       untargetedExtra: opts.extraDebtMonthly > 0 && !extraTarget,
+      // A walk from a stale card balance is an estimate (marks, headroom,
+      // consumer totals, interest and crossings all start from it).
+      ...(staleCardBalances.length ? { trust: 'estimated', staleBalances: staleCardBalances } : {}),
     };
   }
 
@@ -23093,7 +23098,8 @@
   // numbers. data.json keeps the rows being summed.
   function publicationTotals(data) {
     data = data || {};
-    const debts = data.debts || [];
+    const debts = withCardBalanceFreshness(data.debts || [], data.plan, data.plan && data.plan.opening && data.plan.opening.asOf);
+    const staleCardBalances = staleCardBalanceList(debts);
     const assets = assetRows(data);
     let totalDebt = 0;
     let annualInterest = 0;
@@ -23174,6 +23180,10 @@
       helocLimit,
       assetRows: assets,
       incomeLines,
+      // Total debt, credit left and net position built on a stale card
+      // balance are estimates; the stale cards are named.
+      ...(staleCardBalances.length ? { totalDebtTrust: 'estimated', creditLeftTrust: 'estimated',
+        financialAccountsOnlyTrust: 'estimated', staleBalances: staleCardBalances } : {}),
     };
   }
 
@@ -23959,7 +23969,8 @@
     if (!debt || debt.secured || debt.statementCloseDay == null) return null;
     const cycleStart = cardStatementCycleStart(asOf, debt.statementCloseDay);
     if (!cycleStart) return null;
-    const balanceAsOf = financialDate(debt.balanceAsOf) || financialDate(plan && plan.opening && plan.opening.asOf);
+    const balanceAsOf = financialDate(debt.balanceAsOf)
+      || (debt.balanceAsOfUnknown === true ? null : financialDate(plan && plan.opening && plan.opening.asOf));
     if (balanceAsOf && balanceAsOf >= cycleStart) return null;
     return {
       status: 'stale', trust: 'estimated', balanceAsOf: balanceAsOf || null, cycleStart,
@@ -23967,6 +23978,10 @@
         ? `estimate — balance dated ${balanceAsOf}, before this statement cycle (from ${cycleStart}).`
         : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
     };
+  }
+  function staleCardBalanceList(debts) {
+    return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)
+      .map(d => ({ id: d.id, balanceAsOf: d.balanceFreshness.balanceAsOf, cycleStart: d.balanceFreshness.cycleStart }));
   }
   // The tag and date a stale card balance carries wherever it is printed.
   function staleBalanceFields(debt) {
@@ -27870,11 +27885,9 @@
     const walkOpts = ctx.walkOpts;
     const debtWalk = ctx.debtWalk;
     // A debt picture walked from a stale card balance is an estimate.
-    const staleCardBalances = (walkOpts.debts || []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness);
+    const staleCardBalances = staleCardBalanceList(walkOpts.debts);
     const debtPictureStatus = staleCardBalances.length ? 'estimated' : 'calculated';
-    const staleCardBalanceNote = staleCardBalances.length
-      ? { staleBalances: staleCardBalances.map(d => ({ id: d.id, balanceAsOf: d.balanceFreshness.balanceAsOf,
-          cycleStart: d.balanceFreshness.cycleStart })) } : {};
+    const staleCardBalanceNote = staleCardBalances.length ? { staleBalances: staleCardBalances } : {};
     const sim = ctx.sim;
     const events = ctx.events;
     const regime = ctx.regime;

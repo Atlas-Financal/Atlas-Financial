@@ -973,6 +973,8 @@ function currentBlock(data, asOf, advice, used, settlement) {
         status: 'ok',
         source: 'Forecast.utilisation',
         totalAvailableCredit: money(used.totalAvailable),
+        ...(used.totalAvailableTrust === 'estimated'
+          ? { totalAvailableCreditTrust: 'estimated', totalAvailableCreditEstimatedFrom: used.totalAvailableEstimatedFrom || [] } : {}),
         overLimitCount: used.overLimitCount,
         securedDebt: snapshot ? money(snapshot.secured) : null,
         monthlyInterest: snapshot ? money(snapshot.monthlyInterest) : null,
@@ -1123,6 +1125,9 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
   const crossingQualifiers = {
     ...(debtSchedAmounts ? { scheduledAmounts: scheduledAmountsProjection(debtSchedAmounts) } : {}),
     ...(crossingsUnknownFrom ? { pendingUnknownFrom: crossingsUnknownFrom } : {}),
+    // Crossings walked from a stale card balance are estimates.
+    ...(debtProj && debtProj.trust === 'estimated'
+      ? { trust: 'estimated', staleBalances: (debtProj.staleBalances || []).map(row => ({ id: row.id, balanceAsOf: row.balanceAsOf })) } : {}),
   };
   const action = advice.currentPeriodAction || null;
   return {

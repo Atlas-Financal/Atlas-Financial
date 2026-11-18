@@ -561,7 +561,11 @@ function stampCardBalanceDates(data, report, proposed, historicalOpeningAsOf, li
       const matched = matchDate.get(debt.id);
       date = matched && (!opening || matched > opening) ? matched : opening;
     }
+    // An undatable card balance is stale, never quietly current: Forecast
+    // would otherwise fall back to the advanced (today's) opening.
     debt.balanceAsOf = date || null;
+    if (date) delete debt.balanceAsOfUnknown;
+    else debt.balanceAsOfUnknown = true;
   }
 }
 

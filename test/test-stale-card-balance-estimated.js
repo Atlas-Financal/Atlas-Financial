@@ -48,6 +48,9 @@ console.log('=== the rule: statement cycle start and stale ===');
     'an undated card balance takes the plan opening date (current here)');
   ok(F.cardBalanceFreshness(card(null, 17), { opening: { asOf: '2026-11-01' } }, '2026-11-18')?.balanceAsOf === '2026-11-01',
     'an undated card balance recorded at an older opening is stale, with the opening date');
+  const undatable = F.cardBalanceFreshness({ ...card(null, 17), balanceAsOfUnknown: true }, { opening: { asOf: '2026-11-18' } }, '2026-11-18');
+  ok(undatable && undatable.trust === 'estimated' && undatable.balanceAsOf === null,
+    'a card balance the refresh could not date is stale, even when the opening is today');
   ok(F.cardBalanceFreshness({ id: 'm', balance: 1, secured: true, statementCloseDay: 17, balanceAsOf: '2020-01-01' }, {}, '2026-11-18') === null
     && F.cardBalanceFreshness({ id: 'h', balance: 1, balanceAsOf: '2020-01-01' }, {}, '2026-11-18') === null,
     'a secured debt, or one with no statement close day, is not assessed');
@@ -84,6 +87,22 @@ console.log('\n=== the live refresh stamps each card balance date; a stale manua
   ok(stale.data.liveOverlay.applied === true && cardOld.balance === 450 && cardOld.balanceAsOf === '2026-09-16'
     && stale.data.plan.opening.asOf === '2026-09-20',
     'stale: the overlaid manual balance keeps its own date, not the advanced opening', `${cardOld.balance} @ ${cardOld.balanceAsOf}`);
+  // A card account the observer cannot date is refused, never applied: its
+  // canonical balance keeps the canonical opening's date, so it is stale here.
+  const undated = (() => {
+    const x = source();
+    x.data.meta.asOf = x.data.plan.opening.asOf = '2026-09-15';
+    x.payload.transactionWindow.startDate = '2026-09-15';
+    const card = x.payload.accounts[3];
+    card.balance = 450;
+    delete card.balance_last_update; delete card.updated_at; delete card.balance_as_of;
+    return Live.fromObservation(x);
+  })();
+  const undatedCard = undated.data.debts[0];
+  ok(undatedCard.balance === 400 && undatedCard.balanceAsOf === '2026-09-15'
+    && F.cardBalanceFreshness(undatedCard, undated.data.plan, '2026-09-20')?.trust === 'estimated',
+    'an undatable card observation is not applied; the kept canonical balance is dated 2026-09-15 and estimated',
+    `${undatedCard.balance} @ ${undatedCard.balanceAsOf}`);
   const util = F.utilisation(stale.data.debts, [], stale.data.plan);
   const row = util.rows[0];
   ok(row.posted === 450 && row.used === 450 && row.available === 1550,
@@ -104,6 +123,31 @@ console.log('\n=== the live refresh stamps each card balance date; a stale manua
     'stale: the assistant packet card row is estimated with its date');
   ok(/"kind":"stale-balance","balanceAsOf":"2026-09-16","trust":"estimated"/.test(text),
     'stale: the packet lists the card among stale or manual accounts');
+  ok(/"totalAvailableCredit":1550,"totalAvailableCreditTrust":"estimated","totalAvailableCreditEstimatedFrom":\["travelvisa"\]/.test(text),
+    'stale: the packet credit-left total (1550) is estimated, naming the card');
+
+  // Headline totals (total debt, credit left, net position) built on the card.
+  const totals = F.publicationTotals(stale.data);
+  ok(totals.totalDebtTrust === 'estimated' && totals.creditLeftTrust === 'estimated'
+    && totals.financialAccountsOnlyTrust === 'estimated'
+    && totals.staleBalances.length === 1 && totals.staleBalances[0].balanceAsOf === '2026-09-16',
+    'stale: total debt, credit left and net position are estimated, naming the balance date');
+  const totalsNow = F.publicationTotals(current.data);
+  ok(!['totalDebtTrust', 'creditLeftTrust', 'financialAccountsOnlyTrust', 'staleBalances'].some(k => Object.hasOwn(totalsNow, k)),
+    'current: the headline totals carry no estimate tag');
+
+  // The debt walk itself, as the page and the packet call it directly.
+  const walk = F.projectDebts(stale.data.plan, stale.data.debts, '2026-09-20', { debtHorizonDays: 30 });
+  ok(walk.trust === 'estimated' && walk.staleBalances.length === 1 && walk.staleBalances[0].id === 'travelvisa',
+    'stale: a direct debt walk (headroom, crossings, interest) is estimated, naming the card');
+  const walkNow = F.projectDebts(current.data.plan, current.data.debts, '2026-09-20', { debtHorizonDays: 30 });
+  ok(!Object.hasOwn(walkNow, 'trust') && !Object.hasOwn(walkNow, 'staleBalances'),
+    'current: the debt walk carries no estimate tag');
+  ok(JSON.stringify(walk.marks.map(m => m.headroom)) === JSON.stringify(
+    F.projectDebts(stale.data.plan, stale.data.debts.map(d => { const c = { ...d }; delete c.statementCloseDay; return c; }),
+      '2026-09-20', { debtHorizonDays: 30 }).marks.map(m => m.headroom)),
+    'stale: the walk amounts are the same as an untagged walk of the same balance; only the tag moves');
+
   const nowText = JSON.stringify(packet(current.data));
   ok(!/stale-balance/.test(nowText) && /"id":"travelvisa"[^}]*"trust":"calculated"/.test(nowText),
     'current: the packet card row stays calculated and is not listed as stale');
