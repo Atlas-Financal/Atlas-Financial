@@ -4950,7 +4950,9 @@ function hasDifferentPlaidPredecessor(posted, pending) {
   if (!postedForPendingSettlement(posted) || pending.contradictoryEvidence === true) return false;
   const predecessor = plaidPendingTransactionIdOf(posted);
   const authorization = plaidTransactionIdOf(pending);
-  return !!predecessor && !!authorization && predecessor !== authorization;
+  const postedIdentity = plaidTransactionIdOf(posted);
+  return !!predecessor && !!authorization && predecessor !== authorization
+    && postedIdentity !== authorization && postedIdentity !== predecessor;
 }
 
 function sameSettlementAccount(pending, posted, opts) {

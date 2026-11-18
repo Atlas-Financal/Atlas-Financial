@@ -49,13 +49,16 @@ function postedCafe(predecessor, extra = {}) {
 }
 
 check('a different affirmative predecessor preserves both equal purchases on live and replayed packets', () => {
-  const { packet, budgetRows } = observation([pendingCafe, { ...postedCafe(otherAuth), originalName: 'INVENTED-CAFE' }]);
+  const { packet, budgetRows } = observation([{ ...postedCafe(otherAuth), originalName: 'INVENTED-CAFE' }, pendingCafe]);
   const pending = packet.transactions.find(row => row.pending && row.amount === 6.5);
   const posted = packet.transactions.find(row => row.pending === false && row.amount === 6.5);
   assert.match(pending.id, /^tx-\d+$/);
   assert.equal(posted.distinctPendingId, pending.id, 'only the exact packet-local peer is named');
-  assert.ok(!JSON.stringify(packet).includes(independentAuth) && !JSON.stringify(packet).includes(otherAuth));
-  for (const actuals of [packet, H.clone(packet)]) {
+  const replay = JSON.stringify(packet);
+  for (const nativeId of [independentAuth, otherAuth, 'invented-cafe-posting']) {
+    assert.ok(!replay.includes(nativeId), 'native Plaid identities stay private');
+  }
+  for (const actuals of [packet, JSON.parse(replay)]) {
     const eating = budgetRows(actuals)('restaurants');
     // Two independent purchases: 6.50 + 6.50 = 13.00. From 100 leaves 87.
     assert.equal(eating.spent, 13);
@@ -91,6 +94,7 @@ check('missing, malformed or conflicting predecessors leave the look-alike unres
   for (const posted of [
     postedCafe(undefined),
     postedCafe(true),
+    postedCafe(otherAuth, { transaction_id: independentAuth }),
     postedCafe(otherAuth, { transaction: { pending_transaction_id: independentAuth } }),
     { ...different, raw: { ...different.raw, pending_transaction_id: independentAuth } },
     { ...different, raw: { ...different.raw, plaidMetadata: { pending_transaction_id: independentAuth } } },
