@@ -319,9 +319,13 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
-**Retire the payroll late-posting stopgap** · *census rank 3 follow-up; NEXT after the LM recurring-matches slice for pay*
+**Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*
 
-`futureIncomeUncertainty` in `scripts/provider-observe.js` absorbs one posted payroll credit within one business day after an unclaimed, unambiguous payday as that payday's late posting (stopgap, #1290). Once pay is settled from Lunch Money's own found_transactions pairing, remove `payrollLateOfEarlier` and its test cases, and drop the `businessDaysAfter` export if nothing else reads it. Closure: the late-Monday case stays live through the LM pairing, and the payday reads received rather than To confirm.
+Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money's own recurring match: a linked deposit settles the payday LM paired it to, early, on time or late, once, at its actual amount. FOUNDATION: the household payroll rule names no item yet. Closure, one PR:
+- add the reviewed biweekly item's id to the `payroll` rule in `docs/connectivity/transaction-identity.json` (`lunchMoneyRecurringIds` + `settlementFrom: lunchmoney-matched-occurrences`);
+- remove `payrollLateOfEarlier` (#1290's one-business-day stopgap in `futureIncomeUncertainty`, `scripts/provider-observe.js`) and its cases in `test/test-payroll-late-posting.js`, and drop the `businessDaysAfter` export if nothing else reads it.
+
+Until then the stopgap stands aside only in an observation where LM's pairing took charge of payroll; with no consistent read it applies as before. Proof: the private exact base/head diff, LM's expected dates against Forecast's paydays for 12 months, then Dale's walk (rule 15). Closure is reached when the late-Monday case stays live through the LM pairing and the payday reads received rather than To confirm.
 
 **B97 · Read-only assistant access to Atlas** · **IN PROGRESS 2026-08-29** · *owner instruction; OAuth MCP connection slice*
 
@@ -736,6 +740,10 @@ After December 31 of the last payroll-authorised year (2026 when `plan.payrollPl
 ~~A zero regular-payroll override hides an already-received payroll row in the Budget/default view. Display only; received cash is correct. Pre-existing. Source: PR #921 (observation 13).~~ Struck 2026-11-16 (STALE-SUPERSEDED): no page control can set it. The only income-override inputs are for streams with `scenarioMonthly`, and no plan stream has one; the zero override that `incomeDeadline` passes stays inside its own walk and prints no Budget rows.
 
 ~~Netting refunds into Other spending understates it (G3a kept as a recorded limitation). Source: PR #927.~~ Done (LEDGER A item 3, option A): only a ledger-linked refund (a Lunch Money group parent) nets; a standalone refund is listed as Refunds not linked.
+
+`spendPublication.historicalActuals` still publishes `'recent-two-period-baseline'`, and two comments in `public/forecast.js` still say "two-period", although Road Ahead normal spending now averages up to six covered closed pay periods plus the current-period estimate (#1307). Rename the machine label once every reader of it is checked (it may be keyed on by a page, the packet or a snapshot), and fix the comments. Source: #1307 independent pre-review, non-blocking.
+
+`Forecast.lookbackActualsCoverageState` checks the start of coverage only when the packet carries `coverageStart`, so a packet without one reads as covering all history. #1307 guards its own older closed periods against this; the newest closed period of normal spending and the past-period picker still take the shared predicate as is (pre-existing on main; the live observer always sets `coverageStart`). Make a missing `coverageStart` incomplete in the shared predicate (engine change, full lane), with a test per caller. Source: #1307 independent pre-review.
 
 NEXT PR (LEDGER A item 3, option B): link a refund to its purchase through Lunch Money transaction groups. Fetch with `include_children=true` (GET only), allow and read `group_parent_id`, link only when a group holds exactly one refund and its purchase, both posted (Grok Bot's conditions), never count the group parent alongside its children, and revert a removed group to unlinked. Grok Bot notes that the read-only assistant Lunch Money transaction tool already reports "group children included, group parents excluded": check how `scripts/assistant-lunchmoney.js` asks before writing a new fetch. Needs a private check of a live grouped pair's shape (children carry `group_parent_id`; the parent's amount and category) by Dale and Grok before it is built. Source: lead 2026-11-16.
 

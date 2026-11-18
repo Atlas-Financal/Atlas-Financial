@@ -1382,6 +1382,57 @@ function heldCurrentPeriodProjection(data, advice) {
   };
 }
 
+// Part (b) (lead dispatch 2026-11-17, Option S): each reviewed Lunch Money
+// recurring item Atlas did not apply, from the one review provider-observe
+// ran (currentPeriodActuals.lunchMoneyRecurring.refused). Each closed reason
+// code reads as one fixed sentence; the Atlas row is re-checked against the
+// plan. No Lunch Money id, amount, payee or date is published. Read-only: it
+// builds no matching or reconciliation logic.
+const RECURRING_REFUSALS = Object.freeze({
+  'not-started': ['schedule', 'It has not started yet.'],
+  'rule-names-no-event': ['link', 'The rule that names it points at no Atlas bill.'],
+  'several-rules': ['link', 'More than one rule names it, so Atlas cannot tell which bill it is.'],
+  'several-items': ['link', 'More than one recurring item names this bill.'],
+  'no-plan-row': ['link', 'The bill it names is not in the plan.'],
+  'plan-row-ambiguous': ['link', 'More than one plan row has the id it names.'],
+  'plan-row-unsupported': ['row', 'This kind of plan row does not take its schedule from Lunch Money.'],
+  'once-bill': ['row', 'The plan has this bill as a one-time payment.'],
+  'account-mismatch': ['account', 'The plan row and the item are not both paid from household chequing.'],
+  'date-invalid': ['schedule', 'One of its dates is not a real calendar day.'],
+  'item-ended': ['schedule', 'It has ended, and this kind of plan row does not take an end date.'],
+  'cadence-unmapped': ['schedule', 'Atlas cannot follow how often it repeats.'],
+  'cadence-amount-unconfirmed': ['amount', 'It repeats on a different cadence from the plan, and its expected amount does not confirm the plan\'s.'],
+  'day-after-statement-due': ['schedule', 'Its day would fall later than Atlas can confirm against the card statement.'],
+  'cutover-unsafe': ['schedule', 'Moving to its day would skip or double a payment in one cycle.'],
+  'expected-dates-mismatch': ['schedule', 'The dates Lunch Money expects do not fit how often it repeats.'],
+});
+const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
+const RECURRING_REFUSALS_MAX = 50;
+function recurringRefusalsProjection(data) {
+  const actuals = data && data.liveOverlay && data.liveOverlay.currentPeriodActuals;
+  const block = actuals && actuals.lunchMoneyRecurring;
+  if (!block || block.status !== 'read' || !Array.isArray(block.refused) || !block.dropped) {
+    return unavailable('recurring-review-unavailable');
+  }
+  const plan = (data && data.plan) || {};
+  const ids = rows => new Set((Array.isArray(rows) ? rows : []).map(row => row && row.id).filter(id => typeof id === 'string'));
+  const bills = ids(plan.bills), obligations = ids(plan.obligations);
+  const items = block.refused.slice(0, RECURRING_REFUSALS_MAX).map((row, i) => {
+    const [reasonClass, reason] = Object.hasOwn(RECURRING_REFUSALS, row && row.reasonCode)
+      ? RECURRING_REFUSALS[row.reasonCode] : RECURRING_REFUSAL_DEFAULT;
+    return { key: 'refused-' + (i + 1),
+      billId: row && bills.has(row.billId) ? row.billId : null,
+      obligationId: row && obligations.has(row.obligationId) ? row.obligationId : null,
+      reasonClass, reason };
+  });
+  const dropped = key => Number.isSafeInteger(block.dropped[key]) && block.dropped[key] >= 0 ? block.dropped[key] : null;
+  return { status: 'ok', source: 'provider-observe:lunchmoney',
+    count: block.refused.length, listed: items.length, complete: items.length === block.refused.length,
+    items,
+    notApplied: { notReviewed: dropped('not-reviewed'), notNamed: dropped('not-named'), scheduleInvalid: dropped('schedule-invalid') },
+    note: 'Reviewed Lunch Money recurring items Atlas did not apply; the plan\'s own schedule stands for each. notApplied counts items set aside before review: suggestions, items no rule names, and items whose schedule did not read.' };
+}
+
 function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
   const overlay = data && data.liveOverlay;
   const refused = Array.isArray(overlay && overlay.refused)
@@ -1432,6 +1483,7 @@ function uncertaintyBlock(data, periods, questionsMarkdown, advice) {
       heldCurrentPeriod: heldCurrentPeriodProjection(data, advice),
     },
     providerGaps,
+    recurringScheduleRefusals: recurringRefusalsProjection(data),
     liveOverlayFailed: overlay && overlay.applied === false
       ? { reason: overlay.reason || 'overlay-failed' }
       : null,
@@ -1562,6 +1614,8 @@ function tokenConfigured(env) {
 }
 
 module.exports = {
+  recurringRefusalsProjection,
+  RECURRING_REFUSALS,
   SCHEMA,
   CURRENT_PERIOD_BILLS_MAX,
   TOKEN_MIN_LENGTH,
