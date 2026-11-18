@@ -6279,8 +6279,11 @@
         // The same trust without that term says whether card coverage is the
         // estimate's only cause (Dale, 2026-11-18: the page then shows the
         // bank data's date instead of the estimate word).
-        return { fundingTrust: trajectoryWeakerStatus(...terms, cardCoverageTrust(sim.cardPurchaseCoverage)),
-          fundingTrustExceptCard: trajectoryWeakerStatus(...terms) };
+        // Published only under a card estimate, so every other schedule's
+        // shape is unchanged.
+        const card = cardCoverageTrust(sim.cardPurchaseCoverage);
+        return { fundingTrust: trajectoryWeakerStatus(...terms, card),
+          ...(card === 'estimated' ? { fundingTrustExceptCard: trajectoryWeakerStatus(...terms) } : {}) };
       })(),
       paydays: rows, gap: gap || (prePayday.length ? (() => {
         const overdueRequirement = prePayday.reduce((sum, row) => sum + row.baseRequirement - (row.actualSaved || 0), 0);
