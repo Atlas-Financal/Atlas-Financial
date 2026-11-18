@@ -8,10 +8,12 @@
  * settlement upcoming, remaining = full amount). It must not also keep the
  * observed actual, the excess disclosure or the observed movement.
  *
- * Part B, walk-settled: when the opening also represents the occurrence, the
- * cash walk has already settled it, so it counts in the pay period it is
- * planned in: PAID there, nothing remaining, the observed actual kept, and
- * not deducted again by that period's cash close.
+ * Part B, walk-settled: when the opening also represents the occurrence and
+ * the observed actual covers it, the cash walk has already settled it, so it
+ * counts in the pay period it is planned in: PAID there, nothing remaining,
+ * the observed actual kept, and not deducted again by that period's cash
+ * close. A walk-settled partial (actual below plan) keeps the Part A
+ * demotion, so the future period never holds less than it may still owe.
  *
  * Synthetic data only. Expected values are literal hand arithmetic, not
  * Forecast helper output.
@@ -115,7 +117,6 @@ console.log('\n=== non-future and unmatched rows are untouched ===');
 console.log('\n=== B. walk-settled (opening represents it): Paid in its planned period ===');
 // [label, observed actual, expected paid disclosure, expected excess]
 for (const [label, actual, paid, excess] of [
-  ['underpayment (30.00 of 42.00)', 30, 30, undefined],
   ['equal payment (42.00)', 42, 42, undefined],
   ['overpayment (50.00 of 42.00, 8.00 over)', 50, 50, 8],
 ]) {
@@ -136,6 +137,17 @@ for (const [label, actual, paid, excess] of [
   ok(p.plannedPeriodCloseTerms && p.plannedPeriodCloseTerms.periodBillLoad === 42,
     label + ': the cash close deducts only the other 42.00', String(p.plannedPeriodCloseTerms && p.plannedPeriodCloseTerms.periodBillLoad));
   ok(untouched, label + ': source receipt (representedActuals) is not mutated');
+}
+
+console.log('\n=== B2. walk-settled partials keep the demotion ===');
+for (const [label, actual] of [['zero payment', 0], ['underpayment (30.00 of 42.00)', 30]]) {
+  const { advice } = run(actual, null, true);
+  const hit = rowIn(advice.payPeriodViews, 'fut');
+  if (!hit) { ok(false, label + ': row present'); continue; }
+  const { p, r } = hit;
+  ok(r.status === 'planned' && r.settlement === 'upcoming' && r.remaining === 42 && r.actual === 0,
+    label + ': planned / upcoming, the full 42.00 still held', `${r.status} ${r.remaining} ${r.actual}`);
+  ok(p.remainingBills === 84 && p.paidBills === 0, label + ': paid 0, remaining 84.00', `${p.paidBills} / ${p.remainingBills}`);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll future-window demotion checks passed');

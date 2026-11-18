@@ -7,7 +7,10 @@
  * bills, is never spend in the posting period, and its cash leaves once,
  * on the posting date. The cash walk already settles the occurrence
  * (representedKeySet), so the next period's cash close must not deduct it
- * again.
+ * again. Only a payment that covers the occurrence does this: an early
+ * partial keeps today's behaviour (planned, the full amount still held), so
+ * a future period never holds less than it may still owe (lead ruling;
+ * reserving a partial's remainder is a separate rule).
  *
  * Invented world only (test/acceptance/harness.js): biweekly salary 1,400
  * anchored 2026-10-09, so This Pay Period is Oct 9-22 and Next Pay Period
@@ -98,17 +101,17 @@ console.log('\n=== early: due next period, paid in full in this one ===');
     `${a.budgetHold}/${a.balanceAfterDeductions} vs ${ac.budgetHold}/${ac.balanceAfterDeductions}`);
 }
 
-console.log('\n=== partial: 40.00 of 90.00 paid early ===');
+console.log('\n=== partial: 40.00 of 90.00 paid early keeps today\'s behaviour ===');
 {
-  const n = period(partial, 'future');
+  const n = period(partial, 'future'), nc = period(control, 'future');
   const row = hydroRow(n);
-  ok(row && row.status === 'PAID' && row.settlement === 'represented' && row.actual === 40 && row.remaining === 0,
-    'reads Paid in its planned period with the 40.00 actual', row && `${row.status} ${row.actual} ${row.remaining}`);
-  ok(row && row.paymentState === 'partly-paid' && row.shortfall === 50,
-    'with the in-period partial label: 90 − 40 = 50 short (a label; nothing reserved, as for any partial)',
-    row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
-  ok(n.remainingBills === 0 && n.paidBills === 40 && closeBills(n) === 0,
-    'nothing is held again next period', [n.paidBills, n.remainingBills, closeBills(n)].join(' / '));
+  ok(row && row.status === 'planned' && row.settlement === 'upcoming' && row.actual === 0 && row.remaining === 90,
+    'reads planned next period with the full 90.00 still held, as today', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
+  ok(row && !('paymentState' in row) && !('shortfall' in row), 'and makes no partly-paid claim', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
+  ok(n.remainingBills === 90 && n.paidBills === 0 && closeBills(n) === 90,
+    'next period: paid 0, remaining 90, the cash close deducts 90 (never under-reserved)', [n.paidBills, n.remainingBills, closeBills(n)].join(' / '));
+  ok(n.balanceAfterDeductions === nc.balanceAfterDeductions && n.paydaySweep === nc.paydaySweep,
+    'BAD and the close are the same as the control', `${n.balanceAfterDeductions}/${n.paydaySweep} vs ${nc.balanceAfterDeductions}/${nc.paydaySweep}`);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll early-paid planned-period checks passed');
