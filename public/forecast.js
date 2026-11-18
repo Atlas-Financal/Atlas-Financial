@@ -24732,7 +24732,7 @@
     return rows;
   }
 
-  // Two-period provisional baseline for the Road Ahead walk.
+  // Provisional baseline for the Road Ahead walk: covered closed periods plus the current estimate.
   // Input A is posted actuals on the previous Seaspan cycle.
   // Input B is this cycle's eligible actual-to-date plus the unspent
   // incumbent payday reserve (max(planned, spent) − spent). Not a
@@ -24793,10 +24793,15 @@
     // The most recent closed period is established above. Earlier closed
     // periods join, newest first, while their coverage establishes them; the
     // first one that does not ends the run (partial history never counts).
+    // An older period also needs the packet to name where its coverage
+    // starts: a missing coverageStart is absence, never complete history,
+    // and must not add $0 periods to the average.
+    const coveredFrom = financialDate(packet.coverageStart);
     const closedWindows = [previous];
     for (let i = 1; i < previousList.length; i++) {
       const w = previousList[i];
-      if (!w || !normalSpendingCoverageUsable(lookbackActualsCoverageState(w.start, w.end, opts))) break;
+      if (!w || !coveredFrom || coveredFrom > w.start) break;
+      if (!normalSpendingCoverageUsable(lookbackActualsCoverageState(w.start, w.end, opts))) break;
       closedWindows.push(w);
     }
     const completedSpends = closedWindows.map(w => eligibleNormalSpendInWindow(

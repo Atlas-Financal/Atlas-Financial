@@ -94,5 +94,36 @@ for (const c of cases) {
     `${c.label}: the category split averages the same periods and adds up`, JSON.stringify(ns.categories));
 }
 
+console.log('\n=== a packet that does not say where its coverage starts adds no older period ===');
+{
+  // Same ledger, coverageStart absent: the most recent closed period is still
+  // established as before, but no older period may count as a $0 period.
+  const traj = F.baselineTrajectory(plan(), [], AS_OF, {
+    periods: { periods: { ytd: { label: 'YTD', months: 1, spending: [] } } },
+    currentPeriodActuals: Object.assign(packet('2026-07-31'), { coverageStart: null }),
+  });
+  const ns = traj.normalSpending;
+  ok(ns && ns.status === 'ready' && ns.completedPeriods.length === 1 && ns.payPeriodAmount === 210,
+    'no coverageStart: one closed period, (220 + 200) / 2 = 210, never $0 older periods', ns && JSON.stringify(ns.completedPeriods.map(p => p.amount)));
+}
+
+console.log('\n=== at most six closed periods feed it ===');
+{
+  // Eight closed periods of 100 each before the 08-28 period (220), all covered.
+  const longLedger = LEDGER.concat([1, 2, 3, 4, 5, 6].map(i => ({
+    id: 'old-' + i, date: F.addDays('2026-07-31', -14 * i + 2), amount: 100 })));
+  const longPacket = Object.assign(packet('2026-01-01'), {
+    transactions: longLedger.map(row => ({ id: row.id, date: row.date, amount: row.amount, account: 'chequing-a',
+      atlasAccountId: 'chequing-a', pending: false, categoryLabel: 'Groceries', payee: 'MERIDIAN FARM', originalMerchant: 'MERIDIAN FARM' })),
+  });
+  const traj = F.baselineTrajectory(plan(), [], AS_OF, {
+    periods: { periods: { ytd: { label: 'YTD', months: 1, spending: [] } } }, currentPeriodActuals: longPacket });
+  const ns = traj.normalSpending;
+  // Six newest closed: 220, 160, 100, 100, 100, 100 -> (780 + 200) / 7 = 140
+  ok(ns && ns.completedPeriods.length === 6 && JSON.stringify(ns.completedPeriods.map(p => p.amount)) === '[220,160,100,100,100,100]'
+    && ns.payPeriodAmount === 140,
+    'nine covered closed periods: only the newest six count, (780 + 200) / 7 = 140', ns && `${ns.payPeriodAmount} ${JSON.stringify(ns.completedPeriods.map(p => p.amount))}`);
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll closed-period normal-spending checks passed.');
