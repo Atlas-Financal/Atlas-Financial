@@ -4486,7 +4486,8 @@
             payerLabel: plannedPayerLabel(fundingAccount, b.payingAccount, plan) } : {}),
           jointCash,
           cardPaid,
-          // D2: only an explicit owner mark makes a bill's amount fixed.
+          // D2: amountFixed is derived from the bill's Lunch Money payment history
+          // (provider-observe derivedAmountFixedBills, applied by live-plan); never a hand mark.
           ...(b.amountFixed === true ? { amountFixed: true } : {}),
         });
       }
@@ -8672,13 +8673,13 @@
 
   // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
   // bill paid in part keeps its remainder reserved. The one owner of that
-  // remainder: a bill occurrence whose plan row is explicitly marked
-  // `amountFixed: true` (a contractually fixed payment, marked by the owner),
+  // remainder: a bill occurrence whose served plan row carries
+  // `amountFixed: true` (derived from its Lunch Money payment history, #1355),
   // whose planned amount is confirmed, and whose one linked posted payment,
   // observed in the packet, is below it. Paid is the observed amount; the
   // remainder is planned minus paid, in integer cents. `confirmed` alone is
   // confidence in the planned figure, not a fixed price (a cheaper hydro
-  // charge is not a debt), so every unmarked bill keeps today's PAID with its
+  // charge is not a debt), so every bill not derived fixed keeps today's PAID with its
   // Partly paid label. The scheduled-fee pair (tdfees), a card-paid bill and a
   // schedule-trusted settlement (no payment seen) are not here either.
   function fixedBillPartialPayment(event, planned, observed) {
@@ -10712,7 +10713,7 @@
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
-    // before, except on a bill its owner marked `amountFixed: true`, which stays still due for its remainder (D2,
+    // before, except on a bill derived `amountFixed: true` (#1355), which stays still due for its remainder (D2,
     // fixedBillPartialPayment).
     // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
     // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
@@ -11585,6 +11586,16 @@
   // (#1316 pre-review). Those names exist for the destination, not this path.
   const CARD_PAYMENT_NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']
     .filter(id => Object.values(CARD_PAYMENT_NOTE_CARDS).includes(id)));
+  // A note may carry a trailing comment after the card (lead, OD-021: notes
+  // are only ever appended to): "<card>[ ...NNNN] - <text>" or
+  // "<card>[ ...NNNN] (<text>)". The comment is ignored, except that one
+  // naming a different table card makes the segment 'unknown'. Any other
+  // words after the name, without that separator, stay 'unknown'. Runs of
+  // whitespace in the name and the comment count as one space.
+  const CARD_PAYMENT_NOTE_COMMENT = /\s(?:-\s|\()/;
+  function cardPaymentNoteNames(text, name) {
+    return new RegExp('(^|[^a-z0-9])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(text);
+  }
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -11592,8 +11603,14 @@
     for (const segment of raw.split(/[;\n\r]/)) {
       const m = /^\s*card payment:\s*(.*)$/i.exec(segment);
       if (!m) continue;
-      const name = m[1].replace(/\s*\.{3}\s*\d+\s*$/, '').trim().toLowerCase();
-      found.add(Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown');
+      const cut = m[1].search(CARD_PAYMENT_NOTE_COMMENT);
+      const head = cut === -1 ? m[1] : m[1].slice(0, cut);
+      const comment = cut === -1 ? '' : m[1].slice(cut).replace(/\s+/g, ' ').toLowerCase();
+      const name = head.replace(/\s*\.{3}\s*\d+\s*$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      let id = Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown';
+      if (id !== 'unknown' && Object.keys(CARD_PAYMENT_NOTE_CARDS)
+        .some(other => CARD_PAYMENT_NOTE_CARDS[other] !== id && cardPaymentNoteNames(comment, other))) id = 'unknown';
+      found.add(id);
     }
     if (!found.size) return null;
     return found.size === 1 ? [...found][0] : 'unknown';
@@ -13654,8 +13671,8 @@
       plannedPeriodCloseReason: [
         cardMatchUnresolved ? 'Planned remainder: card purchase and payment matching is unresolved, so this is an estimated plan, not verified safe-to-spend cash or proof that card balances are paid.' : null,
         base === 'estimated' ? 'Planned remainder: an input to this close (or an earlier period it carries from) is estimated.' : null,
-        cardState === 'none' && cardDetail === CARD_DESTINATION_ESTIMATE_BASIS
-          ? 'A card payment\'s card is not confirmed, so it is applied to no card and card purchases stay reserved.' : null,
+        cardState === 'none' && Object.hasOwn(CARD_ESTIMATE_REASONS, cardDetail || '')
+          ? CARD_CLOSE_REASONS[cardDetail] : null,
       ].filter(Boolean).join(' ') || null,
     };
   }
@@ -14370,6 +14387,9 @@
     // Posted debits out of a household account whose destination card is
     // unconfirmed: applied to no card, listed To confirm (see the pairing below).
     const destinationUnconfirmed = [];
+    // Posted card credits whose purpose (payment or refund) is unconfirmed:
+    // counted as neither, so no purchase is covered and no minimum is paid.
+    const purposeUnconfirmed = [];
     const opening = policy && policy.opening;
     const validOpening = opening && opening.confirmed === true && savingsDate(opening.asOf)
       && (aggregate || opening.asOf <= asOf) && opening.currency === 'cad'
@@ -14596,6 +14616,11 @@
             if (itemRefund || cls.kind === 'refund' && asCharge.householdSpending === true) {
               if (tx.pending === false) refundRows.push({ tx, account, cents: -cents });
             }
+            // Lead dispatch 2026-11-18 (Dale, stop 2): a posted one is
+            // counted as neither a payment nor a refund, so every card
+            // purchase stays reserved; it is listed To confirm. A pending
+            // one still withholds.
+            else if (tx.pending === false) purposeUnconfirmed.push({ tx, account, cents: -cents });
             else issue('coverage-payment-or-credit-purpose-unconfirmed', tx.coverageRef);
           }
           continue;
@@ -15184,7 +15209,11 @@
     // An unconfirmed destination degrades only on its own. When anything else
     // already withholds, it withholds with it exactly as before.
     if (issues.length) for (const leg of destinationUnconfirmed) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
-    const destinationEstimate = !issues.length && destinationUnconfirmed.length > 0;
+    if (issues.length) for (const leg of purposeUnconfirmed) issue('coverage-payment-or-credit-purpose-unconfirmed', leg.tx.coverageRef);
+    const destinationEstimate = !issues.length && (destinationUnconfirmed.length > 0 || purposeUnconfirmed.length > 0);
+    const estimateBasis = !destinationEstimate ? null
+      : !purposeUnconfirmed.length ? CARD_DESTINATION_ESTIMATE_BASIS
+      : !destinationUnconfirmed.length ? CARD_CREDIT_PURPOSE_ESTIMATE_BASIS : CARD_ROWS_ESTIMATE_BASIS;
     // Opening carry can fall inside a cycle. Only a corresponding visible
     // category row replaces its fallback, never a date boundary, equal amount
     // or mere presence in the provider packet. Forecast owns both selections.
@@ -15240,11 +15269,15 @@
       // Dale's direction (lead dispatch 2026-11-18): the payment is applied to
       // no card, so every figure built on this coverage is an ESTIMATE (it
       // can only understate the money left). Each payment is one To-confirm row.
-      ...(destinationEstimate ? { trust: 'estimated', estimateBasis: CARD_DESTINATION_ESTIMATE_BASIS,
-        estimateReason: 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
-        toConfirm: destinationUnconfirmed.map(leg => ({ question: 'To confirm: which card did this pay?',
+      ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
+        estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
+        toConfirm: [...destinationUnconfirmed.map(leg => ({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
+          question: 'To confirm: which card did this pay?',
           date: leg.tx.date, amount: leg.cents / 100,
-          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })) } : {}),
+          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })),
+        ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
+          question: 'To confirm: was this card credit a payment or a refund?',
+          date: leg.tx.date, amount: leg.cents / 100, onCard: label(leg.account) }))] } : {}),
       purchases: publishedPurchases, active: publishedPurchases.filter(row => row.remaining > 0),
       earlierPeriods,
       payments: publishedPayments, issues: issues.map(({ code }) => ({ code })),
@@ -15426,6 +15459,23 @@
   // Lead dispatch 2026-11-18 (Dale): card coverage published as an estimate
   // because one or more card payments' destination card is unconfirmed.
   const CARD_DESTINATION_ESTIMATE_BASIS = 'card-payment-destination-unconfirmed';
+  // Lead dispatch 2026-11-18 (Dale, stop 2): a posted card credit whose
+  // purpose is unconfirmed is counted as neither payment nor refund.
+  const CARD_CREDIT_PURPOSE_ESTIMATE_BASIS = 'card-credit-purpose-unconfirmed';
+  // Both at once.
+  const CARD_ROWS_ESTIMATE_BASIS = 'card-coverage-rows-unconfirmed';
+  // One fixed reason per closed basis; the coverage publishes exactly one.
+  const CARD_ESTIMATE_REASONS = Object.freeze({
+    [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
+    [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and every card purchase stays reserved as if unpaid.',
+    [CARD_ROWS_ESTIMATE_BASIS]: 'A card payment\'s card, or a card credit\'s purpose, is not confirmed, so neither counts toward any card and every card purchase stays reserved as if unpaid.',
+  });
+  // The planned close's reason for each basis.
+  const CARD_CLOSE_REASONS = Object.freeze({
+    [CARD_DESTINATION_ESTIMATE_BASIS]: 'A card payment\'s card is not confirmed, so it is applied to no card and card purchases stay reserved.',
+    [CARD_CREDIT_PURPOSE_ESTIMATE_BASIS]: 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and card purchases stay reserved.',
+    [CARD_ROWS_ESTIMATE_BASIS]: 'A card payment\'s card, or a card credit\'s purpose, is not confirmed, so neither counts toward any card and card purchases stay reserved.',
+  });
   // The trust a figure built on this card coverage may carry: 'estimated'
   // while a payment's destination card is unconfirmed, else 'calculated'.
   function cardCoverageTrust(coverage) {
@@ -16939,7 +16989,7 @@
         projected && openingKnown && !openingCarried
           ? 'The planned period close is unavailable: its opening comes from a fallback cash walk whose trust is not established.'
           : null, activeCardClose ? activeCardClose.reason
-          : !lookback && cardCoverageTrust(cardCoverage) === 'estimated' ? CARD_DESTINATION_ESTIMATE_BASIS : undefined),
+          : !lookback && cardCoverageTrust(cardCoverage) === 'estimated' ? cardCoverage.estimateBasis : undefined),
         ...(role === 'active' && cardReserveShortfallDisclosure(plan, cardCoverage)
           ? { cardReserveShortfall: cardReserveShortfallDisclosure(plan, cardCoverage) } : {}),
 

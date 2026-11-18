@@ -84,6 +84,20 @@ function budgets(value) {
         : null,
     })) : null } };
 }
+// The fixed-amount derivation record (#1355): only its outcome -- source,
+// status, the history window's dates and the derived bill ids. The 200-day
+// history rows themselves are never retained. Anything not in exactly this
+// clean shape replays as unavailable, so it fixes no bill.
+function amountFixedDerivation(value) {
+  const day = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const window = value && value.window;
+  const clean = value && typeof value === 'object' && value.source === 'lunchmoney-payment-history'
+    && value.status === 'complete' && window && day(window.startDate) && day(window.endDate)
+    && Array.isArray(value.billIds) && value.billIds.every(id => typeof id === 'string' && id.length > 0);
+  if (!clean) return { source: 'lunchmoney-payment-history', status: 'unavailable', window: null, billIds: [] };
+  return { source: value.source, status: 'complete', window: { startDate: window.startDate, endDate: window.endDate },
+    billIds: Array.from(new Set(value.billIds)).sort() };
+}
 // A group parent's children: only their ids, account ids and parent id
 // (provider-observe groupParentAccountId). No payee, note, amount or metadata.
 const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id', 'group_parent_id'];
@@ -122,7 +136,9 @@ function sourceInputs(payload) {
     transactionWindow: pick(payload.transactionWindow, WINDOW),
     pendingCoverage: pick(payload.pendingCoverage, PENDING),
     ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}),
-    ...(Object.hasOwn(payload, 'lunchMoneyBudgets') ? { lunchMoneyBudgets: budgets(payload.lunchMoneyBudgets) } : {}) };
+    ...(Object.hasOwn(payload, 'lunchMoneyBudgets') ? { lunchMoneyBudgets: budgets(payload.lunchMoneyBudgets) } : {}),
+    ...(Object.hasOwn(payload, 'amountFixedDerivation')
+      ? { amountFixedDerivation: amountFixedDerivation(payload.amountFixedDerivation) } : {}) };
   const numeric = value => typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()) && Number.isFinite(Number(value));
   const id = value => typeof value === 'string' && value.length > 0 || typeof value === 'number' && Number.isFinite(value);
@@ -189,4 +205,4 @@ function create() {
     },
   });
 }
-module.exports = { SCHEMA, sourceInputs, completeTransactionCohort, create };
+module.exports = { SCHEMA, sourceInputs, amountFixedDerivation, completeTransactionCohort, create };

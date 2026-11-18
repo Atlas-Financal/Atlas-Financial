@@ -256,14 +256,22 @@ function cardCoverageIssueCodes(advice) {
 }
 
 // Lead ruling on #1358 (B2): card coverage published as an ESTIMATE (a card
-// payment's card is unconfirmed, so it is applied to no card). Only the closed
+// payment's card, or a card credit's purpose, is unconfirmed). Only the closed
 // basis, a fixed reason and a count leave Forecast here: no ref, date, amount
 // or note.
-const CARD_ESTIMATE_REASON = 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.';
+// One fixed reason per closed basis (Forecast's cardPurchaseCoverage
+// .estimateBasis); an unrecognised basis falls back to the combined one.
+const CARD_ESTIMATE_REASONS = Object.freeze({
+  'card-payment-destination-unconfirmed': 'A card payment left a household account but its card is not confirmed, so it is applied to no card and every card purchase stays reserved as if unpaid.',
+  'card-credit-purpose-unconfirmed': 'A card credit is not confirmed as a payment or a refund, so it is counted as neither and every card purchase stays reserved as if unpaid.',
+  'card-coverage-rows-unconfirmed': 'A card payment\'s card, or a card credit\'s purpose, is not confirmed, so neither counts toward any card and every card purchase stays reserved as if unpaid.',
+});
 function cardCoverageEstimate(advice) {
   const coverage = advice && advice.cardPurchaseCoverage;
   if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
-  return { basis: 'card-payment-destination-unconfirmed', reason: CARD_ESTIMATE_REASON,
+  const basis = Object.hasOwn(CARD_ESTIMATE_REASONS, coverage.estimateBasis || '')
+    ? coverage.estimateBasis : 'card-coverage-rows-unconfirmed';
+  return { basis, reason: CARD_ESTIMATE_REASONS[basis],
     toConfirmCount: Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0 };
 }
 // A published section under the estimate: a graded tag (or none) becomes

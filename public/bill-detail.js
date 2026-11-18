@@ -277,7 +277,8 @@
           : '<p>Confirm the opening and purchase/payment evidence before using available cash. Earlier coverage has not been established.</p>')
         + '</div></details>' : '';
     // Lead dispatch 2026-11-18 (Dale): a card payment whose card is
-    // unconfirmed is applied to no card and listed here To confirm. Printed as
+    // unconfirmed, or a card credit whose purpose is unconfirmed, counts
+    // toward no card and is listed here To confirm. Printed as
     // supplied by Forecast (cardPurchaseCoverage.toConfirm); no money math.
     const fromLabel = id => id === 'chequing-a' ? 'Bills' : id === 'savings' ? 'Savings' : 'A household account';
     const pendingRows = (coverage && coverage.trust === 'estimated' && Array.isArray(coverage.toConfirm)
@@ -287,8 +288,9 @@
         + pendingRows.map(row => '<div class="operating-line" data-card-payment-to-confirm-row><span>'
           + escape(text(row.question) || 'To confirm: which card did this pay?') + '</span><span>'
           + escape(date(row.date) ? row.date : 'Date unavailable') + ' · ' + escape(money(row.amount))
-          + ' · from ' + escape(fromLabel(row.fromAccount)) + '</span></div>').join('')
-        + '<p>Until it is confirmed, this payment counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p></div>'
+          + (text(row.onCard) ? ' · on ' + escape(text(row.onCard)) : ' · from ' + escape(fromLabel(row.fromAccount)))
+          + '</span></div>').join('')
+        + '<p>Until each row is confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p></div>'
       : '';
     if (!payments.length) return carry + toConfirm;
     const blocks = payments.map(row => {

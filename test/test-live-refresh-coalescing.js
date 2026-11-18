@@ -1,7 +1,8 @@
 'use strict';
 // The live fetch's provider GETs: me, plaid and manual accounts, categories, tags,
 // the windowed and pending transactions, and the recurring-items read (S1).
-const PROVIDER_GETS = 10;
+// Seven reads, the recurring-items read, the two budget reads and the 200-day fixed-amount history read (#1355).
+const PROVIDER_GETS = 11;
 // Real workers and loopback provider calls. Every input is synthetic; no live
 // credential, household file edit, provider write or completed response cache.
 const threads = require('node:worker_threads');
@@ -168,7 +169,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       mock.release();
       const expected = await Live.applyForServer(canonical, env);
       check(expected.liveOverlay.applied, true, 'reference is a qualified live publication');
-      check(mock.calls.length, PROVIDER_GETS, 'reference performs all ten provider GETs (seven, the recurring-items read, and the two budget reads)');
+      check(mock.calls.length, PROVIDER_GETS, 'reference performs all eleven provider GETs (seven, the recurring-items read, the two budget reads and the fixed-amount history read)');
       mock.hold();
       const before = workers.length, callsBefore = mock.calls.length, original = structuredClone(canonical);
       const inputs = [canonical, structuredClone(canonical), structuredClone(canonical), canonical];
@@ -187,7 +188,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       check(results[1], expected, 'result mutation cannot affect another caller');
       check(canonical, original, 'canonical input unchanged');
       await drain();
-      check(mock.calls.length - callsBefore, PROVIDER_GETS, 'one complete ten-GET observation serves all callers');
+      check(mock.calls.length - callsBefore, PROVIDER_GETS, 'one complete eleven-GET observation serves all callers');
       const sharedTiming = timings.at(-1);
       check(sharedTiming.waiterCount, 4, 'sanitized lifecycle counts shared callers');
       check(sharedTiming.outcome, 'completed', 'timing describes worker completion');
