@@ -272,8 +272,8 @@ console.log('\n=== 6b. mobile waterfall rows wrap instead of clipping ===');
     && !/white-space:\s*nowrap/.test(lineRule[0])
     && /\.payday-other-cards \.operating-line, \.payday-big-purchases \.operating-line \{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\);/.test(css),
     'narrow screens keep the amount in its right-hand column while the label wraps; descriptive inventories stack instead of clipping sideways');
-  ok(mobile && /\.current-period-row \{ grid-template-columns:\s*minmax\(0,\s*1fr\)/.test(mobile[0]),
-    'current-period detail rows also collapse to one wrapping column');
+  // (.current-period-row styled the deleted payday today-action rows; its
+  // narrow-screen rule went with it.)
   ok(!/\.operating-line[^\{]*\{[^}]*overflow-x:\s*hidden/.test(css),
     'operating-line does not hide overflow to mask a rigid row');
   ok(/function paydayBucketRow/.test(planSrc)
