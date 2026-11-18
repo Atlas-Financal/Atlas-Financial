@@ -7424,7 +7424,9 @@
   // Grok Bot note stays display-only: it names the plan's latest unsettled
   // mortgage occurrence before the debit, when there is one.
   function withMortgageDueNote(tx, plan, opts, cls) {
-    if (!cls || cls.householdSpending !== true || !tx
+    // Household cash only: the held term deducts household-cash rows, so a
+    // card or Savings row keeps its incumbent owner (never held and dropped).
+    if (!cls || cls.householdSpending !== true || !tx || tx.accountRole !== 'household-cash'
         || (cls.kind !== 'spend' && cls.kind !== 'unclassified')
         || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
     const amt = Number(tx.amount);
@@ -7489,7 +7491,11 @@
         const asDebit = classifyCurrentPeriodTransaction(
           Object.assign({}, tx, { isIncome: false }), plan, opts);
         if (asDebit && asDebit.householdSpending === true) {
-          return heldOutflowResult('income-category-debit');
+          // Household cash only (see withMortgageDueNote): a card or Savings
+          // row keeps the incumbent confirmation row.
+          return tx.accountRole === 'household-cash'
+            ? heldOutflowResult('income-category-debit')
+            : confirmationResult('income-category-debit', 'income-category-debit');
         }
         return asDebit;
       }
