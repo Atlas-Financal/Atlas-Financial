@@ -6047,6 +6047,27 @@ function budgetSpentIncompleteHtml() {
   return '<span class="budget-spent-incomplete" data-budget-spent-incomplete>Incomplete</span>';
 }
 
+// Where the household consistently goes over plan, from saved closes only
+// (Forecast.categorySpendingTrends). Prints Forecast's counts and averages;
+// computes nothing. Shown with the current period only.
+function budgetCategoryTrendsHtml(ctx) {
+  const trends = ctx && ctx.advice && ctx.advice.categorySpendingTrends;
+  if (!trends || typeof trends !== 'object') return '';
+  if (trends.status !== 'ready') {
+    const have = Number.isInteger(trends.qualifyingCloses) ? trends.qualifyingCloses : 0;
+    const need = Number.isInteger(trends.minimum) ? trends.minimum : 3;
+    return `<div class="budget-browse-note" data-budget-category-trends="insufficient">
+      <p><strong>Over plan in saved periods</strong> <small>Not enough saved periods yet (${have} of ${need}).</small></p></div>`;
+  }
+  const count = value => (Number.isInteger(value) && value >= 0 ? value : null);
+  const over = (trends.categories || []).filter(row => row && count(row.periodsOver) > 0 && count(row.periodsCounted) != null);
+  const n = count(trends.periodsUsed);
+  const items = over.map(row => `<li data-budget-category-trend="${budgetBrowseEscape(row.id)}"><span>${budgetBrowseEscape(row.label || row.id)}</span> <small>over in ${count(row.periodsOver)} of ${count(row.periodsCounted)} · ${budgetBrowseMoney(row.averageOverspend, row.trust)} over on average</small></li>`).join('');
+  return `<div class="budget-browse-note" data-budget-category-trends="ready">
+    <p><strong>Over plan in saved periods</strong> <small>last ${n} saved pay periods</small></p>
+    ${items ? `<ul class="budget-category-trends">${items}</ul>` : '<p><small>No category went over plan.</small></p>'}</div>`;
+}
+
 function budgetSpendingSectionHtml(period, ctx) {
   const rows = (period.householdBudget || []).filter(Boolean);
   const feed = budgetBankFeedState(period, ctx);
@@ -6156,7 +6177,7 @@ function budgetSpendingSectionHtml(period, ctx) {
         remainingKnown && funding.estimateCause === Forecast.CARD_ESTIMATE_CAUSE ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
-    ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
+    ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}${period.timelineRole === 'current' ? budgetCategoryTrendsHtml(ctx) : ''}
     <footer><button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }
