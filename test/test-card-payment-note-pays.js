@@ -64,11 +64,17 @@ travelPaidOnce(run(world([purchase, cardCredit(105), cashLeg(105, { notes: TRAVE
   withheld(s, 'coverage-payment-or-credit-purpose-unconfirmed', 'note with a pending credit: the pending credit still withholds');
   check(!issues(s).includes('coverage-payment-destination-unconfirmed'), 'note with a pending credit: the debit has a destination');
 }
-// 4. Unchanged without a valid note: missing, unknown name, two cards, no card named.
+// 4. Without a valid note (missing, unknown name, two cards, no card named) the
+// debit pays no card. Since the lead's 2026-11-18 dispatch (Dale) that degrades
+// instead of withholding: the purchase stays reserved, coverage is an estimate,
+// and the debit is To confirm (test/test-card-payment-destination-estimate.js).
 for (const [name, extra] of [['no note', {}], ['unknown card', { notes: 'card payment: Invented Personal Card ...9999' }],
   ['two cards', { notes: TRAVEL + '; ' + CASHBACK }], ['names no card', { notes: 'Invented memo' }]]) {
-  withheld(run(world([purchase, cashLeg(105, extra)])), 'coverage-payment-destination-unconfirmed',
-    name + ', credit absent: as today');
+  const s = run(world([purchase, cashLeg(105, extra)]));
+  check(s.coverage.status === 'ready' && s.coverage.trust === 'estimated', name + ', credit absent: an estimate');
+  check(s.coverage.reservedCash === 80 && s.coverage.toConfirm.length === 1, name + ': the purchase stays reserved, one To-confirm row');
+  check(s.period.fromTodayFunding.availableNow === 220 && s.period.fromTodayFunding.trust === 'estimated',
+    name + ': available now 395 - 25 - 70 - 80 = 220, estimated');
 }
 // 5. A pending debit is never a payment by its note: the result is exactly
 // that of the same pending debit with no note.
@@ -82,8 +88,13 @@ for (const [name, extra] of [['no note', {}], ['unknown card', { notes: 'card pa
   'a pending noted debit reads exactly as the same debit without a note');
 }
 // 6. Only a TD "TFR-TO C/C" debit: the same note on another payment-like debit names nothing.
-withheld(run(world([purchase, ['bills', 105, null, 'cash', { payee: 'Invented card payment', category_name: 'Credit Card Payment',
-  notes: TRAVEL }]])), 'coverage-payment-destination-unconfirmed', 'a non-TD debit with the note is unchanged');
+{
+  // It pays no card, so (lead dispatch 2026-11-18) it degrades exactly as a debit with no note.
+  const s = run(world([purchase, ['bills', 105, null, 'cash', { payee: 'Invented card payment', category_name: 'Credit Card Payment',
+    notes: TRAVEL }]]));
+  check(s.coverage.trust === 'estimated' && s.coverage.reservedCash === 80 && s.coverage.toConfirm.length === 1,
+    'a non-TD debit with the note names no card: applied to no card, To confirm');
+}
 // 7. Two TD cards. Purchases 80 on Travel Visa and 40 on Cash Back; debits 105
 // noted Travel Visa and 40 noted Cash Back, no credits. Hand-derived: Travel
 // Visa covers its 25 minimum and the 80; Cash Back covers its 40. Bills
@@ -182,7 +193,11 @@ withheld(run(world([purchase, ['bills', 105, null, 'cash', { payee: 'Invented ca
 }
 // 9. A note naming a card the plan does not map as a revolving card pays
 // nothing by its note: TD Personal is in the name table but not this plan.
-withheld(run(world([purchase, cashLeg(105, { notes: 'card payment: TD Personal Credit Card ...7777' })])),
-  'coverage-payment-destination-unconfirmed', 'a note naming an unmapped card is unchanged');
+{
+  // It pays no card, so (lead dispatch 2026-11-18) it degrades as a debit with no note.
+  const s = run(world([purchase, cashLeg(105, { notes: 'card payment: TD Personal Credit Card ...7777' })]));
+  check(s.coverage.trust === 'estimated' && s.coverage.reservedCash === 80 && s.coverage.toConfirm.length === 1,
+    'a note naming an unmapped card pays no card: applied to no card, To confirm');
+}
 
 console.log(`  PASS  a "card payment: <card>" note alone names the card (${checks} checks)`);

@@ -81,8 +81,13 @@ for (const original of ['REWARDS REDEMPTION', 'TD Points Redemption']) {
     'coverage-purchase-purpose-unconfirmed', 'a debit described "' + original + '"');
 }
 // 7. It is never a payment: equal to a TFR-TO C/C debit, it does not pair.
-withheld(run(world([purchase, cashLeg(105), rewards(105)])),
-  'coverage-payment-destination-unconfirmed', 'a 105 rewards credit beside a 105 TFR-TO C/C debit');
+{
+  // The debit then pays no card. Since the lead's 2026-11-18 dispatch (Dale)
+  // that degrades: an estimate, the debit To confirm, never paired.
+  const s = run(world([purchase, cashLeg(105), rewards(105)]));
+  check(s.coverage.trust === 'estimated' && s.coverage.toConfirm.length === 1 && s.coverage.payments.length === 0,
+    'a 105 rewards credit beside a 105 TFR-TO C/C debit: never a payment; the debit is To confirm');
+}
 // 8. It pays no minimum: alone, the 25 minimum stays unpaid exactly as with no credit.
 {
   const none = run(world([purchase]));
