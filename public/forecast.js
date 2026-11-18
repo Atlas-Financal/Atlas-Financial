@@ -2331,18 +2331,20 @@
     const value = Number(raw);
     return Number.isFinite(value) ? value : null;
   }
-  // The opening household chequing cash is known only when every present
-  // household chequing row carries evidence. One unknown row makes the
-  // whole pool unknown (ATLAS-078 ruling: an unknown row makes an unknown
-  // pool) — it never counts as $0, and the cash walk seeded from it is
-  // not a figure. Savings rows and other accounts are out of this gate.
+  function householdChequingOpeningRows(cash) {
+    const rows = Array.isArray(cash.breakdown) ? cash.breakdown : [];
+    return HOUSEHOLD_CHEQUING_IDS.map(id => {
+      const matching = rows.filter(row => row && row.id === id);
+      return { id, value: matching.length === 1 ? householdChequingRowValue(matching[0]) : null };
+    });
+  }
+  // An explicit breakdown needs both operating accounts exactly once,
+  // with a known balance on each. Other accounts cannot fill a missing row.
   function openingCashState(plan) {
-    const rows = (plan && plan.startingCash && plan.startingCash.breakdown) || [];
-    const unknown = [];
-    for (const row of rows) {
-      if (!row || HOUSEHOLD_CHEQUING_IDS.indexOf(row.id) === -1) continue;
-      if (householdChequingRowValue(row) == null && unknown.indexOf(row.id) === -1) unknown.push(row.id);
-    }
+    const cash = (plan && plan.startingCash) || {};
+    const unknown = Object.hasOwn(cash, 'breakdown')
+      ? householdChequingOpeningRows(cash).filter(row => row.value == null).map(row => row.id)
+      : [];
     const asOf = (plan && plan.opening && plan.opening.asOf) || null;
     if (!unknown.length) return { status: 'ready', asOf, accounts: [], reason: null };
     return { status: 'unavailable', asOf, accounts: unknown,
@@ -2356,35 +2358,16 @@
   // public/*.js page file calls startingCashAmount.
   function postedHouseholdChequingCash(plan) {
     const cash = (plan && plan.startingCash) || {};
-    const rows = cash.breakdown || [];
-    if (rows.length) {
-      return rows.reduce((s, b) => {
-        if (!b || HOUSEHOLD_CHEQUING_IDS.indexOf(b.id) === -1) return s;
-        const value = householdChequingRowValue(b);
-        return value == null ? s : s + value;
-      }, 0);
-    }
-    return Number(cash.amount) || 0;
+    if (!Object.hasOwn(cash, 'breakdown')) return Number(cash.amount) || 0;
+    return householdChequingOpeningRows(cash).reduce((sum, row) => sum + (row.value ?? 0), 0);
   }
   // INTERNAL WALK SEED ONLY — see postedHouseholdChequingCash. Pages read
   // spendableHouseholdCash.
   function startingCashAmount(plan) {
-    const cash = (plan && plan.startingCash) || {};
-    const rows = cash.breakdown || [];
-    if (!rows.length) return Number(cash.amount) || 0;
-    const hasHouseholdChequing = rows.some(
-      b => b && HOUSEHOLD_CHEQUING_IDS.indexOf(b.id) !== -1
-    );
-    if (hasHouseholdChequing) return postedHouseholdChequingCash(plan);
-    return rows.reduce((s, b) => {
-      if (!b || b.id === DESIGNATED_RESERVE_ID
-          || (Array.isArray(plan.savingsEarmarks && plan.savingsEarmarks.pools) ? plan.savingsEarmarks.pools : [])
-            .some(p => p && p.accountId === b.id)) return s;
-      return s + (Number(b.value) || 0);
-    }, 0);
+    return postedHouseholdChequingCash(plan);
   }
   // Published "Spendable household cash": the same opening as the walk
-  // seed, or null (Unknown) when any household chequing row is unknown.
+  // seed, or null (Unknown) when the operating breakdown is incomplete.
   function spendableHouseholdCash(plan) {
     return openingCashState(plan).status === 'unavailable' ? null : startingCashAmount(plan);
   }

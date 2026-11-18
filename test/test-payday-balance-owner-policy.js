@@ -56,7 +56,7 @@ function plan() {
     defaults: { targetBuffer: 0 },
     startingCash: {
       amount: OPENING,
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: OPENING }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: OPENING }, { id: 'chequing-b', value: 0 }],
     },
     opening: {
       asOf: PAYDAY,

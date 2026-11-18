@@ -699,7 +699,7 @@ function scalarFixture(amount, present) {
   // No per-account breakdown rows and no snapshot value: the dated
   // scalar opening is the only claimed basis.
   const x = input();
-  x.plan.startingCash.breakdown = [];
+  delete x.plan.startingCash.breakdown;
   x.plan.opening.paydaySnapshot.opening = null;
   if (present) x.plan.startingCash.amount = amount; else delete x.plan.startingCash.amount;
   return x;

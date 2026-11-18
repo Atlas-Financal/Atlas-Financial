@@ -78,7 +78,7 @@ function salaryPlan() {
   return {
     defaults: { targetBuffer: 500 },
     startingCash: {
-      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: CURRENT_CASH, class: 'spendable' }],
+      breakdown: [{ id: 'chequing-a', label: 'BILLS ACCOUNT', value: CURRENT_CASH, class: 'spendable' }, { id: 'chequing-b', value: 0 }],
       heldElsewhere: [{
         id: 'amanda-debt-payments',
         label: 'TENNIS INCOME',

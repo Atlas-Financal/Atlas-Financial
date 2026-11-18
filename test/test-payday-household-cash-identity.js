@@ -151,7 +151,7 @@ for (const state of ['pending', 'posted']) {
   const card = { id: 'card', label: 'Card', structure: 'Revolving',
     rate: 20, balance: state === 'posted' ? 600 : 0,
     pending: state === 'pending' ? 600 : 0, limit: 2000 };
-  const p = plan(); p.startingCash.breakdown = [{ id: 'chequing-a', value: 5000 }];
+  const p = plan(); p.startingCash.breakdown = [{ id: 'chequing-a', value: 5000 }, { id: 'chequing-b', value: 0 }];
   p.cardPurchaseCoverage = require('./fixtures/card-coverage-opening')(START);
   const a = F.paydayAllocation(p, AS_OF, options([
     tx(600, { accountRole: 'revolving-credit', atlasAccountId: 'card',
@@ -165,7 +165,7 @@ for (const state of ['pending', 'posted']) {
   assert.equal(F.utilisation([card]).rows[0].used, 600);
 }
 const cardOtherPlan = plan();
-cardOtherPlan.startingCash.breakdown = [{ id: 'chequing-a', value: 5000 }];
+cardOtherPlan.startingCash.breakdown = [{ id: 'chequing-a', value: 5000 }, { id: 'chequing-b', value: 0 }];
 cardOtherPlan.cardPurchaseCoverage = require('./fixtures/card-coverage-opening')(START);
 const cardOther = F.paydayAllocation(cardOtherPlan, AS_OF, options([
   { ...other, pending: true, accountRole: 'revolving-credit', atlasAccountId: 'card' },

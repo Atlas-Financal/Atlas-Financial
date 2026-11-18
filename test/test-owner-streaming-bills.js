@@ -85,7 +85,7 @@ const syntheticRows = [
   budgetCategory: 'subscriptions', subscription: true}));
 const plan = {
   defaults: { targetBuffer: 0 },
-  startingCash: { breakdown: [{id: 'chequing-a', label: 'Synthetic Bills', value: 1000}],
+  startingCash: { breakdown: [{id: 'chequing-a', label: 'Synthetic Bills', value: 1000}, { id: 'chequing-b', value: 0 }],
     heldElsewhere: [{id: 'wise', label: 'Synthetic Wise', value: 2}] },
   opening: { asOf: '2031-04-04', representedEvents: [] },
   income: [], obligations: [], commitments: [], bills: syntheticRows,

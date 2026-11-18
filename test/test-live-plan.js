@@ -2339,7 +2339,7 @@ console.log('\n=== 20. incomplete current cash still withholds a stale cycle as 
   const b1SynthPlan = {
     windowDays: 21,
     defaults: { targetBuffer: 200 },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 320 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 320 }, { id: 'chequing-b', value: 0 }] },
     opening: { asOf: '2026-08-21' },
     income: [{
       id: 'pay', label: 'Payday', frequency: 'once', date: '2026-08-28',

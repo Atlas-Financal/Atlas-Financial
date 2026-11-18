@@ -70,7 +70,7 @@ function timelinePlan(asOf, extra) {
     startingCash: {
       breakdown: [{
         id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2000, class: 'spendable',
-      }],
+      }, { id: 'chequing-b', value: 0 }],
     },
     opening: Object.assign({ asOf }, extra.opening || {}),
     nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
@@ -548,7 +548,7 @@ console.log('\n=== 6. completed historical period is unchanged on the timeline =
     startingCash: {
       breakdown: [{
         id: 'chequing-a', label: 'BILLS ACCOUNT', value: 2300, class: 'spendable',
-      }],
+      }, { id: 'chequing-b', value: 0 }],
     },
     opening: {
       asOf: historyAsOf,
@@ -1400,7 +1400,7 @@ function sectionMissingIncomeAmount() {
       paydaySnapshot: { periodStart: '2026-10-02', asOf: '2026-10-02', opening: 50 },
       representedEvents: [{ id: 'payroll', date: '2026-10-02' }],
     }, openingExtra || {}),
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 50 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 50 }, { id: 'chequing-b', value: 0 }] },
     income,
     bills: [{ id: 'b1', label: 'Synthetic bill', frequency: 'once', date: '2026-10-20', amount: 120, confidence: 'confirmed' }],
     obligations: [], commitments: [], budget: { categories: [] },

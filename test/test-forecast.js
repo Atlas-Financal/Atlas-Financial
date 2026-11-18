@@ -587,7 +587,7 @@ const bufferSim = (opening, bill, buffer) =>
   const tiny = {
     windowDays: 7,
     defaults: { targetBuffer: 140 },
-    startingCash: { breakdown: [{ id: 'a', value: 100, class: 'spendable' }] },
+    startingCash: { amount: 100 },
     income: [], obligations: [], bills: [],
     commitments: [{ id: 'due', date: '2026-08-16', amount: 40, label: 'due' }],
   };
@@ -622,7 +622,7 @@ console.log('\n=== 10. a buffer above live opening does not shade a funded week 
   const plan = {
     windowDays: 7,
     defaults: { targetBuffer: BUFFER },
-    startingCash: { breakdown: [{ id: 'a', value: OPENING, class: 'spendable' }] },
+    startingCash: { amount: OPENING },
     income: [], obligations: [], bills: [], commitments: [],
   };
   const day = '2026-08-16';

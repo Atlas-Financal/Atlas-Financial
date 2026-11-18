@@ -204,7 +204,7 @@ console.log('\n=== 4. A past-due minimum already sent: paid, not overdue ===');
   // not a $0 cash-out today.
   const plan = { windowDays: 45, opening: { asOf: AS_OF, priorAsOf: PRIOR, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }, { id: 'chequing-b', value: 0 }] },
     income: [], bills: [NET], commitments: [],
     obligations: [{ ...MIN, sentPayments: [{ scheduledDate: '2026-10-12', confirmed: true, intent: 'minimum', debitId: 'invented-debit',
       postedOn: '2026-10-11', amount: 50, currency: 'cad', fundingAccountId: 'chequing-a', pending: false, cashIncludedAsOf: AS_OF }] }] };
@@ -247,7 +247,7 @@ console.log('\n=== 6. A carried capitalising-facility cash minimum: overdue in t
   // (cashFirstDue Nov 12) reads November 12, and the walk deducts nothing today.
   const capPlan = cashFirstDue => ({ windowDays: 45, opening: { asOf: AS_OF, priorAsOf: PRIOR, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, confidence: 'confirmed' }, { id: 'chequing-b', value: 0 }] },
     income: [], bills: [], commitments: [],
     obligations: [{ id: 'heloc', debtId: 'heloc', effect: 'capitalise', label: 'Invented HELOC interest', frequency: 'monthly',
       day: 31, amount: 100, confidence: 'confirmed', nonCash: true, payingAccount: 'chequing-a',

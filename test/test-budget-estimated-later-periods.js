@@ -34,7 +34,10 @@ const ok = (cond, label, detail) => {
 const AS_OF = '2026-10-09';
 const plan = () => ({
   defaults: { targetBuffer: 500 }, windowDays: 91,
-  startingCash: { breakdown: [{ id: 'chequing-a', label: 'Invented chequing', value: 2500, class: 'spendable' }] },
+  startingCash: { breakdown: [
+    { id: 'chequing-a', label: 'Invented chequing', value: 2500, class: 'spendable' },
+    { id: 'chequing-b', value: 0 },
+  ] },
   opening: { asOf: AS_OF },
   nextDollar: { policy: 'true-surplus-highest-interest', provenance: 'owner-stated' },
   income: [{ id: 'payroll', label: 'Invented payroll', frequency: 'biweekly', anchor: '2026-10-09', amount: 3000, confidence: 'confirmed' }],

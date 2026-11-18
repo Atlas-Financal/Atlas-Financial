@@ -15,7 +15,7 @@ function fixture(date, spent = 31.47) {
   const plan = {
     opening: { asOf: date, representedEvents: [] },
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 8000 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 8000 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Invented payroll', frequency: 'biweekly',
       anchor: '2026-09-25', amount: 3000, confidence: 'confirmed' }],
     bills: [], obligations: [], commitments: [], groups: [], funding: { options: [] },

@@ -72,7 +72,7 @@ function trendPlan(asOf, snapshot, cash) {
     startingCash: {
       breakdown: [{
         id: 'chequing-a', label: 'BILLS ACCOUNT', value: cash, class: 'spendable',
-      }],
+      }, { id: 'chequing-b', value: 0 }],
     },
     opening: snapshot
       ? { asOf, paydaySnapshot: snapshot }

@@ -159,6 +159,43 @@ console.log('\nChequing A 250, Chequing B 300, Savings unknown');
   ok(F.spendableHouseholdCash(plan) === 550, 'a Savings row does not enter the chequing gate', `got ${F.spendableHouseholdCash(plan)}`);
 }
 
+/* A missing operating row cannot be replaced by Savings or an aggregate
+ * saved alongside the breakdown. Duplicate rows cannot increase the total.
+ * A = 250, B = 300, so the only complete opening here is 550.
+ */
+{
+  const plan = fixture({ id: 'chequing-a', value: 250 });
+  const [a, b, reserve] = plan.startingCash.breakdown;
+  for (const [label, breakdown, unavailable] of [
+    ['missing A', [b, reserve], 'chequing-a'],
+    ['missing B', [a, reserve], 'chequing-b'],
+    ['duplicate A', [a, b, { ...a }, reserve], 'chequing-a'],
+    ['duplicate B', [a, b, { ...b, value: 50 }, reserve], 'chequing-b'],
+    ['only Savings', [reserve], 'chequing-a,chequing-b'],
+    ['empty breakdown', [], 'chequing-a,chequing-b'],
+  ]) {
+    plan.startingCash = { amount: 550, breakdown };
+    const opening = F.openingCashState(plan);
+    ok(opening.status === 'unavailable' && opening.accounts.join() === unavailable,
+      label + ': identifies every unavailable operating row');
+    ok(F.spendableHouseholdCash(plan) === null, label + ': no spendable subtotal');
+    const walk = F.simulate(plan, AS_OF, { horizonDays: 1, weeklyVariable: 0 });
+    ok(walk.status === 'unavailable' && walk.ending === null && walk.daily[0].balance === null,
+      label + ': the walk publishes no cash');
+    const allocation = F.paydayAllocation(plan, AS_OF, {});
+    ok(allocation.status === 'unavailable' && allocation.opening === null,
+      label + ': allocation publishes no opening');
+  }
+  plan.startingCash = { amount: 550 };
+  ok(F.openingCashState(plan).status === 'ready' && F.spendableHouseholdCash(plan) === 550,
+    'aggregate-only opening uses the declared 550');
+  const aggregateWalk = F.simulate(plan, AS_OF, { horizonDays: 1, weeklyVariable: 0 });
+  ok(aggregateWalk.daily[0].balance === 550, 'aggregate-only opening seeds the walk at 550 before any events');
+  plan.startingCash = { breakdown: [{ ...a, value: 0 }, { ...b, value: 0 }, reserve] };
+  ok(F.openingCashState(plan).status === 'ready' && F.spendableHouseholdCash(plan) === 0,
+    'two known zero balances make a known zero opening');
+}
+
 /* ---- known rows are unchanged ---- */
 for (const [name, aValue, expected] of [
   ['number 250', 250, 550],

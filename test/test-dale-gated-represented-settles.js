@@ -517,7 +517,7 @@ console.log('\n=== 11. cash omit does not unwind HELOC/TDCC debt reduction; Nobl
     bills: [],
     income: [],
     commitments: [],
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 500, class: 'spendable' }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 500, class: 'spendable' }, { id: 'chequing-b', value: 0 }] },
     defaults: { targetBuffer: 0 },
   });
   const synthDebts = [{

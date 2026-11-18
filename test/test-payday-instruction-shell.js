@@ -49,7 +49,7 @@ function basePlan(pay) {
   return {
     defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
     opening: { asOf: '2026-01-16' }, // a Seaspan payday (anchor 2026-01-02 + 14d)
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 0 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Seaspan', frequency: 'biweekly',
       anchor: '2026-01-02', amount: pay, confidence: 'confirmed' }],
     obligations: [], bills: [], budget: { categories: [] },
@@ -455,7 +455,7 @@ check('C3: the 2027 Dale-payroll projection renders as estimate, not bare curren
   const plan = {
     defaults: { targetBuffer: 500 },
     opening: { asOf: '2027-01-15' },
-    startingCash: { breakdown: [{ id: 'chequing-a', value: 2000 }] },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 2000 }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly',
       anchor: '2026-08-14', amount: 4000, confidence: 'confirmed' }],
     obligations: [], bills: [], budget: { categories: [] }, commitments: [],

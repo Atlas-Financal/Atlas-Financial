@@ -50,7 +50,7 @@ function plan(asOf, paidElapsed) {
       representedEvents: represented,
     },
     startingCash: { breakdown: [{ id: 'chequing-a',
-      value: OPENING + PAY - (paidElapsed ? ELAPSED : 0) }] },
+      value: OPENING + PAY - (paidElapsed ? ELAPSED : 0) }, { id: 'chequing-b', value: 0 }] },
     income: [{ id: 'payroll', frequency: 'biweekly', anchor: '2026-10-02',
       amount: PAY, confidence: 'confirmed' }],
     bills: [
