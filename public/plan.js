@@ -814,7 +814,7 @@ function liveOperatingPlanNote(advice, liveOverlay) {
 function currentOperatingUnavailableHtml(advice, liveOverlay) {
   if (!liveOperatingPlanUnavailable(advice, liveOverlay)) return null;
   return `<div data-operating-plan="unavailable" data-current-operating="unavailable">
-    <p class="operating-lead">${liveOperatingPlanNote(advice, liveOverlay)}</p>
+    <p class="operating-lead">${escapeHtml(liveOperatingPlanNote(advice, liveOverlay))}</p>
   </div>`;
 }
 
@@ -861,7 +861,7 @@ function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
 
 function currentOperatingTransferNoteHtml(advice, liveOverlay, transferMonthly, neededBy) {
   if (liveOperatingPlanUnavailable(advice, liveOverlay)) {
-    return `<span data-operating-plan="unavailable">${liveOperatingPlanNote(advice, liveOverlay)}</span>`;
+    return `<span data-operating-plan="unavailable">${escapeHtml(liveOperatingPlanNote(advice, liveOverlay))}</span>`;
   }
   if (transferMonthly > 0) {
     return neededBy
@@ -2025,7 +2025,7 @@ function calendarCurrentUnavailableHtml(period) {
     ? `<p class="operating-note">Dated balance — not current. ${money2(period.opening)}</p>`
     : '';
   return `<div data-operating-plan="unavailable" data-current-waterfall="unavailable">
-    <p class="operating-lead">${note}</p>
+    <p class="operating-lead">${escapeHtml(note)}</p>
     ${dated}
   </div>`;
 }
@@ -2474,7 +2474,7 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   const cycleText = householdBudgetCycleText(period);
   const cycle = period && period.cycleUnresolved
       ? `<p class="household-budget-cycle">Spending cycle unavailable. Household Budget reserve is held.</p>`
-      : (cycleText ? `<p class="household-budget-cycle">${cycleText}</p>` : '');
+      : (cycleText ? `<p class="household-budget-cycle">${escapeHtml(cycleText)}</p>` : '');
   // Forecast already owns the payday deduction as period.budgetHold.
   // Print that incumbent value. Do not sum category rows here.
   // budgetHoldTrust is Forecast's stamp when the hold includes the
@@ -3209,13 +3209,16 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   // interpolate the raw object. Tolerate a plain string defensively.
   const debtLabel = raw => raw == null ? null
     : (typeof raw === 'string' ? raw : (raw.label || null));
-  const focusLabel = debtLabel(extra.target);
+  // Household names and Forecast's strategy text are plain text: escaped
+  // once here, before they enter the block's markup.
+  const focusLabel = debtLabel(extra.target) == null ? null : escapeHtml(debtLabel(extra.target));
   // Next target only from Forecast's published consequence, kept
   // conditional. Reading any other field for it would be page-side
   // target selection.
   const nextConsequence = extra.consequence && extra.consequence.kind === 'next-target'
     ? extra.consequence : null;
-  const nextLabel = nextConsequence ? debtLabel(nextConsequence.nextTarget) : null;
+  const nextLabel = nextConsequence && debtLabel(nextConsequence.nextTarget) != null
+    ? escapeHtml(debtLabel(nextConsequence.nextTarget)) : null;
   const afterClearsLine = nextLabel
     ? `<p class="operating-note">After this debt clears: ${nextLabel}.</p>` : '';
   // Forecast's published strategy state (e.g. unknown pending exposure),
@@ -3224,7 +3227,7 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   // derives from or interprets it. Shown whenever a focus debt exists and
   // the publication carries it (in the $0 branch with no target the
   // reason already renders as the state line, so it is not repeated).
-  const reasonText = typeof extra.reason === 'string' && extra.reason ? extra.reason : null;
+  const reasonText = typeof extra.reason === 'string' && extra.reason ? escapeHtml(extra.reason) : null;
   const strategyNote = reasonText && (extraValue > 0 || focusLabel)
     ? `<p class="operating-note">Strategy note: ${reasonText}</p>` : '';
   let extraBody;
@@ -5679,7 +5682,7 @@ function unavailableOperatingSurfaceHtml(ctx) {
     ${refreshTrustHtml(ctx.refreshTrust)}
     <div data-unavailable-primary>
       <p class="operating-lead">Current plan unavailable</p>
-      <p class="operating-note">${explanation}</p>
+      <p class="operating-note">${escapeHtml(explanation)}</p>
     </div>
     ${openingHtml}
     ${actionsHtml}
@@ -6902,7 +6905,7 @@ function paydayAnswerHtml(ctx) {
 
   const spendInner = liveOperatingPlanUnavailable(advice, liveOverlay)
     ? `<p class="payday-refuse" data-operating-plan="unavailable" data-spend-decision="unavailable">${
-        liveOperatingPlanNote(advice, liveOverlay)
+        escapeHtml(liveOperatingPlanNote(advice, liveOverlay))
       }</p>`
     : !capView.hasFeasibleCap
     ? `<p class="payday-refuse">${capView.infeasible ? '<b>INFEASIBLE. </b>' : ''}${escapeHtml(capView.reason)}</p>`
@@ -7336,7 +7339,7 @@ function renderPlan(d, periods, history) {
   band.setAttribute('data-plan-status', planUnavailable ? 'unavailable' : status.id);
   if (planUnavailable) {
     band.className = 'statusband warn';
-    band.innerHTML = `<b>Current plan unavailable.</b> ${unavailableNote}`;
+    band.innerHTML = `<b>Current plan unavailable.</b> ${escapeHtml(unavailableNote)}`;
   } else {
     band.className = 'statusband ' + STATUS_BAND[status.id].tone;
     band.innerHTML = STATUS_BAND[status.id].text(status, plan);
@@ -7482,7 +7485,7 @@ function renderPlan(d, periods, history) {
     // Forecast's unavailable outcome has no action to head the card; say why.
     const nextmoveCard = $('nextmove-card');
     if (nextmoveCard) {
-      nextmoveCard.innerHTML = `<p class="operating-lead" data-operating-plan="unavailable">${planUnavailable ? unavailableNote : escapeHtml(move.reason)}</p>`;
+      nextmoveCard.innerHTML = `<p class="operating-lead" data-operating-plan="unavailable">${escapeHtml(planUnavailable ? unavailableNote : move.reason)}</p>`;
     }
   } else if (move) {
     // The action the engine measured, so the head and the outcome below it
@@ -7503,7 +7506,7 @@ function renderPlan(d, periods, history) {
         <span class="chip ${first.status === 'done' ? 'v' : 'e'}">${escapeHtml(first.status)}</span>
       </div>
       <div class="nm-why"><b>Why</b><p>${escapeHtml(first.why)}</p></div>
-      <div class="nm-after"><b>What happens after</b><p>${after}</p></div>`;
+      <div class="nm-after"><b>What happens after</b><p>${escapeHtml(after)}</p></div>`;
   }
 
   // The condition attached to the weekly cap, written ONCE. It appeared on
@@ -7570,10 +7573,10 @@ function renderPlan(d, periods, history) {
     // another, so the full-coverage figure is computed and shown separately.
     if (diagnosticsVisible) $('cap-headline').innerHTML = capView.hasFeasibleCap
       ? `<span class="cap-amt">${money(weekly)}</span><span class="cap-per">/ week</span>
-       <span class="cap-qual">${capQualifier}</span>`
+       <span class="cap-qual">${escapeHtml(capQualifier)}</span>`
       : `<span class="cap-amt">unavailable</span>
-       <span class="cap-qual">${[capView.settingLine, capView.reason, ifCovered && ifCovered.applies ? capQualifier : '']
-         .filter(Boolean).join(' ')}</span>`;
+       <span class="cap-qual">${escapeHtml([capView.settingLine, capView.reason, ifCovered && ifCovered.applies ? capQualifier : '']
+         .filter(Boolean).join(' '))}</span>`;
     // Every amount here arrives per week from the engine. The page adds the
     // dollar sign and the /wk label and divides nothing.
     const part = (lab, weeklyAmount, kind, note) => `
@@ -7765,7 +7768,7 @@ function renderPlan(d, periods, history) {
   }) : null;
   const phase = (range, title, body) =>
     `<div class="phase"><div class="phase-range">${range}</div>
-      <div class="phase-title">${title}</div><p>${body}</p></div>`;
+      <div class="phase-title">${escapeHtml(title)}</div><p>${escapeHtml(body)}</p></div>`;
   if (diagnosticsVisible) $('phases').innerHTML = outlook.phases.map(p => {
     const body = p.rangeId === '61-90'
       ? PHASE_BODY[p.rangeId](Object.assign({}, p, {

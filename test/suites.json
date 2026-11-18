@@ -87,6 +87,7 @@
   ["stale bank feed verdict for the Budget household spending (#821)","test-bank-feed-freshness.js"],
   ["page renderers show invented hostile text inert: no injected element or event attribute (audit C2)","test-page-renderer-escaping.js"],
   ["covered page renderers interpolate no unescaped data field into HTML (audit C2)","test-page-renderer-escape-static.js"],
+  ["poisoned Forecast text never reaches the Budget or Plan page as markup (stored XSS)","test-forecast-text-escaping.js"],
   ["inactive private planned-input correction contract and synthetic validation","test-planned-input-contract.js"],
   ["inactive private planned bill amount correction contract and synthetic validation (#768 Slice 1)","test-planned-bill-input-contract.js"],
   ["inactive planned-obligation settlement evidence contract and synthetic validation","test-planned-obligation-settlement-contract.js"],

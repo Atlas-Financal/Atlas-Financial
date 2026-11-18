@@ -50,7 +50,7 @@ const source = [
   grab(/^function currentOperatingCashHeroTiles\([\s\S]*?\n\}$/m, 'currentOperatingCashHeroTiles'),
   grab(/^function currentOperatingConsumerDebtHeroTile\([\s\S]*?\n\}$/m, 'currentOperatingConsumerDebtHeroTile'),
 ].join('\n');
-const P = vm.runInNewContext(`${source}\n({ liveOperatingPlanUnavailable, liveOperatingPlanNote, currentOperatingUnavailableHtml, currentOperatingCashHeroTiles, currentOperatingConsumerDebtHeroTile });`, { __pa5: require('../public/forecast.js').liveOperatingPlanUnavailable });
+const P = vm.runInNewContext(`${source}\n({ liveOperatingPlanUnavailable, liveOperatingPlanNote, currentOperatingUnavailableHtml, currentOperatingCashHeroTiles, currentOperatingConsumerDebtHeroTile });`, { __pa5: require('../public/forecast.js').liveOperatingPlanUnavailable, escapeHtml: require('./app-escape-html') });
 
 // The renderPlan caller's effective verdict, copied from its exact source
 // expression (asserted below) and evaluated against the real predicate.
