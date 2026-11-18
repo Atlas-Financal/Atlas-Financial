@@ -321,7 +321,7 @@ Inferred personal from its transactions, not verified.
 
 **Amanda's early pay can still count twice when it carries no sign of salary or arrives split** · *#1334 review non-blocking note (lead, 2026-11-18)*
 
-U6 holds the next payday only on a credit with positive salary evidence (a salary income category, a TENNIS INCOME transfer leg, or the rule's payee alias) at half or more of the amount. Her pay can still count twice in the run-up when it arrives early with none of that evidence and more than $5 off or more than 3 business days early, or as two credits each under half. Decide whether either case needs a hold, given that a blank plan is a real cost. Proof would be an invented early split pay whose payday is counted once.
+U6 (#1334) holds the next payday only on a credit with positive salary evidence (a TENNIS INCOME transfer leg, or a payee matching the rule's salary aliases; a category never counts) at half or more of the amount. Her pay can still count twice in the run-up when it arrives early with none of that evidence and outside the owner's window (more than $5 off or more than 3 business days early), or as two credits each under half. Decide whether either case needs a hold, given that a blank plan is a real cost. Proof would be an invented early split pay whose payday is counted once.
 
 **Card payment pairing: a payment-like card credit pairs with a TD debit without reading the debit's note** · *pre-existing; #1298 review obs 4 (a), lead 2026-11-18*
 
