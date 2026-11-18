@@ -1339,7 +1339,8 @@ const COVER_STATEMENT_CYCLE_OR_LATEST_DUE = 'covers-statement-cycle-or-latest-du
 // names exactly one reviewed Lunch Money recurring item may opt in with
 // settlementFrom 'lunchmoney-matched-occurrences'. When that item's own
 // matches are consistent, Lunch Money's pairing decides which occurrence each
-// linked payment settles. Atlas pairs nothing itself. Otherwise the rule's
+// linked payment settles. Atlas adds no matching of its own: it only orders
+// LM's matched dates and found payments when their counts agree. Otherwise the rule's
 // incumbent postingDateRule applies unchanged.
 const SETTLEMENT_FROM_LM_MATCHED = 'lunchmoney-matched-occurrences';
 const LM_MATCHED_RELATION = 'lunchmoney-matched-occurrence';
