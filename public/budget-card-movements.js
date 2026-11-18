@@ -159,7 +159,7 @@
     const lead = card => {
       const stock = reported(card);
       return stock
-        ? `<p class="card-movement-lead">Reported balance ${money(stock.amount)} · ${day(stock.date)}${card.manualStatement ? ' · Manual statement observation' : ''}${staleEstimate(card, format) ? ` · <span data-card-movement-estimate>estimate — ${escape(staleEstimate(card, format).reason || 'balance older than this statement cycle')}</span>` : ''}</p>`
+        ? `<p class="card-movement-lead">Reported balance ${money(stock.amount)} · ${day(stock.date)}${card.manualStatement ? ' · Manual statement observation' : ''}${staleEstimate(card, format) ? ` · <span data-card-movement-estimate>${escape(staleEstimate(card, format).reason || 'estimate — balance older than this statement cycle')}</span>` : ''}</p>`
         : '<p class="card-movement-lead">Reported balance Unavailable</p>';
     };
     // The period endpoints and their remnant evidence sit behind one

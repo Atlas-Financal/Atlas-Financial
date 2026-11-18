@@ -83,6 +83,7 @@ console.log('\n=== the visible Credit cards strip tags a stale reported balance 
   ok(!/data-card-movement-asof/.test(trigger), 'stale: the estimate replaces the plain as-of note');
   ok(/card-movement-lead[^>]*>[^<]*· <span data-card-movement-estimate>estimate — /.test(stale),
     'stale: the card panel lead line carries the estimate and its reason');
+  ok(!/estimate — estimate/.test(stale), 'stale: the reason reads "estimate" once, not twice');
   const current = render('2026-09-18');
   ok(/data-budget-card-toggle="travelvisa"/.test(current) && !/data-card-movement-estimate/.test(current),
     'current: the strip shows the card with no estimate tag');
