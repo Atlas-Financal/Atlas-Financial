@@ -158,5 +158,32 @@ withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...grou
   check(s.packet.transactionCoverage === 'incomplete', 'an unlisted stand-in child: coverage incomplete (got ' + s.packet.transactionCoverage + ')');
   withheld(s, 'an unlisted stand-in child');
 }
+// 11. The category wins (lead ruling, #1322; as in #1316). A group in which either
+// row carries a spending category is not a card payment: both rows read exactly
+// as ungrouped.
+//  - A Bills transfer grouped with a 105 Groceries refund on the card: the refund
+//    stays a refund and covers the 80 purchase (reserve 0); the 25 minimum is still
+//    due (nothing paid it); Bills 395; available 395 - 25 - 70 - 0 = 300; no payment.
+//  - A Groceries debit grouped with a card credit: as ungrouped (withheld).
+{
+  const groc = { payee: 'Invented grocer', original_name: 'Invented grocer', category_name: 'Groceries' };
+  const ccp = { payee: 'Invented card payment', original_name: 'Invented card payment', category_name: 'Credit Card Payment' };
+  for (const [name, d, c] of [['grouped Groceries refund credit', generic, groc], ['grouped Groceries debit', groc, generic],
+    ['a "Credit Card Payment" debit grouped with a Groceries refund', ccp, groc]]) {
+    const rows = extra => [purchase, ['bills', 105, null, 'cash', { ...d, ...extra }], ['card', -105, null, 'credit', { ...c, ...extra }]];
+    const g = run(world(rows(group))), u = run(world(rows({})));
+    check(g.coverage.status === u.coverage.status && JSON.stringify(issues(g)) === JSON.stringify(issues(u))
+      && g.coverage.reservedCash === u.coverage.reservedCash && g.period.fromTodayFunding.availableNow === u.period.fromTodayFunding.availableNow
+      && g.coverage.payments.length === u.coverage.payments.length,
+    name + ': reads exactly as ungrouped (' + g.coverage.status + ', available ' + g.period.fromTodayFunding.availableNow + ')');
+    check(!issues(g).includes('coverage-payment-group-unconfirmed'), name + ': never a group of another shape');
+    if (c === groc && d === generic) {
+      check(g.coverage.status === 'ready' && g.coverage.payments.length === 0 && g.coverage.reservedCash === 0,
+        name + ': no payment; the refund covers the 80 purchase (reserve 0)');
+      check(g.period.fromTodayFunding.availableNow === 300, name + ': available now 395 - 25 - 70 - 0 = 300 (got '
+        + g.period.fromTodayFunding.availableNow + ')');
+    }
+  }
+}
 
 console.log(`  PASS  a Lunch Money card-payment group proves the payment's destination (${checks} checks)`);

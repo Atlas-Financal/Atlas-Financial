@@ -14075,9 +14075,15 @@
         groupMembers.get(id).push(tx);
       }
     }
+    // Lead ruling (#1322, rule 17): the category wins, as in #1316. A group in
+    // which either row carries a spending category is not a card payment; its
+    // rows read exactly as ungrouped (a refund stays a refund).
+    const spendingCategory = row => classifyCurrentPeriodTransaction({ ...row, amount: Math.abs(Number(row.amount)) },
+      plan, { packet }).householdSpending === true;
+    const spendingGroup = id => (groupMembers.get(String(id)) || []).some(spendingCategory);
     const cardPaymentGroup = tx => {
       const members = tx && tx.parentId != null ? groupMembers.get(String(tx.parentId)) : null;
-      if (!members || members.length !== 2) return false;
+      if (!members || members.length !== 2 || spendingGroup(tx.parentId)) return false;
       const accountOf = row => [row.atlasAccountId, row.accountId, row.account].find(id => id != null && id !== '');
       if (accountOf(members[0]) == null || accountOf(members[0]) === accountOf(members[1])) return false;
       const debit = members.find(row => row.accountRole === 'household-cash' && savingsCents(row.amount, true) > 0);
@@ -14306,7 +14312,7 @@
         const grouped = new Set();
         for (const id of groupIds) {
           const members = input.filter(tx => tx && tx.parentId != null && String(tx.parentId) === id);
-          if (new Set(members.map(accountOf)).size < 2) continue;
+          if (new Set(members.map(accountOf)).size < 2 || spendingGroup(id)) continue;
           for (const tx of members) grouped.add(tx);
           const shaped = members.map(tx => legOf.get(tx));
           const cash = shaped.filter(m => m && m.kind === 'cashDebit');
