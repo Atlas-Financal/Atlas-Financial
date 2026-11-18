@@ -2906,8 +2906,8 @@ function businessDaysApart(left, right) {
 // Q2 (owner decision 6967081727): the hits of the near-amount-and-payday rules.
 // Each qualifying credit is pushed under every occurrence it qualifies for; the
 // incumbent classifier then leaves two credits for one occurrence unresolved,
-// and representedEventHitGroups sends one credit under two occurrences to
-// transaction-consumed-twice (never the outstanding-before-upcoming preference).
+// and representedEventHitGroups leaves every occurrence a shared credit
+// qualifies for To confirm, before any occurrence is classified.
 function nearPaydaySalaryHits(input, rules) {
   const window = input && input.transactionWindow;
   if (!window || window.complete !== true || !parseIsoDate(window.startDate) || !parseIsoDate(window.endDate)) return [];
@@ -3317,7 +3317,25 @@ function representedEventHitGroups(input) {
   }
   const unique = [];
   const ambiguous = [];
+  // Q2 (owner decision 6967081727): one near-amount-and-payday credit that qualifies for two or more
+  // occurrences leaves every one of them To confirm. Found across ALL qualifying hits, before any occurrence
+  // is classified, so an occurrence that is also ambiguous for another reason cannot hide the reuse.
+  const nearKeysByTx = new Map();
   for (const [key, hits] of eventHits) {
+    for (const hit of hits) {
+      if (!hit || hit.settlesWhen !== SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) continue;
+      const keys = nearKeysByTx.get(String(hit.providerTransactionId)) || new Set();
+      keys.add(key);
+      nearKeysByTx.set(String(hit.providerTransactionId), keys);
+    }
+  }
+  const nearShared = new Set([...nearKeysByTx.values()].filter(keys => keys.size > 1).flatMap(keys => [...keys]));
+  for (const [key, hits] of eventHits) {
+    if (nearShared.has(key)) {
+      ambiguous.push({ key, id: hits[0] && hits[0].id, date: hits[0] && hits[0].date, hits,
+        reason: 'transaction-consumed-twice' });
+      continue;
+    }
     const twoLegHits = hits.filter(hit => hit && hit.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM);
     const otherHits = hits.filter(hit => !hit || hit.settlesWhen !== SETTLES_WHEN_TWO_LEG_SUM);
     // A pure shape keeps the incumbent decision. Standing bell is the
@@ -3384,9 +3402,7 @@ function representedEventHitGroups(input) {
   for (const [txId, siblings] of byTx) {
     const outstanding = siblings.filter(hit => hit && hit.date <= hit.postingDate);
     const upcoming = siblings.filter(hit => hit && hit.date > hit.postingDate);
-    // Q2: one near-amount-and-payday credit fitting two occurrences is To confirm (owner decision 6967081727).
-    const nearTwice = siblings.some(hit => hit && hit.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY);
-    if (outstanding.length && upcoming.length && !deliberateLinksDisagree(txId) && !nearTwice) {
+    if (outstanding.length && upcoming.length && !deliberateLinksDisagree(txId)) {
       for (const hit of upcoming) {
         droppedUpcoming.add(hit.id + '@' + hit.date + '@' + txId);
       }

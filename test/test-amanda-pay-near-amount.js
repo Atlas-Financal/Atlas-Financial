@@ -140,6 +140,11 @@ console.log('4. Fail closed');
   ok(both.settled.length === 0, 'one credit fitting both Oct 15 and Oct 19: neither settles (To confirm)', JSON.stringify(both.settled));
   ok(toConfirm(both.rowOf('amandaSalary15', '2026-10-15')) && toConfirm(both.rowOf('amandaSalaryMonthEnd', '2026-10-19')),
     'and both occurrences read To confirm');
+  // Codex P2 on #1294 (r4608629127): Oct 15 also has a second candidate (Oct 12, 2001). The Oct 16 credit still
+  // fits both paydays, so Oct 19 must not settle from it.
+  const shared = serve({ txs: [bills('2026-10-16', 2000), bills('2026-10-12', 2001)], monthEndDay: 19, monthEndAmount: 2000 });
+  ok(shared.settled.length === 0 && toConfirm(shared.rowOf('amandaSalaryMonthEnd', '2026-10-19')),
+    'a shared credit leaves both paydays To confirm even when one also has a second candidate', JSON.stringify(shared.settled));
   const pending = serve({ txs: [bills('2026-10-15', 2000, { pending: true })] });
   ok(pending.settled.length === 0, 'a pending credit never qualifies');
   for (const payee of ['Invented REFUND', 'INVENTED REVERSAL', 'Invented reimbursement']) {
