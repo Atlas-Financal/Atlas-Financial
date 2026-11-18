@@ -256,6 +256,16 @@ function project(candidate) {
   adopt(() => validateCandidate(candidate));
   const c = candidate.content, legacy = candidate.schema === History.LEGACY_SCHEMA;
   const p = c.publication;
+  // Rank 18 (lead, owner stop pending Dale): a held-outflow term is not in
+  // TERMS, so picking would drop it and the persisted terms would no longer
+  // close. Until the owner adds the field, a period with a non-zero held term
+  // fails closed; a period without one persists exactly as before.
+  for (const key of Object.keys(TERMS)) {
+    const terms = p && p[key];
+    if (terms && Object.hasOwn(terms, 'heldOutflowSpending') && Number(terms.heldOutflowSpending) !== 0) {
+      fail('history-projection-invalid');
+    }
+  }
   const publication = pick(p, PUBLICATION);
   for (const key of Object.keys(TERMS)) if (Object.hasOwn(p, key)) publication[key] = p[key] === null ? null : pick(p[key], TERMS[key]);
   for (const [key, spec] of Object.entries(ROWS)) {

@@ -319,6 +319,10 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+**A plain early income credit is projected again on its payday** · *pre-existing; found in the #1294 review (lead, 2026-11-18)*
+
+A posted credit into Bills that no income rule settles and no hold catches (for example a plain deposit for Amanda's salary more than 3 business days before her payday, outside the owner's near-amount window, #821 6967081727) is counted as Other Income now, and the scheduled occurrence is still projected on its payday. The same holds on main before #1294. Decide whether such a credit should hold the plan, as the early-receipt hold does for a TENNIS INCOME salary transfer, or be left as is. Proof would be an invented early plain credit whose payday is counted once.
+
 **Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*
 
 Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money's own recurring match: a linked deposit settles the payday LM paired it to, early, on time or late, once, at its actual amount. FOUNDATION: the household payroll rule names no item yet. Closure, one PR:
@@ -326,6 +330,10 @@ Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money'
 - remove `payrollLateOfEarlier` (#1290's one-business-day stopgap in `futureIncomeUncertainty`, `scripts/provider-observe.js`) and its cases in `test/test-payroll-late-posting.js`, and drop the `businessDaysAfter` export if nothing else reads it.
 
 Until then the stopgap stands aside only in an observation where LM's pairing took charge of payroll; with no consistent read it applies as before. Proof: the private exact base/head diff, LM's expected dates against Forecast's paydays for 12 months, then Dale's walk (rule 15). Closure is reached when the late-Monday case stays live through the LM pairing and the payday reads received rather than To confirm.
+
+**Linked savings-item spending is carried when actuals coverage is lost** · *#1323 review (rank 18), 2026-11-18; ADDED TO BACKLOG*
+
+`savingsItemCycleSpend` is deducted from Balance After Deductions and the planned close only when `budget.spentReady` is true. When actuals coverage is lost, or one category is withheld, the item term is 0 while the linked charges (kind `savings-item`) are out of every category and Other, so the household cash carried to the next period does not deduct them. The gate is deliberate on main ("linked equals unlinked": an unlinked category purchase is not counted by the lost-coverage hold either), so both understate together. #1323 repaired only the held-outflow term, whose twin was Other spending (which the lost-coverage hold does count). Next action: decide whether known posted linked charges are carried out of cash on the lost-coverage paths, as held outflows now are, with a hand-derived carry test. Owner: lead.
 
 **A grouped Savings card payment counts** · *lead U5 ruling, 2026-11-18; ADDED TO BACKLOG from the U5 PR*
 
@@ -789,7 +797,7 @@ An unknown-pending card is in flight in #951 (the #926 NEXT PR). Still open afte
 
 ~~`scripts/reconcile.js` checks `settledOn` for date shape only, so an impossible calendar date passes there; #934 (A8) makes the Forecast side strict. Source: builder findings 2026-11-08, adjacent to PR #934.~~ Fixed by `agent/reconcile-calendar-dates`.
 
-`majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).
+~~`majorPlans` should withhold when card coverage is unknown. Source: builder findings 2026-11-08 (no PR yet).~~ Already fixed: 29b06744 withholds every future-cost verdict, margin and remaining amount when card coverage is unavailable, and b069242d names the reason. `test/test-major-plans-card-coverage-unknown.js` (registered) pins it on invented data, with a known-coverage control. Dropping the coverage condition fails 9 of its checks.
 
 "Total bills this period" needs an estimated marker when its load includes estimates. Source: builder findings 2026-11-08 (no PR yet). **Owner decision:** it adds a new visible ≈ mark, and Dale asked for no new ≈ marks without his OK (lead, 2026-11-16); not built until he says so.
 
@@ -818,7 +826,7 @@ re-sourced from a function that stays, or dropped from the snapshot. Either
 is a figures-tooling change (full lane, Atlas). Source: #822 slice 8 scoping,
 2026-11-11.
 
-**Engine helpers no figures-check input observes** · *small*
+~~**Engine helpers no figures-check input observes** · *small*~~ Closed 2026-11-18. Re-probed on main `4a215db6`: all six still moved 0 compared keys. Three were reached by no input; a new invented input, `test/fixtures/figures-inputs/scheduled-bill-price.json`, now reaches them. Planted alone on that input, `billIsHouseholdObligation` ignoring `false` moves 66 keys, `billOccurrenceAmount` +1 on a regular amount 23, and the promoted term confidence 5 (the trust tags). The other three cannot move a compared key from any invented input. `carriedPastDue` and `dueOnOrAfter` are read only by `nextDue` / `nextPaymentOut`, which feed the Plan page's next-cash-out tile, the payday coming-up rows and the assistant packet: page-side, outside the compared fields. `billScheduleBlocksNormalization` is read only by `budgetBreakdown`, which needs a spending-history payload, and every invented input declares `absent-periods`. Each of the three stays guarded by registered suites that fail when it is planted: `test-next-due`, `test-next-payment-out` and `test-overdue-next-payment` for the first two, and `test-bill-amount-schedule` for the third. The original entry:
 A mutation probe run for #1108 planted one defect at a time in `public/forecast.js`
 and counted the check-snapshot keys that moved, on the household dated opening
 and all 11 invented inputs. Six defects moved 0 keys at #1108's base, so
@@ -913,11 +921,11 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 
 ~~Transitive npm advisories. Source: #900 follow-up.~~ Cleared by `agent/npm-audit-transitive` (hono and @hono/node-server patch bumps; `npm audit` reports 0).
 
-`operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.
+~~`operating-answer.js` loads the real `periods.json` in synthetic fixtures. Source: #897 follow-up.~~ Closed 2026-11-18 (lead ruling). The acceptance harness, the invented-world path, reads the file as absent since 205da705, guarded by `test-acceptance-harness-hermetic-periods`. With the file forced absent, 17 of the 20 older direct suites that reach `loadPeriods` give the same results, including every invented-data suite. The other 3 use it by design: `test-live-plan` and `test-refresh-05-operating-answer` run on the committed household opening, and `test-refresh-evaluation-reuse` tests that periods are loaded. The file is the committed, sanitised aggregate `ARCHITECTURE.md` names as the home for actuals, so reading it in a test publishes nothing new.
 
 ~~Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.~~ Stale: `scripts/recurring-audit.js` was removed 2026-11-17.
 
-An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up. (LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot; the uncategorised zero-target half is still open.)
+~~An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.~~ Closed 2026-11-18. The refund half is LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot. The zero-target half is STALE: on main `df873fbc` the row counts once as spending in the store rule's category (or Other spending with no category row), and Balance After Deductions falls by its amount. `test/test-store-rule-zero-target.js` pins it.
 
 ~~Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.~~ Retired: Grok Bot (rule 17, LEDGER A) declined it because pending never counts. A hint is fine.
 
@@ -933,7 +941,7 @@ An uncategorised store-rule row at a zero target is not counted, and an invisibl
 
 ~~Seed the #1162 replay-reuse slot from the qualified live result, so the first replay after a live refresh also skips compute. Source: #1162 Additional findings.~~ Not built (lead ruling 2026-11-16): the live worker records no disk witness and its check differs from a replay's, so seeding needs a second recorder path and a hand-built replay-shaped check on the page-load publication path, for a gain of one Forecast run per live refresh.
 
-`test/road-ahead-mutation-check.js` fails on unchanged `main` (found 2026-11-16 while pruning baselineTrajectory). Repair it narrowly or record why it is retired. Source: #1198 card.
+~~`test/road-ahead-mutation-check.js` fails on unchanged `main` (found 2026-11-16 while pruning baselineTrajectory). Repair it narrowly or record why it is retired. Source: #1198 card.~~ Repaired 2026-11-18: the eighth mutant's pattern still matched the code shape before 4f1cee1a, so it no longer applied. It now targets the current per-day category split, and all eight mutants are caught on main.
 
 **Declined for now by the owner** (Dale, 2026-11-16, recorded on #821). Not to be built unless Dale reopens them:
 - A Bank-check line on the Budget page (Forecast already publishes `bankCheck` on the current pay-period row; the page keeps not showing it).

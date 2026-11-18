@@ -840,7 +840,24 @@ function currentOperatingCashHeroTiles(plan, asOf, sim, advice, liveOverlay) {
   ].filter(Boolean);
 }
 
-function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
+/* A stale card balance (Forecast.cardBalanceFreshness, #1305): the debt
+ * walk publishes trust 'estimated' with staleBalances, and utilisation rows
+ * carry balanceTrust/balanceAsOf. This prints Forecast's verdict and dates as
+ * one plain note; it decides nothing and computes nothing. Empty when no card
+ * balance is stale, so a current page is unchanged. */
+function staleCardBalanceNote(staleBalances, debts) {
+  const rows = (Array.isArray(staleBalances) ? staleBalances : []).filter(r => r && r.id);
+  if (!rows.length) return '';
+  const label = id => ((debts || []).find(x => x && x.id === id) || {}).label || id;
+  return 'estimate — ' + rows.map(r => `${label(r.id)} balance ${r.balanceAsOf
+    ? 'as of ' + fmtDateLong(r.balanceAsOf) : 'undated'}`).join('; ') + ', before this statement cycle';
+}
+function staleUtilisationRows(util) {
+  return ((util && util.rows) || []).filter(r => r && r.balanceTrust === 'estimated')
+    .map(r => ({ id: r.id, balanceAsOf: r.balanceAsOf || null }));
+}
+
+function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today, staleNote) {
   if (liveOperatingPlanUnavailable(advice, liveOverlay)) {
     return {
       lab: 'Consumer debt',
@@ -855,7 +872,7 @@ function currentOperatingConsumerDebtHeroTile(advice, liveOverlay, today) {
     val: today.consumer == null ? 'unavailable' : money(today.consumer),
     tone: overToday.length ? 'alert' : 'warn',
     note: `${money(today.headroom)} of credit left everywhere${overToday.length
-      ? ` — ${overToday.length} facility over its limit` : ''}`,
+      ? ` — ${overToday.length} facility over its limit` : ''}${staleNote ? ` · ${staleNote}` : ''}`,
   };
 }
 
@@ -2262,7 +2279,8 @@ function householdBudgetMetric(label, amount, opts) {
     ? `<span class="est">≈ estimated</span> ${plain}`
     : plain;
   const recon = opts && Array.isArray(opts.recon) ? opts.recon : null;
-  if (label === 'Spent' && recon && recon.length) {
+  // Rank 18: the To confirm block lists its rows the same way, under its own label.
+  if ((label === 'Spent' || (opts && opts.listRows === true)) && recon && recon.length) {
     const esc = v => String(v == null ? '' : v)
       .replace(/&/g, '\u0026amp;')
       .replace(/</g, '\u0026lt;')
@@ -2311,8 +2329,8 @@ function householdBudgetMetric(label, amount, opts) {
       const possibleBill = possibleMark && typeof possibleMark.id === 'string' && possibleMark.id
         ? `<span class="household-budget-tx-alert" data-tx-possible-bill="${esc(possibleMark.id)}">Possibly ${possibleMark.label ? esc(possibleMark.label) : 'a planned bill'} at a new price — to confirm; the bill is still counted too</span>`
         : '';
-      // Display-only (Forecast owns the date): a Mortgage-labelled row counted
-      // here while the plan's earlier mortgage occurrence is still To confirm.
+      // Display-only (Forecast owns the date): a Mortgage-labelled row held To
+      // confirm while the plan's earlier mortgage occurrence is still To confirm.
       const mortgageDue = typeof tx.mortgageDueToConfirm === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(tx.mortgageDueToConfirm)
         ? `<span class="household-budget-tx-alert" data-tx-mortgage-due="${esc(tx.mortgageDueToConfirm)}">Mortgage-labelled; the mortgage due ${esc(fmtDate(tx.mortgageDueToConfirm))} is still To confirm</span>`
         : '';
@@ -2355,11 +2373,11 @@ function householdBudgetMetric(label, amount, opts) {
       ? `<p class="household-budget-tx-total"><span>Total</span><span data-budget-spent-total="${spentId}">${value}</span></p>`
       : '';
     return `<div class="${cls} household-budget-spent-openable">
-      <dt>Spent</dt>
+      <dt>${label}</dt>
       <dd>
         <details class="household-budget-spent-detail" data-budget-spent="${spentId}">
           <summary class="household-budget-spent-summary">
-            <span class="household-budget-spent-label">Spent</span>
+            <span class="household-budget-spent-label">${label}</span>
             <span class="household-budget-spent-amount">${value}</span>
           </summary>
           <div class="household-budget-breakdown" data-budget-spent-detail>
@@ -2603,9 +2621,21 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
       <dl class="household-budget-metrics">${householdBudgetMetric('Spent', paid.total, { recon: paid.recon, id: 'paid-from-savings', unavailableText: 'Unavailable' })}</dl>
     </div>`;
   }
+  // Rank 18: a loan/mortgage payment or reversed income no owner claimed.
+  // Forecast holds it To confirm, out of every category and Other, and
+  // deducts it once as its own Balance After Deductions term. Print
+  // Forecast's rows and total; never sum them here.
+  function heldOutflowsHtml(period) {
+    const held = period && period.heldOutflowsToConfirm;
+    if (!held || !Array.isArray(held.recon) || !held.recon.length) return '';
+    return `<div class="household-budget-other" data-budget-category="to-confirm" data-budget-held-outflows>
+      <h3 class="household-budget-name">To confirm</h3>
+      <dl class="household-budget-metrics">${householdBudgetMetric('Not counted as spending', held.total, { recon: held.recon, id: 'to-confirm', unavailableText: 'Unavailable', listRows: true })}</dl>
+    </div>`;
+  }
   return `<div class="payday-household-budget" data-payday-household-budget>
     ${cycle}
-    <div class="household-budget-list">${blocks}${savingsPaidSpendingHtml(period)}</div>
+    <div class="household-budget-list">${blocks}${heldOutflowsHtml(period)}${savingsPaidSpendingHtml(period)}</div>
     ${reserveInfo}
   </div>`;
 }
@@ -3889,13 +3919,15 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   // own named term (A4b). It is printed only when Forecast publishes it, so every
   // other period is unchanged and the printed terms add up to the printed result.
   const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
+  // Rank 18: held outflows (To confirm), deducted once as their own term.
+  const badHeldTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'heldOutflowSpending');
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote}</p>` : ''}
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badHeldTermPublished ? badTermRow('heldOutflowSpending', 'To confirm (not spending)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);
@@ -6235,6 +6267,17 @@ function budgetSpendingSectionHtml(period, ctx) {
       <p><strong>Paid from Savings</strong> <span>${amount}</span> <small>${n} ${n === 1 ? 'purchase' : 'purchases'}${qualifier ? ' · ' + budgetBrowseEscape(qualifier) : ''}</small></p>
       ${reflected ? `<p>${reflected}</p>` : ''}</div>`;
   }
+  // Rank 18: held outflows (a Mortgage-labelled or income-category debit no
+  // owner claims), listed under Spending as plain markup like Paid from
+  // Savings, never a .budget-category-row. Forecast's total prints as
+  // published; it is deducted once as its own Balance After Deductions term.
+  function budgetHeldOutflowsBrowseHtml(period) {
+    const held = period && period.heldOutflowsToConfirm;
+    if (!held || !Array.isArray(held.recon) || !held.recon.length) return '';
+    const n = held.recon.length;
+    return `<div class="budget-browse-note" data-budget-held-outflows-browse>
+      <p><strong>To confirm</strong> <span>${budgetBrowseMoney(held.total)}</span> <small>${n} ${n === 1 ? 'payment' : 'payments'} · not counted as spending</small></p></div>`;
+  }
   // LEDGER A item 3 (Grok Bot, rule 17): posted refunds the ledger does not link to a purchase. Forecast
   // publishes them display-only; they are in no category, not in Other and not in any total.
   function budgetUnlinkedRefundsBrowseHtml(period) {
@@ -6251,7 +6294,7 @@ function budgetSpendingSectionHtml(period, ctx) {
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
-    ${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
+    ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
     <footer><button type="button" data-budget-browse-evidence="06" aria-label="Household spending and reserve evidence">Info</button></footer>
   </section>`;
 }
@@ -6816,7 +6859,16 @@ function budgetCardMovementsHtml(ctx) {
     period ? { start: period.start, end: period.end } : null,
     { currentPeriodActuals: overlay?.currentPeriodActuals || null,
       cardPeriodBalanceEvidence: overlay?.cardPeriodBalanceEvidence || null, liveOverlay: overlay });
-  return BudgetCardMovements.html(publication, { money: money2, date: fmtDate });
+  // Forecast's own freshness verdict per card (#1305), so the strip can tag a
+  // stale reported balance; the strip copies it, it does not decide it.
+  const cardFreshness = {};
+  if (typeof Forecast.cardBalanceFreshness === 'function') {
+    for (const debt of ctx.debts || []) {
+      const verdict = debt && debt.id != null ? Forecast.cardBalanceFreshness(debt, ctx.plan, ctx.asOf) : null;
+      if (verdict) cardFreshness[debt.id] = verdict;
+    }
+  }
+  return BudgetCardMovements.html(publication, { money: money2, date: fmtDate, cardFreshness });
 }
 
 function budgetSurfaceHtml(ctx) {
@@ -7218,8 +7270,11 @@ function renderPlanSettlementUnavailable(d, reason) {
   const plan = d.plan;
   const asOf = d.meta.asOf;
   const snap = Forecast.compactSnapshot(d.debts, d.helocHistory);
-  const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
+  const util = Forecast.utilisation(d.debts, d.revolvingExtra, plan);
+  const revolving = util.totalAvailable;
+  const creditStaleNote = staleCardBalanceNote(staleUtilisationRows(util), d.debts);
   let consumer = null;
+  let consumerStaleNote = '';
   try {
     const opening = planDebtProjection(plan, d.debts, asOf, {
       extraFacilities: d.revolvingExtra,
@@ -7227,13 +7282,14 @@ function renderPlanSettlementUnavailable(d, reason) {
     if (opening && Array.isArray(opening.marks) && opening.marks[0]) {
       consumer = opening.marks[0].consumer;
     }
+    if (opening && opening.trust === 'estimated') consumerStaleNote = staleCardBalanceNote(opening.staleBalances, d.debts);
   } catch { consumer = null; }
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   setHtml('snapshot-tiles', [
-    { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' },
+    { lab: 'Consumer debt', val: consumer == null ? 'unavailable' : money(consumer), note: 'cards and revolving, excluding the house' + (consumerStaleNote ? ` · ${consumerStaleNote}` : '') },
     { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
     { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
-    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
+    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' + (creditStaleNote ? ` · ${creditStaleNote}` : '') },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
       note: helocTrend.note }] : []),
@@ -7411,6 +7467,9 @@ function renderPlan(d, periods, history) {
   const debtProj = planDebtProjection(plan, d.debts, asOf,
     Object.assign({}, advice.simOptions, { weeklyVariable: weekly,
       extraFacilities: d.revolvingExtra }));
+  // Every debt line below is walked from these balances: one shared note.
+  const debtStaleNote = debtProj && debtProj.trust === 'estimated'
+    ? staleCardBalanceNote(debtProj.staleBalances, d.debts) : '';
 
   // The alternative assumptions, decided and evaluated by the engine. This page
   // used to build both: a funding source holding `available: Infinity` for "if
@@ -7466,7 +7525,9 @@ function renderPlan(d, periods, history) {
     : missionResult.status === 'unavailable' ? missionResult.reason
     : missionResult.parts
       .map(p => MISSION_PART[p.id](p)).join(', ')
-      .replace(/^./, c => c.toUpperCase()) + '.';
+      .replace(/^./, c => c.toUpperCase()) + '.'
+      + (debtStaleNote && missionResult.parts.some(p => p.id === 'overLimit' || p.id === 'helocLimit')
+        ? ` (${debtStaleNote}.)` : '');
 
   /* ---- NEXT MOVE — the one thing to do ---- */
   // WHICH of the five outcomes the household reads under "What happens after",
@@ -7549,7 +7610,7 @@ function renderPlan(d, periods, history) {
         ? unavailableNote
         : !cap ? capView.reason || 'The weekly cap split is unavailable.'
         : `groceries, fuel, phones and medical — ${money(cap.foodFuelPlannedWeekly)}/wk of it food and fuel` },
-    currentOperatingConsumerDebtHeroTile(advice, d.liveOverlay, today),
+    currentOperatingConsumerDebtHeroTile(advice, d.liveOverlay, today, debtStaleNote),
   ].filter(Boolean).map(t => `
     <div class="tile ${escapeHtml(t.tone)}">
       <div class="lab">${escapeHtml(t.lab)}</div>
@@ -7737,6 +7798,7 @@ function renderPlan(d, periods, history) {
   }).join('');
 
   $('score-note').innerHTML =
+    (debtStaleNote ? `<b>${escapeHtml(debtStaleNote.replace(/^estimate — /, 'Estimate: '))}</b> — the debt lines are walked from it. ` : '') +
     (gap && fundingPlan ? `Assumes the opening gap is covered by ` +
       `<b>${fundingPlan.parts.map(p => `${money2(p.amount)} from ${escapeHtml(p.short)}`).join(' plus ')}</b>` +
       (fundingPlan.borrowed > 0
@@ -8073,13 +8135,15 @@ function renderPlan(d, periods, history) {
   // Pending charges have already spent the credit they are charged against,
   // so headroom is derived with them included rather than from posted
   // balances alone — the Travel Visa reads $21.69 of room the other way.
-  const revolving = Forecast.utilisation(d.debts, d.revolvingExtra, plan).totalAvailable;
+  const util = Forecast.utilisation(d.debts, d.revolvingExtra, plan);
+  const revolving = util.totalAvailable;
+  const creditStaleNote = staleCardBalanceNote(staleUtilisationRows(util), d.debts);
   const helocTrend = snap.heloc ? HELOC_TREND[snap.heloc.id] : null;
   $('snapshot-tiles').innerHTML = [
-    { lab: 'Consumer debt', val: consumer == null ? 'Unknown' : money(consumer), note: consumer == null ? 'a card\'s pending is unknown' : 'cards and revolving, excluding the house' },
+    { lab: 'Consumer debt', val: consumer == null ? 'Unknown' : money(consumer), note: (consumer == null ? 'a card\'s pending is unknown' : 'cards and revolving, excluding the house') + (debtStaleNote ? ` · ${debtStaleNote}` : '') },
     { lab: 'Mortgage + HELOC', val: snap.secured == null ? 'Unknown' : money(snap.secured), note: snap.secured == null ? 'a secured balance is unknown' : 'secured on the home' },
     { lab: 'Interest cost / month', val: snap.monthlyInterest == null ? 'Unknown' : money(snap.monthlyInterest), note: snap.monthlyInterest == null ? 'a debt interest figure is unknown' : 'across every debt, at current rates' },
-    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' },
+    { lab: 'Credit left, everywhere', val: money(revolving), note: 'across all revolving facilities combined' + (creditStaleNote ? ` · ${creditStaleNote}` : '') },
     ...(helocTrend ? [{ lab: 'HELOC vs last month',
       val: helocTrend.sign + money(Math.abs(snap.heloc.delta)).slice(1),
       note: helocTrend.note }] : []),

@@ -21,7 +21,7 @@ function run(input) {
   eq(out.writesCanonicalState, false, 'no canonical write');
   eq(out.data.plan.income, input.data.plan.income, 'salary amount and calendar untouched');
   eq(out.data.plan.bills, input.data.plan.bills, 'bill policy untouched');
-  const sim = F.simulate(out.data.plan, input.asOf, { horizonDays: 3, weeklyVariable: 0 });
+  const sim = F.simulate(out.data.plan, input.asOf, { horizonDays: input.horizonDays || 3, weeklyVariable: 0 });
   return { ...out, report, sim };
 }
 const retained = [];
@@ -35,7 +35,7 @@ for (const kind of ['amanda', 'payroll']) {
   eq(out.data.liveOverlay.operatingPlan, 'unavailable', kind + ': current operating claims held');
   eq(out.sim.status, 'unavailable', kind + ': standalone cash walk held');
   eq(out.sim.ending, null, kind + ': duplicate projected closing cash withheld, not zero');
-  eq(out.sim.daily.map(row => row.balance), [null, null, null], kind + ': no daily forward cash leak');
+  eq(out.sim.daily.map(row => row.balance), Array(input.horizonDays).fill(null), kind + ': no daily forward cash leak');
   eq(out.sim.events.filter(row => row.kind === 'income').map(row => row.amount), [input.amount], kind + ': planned occurrence retained');
   eq(F.recommendWeekly(out.data.plan, input.asOf), null, kind + ': direct spend permission held');
 }
@@ -45,7 +45,8 @@ for (const kind of ['amanda', 'payroll']) {
 // the gate: Amanda 2800.25 + 1800.25 - 3000 = 1600.50; payroll 3500 + 2500
 // - 3000 = 3000. Neither margin is justified by a second observed receipt.
 for (const kind of ['amanda', 'payroll']) {
-  const input = fixture(kind), date = F.addDays(input.asOf, 2);
+  // The day after the payday (payroll: the plan date + 2, as before; Amanda: after her Oct 31 payday).
+  const input = fixture(kind), date = F.addDays(input.scheduled, 1);
   input.data.plan.commitments = [{ id: 'invented-future-price', label: 'Invented future price',
     date, amount: 3000, flexibility: 'fixed', confidence: 'confirmed' }];
   const out = run(input), plan = out.data.plan, before = JSON.stringify(out.data);

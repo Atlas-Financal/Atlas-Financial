@@ -99,9 +99,11 @@ function check(name, cash, transactions, hold, calendarLeft, mixed = false, pend
   assert.equal(rec.paydayAllocation.essentials.wanted, hold, name + ': recommend integration');
   const period = rec.defaultView.calendarPeriods.find(r => r.id === 'this-pay-period');
   assert.equal(period.available, 2000, name + ': Payday balance is period income');
+  // Rank 18: a held outflow (To confirm, never spending) is its own term.
+  const held = Number(period.predictedEndingBalanceTerms && period.predictedEndingBalanceTerms.heldOutflowSpending) || 0;
   assert.equal(period.afterHouseholdBudget,
-    2000 - (Number(period.periodBillLoad) || 0) - period.budgetHold,
-    name + ': Balance After Deductions is income minus bills minus Household Budget hold');
+    2000 - (Number(period.periodBillLoad) || 0) - period.budgetHold - held,
+    name + ': Balance After Deductions is income minus bills minus Household Budget hold minus any held outflow');
   assert.notEqual(period.afterHouseholdBudget, 3000 + 2000 - period.budgetHold,
     name + ': Balance After Deductions does not add the frozen payday-snapshot opening');
   console.log('PASS ' + name);
@@ -278,10 +280,17 @@ for (const extra of [
   assert.equal(a.protectedPath.allocated, 0, 'excluded actual cannot encumber pending cash');
 }
 // A pending debit in an income category is money leaving that needs
-// confirmation: uncategorised, so Groceries keeps its full 900 hold, and the
-// 600 is still unsettled cash. 5000 - 900 - 600 = 3500 releasable.
-check('income-category pending debit is still unsettled cash', 5000,
-  [{ ...pending, isIncome: true }], 900, 3500, false, 600);
+// confirmation: held (rank 18), so Groceries keeps its full 900 hold, and the
+// 600 is still unsettled cash. 5000 - 900 - 600 = 3500 releasable. Balance
+// After Deductions deducts the held 600 once: 2000 - 0 - 900 - 600 = 500.
+{
+  check('income-category pending debit is still unsettled cash', 5000,
+    [{ ...pending, isIncome: true }], 900, 3500, false, 600);
+  const period = F.recommend(plan(5000), AS_OF, options([{ ...pending, isIncome: true }]))
+    .defaultView.calendarPeriods.find(r => r.id === 'this-pay-period');
+  assert.equal(period.budgetHold, 900, 'the held 600 is not in the Household Budget hold');
+  assert.equal(period.afterHouseholdBudget, 500, 'BAD 2000 - 900 - 600 = 500: the held debit deducted once');
+}
 // An already-settled treatment is not still-unsettled cash.
 check('incumbent confirmed-settled treatment', 4400, [
   { ...pending, pendingTreatment: 'confirmed-settled' },

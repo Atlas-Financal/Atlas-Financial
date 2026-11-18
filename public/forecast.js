@@ -2028,6 +2028,35 @@
     if (!Number.isSafeInteger(out.cents)) return null;
     return out;
   }
+  // Rank 18 (lead ruling, OD-021): held outflows (a Mortgage-labelled or
+  // income-category debit no owner claims) are out of the household hold but
+  // still left household cash. The remainder and the close each deduct them
+  // once as their own named term, exactly as savings-item spending: never
+  // twice and never as a household cost. Household-cash rows only (a Savings
+  // or card row moved no Bills cash); a pending row stays deducted, the
+  // conservative side; a replaced pending and a split parent never count.
+  function heldOutflowCycleSpend(plan, asOf, opts, cycle) {
+    const packet = currentPeriodActualsPacket(opts);
+    const out = { cents: 0, count: 0 };
+    if (!packet || !Array.isArray(packet.transactions) || !cycle || !savingsDate(cycle.start)) return out;
+    const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    for (const tx of packet.transactions) {
+      if (!tx || !tx.date || tx.accountRole !== 'household-cash') continue;
+      if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
+          || isPossibleReplacementPending(tx, duplicateIds)) continue;
+      const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      if (!cls || cls.kind !== 'held-outflow') continue;
+      const cents = savingsCents(Number(tx.amount), true);
+      if (cents == null) return null;
+      if (!(cents > 0)) continue;
+      out.cents += cents;
+      out.count += 1;
+      if (!Number.isSafeInteger(out.cents)) return null;
+    }
+    return out;
+  }
   function savingsInventory(plan, asOf, opts) {
     const settlementEvidence = opts ? opts.settlementEvidence : null;
     const config = savingsEarmarksState(plan, asOf);
@@ -7254,6 +7283,24 @@
     };
   }
 
+  // Rank 18 (lead ruling, OD-021): a loan/mortgage payment or a reversed
+  // income deposit is never household consumption. When no other owner
+  // (represented bill, obligation, debt or card payment, transfer) claims it,
+  // it is held: To confirm, out of every spending category, Other and budget
+  // progress. Its cash still leaves once: the observed balance holds a posted
+  // row, and a pending household-cash row joins pendingCash.
+  function heldOutflowResult(reason, extra) {
+    return Object.assign({
+      kind: 'held-outflow',
+      categoryId: null,
+      householdSpending: false,
+      reason,
+      needsConfirmation: true,
+      includeReason: reason,
+      atlasRow: null,
+    }, extra || {});
+  }
+
   function cancelledServiceForTransaction(tx, plan) {
     // Posted-debit contract only: raw provider pending rows never qualify,
     // even when Forecast's derived pendingTreatment would treat them as settled.
@@ -7408,11 +7455,20 @@
     }
     return cls;
   }
+  // A Mortgage-labelled debit that would otherwise be household spending is
+  // a loan payment no owner claimed: held, never consumption (rank 18). The
+  // Grok Bot note stays display-only: it names the plan's latest unsettled
+  // mortgage occurrence before the debit, when there is one.
   function withMortgageDueNote(tx, plan, opts, cls) {
-    if (!cls || cls.householdSpending !== true || !tx
+    // Household cash only: the held term deducts household-cash rows, so a
+    // card or Savings row keeps its incumbent owner (never held and dropped).
+    if (!cls || cls.householdSpending !== true || !tx || tx.accountRole !== 'household-cash'
+        || (cls.kind !== 'spend' && cls.kind !== 'unclassified')
         || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return cls;
     const due = mortgageDueStillToConfirm(plan, tx.date, opts);
-    return due ? Object.assign({}, cls, { mortgageDueToConfirm: due }) : cls;
+    return heldOutflowResult('mortgage-labelled-debit', due ? { mortgageDueToConfirm: due } : null);
   }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
@@ -7462,16 +7518,20 @@
       // classified exactly as the same debit without the income flag, so
       // every other owner (represented bill, card or debt payment, transfer,
       // business, cancelled service) still claims it and it is counted once.
-      // Only when it would otherwise be household spending does it become
-      // spending that needs confirmation: which income occurrence it reverses
-      // (if any) is not provable here, and the outflow must reduce the period
-      // remainder instead of vanishing or flipping sign.
+      // Only when it would otherwise be household spending is it held
+      // (rank 18): which income occurrence it reverses (if any) is not
+      // provable here, so it is To confirm, never consumption, and its cash
+      // still leaves once instead of vanishing or flipping sign.
       const signed = Number(tx.amount);
       if (isFinite(signed) && signed > 0) {
         const asDebit = classifyCurrentPeriodTransaction(
           Object.assign({}, tx, { isIncome: false }), plan, opts);
         if (asDebit && asDebit.householdSpending === true) {
-          return confirmationResult('income-category-debit', 'income-category-debit');
+          // Household cash only (see withMortgageDueNote): a card or Savings
+          // row keeps the incumbent confirmation row.
+          return tx.accountRole === 'household-cash'
+            ? heldOutflowResult('income-category-debit')
+            : confirmationResult('income-category-debit', 'income-category-debit');
         }
         return asDebit;
       }
@@ -8432,6 +8492,18 @@
         out.excluded.savingsPaid = roundCent((out.excluded.savingsPaid || 0) + amt);
         continue;
       }
+      if (cls.kind === 'held-outflow') {
+        // Rank 18: held, never consumption. A posted row is already in the
+        // observed balance; a pending household-cash row still leaves cash.
+        // It stays To confirm (counted and listed), with no category amount.
+        if (state === 'pending' && tx.accountRole === 'household-cash' && amt > 0) {
+          out.pendingCash = roundCent(out.pendingCash + amt);
+        }
+        out.excluded.heldOutflows = roundCent((out.excluded.heldOutflows || 0) + amt);
+        out.unclassified.count += 1;
+        recordHeld(tx, cls);
+        continue;
+      }
       if (cls.kind === 'savings-item') {
         // A4b: item membership is display/budget membership only. A pending
         // household-cash charge still leaves cash, exactly as before.
@@ -8678,7 +8750,8 @@
       || cls.kind === 'card-payment' || cls.kind === 'income'
       || cls.kind === 'business' || cls.kind === 'external' || cls.kind === 'bill'
       || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped'
-      || cls.kind === 'savings-item' || cls.kind === 'savings-paid') {
+      || cls.kind === 'savings-item' || cls.kind === 'savings-paid'
+      || cls.kind === 'held-outflow') {
       return false;
     }
     if (cls.needsConfirmation || cls.kind === 'unclassified') return true;
@@ -12921,6 +12994,23 @@
         savingsPaidRows.push(reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate }));
       }
     }
+    // Rank 18: held outflows (To confirm, never spending). The rows the
+    // period's held term deducts once: household cash, not a replaced pending.
+    // Never part of any category, Other spending, or the hold below.
+    const heldOutflowRows = [];
+    if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
+      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      for (const tx of packet.transactions) {
+        if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
+          || skipSplitParent(tx, packet) || tx.accountRole !== 'household-cash'
+          || isPossibleReplacementPending(tx, duplicateIds)) continue;
+        const amount = Number(tx.amount);
+        if (!isFinite(amount) || !(amount > 0)) continue;
+        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        if (cls.kind !== 'held-outflow') continue;
+        heldOutflowRows.push(reconTxFrom(tx, cls));
+      }
+    }
     // LEDGER A item 3: posted refunds the ledger does not link to a purchase.
     // Display only: never in a category, Other spending, the hold or any total.
     const unlinkedRefundRows = [];
@@ -13154,6 +13244,7 @@
       ...(unlinkedRefundRows.length ? { unlinkedRefunds: {
         total: roundCent(unlinkedRefundRows.reduce((s, r) => s - (Number(r.amount) || 0), 0)),
         trust: 'calculated', reason: 'refund-unlinked', recon: unlinkedRefundRows } } : {}),
+      ...(heldOutflowRows.length ? { heldOutflows: heldOutflowRows } : {}),
       ...(savingsPaidRows.length ? { savingsPaid: { total: null,
         observedTotal: spentFromRecon(savingsPaidRows), complete: false,
         pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
@@ -13397,7 +13488,8 @@
     const known = typeof value === 'number' && Number.isFinite(value)
       && [terms.opening, terms.incomeAdded, terms.periodBillLoad, terms.budgetHold, terms.annualSavingsNeed,
         ...(Object.hasOwn(terms, 'earlierCardPurchaseReserve') ? [terms.earlierCardPurchaseReserve] : []),
-        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : [])]
+        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : []),
+        ...(Object.hasOwn(terms, 'heldOutflowSpending') ? [terms.heldOutflowSpending] : [])]
         .every(v => typeof v === 'number' && Number.isFinite(v));
     if (!known) {
       return { plannedPeriodClose: null, plannedPeriodCloseTrust: 'unknown', plannedPeriodCloseTerms: null,
@@ -13418,7 +13510,8 @@
       plannedPeriodCloseTerms: { ...terms, identity: (Object.hasOwn(terms, 'earlierCardPurchaseReserve')
         ? 'opening-plus-income-minus-bills-budget-annual-savings-and-earlier-card-purchase-reserve'
         : 'opening-plus-income-minus-bills-budget-and-annual-savings')
-          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : ''),
+          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : '')
+          + (Object.hasOwn(terms, 'heldOutflowSpending') ? '-and-held-outflow-spending' : ''),
         deficit: close < 0 },
       // Every estimate source carries its own reason; one never hides another.
       plannedPeriodCloseReason: [
@@ -13429,7 +13522,8 @@
   }
 
   function composeBalanceAfterDeductionsTerms(
-    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0
+    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0,
+    heldOutflowSpending = 0
   ) {
     if (periodIncome == null || assignedBills == null
         || householdBudgetHold == null || balanceAfterDeductions == null) {
@@ -13444,12 +13538,14 @@
     const hold = roundCent(householdBudgetHold);
     const remainder = roundCent(balanceAfterDeductions);
     const item = roundCent(Number(savingsItemSpending) || 0);
-    const reconstructed = roundCent(income - bills - hold - item);
+    const held = roundCent(Number(heldOutflowSpending) || 0);
+    const reconstructed = roundCent(income - bills - hold - item - held);
     return {
       periodIncome: income,
       assignedBills: bills,
       householdBudgetHold: hold,
       ...(item > 0 ? { savingsItemSpending: item } : {}),
+      ...(held > 0 ? { heldOutflowSpending: held } : {}),
       balanceAfterDeductions: remainder,
       identity: 'balance-after-deductions',
       closes: Math.abs(reconstructed - remainder) <= 0.005,
@@ -16180,8 +16276,19 @@
       // item term: linked equals unlinked.
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
-        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
+      // Rank 18: held outflows, on the item term's cycle. Unlike the item
+      // term (whose unlinked twin sits in a category the lost-coverage hold
+      // does not count), a held row's twin was Other spending, which that
+      // hold does count from the known rows. So the held term is deducted
+      // whenever its rows are known: actuals ready, coverage lost, or one
+      // category withheld (#1323 review). Never twice: the row is out of
+      // Other and the hold on every path.
+      const heldSpendComputed = (role === 'active' || lookback) && !planUnavailable
+        && (budget.spentReady === true || budget.coverageLost === true);
+      const heldSpend = heldSpendComputed
+        ? heldOutflowCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, count: 0 };
+      const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && budget.hold != null
+        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
@@ -16227,7 +16334,8 @@
         periodBillLoad,
         planUnavailable ? null : budget.hold,
         balanceAfterDeductions,
-        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0
+        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0,
+        heldSpend?.cents > 0 ? heldSpend.cents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && closeBillLoad != null
@@ -16247,8 +16355,9 @@
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null && itemSpend != null && budget.hold != null
-        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100) : null;
+        && earlierCardReserve != null && itemSpend != null && heldSpend != null && budget.hold != null
+        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100
+          - heldSpend.cents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
       // basis (the rows this close deducts, from its opening). Only a
@@ -16594,6 +16703,11 @@
         // Savings audit (PR 1): display only. Already in observed Savings;
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
+        // Rank 18: the held rows and the one term BAD and the close deduct.
+        // The total is the deducted term itself; when the term was not
+        // computed (actuals not ready) the listed rows have no published total.
+        ...(!planUnavailable && budget.heldOutflows ? { heldOutflowsToConfirm: {
+          total: heldSpendComputed && heldSpend != null ? heldSpend.cents / 100 : null, recon: budget.heldOutflows } } : {}),
         // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
         ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
@@ -16636,6 +16750,7 @@
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
+          ...(heldSpend?.cents > 0 ? { heldOutflowSpending: heldSpend.cents / 100 } : {}),
         }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'
