@@ -63,6 +63,25 @@ function recurring(value) {
           ? strings(item.matches.missingTransactionDates) : null,
       } })) } };
 }
+// Lunch Money budgets (PR A, #821 2026-11-18): only the fields the observer's
+// budget reader consumes -- the period settings, and per category its id and
+// each period's dates and `budgeted`. Activity, notes and currency text are
+// never retained. Any read that is not a clean 'read' replays as unavailable.
+const BUDGET_SETTINGS = ['budget_period_granularity', 'budget_period_quantity', 'budget_period_anchor_date'];
+function budgets(value) {
+  if (value?.status !== 'read') return { status: 'unavailable', reason: 'budget-read-failed' };
+  const rows = value.summary && value.summary.categories;
+  if (!value.settings || typeof value.settings !== 'object' || !Array.isArray(rows)) {
+    return { status: 'unavailable', reason: 'budget-read-failed' };
+  }
+  return { status: 'read', settings: pick(value.settings, BUDGET_SETTINGS), summary: {
+    categories: rows.filter(row => row && typeof row === 'object').map(row => ({
+      category_id: row.category_id,
+      occurrences: Array.isArray(row.occurrences)
+        ? row.occurrences.filter(o => o && typeof o === 'object').map(o => pick(o, ['start_date', 'end_date', 'budgeted']))
+        : null,
+    })) } };
+}
 // A group parent's children: only their ids, account ids and parent id
 // (provider-observe groupParentAccountId). No payee, note, amount or metadata.
 const CHILD_ACCOUNT = ['id', 'plaid_account_id', 'manual_account_id', 'group_parent_id'];
@@ -100,7 +119,8 @@ function sourceInputs(payload) {
     transactions: payload.transactions.map(transaction),
     transactionWindow: pick(payload.transactionWindow, WINDOW),
     pendingCoverage: pick(payload.pendingCoverage, PENDING),
-    ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}) };
+    ...(Object.hasOwn(payload, 'recurringItems') ? { recurringItems: recurring(payload.recurringItems) } : {}),
+    ...(Object.hasOwn(payload, 'lunchMoneyBudgets') ? { lunchMoneyBudgets: budgets(payload.lunchMoneyBudgets) } : {}) };
   const numeric = value => typeof value === 'number' && Number.isFinite(value)
     || typeof value === 'string' && /^[+-]?\d+(?:\.\d+)?$/.test(value.trim()) && Number.isFinite(Number(value));
   const id = value => typeof value === 'string' && value.length > 0 || typeof value === 'number' && Number.isFinite(value);
