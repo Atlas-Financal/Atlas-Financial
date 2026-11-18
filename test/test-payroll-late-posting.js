@@ -8,10 +8,11 @@
  * Rule (scripts/provider-observe.js futureIncomeUncertainty, payroll only):
  * a POSTED payroll-identified credit dated within one business day after the
  * payday just before it, when nothing claimed that payday, is that payday's
- * late posting. It settles that payday once and is never the next pay. Business
+ * late posting when its amount is EXACTLY the payday's scheduled amount. It settles
+ * that payday once and is never the next pay. Business
  * days are Forecast's (Monday to Friday, no holiday calendar). A second
- * qualifying credit, a credit two business days late, or a credit not
- * explicitly posted still holds the plan exactly as before.
+ * qualifying credit, a credit of any other amount, a credit two business days
+ * late, or a credit not explicitly posted still holds the plan exactly as before.
  *
  * Path: invented raw Lunch Money payload -> scripts/live-plan.js (acceptance
  * harness) -> served data -> Forecast.recommend. Invented schedule: biweekly
@@ -28,8 +29,8 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
 };
 
-const pay = (date, raw, payee = 'Invented employer') =>
-  H.lm({ date, amount: -1400, category: 'Payroll', account: 'chequing-a', payee, raw });
+const pay = (date, raw, payee = 'Invented employer', amount = 1400) =>
+  H.lm({ date, amount: -amount, category: 'Payroll', account: 'chequing-a', payee, raw });
 function run(txs, asOf) {
   const w = H.baseWorld();
   if (asOf) w.asOf = asOf;
@@ -95,6 +96,28 @@ ok(held(run([pay('2026-10-09', { id: 91101 }), pay('2026-10-09', { id: 91102 }),
   'a late credit after a payday whose own receipts compete holds the plan');
 ok(held(run([pay('2026-10-13')])), 'a pay two business days late (Tuesday) holds the plan');
 ok(held(run([pay('2026-10-12', { is_pending: null })])), 'a late credit not explicitly posted holds the plan');
+
+// #1290 review: Forecast does not settle the payday from an absorbed credit, so it publishes the scheduled 1400.
+// Only an exact 1400 makes that equal to the on-time case. Hand-derived: on time, a 700 credit publishes 700 and a
+// 2800 publishes 2800. If absorbed late, they would publish 1400, and a 1 would publish 1401 (counted beside the
+// payday). So each must hold, as on main.
+console.log('Only a credit of exactly the scheduled amount is absorbed');
+for (const amount of [700, 1, 2800, 1400.5, 1399.99]) {
+  const lateOdd = run([pay('2026-10-12', undefined, undefined, amount)]);
+  const onTimeOdd = run([pay('2026-10-09', undefined, undefined, amount)]);
+  ok(held(lateOdd), `a late credit of ${amount} (not the scheduled 1400) holds the plan`, JSON.stringify([lateOdd.operatingPlan, lateOdd.current && lateOdd.current.incomeTotal]));
+  ok(live(onTimeOdd) && onTimeOdd.current.incomeTotal === amount, `control: on time, the same ${amount} is live and publishes ${amount}`,
+    JSON.stringify([onTimeOdd.operatingPlan, onTimeOdd.current.incomeTotal]));
+}
+ok(live(run([pay('2026-10-12', undefined, undefined, 1400.004)])), 'a credit within half a cent of 1400 (the identity epsilon) is absorbed');
+// Order: a non-qualifying credit listed first must not let a qualifying one after it through, and two exact credits
+// hold in either order.
+ok(held(run([pay('2026-10-12', { id: 91201 }, undefined, 700), pay('2026-10-12', { id: 91202 })])),
+  'a short credit listed before an exact one on the same Monday holds the plan');
+ok(held(run([pay('2026-10-12', { id: 91302 }), pay('2026-10-12', { id: 91301 }, undefined, 700)])),
+  'an exact credit listed before a short one holds the plan');
+ok(held(run([pay('2026-10-12', { id: 91402 }), pay('2026-10-12', { id: 91401 })])),
+  'two exact credits, the higher id listed first, hold the plan');
 const unidentified = run([pay('2026-10-12', undefined, 'Invented stranger')]);
 const unidentifiedMain = 'unchanged from main: this hold reads payroll-identified credits only';
 ok(unidentified.operatingPlan === 'live', 'an unidentified credit was never read by this hold, and still is not (' + unidentifiedMain + ')');

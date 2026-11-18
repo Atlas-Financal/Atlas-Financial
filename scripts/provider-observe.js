@@ -3461,14 +3461,19 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     // pay arriving early. Business days are Forecast's (Monday to Friday, no holiday calendar), so a payday followed
     // by a weekday holiday is two business days to the Tuesday and still holds. At most ONE credit is absorbed per
     // payday: a second qualifying credit is unexplained and holds exactly as before, as does any credit that is not
-    // explicitly posted, not strictly nearer that payday than the next, or later than one business day.
+    // explicitly posted, not of exactly the scheduled amount, not strictly nearer that payday than the next, or later
+    // than one business day.
     // A payday whose own receipts already compete (an ambiguous group for that exact occurrence, on any date) is
     // not unclaimed in the sense this needs: its receipt is unresolved, so a later credit stays held as before.
+    // Only a credit of EXACTLY the payday's scheduled amount is absorbed (#1290 review): Forecast does not settle the
+    // payday from an absorbed credit, so it publishes the scheduled amount. Only then is that equal to what the same
+    // credit would publish on time. A short, tiny or oversized late credit holds exactly as before.
     const previousAmbiguous = !!previousEvent && (ambiguous || []).some(group => group
       && String(group.id) === String(previousEvent.id) && String(group.date) === String(previousEvent.date));
     let payrollLateAbsorbed = 0;
     const payrollLateOfEarlier = credit => !!previousEvent && earlierUnclaimed && !previousAmbiguous
       && credit.savingsPostingEvidence === 'posted' && credit.date > previousEvent.date
+      && Math.abs(Math.abs(lunchMoneyDebitAmount(credit.amount)) - Math.abs(Number(previousEvent.amount))) <= IDENTITY_AMOUNT_EPSILON
       && Forecast.businessDaysAfter(previousEvent.date, credit.date) <= 1
       && Forecast.diffDays(previousEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
