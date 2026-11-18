@@ -848,12 +848,7 @@ blocking. Either no input exercises the branch or no compared key reads it.
 For each: add an invented input that reaches it, or record why no published
 figure depends on it. Source: #1108 repair, 2026-11-11.
 
-**Dead-code cleanup of the retired repair identities in `ci-output.js`** · *small*
-The retired repair/review-sync scripts and their tests were removed under #822.
-What remains is the `ci-output.js` identities `codex-review-gate` and
-`atlas-test-repair-gate` (and their exit-78 mapping), which no workflow uses.
-`ci-output.js` is the live CI privacy relay, so removing them is its own change.
-Not urgent: nothing runs them.
+~~**Dead-code cleanup of the retired repair identities in `ci-output.js`** · *small* The retired repair/review-sync scripts and their tests were removed under #822. What remains is the `ci-output.js` identities `codex-review-gate` and `atlas-test-repair-gate` (and their exit-78 mapping), which no workflow uses. `ci-output.js` is the live CI privacy relay, so removing them is its own change. Not urgent: nothing runs them.~~ Done in `agent/ci-output-retired-identities`: both identities, their exit-78 mapping and the `private-artifact-blocked` category removed from `ci-output.js`; every live identity's public record and exit code unchanged.
 
 ~~Coverage rule 3 hard-codes the Bills account id `chequing-a`. Source: [PR #850 comment 6688280401](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/850#issuecomment-6688280401).~~ Struck 2026-11-18 (lead ruling): still true, and correct. `chequing-a` is the canonical Bills identity, the same one `REQUIRED_LIVE_CASH_IDS`, the salary attribution and the plan's cash rows use. The account map carries no second Bills marker to derive it from, and a rename fails closed: the stamp reads incomplete and figures withhold.
 
