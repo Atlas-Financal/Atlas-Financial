@@ -859,7 +859,7 @@ const App = (() => {
     const BOOT_TIPS = Object.freeze([
       'Bill dates come from Lunch Money. Change a date there and Atlas follows on the next refresh.',
       '“Paid” comes from Lunch Money’s own match. If a bill looks wrong, fix the match in Lunch Money.',
-      'A note like “card payment: Travel Visa” on a card payment transfer tells Atlas which card you paid.',
+      'A note starting “card payment:” followed by the card’s name, on a card payment transfer, tells Atlas which card you paid.',
       '“Estimated” means a best guess, “calculated” means worked out from real numbers, and “verified” means confirmed.',
       'Spending lands in the budget row for its Lunch Money category.',
       '“To confirm” marks something Atlas needs a person to check.',
