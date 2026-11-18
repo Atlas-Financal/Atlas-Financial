@@ -921,7 +921,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 
 ~~Recurring-audit `standingRuleFor` wording. Source: #902 follow-up.~~ Stale: `scripts/recurring-audit.js` was removed 2026-11-17.
 
-An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up. (LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot; the uncategorised zero-target half is still open.)
+~~An uncategorised store-rule row at a zero target is not counted, and an invisible-category refund is not netted. Source: #902 follow-up.~~ Closed 2026-11-18. The refund half is LEDGER A item 3: a refund in a hidden category stays hidden with its category, per Grok Bot. The zero-target half is STALE: on main `df873fbc` the row counts once as spending in the store rule's category (or Other spending with no category row), and Balance After Deductions falls by its amount. `test/test-store-rule-zero-target.js` pins it.
 
 ~~Reserve the pending look-alike as an estimated deduction. Source: #881 follow-up.~~ Retired: Grok Bot (rule 17, LEDGER A) declined it because pending never counts. A hint is fine.
 
