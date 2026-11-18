@@ -261,5 +261,26 @@ console.log('9. A carried budget with a possible-duplicate Spent keeps both esti
     'without a carried budget the possible-duplicate tag is exactly as before', JSON.stringify(plain && [plain.plannedTrust, plain.estimateReason]));
 }
 
+console.log('10. The monthly Budget view tags a carried budget estimated too');
+{
+  const periodsOn = asOf => ({ asOf, periods: { ytd: { label: 'YTD', months: 8, spending: [] } } });
+  const plan = F.withLunchMoneyBudgets(invented(), BLOCK, '2026-11-15');
+  const cat = (bd, id) => (bd.categories || []).find(c => c.id === id);
+  const nov = F.budgetBreakdown(plan, periodsOn('2026-11-15'), {});
+  const g = cat(nov, 'groceries');
+  // November has no groceries budget: October's 1950 carries (a payday
+  // row's monthly equivalent is the Lunch Money monthly budget).
+  ok(g && near(g.target, 1950) && g.targetTrust === 'estimated' && g.targetEstimateReason === 'lunch-money-budget-carried-forward',
+    'November: groceries targets October\'s 1950, tagged estimated with the reason',
+    JSON.stringify(g && [g.target, g.targetTrust, g.targetEstimateReason]));
+  const h = cat(nov, 'household');
+  ok(h && near(h.target, 300) && h.targetTrust === undefined, 'household reads November\'s own 300, untagged',
+    JSON.stringify(h && [h.target, h.targetTrust]));
+  const oct = cat(F.budgetBreakdown(plan, periodsOn('2026-10-15'), {}), 'groceries');
+  ok(oct && near(oct.target, 1950) && oct.targetTrust === undefined, 'October: groceries reads its own 1950, untagged');
+  const r = cat(nov, 'restaurants');
+  ok(r && r.targetTrust === undefined, 'an unresolved row keeps its plan target untagged');
+}
+
 console.log(failures ? `\n${failures} failure(s)` : '\nall cases pass');
 process.exit(failures ? 1 : 0);

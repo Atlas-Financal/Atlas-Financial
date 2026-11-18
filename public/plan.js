@@ -7808,7 +7808,7 @@ function renderPlan(d, periods, history) {
           : c.withheldReason ? '<span class="mutedtext">Unknown</span>'
           : c.planned > 0 ? est(money(c.planned)) : '<span class="mutedtext">$0</span>'}</span>
         <span class="cat-hist">${c.target != null
-          ? `budgeted ${money(c.target)}, has been ${money(c.historical)}`
+          ? `budgeted ${c.targetTrust === 'estimated' ? est(money(c.target)) : money(c.target)}, has been ${money(c.historical)}`
           : `has been ${money(c.historical)}`}/mo${c.dated > 0
           ? ` · ${money(c.dated)} dated` : ''}${c.current != null && c.current > 0
           ? ` · ${money(c.current)} current-regime` : ''}${c.sinking > 0

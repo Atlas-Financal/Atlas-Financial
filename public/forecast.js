@@ -22551,8 +22551,12 @@
       const sinkingHereItems = sinking.items.filter(s => s.category === c.id);
       const sinkingHere = sinkingHereItems.some(s => s.amount == null) ? null
         : sinkingHereItems.reduce((a, s) => a + s.amount, 0);
+      // A Lunch Money budget carried forward from an earlier month is an
+      // estimate (Q2); the monthly target says so, with its reason.
+      const targetCarried = target != null && lunchMoneyTargetCarried(c, targetAsOf);
       return Object.assign({}, c, {
         historical, dated: datedTotal, datedItems: dated.items, target,
+        ...(targetCarried ? { targetTrust: 'estimated', targetEstimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
         current,
         // gross is the pre-dated monthly amount — owner target if one exists,
         // else current-regime (undated current + dated), else the historical
