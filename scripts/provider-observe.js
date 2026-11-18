@@ -6914,6 +6914,25 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const tagsById = tagIndexFromPayload(report);
   const mapDoc = opts.accountMap;
   assertSavingsLinks(mapDoc);
+  // The card-minimum owner's export (Forecast.cardMinimumOwnedDebits, the one
+  // authority), read here so the debit identities stay server-side (lead
+  // ruling on #1149, 2026-11-17): a row the owner counts carries only the
+  // boolean cardMinimumOwned, and the packet carries the export's status.
+  // Refresh-time: a durable record added after this refresh is read on the next.
+  const minimumOwned = Forecast.cardMinimumOwnedDebits(Object.assign({}, opts.plan || {},
+    report && report.cardMinimumCategoryEvidence !== undefined
+      ? { cardMinimumCategoryEvidence: report.cardMinimumCategoryEvidence } : {}), asOf);
+  const minimumSets = minimumOwned.status === 'available' ? {
+    owned: new Set(minimumOwned.debitIds), unknown: new Set(minimumOwned.unknownDebitIds || []),
+    disagreed: new Set(minimumOwned.disagreementDebitIds || []) } : null;
+  // 'owned' | 'unknown' | 'disagreement' | null for one provider row (booleans only reach the packet).
+  const cardMinimumMark = tx => {
+    if (!minimumSets || !tx || !tx.providerTransactionId) return null;
+    const id = require('crypto').createHash('sha256')
+      .update(MinimumCategory.SOURCE + ':' + tx.providerTransactionId).digest('hex');
+    return minimumSets.owned.has(id) ? 'owned' : minimumSets.unknown.has(id) ? 'unknown'
+      : minimumSets.disagreed.has(id) ? 'disagreement' : null;
+  };
   const linkBlock = mapDoc?.savingsLinks;
   const privateLinks = (linkBlock?.links || []).map((link, i) => ({ ...link, ref: 'link-' + (i + 1),
     target: Forecast.savingsLinkTarget(opts.plan, link.goalRef, link.occurrenceDate, linkBlock.anchorRevision, asOf) }));
@@ -7248,6 +7267,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       daleGuiltFreeMerchant: flags.daleGuiltFreeMerchant,
       amazonMerchant: flags.amazonMerchant,
       cardPaymentIdentity: flags.cardPaymentIdentity,
+      ...(amount > 0 && tx.pending !== true ? (mark => mark === 'owned' ? { cardMinimumOwned: true }
+        : mark === 'unknown' ? { cardMinimumUnknown: true }
+        : mark === 'disagreement' ? { cardMinimumDisagreement: true } : {})(cardMinimumMark(tx)) : {}),
       outgoingETransferIdentity,
       ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
       // TD "PAYMENT - THANK YOU" card credit (Grok Bot ruling): only the
@@ -7640,6 +7662,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     }),
     representedActuals,
     transactions: txs,
+    cardMinimumOwnership: minimumOwned.status === 'available' ? 'available' : 'unavailable',
+    // What the card-minimum owner could not read: obligation label and a word, never an identity.
+    ...((minimumOwned.unreadable || []).length ? { cardMinimumUnreadable: minimumOwned.unreadable
+      .map(item => ({ label: item.label || null, what: item.what })) } : {}),
     ...(savingsLinks ? { savingsLinks } : {}),
     ...(lunchMoneyRecurring ? { lunchMoneyRecurring } : {}),
     ...(lunchMoneyBudgets ? { lunchMoneyBudgets } : {}),

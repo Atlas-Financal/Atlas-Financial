@@ -123,34 +123,43 @@
   // The owner export (desk 6893166367; Grok Bot, Plan #6): the debits this
   // owner counts as card-minimum payments, keyed by recorded identity, never
   // by category or payee. Only accepted, posted records are exported, durable
-  // and derived alike, after conflict rejection. An owner input that cannot
-  // be read (a malformed or conflicting record, an unconfirmed purpose, or a
-  // malformed derived packet) makes the whole export Unavailable rather than
-  // an empty set. Cash-inclusion and issuer-satisfaction gaps concern the
-  // amount, not which debit is owned, so they do not withhold the export.
+  // and derived alike, after conflict rejection. Grok Bot's answers (2026-11-17):
+  // - a disagreement (owner record vs the ledger's link, or two owner records of
+  //   one debit) is To confirm: that debit is owned by neither and is named;
+  // - an unreadable owner record makes only its own debit unknown when its debit
+  //   identity can be read, and names the obligation and what could not be read;
+  //   only a record with no readable identity, or a malformed derived packet,
+  //   makes the whole export Unavailable (any debit could be the one it owns).
+  // Cash-inclusion and issuer-satisfaction gaps concern the amount, not which
+  // debit is owned, so they do not withhold the export.
   // Internal only: the hashed identities never enter the publication.
-  const EXPORT_UNREADABLE = new Set(['invalid-sent-payment-input', 'payment-intent-unconfirmed',
-    'sent-payment-evidence-unconfirmed', 'sent-payment-allocated-more-than-once']);
   function ownedDebits(plan, asOf, occurrences, representedEffectiveBy, options) {
     const packet = plan?.cardMinimumCategoryEvidence;
     if (packet != null && (packet.source !== 'lunchmoney-minimum-category'
         || !date(packet.asOf) || !Array.isArray(packet.payments))) {
-      return { status: 'unavailable', debitIds: null };
+      return { status: 'unavailable', debitIds: null, unreadable: [{ id: null, label: null, what: 'ledger minimum links' }] };
     }
-    const { result, owned } = evaluate(plan, asOf, occurrences, representedEffectiveBy, options);
-    if (result.issues.some(issue => EXPORT_UNREADABLE.has(issue))) return { status: 'unavailable', debitIds: null };
-    return { status: 'available', debitIds: Array.from(new Set(owned)).sort() };
+    const { owned, disagreed, unreadable } = evaluate(plan, asOf, occurrences, representedEffectiveBy, options);
+    const names = unreadable.map(({ id, label, what }) => ({ id, label, what }));
+    if (unreadable.some(item => item.debitId == null)) return { status: 'unavailable', debitIds: null, unreadable: names };
+    const unknown = new Set(unreadable.map(item => item.debitId));
+    const conflicts = new Set(disagreed);
+    return { status: 'available',
+      debitIds: Array.from(new Set(owned)).filter(id => !unknown.has(id) && !conflicts.has(id)).sort(),
+      unknownDebitIds: Array.from(unknown).sort(), disagreementDebitIds: Array.from(conflicts).sort(),
+      unreadable: names };
   }
   function evaluate(plan, asOf, occurrences, representedEffectiveBy, options) {
-    const owned = [];
+    const owned = [], disagreed = [], unreadable = [];
     const category = minimumCategoryEvidence(plan, asOf);
+    const disagreements = new Set(category?.disagreements || []);
     const rows = (plan && plan.obligations || []).map(row => {
       const owner = Array.isArray(row.sentPayments) ? row.sentPayments : [];
       const observed = (category?.payments || []).filter(p => p.id === row.id
         && !owner.some(o => o.scheduledDate === p.scheduledDate));
       return observed.length ? { ...row, sentPayments: owner.concat(observed) } : row;
     });
-    if (!rows.some(row => row && row.sentPayments != null)) return { owned, result: {
+    if (!rows.some(row => row && row.sentPayments != null)) return { owned, disagreed, unreadable, result: {
       status: 'incumbent', asOf, source: 'Forecast.cardMinimumState', payments: [], issues: [], reason: null } };
     const payments = [], issues = [], used = new Set();
     // A reused bank debit cannot establish a household payment action. Inspect
@@ -174,12 +183,22 @@
       const records = row && row.sentPayments;
       if (records == null) continue;
       if (!paymentRow(row) || !Array.isArray(records)) {
-        issues.push('invalid-sent-payment-input'); continue;
+        issues.push('invalid-sent-payment-input');
+        unreadable.push({ id: row?.id || null, label: row?.label || null, what: 'records', debitId: null });
+        continue;
       }
       for (const record of records) {
+        // Grok Bot Q2: an owner record the ledger's own link contradicts (another card or
+        // occurrence for the same debit) counts for neither; the debit reads To confirm.
+        if (typeof record?.debitId === 'string' && disagreements.has(record.debitId)) {
+          disagreed.push(record.debitId); continue;
+        }
         // Backfill or unknown intent cannot become a minimum allocation.
         if (record?.intent !== 'minimum') {
-          if (record?.intent !== 'purchase-backfill') issues.push('payment-intent-unconfirmed');
+          if (record?.intent !== 'purchase-backfill') {
+            issues.push('payment-intent-unconfirmed');
+            unreadable.push({ id: row.id, label: row.label || null, what: 'purpose', debitId: typeof record?.debitId === 'string' && /^[a-f0-9]{64}$/.test(record.debitId) ? record.debitId : null });
+          }
           continue;
         }
         if (!record || record.confirmed !== true || record.pending !== false
@@ -190,10 +209,14 @@
             || occurrences(row, record.scheduledDate, record.scheduledDate).length !== 1
             || (record.cashIncludedAsOf != null && (!date(record.cashIncludedAsOf)
               || record.cashIncludedAsOf < record.postedOn))) {
-          issues.push('sent-payment-evidence-unconfirmed'); continue;
+          issues.push('sent-payment-evidence-unconfirmed');
+          unreadable.push({ id: row.id, label: row.label || null, what: 'evidence', debitId: typeof record?.debitId === 'string' && /^[a-f0-9]{64}$/.test(record.debitId) ? record.debitId : null });
+          continue;
         }
         if (used.has(record.debitId)) {
-          issues.push('sent-payment-allocated-more-than-once'); continue;
+          // Two owner allocations of one debit disagree with each other: neither is chosen.
+          issues.push('sent-payment-allocated-more-than-once');
+          disagreed.push(record.debitId); continue;
         }
         used.add(record.debitId);
         if (record.postedOn > asOf) continue;
@@ -220,7 +243,7 @@
       }
     }
     // No raw evidence identifiers or source documents in the publication.
-    return { owned, result: { status: issues.length ? 'unavailable' : payments.length ? 'ready' : 'incumbent',
+    return { owned, disagreed, unreadable, result: { status: issues.length ? 'unavailable' : payments.length ? 'ready' : 'incumbent',
       asOf, source: 'Forecast.cardMinimumState', payments,
       issues: Array.from(new Set(issues)),
       reason: issues.length ? 'Card payment sent; cash inclusion or issuer minimum satisfaction is unconfirmed. Additional cash is unknown.' : null } };
@@ -786,7 +809,11 @@
         receipts.push({ id: p.id, date: p.scheduledDate, effectiveAsOf: packet.asOf });
       }
     }
-    return { payments, receipts };
+    // Grok Bot Q2: debits whose ledger link contradicts an owner record (the observer's
+    // derived packet names them; identities only, validated as such).
+    const disagreements = Array.isArray(packet.disagreements)
+      ? packet.disagreements.filter(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) : [];
+    return { payments, receipts, disagreements };
   }
   function statementOccurrenceDate(plan, id, date) {
     return CardMinimumContract.mappedDate(plan, id, date, occurrences);
@@ -2041,13 +2068,16 @@
     if (!packet || !Array.isArray(packet.transactions) || !cycle || !savingsDate(cycle.start)) return out;
     const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
-    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    const heldOf = heldOutflowReader(plan, packet, opts, asOf);
     for (const tx of packet.transactions) {
       if (!tx || !tx.date || tx.accountRole !== 'household-cash') continue;
       if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
           || isPossibleReplacementPending(tx, duplicateIds)) continue;
-      const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      const cls = heldOf(tx);
       if (!cls || cls.kind !== 'held-outflow') continue;
+      // Grok Bot condition 3: whether the card-minimum owner counts this debit
+      // is unknown, so the term is Unavailable, never summed as 0.
+      if (cls.cardMinimumUnknown === true) return null;
       const cents = savingsCents(Number(tx.amount), true);
       if (cents == null) return null;
       if (!(cents > 0)) continue;
@@ -7504,6 +7534,88 @@
     const due = mortgageDueStillToConfirm(plan, tx.date, opts);
     return heldOutflowResult('mortgage-labelled-debit', due ? { mortgageDueToConfirm: due } : null);
   }
+  // Rank 18, Transfer / Payment (Grok Bot's rule 17 answer on transfers and
+  // its #1149 conditions; lead, 2026-11-18). A POSTED debit from a household
+  // chequing account that the ledger files as Transfer or Payment (its label,
+  // or a generic transfer / payment kind hint) but whose other side the ledger
+  // does not prove really left household cash. It is held: To confirm, out of
+  // every category, Other and the hold, and deducted once by the held term.
+  // Everything that proves the other side keeps its own owner and is never
+  // held here a second time: a Lunch Money group or link (the classifier's
+  // proven internal movement, or a grouped row), a represented bill, a card
+  // payment by its own identity or category, a debit the card-minimum owner
+  // counts (Forecast.cardMinimumOwnedDebits, carried by the observer as the
+  // boolean cardMinimumOwned), a near-due bill hold, and a cash leg the card
+  // reconciler accepted. Names and amounts never prove anything here. A
+  // pending row is unchanged (excluded as before). Returns the held result
+  // (marked cardMinimumUnknown when the card-minimum owner cannot say whether
+  // it owns this debit), or null.
+  function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
+    if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
+    if (tx.accountRole !== 'household-cash'
+      || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) return null;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return null;
+    const hint = normalizeCategoryLabel(tx.kindHint);
+    // The classifier's generic reasons only. A proven card identity (TD
+    // recipient, issuer and finance identities, the observer's own
+    // 'card-payment' stamp) is another reason and stays proven.
+    const generic = (cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
+      || (cls.kind === 'card-payment' && cls.reason === 'kind-hint' && (hint === 'payment' || hint === 'bill-payment'));
+    if (!generic) return null;
+    if (tx.parentId != null || tx.isGroup === true) return null;
+    if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment'
+      || DEBT_PAYMENT_CATEGORY_LABELS.has(label) || label === 'credit card payment' || label === 'cc payment') return null;
+    if (tx.cardMinimumOwned === true) return null;
+    const nearDue = tx.nearDueBillCandidate;
+    const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
+    if (nearDue && typeof nearDue.id === 'string' && ISO_CALENDAR_DATE.test(String(nearDue.date))
+      && nearDueCycle && nearDue.date >= nearDueCycle.start && nearDue.date <= nearDueCycle.end) return null;
+    if (pairedToCard(tx)) return null;
+    // Grok Bot condition 3: an owner record of this debit cannot be read, so
+    // whether it is a minimum is unknown. Never guessed either way.
+    const packet = classifyOpts && (classifyOpts.packet || classifyOpts.currentPeriodActuals);
+    // It is still listed To confirm, and the held term is Unavailable.
+    if (tx.cardMinimumUnknown === true || !packet || packet.cardMinimumOwnership !== 'available') {
+      return heldOutflowResult('transfer-debit-minimum-unknown', { cardMinimumUnknown: true });
+    }
+    // Grok Bot condition 2: the owner record and the ledger's link disagree
+    // (card or occurrence): neither counts it, so it is held and named.
+    return heldOutflowResult('transfer-debit-unproven',
+      tx.cardMinimumDisagreement === true ? { cardMinimumDisagreement: true } : null);
+  }
+  // The one reader of held outflows for a packet: the classifier's own held
+  // rows (Mortgage-labelled, income-category) plus unproven Transfer / Payment
+  // debits. The card reconciler runs lazily, once, only when a candidate
+  // reaches it. Every held-outflow consumer reads through this.
+  function heldOutflowReader(plan, packet, opts, asOf) {
+    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    let accepted = null;
+    const pairedToCard = tx => {
+      if (!tx.coverageRef) return false;
+      if (!accepted) {
+        const recon = reconcileCardPurchases(packet.transactions,
+          { plan, asOf: asOf || packet.observationAsOf, packet, debts: opts && opts.debts, paymentDiagnostics: true });
+        accepted = recon && recon.acceptedCashRefs instanceof Set ? recon.acceptedCashRefs : new Set();
+      }
+      return accepted.has(tx.coverageRef);
+    };
+    return (tx, cls) => {
+      const base = cls || classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      if (!base || base.kind === 'held-outflow') return base;
+      const held = unprovenTransferDebit(tx, base, plan, classifyOpts, pairedToCard);
+      return held || base;
+    };
+  }
+  // What the card-minimum owner could not read, for the held term's
+  // Unavailable note: an obligation label and a word, never an identity.
+  function cardMinimumUnreadableNames(packet) {
+    return (packet && Array.isArray(packet.cardMinimumUnreadable) ? packet.cardMinimumUnreadable : [])
+      .filter(item => item && typeof item.what === 'string')
+      .map(item => ({ label: typeof item.label === 'string' ? item.label : null, what: item.what }));
+  }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
       return { kind: 'unclassified', categoryId: null, householdSpending: false, reason: 'missing' };
@@ -8431,6 +8543,7 @@
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const etransferItems = [];
+    const heldOf = heldOutflowReader(plan, packet, opts, asOf);
     const datedOtherTarget = otherSpendPayPeriodTarget(plan, periodStart);
     // Held-row listing (assistant packet only): when asked, record each row
     // this loop counts as unclassified, at the same sites that count it, so the
@@ -8471,12 +8584,16 @@
         if (classificationIncompleteHouseholdSpend(clsZero)) { out.unclassified.count += 1; recordHeld(tx, clsZero); }
         continue;
       }
-      const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      const baseCls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      // Rank 18: an unproven Transfer / Payment debit is held, as every other
+      // held outflow (heldOutflowReader is the one rule).
+      const cls = heldOf(tx, baseCls);
       const state = transactionPendingState(tx);
       // Additional visibility only: collect the outgoing e-transfer review
       // population before the kind branches below continue past these rows.
-      // Nothing here feeds back into any total or classification.
-      if (outgoingETransferEligible(tx, cls, plan, classifyOpts)) {
+      // Nothing here feeds back into any total or classification. It reads the
+      // classifier's own result, as before.
+      if (outgoingETransferEligible(tx, baseCls, plan, classifyOpts)) {
         etransferItems.push({
           id: tx.id != null ? tx.id : null,
           date: tx.date,
@@ -12984,6 +13101,10 @@
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
       ...(cls && cls.mortgageDueToConfirm ? { mortgageDueToConfirm: cls.mortgageDueToConfirm } : {}),
+      // Display-only (Grok Bot, #1149 conditions 2 and 3): why an unproven
+      // Transfer / Payment debit is held. Nothing reads these for math.
+      ...(cls && cls.kind === 'held-outflow' && cls.cardMinimumDisagreement === true ? { cardMinimumDisagreement: true } : {}),
+      ...(cls && cls.kind === 'held-outflow' && cls.cardMinimumUnknown === true ? { cardMinimumUnknown: true } : {}),
       // Display-only: a pending card charge whose payee identifies a
       // still-due card-paid bill at a different amount. It is counted here
       // and the bill stays due; nothing reads this for math.
@@ -13203,14 +13324,14 @@
     // Never part of any category, Other spending, or the hold below.
     const heldOutflowRows = [];
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
-      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      const heldOf = heldOutflowReader(plan, packet, opts, through);
       for (const tx of packet.transactions) {
         if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
           || skipSplitParent(tx, packet) || tx.accountRole !== 'household-cash'
           || isPossibleReplacementPending(tx, duplicateIds)) continue;
         const amount = Number(tx.amount);
         if (!isFinite(amount) || !(amount > 0)) continue;
-        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        const cls = heldOf(tx);
         if (cls.kind !== 'held-outflow') continue;
         heldOutflowRows.push(reconTxFrom(tx, cls));
       }
@@ -17037,7 +17158,11 @@
         // The total is the deducted term itself; when the term was not
         // computed (actuals not ready) the listed rows have no published total.
         ...(!planUnavailable && budget.heldOutflows ? { heldOutflowsToConfirm: {
-          total: heldSpendComputed && heldSpend != null ? heldSpend.cents / 100 : null, recon: budget.heldOutflows } } : {}),
+          total: heldSpendComputed && heldSpend != null ? heldSpend.cents / 100 : null, recon: budget.heldOutflows,
+          // Grok Bot condition 3: the term is Unavailable because the
+          // card-minimum owner could not read a record; name what, never 0.
+          ...(budget.heldOutflows.some(row => row && row.cardMinimumUnknown === true)
+            ? { cardMinimumUnreadable: cardMinimumUnreadableNames(currentPeriodActualsPacket(opts)) } : {}) } } : {}),
         // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
         ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,

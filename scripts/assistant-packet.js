@@ -1417,6 +1417,8 @@ const HELD_REASONS = {
   'non-calendar-category-spend': ['category', 'It is filed to a category Atlas does not budget by pay period.'],
   'no-row-category-refund': ['category', 'It looks like a refund but is not linked to a budget row.'],
   'income-category-debit': ['category', 'It is filed as income, but money went out.'],
+  'transfer-debit-unproven': ['category', 'It is filed as a transfer or payment, but no other side was found.'],
+  'transfer-debit-minimum-unknown': ['category', 'It is filed as a transfer or payment and may be a card minimum Atlas cannot confirm.'],
   'payee-category-contradiction': ['merchant', 'Its payee and its Lunch Money category disagree.'],
   'fuel-merchant-missing': ['merchant', 'It is filed as fuel but has no merchant to confirm it.'],
   'convenience-store-unconfirmed-fuel': ['merchant', 'It is filed as fuel at a store that may not sell fuel.'],
