@@ -618,7 +618,17 @@
     return out;
   }
 
+  // `lastDue` (an ISO day) ends a recurring schedule: no occurrence after it.
+  // Like firstDue it is a filter, never a rewrite of the calendar. It is set
+  // only on the served plan, from an ended reviewed Lunch Money recurring item
+  // (scripts/provider-observe.js recurringBillScheduleReview).
   function occurrences(item, start, end) {
+    const dates = cadenceOccurrences(item, start, end);
+    const last = item && item.frequency !== 'once' && typeof item.lastDue === 'string'
+      && /^\d{4}-\d{2}-\d{2}$/.test(item.lastDue) ? item.lastDue : null;
+    return last ? dates.filter(d => d <= last) : dates;
+  }
+  function cadenceOccurrences(item, start, end) {
     if (item.frequency === 'once') {
       return (item.date >= start && item.date <= end) ? [item.date] : [];
     }

@@ -4228,8 +4228,7 @@ function observeCore(input, capture) {
   if (recurringSchedules.length && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
     const byBill = new Map(recurringSchedules.map(schedule => [schedule.billId, schedule]));
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
-      bill && byBill.has(bill.id) ? { ...bill, day: byBill.get(bill.id).day,
-        dateConfidence: byBill.get(bill.id).dateConfidence } : bill) } } };
+      bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
   }
   const mapped = [];
   const unmapped = [];
@@ -5444,34 +5443,63 @@ function sanitizedRecurringEvidence(raw, opts) {
 
 // S2 (owner decision #821 6956651970 (a)/(b): a REVIEWED Lunch Money
 // recurring item is the authority for its bill's schedule, and "reviewed"
-// confirms the schedule only). For a monthly bill, the reviewed item's
-// anchor day replaces the estimated plan day and its date tag becomes
-// confirmed. The amount, firstDue and the amount tag stay the plan's.
-// Settlement is untouched: an occurrence still reads paid only through a
-// posted payment the incumbent identity rule links. Any doubt keeps the
-// plan's own day and tags: an unavailable read, an item that is not monthly
-// every month, ended or not yet started, an item named by zero or several
-// rules, a bill named by several items, a bill that is not monthly, a paying
-// account whose role does not match, or expected dates that disagree with
-// the anchor day.
+// confirms the schedule only). The amount, firstDue and the amount tag stay
+// the plan's. Settlement is decided elsewhere (identity rules, and for an
+// opt-in rule Lunch Money's own matches).
 // Day leads (owner decision, Dale 2026-11-17: "no friction if the date
-// drifts"; "when we look forward the bills dates need to be as best as they
-// can be"): the reviewed item's anchor day leads every future occurrence,
-// tagged confirmed, even when it differs from the plan's day. The plan's day
-// is the fallback only, kept estimated, for every doubt case above. This
-// retires #1281's anchor-equals-plan cross-check.
+// drifts"): the item's anchor day leads every future occurrence, tagged
+// confirmed, even when it differs from the plan's day.
+// Cadence leads (owner decision, Dale 2026-11-18): the item's cadence leads
+// too, wherever Forecast expands it exactly (recurringItemTiming): monthly,
+// quarterly, biweekly and yearly; and an ended item stops the bill after its
+// end date (lastDue). This retires Grok Bot's monthly-only cadence guard.
+// Any doubt keeps the plan's own cadence, day and tags: an unavailable read,
+// a cadence Forecast cannot map, an item not yet started, an item named by
+// zero or several rules, a bill named by several items, a once bill, a
+// paying account whose role does not match, or expected dates the mapped
+// cadence does not produce.
 function recurringBillSchedules(block, identityRules, plan, asOf) {
   return recurringBillScheduleReview(block, identityRules, plan, asOf).schedules;
 }
+// The bill-schedule fields a reviewed Lunch Money item may set on the served
+// plan (owner decision, Dale 2026-11-18: cadence also comes from Lunch Money).
+const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue'];
+
+// Lunch Money cadence -> a Forecast cadence it can expand exactly; anything
+// else is null (the plan's cadence and day stand, estimated).
+//   month x1 -> monthly on the anchor day
+//   month x3 -> quarterly on the anchor day, phased by the anchor date
+//   week  x2 -> biweekly from the anchor date
+//   year  x1 -> yearly on the anchor's month and day
+function recurringItemTiming(item) {
+  const anchor = item.anchorDate;
+  const day = Number(anchor.slice(8, 10));
+  const month = Number(anchor.slice(5, 7));
+  if (!(day >= 1 && day <= 31) || !(month >= 1 && month <= 12)) return null;
+  if (item.granularity === 'month' && item.quantity === 1) return { frequency: 'monthly', day };
+  if (item.granularity === 'month' && item.quantity === 3) return { frequency: 'quarterly', day, anchor };
+  if (item.granularity === 'week' && item.quantity === 2) return { frequency: 'biweekly', anchor };
+  if (item.granularity === 'year' && item.quantity === 1) return { frequency: 'yearly', month, day };
+  return null;
+}
+
+// Apply a schedule to one bill row (served plan only): its timing fields are
+// replaced by the schedule's, and its date tag becomes confirmed. Amount,
+// firstDue and the amount tag stay the plan's.
+function applyRecurringSchedule(bill, schedule) {
+  const out = { ...bill };
+  for (const field of RECURRING_TIMING_FIELDS) delete out[field];
+  for (const field of RECURRING_TIMING_FIELDS) if (Object.hasOwn(schedule.timing, field)) out[field] = schedule.timing[field];
+  out.dateConfidence = schedule.dateConfidence;
+  return out;
+}
+
 function recurringBillScheduleReview(block, identityRules, plan, asOf) {
   const done = schedules => ({ schedules });
   if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
   const bills = Array.isArray(plan.bills) ? plan.bills : [];
-  const daysIn = iso => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 0)).getUTCDate();
   const byBill = new Map();
   for (const item of block.items) {
-    if (item.granularity !== 'month' || item.quantity !== 1) continue;
-    if (item.endDate && item.endDate < asOf) continue;
     if (item.startDate && item.startDate > asOf) continue;
     const eventIds = new Set();
     for (const rule of identityRules || []) {
@@ -5486,14 +5514,23 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf) {
     if (items.length !== 1) continue;
     const item = items[0];
     const matches = bills.filter(bill => bill && bill.id === billId);
-    if (matches.length !== 1 || matches[0].frequency !== 'monthly') continue;
+    if (matches.length !== 1 || matches[0].frequency === 'once') continue;
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') continue;
-    const day = Number(item.anchorDate.slice(8, 10));
-    if (!(day >= 1 && day <= 31)) continue;
-    if (!item.expectedDates.every(date => Number(date.slice(8, 10)) === Math.min(day, daysIn(date)))) continue;
-    out.push({ billId, recurringId: item.recurringId, day, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
+    const timing = recurringItemTiming(item);
+    if (!timing) continue;
+    // An ended item stops the bill after its end date (lastDue).
+    if (item.endDate) timing.lastDue = item.endDate;
+    // Every date Lunch Money expects must be one Forecast expands from the
+    // mapped timing; otherwise the plan's own cadence stands.
+    const probe = { ...timing };
+    const expected = item.expectedDates.slice().sort();
+    if (expected.length) {
+      const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
+      if (!expected.every(date => dates.includes(date))) continue;
+    }
+    out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
   return done(out);
 }
@@ -6658,6 +6695,8 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  applyRecurringSchedule,
+  RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,

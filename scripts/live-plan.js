@@ -573,8 +573,10 @@ function markUnknownPending(data, report, liveAsOf) {
 
 // Owner policy is never rewritten by a refresh. One narrow exception (S2,
 // owner decision #821 6956651970): on a bill whose reviewed Lunch Money
-// recurring item supplied its schedule (`scheduledBills`), its `day` may
-// differ (the item's day leads) and `dateConfidence` may become 'confirmed'.
+// recurring item supplied its schedule (`scheduledBills`), its cadence and
+// phase fields (frequency, day, month, anchor, lastDue) may differ (the item
+// leads; owner decision, Dale 2026-11-18) and `dateConfidence` may become
+// 'confirmed'.
 // Every other field of that bill, and every other bill, must still match the
 // canonical plan.
 function assertOwnerPolicyUntouched(before, after, scheduledBills) {
@@ -586,14 +588,21 @@ function assertOwnerPolicyUntouched(before, after, scheduledBills) {
     return afterBills.map((row, i) => {
       const was = beforeBills[i];
       if (!row || !was || row.id !== was.id || !scheduled.has(row.id)) return row;
-      // The product rule exactly: the reviewed item's day leads (it may
-      // differ from the plan's), and the date tag may only become 'confirmed'.
+      // The product rule exactly: the reviewed item's cadence and day lead
+      // (frequency and its phase fields, and an end date), and the date tag
+      // may only become 'confirmed'.
       const out = { ...row };
-      if (Object.hasOwn(was, 'day')) out.day = was.day; else delete out.day;
+      for (const field of O.RECURRING_TIMING_FIELDS) {
+        if (Object.hasOwn(was, field)) out[field] = was[field]; else delete out[field];
+      }
       if (row.dateConfidence === 'confirmed') {
         if (Object.hasOwn(was, 'dateConfidence')) out.dateConfidence = was.dateConfidence; else delete out.dateConfidence;
       }
-      return out;
+      // Compare in the canonical row's key order; any extra key still differs.
+      const ordered = {};
+      for (const key of Object.keys(was)) if (Object.hasOwn(out, key)) ordered[key] = out[key];
+      for (const key of Object.keys(out)) if (!Object.hasOwn(ordered, key)) ordered[key] = out[key];
+      return ordered;
     });
   };
   for (const key of keys) {
@@ -1334,15 +1343,17 @@ function overlayLiveState(input) {
   if (Forecast.savingsEarmarksState(data.plan, liveAsOf).status !== 'setup-unknown') next.plan.savingsPoolObservation = report.savingsPools || { asOf: liveAsOf, accounts: [] };
   // S2 (#821 6956651970): a reviewed Lunch Money recurring item's day for
   // the bill it identifies, served plan only (data.json is never written).
+  // Cadence too (owner decision, Dale 2026-11-18): the item's frequency and
+  // phase fields lead, and an ended item's end date stops the bill (lastDue).
   // Amount, firstDue and the amount tag stay the plan's; with no schedule
-  // the plan's own day and tags stand.
+  // the plan's own cadence, day and tags stand.
   const scheduledBills = new Set();
+  const bills = next.plan.bills || [];
   for (const schedule of Array.isArray(report.recurringBillSchedules) ? report.recurringBillSchedules : []) {
-    const bill = (next.plan.bills || []).find(row => row && row.id === schedule.billId);
-    if (!bill || bill.frequency !== 'monthly' || scheduledBills.has(bill.id)) continue;
-    bill.day = schedule.day;
-    bill.dateConfidence = schedule.dateConfidence;
-    scheduledBills.add(bill.id);
+    const i = bills.findIndex(row => row && row.id === schedule.billId);
+    if (i < 0 || !schedule.timing || bills[i].frequency === 'once' || scheduledBills.has(bills[i].id)) continue;
+    bills[i] = O.applyRecurringSchedule(bills[i], schedule);
+    scheduledBills.add(bills[i].id);
   }
   const cutover = applyLiveCutover(next, report, historicalOpeningAsOf);
   // Rebuild from fresh evidence. Absence on a later fetch is not proof that
