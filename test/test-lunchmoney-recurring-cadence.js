@@ -137,5 +137,26 @@ console.log('6. The owner-policy guard widens only to frequency and its phase fi
   ok(throws(after({ dateConfidence: 'verified' }), band), 'scheduled: the date tag may become nothing but confirmed');
 }
 
+console.log('7. Budget normalisation honours an end date (Codex P1 on #1289)');
+{
+  // A category budgeted $100/month with an $80 monthly bill on the 5th that
+  // sits in it. Window 91 days from Nov 1 2026: through Jan 30 2027; one month
+  // of window is 91 / (365.25 / 12) months.
+  const mk = extra => ({ windowDays: 91, commitments: [],
+    bills: [Object.assign({ id: 'net', label: 'Invented net', frequency: 'monthly', day: 5, amount: 80, budgetCategory: 'phones' }, extra)],
+    budget: { basis: 'ytd', categories: [{ id: 'phones', label: 'Phones', class: 'essential', from: ['Phones'], plannedMonthly: null, currentMonthly: 100 }] } });
+  const periods = { periods: { ytd: { label: 'YTD', months: 4, spending: [{ label: 'Phones', total: 800 }] } } };
+  const cat = (extra, opts) => F.budgetBreakdown(mk(extra), periods, opts).categories[0];
+  const at = { asOf: '2026-11-01' };
+  ok(cat({}, at).dated === 80, 'control: no end date, $80 a month');
+  ok(cat({ lastDue: '2027-06-30' }, at).dated === 80, 'ends after the window: still $80 a month');
+  ok(cat({ lastDue: '2026-10-10' }, at).dated === 0, 'ended Oct 10, before the window: $0, the category keeps its full budget');
+  // Ends Dec 31: Nov 5 and Dec 5 fall in the window, $160 over 91 days
+  // = 160 x 30.4375 / 91 = 4870 / 91 a month.
+  const ending = cat({ lastDue: '2026-12-31' }, at).dated;
+  ok(Math.abs(ending - 4870 / 91) < 1e-9, 'ends Dec 31: two occurrences, 4870 / 91 a month', String(ending));
+  ok(cat({ lastDue: '2026-12-31' }, {}).dated === null, 'no window start: the ended bill\'s share is unknown');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll Lunch Money recurring cadence checks passed.');
