@@ -19247,10 +19247,14 @@
       // unresolved income occurrence or card minimum still withholds it.
       const openingOnly = !!openingCash && incomeState?.status !== 'unavailable'
         && minimums?.status !== 'unavailable';
-      const openingAsOf = openingCash?.asOf || null;
+      // Only a period the calendar builder itself released as a later
+      // period, and that starts after the engine's as-of day, stays an
+      // estimate. A finished or current period is withheld as before, even
+      // when it starts after a stale opening.
+      const engineAsOf = result.defaultView?.asOf || null;
       for (const view of views) {
         if (!view || view.end < (income?.asOf || minimums?.asOf)) continue;
-        if (openingOnly && openingAsOf && view.start > openingAsOf) {
+        if (openingOnly && view.currentCashUnconfirmed && engineAsOf && view.start > engineAsOf) {
           estimateUnconfirmedOpeningPeriod(view, note);
           continue;
         }

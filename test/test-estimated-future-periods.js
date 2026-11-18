@@ -117,6 +117,34 @@ console.log('\n=== the opening itself unknown: same release, opening-dependent f
   expectEstimatedFuture(advice, 'opening unknown');
 }
 
+console.log('\n=== as-of later than a stale opening: only periods after today are released ===');
+{
+  // Opening dated 2026-10-09, Forecast run on 2026-11-08. Today's period is
+  // 2026-11-06..11-19; 2026-10-23..11-05 is already finished. Hand-derived:
+  // the finished and current periods stay withheld; 2026-11-20 (3000 - 1200
+  // Dec 1 rent - 200) = 1600 is the first released estimate.
+  const LATE = '2026-11-08';
+  for (const [label, extra] of [['plan unavailable', UNCONFIRMED], ['opening unknown', OPENING_UNKNOWN]]) {
+    const advice = F.recommend(plan(), LATE, Object.assign({ targetBuffer: 500, debts: [] }, extra));
+    const finished = row(advice, '2026-10-23');
+    ok(!!finished && !Object.hasOwn(finished, 'currentCashUnconfirmed')
+      && (extra !== OPENING_UNKNOWN || (finished.balanceAfterDeductions == null
+        && finished.balanceAfterDeductionsTrust === 'unavailable')),
+      `late ${label}: the finished 2026-10-23 period is not released as an estimate`,
+      finished && `${finished.balanceAfterDeductions}/${finished.balanceAfterDeductionsTrust}`);
+    const today = (advice.defaultView.calendarPeriods || []).find(p => p && p.start === '2026-11-06');
+    ok(!!today && today.balanceAfterDeductions == null && !Object.hasOwn(today, 'currentCashUnconfirmed'),
+      `late ${label}: today's 2026-11-06 period stays withheld, not an estimate`);
+    const next = row(advice, '2026-11-20');
+    ok(!!next && next.balanceAfterDeductions === 1600 && next.balanceAfterDeductionsTrust === 'estimated'
+      && next.currentCashUnconfirmed && next.currentCashUnconfirmed.status === 'estimated',
+      `late ${label}: the 2026-11-20 period after today is the released estimate, 1600`, next && next.balanceAfterDeductions);
+    const releasedEarly = (advice.payPeriodViews || []).filter(p => p && p.currentCashUnconfirmed && p.start <= LATE);
+    ok(releasedEarly.length === 0, `late ${label}: no period starting on or before today is released`,
+      releasedEarly.map(p => p.start).join());
+  }
+}
+
 // Not a cash-only failure: every later period stays fully withheld, exactly as
 // before this change. afterHouseholdBudget is Balance After Deductions by
 // another name, so it, its parts and the rows must all stay unpublished.
