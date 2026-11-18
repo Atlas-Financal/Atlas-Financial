@@ -3087,7 +3087,7 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       return rows.length === 1 ? rows[0] : null;
     });
     const accepted = tx => {
-      if (!tx) return false;
+      if (!hasPostedReceipt(tx)) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
       if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
       return ruleCurrencyQualified(tx, rule) && lunchMoneyDebitAmount(tx.amount) > 0;
@@ -3134,7 +3134,7 @@ function representedEventHitGroups(input) {
     eventHits.set(key, list);
   }
   for (const tx of input.transactions || []) {
-    if (!tx) continue;
+    if (!hasPostedReceipt(tx)) continue;
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);

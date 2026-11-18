@@ -33,7 +33,7 @@ function payloadFor(posting) {
     pendingCoverage: { ...payload.pendingCoverage, truncated: false } };
 }
 
-function check(payload, posting, label) {
+function check(payload, posted, label, pending = false) {
   const refreshed = Live.fromObservation({ ...input, payload });
   const packet = refreshed.data.liveOverlay.currentPeriodActuals;
   const view = Forecast.recommend(refreshed.data.plan, world.asOf, { currentPeriodActuals: packet })
@@ -42,8 +42,8 @@ function check(payload, posting, label) {
   const pay = view.income.find(row => row.id === 'payroll');
   const receipts = (packet.representedActuals || []).filter(row => row.pending !== true)
     .map(row => [row.id, row.actual]);
-  assert.deepEqual(receipts, posting === false ? [['payroll', -1325], ['invented-water', 37.5]] : [], label);
-  if (posting === false) {
+  assert.deepEqual(receipts, posted ? [['payroll', -1325], ['invented-water', 37.5]] : [], label);
+  if (posted) {
     assert.equal(bill.status, 'PAID', label);
     assert.equal(bill.remaining, 0, label);
     assert.equal(pay.actual, -1325, label);
@@ -51,7 +51,7 @@ function check(payload, posting, label) {
     assert.notEqual(bill.status, 'PAID', label);
     assert.equal(bill.remaining, 37.5, label);
     assert.equal(pay.actual, null, label);
-    if (posting === true) assert.equal(bill.status, 'pending', label);
+    if (pending) assert.equal(bill.status, 'pending', label);
   }
 }
 
@@ -60,11 +60,13 @@ for (const [name, posting] of [
   ['pending', true], ['posted', false],
 ]) {
   const payload = payloadFor(posting);
-  check(payload, posting, name + ' live');
+  const posted = posting === false;
+  const pending = posting === true;
+  check(payload, posted, name + ' live', pending);
   const serialized = H.clone(payload);
-  check(serialized, posting, name + ' raw replay');
+  check(serialized, posted, name + ' raw replay', pending);
   if (typeof posting === 'boolean') {
-    check(Memory.sourceInputs(serialized), posting, name + ' retained source replay');
+    check(Memory.sourceInputs(serialized), posted, name + ' retained source replay', pending);
   } else {
     assert.throws(() => Memory.sourceInputs(serialized), /observation-input-invalid/,
       name + ' cannot become a retained posting flag');
@@ -76,5 +78,10 @@ for (const [name, posting] of [
 const transition = payloadFor(undefined);
 transition.transactions.push({ ...transition.transactions[1], is_pending: true });
 Object.assign(transition.transactions[1], { payee: 'Invented generic processor', original_name: 'INVENTED PROCESSOR' });
-check(transition, undefined, 'pending-to-unknown same-id pair');
+check(transition, false, 'pending-to-unknown same-id pair');
+
+const contradictory = payloadFor(false);
+for (const tx of contradictory.transactions) tx.contradictoryEvidence = true;
+check(contradictory, false, 'contradictory posted evidence live');
+check(Memory.sourceInputs(H.clone(contradictory)), false, 'contradictory posted evidence replay');
 console.log('Positive bill and payroll posting evidence checks passed.');
