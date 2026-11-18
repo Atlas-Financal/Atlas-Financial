@@ -14121,21 +14121,32 @@
       }
       const near = (a, b) => a.cents === b.cents
         && Math.abs(diffDays(a.tx.date, b.tx.date)) <= CARD_PAYMENT_PAIR_DAYS;
-      // Mutually unique pairing. The card leg fixes the card and the period.
+      // The card a posted TD "TFR-TO C/C" debit pays by its note: exactly one
+      // card in the fixed name table that the plan maps as a revolving card.
+      const notePays = leg => leg.tx.pending === false && leg.tx.tdCardPaymentIdentity === true
+        && CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)
+        && debtRows.some(d => d.id === leg.tx.cardPaymentNoteDestination) ? leg.tx.cardPaymentNoteDestination : null;
+      // Mutually unique pairing. The card leg fixes the card and the period,
+      // except that a noted debit's own date fixes it (notePays).
       const pairLegs = (cardLegs, cashLegs, reserveLegs, missing) => {
         const pairs = [];
         for (const leg of cardLegs) {
-          const counted = leg.tx.date >= origin;
           // Owner rule (Dale, via the lead): money onto the card counts
           // whatever household account it comes from, Savings included.
           const cash = [...cashLegs, ...reserveLegs].filter(other => near(leg, other)
             && (!tdPaymentCreditOnly(leg.tx) || (other.tx.tdCardPaymentIdentity === true
               && (other.tx.cardPaymentNoteDestination == null || other.tx.cardPaymentNoteDestination === leg.account))));
           const back = cash.length === 1 ? cardLegs.filter(other => near(other, cash[0])) : [];
+          // A debit whose note names this card is a payment on the debit's own
+          // date, credit or no credit (#1298 review): one date for both paths,
+          // so a later credit across an opening rollover cannot count it again.
+          const date = cash.length === 1 && back.length === 1 && notePays(cash[0]) === leg.account
+            ? cash[0].tx.date : leg.tx.date;
+          const counted = date >= origin;
           if (cash.length === 1 && back.length === 1) {
             cash[0].paired = true;
-            if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0] });
-          } else if (!counted || leg.tx.pending === true) continue;
+            if (counted && leg.tx.pending === false && cash[0].tx.pending === false) pairs.push({ card: leg, cash: cash[0], date });
+          } else if (leg.tx.date < origin || leg.tx.pending === true) continue;
           else if (!cash.length) issue(missing, leg.tx.coverageRef);
           else issue('coverage-payment-pair-ambiguous', leg.tx.coverageRef);
         }
@@ -14162,10 +14173,10 @@
       // missing, unknown or two-card note is unchanged (destination unconfirmed).
       const notePaid = [];
       for (const leg of [...legs.cashDebit, ...legs.reserveDebit]) {
-        if (leg.paired || leg.tx.date < origin || leg.tx.pending !== false || leg.tx.tdCardPaymentIdentity !== true
-          || !CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)) continue;
+        const account = notePays(leg);
+        if (leg.paired || leg.tx.date < origin || !account) continue;
         leg.paired = true;
-        notePaid.push({ card: { tx: leg.tx, account: leg.tx.cardPaymentNoteDestination, cents: leg.cents }, cash: leg });
+        notePaid.push({ card: { tx: leg.tx, account, cents: leg.cents }, cash: leg, date: leg.tx.date });
       }
       const paid = [...creditPairs, ...notePaid, ...payDown].filter(billsLeg);
       // A cash leg that already represents a scheduled occurrence (a card
@@ -14233,7 +14244,7 @@
         else if (!row.pending) bucket(row.accountId, row.date)?.purchases.push(row);
       }
       for (const row of refundRows) bucket(row.account, row.tx.date)?.refunds.push(row);
-      for (const pair of paid) bucket(pair.card.account, pair.card.tx.date)?.payments.push(pair);
+      for (const pair of paid) bucket(pair.card.account, pair.date || pair.card.tx.date)?.payments.push(pair);
       for (const pair of reversed) bucket(pair.card.account, pair.card.tx.date)?.reversals.push(pair);
       // Owner amendment (lead, #787, amends 6641053911): per card and period
       // the required inflow is the minimum due in the period plus net new

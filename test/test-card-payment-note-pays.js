@@ -120,5 +120,61 @@ withheld(run(world([purchase, ['bills', 105, null, 'cash', { payee: 'Invented ca
   withheld(run(world([purchase, cashLeg(105, { notes: CASHBACK }), cardCredit(105)], { edit: addCashback })),
     'coverage-payment-source-unconfirmed', 'note names another card than the credit: the credit stays unsourced');
 }
+// 8. Opening rollover (#1298 review). A noted debit pays its card on the
+// debit's own date, so its credit arriving after the opening rolls cannot
+// count it again. Run A (as of 10-01, opening 09-18): 80 purchase and the 25
+// minimum on 09-20, a 105 noted debit on 10-01 -> one payment, minimum 25 then
+// the 80; available now 395 - 0 - 70 - 0 = 325. Run B (as of 10-03, confirmed
+// opening 10-02, nothing carried): the credit lands 10-02 and a new 75 purchase
+// follows. The 10-01 debit belongs to run A's period: no payment in run B, the
+// 75 stays uncovered (reserve 75). Bills 395; the 09-20 minimum is not
+// represented in this invented opening, so it stays To confirm (25);
+// groceries left 150 - 75 = 75; available now 395 - 25 - 75 - 75 = 220.
+// Counting the debit again would cover the 75 and overstate it by 75.
+{
+  const debit = ['bills', 105, '2026-10-01', 'cash', { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C',
+    ...transfer, notes: TRAVEL }];
+  const a = run(world([['card', 80, '2026-09-20', 'purchase'], debit], { asOf: '2026-10-01', minimumDate: '2026-09-20' }));
+  ready(a, 'rollover run A');
+  check(a.coverage.payments.length === 1 && a.coverage.payments[0].minimumPayment === 25
+    && a.coverage.payments[0].backfill === 80, 'rollover run A: the noted debit pays minimum 25 then the 80');
+  check(a.period.fromTodayFunding.availableNow === 325, 'rollover run A: available now 325 (got '
+    + a.period.fromTodayFunding.availableNow + ')');
+  const policy = { rule: 'aggregate-per-card-per-pay-period', opening: { asOf: '2026-10-02', confirmed: true,
+    currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
+  for (const order of [true, false]) {
+    const rows = [['card', 80, '2026-09-20', 'purchase'], debit, ['card', -105, '2026-10-02', 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU', ...transfer }],
+      ['card', 75, '2026-10-02', 'purchase']];
+    const b = run(world(order ? rows : rows.slice().reverse(), { asOf: '2026-10-03', minimumDate: '2026-09-20', policy }));
+    const why = 'rollover run B, ' + (order ? 'in order' : 'reversed');
+    ready(b, why);
+    check(b.coverage.payments.length === 0, why + ': the 10-01 debit is not counted again (got '
+      + b.coverage.payments.length + ')');
+    check(b.coverage.reservedCash === 75, why + ': the new 75 purchase stays uncovered (got ' + b.coverage.reservedCash + ')');
+    check(b.period.fromTodayFunding.availableNow === 220, why + ': available now 395 - 25 - 75 - 75 = 220 (got '
+      + b.period.fromTodayFunding.availableNow + ')');
+  }
+}
+// 8b. The mirror: the credit posts 10-01, before the opening rolls; the noted
+// debit posts 10-02, after. It pays once, in run B's period, by the debit's
+// date: the 75 purchase first, 30 to debt; reserve 0; available now
+// 395 - 25 (the old minimum, To confirm) - 75 - 0 = 295.
+{
+  const policy = { rule: 'aggregate-per-card-per-pay-period', opening: { asOf: '2026-10-02', confirmed: true,
+    currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
+  const b = run(world([['card', -105, '2026-10-01', 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU', ...transfer }],
+    ['bills', 105, '2026-10-02', 'cash', { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C', ...transfer, notes: TRAVEL }],
+    ['card', 75, '2026-10-02', 'purchase']], { asOf: '2026-10-03', minimumDate: '2026-09-20', policy }));
+  ready(b, 'mirror rollover');
+  check(b.coverage.payments.length === 1 && b.coverage.payments[0].backfill === 75 && b.coverage.payments[0].cardPayment === 30,
+    'mirror rollover: one payment, the 75 purchase then 30 to debt ' + JSON.stringify(b.coverage.payments.map(p => [p.minimumPayment, p.backfill, p.cardPayment])));
+  check(b.coverage.reservedCash === 0, 'mirror rollover: reserve 0');
+  check(b.period.fromTodayFunding.availableNow === 295, 'mirror rollover: available now 295 (got '
+    + b.period.fromTodayFunding.availableNow + ')');
+}
+// 9. A note naming a card the plan does not map as a revolving card pays
+// nothing by its note: TD Personal is in the name table but not this plan.
+withheld(run(world([purchase, cashLeg(105, { notes: 'card payment: TD Personal Credit Card ...7777' })])),
+  'coverage-payment-destination-unconfirmed', 'a note naming an unmapped card is unchanged');
 
 console.log(`  PASS  a "card payment: <card>" note alone names the card (${checks} checks)`);
