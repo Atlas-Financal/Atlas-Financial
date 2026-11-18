@@ -114,9 +114,18 @@ if (threads.isMainThread && require.main === module) (async () => {
       check(held.liveOverlay.operatingPlan !== 'unavailable', 'a withheld complete refresh serves the last full picture, not the hold');
       check(held.liveOverlay.retainedRefresh?.attempt?.reason === 'current-plan-withheld',
         'under the banner, with the withheld reason (' + held.liveOverlay.retainedRefresh?.attempt?.reason + ')');
-      check(held.liveOverlay.retainedRefresh.observedAt === first.liveOverlay.retainedRefresh?.observedAt
-        || held.liveOverlay.retainedRefresh.observedAt === Helpers.CLOCK, 'dated as the full picture');
+      check(held.liveOverlay.retainedRefresh.observedAt === Helpers.CLOCK, 'dated as the full picture (its own check time)');
       check(JSON.stringify(held.plan) === JSON.stringify(first.plan), 'the picture\'s plan is the full publication, unchanged');
+
+
+      // An ordinary page load next replays the newest (withheld) observation;
+      // it shows the same last full picture, and is not a new provider check.
+      const replay = await Refresh.serve(canonical, env, { preferObservation: true }); await drain();
+      check(replay.liveOverlay.operatingPlan !== 'unavailable'
+        && replay.liveOverlay.retainedRefresh?.attempt?.reason === 'current-plan-withheld',
+        'an ordinary load replaying the withheld refresh also shows the last full picture (' + replay.liveOverlay.operatingPlan + ')');
+      check(replay.liveOverlay.retainedRefresh.attempt.source === null, 'the replay is not reported as a new provider check');
+      check(JSON.stringify(replay.plan) === JSON.stringify(first.plan), 'the replayed picture\'s plan is the full publication, unchanged');
 
       mock.mode('failure');
       const failed = await Refresh.serve(canonical, env, { forceRefresh: true }).catch(error => ({ error })); await drain();

@@ -688,10 +688,13 @@ if (!isMainThread) {
         // Dale, 2026-11-18: a complete refresh whose plan is withheld as a
         // whole (e.g. income reconciliation) shows the last non-withheld
         // picture under the banner; with none held, the withheld page (and
-        // its shell) as before.
-        if (result?.data && completeDisplay && !job.evidence && ObservationMemory.planWithheld(result.data)) {
-          const clear = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
-            failedAttempt(result.check, 'current-plan-withheld'), false);
+        // its shell) as before. A replay of that withheld observation (an
+        // ordinary page load) takes the same fallback, but is not a new
+        // provider check.
+        if (result?.data && completeDisplay && ObservationMemory.planWithheld(result.data)) {
+          const attempt = failedAttempt(result.check, 'current-plan-withheld');
+          if (job.evidence) attempt.source = null;
+          const clear = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt, false);
           if (clear && !ObservationMemory.planWithheld(clear.data)) {
             job.displayCheck = clear.check;
             return finishJob(job, null, clear.data);
