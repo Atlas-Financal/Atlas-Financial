@@ -3435,7 +3435,7 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     // landing Monday, is unclaimed), not an early one for the next occurrence. Only the
     // occurrence just before the credit decides: when it IS claimed, an extra credit can be the
     // next one arriving early, whatever older occurrences did. Limited to the other scheduled
-    // incomes: payroll and the salary pair keep their rule.
+    // incomes; payroll has its own narrower one-business-day rule below, and the salary pair keeps its rule.
     const previousEvent = events.filter(event => event.date <= asOf)
       .sort((left, right) => left.date.localeCompare(right.date)).pop();
     const earlierUnclaimed = !!previousEvent && !claimedKeys.has(previousEvent.id + '@' + previousEvent.date);
@@ -3455,6 +3455,27 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
         .sort((left, right) => left.date.localeCompare(right.date)).pop() : null);
     const lateOfEarlier = credit => previousEvent ? earlierUnclaimed
       : !!priorEvent && Forecast.diffDays(priorEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
+    // Payroll late posting (census rank 3; a STOPGAP that the LM recurring-matches slice retires). A posted payroll
+    // credit dated within one business day after the payday just before it (Friday's pay landing Monday), when
+    // nothing claimed that payday, is that payday's late posting: it settles that payday once and is never the next
+    // pay arriving early. Business days are Forecast's (Monday to Friday, no holiday calendar), so a payday followed
+    // by a weekday holiday is two business days to the Tuesday and still holds. At most ONE credit is absorbed per
+    // payday: a second qualifying credit is unexplained and holds exactly as before, as does any credit that is not
+    // explicitly posted, not of exactly the scheduled amount, not strictly nearer that payday than the next, or later
+    // than one business day.
+    // A payday whose own receipts already compete (an ambiguous group for that exact occurrence, on any date) is
+    // not unclaimed in the sense this needs: its receipt is unresolved, so a later credit stays held as before.
+    // Only a credit of EXACTLY the payday's scheduled amount is absorbed (#1290 review): Forecast does not settle the
+    // payday from an absorbed credit, so it publishes the scheduled amount. Only then is that equal to what the same
+    // credit would publish on time. A short, tiny or oversized late credit holds exactly as before.
+    const previousAmbiguous = !!previousEvent && (ambiguous || []).some(group => group
+      && String(group.id) === String(previousEvent.id) && String(group.date) === String(previousEvent.date));
+    let payrollLateAbsorbed = 0;
+    const payrollLateOfEarlier = credit => !!previousEvent && earlierUnclaimed && !previousAmbiguous
+      && credit.savingsPostingEvidence === 'posted' && credit.date > previousEvent.date
+      && Math.abs(Math.abs(lunchMoneyDebitAmount(credit.amount)) - Math.abs(Number(previousEvent.amount))) <= IDENTITY_AMOUNT_EPSILON
+      && Forecast.businessDaysAfter(previousEvent.date, credit.date) <= 1
+      && Forecast.diffDays(previousEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
     for (const credit of input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
@@ -3462,7 +3483,10 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
         if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
-        if (rule.eventId === 'payroll') { unresolved = true; break; }
+        if (rule.eventId === 'payroll') {
+          if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
+          unresolved = true; break;
+        }
         // A scheduled income other than payroll and the salary pair holds the plan only on a receipt the
         // provider explicitly states as posted (is_pending === false). An absent, null or non-boolean flag
         // is unknown posting evidence (the sanitizer reads it as not pending but marks it 'unknown'): it

@@ -46,6 +46,7 @@ const FORECAST_NON_AUTHORITY = new Set([
   'financialDate',
   'addDays',
   'diffDays',
+  'businessDaysAfter',
   'occurrences',
   'commitmentSettledOn',
   'commitmentSettledBy',
