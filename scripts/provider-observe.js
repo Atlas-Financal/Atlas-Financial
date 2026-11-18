@@ -4542,6 +4542,7 @@ function observeCore(input, capture) {
     pendingCoverage: normalized.pendingCoverage,
     cycleOpensOn: (due, day) => statementCloseDateForDue(due, day) || due,
     isExplicitlyPosted: tx => explicitlyPostedCounts.get(tx.providerTransactionId) === 1,
+    coverageReference: cardCoverageReference,
     alreadyAllocated: tx => (planForIdentity.cardPurchaseCoverage?.payments || []).some(p =>
       p.confirmed === true && (p.debitRef === cardCoverageReference(tx) || p.creditRef === cardCoverageReference(tx))),
     matchesIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
@@ -4618,6 +4619,16 @@ function observeCore(input, capture) {
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
+  // U4: a noted TD minimum payment stays evidence only if card coverage, on
+  // this observation's own packet, paired it with the card's posted credit.
+  if (assembled.cardMinimumCategoryEvidence) {
+    const packet = actualsPass.packet;
+    const receipts = (assembled.cardMinimumCategoryEvidence.payments || []).some(p => p?.evidence === 'card-payment-note')
+      && packet && Array.isArray(packet.transactions)
+      ? Forecast.cardNotePaymentReceipts(packet.transactions, { plan: input.data && input.data.plan,
+        asOf: packet.observationAsOf, packet, debts: input.data && input.data.debts }) : [];
+    assembled.cardMinimumCategoryEvidence = MinimumCategory.qualifyNotePayments(assembled.cardMinimumCategoryEvidence, receipts);
+  }
   // S2: the timing applied above, for live-plan to apply to the served plan.
   // Internal to the report; never served.
   // Present only when a schedule applies, so every other report keeps its shape.

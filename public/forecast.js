@@ -208,7 +208,8 @@
         const cashIncluded = record.cashIncludedAsOf != null && record.cashIncludedAsOf <= asOf;
         payments.push({ id: row.id, scheduledDate: record.scheduledDate, date: dueDate,
           occurrenceKey: row.id + '@' + record.scheduledDate,
-          ...(category?.payments.includes(record) ? { minimumConfirmationSource: 'household-category' } : {}),
+          ...(category?.payments.includes(record) ? { minimumConfirmationSource: record.evidence === 'card-payment-note'
+            ? 'card-payment-note-and-credit' : 'household-category' } : {}),
           cashPaymentStatus: 'sent', cashPaid: record.amount, cashSentOn: record.postedOn,
           ...(identityCounts.get(record.debitId) > 1 ? { householdPaymentEvidence: 'conflict' } : {}),
           cashInclusionStatus: cashIncluded ? 'included' : 'unconfirmed',
@@ -763,16 +764,25 @@
           || counts.get(p.debitId) !== 1 || keys.get(p.id + '@' + p.scheduledDate) !== 1
           || occurrences(row, p.scheduledDate, p.scheduledDate).length !== 1
           || (row.sentPayments != null && !Array.isArray(row.sentPayments))
-          || (row.sentPayments || []).some(o => o.scheduledDate === p.scheduledDate)) continue;
-      payments.push(p);
+          || (row.sentPayments || []).some(o => o.scheduledDate === p.scheduledDate)
+          || (p.evidence !== undefined && (p.evidence !== 'card-payment-note'
+            || !['cashback', 'travelvisa', 'tdcc'].includes(row.debtId)))) continue;
       const due = statementOccurrenceDate(plan, row.id, p.scheduledDate);
       const occurrence = obligationOccurrences(row, p.scheduledDate < due ? p.scheduledDate : due,
         p.scheduledDate > due ? p.scheduledDate : due)
         .find(o => o.scheduledDate === p.scheduledDate);
       // Forecast alone decides amount satisfaction. This is the household's
       // category confirmation, never a fabricated issuer posting transaction.
-      if (occurrence?.confidence === 'confirmed' && occurrence.amount > 0
-          && Math.round(p.amount * 100) >= Math.round(occurrence.amount * 100)) {
+      // A noted TD debit reaches here only when card coverage paired it with
+      // the card's posted PAYMENT - THANK YOU credit (the observer qualifies
+      // it): that credit is the issuer's receipt (lead dispatch U4, option A).
+      // A noted payment that cannot satisfy the minimum is dropped, so the
+      // minimum stays To confirm rather than sent with the issuer unknown.
+      const satisfies = occurrence?.confidence === 'confirmed' && occurrence.amount > 0
+        && Math.round(p.amount * 100) >= Math.round(occurrence.amount * 100);
+      if (p.evidence === 'card-payment-note' && !satisfies) continue;
+      payments.push(p);
+      if (satisfies) {
         receipts.push({ id: p.id, date: p.scheduledDate, effectiveAsOf: packet.asOf });
       }
     }
@@ -11465,9 +11475,15 @@
   // " ...NNNN" ignored, never matched by the digits). Any other named card is
   // 'unknown' and pairs with nothing until its spelling is confirmed.
   // Grok Bot (Plan #6, 2026-11-17): "card payment: TD Personal Credit Card".
+  // Triangle and MBNA names: lead dispatch U4 (the lead writes the ledger
+  // contract while Grok consultation is paused, #821 6964009921).
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
-    'td personal credit card': 'tdcc' });
-  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
+    'td personal credit card': 'tdcc', 'triangle mastercard': 'triangle', 'mbna': 'mbna' });
+  // Card coverage's note path is for TD "TFR-TO C/C" transfers, which pay a TD
+  // card: a Triangle or MBNA name on one is contradictory and stays unconfirmed
+  // (#1316 pre-review). Those names exist for the destination, not this path.
+  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']
+    .filter(id => Object.values(CARD_PAYMENT_NOTE_CARDS).includes(id)));
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -14273,6 +14289,10 @@
     // direction, account, pairing or pending state withholds; a pending leg
     // counts only once posted. Money onto the card counts from Bills or
     // Savings (owner rule); a Weekly-funded payment withholds (Codex P1, #849).
+    // Noted TD debits that paired with a posted TD PAYMENT - THANK YOU credit
+    // on the card the note names: the issuer's own receipt of that payment
+    // (lead dispatch U4, option A). Read by the observer only.
+    const notedCreditPairs = [], reversedPairs = new Set();
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
     const aggregatePeriods = [], minimumCoverage = [], savingsFundedByRef = new Map();
@@ -14452,6 +14472,12 @@
       }
       const creditPairs = [...groupPairs,
         ...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed')];
+      // The TD issuer identity is the credit's own PAYMENT - THANK YOU
+      // description, whatever category it is filed under (Codex P2, #1316).
+      for (const pair of creditPairs) {
+        if (pair.card.tx.pending === false && isTdCardPaymentCredit(pair.card.tx)
+          && notePays(pair.cash) === pair.card.account) notedCreditPairs.push(pair);
+      }
       // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
       // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
       // exactly one card in the fixed table is a payment to that card on its
@@ -14588,6 +14614,7 @@
           for (const pair of sortedPayments.slice().reverse()) {
             const cut = Math.min(toReverse, pair.card.cents - pair.scheduled); toReverse -= cut;
             effective.set(pair, pair.card.cents - pair.scheduled - cut);
+            if (cut > 0) reversedPairs.add(pair);
           }
           const minimums = (period.minimums || []).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
           for (const pair of sortedPayments) {
@@ -14963,7 +14990,10 @@
       accountLabel: row.accountLabel,
       ...(aggregate ? { savingsFunded: issues.length ? null : (savingsFundedByRef.get(row.ref) || 0) / 100 } : {}),
     }]));
-    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs,
+    // A payment that a reversal cut (wholly or partly) is not a receipt (Codex P1, #1316).
+    const noteReceipts = notedCreditPairs.filter(pair => !reversedPairs.has(pair))
+      .map(pair => ({ debitRef: pair.cash.tx.coverageRef, card: pair.card.account }));
+    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs, notedCreditPairs: noteReceipts,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
     // Diagnostic identity is independent of the allocator's iteration order.
     // Inspect all explicitly confirmed declarations, including rejected ones:
@@ -15093,11 +15123,18 @@
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
     }
     return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs, aggregateReversalCashRefs,
-      ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
+      notedCreditPairs: noteReceipts, ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
   function visaPaymentReconciliation(transactions, opts) {
     return reconcileCardPurchases(transactions, opts).publication;
+  }
+  // The debits card coverage paired, by their "card payment: <card>" note,
+  // with a posted TD PAYMENT - THANK YOU credit on that card. The observer
+  // reads this once to qualify a noted debit as minimum-payment evidence; the
+  // pairing itself stays card coverage's (one authority).
+  function cardNotePaymentReceipts(transactions, opts) {
+    return reconcileCardPurchases(transactions, opts).notedCreditPairs || [];
   }
 
   // The private identity bridge never leaves Forecast. No merchant, amount,
@@ -28644,7 +28681,7 @@
     };
   }
 
-  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
