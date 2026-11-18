@@ -811,6 +811,8 @@ readers of 18 `data.json` keys: `upcomingNote`, `debtsNote`, `utilisationNote`,
 `assetsNote`, `netWorth`, `helocSummary`, `helocUse`, `helocUseNote`,
 `helocChains`, `cashflow`, `cashflowNote`, `incomeWarning`, `incomeNote`,
 `spendingNote`, `counterparties`, `coachPayment`, `unexplained` and `questions`.
+`interestCheck` joined them when #822 slice 10 retired `Forecast.deepDive`, its
+only reader.
 No page, script or the assistant packet reads them now, but `/data.json` still
 serves them to a signed-in browser. `test-invariants.js` pins the exact list.
 Decide whether to delete them from `data.json` (and stop producing them) or

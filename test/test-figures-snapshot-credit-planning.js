@@ -609,15 +609,16 @@ console.log('\n=== 6. The snapshot no longer reads Forecast.deepDive (#822 slice
   // (revolving.heloc.posted) and the scoreboard (scoreboard.today.heloc).
   const src = fs.readFileSync(path.join(ROOT, 'scripts/figures-snapshot.js'), 'utf8');
   ok(!/\bdeepDive\s*\(/.test(src.replace(/\/\/.*$/gm, '')), 'figures-snapshot.js never calls deepDive');
-  const realDive = F.deepDive;
+  // #822 slice 10 retired Forecast.deepDive; nothing may reach for it again.
+  ok(F.deepDive === undefined, 'Forecast no longer exports deepDive');
   let calls = 0;
-  F.deepDive = (...args) => { calls++; return realDive(...args); };
+  F.deepDive = () => { calls++; throw new Error('deepDive was retired'); };
   let creditSnap, liveSnap;
   try {
     creditSnap = buildFiguresSnapshot(creditFixture(), null);
     liveSnap = buildFiguresSnapshot(live, periods);
   } finally {
-    F.deepDive = realDive;
+    delete F.deepDive;
   }
   ok(calls === 0, 'building the credit fixture and household snapshots calls Forecast.deepDive 0 times', String(calls));
   ok(!Object.prototype.hasOwnProperty.call(creditSnap, 'heloc.currentOpening')

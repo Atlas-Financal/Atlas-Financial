@@ -2999,10 +2999,6 @@
         || typeof asOf !== 'string' || !SETTLED_ON.test(asOf) || o.confirmedOn > asOf) return null;
     return { cents, confirmedOn: o.confirmedOn };
   }
-  function commitmentStatus(c) {
-    return commitmentSettledOn(c) ? 'settled' : 'unsettled';
-  }
-
   /* ------------------------------------------- one plan, many windows */
   // The knowledge horizon is how far the master forecast knows. Named
   // ranges are views of that same walk. A short display window cannot
@@ -23444,13 +23440,6 @@
     return dollars === 0 ? 'unchanged' : (delta > 0 ? 'growing' : 'falling');
   }
 
-  // Deep Dive captions print `money2` (cents). Classify by that published
-  // cent so two different displayed balances cannot read "unchanged".
-  function publishedCentsId(delta, up, down) {
-    const publishedCents = Math.round(Number(delta) * 100);
-    return publishedCents === 0 ? 'unchanged' : (publishedCents > 0 ? up : down);
-  }
-
   function helocDebtRecord(debts) {
     return (debts || []).find(d => d.id === 'heloc') || null;
   }
@@ -23462,84 +23451,6 @@
     if (!heloc || heloc.balance == null || !prior || prior.v == null) return null;
     const delta = Number(heloc.balance) - Number(prior.v);
     return { delta, id: publishedDeltaId(delta) };
-  }
-
-  function monthYearLabel(iso) {
-    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const month = Number(iso.slice(5, 7));
-    if (month < 1 || month > 12) return null;
-    return months[month - 1] + ' ' + iso.slice(2, 4);
-  }
-
-  function copyHelocPoint(p) {
-    const row = { m: p.m, v: Number(p.v) };
-    if (p.note) row.note = p.note;
-    return row;
-  }
-
-  // Historical monthly observations stay in `data.helocHistory`. The current
-  // opening is `debts.heloc.balance`. Deep Dive composes those; it does not
-  // store today's balance a second time.
-  function publishedHelocHistory(data) {
-    data = data || {};
-    const history = (data.helocHistory || []).map(copyHelocPoint);
-    const heloc = helocDebtRecord(data.debts);
-    if (!heloc || heloc.balance == null) return history;
-    const label = monthYearLabel(data.meta && data.meta.asOf) || 'now';
-    history.push({ m: label, v: Number(heloc.balance), note: 'current opening' });
-    return history;
-  }
-
-  function lastFebruaryPoint(history) {
-    let found = null;
-    for (const p of history || []) {
-      if (/^Feb\b/.test(p.m)) found = p;
-    }
-    return found;
-  }
-
-  function helocRoseEveryMonthSince(history, startIndex, current) {
-    const series = [];
-    for (let i = startIndex; i < (history || []).length; i++) {
-      series.push(Number(history[i].v));
-    }
-    if (current != null) series.push(Number(current));
-    if (series.length < 2) return null;
-    for (let i = 1; i < series.length; i++) {
-      if (!(series[i] > series[i - 1])) return false;
-    }
-    return true;
-  }
-
-  function helocStory(data) {
-    data = data || {};
-    const heloc = helocDebtRecord(data.debts);
-    const history = data.helocHistory || [];
-    const current = heloc && heloc.balance != null ? Number(heloc.balance) : null;
-    const prior = history.length ? copyHelocPoint(history[history.length - 1]) : null;
-    const vsPriorDelta = current != null && prior && prior.v != null
-      ? current - Number(prior.v) : null;
-    const paydown = lastFebruaryPoint(history);
-    const paydownIndex = paydown ? history.lastIndexOf(paydown) : -1;
-    const sincePaydown = current != null && paydown
-      ? current - Number(paydown.v) : null;
-    return {
-      history: publishedHelocHistory(data),
-      current,
-      asOf: data.meta && data.meta.asOf || null,
-      prior,
-      vsPrior: vsPriorDelta,
-      vsPriorId: vsPriorDelta == null ? null
-        : publishedCentsId(vsPriorDelta, 'growing', 'falling'),
-      paydown: paydown ? copyHelocPoint(paydown) : null,
-      sincePaydown,
-      sincePaydownId: sincePaydown == null ? null
-        : publishedCentsId(sincePaydown, 'higher', 'lower'),
-      roseEveryMonthSincePaydown: paydownIndex >= 0
-        ? helocRoseEveryMonthSince(history, paydownIndex, current) : null,
-    };
   }
 
   /* ------------------------------------------ compact snapshot */
@@ -23699,34 +23610,12 @@
     };
   }
 
-  /* ------------------------------------------ Deep Dive derived totals */
-  // The Deep Dive page used to decide the remaining household-facing
-  // figures B73 recorded as item 8: grouping and totalling `heldElsewhere`,
-  // averaging a period's spending, totalling discretionary spend and its
-  // share, totalling avoidable fees, flagging Cash Back Visa cycles that
-  // do not fit the card's rate, summing implied and charged interest, and
-  // hardcoding "~$1,620/month" for the mortgage and `26.99` for the card.
-  // Widening the ±4pp fit test to 40, swapping the footer rate, halving
-  // the elsewhere total, doubling the monthly average, and replacing
-  // $1,620 with $1,000 left `npm test` green — ALL 22 SUITES PASSED —
-  // because no test could reach the page.
-  //
-  // This coordinator does not walk cash or re-price a card. Spendable cash
-  // is the spendable breakdown sum. The card rate is the Cash Back Visa
-  // debt record. A month of mortgage interest is `monthOfAnnual` on that
-  // debt's `annualInterest` — the same twelfth compactSnapshot uses.
-  // The ±4 percentage-point fit band is the incumbent page rule, kept
-  // here rather than restated.
-  //
-  // `period` is the selected `periods.periods` entry. Without one the
-  // period block is omitted; `renderPeriod` passes the period on screen.
-  const INTEREST_FIT_PP = 4;
-
+  /* ------------------------------------------ published spending type */
   // Mixed essential+discretionary source types cannot publish as either class.
   // `scripts/periods.js` used to keep the first event's type and then add later
   // events into that row, so Health could read as essential only because a
   // medical merchant happened to be encountered first. The existing `unknown`
-  // type already means "no clean essential/discretionary story" to Deep Dive.
+  // type already means "no clean essential/discretionary story".
   function publishedSpendType(types) {
     const unique = [];
     (types || []).forEach(t => {
@@ -23759,86 +23648,6 @@
       if (v.types.length > 1) row.types = v.types.slice().sort();
       return row;
     }).sort((a, b) => b.total - a.total);
-  }
-
-  function deepDive(data, period) {
-    data = data || {};
-    const cash = (data.plan && data.plan.startingCash) || {};
-    const held = cash.heldElsewhere || [];
-    const byClass = {};
-    const classOrder = [];
-    let elsewhere = 0;
-    for (const h of held) {
-      const cls = h.class || 'unknown';
-      if (!byClass[cls]) {
-        byClass[cls] = { class: cls, total: 0, labels: [] };
-        classOrder.push(cls);
-      }
-      byClass[cls].total += h.value;
-      byClass[cls].labels.push(h.label);
-      elsewhere += h.value;
-    }
-
-    const card = (data.debts || []).find(d => d.id === 'cashback') || null;
-    const ic = data.interestCheck || null;
-    let interest = null;
-    if (ic) {
-      if (!card || card.rate == null) {
-        throw new Error('deepDive interest check requires the Cash Back Visa rate');
-      }
-      const rate = card.rate;
-      const rows = (ic.rows || []).map(r => ({
-        stmt: r.stmt,
-        avg: r.avg,
-        implied: r.implied,
-        charged: r.charged,
-        eff: r.eff,
-        off: Math.abs(r.eff - rate) > INTEREST_FIT_PP,
-      }));
-      interest = {
-        rate,
-        rows,
-        impliedTotal: rows.reduce((s, r) => s + r.implied, 0),
-        chargedTotal: rows.reduce((s, r) => s + r.charged, 0),
-      };
-    }
-
-    const mortgage = (data.debts || []).find(d => d.id === 'mortgage') || null;
-    const mortgageMonthly = mortgage && mortgage.annualInterest != null
-      ? monthOfAnnual(mortgage.annualInterest) : null;
-    const heloc = helocStory(data);
-
-    let periodSnap = null;
-    if (period) {
-      const spendingTotal = period.spendingTotal || 0;
-      const months = period.months || 0;
-      const discretionary = (period.spending || [])
-        .filter(s => publishedSpendType(s.types || [s.type]) === 'discretionary')
-        .reduce((a, b) => a + b.total, 0);
-      const avoidable = (period.fees || [])
-        .filter(s => s.type === 'avoidable')
-        .reduce((a, b) => a + b.total, 0);
-      periodSnap = {
-        spendingTotal,
-        interestTotal: period.interestTotal || 0,
-        feesTotal: period.feesTotal || 0,
-        months,
-        spendingMonthly: months > 1 ? spendingTotal / months : null,
-        discretionary,
-        discretionaryShare: discretionary / (spendingTotal || 1) * 100,
-        avoidable,
-      };
-    }
-
-    return {
-      cashAmount: spendableHouseholdCash(data.plan),
-      elsewhere,
-      classes: classOrder.map(k => byClass[k]),
-      interest,
-      mortgageMonthly,
-      heloc,
-      period: periodSnap,
-    };
   }
 
   /* ------------------------------- what the plan is, read one way, once ---- */
@@ -28796,7 +28605,7 @@
     };
   }
 
-  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
@@ -28804,7 +28613,7 @@
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication };

@@ -1,5 +1,10 @@
 'use strict';
-/* B19 — Deep Dive mortgage / HELOC story agrees with the canonical opening.
+/* B19 — the HELOC story agrees with the canonical opening.
+ *
+ * The Deep Dive page and Forecast.deepDive were removed (#822). The live
+ * consumer of the current-minus-last-observation identity is the Plan page's
+ * "HELOC vs last month" tile (Forecast.compactSnapshot); the stored-history
+ * invariants below still hold for data.json.
  *
  * Enduring invariants, not a freeze of one refresh:
  *   one current HELOC authority (`debts.heloc`);
@@ -51,11 +56,6 @@ function gitShow(spec) {
   return execFileSync('git', ['show', spec], { encoding: 'utf8' });
 }
 
-function centsId(delta, up, down) {
-  const publishedCents = Math.round(Number(delta) * 100);
-  return publishedCents === 0 ? 'unchanged' : (publishedCents > 0 ? up : down);
-}
-
 function dollarId(delta) {
   const dollars = Math.round(Math.abs(Number(delta)));
   return dollars === 0 ? 'unchanged' : (delta > 0 ? 'growing' : 'falling');
@@ -82,7 +82,6 @@ function fixtureData({ helocBalance, history, asOf }) {
 }
 
 const heloc = data.debts.find(d => d.id === 'heloc');
-const mortgage = data.debts.find(d => d.id === 'mortgage');
 const history = data.helocHistory || [];
 const snap9 = JSON.parse(read('snapshots/2026-08-09.json'));
 const snap16 = JSON.parse(read('snapshots/2026-08-16.json'));
@@ -106,27 +105,13 @@ ok(near(LIMIT - AUG9, 1067.84),
   'independent stale headroom is 202,654 − 201,586.16 = $1,067.84');
 
 console.log('\n=== one current HELOC authority; composition does not rewrite history ===');
-const dive = F.deepDive(data);
 const lastStored = history.length ? history[history.length - 1] : null;
 const liveDelta = lastStored && heloc && heloc.balance != null
   ? Number(heloc.balance) - Number(lastStored.v) : null;
-ok(dive.heloc && heloc && sameCents(dive.heloc.current, heloc.balance),
-  'Deep Dive current HELOC is debts.heloc',
-  dive.heloc ? money2(dive.heloc.current) : 'none');
-ok(dive.heloc && dive.heloc.history[dive.heloc.history.length - 1].v === heloc.balance
-  && dive.heloc.history[dive.heloc.history.length - 1].note === 'current opening',
-  'composed series ends on the canonical opening, labelled as current');
-ok(dive.heloc.history.slice(0, -1).every((p, i) =>
-  p.m === history[i].m && sameCents(p.v, history[i].v)),
-  'composed historical points are the stored monthly observations');
 ok(history.every(p => p.note !== 'current opening'),
   'stored helocHistory does not carry the current-opening label');
 ok(history.every(p => !near(p.v, AUG9)),
   'the 2026-08-09 $201,586.16 reading is no longer stored as a monthly point');
-ok(liveDelta != null && dive.heloc && sameCents(dive.heloc.vsPrior, liveDelta),
-  'Deep Dive vs-prior is current minus the last stored observation');
-ok(dive.heloc && dive.heloc.vsPriorId === centsId(liveDelta, 'growing', 'falling'),
-  'Deep Dive classifies vs-prior by the published cent');
 
 const snap = F.compactSnapshot(data.debts, data.helocHistory);
 ok(snap.heloc && sameCents(snap.heloc.delta, liveDelta),
@@ -134,20 +119,6 @@ ok(snap.heloc && sameCents(snap.heloc.delta, liveDelta),
 ok(snap.heloc && snap.heloc.id === dollarId(liveDelta),
   'Plan compact snapshot classifies that delta on the published whole dollar');
 
-const feb = history.filter(p => /^Feb\b/.test(p.m)).pop();
-ok(feb && dive.heloc && sameCents(dive.heloc.sincePaydown, Number(heloc.balance) - Number(feb.v)),
-  'Deep Dive since-paydown is current minus the last February observation');
-ok(dive.heloc && dive.heloc.sincePaydownId === centsId(dive.heloc.sincePaydown, 'higher', 'lower'),
-  'Deep Dive classifies since-paydown by the published cent');
-
-let roseEvery = true;
-const fromFeb = history.filter((p, i) => i >= history.findIndex(x => x === feb));
-for (let i = 1; i < fromFeb.length; i++) {
-  if (!(fromFeb[i].v > fromFeb[i - 1].v)) roseEvery = false;
-}
-if (!(Number(heloc.balance) > fromFeb[fromFeb.length - 1].v)) roseEvery = false;
-ok(dive.heloc.roseEveryMonthSincePaydown === roseEvery,
-  'Forecast reports every-month-since-paydown from the composed series, not a stored claim');
 ok(!/1,067\.84|1067\.84/.test(JSON.stringify(history)),
   'stored monthly series no longer publishes the stale $1,067.84 headroom');
 
@@ -166,20 +137,6 @@ ok(sameCents(HAND_SINCE_FEB, 12425.55),
   'independent Aug. 16 − February paydown is +$12,425.55');
 ok(sameCents(AUG9 - AUG16, PAYMENT) && near(201586.16 - 1100, AUG16),
   'Aug. 9 → Aug. 16 is independently $1,100.00');
-
-const fixDive = F.deepDive(fixtureData({
-  helocBalance: AUG16,
-  history: FIX_HISTORY,
-}));
-ok(fixDive.heloc && sameCents(fixDive.heloc.current, AUG16)
-  && sameCents(fixDive.heloc.vsPrior, HAND_VS_JULY)
-  && fixDive.heloc.vsPriorId === 'falling',
-  'fixture Deep Dive vs-prior is the independent −$599 falling identity');
-ok(fixDive.heloc && sameCents(fixDive.heloc.sincePaydown, HAND_SINCE_FEB)
-  && fixDive.heloc.sincePaydownId === 'higher',
-  'fixture Deep Dive since-paydown matches that independent difference');
-ok(fixDive.heloc.roseEveryMonthSincePaydown === false,
-  'fixture walk from February through current is not every-month growth');
 
 const fixSnap = F.compactSnapshot(
   fixtureData({ helocBalance: AUG16, history: FIX_HISTORY }).debts,
@@ -203,28 +160,10 @@ const subHistory = [
   { m: 'Jul', v: SUB_PRIOR },
 ];
 const subData = fixtureData({ helocBalance: SUB_CURRENT, history: subHistory });
-const subDive = F.deepDive(subData);
 const subSnap = F.compactSnapshot(subData.debts, subHistory);
 ok(subSnap.heloc && subSnap.heloc.id === 'unchanged'
   && same(Math.round(Math.abs(subSnap.heloc.delta)), 0),
   'compact tile still calls a $0.40 move unchanged — it prints $0');
-ok(subDive.heloc && subDive.heloc.vsPriorId === 'falling'
-  && sameCents(subDive.heloc.vsPrior, SUB_DELTA),
-  'Deep Dive classifies the same $0.40 fall as falling, not unchanged');
-ok(subSnap.heloc.id !== subDive.heloc.vsPriorId,
-  'Plan whole-dollar class and Deep Dive cent class are allowed to differ here');
-
-const subUpHistory = [
-  { m: 'Feb 26', v: SUB_PRIOR - 0.4 },
-  { m: 'Jul', v: SUB_PRIOR - 10 },
-];
-const subUpDive = F.deepDive(fixtureData({
-  helocBalance: SUB_PRIOR,
-  history: subUpHistory,
-}));
-ok(subUpDive.heloc && subUpDive.heloc.sincePaydownId === 'higher'
-  && sameCents(subUpDive.heloc.sincePaydown, 0.4),
-  'Deep Dive classifies a $0.40 since-paydown rise as higher, not unchanged');
 console.log('\n=== retained 18-month window totals still reconcile to their source ===');
 const useSum = (data.helocUse || []).reduce((s, u) => s + Number(u.amount), 0);
 const interestRow = (data.helocUse || []).find(u => /Interest charged/i.test(u.label));
@@ -247,8 +186,6 @@ ok(!/99\.5%/.test(data.helocUseNote),
   'historical-use note no longer publishes the stale 99.5% current utilisation');
 
 console.log('\n=== mortgage current figures already agree — no second current copy ===');
-ok(same(dive.mortgageMonthly, mortgage.annualInterest / 12),
-  'Deep Dive mortgage monthly is still the debt-record twelfth');
 ok(data.mortgage.balance == null,
   'the mortgage standing block still stores no second current balance');
 
@@ -267,7 +204,7 @@ ok(/Remaining August cash requirement/i.test(q19body) && /\$0 additional/i.test(
 ok(heloc.cashPayment === 0 && heloc.interestTreatment === 'capitalised',
   'HELOC cashPayment remains $0 and interest remains capitalised');
 ok(!/PAD/.test(data.helocSummary) && !/814\.18/.test(data.helocSummary),
-  'Deep Dive HELOC summary does not invent an August PAD or $814.18 cash outflow');
+  'the stored HELOC summary does not invent an August PAD or $814.18 cash outflow');
 
 console.log('\n=== credit / headroom remains debt capacity, not cash ===');
 const util = F.utilisation(data.debts, data.revolvingExtra, data.plan);
