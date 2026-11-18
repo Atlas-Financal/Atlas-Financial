@@ -64,10 +64,8 @@ console.log('Rule 1: a shortfall reads Partly paid');
   const { row, period } = worldFor(HYDRO, [pay(40)]);
   ok(row && row.paymentState === 'partly-paid' && row.shortfall === 50 && row.shortfallTrust === 'calculated',
     '40 posted on a 90 bill: partly paid, 50.00 short (calculated)', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall, t: row.shortfallTrust }));
-  // D2 (lead dispatch 2026-11-18): a fixed (confirmed) bill paid in part stays still due for its remainder; the
-  // remainder is held (test/test-bill-partial-remainder.js). The paid amount and planned amount are as before.
-  ok(row && row.status === 'still due' && row.remaining === 50 && row.actual === 40 && row.planned === 90,
-    'a fixed bill paid in part: still due, 50 remaining, actual 40 of 90 planned', row && `${row.status} ${row.remaining} ${row.actual}/${row.planned}`);
+  ok(row && row.status === 'PAID' && row.remaining === 0 && row.actual === 40 && row.planned === 90,
+    'status, remaining, actual and planned are unchanged (a label, not a figure change)', row && `${row.status} ${row.remaining} ${row.actual}/${row.planned}`);
   ok(period && period.paidBills === 40, 'the paid-bills total still counts the 40 that left (unchanged)', period && period.paidBills);
   const line = text(ctx.rowHtml(row));
   ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line) && !/\bPaid ·/.test(line) && !/over planned/.test(line),
@@ -170,35 +168,25 @@ console.log('Scheduled fees (Grok Bot, rule 17, LEDGER A item 1), and no shortfa
       JSON.stringify({ paid: period.paidBills, remaining: period.remainingBills, total: period.totalBillsThisPeriod }));
   }
 }
-for (const confidence of ['estimated', 'confirmed']) {
-  // An early PARTIAL payment linked to a bill due in the NEXT pay period. A full early payment reads Paid there (Dale,
-  // #821 6961042821; test-early-paid-planned-period.js).
-  //   - Variable (estimated) bill: Forecast resets that future row to planned/upcoming, remaining 90, actual 0, so that
-  //     period never holds less than it may still owe. It must carry no shortfall claim, so the Bills list cannot say
-  //     "$50.00 still to pay" off a reset row.
-  //   - Fixed (confirmed) bill (D2, lead dispatch 2026-11-18): the row keeps the 40 paid and the 50 still due there, and
-  //     prints Partly paid, $50.00 still to pay (test-bill-partial-remainder.js holds the figures).
+{
+  // An early PARTIAL payment linked to a bill due in the NEXT pay period: Forecast resets that future row to planned/upcoming,
+  // remaining 90, actual 0, so that period never holds less than it may still owe. A full early payment reads Paid there
+  // (Dale, #821 6961042821; test-early-paid-planned-period.js); a partial does not (lead ruling, partial remainders are a
+  // separate rule). It must carry no shortfall claim, so the Bills list cannot say "$50.00 still to pay" off a reset row.
   const w = H.baseWorld();
   w.asOf = '2026-10-21';
-  w.bills = [{ ...HYDRO, confidence, day: 24, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];
+  w.bills = [{ ...HYDRO, day: 24, rule: { postingDateRule: 'covers-early-or-due-on-or-before-posting' } }];
   w.transactions = [pay(40, { date: '2026-10-21' })];
   const r = H.observe(w);
   if (r.error) throw r.error;
   const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
   const next = rec.defaultView.calendarPeriods.find(p => p.start <= '2026-10-24' && p.end >= '2026-10-24');
   const row = (next.bills || []).find(b => b.id === 'hydro');
-  if (confidence === 'estimated') {
-    ok(row && row.status === 'planned' && row.settlement === 'upcoming' && row.actual === 0 && row.remaining === 90,
-      'estimated: the early-paid future row is reset to planned/upcoming, actual 0, remaining 90', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
-    ok(row && !('paymentState' in row) && !('shortfall' in row) && !('shortfallTrust' in row) && !('shortfallSource' in row),
-      'and carries no partly-paid or shortfall fields', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
-    ok(!/Partly paid|still to pay/.test(text(ctx.rowHtml(row))), 'so the Bills list does not print "Partly paid" or "still to pay"', text(ctx.rowHtml(row)));
-  } else {
-    ok(row && row.status === 'still due' && row.settlement === 'represented' && row.actual === 40 && row.remaining === 50,
-      'confirmed (D2): the early partial stays still due next period, 40 paid, 50 remaining', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
-    ok(/Partly paid/.test(text(ctx.rowHtml(row))) && /\$50\.00 still to pay/.test(text(ctx.rowHtml(row))),
-      'and the Bills list prints Partly paid, $50.00 still to pay', text(ctx.rowHtml(row)));
-  }
+  ok(row && row.status === 'planned' && row.settlement === 'upcoming' && row.actual === 0 && row.remaining === 90,
+    'the early-paid future row is reset to planned/upcoming, actual 0, remaining 90', row && `${row.status} ${row.settlement} ${row.actual} ${row.remaining}`);
+  ok(row && !('paymentState' in row) && !('shortfall' in row) && !('shortfallTrust' in row) && !('shortfallSource' in row),
+    'and carries no partly-paid or shortfall fields', row && JSON.stringify({ s: row.paymentState, sf: row.shortfall }));
+  ok(!/Partly paid|still to pay/.test(text(ctx.rowHtml(row))), 'so the Bills list does not print "Partly paid" or "still to pay"', text(ctx.rowHtml(row)));
 }
 {
   // Defence in depth: the printer prints Partly paid only for a settled row, even if a stale shortfall field reaches it.

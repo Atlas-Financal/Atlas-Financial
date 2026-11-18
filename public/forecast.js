@@ -2776,6 +2776,8 @@
   // its remainder only (the paid part is already in opening cash), or null.
   function partlyPaidRemainderEvent(event, observed) {
     if (!event || !(event.amount < 0)) return null;
+    // Already the remainder: never measured against the payment again.
+    if (event.partlyPaidRemainder === true) return event;
     const partPaid = fixedBillPartialPayment(event, -event.amount, observed);
     return partPaid ? { ...event, amount: -partPaid.remainderCents / 100, partlyPaidRemainder: true } : null;
   }
@@ -4443,6 +4445,8 @@
             payerLabel: plannedPayerLabel(fundingAccount, b.payingAccount, plan) } : {}),
           jointCash,
           cardPaid,
+          // D2: only an explicit owner mark makes a bill's amount fixed.
+          ...(b.amountFixed === true ? { amountFixed: true } : {}),
         });
       }
     }
@@ -8534,18 +8538,20 @@
     return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
   }
 
-  // D2 (lead dispatch 2026-11-18, census 12): a fixed bill paid in part keeps
-  // its remainder reserved. The one owner of that remainder: a bill
-  // occurrence whose planned amount is confirmed (a fixed price) and whose
-  // linked posted payment, observed in the packet, is below it. Paid is the
-  // observed amount; the remainder is planned minus paid, in integer cents.
-  // A variable bill (estimated or unknown amount) is not here: its expected
-  // price alone proves no remaining debt, so it keeps today's PAID. The
-  // scheduled-fee pair (tdfees), a card-paid bill and a schedule-trusted
-  // settlement (no payment seen) are not here either.
+  // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
+  // bill paid in part keeps its remainder reserved. The one owner of that
+  // remainder: a bill occurrence whose plan row is explicitly marked
+  // `amountFixed: true` (a contractually fixed payment, marked by the owner),
+  // whose planned amount is confirmed, and whose one linked posted payment,
+  // observed in the packet, is below it. Paid is the observed amount; the
+  // remainder is planned minus paid, in integer cents. `confirmed` alone is
+  // confidence in the planned figure, not a fixed price (a cheaper hydro
+  // charge is not a debt), so every unmarked bill keeps today's PAID with its
+  // Partly paid label. The scheduled-fee pair (tdfees), a card-paid bill and a
+  // schedule-trusted settlement (no payment seen) are not here either.
   function fixedBillPartialPayment(event, planned, observed) {
     if (!event || event.kind !== 'bill' || !event.id || !event.date || event.id === 'tdfees'
-      || event.cardPaid === true || event.confidence !== 'confirmed') return null;
+      || event.cardPaid === true || event.amountFixed !== true || event.confidence !== 'confirmed') return null;
     const seen = observed && observed.get(event.id + '@' + event.date);
     // One linked posted instalment only: several entries for one occurrence
     // are not one partial payment, so they keep the incumbent reading.
@@ -10572,8 +10578,9 @@
     // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
-    // provenance as for the excess). For a variable bill it is a label only: status, settlement, actual, remaining and every
-    // total stay as before. A fixed bill also stays still due for its remainder (D2, fixedBillPartialPayment).
+    // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
+    // before, except on a bill its owner marked `amountFixed: true`, which stays still due for its remainder (D2,
+    // fixedBillPartialPayment).
     // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
     // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
     // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as

@@ -1,7 +1,9 @@
 'use strict';
-/* D2 (lead dispatch 2026-11-18, census 12): a fixed bill paid in part keeps its remainder reserved.
+/* D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed bill paid in part keeps its remainder reserved.
+ * "Fixed" is an explicit owner mark on the plan row, `amountFixed: true`: `confirmed` alone is confidence in the planned
+ * figure, not a fixed price, so a confirmed bill without the mark is unchanged (section 0).
  *
- *   1. A fixed bill (confirmed planned amount) with one linked posted payment below the planned amount stays still due:
+ *   1. A fixed bill (marked, confirmed planned amount) with one linked posted payment below the planned amount stays still due:
  *      paid shows the amount paid, remaining shows the rest, and the rest is held once (bills still to pay, the cash walk,
  *      the payday plan, after-bills).
  *   2. The full planned cost is assigned once (Balance After Deductions, the period bill load, the bills total).
@@ -30,12 +32,13 @@ const ok = (cond, label, detail = '') => {
 };
 const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 0.005;
 
-const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
+const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro',
+  amountFixed: true };
 const pay = (amount, date = '2026-10-12') => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' });
 
-function world(paid, { confidence = 'confirmed', pool = false, day = 12 } = {}) {
+function world(paid, { confidence = 'confirmed', pool = false, day = 12, fixed = true } = {}) {
   const w = H.baseWorld();
-  w.bills = [{ ...HYDRO, confidence, day }];
+  w.bills = [{ ...HYDRO, confidence, day, ...(fixed ? {} : { amountFixed: undefined }) }];
   if (pool) w.savingsPool = true;
   w.transactions = paid ? [pay(paid, '2026-10-' + String(day).padStart(2, '0'))] : [];
   const r = H.observe(w);
@@ -65,6 +68,22 @@ vm.runInContext([lift(app, 'escapeHtml'), lift(app, 'money2'), lift(app, 'fmtDat
 const text = html => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
 const full = world(90), part = world(40), none = world(0);
+
+console.log('0. A confirmed bill without the amountFixed mark is unchanged (PAID, nothing held)');
+{
+  // Confirmed is confidence in the planned 90, not a fixed price: 40 posted may simply be a cheaper bill. Every figure
+  // equals the paid-in-full world except the row's own paid amount, as on main.
+  const uFull = world(90, { fixed: false }), uPart = world(40, { fixed: false });
+  const r = uPart.row;
+  ok(r && r.status === 'PAID' && r.remaining === 0 && r.actual === 40 && r.paymentState === 'partly-paid' && !('partlyPaidRemainder' in r),
+    'unmarked confirmed 90 paid 40: PAID, 0 remaining, the Partly paid label only', r && `${r.status} ${r.remaining} ${r.paymentState}`);
+  ok(uPart.period.remainingBills === 0 && near(uPart.day0, uFull.day0) && uPart.dv.afterBills === uFull.dv.afterBills,
+    'nothing still to pay; the cash walk and after bills equal paid in full', `${uPart.period.remainingBills} ${uPart.day0}/${uFull.day0}`);
+  const flagged = F.expandEvents(H.observe(Object.assign(H.baseWorld(), { bills: [{ ...HYDRO }] })).plan, '2026-10-01', '2026-10-31', {});
+  const unflagged = F.expandEvents(H.observe(Object.assign(H.baseWorld(), { bills: [{ ...HYDRO, amountFixed: undefined }] })).plan, '2026-10-01', '2026-10-31', {});
+  ok(flagged.some(e => e.id === 'hydro' && e.amountFixed === true) && unflagged.every(e => e.id !== 'hydro' || !('amountFixed' in e)),
+    'the mark rides on the bill\'s events only when the plan row sets it');
+}
 
 console.log('1. A fixed bill paid $40 of $90 stays still due for $50');
 {
@@ -183,7 +202,8 @@ console.log('3e. A once bill paid in part stays listed after its pay period (Cod
 {
   const onceLater = paid => {
     const w = H.baseWorld('2026-10-24');
-    w.bills = [{ id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'once', date: '2026-10-12', confidence: 'confirmed', payee: 'Invented hydro' }];
+    w.bills = [{ id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'once', date: '2026-10-12', confidence: 'confirmed', payee: 'Invented hydro',
+      amountFixed: true }];
     w.transactions = paid ? [pay(paid)] : [];
     const r = H.observe(w);
     if (r.error) throw r.error;

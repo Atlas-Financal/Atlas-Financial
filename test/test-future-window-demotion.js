@@ -139,31 +139,15 @@ for (const [label, actual, paid, excess] of [
   ok(untouched, label + ': source receipt (representedActuals) is not mutated');
 }
 
-console.log('\n=== B2. a walk-settled zero payment keeps the demotion; a fixed partial holds its remainder (D2) ===');
-{
-  const { advice } = run(0, null, true);
+console.log('\n=== B2. walk-settled partials keep the demotion ===');
+for (const [label, actual] of [['zero payment', 0], ['underpayment (30.00 of 42.00)', 30]]) {
+  const { advice } = run(actual, null, true);
   const hit = rowIn(advice.payPeriodViews, 'fut');
-  if (!hit) ok(false, 'zero payment: row present');
-  else {
-    const { p, r } = hit;
-    ok(r.status === 'planned' && r.settlement === 'upcoming' && r.remaining === 42 && r.actual === 0,
-      'zero payment: planned / upcoming, the full 42.00 still held', `${r.status} ${r.remaining} ${r.actual}`);
-    ok(p.remainingBills === 84 && p.paidBills === 0, 'zero payment: paid 0, remaining 84.00', `${p.paidBills} / ${p.remainingBills}`);
-  }
-}
-{
-  // D2 (lead dispatch 2026-11-18): the 42.00 fut bill is confirmed (fixed). Paid 30.00 early on the walk's settled set,
-  // it reads still due with 30.00 paid and 42.00 - 30.00 = 12.00 held; the window still assigns 84.00 once:
-  // paid 30 + remaining 12 + the other 42 = 84.
-  const { advice } = run(30, null, true);
-  const hit = rowIn(advice.payPeriodViews, 'fut');
-  if (!hit) ok(false, 'underpayment: row present');
-  else {
-    const { p, r } = hit;
-    ok(r.status === 'still due' && r.settlement === 'represented' && r.remaining === 12 && r.actual === 30,
-      'underpayment (30.00 of 42.00): still due, 30.00 paid, 12.00 held', `${r.status} ${r.remaining} ${r.actual}`);
-    ok(p.paidBills === 30 && p.remainingBills === 54, 'underpayment: paid 30, remaining 12 + 42 = 54.00', `${p.paidBills} / ${p.remainingBills}`);
-  }
+  if (!hit) { ok(false, label + ': row present'); continue; }
+  const { p, r } = hit;
+  ok(r.status === 'planned' && r.settlement === 'upcoming' && r.remaining === 42 && r.actual === 0,
+    label + ': planned / upcoming, the full 42.00 still held', `${r.status} ${r.remaining} ${r.actual}`);
+  ok(p.remainingBills === 84 && p.paidBills === 0, label + ': paid 0, remaining 84.00', `${p.paidBills} / ${p.remainingBills}`);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nAll future-window demotion checks passed');

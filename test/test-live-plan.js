@@ -1342,11 +1342,8 @@ console.log('\n=== 17. posted payday-window mortgage and Fit4less Msp are repres
   ok(items.some(row => row.id === 'fit4less' && row.date === PAYDAY_AS_OF
       && row.settlement === 'unverified'),
     'unknown Fit4Less payee stays reserved');
-  // D2 (lead dispatch 2026-11-18): the gym membership is a confirmed (fixed) amount and the identified Fit4less Msp
-  // payment is below it, so only its remainder stays reserved: scheduled minus the observed 9.99.
-  ok(identifiedItems.some(row => row.id === 'fit4less' && row.date === PAYDAY_AS_OF
-      && near(row.amount, scheduledFit - SYNTHETIC_FIT_OBSERVED)),
-    'Fit4less Msp leaves only the remainder of the confirmed gym membership reserved');
+  ok(!identifiedItems.some(row => row.id === 'fit4less' && row.date === PAYDAY_AS_OF),
+    'Fit4less Msp does not keep the gym membership reserved');
   ok(identifiedItems.some(row => row.id === 'travel' || row.label === 'Travel Visa minimum')
     || identifiedItems.some(row => row.id === 'tdfees'),
     'Travel Visa and/or TD fees can remain reserved without an invented identity');
@@ -1356,8 +1353,8 @@ console.log('\n=== 17. posted payday-window mortgage and Fit4less Msp are repres
   ), 'independent wanted delta is the scheduled mortgage, not the observed debit');
   ok(near(
     advice.paydayAllocation.obligations.wanted - identifiedAdvice.paydayAllocation.obligations.wanted,
-    SYNTHETIC_FIT_OBSERVED
-  ), 'independent Fit4Less wanted delta is the paid part (9.99); the rest of the confirmed amount stays wanted (D2)');
+    scheduledFit
+  ), 'independent Fit4Less wanted delta is the scheduled gym amount, not the observed debit');
 
   const bills = (advice.currentPeriodAction && advice.currentPeriodAction.bills) || [];
   const identifiedBills = (identifiedAdvice.currentPeriodAction
