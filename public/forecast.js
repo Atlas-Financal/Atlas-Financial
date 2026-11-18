@@ -8321,7 +8321,17 @@
       if (periodStart && tx.date < periodStart) continue;
       if (asOf && tx.date > asOf) continue;
       if (skipSplitParent(tx, packet)) continue;
-      if (isPossibleReplacementPending(tx, duplicateIds)) continue;
+      if (isPossibleReplacementPending(tx, duplicateIds)) {
+        // A bill payment's pending copy (provider-observe pendingBillCopyIds)
+        // is never spent, but if it is itself unclassified it still makes the
+        // classification incomplete, as it did before it was paired: it may
+        // be a second, unplaced charge.
+        if (tx.pendingBillCopy === true) {
+          const clsCopy = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+          if (classificationIncompleteHouseholdSpend(clsCopy)) { out.unclassified.count += 1; recordHeld(tx, clsCopy); }
+        }
+        continue;
+      }
       const amt = Number(tx.amount);
       if (!isFinite(amt) || amt === 0) {
         const clsZero = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
