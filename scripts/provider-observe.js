@@ -1503,7 +1503,7 @@ function transferCounterpartMatches(tx, rule, input, amount, diagnostic) {
   const matches = [];
   for (const other of (input && input.transactions) || []) {
     if (!other || other === tx) continue;
-    if (other.pending === true || other.contradictoryEvidence === true) continue;
+    if (!hasPostedReceipt(other)) continue;
     if (String(other.date || '') !== String(tx.date || '')) continue;
     if (!transactionIsTransfer(other)) continue;
     const mapping = mappingFor(mapDoc, other.providerAccountId);
@@ -1718,14 +1718,24 @@ function ruleHasIdentity(rule, diagnostic) {
   return rulePayeePatterns(rule).length > 0;
 }
 
+function hasPostedReceipt(tx) {
+  // Normalization retains affirmative provider evidence separately from the
+  // display-oriented pending boolean. A missing flag can project false there.
+  return !!tx && tx.pending === false && tx.savingsPostingEvidence === 'posted'
+    && tx.contradictoryEvidence !== true;
+}
+
 function ruleMatchesTransactionIdentity(tx, rule) {
+  return hasPostedReceipt(tx) && matchesIdentityFields(tx, rule);
+}
+
+// Pending-bill disclosure and replacement inheritance can find an identity
+// here. Only a posted receipt can settle it.
+function matchesIdentityFields(tx, rule) {
   if (!tx || !rule) return false;
-  // An opted-in identity must have affirmative provider posting evidence.
-  // This shared boundary also excludes pending-only bill receipts. Invalid
-  // explicit qualifiers fail closed; absent qualifiers retain incumbent rules.
+  // An explicit posting qualifier also constrains candidate-only paths.
   if (Object.hasOwn(rule, 'requiredPostingEvidence')
-      && (rule.requiredPostingEvidence !== 'posted'
-        || tx.pending !== false || tx.savingsPostingEvidence !== 'posted')) {
+      && (rule.requiredPostingEvidence !== 'posted' || !hasPostedReceipt(tx))) {
     return false;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
@@ -2474,7 +2484,7 @@ function transactionWithMappedAccount(tx, accountMap) {
 
 function soleOwnerConfirmedSpotifyTransaction(transactions, accountMap) {
   const matches = (transactions || []).filter(tx =>
-    tx && tx.pending !== true
+    hasPostedReceipt(tx)
     && Forecast.classifyCurrentPeriodTransaction.ownerConfirmedSpotify(
       transactionWithMappedAccount(tx, accountMap)
     ));
@@ -2704,7 +2714,7 @@ function collectIdentityHits(tx, input, rules) {
   for (const rule of rules || []) {
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
-    if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
+    if (!matchesIdentityFields(tx, rule)) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
@@ -2813,7 +2823,7 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
   const kept = new Set(collapsedTransactions || []);
   const byPostedId = new Map();
   for (const tx of collapsedTransactions || []) {
-    if (!tx || tx.pending === true || tx.providerTransactionId == null || tx.providerTransactionId === '') {
+    if (!hasPostedReceipt(tx) || tx.providerTransactionId == null || tx.providerTransactionId === '') {
       continue;
     }
     const id = String(tx.providerTransactionId);
@@ -2891,7 +2901,7 @@ function salaryReceiptTransferHits(input, rules) {
   });
   if (!salaryRules.length) return [];
   const eligibleIds = new Set(salaryRules.map(rule => rule.eventId));
-  const nativePosted = tx => tx && tx.pending !== true && tx.contradictoryEvidence !== true
+  const nativePosted = tx => hasPostedReceipt(tx)
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= window.endDate
     && tx.providerTransactionId != null;
@@ -3077,7 +3087,7 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       return rows.length === 1 ? rows[0] : null;
     });
     const accepted = tx => {
-      if (!tx || tx.pending !== false || tx.contradictoryEvidence === true) return false;
+      if (!tx) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
       if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
       return ruleCurrencyQualified(tx, rule) && lunchMoneyDebitAmount(tx.amount) > 0;
@@ -3124,7 +3134,7 @@ function representedEventHitGroups(input) {
     eventHits.set(key, list);
   }
   for (const tx of input.transactions || []) {
-    if (tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (!tx) continue;
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
@@ -3195,7 +3205,7 @@ function representedEventHitGroups(input) {
   }
   for (const tx of input.transactions || []) {
     const inherited = tx && tx.pendingReplacementHit;
-    if (!inherited || !inherited.id || !inherited.date || tx.pending === true) continue;
+    if (!inherited || !inherited.id || !inherited.date || !hasPostedReceipt(tx)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, inherited.id, input.accountMap)) continue;
     const key = inherited.id + '@' + inherited.date;
     const list = eventHits.get(key) || [];
@@ -3482,7 +3492,8 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       const mapping = mappingFor(input.accountMap, credit.providerAccountId);
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
-        if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
+        // A possible payroll receipt may still justify a hold.
+        if (!matchesIdentityFields(credit, rule)) continue;
         if (rule.eventId === 'payroll') {
           if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
           unresolved = true; break;
