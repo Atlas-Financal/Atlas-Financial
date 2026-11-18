@@ -58,18 +58,28 @@ function render(data, overrides = {}) {
   return writes;
 }
 
-// The Credit cards strip's card name, carrying the escaped poisoned text.
-const CARD_TITLE = /class="card-movement-title">[^<]*&lt;img src=z data-poisoned-forecast/;
+// Renderers inside an area that must each print the escaped poisoned text.
+// A poisoned branch discriminator that makes one of them reject its input or
+// take another branch (and print nothing) then fails, instead of passing on
+// the strength of some other renderer in the same area.
+const M = '&lt;img src=z data-poisoned-forecast';
+const CARD_TITLE = new RegExp(`class="card-movement-title">[^<]*${M}`);
+const RENDERERS = {
+  'the Credit cards strip prints a card name': CARD_TITLE,
+  'a card activity panel names its card': new RegExp(`class="card-movement-panel"[^>]*aria-label="[^"]*${M}`),
+  'the current pay period lists a transaction payee': new RegExp(`class="household-budget-tx-payee">[^<]*${M}`),
+  'the household budget names a category': new RegExp(`class="household-budget-name">[^<]*${M}`),
+};
 const POLICY = { policy: 'true-surplus-highest-interest', provenance: 'owner-stated', summary: H.NOTE };
 const worlds = {
   // A revolving hostile card under the owner's highest-interest policy: the
   // Extra on focus debt block, and the 61-90 day phase that prints the summary.
   'debt policy': {
     data: () => { const d = H.hostile(); d.debts[0].structure = 'Revolving'; d.plan.nextDollar = POLICY; return d; },
-    reach: ['operating-surface-body', 'phases', 'nextmove-card', 'status-band'],
+    reach: ['operating-surface-body', 'phases', 'nextmove-card', 'status-band', 'cal-months', 'cal-agenda'],
     // Named renderers inside an area, so a poisoned discriminator that makes
     // a renderer reject its publication (and print nothing) cannot pass.
-    sections: { 'the Credit cards strip prints a card name': CARD_TITLE },
+    sections: RENDERERS,
   },
   // Unknown chequing opening: every "Current plan unavailable" note.
   'plan unavailable': {
@@ -85,7 +95,7 @@ const worlds = {
     overrides: { unallocatedCash: () => ({ id: 'leftover', ending: 5000, buffer: 500, reserves: 100,
       cardPurchaseCash: 0, amount: 4400, negative: false }) },
     reach: ['priorities-note'],
-    sections: { 'the Credit cards strip prints a card name': CARD_TITLE },
+    sections: RENDERERS,
   },
 };
 
