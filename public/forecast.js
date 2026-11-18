@@ -24566,10 +24566,16 @@
   // targets stay on the plan. Income, bills, obligations, and dated
   // commitments stay on expandEvents. This is not a second planner,
   // not a historical store, and not an established household average.
-  const PROVISIONAL_NORMAL_SPENDING_PHRASE =
-    'Normal spending estimate based on 2 pay periods — 1 completed actual + current-period estimate.';
+  // Up to the engine's standard six-period lookback of closed pay periods
+  // feeds the estimate (lead dispatch T3): the most recent closed periods,
+  // newest first, while each one's transaction coverage establishes it.
+  const NORMAL_SPENDING_CLOSED_PERIODS = 6;
+  const provisionalNormalSpendingPhrase = closed =>
+    `Normal spending estimate based on ${closed + 1} pay periods — ${closed} completed actual${closed === 1 ? '' : 's'} + current-period estimate.`;
   const PROVISIONAL_NORMAL_SPENDING_RULE =
     'provisional pay-period normal spending = (completed posted actual + current full-period estimate) / 2';
+  const provisionalNormalSpendingRule = closed => closed === 1 ? PROVISIONAL_NORMAL_SPENDING_RULE
+    : `provisional pay-period normal spending = (sum of ${closed} completed posted actuals + current full-period estimate) / ${closed + 1}`;
 
   function normalSpendingCoverageUsable(state) {
     return !!(state && (state.remainingClaim === 'precise'
@@ -24685,15 +24691,16 @@
   // named category is the incumbent Other spending residual. Owner-target
   // amounts are not added on top. Returns null when the split does not
   // equal the published 14-day amount — the caller keeps one estimate line.
-  function normalSpendingCategoryAttribution(plan, completedSpend, currentSpend, cycleStart, payPeriodAmount) {
-    const completedMap = completedSpend && completedSpend.byCategory;
+  function normalSpendingCategoryAttribution(plan, completedSpends, currentSpend, cycleStart, payPeriodAmount) {
+    const completedMaps = (completedSpends || []).map(row => row && row.byCategory);
     const currentMap = currentSpend && currentSpend.byCategory;
-    if (!completedMap || !currentMap) return null;
+    if (!completedMaps.length || completedMaps.some(map => !map) || !currentMap) return null;
+    const divisor = completedMaps.length + 1;
     const rows = [];
     let named = 0;
     for (const cat of (plan && plan.budget && plan.budget.categories) || []) {
       if (!cat || !cat.id || cat.class === 'reserve') continue;
-      const completed = roundCent(completedMap.get(cat.id) || 0);
+      const completed = roundCent(completedMaps.reduce((sum, map) => sum + (map.get(cat.id) || 0), 0));
       const spent = roundCent(currentMap.get(cat.id) || 0);
       let remaining = 0;
       if (CALENDAR_PERIOD_BUDGET_IDS.indexOf(cat.id) >= 0) {
@@ -24702,7 +24709,7 @@
           remaining = roundCent(Math.max(0, planned - spent));
         }
       }
-      const amount = roundCent((completed + roundCent(spent + remaining)) / 2);
+      const amount = roundCent((completed + roundCent(spent + remaining)) / divisor);
       if (!(amount > 0)) continue;
       named = roundCent(named + amount);
       rows.push({
@@ -24734,7 +24741,7 @@
   function provisionalRecentNormalSpending(plan, asOf, opts) {
     const day = financialDate(asOf);
     const current = day && spendingCycle(plan, day);
-    const previousList = day ? completedPayPeriodWindows(plan, day, 1) : [];
+    const previousList = day ? completedPayPeriodWindows(plan, day, NORMAL_SPENDING_CLOSED_PERIODS) : [];
     const previous = previousList && previousList[0];
     const completedWindow = periodWindow(previous, 'completed-actual');
     const currentWindow = periodWindow(current, 'current-full-period-estimate');
@@ -24783,8 +24790,19 @@
           reason: currentCoverage && currentCoverage.reason,
         }));
     }
-    const completedSpend = eligibleNormalSpendInWindow(
-      plan, packet, previous.start, previous.end, 'posted-only');
+    // The most recent closed period is established above. Earlier closed
+    // periods join, newest first, while their coverage establishes them; the
+    // first one that does not ends the run (partial history never counts).
+    const closedWindows = [previous];
+    for (let i = 1; i < previousList.length; i++) {
+      const w = previousList[i];
+      if (!w || !normalSpendingCoverageUsable(lookbackActualsCoverageState(w.start, w.end, opts))) break;
+      closedWindows.push(w);
+    }
+    const completedSpends = closedWindows.map(w => eligibleNormalSpendInWindow(
+      plan, packet, w.start, w.end, 'posted-only'));
+    const completedSpend = completedSpends[0];
+    const completedTotal = roundCent(completedSpends.reduce((sum, row) => sum + row.total, 0));
     const currentMode = currentCoverage.remainingClaim === 'precise'
       ? 'current-precise' : 'posted-only';
     const through = day < current.end ? day : current.end;
@@ -24794,19 +24812,19 @@
     const remainingExpected = currentPeriodRemainingReserve(
       plan, current.start, currentSpend.byCategory);
     const fullPeriodEstimate = roundCent(actualToDate + remainingExpected);
-    const payPeriodAmount = roundCent((completedSpend.total + fullPeriodEstimate) / 2);
+    const payPeriodAmount = roundCent((completedTotal + fullPeriodEstimate) / (completedSpends.length + 1));
     // The 14-day amount is the published figure. Keep the weekly walk
     // rate exact so a full Seaspan cycle applies payPeriodAmount, not a
     // second-rounded weekly * 2 that can drift by one cent.
     const weeklyVariable = payPeriodAmount / 2;
     const categories = normalSpendingCategoryAttribution(
-      plan, completedSpend, currentSpend, current.start, payPeriodAmount);
+      plan, completedSpends, currentSpend, current.start, payPeriodAmount);
     return {
       status: 'ready',
       fallback: null,
       reason: null,
-      phrase: PROVISIONAL_NORMAL_SPENDING_PHRASE,
-      rule: PROVISIONAL_NORMAL_SPENDING_RULE,
+      phrase: provisionalNormalSpendingPhrase(completedSpends.length),
+      rule: provisionalNormalSpendingRule(completedSpends.length),
       payPeriodAmount,
       weeklyVariable,
       trust: 'estimated',
@@ -24819,6 +24837,13 @@
         trust: 'calculated',
         provisional: false,
       }),
+      completedPeriods: closedWindows.map((w, i) => Object.assign({}, periodWindow(w, 'completed-actual'), {
+        status: 'ready',
+        amount: completedSpends[i].total,
+        evidence: 'posted-actual',
+        trust: 'calculated',
+        provisional: false,
+      })),
       currentPeriod: Object.assign({}, currentWindow, {
         status: 'estimated',
         actualToDate,

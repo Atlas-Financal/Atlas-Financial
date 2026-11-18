@@ -338,6 +338,7 @@
   ["Forecast stage2 commitment named lines","test-baseline-trajectory-stage2-commitment-lines.js"],
   ["Forecast baseline trajectory pay-period series (B105l)","test-baseline-trajectory-pay-period-series.js"],
   ["Forecast provisional recent pay-period normal spending","test-provisional-normal-spending-baseline.js"],
+  ["Road Ahead normal spending learns from every covered closed pay period","test-normal-spending-closed-periods.js"],
   ["Road Ahead standalone period surplus/deficit","test-standalone-road-ahead-surplus.js"],
   ["Road Ahead independent Month / Pay Period financial reconciliation","test-road-ahead-reconciliation.js"],
   ["Road Ahead Month surplus by Seaspan pay-period close","test-road-ahead-month-close.js"],
