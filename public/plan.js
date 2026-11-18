@@ -5398,6 +5398,37 @@ function wirePlanLookPicker(mount, ctx) {
  * incumbent Forecast result passed in by renderPlan. This formats those
  * fields only: it does not call Forecast, add an allocation, choose a debt
  * target, total a bucket, invent freshness, or decide feasibility. */
+// Dale, 2026-11-18: "The budget page for no reason should ever go blank."
+// While the current plan is unavailable (operatingPlan 'unavailable': no
+// complete refresh retained, a live refresh that failed closed, or income
+// reconciliation unavailable), the current pay period stays on the page as
+// a shell. Forecast withholds every figure of this period then, so each
+// shows "Unknown" with the withhold reason; nothing is filled in from the
+// plan, a fallback or a stale balance, and no number is printed here. Bank
+// balances stay where they already are, with their dates (the unavailable
+// card above and the card strip). Forward walks and proposals stay withheld.
+const UNAVAILABLE_PERIOD_SHELL_ROWS = [
+  ['Income', 'income'], ['Bills', 'bills'], ['Household budget', 'household'],
+  ['Balance After Deductions', 'balance-after-deductions'], ['Spending this period', 'spending'],
+  ['Available now', 'available-now'],
+];
+function unavailablePeriodShellHtml(ctx) {
+  const advice = ctx.advice || {};
+  const rows = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews.filter(Boolean) : [];
+  const period = rows.find(row => row.timelineRole === 'current') || null;
+  if (!period) return '';
+  const range = isValidIsoCalendarDate(period.start) && isValidIsoCalendarDate(period.end)
+    ? `${fmtDate(period.start)} – ${fmtDate(period.end)}` : 'Dates unavailable';
+  const reason = liveOperatingPlanNote(advice, ctx.liveOverlay || null);
+  const items = UNAVAILABLE_PERIOD_SHELL_ROWS.map(([label, key]) => `<div class="operating-line" data-unavailable-shell-row="${key}">
+      <dt>${escapeHtml(label)}</dt><dd data-trust="unknown" title="${escapeHtml(reason)}">Unknown</dd></div>`).join('');
+  return `<div class="budget-unavailable-shell" data-budget-unavailable-shell>
+    <p class="operating-lead">This pay period · ${escapeHtml(range)}</p>
+    <dl class="budget-unavailable-shell-figures">${items}</dl>
+    <p class="operating-note" data-unavailable-shell-reason>Unknown: ${escapeHtml(reason)}</p>
+  </div>`;
+}
+
 function unavailableOperatingSurfaceHtml(ctx) {
   const advice = ctx.advice || {};
   const liveOverlay = ctx.liveOverlay || null;
@@ -6607,6 +6638,7 @@ function budgetSurfaceParts() {
   return {
     planUnavailable: ctx => liveOperatingPlanUnavailable(ctx.advice || {}, ctx.liveOverlay),
     unavailableHtml: ctx => unavailableOperatingSurfaceHtml(ctx) + billsAccountPeriodBalanceHtml(ctx) + budgetCarriedSavingsUnavailableHtml(ctx),
+    unavailablePeriodHtml: ctx => unavailablePeriodShellHtml(ctx),
     estimatedLaterHtml: ctx => budgetEstimatedLaterPeriodsHtml(ctx),
       headerHtml: ctx => budgetWindowHeaderHtml(ctx),
       detailSheetHtml: () => budgetDetailSheetHtml(),
