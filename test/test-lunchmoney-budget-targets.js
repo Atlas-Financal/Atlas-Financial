@@ -282,5 +282,56 @@ console.log('10. The monthly Budget view tags a carried budget estimated too');
   ok(r && r.targetTrust === undefined, 'an unresolved row keeps its plan target untagged');
 }
 
+console.log('11. A dated bill is netted from a monthly Lunch Money target exactly as from a plan target (lead blocker 1)');
+{
+  // Invented essential telecom row, 150/month, with a dated 100 chequing
+  // bill in its category. The reserve must equal the plan-target reserve:
+  // the bill is held once, as an obligation, never again in the reserve.
+  const world = target => ({ ...invented(),
+    bills: [{ id: 'phone', label: 'Invented phone', frequency: 'monthly', day: 15, amount: 100, confidence: 'confirmed',
+      budgetCategory: 'telecom', payingAccount: 'chequing-a' }],
+    budget: { categories: [{ id: 'telecom', label: 'Telecom', class: 'essential', from: ['Telecom'], plannedMonthly: target }] } });
+  const periodsOn = asOf => ({ asOf, periods: { ytd: { label: 'YTD', months: 8, spending: [] } } });
+  const block = { ...BLOCK, byRow: { telecom: { status: 'read', periods: [P(...OCT, 150), P(...NOV, 150)] } } };
+  const reserve = plan => {
+    const a = F.paydayAllocation(plan, '2026-10-09', { periods: periodsOn('2026-10-09') });
+    const item = (a.essentials.items || []).find(i => i.id === 'telecom');
+    return { required: item ? item.required : null, unallocated: a.unallocated };
+  };
+  const control = reserve(world(150));
+  for (const [label, plan] of [['a C5 row (no plan target)', F.withLunchMoneyBudgets(world(null), block, '2026-10-09')],
+    ['a row whose plan target is also 150', F.withLunchMoneyBudgets(world(150), block, '2026-10-09')]]) {
+    const r = reserve(plan);
+    ok(control.required != null && near(r.required, control.required) && near(r.unallocated, control.unallocated),
+      `${label}: the Lunch Money 150 reserves exactly what a plan target of 150 does (${control.required})`, JSON.stringify(r));
+  }
+}
+
+console.log('12. A carried budget reaches the payday sheet as an estimate, item and totals (lead blocker 2)');
+{
+  const periodsOn = asOf => ({ asOf, periods: { ytd: { label: 'YTD', months: 8, spending: [] } } });
+  // Groceries: October set, November not, as of Nov 6 (an essential payday row).
+  const carried = F.paydayAllocation(F.withLunchMoneyBudgets(invented(), BLOCK, '2026-11-06'), '2026-11-06', { periods: periodsOn('2026-11-06') });
+  const g = (carried.essentials.items || []).find(i => i.id === 'groceries');
+  ok(g && g.trust === 'estimated' && g.estimateReason === 'lunch-money-budget-carried-forward',
+    'the carried essential item is tagged estimated with the reason', JSON.stringify(g && [g.trust, g.estimateReason]));
+  ok(carried.essentials.trust === 'estimated', 'the essentials block is tagged estimated');
+  const shell = carried.paydayShellTrust || {};
+  ok(['household', 'extraDebt', 'optional', 'remainder'].every(k => shell[k] !== 'calculated'),
+    'the payday sheet\'s household, extra-debt, optional and remainder figures are not calculated', JSON.stringify(shell));
+  ok(shell.household === 'estimated' && shell.remainder === 'estimated', 'household and remainder read estimated');
+  // Control: November set too, so nothing is carried.
+  const set = { ...BLOCK, byRow: { ...BLOCK.byRow, groceries: { status: 'read', periods: [P(...OCT, 1950), P(...NOV, 1950), P(...DEC, 2100)] } } };
+  const plain = F.paydayAllocation(F.withLunchMoneyBudgets(invented(), set, '2026-11-06'), '2026-11-06', { periods: periodsOn('2026-11-06') });
+  const pg = (plain.essentials.items || []).find(i => i.id === 'groceries');
+  ok(pg && pg.trust === undefined && plain.essentials.trust === undefined
+    && plain.paydayShellTrust.household === 'calculated' && plain.paydayShellTrust.remainder === 'calculated',
+    'with November\'s budget set, nothing is weakened', JSON.stringify(plain.paydayShellTrust));
+  const action = F.currentPeriodAction(F.withLunchMoneyBudgets(invented(), BLOCK, '2026-11-06'), '2026-11-06', { periods: periodsOn('2026-11-06') });
+  const ag = (action.categories || []).find(c => c.id === 'groceries');
+  ok(ag && ag.trust === 'estimated' && ag.estimateReason === 'lunch-money-budget-carried-forward',
+    'the current-period category is tagged estimated too (it feeds the assistant packet)', JSON.stringify(ag && [ag.trust, ag.estimateReason]));
+}
+
 console.log(failures ? `\n${failures} failure(s)` : '\nall cases pass');
 process.exit(failures ? 1 : 0);

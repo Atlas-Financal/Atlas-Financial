@@ -6571,6 +6571,7 @@
             id: c.id,
             label: c.label,
             monthly,
+            dated: c.dated,
             source: c.source || null,
           });
         }
@@ -12703,10 +12704,14 @@
   // (a declared plannedPayday), else remaining-days smear of the monthly equivalent.
   // plannedWeekly / plannedMonthly-only keep the smear so incomplete-coverage
   // remaining-days and monthly-only fixtures are not rewritten.
-  function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale) {
+  function essentialPeriodPlanned(plan, cat, monthly, cycleStart, periodScale, dated) {
     // A monthly Lunch Money target uses the budget whose period contains the
     // cycle start (C3), the same target the Budget period prints; the
     // caller's monthly is read at as-of and can be the next month's budget.
+    // It is netted of the category's dated items exactly as budgetBreakdown
+    // nets an owner target (max(0, target - dated); an owner target reserves
+    // no current-regime cash), so a dated bill held as an obligation is never
+    // held again here.
     const lunchMoneyTarget = lunchMoneyTargetAt(cat, cycleStart);
     cat = ownerTargetCategoryAt(cat, cycleStart);
     const cadencePlanned = essentialCadencePeriodPlanned(plan, cat, cycleStart);
@@ -12715,7 +12720,8 @@
       const cyclePlanned = paydayCyclePlanned(cat, cycleStart, plan);
       if (cyclePlanned != null) return roundCent(cyclePlanned);
     }
-    const base = lunchMoneyTarget && lunchMoneyTarget.plannedMonthly != null ? lunchMoneyTarget.plannedMonthly : monthly;
+    const base = lunchMoneyTarget && lunchMoneyTarget.plannedMonthly != null
+      ? Math.max(0, Number(lunchMoneyTarget.plannedMonthly) - (Number(dated) || 0)) : monthly;
     return roundCent((Number(base) || 0) * periodScale);
   }
 
@@ -18237,7 +18243,8 @@
       const periodScale = needDays / CALENDAR_MONTH_DAYS;
       const usesCyclePlanned = essentialPeriodUsesCyclePlanned(plan, cat, cycleStart);
       const planned = essentialPeriodPlanned(
-        plan, cat, monthly, cycleStart, periodScale);
+        plan, cat, monthly, cycleStart, periodScale, row.dated);
+      const budgetCarried = lunchMoneyTargetCarried(cat, cycleStart);
       const act = categoryCommittedActual(actuals.byId.get(row.id), coverage.remainingClaim);
       const remaining = useActuals ? roundCent(planned - act.committed) : null;
       if (!(planned > EPSILON) && !(act.posted > EPSILON) && !(act.pending > EPSILON)
@@ -18246,6 +18253,7 @@
         id: row.id,
         label: row.label,
         class: row.class || null,
+        ...(budgetCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
         planned: usesCyclePlanned || useActuals || planned > EPSILON
           ? planned
           : roundCent(monthly * needDays / CALENDAR_MONTH_DAYS),
@@ -18955,14 +18963,14 @@
     const periodPlannedForEssential = row => {
       const cat = budgetCatById.get(row && row.id);
       return essentialPeriodPlanned(
-        plan, cat, row && row.monthly, cycleStart, periodScale);
+        plan, cat, row && row.monthly, cycleStart, periodScale, row && row.dated);
     };
     let essentialsWantedFull = essentialMonthly * periodScale;
     for (const row of essentialNeed.items) {
       const cat = budgetCatById.get(row && row.id);
       if (!essentialPeriodUsesCyclePlanned(plan, cat, cycleStart)) continue;
       const cyclePlanned = essentialPeriodPlanned(
-        plan, cat, row && row.monthly, cycleStart, periodScale);
+        plan, cat, row && row.monthly, cycleStart, periodScale, row && row.dated);
       essentialsWantedFull += cyclePlanned - ((Number(row.monthly) || 0) * periodScale);
     }
     essentialsWantedFull = roundCent(essentialsWantedFull);
@@ -19053,6 +19061,7 @@
       : roundCent(requiredDebtItems.reduce((sum, item) => sum + Number(item.allocated || 0), 0));
 
     const essentialItems = [];
+    let essentialsCarried = false;
     let requiredSum = 0;
     for (const row of essentialNeed.items) {
       const planned = periodPlannedForEssential(row);
@@ -19064,10 +19073,15 @@
       const required = useActuals ? Math.max(0, remainingNeed) : planned;
       if (!(planned > EPSILON) && !(row.monthly > EPSILON) && !(act.committed > EPSILON)) continue;
       requiredSum = roundCent(requiredSum + required);
+      // Q2: a carried-forward Lunch Money budget is an estimate wherever it
+      // reaches; the item says so, and so do the totals built from it below.
+      const itemCarried = lunchMoneyTargetCarried(budgetCatById.get(row.id), cycleStart);
+      if (itemCarried) essentialsCarried = true;
       essentialItems.push({
         id: row.id,
         label: row.label,
         monthly: roundCent(row.monthly),
+        ...(itemCarried ? { trust: 'estimated', estimateReason: LUNCH_MONEY_BUDGET_CARRIED } : {}),
         required,
         planned,
         posted: useActuals ? act.posted : null,
@@ -19487,6 +19501,16 @@
       identity: roundCent(allocatedTotal + unallocated),
       actualsCoverage: coverage,
     };
+    // Q2: a carried Lunch Money budget in the essential hold makes the
+    // household figure and everything left after it (extra debt, optional,
+    // the remainder) estimates. Only weakens: an unknown stays unknown.
+    if (essentialsCarried) {
+      result.essentials.trust = 'estimated';
+      result.essentials.estimateReason = LUNCH_MONEY_BUDGET_CARRIED;
+      for (const key of ['household', 'extraDebt', 'optional', 'remainder']) {
+        if (result.paydayShellTrust[key] === 'calculated') result.paydayShellTrust[key] = 'estimated';
+      }
+    }
     // N3: with a packet whose coverage is not proven, today's household hold falls back to the
     // plan. That is a target, never a measured spend: the shell must not print it as calculated.
     if (!useActuals && currentPeriodActualsPacket(opts)) {

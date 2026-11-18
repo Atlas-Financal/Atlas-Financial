@@ -6844,14 +6844,20 @@ function paydayAnswerHtml(ctx) {
             Number(r.pending) > 0 ? ` · pending ${money2(r.pending)}` : ''
           }</div>`
         : ''
-    }</td><td>${money2(hasRemaining && r.remaining != null ? r.remaining : r.required)}</td>`);
+    }${
+      r.trust === 'estimated' && r.estimateReason === 'lunch-money-budget-carried-forward'
+        ? '<div class="payday-item-note">Estimated: Lunch Money has no budget set for this month yet, so last month\'s is used.</div>' : ''
+    }</td><td>${r.trust === 'estimated'
+      ? est(money2(hasRemaining && r.remaining != null ? r.remaining : r.required))
+      : money2(hasRemaining && r.remaining != null ? r.remaining : r.required)}</td>`);
   const ess = alloc && alloc.essentials;
   let essentialSummary = '';
   if (ess && (Number(ess.wanted) > 0 || essentialItems.length)) {
     const short = Number(ess.shortfall) || 0;
     const attributed = ess.fundingAttribution;
-    essentialSummary = `<p class="payday-qual">Required for period: ${money2(ess.wanted)}</p>
-      <p class="payday-qual">Cash available for essentials: ${money2(ess.allocated)}</p>${
+    const essMoney = n => ess.trust === 'estimated' ? est(money2(n)) : money2(n);
+    essentialSummary = `<p class="payday-qual">Required for period: ${essMoney(ess.wanted)}</p>
+      <p class="payday-qual">Cash available for essentials: ${essMoney(ess.allocated)}</p>${
         short > 0
           ? `<p class="payday-qual">Essential shortfall: ${money2(short)}. This is not the full amount needed, and it is not a spending allowance.</p>`
           : ''

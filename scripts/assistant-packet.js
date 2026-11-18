@@ -1369,6 +1369,8 @@ function actualsBlock(data, periods, advice, settlement) {
         historicalMonthly: money(row.historical),
         plannedMonthly: money(row.planned),
         source: row.source || null,
+        // A carried-forward Lunch Money budget is an estimate (Q2).
+        ...(row.targetTrust === 'estimated' ? { plannedTrust: 'estimated', estimateReason: row.targetEstimateReason || null } : {}),
       }))
       : unavailable('budget-breakdown-unavailable'),
     currentPeriodCategories: settlementWithheld
@@ -1382,6 +1384,7 @@ function actualsBlock(data, periods, advice, settlement) {
         posted: money(row.posted),
         pending: money(row.pending),
         remaining: money(row.remaining),
+        ...(row.trust === 'estimated' ? { plannedTrust: 'estimated', estimateReason: row.estimateReason || null } : {}),
       }))
       : unavailable('current-period-categories-unavailable'),
     exclusionsCoverageConfidence: {
