@@ -319,9 +319,17 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
-**A plain early income credit is projected again on its payday** · *pre-existing; found in the #1294 review (lead, 2026-11-18)*
+**Amanda's early pay can still count twice when it carries no sign of salary or arrives split** · *#1334 review non-blocking note (lead, 2026-11-18)*
 
-A posted credit into Bills that no income rule settles and no hold catches (for example a plain deposit for Amanda's salary more than 3 business days before her payday, outside the owner's near-amount window, #821 6967081727) is counted as Other Income now, and the scheduled occurrence is still projected on its payday. The same holds on main before #1294. Decide whether such a credit should hold the plan, as the early-receipt hold does for a TENNIS INCOME salary transfer, or be left as is. Proof would be an invented early plain credit whose payday is counted once.
+U6 holds the next payday only on a credit with positive salary evidence (a salary income category, a TENNIS INCOME transfer leg, or the rule's payee alias) at half or more of the amount. Her pay can still count twice in the run-up when it arrives early with none of that evidence and more than $5 off or more than 3 business days early, or as two credits each under half. Decide whether either case needs a hold, given that a blank plan is a real cost. Proof would be an invented early split pay whose payday is counted once.
+
+**Card payment pairing: a payment-like card credit pairs with a TD debit without reading the debit's note** · *pre-existing; #1298 review obs 4 (a), lead 2026-11-18*
+
+In `reconcileCardPurchases` (`public/forecast.js`), a card credit that is payment-like through its own fields pairs with an equal TD household debit without checking that debit's note, so a debit whose note names a different card can still pair with it. Decide whether a conflicting debit note should withhold the pair, as the group step does. Proof would be an invented TD debit noted for one card beside an equal payment-like credit on another, which pairs with neither.
+
+**Card payment pairing: a payDown destination silently wins over a different note card** · *pre-existing; #1298 review obs 4 (b), lead 2026-11-18*
+
+When a household debit carries a payDown destination and its note names a different card, the payDown destination wins with no withhold or diagnostic. Decide which one is the authority, or whether the conflict withholds. Proof would be an invented debit with a payDown to one card and a note naming another, read the chosen way once.
 
 **Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*
 
