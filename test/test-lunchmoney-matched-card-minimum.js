@@ -13,8 +13,8 @@
  * Invented world: test/fixtures/card-backfill-data (an invented card,
  * 'triangle', paid from Bills, LM account 3001), as of 2026-10-05. Monthly on
  * the 7th from Oct 7, with one confirmed statement: Oct 7 -> due Oct 8,
- * minimum $91.23. The previous occurrence is Sep 7 (before firstDue, so the
- * cycle starts a month earlier: Sep 7), so the cycle runs to Oct 8.
+ * minimum $91.23. firstDue is Oct 7, so there is no earlier occurrence and the
+ * cycle starts 31 days before Oct 7: it runs from after Sep 6 to Oct 8.
  *
  * `node test/test-lunchmoney-matched-card-minimum.js`
  */
@@ -76,19 +76,21 @@ const settled = s => s.represented.length === 1;
 const withheld = (s, label) => {
   ok(s.applied === true, label + ': the overlay applies');
   ok(s.represented.length === 0, label + ': nothing settles the card (withheld as today)', JSON.stringify(s.represented.map(c => [c.date, c.postingDate])));
+  ok(s.bill && s.bill.status === 'still due' && s.bill.remaining > 0, label + ': the card minimum still reads still due',
+    JSON.stringify(s.bill && [s.bill.status, s.bill.remaining]));
 };
 
 console.log('1. One LM-matched payment covering the confirmed minimum settles that cycle');
 {
   // $100 on Oct 5 >= $91.23; LM expected Oct 7, matched it. One payment in
-  // the cycle (Sep 7, Oct 8].
+  // the cycle (after Sep 6, up to Oct 8].
   const p = [pay('2026-10-05', 100)];
   const s = serve(fixture({ payments: p }), lmRead(['2026-10-07'], p));
   ok(s.applied === true, 'the overlay applies');
   ok(settled(s) && s.represented[0].date === '2026-10-07' && s.represented[0].postingDate === '2026-10-05',
     'the Oct 7 minimum is represented by the Oct 5 payment', JSON.stringify(s.represented.map(c => [c.date, c.postingDate])));
-  ok(s.bill && s.bill.amount !== undefined && !/still due/i.test(s.bill.status || ''), 'the card bill no longer reads still due',
-    JSON.stringify(s.bill && [s.bill.status, s.bill.date]));
+  ok(s.bill && s.bill.status === 'PAID' && s.bill.remaining === 0 && s.bill.settlement === 'represented',
+    'the card minimum reads PAID, $0 remaining', JSON.stringify(s.bill && [s.bill.status, s.bill.remaining, s.bill.settlement]));
   // Controls: the same payment and read with no opt-in, and with no read at
   // all, stay withheld as today.
   withheld(serve(fixture({ payments: [pay('2026-10-05', 100)], optIn: false }), lmRead(['2026-10-07'], [pay('2026-10-05', 100)])), 'control, not opted in');
@@ -107,7 +109,9 @@ console.log('2. A payment below the confirmed minimum settles nothing');
 console.log('3. Two payments in the cycle settle nothing');
 {
   // LM matched the Oct 5 payment, but a second linked payment posted Sep 20,
-  // inside the cycle (Sep 7, Oct 8]: the cycle has two payments.
+  // inside the cycle (after Sep 6, up to Oct 8): the cycle has two payments.
+  // LM's own count is consistent (one matched date, one found payment), so
+  // only the one-payment-per-cycle check refuses it.
   const p = [pay('2026-09-20', 40), pay('2026-10-05', 100)];
   withheld(serve(fixture({ payments: p }), lmRead(['2026-10-07'], [p[1]])), 'two linked payments in one cycle (LM counted one)');
 }
