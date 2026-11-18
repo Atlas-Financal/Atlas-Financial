@@ -155,7 +155,13 @@ console.log('6. A retained last full picture is shown unchanged, under a banner 
     'the banner names the picture\'s time and a one-line reason (got ' + banner + ')');
   check(/data-budget-surface="pay-period"/.test(shown) && !shown.includes('data-budget-unavailable-shell'), 'the full page is shown, not the shell');
   check(/<div class="budget-retained-picture" data-budget-retained-picture>/.test(shown), 'the page is in its muted state');
-  check(!/data-account-last-updated|data-latest-complete-refresh/.test(shown), 'the banner replaces the small OD-3 line here');
+  check(!/data-latest-complete-refresh/.test(shown), 'the banner replaces the dated-plan note here');
+  // The bank's own last sync stays as the small line beside it, when known.
+  const synced = structuredClone(picture);
+  synced.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = '2026-09-19T18:30:00Z';
+  const syncedHtml = render(synced).html;
+  check(/data-budget-retained-banner/.test(syncedHtml) && /data-account-last-updated><small>Last updated Sep 19, 2026/.test(syncedHtml),
+    'the bank\'s own (older) last sync still shows beside the banner');
   check(/data-budget-evidence-dated="2026-09-20"/.test(shown), 'the period chip still reads as of the picture\'s day');
   const amounts = html => (html.match(/\$[\d,]+\.\d\d/g) || []).sort().join(' ');
   check(amounts(shown) === amounts(plain) && amounts(shown).length > 0,

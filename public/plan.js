@@ -1093,7 +1093,7 @@ function retainedPictureTime(retained) {
 // the retained last complete publication wholesale (live-plan
 // withLatestCompleteRefresh: its own financial date stays Forecast's basis,
 // nothing is mixed with today's partial data). This banner says so plainly,
-// replacing OD-3's small "Last updated" line in this failure state only.
+// in place of OD-3's dated-plan note in this failure state only.
 // One line per closed attempt reason (live-plan withLatestCompleteRefresh).
 const RETAINED_PICTURE_REASONS = Object.freeze({
   'provider-unavailable': 'the bank connection did not answer.',
@@ -6712,8 +6712,10 @@ function budgetSurfaceHtml(ctx) {
   // OD-3 (#821, owner 2026-11-11): a dated or retained view is signalled by
   // the small "Last updated" line only. The note stays only when no such line
   // can be printed, so a dated view is never shown without any freshness line.
-  // Superseded for a retained picture (Dale, 2026-11-18): the banner below
-  // says it is the last full picture, and why today's update failed.
+  // For a retained picture (Dale, 2026-11-18) the banner below says it is the
+  // last full picture and why today's update failed, so the dated-plan note
+  // goes. The small "Last updated" line stays: it is the bank's own last
+  // sync, a different and possibly older time than the picture's.
   const retained = !!ctx.liveOverlay?.retainedRefresh;
   const dated = retained || updated ? null : latestCompleteRefreshNote(ctx.liveOverlay);
   // A dated or retained view marks its evidence day so the current-period chip reads
@@ -6726,7 +6728,7 @@ function budgetSurfaceHtml(ctx) {
     + (dated ? `<p class="note-box" data-latest-complete-refresh>${escapeHtml(dated)}</p>` : '')
     // A retained picture is shown unchanged, in a muted page state.
     + (retained ? `<div class="budget-retained-picture" data-budget-retained-picture>${body}</div>` : body)
-    + (updated && !retained ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
+    + (updated ? `<p class="mutedtext" data-account-last-updated><small>Last updated ${escapeHtml(updated)}</small></p>` : '');
 }
 
 function paydayAnswerHtml(ctx) {
