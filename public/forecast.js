@@ -6266,16 +6266,22 @@
       // exists, since the incumbent leg then does not apply). plan.js
       // reprints this tag only; it never derives trust page-side. A supplied
       // secondary spending basis is another input to this same weakest trust.
-      fundingTrust: trajectoryWeakerStatus(
-        trajectoryEventsStatus(costs),
-        trajectoryEventsStatus(seq.filter(row => row && !row.date && row.flexibility !== 'optional')),
-        plannedCostTrustWordStatus(costs.concat(seq.filter(row => row && !row.date && row.flexibility !== 'optional'))),
-        trajectoryEventsStatus((sim.events || []).filter(e => e && e.kind === 'income')),
-        liveRowTrust || 'calculated',
-        hasSpendingBasis ? spendingBasis.status : 'calculated',
+      ...(() => {
+        const terms = [
+          trajectoryEventsStatus(costs),
+          trajectoryEventsStatus(seq.filter(row => row && !row.date && row.flexibility !== 'optional')),
+          plannedCostTrustWordStatus(costs.concat(seq.filter(row => row && !row.date && row.flexibility !== 'optional'))),
+          trajectoryEventsStatus((sim.events || []).filter(e => e && e.kind === 'income')),
+          liveRowTrust || 'calculated',
+          hasSpendingBasis ? spendingBasis.status : 'calculated'];
         // Lead dispatch 2026-11-18 (Dale): an unconfirmed card-payment
         // destination makes every figure on this card coverage an estimate.
-        cardCoverageTrust(sim.cardPurchaseCoverage)),
+        // The same trust without that term says whether card coverage is the
+        // estimate's only cause (Dale, 2026-11-18: the page then shows the
+        // bank data's date instead of the estimate word).
+        return { fundingTrust: trajectoryWeakerStatus(...terms, cardCoverageTrust(sim.cardPurchaseCoverage)),
+          fundingTrustExceptCard: trajectoryWeakerStatus(...terms) };
+      })(),
       paydays: rows, gap: gap || (prePayday.length ? (() => {
         const overdueRequirement = prePayday.reduce((sum, row) => sum + row.baseRequirement - (row.actualSaved || 0), 0);
         return {
@@ -15375,6 +15381,14 @@
   });
   // The trust a figure built on this card coverage may carry: 'estimated'
   // while a payment's destination card is unconfirmed, else 'calculated'.
+  // Dale, 2026-11-18 ("instead of an estimated tag show the last update
+  // date"): a figure whose ONLY estimate cause is card coverage publishes
+  // this cause, so the page can show the bank data's date in place of the
+  // estimate word. The trust itself is unchanged (still 'estimated').
+  // withoutCard is the same figure's trust with the card term removed.
+  function cardEstimateCause(trust, withoutCard) {
+    return trust === 'estimated' && withoutCard === 'calculated' ? 'card-coverage' : null;
+  }
   function cardCoverageTrust(coverage) {
     return coverage && coverage.status === 'ready' && coverage.trust === 'estimated' ? 'estimated' : 'calculated';
   }
@@ -19394,8 +19408,15 @@
         ? 'Proposals to move money wait until the card payment is confirmed. ' + cardCoverage.estimateReason
         : cardCoverage.reason;
       if (cardEstimated) {
-        result.paydayShellTrust.available = 'estimated';
-        result.paydayShellTrust.household = 'estimated';
+        // Card coverage is the only cause where the figure was calculated
+        // before this estimate applied (Dale, 2026-11-18: shown with its date).
+        const cause = {};
+        for (const key of ['available', 'household']) {
+          const own = cardEstimateCause('estimated', result.paydayShellTrust[key]);
+          if (own) cause[key] = own;
+          result.paydayShellTrust[key] = 'estimated';
+        }
+        if (Object.keys(cause).length) result.paydayShellEstimateCause = cause;
       } else {
         if (opts.operatingPlan !== 'unavailable') result.available = null;
         result.paydayShellTrust.available = 'unknown';
@@ -20965,10 +20986,12 @@
           const forward = planSpendPaydayFunding(plan, asOf, forwardSim, seq, [], null, forwardBasis);
           if (forward.status === 'unavailable') current.fromTodayFunding = todayUnavailable(forward.reason);
           else {
-            const trust = periodWaterfallCombinedTrust(forward.fundingTrust, basisTrust,
-              cashRows.concat(observed?.accounts || []).some(r => r && HOUSEHOLD_CHEQUING_IDS.includes(r.id)
-                && [r.confidence, r.status].some(tag => String(tag).toLowerCase() === 'estimated'))
-                ? 'estimated' : 'calculated');
+            const cashTrust = cashRows.concat(observed?.accounts || []).some(r => r && HOUSEHOLD_CHEQUING_IDS.includes(r.id)
+              && [r.confidence, r.status].some(tag => String(tag).toLowerCase() === 'estimated'))
+              ? 'estimated' : 'calculated';
+            const trust = periodWaterfallCombinedTrust(forward.fundingTrust, basisTrust, cashTrust);
+            const estimateCause = cardEstimateCause(trust,
+              periodWaterfallCombinedTrust(forward.fundingTrustExceptCard, basisTrust, cashTrust));
             const cumulative = new Map();
             const rows = forward.paydays.map(row => {
               for (const a of row.allocations) cumulative.set(a.id,
@@ -20993,7 +21016,7 @@
             const published = new Map(rows.map(r => [r.payday, r]));
             const dates = [asOf, ...full.map(p => p.start).filter(d => d > asOf)];
             current.fromTodayFunding = { status: forward.status, asOf,
-              source: forward.source, basis: 'Budget-from-today', trust,
+              source: forward.source, basis: 'Budget-from-today', trust, ...(estimateCause ? { estimateCause } : {}),
               through: end, currentThrough: current.end, observationAsOf: actuals.observationAsOf,
               cashAsOf: plan.opening.asOf, currentCash: cash,
               operatingBills: bills, remainingHousehold: remaining,
@@ -21439,6 +21462,11 @@
       // number the plan publishes, not an estimate.
       const paydayShellTrust = Object.assign(
         {}, (alloc && alloc.paydayShellTrust) || {}, { buffer: 'calculated' });
+      // Dale, 2026-11-18: a shell figure estimated only by card coverage. A
+      // cause survives only while its figure's published trust is still
+      // 'estimated' (a later downgrade to unknown drops it).
+      const paydayShellEstimateCause = Object.fromEntries(Object.entries((alloc && alloc.paydayShellEstimateCause) || {})
+        .filter(([key, cause]) => cause === 'card-coverage' && paydayShellTrust[key] === 'estimated'));
       const action = currentPeriodAction(plan, asOf, Object.assign({}, dalePaydayOpts, {
         paydayAllocation: alloc,
       }));
@@ -21867,6 +21895,7 @@
         // Trust tags for the payday instruction shell (AMANDA SLICE 1).
         // Composed above from the incumbent allocation plus the buffer.
         paydayShellTrust,
+        ...(Object.keys(paydayShellEstimateCause).length ? { paydayShellEstimateCause } : {}),
         currentPeriodAction: action,
         defaultView,
         // The next-period panel publishes a COMPLETE payday period (periodEnd
