@@ -898,6 +898,10 @@ const App = (() => {
       const monthName = key => MONTH_NAMES[Number(String(key).slice(5, 7)) - 1] || null;
       const isMonth = key => typeof key === 'string' && /^\d{4}-\d{2}$/.test(key) && !!monthName(key);
       if (!isMonth(current) || !windowStart || !/^\d{4}-\d{2}-\d{2}$/.test(windowStart)) return [];
+      // A history held across a month boundary (a tab left open) counts its
+      // months from a month that has ended: no facts until it is reloaded.
+      const now = new Date();
+      if (current !== `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`) return [];
       const prevMonth = key => {
         const y = Number(key.slice(0, 4)), m = Number(key.slice(5, 7));
         return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;

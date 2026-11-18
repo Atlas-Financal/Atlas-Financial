@@ -146,6 +146,7 @@ async function lap(page) {
 //   uncategorised spending (categoryClaim incomplete), or the publisher's
 //     year-to-date coverage false: the three month facts stay, the
 //     category fact is withheld (the winner could change)
+//   page clock in December (the history's November has ended): tips only
 //   (coverageStart, the first transaction's date, is Jan 2 throughout and
 //     never decides coverage: the fetch window's start does)
 const MONTHLY = [['2026-01', 500], ['2026-02', 520], ['2026-03', 900], ['2026-04', 610], ['2026-05', 600],
@@ -188,8 +189,11 @@ const inventedData = () => require('./fixtures/budget-surface-data').served();
 
 // First load completes with the given history; then Manual Refresh, whose
 // /data.json is held, so the "Checking Lunch Money" screen stays up.
-async function refreshScreen(browser, periods, contextOpts = {}) {
+// The page's clock is fixed inside the invented history's own month
+// (November 2026), unless a test moves it.
+async function refreshScreen(browser, periods, contextOpts = {}, now = '2026-11-14T12:00:00') {
   const opened = await open(browser, contextOpts, { data: inventedData(), periods });
+  await opened.context.clock.setFixedTime(new Date(now));
   await opened.page.goto('http://boot.test/', { waitUntil: 'commit' });
   await opened.page.waitForSelector('[data-boot-notice]', { state: 'detached', timeout: 30000 });
   await opened.page.click('[data-manual-refresh]');
@@ -285,8 +289,8 @@ async function refreshScreen(browser, periods, contextOpts = {}) {
         'the category named in a fact comes from the served history, not the source');
       await context.close();
     }
-    const factsFor = async (periods) => {
-      const { context, page } = await refreshScreen(browser, periods);
+    const factsFor = async (periods, now) => {
+      const { context, page } = await refreshScreen(browser, periods, {}, now);
       const lines = await lap(page);
       await context.close();
       return lines.filter(x => x.kind === 'fact').map(x => x.text).sort();
@@ -299,6 +303,8 @@ async function refreshScreen(browser, periods, contextOpts = {}) {
     const partial = await factsFor(inventedPeriods({ queryWindowStart: '2026-01-15' }));
     ok(JSON.stringify(partial) === JSON.stringify(EXPECTED_PARTIAL_START.slice().sort()),
       'a fetch window starting mid-month: that month is never used, and no year fact', JSON.stringify(partial));
+    const stale = await factsFor(inventedPeriods(), '2026-12-02T12:00:00');
+    ok(stale.length === 0, 'a history from a month that has ended (tab left open) gives tips only', JSON.stringify(stale));
     const monthsOnly = EXPECTED_FACTS.slice(0, 3).sort();
     const claim = await factsFor(inventedPeriods({ categoryClaim: 'incomplete' }));
     ok(JSON.stringify(claim) === JSON.stringify(monthsOnly),
