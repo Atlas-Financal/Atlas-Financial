@@ -95,6 +95,13 @@ async function stub(payload) {
     forged.payload.amountFixedDerivation = { source: 'lunchmoney-payment-history', status: 'complete', window: null, billIds: ['resp', 42] };
     const bad = await Live.applyForServer(canonical, env, { evidence: forged });
     ok((bad.plan.bills.find(b => b.id === 'resp') || {}).amountFixed !== true, 'a malformed record in memory fixes no bill');
+    // A well-formed record naming a bill id the plan does not have fixes nothing beyond the plan's own bills.
+    const extra = structuredClone(observation.evidence);
+    extra.payload.amountFixedDerivation = { ...extra.payload.amountFixedDerivation, billIds: ['not-a-plan-bill', 'resp'] };
+    const widened = await Live.applyForServer(canonical, env, { evidence: extra });
+    const fixedIds = widened.plan.bills.filter(b => b.amountFixed === true).map(b => b.id);
+    ok(JSON.stringify(fixedIds) === JSON.stringify(['resp']) && !widened.plan.bills.some(b => b.id === 'not-a-plan-bill'),
+      'a well-formed record naming an extra bill id fixes only the plan\'s own bills and adds none', JSON.stringify(fixedIds));
   } finally { await mock.close(); }
   if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
   console.log('\nAll derived amountFixed replay checks passed.');
