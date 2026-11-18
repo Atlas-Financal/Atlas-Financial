@@ -4956,7 +4956,7 @@ function observeCore(input, capture) {
   // Internal to the report; present only when the history read was asked for.
   if (input.payload && input.payload.amountHistory !== undefined) {
     assembled.derivedAmountFixed = derivedAmountFixedBills(input.payload.amountHistory, {
-      plan: input.data && input.data.plan, accountMap: mapDoc, identityRules,
+      plan: input.data && input.data.plan, debts: input.data && input.data.debts, accountMap: mapDoc, identityRules,
       categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
   } else if (input.payload && input.payload.amountFixedDerivation !== undefined) {
     // A replay from observation memory carries the live derivation's outcome
@@ -5625,12 +5625,34 @@ function derivedAmountFixedBills(history, opts) {
   const mapDoc = opts && opts.accountMap;
   const window = history && history.transactionWindow;
   const out = { source: 'lunchmoney-payment-history', status: 'unavailable',
-    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [] };
+    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [], obligationIds: [] };
   const end = parseIsoDate(window && window.endDate);
   if (!plan || !mapDoc || !window || window.complete !== true || window.truncated === true || window.hasMore === true
     || !parseIsoDate(window.startDate) || !end || !Array.isArray(history.transactions)) return out;
   out.status = 'complete';
-  const bills = new Map((plan.bills || []).filter(b => b && typeof b.id === 'string').map(b => [b.id, b]));
+  // The candidates: plan bills, and plain payment obligations (lead ruling on
+  // #1355: the mortgage). An obligation with statement occurrences (a card
+  // minimum), a revolving card's debt, a non-cash or capitalising leg (the
+  // HELOC), or a once schedule is never a candidate. An id that names both a bill and an obligation is neither.
+  const billIds = new Set((plan.bills || []).filter(b => b && typeof b.id === 'string').map(b => b.id));
+  // A revolving card's payment (its debt has a limit or a statement close day)
+  // is a minimum against a moving balance, never a plain obligation, even
+  // when it carries no statement occurrences (lead record on #1369: travel).
+  const debts = new Map(((opts && opts.debts) || []).filter(d => d && typeof d.id === 'string').map(d => [d.id, d]));
+  const revolving = o => {
+    const debt = o.debtId != null ? debts.get(o.debtId) : null;
+    return !!debt && (debt.limit != null || debt.statementCloseDay != null);
+  };
+  const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
+    && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && !revolving(o);
+  const bills = new Map();
+  for (const b of plan.bills || []) if (b && typeof b.id === 'string') bills.set(b.id, { row: b, kind: 'bill' });
+  for (const o of plan.obligations || []) {
+    if (!o || typeof o.id !== 'string') continue;
+    if (billIds.has(o.id)) { bills.delete(o.id); continue; }
+    if (plainObligation(o)) bills.set(o.id, { row: o, kind: 'obligation' });
+  }
   const rules = stampRuleSetClaims(opts.identityRules).filter(rule => rule && rule.direction === 'debit'
     && rule.atlasAccountId && bills.has(rule.eventId));
   const normalized = normalizeLunchMoneyPayload({ transactions: history.transactions,
@@ -5658,7 +5680,7 @@ function derivedAmountFixedBills(history, opts) {
     payments.get(ids[0]).push({ date, cents: Math.round(amount * 100) });
   }
   for (const [id, rows] of payments) {
-    const bill = bills.get(id);
+    const { row: bill, kind } = bills.get(id);
     const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
     if (unusable.has(id) || !interval || bill.amountSchedule !== undefined || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
     rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -5682,9 +5704,10 @@ function derivedAmountFixedBills(history, opts) {
     const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
     if (!sample.every(row => row.cents === plannedCents)) continue;
     if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
-    out.billIds.push(id);
+    (kind === 'obligation' ? out.obligationIds : out.billIds).push(id);
   }
   out.billIds.sort();
+  out.obligationIds.sort();
   return out;
 }
 

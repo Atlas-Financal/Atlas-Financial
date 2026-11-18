@@ -2817,8 +2817,14 @@
     if (!event || !(event.amount < 0)) return null;
     // Already the remainder: never measured against the payment again.
     if (event.partlyPaidRemainder === true) return event;
-    const partPaid = fixedBillPartialPayment(event, -event.amount, observed);
-    return partPaid ? { ...event, amount: -partPaid.remainderCents / 100, partlyPaidRemainder: true } : null;
+    // An obligation's cash event may already be capped by the debt walk to
+    // the remainder it absorbed. Measure against the scheduled payment, then
+    // never hold more than that cap (Codex P1 on #1369).
+    const planned = event.fixedPlannedAmount != null ? event.fixedPlannedAmount : -event.amount;
+    const partPaid = fixedBillPartialPayment(event, planned, observed);
+    if (!partPaid) return null;
+    const remainderCents = Math.min(partPaid.remainderCents, Math.round(-event.amount * 100));
+    return remainderCents > 0 ? { ...event, amount: -remainderCents / 100, partlyPaidRemainder: true } : null;
   }
 
   // C3: the forward walk excludes exactly the expected Other Income that
@@ -4442,7 +4448,13 @@
           ...(sent ? { ...(occurrenceAmount != null
               ? { minimumAmount: occurrence.amount } : {}), minimumPayment: sent } : {}),
           debtId: o.debtId || null, effect: o.effect || null,
-          payingAccount: o.payingAccount || null });
+          payingAccount: o.payingAccount || null,
+          // D2 for obligations (lead ruling on #1355): derived from its payment history.
+          // fixedPlannedAmount is the scheduled payment before the debt walk's cap,
+          // so a remainder is measured against it, never against a cap that
+          // already is the remainder (Codex P1 on #1369).
+          ...(o.amountFixed === true && occurrenceAmount != null
+            ? { amountFixed: true, fixedPlannedAmount: occurrenceAmount } : {}) });
       }
       // Capitalising interest stays noncash above. The encoded cash
       // minimum is a separate chequing obligation (Required debt), not a
@@ -8681,7 +8693,8 @@
   }
 
   // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
-  // bill paid in part keeps its remainder reserved. The one owner of that
+  // bill paid in part keeps its remainder reserved. A plain payment obligation
+  // derived fixed the same way (the mortgage) follows the same rule. The one owner of that
   // remainder: a bill occurrence whose served plan row carries
   // `amountFixed: true` (derived from its Lunch Money payment history, #1355),
   // whose planned amount is confirmed, and whose one linked posted payment,
@@ -8692,8 +8705,12 @@
   // Partly paid label. The scheduled-fee pair (tdfees), a card-paid bill and a
   // schedule-trusted settlement (no payment seen) are not here either.
   function fixedBillPartialPayment(event, planned, observed) {
-    if (!event || event.kind !== 'bill' || !event.id || !event.date || event.id === 'tdfees'
+    if (!event || (event.kind !== 'bill' && event.kind !== 'obligation') || !event.id || !event.date || event.id === 'tdfees'
       || event.cardPaid === true || event.amountFixed !== true || event.confidence !== 'confirmed') return null;
+    // A plain payment obligation only (the mortgage): never a card minimum or
+    // statement occurrence, a capitalising cash leg, or a sent minimum.
+    if (event.kind === 'obligation' && (event.effect !== 'payment' || event.cashMinimum === true
+      || event.minimumPayment || event.minimumAmount != null || event.occurrenceKey)) return null;
     const seen = observed && observed.get(event.id + '@' + event.date);
     // One linked posted instalment only: several entries for one occurrence
     // are not one partial payment, so they keep the incumbent reading.
@@ -28810,7 +28827,7 @@
     };
   }
 
-  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

@@ -85,7 +85,7 @@ function budgets(value) {
     })) : null } };
 }
 // The fixed-amount derivation record (#1355): only its outcome -- source,
-// status, the history window's dates and the derived bill ids. The 200-day
+// status, the history window's dates and the derived bill and obligation ids. The 200-day
 // history rows themselves are never retained. Anything not in exactly this
 // clean shape replays as unavailable, so it fixes no bill.
 function amountFixedDerivation(value) {
@@ -93,10 +93,13 @@ function amountFixedDerivation(value) {
   const window = value && value.window;
   const clean = value && typeof value === 'object' && value.source === 'lunchmoney-payment-history'
     && value.status === 'complete' && window && day(window.startDate) && day(window.endDate)
-    && Array.isArray(value.billIds) && value.billIds.every(id => typeof id === 'string' && id.length > 0);
-  if (!clean) return { source: 'lunchmoney-payment-history', status: 'unavailable', window: null, billIds: [] };
+    && Array.isArray(value.billIds) && value.billIds.every(id => typeof id === 'string' && id.length > 0)
+    && (value.obligationIds === undefined || (Array.isArray(value.obligationIds)
+      && value.obligationIds.every(id => typeof id === 'string' && id.length > 0)));
+  if (!clean) return { source: 'lunchmoney-payment-history', status: 'unavailable', window: null, billIds: [], obligationIds: [] };
   return { source: value.source, status: 'complete', window: { startDate: window.startDate, endDate: window.endDate },
-    billIds: Array.from(new Set(value.billIds)).sort() };
+    billIds: Array.from(new Set(value.billIds)).sort(),
+    obligationIds: Array.from(new Set(value.obligationIds || [])).sort() };
 }
 // A group parent's children: only their ids, account ids and parent id
 // (provider-observe groupParentAccountId). No payee, note, amount or metadata.
