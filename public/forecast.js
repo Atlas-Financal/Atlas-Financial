@@ -10453,6 +10453,11 @@
   // The packet occurrence key a calendar bill row's settlement read, kept
   // off the published row. Set only when the packet names the occurrence.
   const billRowObservationKeys = new WeakMap();
+  // A future-window bill row whose occurrence the cash walk already settled
+  // as prepaid (representedKeySet at the Forecast as-of) maps to that as-of.
+  // Its cash left before any later opening, so that opening already holds
+  // it (paidBillAlreadyInPaydayOpening). Beside the row, never on it.
+  const prepaidBillSettledBy = new WeakMap();
 
   function calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const row = calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts);
@@ -10710,7 +10715,26 @@
       // the scheduled amount (problem 9). A date on or before asOf, and every active or
       // lookback window, keep the incumbent status. An opening-settled
       // row is not rewritten: it is never PAID and stays out of the close.
-      if (window.role === 'future' && row.date && asOf && row.date > asOf
+      // Owner, Dale (#821 6961042821): an occurrence paid early counts in
+      // the pay period it is planned in. When the cash walk's own settled set
+      // (`represented`, the opening's prepaid occurrence) holds it, the
+      // payment already left cash on or before asOf: the row stays Paid in
+      // its planned period, owes nothing there, and its cash is outside every
+      // later opening. Only when an observed actual covers the occurrence:
+      // a missing amount never counts (representation proves the occurrence,
+      // not the amount), and an observed actual below plan is a partial; both
+      // keep the demotion below, so a future period never holds less than it
+      // may still owe (lead rulings on #821 6961042821 and #1301; partial
+      // remainders are a separate rule). Evidence the walk does not settle on
+      // is demoted too, as before.
+      const coversOccurrence = row.actual != null && Number.isFinite(Number(row.actual))
+        && row.planned != null && Number.isFinite(Number(row.planned)) && Number(row.planned) !== 0
+        && Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
+      const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
+        && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
+        && coversOccurrence;
+      if (prepaidByWalk) prepaidBillSettledBy.set(row, asOf);
+      if (!prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -13091,6 +13115,9 @@
   function paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource) {
     if (!row || !openingAsOf || !row.date) return false;
     if (!rowIsSettledBill(row)) return false;
+    // Prepaid on or before the Forecast as-of: a later opening holds it.
+    const prepaidBy = prepaidBillSettledBy.get(row);
+    if (prepaidBy && prepaidBy < openingAsOf) return true;
     if (row.date < openingAsOf) return true;
     if (row.date > openingAsOf) return false;
     return openingMayHoldSameDayCash(openingSource);
