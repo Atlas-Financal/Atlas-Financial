@@ -402,8 +402,13 @@ console.log('\nNo page file calls the internal walk seed');
     'only named internal consistency checks in scripts/ call startingCashAmount',
     scriptCallers.filter(f => !INTERNAL_SEED_CHECKS[f]).join(', '));
   ok(!/\bstartingCashAmount\s*\(/.test(read('server.js')), 'server.js does not call startingCashAmount');
-  ok(/INTERNAL WALK SEED ONLY[\s\S]{0,200}function startingCashAmount\(/.test(read('public/forecast.js')),
-    'startingCashAmount carries the internal-seed-only marker');
+  // Opening-gate follow-up: the walk's private seed is
+  // postedHouseholdChequingCash; startingCashAmount is the gated export
+  // (null while the gate fails; test-opening-gate-no-seed-outside-walk.js).
+  ok(/INTERNAL WALK SEED ONLY[\s\S]{0,600}function postedHouseholdChequingCash\(/.test(read('public/forecast.js')),
+    'the internal walk seed carries the internal-seed-only marker');
+  ok(/function startingCashAmount\(plan\) \{\s*return openingCashState\(plan\)\.status === 'unavailable' \? null/.test(read('public/forecast.js')),
+    'startingCashAmount is gated: null while the opening is incomplete');
   // The check can fail: a page call is detected.
   ok(/\bstartingCashAmount\s*\(/.test('val: money(Forecast.startingCashAmount(plan))'),
     'the detector matches a page-style call');

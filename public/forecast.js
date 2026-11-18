@@ -2361,15 +2361,16 @@
     if (!Object.hasOwn(cash, 'breakdown')) return Number(cash.amount) || 0;
     return householdChequingOpeningRows(cash).reduce((sum, row) => sum + (row.value ?? 0), 0);
   }
-  // INTERNAL WALK SEED ONLY — see postedHouseholdChequingCash. Pages read
-  // spendableHouseholdCash.
+  // The exported starting cash: the walk seed only when the opening gate
+  // holds, else null (Unknown). Outside the walk no caller (scripts,
+  // validators, previews) ever sees a seed built on an incomplete opening;
+  // the walk itself reads postedHouseholdChequingCash directly.
   function startingCashAmount(plan) {
-    return postedHouseholdChequingCash(plan);
+    return openingCashState(plan).status === 'unavailable' ? null : postedHouseholdChequingCash(plan);
   }
-  // Published "Spendable household cash": the same opening as the walk
-  // seed, or null (Unknown) when the operating breakdown is incomplete.
+  // Published "Spendable household cash": the same gated opening.
   function spendableHouseholdCash(plan) {
-    return openingCashState(plan).status === 'unavailable' ? null : startingCashAmount(plan);
+    return startingCashAmount(plan);
   }
   // Actual designated-reserve evidence is the incumbent `savings` /
   // EMERGENCY SAVING breakdown row only. Held-elsewhere cash (TENNIS
@@ -3662,7 +3663,7 @@
         .reduce((s, e) => s + -e.amount, 0);
       const weekDays = daily.filter(d => d.date >= copy.start && d.date <= copy.end);
       const fullIdx = full.daily.findIndex(d => d.date === copy.start);
-      copy.opening = fullIdx > 0 ? full.daily[fullIdx - 1].balance : startingCashAmount(plan);
+      copy.opening = fullIdx > 0 ? full.daily[fullIdx - 1].balance : postedHouseholdChequingCash(plan);
       copy.closing = weekDays.length ? weekDays[weekDays.length - 1].balance : copy.closing;
       const residual = weekDays.reduce((s, p, i) => {
         const prev = i ? weekDays[i - 1].balance : copy.opening;
@@ -3708,7 +3709,7 @@
       extra: events.filter(e => e.kind === 'extra' || e.kind === 'planned-debt')
         .reduce((s, e) => s + -e.amount, 0),
     };
-    const opening = startIdx > 0 ? full.daily[startIdx - 1].balance : startingCashAmount(plan);
+    const opening = startIdx > 0 ? full.daily[startIdx - 1].balance : postedHouseholdChequingCash(plan);
     const residual = daily.reduce((s, p, i) => {
       const prev = i ? daily[i - 1].balance : opening;
       const eventNet = events.filter(e => cashWalkDate(e, walkStart) === p.date)
@@ -3809,7 +3810,7 @@
     for (const p of daily) {
       if (p.date >= measureFrom && p.balance < min.balance) min = { date: p.date, balance: p.balance };
     }
-    if (min.balance === Infinity) min = { date: asOf, balance: startingCashAmount(plan) };
+    if (min.balance === Infinity) min = { date: asOf, balance: postedHouseholdChequingCash(plan) };
     const buffer = full.buffer;
     const totals = {
       confirmedIncome: weeks.reduce((s, w) => s + w.confirmedIncome, 0),
@@ -3825,9 +3826,9 @@
       extra: weeks.reduce((s, w) => s + w.extra, 0),
     };
     totals.income = totals.confirmedIncome + totals.estimatedIncome;
-    const ending = daily.length ? daily[daily.length - 1].balance : startingCashAmount(plan);
+    const ending = daily.length ? daily[daily.length - 1].balance : postedHouseholdChequingCash(plan);
     if (full.reserveFunding) totals.reserveFunding = events.reduce((sum, event) => sum + reserveFundedAmount(event), 0);
-    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : startingCashAmount(plan)));
+    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : postedHouseholdChequingCash(plan)));
     const suffixMin = new Array(viewDays).fill(Infinity);
     for (let i = viewDays - 1; i >= 0; i--) {
       const later = i + 1 < viewDays ? Math.min(0, suffixMin[i + 1]) : 0;
@@ -4808,7 +4809,7 @@
       list.sort((a, b) => (b.amount > 0 ? 1 : 0) - (a.amount > 0 ? 1 : 0));
     }
 
-    const openingCash = startingCashAmount(plan);
+    const openingCash = postedHouseholdChequingCash(plan);
     let balance = openingCash;
     const daily = [];
     // Seeded from the opening balance only when the whole window is being
@@ -4924,7 +4925,7 @@
     // window breaches the buffer even with everything going to plan. Backward
     // pass over daily net changes: requiredClosing = buffer − (the most the
     // balance ever sits below this week's closing at any later day).
-    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : startingCashAmount(plan)));
+    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : postedHouseholdChequingCash(plan)));
     const suffixMin = new Array(days).fill(Infinity);
     for (let i = days - 1; i >= 0; i--) {
       const later = i + 1 < days ? Math.min(0, suffixMin[i + 1]) : 0;
@@ -5006,6 +5007,20 @@
         return copy;
       }) };
   }
+  // An incomplete opening (openingCashState) seeds a walk that is not a
+  // figure. Beyond the generic withholding, every number the seed shapes is
+  // withheld too: the weekly variable spending the cash-derived cap set, and
+  // the nested full-horizon `knowledge` walk (its ending, low and daily
+  // balances). Applied only for the opening state, so other states keep
+  // their incumbent publications.
+  function publishOpeningCashWalk(sim, state) {
+    if (!sim || !state || state.status !== 'unavailable') return sim;
+    const out = publishUnavailableCashWalk(sim, state, 'openingCash');
+    out.weeks = (out.weeks || []).map(row => (Object.hasOwn(row, 'variable') ? { ...row, variable: null } : row));
+    if (out.totals && Object.hasOwn(out.totals, 'variable')) out.totals = { ...out.totals, variable: null };
+    if (out.knowledge && typeof out.knowledge === 'object') out.knowledge = publishOpeningCashWalk(out.knowledge, state);
+    return out;
+  }
   function publishMinimumCashWalk(sim, minimums) {
     return publishUnavailableCashWalk(sim, minimums, 'cardMinimumPayments');
   }
@@ -5071,12 +5086,12 @@
     return out;
   }
   function simulate(plan, asOf, opts) {
-    return publishUnavailableCashWalk(publishUnavailableCashWalk(
+    return publishOpeningCashWalk(publishUnavailableCashWalk(
       publishMinimumCashWalk(
         publishScheduledAmountCashWalk(simulateModel(plan, asOf, opts), plan, opts),
         cardMinimumState(plan, asOf, opts)),
       incomeReconciliationState(plan, asOf), 'incomeReconciliation'),
-    openingCashState(plan), 'openingCash');
+    openingCashState(plan));
   }
   /* ---------------------------------------- funding sequence + verdicts */
   // Presentation order only — not the allocator. Protected items are
@@ -5920,7 +5935,7 @@
       date, end: index + 1 < paydayDates.length
         ? addDays(paydayDates[index + 1], -1) : sim.end,
     }));
-    let before = cents(startingCashAmount(plan));
+    let before = cents(postedHouseholdChequingCash(plan));
     if (periodBasis && paydayDates[0] > asOf) {
       const tail = sim.daily.filter(day => day.date < paydayDates[0]);
       const boundary = tail.at(-1);
@@ -10524,7 +10539,7 @@
     const datedCashKnown = spendableHouseholdCash(plan) != null;
     if (datedCashKnown && asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
       return {
-        opening: roundCent(startingCashAmount(plan)),
+        opening: roundCent(postedHouseholdChequingCash(plan)),
         openingKnown: true,
         openingAsOf: asOf,
         source: 'payday-morning',
@@ -10532,7 +10547,7 @@
     }
     if (datedCashKnown && !liveOpeningAdvanced(plan, asOf) && plan && plan.opening && plan.opening.asOf === asOf) {
       return {
-        opening: roundCent(startingCashAmount(plan)),
+        opening: roundCent(postedHouseholdChequingCash(plan)),
         openingKnown: true,
         openingAsOf: asOf,
         source: 'cutover-opening',
@@ -18979,7 +18994,7 @@
       majorPlans: plans,
     }));
 
-    const opening = startingCashAmount(plan);
+    const opening = postedHouseholdChequingCash(plan);
     const currentBalancePublication = householdCurrentBalance(plan, asOf, opts);
     const liveCurrentBalance = currentBalancePublication.amount;
 
@@ -20137,7 +20152,14 @@
     }
     if (openingCash) {
       for (const key of ['sim', 'zero']) if (result[key]) {
-        result[key] = publishUnavailableCashWalk(result[key], openingCash, 'openingCash');
+        result[key] = publishOpeningCashWalk(result[key], openingCash);
+      }
+      // The next-period and week views project their cash from the walk
+      // seed; with an incomplete opening none of those balances is a figure.
+      for (const view of [result.nextPeriodView, ...(result.weekViews || [])]) {
+        if (!view) continue;
+        for (const key of ['currentBalance', 'afterBills', 'afterHouseholdBudget',
+          'afterDebtRepayment', 'afterBigPurchases']) if (Object.hasOwn(view, key)) view[key] = null;
       }
       result.funding = null;
       result.infeasible = null;
@@ -24405,7 +24427,7 @@
     const helocCrossing = helocLimitCrossing(debtProj);
     const cashAt = date => {
       const p = (sim.daily || []).find(x => x.date === date);
-      return p ? p.balance : startingCashAmount(plan);
+      return p ? p.balance : postedHouseholdChequingCash(plan);
     };
 
     const openingId = fundingShort ? 'unfunded' : (gap ? 'coverGap' : 'holdBuffer');
@@ -25881,7 +25903,7 @@
     const events = sim.events.filter(e => cashWalkDate(e, asOf) <= through);
     const ids = new Set(seq.filter(c => c.date >= asOf && c.date <= through
       && c.need != null && c.flexibility !== 'optional').map(c => c.id));
-    const cash = startingCashAmount(plan);
+    const cash = postedHouseholdChequingCash(plan);
     const payments = events.filter(e => ids.has(e.id) && ['commitment', 'bill', 'reserve'].includes(e.kind));
     const paid = roundCent(payments.reduce((s, e) => s - operatingEventAmount(e), 0));
     const income = roundCent(events.filter(e => e.kind === 'income').reduce((s, e) => s + e.amount, 0));
