@@ -51,7 +51,7 @@ function world(legs = [], { confirmed = false, refile = {}, card = null, minimum
   let id = 94000;
   for (const leg of legs) {
     // A leg may carry its own ledger category: { categoryName, excludeBudget, excludeTotals } (the name is the whole label),
-    // and `groupParent`, the id of a Lunch Money group it belongs to (the ledger's own link of its other side).
+    // `groupParent`, the id of a Lunch Money group it belongs to (the ledger's own link of its other side), and `notes`.
     if (leg.categoryName && !payload.categories.some(c => c.name === leg.categoryName)) {
       payload.categories.push({ id: 9100 + payload.categories.length, name: leg.categoryName, is_income: false, is_group: false,
         exclude_from_budget: leg.excludeBudget !== false, exclude_from_totals: leg.excludeTotals !== false });
@@ -61,6 +61,7 @@ function world(legs = [], { confirmed = false, refile = {}, card = null, minimum
       ...(leg.original ? { original_name: leg.original } : {}),
       ...(leg.kind ? { kind: leg.kind } : {}),
       ...(leg.groupParent ? { group_parent_id: leg.groupParent } : {}),
+      ...(leg.notes ? { notes: leg.notes } : {}),
       category_id: leg.categoryName ? payload.categories.find(c => c.name === leg.categoryName).id : CATEGORY[leg.category], is_pending: leg.pending === true, status: leg.pending ? 'pending' : 'cleared' });
     if (leg.pending !== true) {
       data.plan.startingCash.breakdown.find(row => row.id === ACCOUNT[leg.account || 1002]).value += leg.amount;

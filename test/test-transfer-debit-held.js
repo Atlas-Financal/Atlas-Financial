@@ -132,6 +132,21 @@ console.log('\n=== Grok Bot condition 1: only an exact single-card minimum categ
   stays(run(leg(CARDMIN), { minimumOwner: true, durableMinimum: true }), 'a minimum already owned by a durable record');
 }
 
+console.log('\n=== a noted card payment the card ledger did not pair is not owned (Codex P1 on #1388) ===');
+{
+  // A Transfer debit noted "card payment: Travel Visa" is a provisional minimum candidate. Card coverage
+  // finds no posted card credit for it, so qualification drops it: neither owner counts it, so it is held.
+  const MIN = 60;
+  const noted = [{ account: 1001, amount: MIN, category: 'transfer', date: '2026-08-18', notes: 'card payment: Travel Visa' }];
+  const served = world(noted, { minimumOwner: true });
+  const view = viewOf(served);
+  ok(cents(view.cur.balanceAfterDeductions) === cents(BEFORE - MIN) && heldAmount(view) === MIN,
+    'an unpaired noted payment is held once (1,572.01), not exempt as a minimum', JSON.stringify([view.cur.balanceAfterDeductions, heldAmount(view)]));
+  ok(!served.liveOverlay.currentPeriodActuals.transactions.some(tx => tx.cardMinimumOwned === true),
+    'no row stays marked owned after qualification drops the candidate');
+  // The paired control (the mark survives qualification) is in test-card-payment-note-minimum section 8.
+}
+
 console.log('\n=== the card-minimum owner export decides (Forecast.cardMinimumOwnedDebits) ===');
 {
   const MIN = 60;
