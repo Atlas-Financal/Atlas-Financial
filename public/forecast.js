@@ -8693,6 +8693,41 @@
     return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
   }
 
+  // Dale (2026-11-18): the bill sheet's "Last 6 months" box. One row's
+  // published payment series (provider-observe billPaymentHistory: posted,
+  // identified payments only) bucketed into its six months, with the average
+  // and range of the payments themselves, in integer cents. A month with no
+  // payment has total null, never 0: no payment identified is not $0 paid.
+  // Fewer than two payments leave average and range null (not enough history).
+  // Null for anything not in the published shape.
+  function billPaymentHistorySummary(entry, months) {
+    const isMonth = m => typeof m === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
+    if (!entry || entry.status !== 'complete' || !Array.isArray(entry.payments)
+      || !Array.isArray(months) || !months.length || !months.every(isMonth)) return null;
+    const rows = [];
+    for (const p of entry.payments) {
+      if (!p || typeof p.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(p.date) || !months.includes(p.date.slice(0, 7))
+        || typeof p.amount !== 'number' || !Number.isFinite(p.amount) || !(p.amount > 0)) return null;
+      rows.push({ date: p.date, cents: Math.round(p.amount * 100) });
+    }
+    rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Months where a row two plan rows identify was left out: marked, never read as unpaid.
+    const leftOut = new Set(Array.isArray(entry.excludedAmbiguousMonths) ? entry.excludedAmbiguousMonths.filter(isMonth) : []);
+    const buckets = months.map(month => {
+      const inMonth = rows.filter(r => r.date.slice(0, 7) === month);
+      return { month, payments: inMonth.map(r => ({ date: r.date, amount: r.cents / 100 })),
+        total: inMonth.length ? inMonth.reduce((sum, r) => sum + r.cents, 0) / 100 : null,
+        leftOut: leftOut.has(month) };
+    });
+    const count = rows.length;
+    const enough = count >= 2;
+    const sum = rows.reduce((acc, r) => acc + r.cents, 0);
+    return { months: buckets, count,
+      average: enough ? Math.round(sum / count) / 100 : null,
+      min: enough ? Math.min(...rows.map(r => r.cents)) / 100 : null,
+      max: enough ? Math.max(...rows.map(r => r.cents)) / 100 : null };
+  }
+
   // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
   // bill paid in part keeps its remainder reserved. A plain payment obligation
   // derived fixed the same way (the mortgage) follows the same rule. The one owner of that
@@ -29000,7 +29035,7 @@
     };
   }
 
-  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

@@ -998,8 +998,8 @@ async function fetchBudgetEvidence(token, base, now, options) {
 }
 
 // The fixed-amount history read: GET /v2/transactions over AMOUNT_HISTORY_DAYS,
-// paged. It feeds only derivedAmountFixedBills. Any failure is recorded as an
-// incomplete window, so no bill is marked fixed; it never fails the refresh.
+// paged. It feeds only derivedAmountFixedBills and billPaymentHistory (the bill sheet). Any failure is recorded as an
+// incomplete window, so no bill is marked fixed and the bill sheet says Unavailable; it never fails the refresh.
 async function fetchAmountHistory(token, now, base, options) {
   const url = lunchMoneyTransactionsUrl(now, AMOUNT_HISTORY_DAYS, base);
   const window = { startDate: url.startDate, endDate: url.endDate };
@@ -4964,6 +4964,18 @@ function observeCore(input, capture) {
     // Memory is bound to the same canonical context, so it derives the same.
     assembled.derivedAmountFixed = ObservationMemory.amountFixedDerivation(input.payload.amountFixedDerivation);
   }
+  // The bill sheet's payment history (Dale, 2026-11-18), from the same read and
+  // identification; a replay carries the live series through its clean record.
+  if (input.payload && input.payload.amountHistory !== undefined) {
+    // Anchored on this observation's own as-of, never the request clock: the same
+    // evidence publishes the same series whenever it is read.
+    assembled.billPaymentHistory = billPaymentHistory(input.payload.amountHistory, {
+      asOf: assembled.currentPeriodActuals && assembled.currentPeriodActuals.observationAsOf,
+      plan: input.data && input.data.plan, debts: input.data && input.data.debts, accountMap: mapDoc, identityRules,
+      categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
+  } else if (input.payload && input.payload.billPaymentHistory !== undefined) {
+    assembled.billPaymentHistory = ObservationMemory.billPaymentHistory(input.payload.billPaymentHistory);
+  }
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
@@ -5620,16 +5632,21 @@ const AMOUNT_FIXED_SAMPLE = 6;
 const AMOUNT_FIXED_MIN_COUNT = 3;
 const AMOUNT_FIXED_EXCLUDED_SETTLES = new Set(['two-leg-sum', 'amount-at-least', SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE]);
 
-function derivedAmountFixedBills(history, opts) {
+// The identified payments both history readers share: each candidate plan
+// row's posted CAD debits on its rules' own account, in the history window.
+// Null when the window is unusable (incomplete, truncated, has more, or
+// missing). `ambiguous` holds, per id, the dates of the rows another plan row's rules also
+// identify (left out of every row's payments); `unsupported` holds the ids
+// whose rule shape (two-leg sum, at least, trust on due, transfer) means one
+// debit is not one payment of the bill; `duplicated` the ids one of whose
+// rows the read delivered more than once.
+function identifiedHistoryPayments(history, opts) {
   const plan = opts && opts.plan;
   const mapDoc = opts && opts.accountMap;
   const window = history && history.transactionWindow;
-  const out = { source: 'lunchmoney-payment-history', status: 'unavailable',
-    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [], obligationIds: [] };
   const end = parseIsoDate(window && window.endDate);
   if (!plan || !mapDoc || !window || window.complete !== true || window.truncated === true || window.hasMore === true
-    || !parseIsoDate(window.startDate) || !end || !Array.isArray(history.transactions)) return out;
-  out.status = 'complete';
+    || !parseIsoDate(window.startDate) || !end || !Array.isArray(history.transactions)) return null;
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
   // minimum), a revolving card's debt, a non-cash or capitalising leg (the
@@ -5661,13 +5678,25 @@ function derivedAmountFixedBills(history, opts) {
   // The identity check reads every plan row's rules, candidate or not (Codex P2
   // on #1374): a row another bill or obligation also identifies is ambiguous
   // evidence, so leaving a non-candidate out could hand its payment to a
-  // candidate. Only candidates can come out fixed.
+  // candidate. Only candidates collect payments.
   const rules = stampRuleSetClaims(opts.identityRules).filter(rule => rule && rule.direction === 'debit'
     && rule.atlasAccountId && idCount.has(rule.eventId));
+  const identified = new Set(rules.map(rule => rule.eventId).filter(id => bills.has(id)));
   const normalized = normalizeLunchMoneyPayload({ transactions: history.transactions,
     categories: opts.categories || [], tags: opts.tags || [] }, opts.fetchedAt).transactions;
   const payments = new Map();
-  const unusable = new Set();
+  const ambiguous = new Map();
+  const unsupported = new Set();
+  // A posted row whose provider transaction id the read delivers more than
+  // once (or without one) has no single identity (Codex P1 on #1379): it is
+  // never one payment, so the row it would pay is `duplicated` instead.
+  const idSeen = new Map();
+  for (const tx of normalized) {
+    if (tx && tx.pending !== true && tx.providerTransactionId != null) {
+      idSeen.set(tx.providerTransactionId, (idSeen.get(tx.providerTransactionId) || 0) + 1);
+    }
+  }
+  const duplicated = new Set();
   for (const tx of normalized) {
     if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
     const date = parseIsoDate(tx.date);
@@ -5680,20 +5709,33 @@ function derivedAmountFixedBills(history, opts) {
       && ruleMatchesTransactionIdentity(tx, rule) && ruleCurrencyQualified(tx, rule));
     const ids = Array.from(new Set(hits.map(rule => rule.eventId)));
     if (!ids.length) continue;
-    // A row two plan rows' rules identify settles neither here.
-    if (ids.length > 1) { ids.forEach(id => unusable.add(id)); continue; }
+    // A row two plan rows' rules identify belongs to neither.
+    if (ids.length > 1) { ids.forEach(id => ambiguous.set(id, (ambiguous.get(id) || []).concat([date]))); continue; }
     if (!bills.has(ids[0])) continue;
     if (hits.some(rule => AMOUNT_FIXED_EXCLUDED_SETTLES.has(rule.settlesWhen) || rule.transactionKind === 'transfer')) {
-      unusable.add(ids[0]); continue;
+      unsupported.add(ids[0]); continue;
     }
+    if (tx.providerTransactionId == null || idSeen.get(tx.providerTransactionId) !== 1) { duplicated.add(ids[0]); continue; }
     if (!payments.has(ids[0])) payments.set(ids[0], []);
     payments.get(ids[0]).push({ date, cents: Math.round(amount * 100) });
   }
+  for (const rows of payments.values()) rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return { plan, window, end, bills, identified, payments, ambiguous, unsupported, duplicated };
+}
+
+function derivedAmountFixedBills(history, opts) {
+  const window = history && history.transactionWindow;
+  const out = { source: 'lunchmoney-payment-history', status: 'unavailable',
+    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [], obligationIds: [] };
+  const found = identifiedHistoryPayments(history, opts);
+  if (!found) return out;
+  out.status = 'complete';
+  const { plan, end, bills, payments } = found;
   for (const [id, rows] of payments) {
     const { row: bill, kind } = bills.get(id);
     const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
-    if (unusable.has(id) || !interval || bill.amountSchedule !== undefined || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
-    rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    if (found.ambiguous.has(id) || found.unsupported.has(id) || found.duplicated.has(id) || !interval || bill.amountSchedule !== undefined
+      || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
     // Two payments on one day are legs or a duplicate, not one fixed price.
     if (rows.some((row, i) => i > 0 && rows[i - 1].date === row.date)) continue;
     const planned = Number(bill.amount);
@@ -5718,6 +5760,63 @@ function derivedAmountFixedBills(history, opts) {
   }
   out.billIds.sort();
   out.obligationIds.sort();
+  return out;
+}
+
+// Dale (2026-11-18, via the lead): the bill sheet's "Last 6 months" box shows
+// each bill's and plain obligation's identified posted payments, read from the
+// same 200-day history and the same identification as derivedAmountFixedBills;
+// no new GET and no new matching. The six calendar months end with the window
+// end's month; the window must reach back to the first of the earliest one.
+// Published per row: its id and its payments' dates and amounts only, never
+// payee text, notes or raw rows. A row whose rule shape makes one debit not one
+// payment is unavailable; rows another plan row also identifies are left out
+// and counted. A row with no debit identity rule has no entry.
+const BILL_PAYMENT_HISTORY_MONTHS = 6;
+function billPaymentHistoryMonths(endDate) {
+  const [y, m] = endDate.split('-').map(Number);
+  const out = [];
+  for (let i = BILL_PAYMENT_HISTORY_MONTHS - 1; i >= 0; i--) {
+    const k = y * 12 + (m - 1) - i;
+    out.push(String(Math.floor(k / 12)) + '-' + String(k % 12 + 1).padStart(2, '0'));
+  }
+  return out;
+}
+function billPaymentHistory(history, opts) {
+  const window = history && history.transactionWindow;
+  const out = { source: 'lunchmoney-payment-history', status: 'unavailable', reason: 'history-unavailable',
+    asOf: null, months: [], bills: [] };
+  const found = identifiedHistoryPayments(history, opts);
+  if (!found) {
+    if (window && (window.truncated === true || window.hasMore === true || window.complete === false)) out.reason = 'history-incomplete';
+    return out;
+  }
+  // The six months end with the observation's own as-of (opts.asOf), not the
+  // history read's end, which follows the request clock. A read that ends before
+  // that day is incomplete for it; payments after it are not shown.
+  const asOf = parseIsoDate(opts && opts.asOf);
+  if (!asOf || asOf > found.end) { out.reason = 'history-incomplete'; return out; }
+  const months = billPaymentHistoryMonths(asOf);
+  const from = months[0] + '-01';
+  if (parseIsoDate(window.startDate) > from) { out.reason = 'history-too-short'; return out; }
+  out.status = 'complete';
+  delete out.reason;
+  out.asOf = asOf;
+  out.months = months;
+  for (const id of Array.from(found.identified).sort()) {
+    if (found.unsupported.has(id)) { out.bills.push({ billId: id, status: 'unavailable', reason: 'paid-in-parts', payments: [] }); continue; }
+    if (found.duplicated.has(id)) { out.bills.push({ billId: id, status: 'unavailable', reason: 'duplicate-record', payments: [] }); continue; }
+    const entry = { billId: id, status: 'complete',
+      payments: (found.payments.get(id) || []).filter(row => row.date >= from && row.date <= asOf)
+        .map(row => ({ date: row.date, amount: row.cents / 100 })) };
+    const left = (found.ambiguous.get(id) || []).filter(date => date >= from && date <= asOf);
+    if (left.length) {
+      entry.excludedAmbiguous = left.length;
+      // The months those rows fall in, so the page marks them left out, not unpaid (lead on #1379).
+      entry.excludedAmbiguousMonths = Array.from(new Set(left.map(date => date.slice(0, 7)))).sort();
+    }
+    out.bills.push(entry);
+  }
   return out;
 }
 
@@ -7883,6 +7982,7 @@ const api = {
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
   derivedAmountFixedBills,
+  billPaymentHistory,
   AMOUNT_HISTORY_DAYS,
   recurringItemAmounts,
   applyRecurringSchedule,

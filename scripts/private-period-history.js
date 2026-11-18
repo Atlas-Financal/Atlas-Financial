@@ -398,6 +398,9 @@ function capture(input, { now = () => new Date() } = {}) {
     refreshed = Live.fromObservation(derives
       ? { ...evidenceInput, payload: { ...payload, amountHistory: clean.payload.amountHistory } } : evidenceInput);
     if (derives) payload.amountFixedDerivation = ObservationMemory.amountFixedDerivation(refreshed.report.derivedAmountFixed);
+    // The bill sheet's payment series is a page view, never period history:
+    // a captured close keeps no per-bill payment rows (Dale, 2026-11-18).
+    if (refreshed.data && refreshed.data.liveOverlay) delete refreshed.data.liveOverlay.billPaymentHistory;
     asOf = date(Operating.asOfFrom(refreshed.data, {}));
     forecastOptions = Operating.recommendOpts(refreshed.data, {});
     // Retain the caller's existing monthly source; never borrow today's file on replay.

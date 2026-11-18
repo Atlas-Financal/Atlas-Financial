@@ -95,6 +95,8 @@ for (const [label, day, kind, start] of [['current period (first-observed)', 12,
   const stored = fromRaw.content.evidence.input.payload;
   ok(!deepKeys(fromRaw).has('amountHistory') && same(stored.amountFixedDerivation, Memory.amountFixedDerivation(record)),
     'raw history: the stored payload keeps the clean record and no amountHistory', JSON.stringify(stored.amountFixedDerivation));
+  // The bill sheet's payment series (Dale, 2026-11-18) is a page view, never period history.
+  ok(!deepKeys(fromRaw).has('billPaymentHistory'), 'raw history: the captured close keeps no bill payment series');
   ok(!JSON.stringify(fromRaw).includes(HISTORY_DAYS[day][0]) && !JSON.stringify(fromRaw).includes(HISTORY_DAYS[day][1]),
     'raw history: no history row (its July or August payment date) is stored anywhere in the record');
   ok(same(stored.transactions.map(t => t.id), input.payload.transactions.map(t => t.id)),
