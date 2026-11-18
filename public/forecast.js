@@ -16065,7 +16065,8 @@
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
       // Rank 18: held outflows, the same gate and cycle as the item term.
-      const heldSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
+      const heldSpendComputed = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true;
+      const heldSpend = heldSpendComputed
         ? heldOutflowCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, count: 0 };
       const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && budget.hold != null
         ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100) : null;
@@ -16484,8 +16485,10 @@
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
         // Rank 18: the held rows and the one term BAD and the close deduct.
-        ...(!planUnavailable && budget.heldOutflows && heldSpend != null ? { heldOutflowsToConfirm: {
-          total: heldSpend.cents / 100, recon: budget.heldOutflows } } : {}),
+        // The total is the deducted term itself; when the term was not
+        // computed (actuals not ready) the listed rows have no published total.
+        ...(!planUnavailable && budget.heldOutflows ? { heldOutflowsToConfirm: {
+          total: heldSpendComputed && heldSpend != null ? heldSpend.cents / 100 : null, recon: budget.heldOutflows } } : {}),
         // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
         ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,

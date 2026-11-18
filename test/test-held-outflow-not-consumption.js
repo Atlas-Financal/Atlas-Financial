@@ -101,6 +101,25 @@ for (const [name, extra, held, bad, close] of [
   }
 }
 
+console.log('\n=== a completed period: the listed rows and the deducted term still agree ===');
+{
+  // As-of Oct 24, Oct 9-22 is a completed (lookback) period. A posted 400
+  // and a pending 50 Mortgage debit are both held: listed 400 + 50 = 450 and
+  // its term 450, to the cent.
+  const w = H.baseWorld('2026-10-24');
+  w.categories.push({ id: MORTGAGE, name: 'Mortgage' });
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+    mortgage(), mortgage({ date: '2026-10-13', amount: 50, pending: true })];
+  const { data, packet, error } = H.dataOf(w);
+  if (error) throw error;
+  const v = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet })
+    .payPeriodViews.find(r => r.start === '2026-10-09');
+  const list = v.heldOutflowsToConfirm, t = v.predictedEndingBalanceTerms || {};
+  const listed = list ? Math.round(list.recon.reduce((sum, row) => sum + Number(row.amount) * 100, 0)) : null;
+  ok(listed === 45000 && near(list.total, 450) && near(t.heldOutflowSpending, 450) && t.closes === true,
+    'completed period: rows 400 + 50 = 450 = the published total = the deducted term', JSON.stringify({ listed, total: list && list.total, term: t.heldOutflowSpending }));
+}
+
 console.log('\n=== period history projection: fails closed on a held term (owner stop pending) ===');
 {
   const reseal = candidate => {
