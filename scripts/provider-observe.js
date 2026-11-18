@@ -2718,7 +2718,8 @@ function collectIdentityHits(tx, input, rules) {
         const need = Math.abs(Number(scheduled[0].amount));
         if (!(Math.abs(amount) + IDENTITY_AMOUNT_EPSILON >= need)) continue;
       }
-      if (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT) {
+      // Same as representedEventHitGroups: Lunch Money's own pairing replaces the exact-amount guard (Q2).
+      if (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT && relation !== LM_MATCHED_RELATION) {
         const need = Math.abs(Number(scheduled[0].amount));
         if (!(isFinite(need) && isFinite(amount)
           && Math.abs(Math.abs(amount) - need) <= IDENTITY_AMOUNT_EPSILON)) {
@@ -3032,14 +3033,20 @@ function salaryReceiptTransferHits(input, rules) {
 //     names it;
 //   - missing dates are a subset of expected dates, with no duplicates;
 //   - every found transaction is in this observation, posted, on the rule's
-//     account, in its currency, money out, and carries the rule's link;
+//     account, in its currency, in the rule's direction (money out for a
+//     debit rule, money in for a credit rule; a transfer-kind rule also
+//     needs a transfer row), and carries the rule's link;
 //   - the found count equals the matched-date count;
 //   - every matched date is exactly one scheduled occurrence of the bill;
-//   - each paired payment's amount is consistent with that occurrence.
+//   - each paired payment's amount is consistent with that occurrence (a
+//     debit rule only). A credit rule's paired receipt settles at its actual
+//     amount: Lunch Money paired it, and Forecast publishes the represented
+//     actual, so no scheduled-amount guard is asked (Q2, lead 2026-11-18).
 function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring) {
   for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
   const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
-    && rule.eventId && rule.direction === 'debit' && ruleLunchMoneyRecurringIds(rule).length === 1);
+    && rule.eventId && (rule.direction === 'debit' || rule.direction === 'credit')
+    && ruleLunchMoneyRecurringIds(rule).length === 1);
   const applied = [];
   const read = rawRecurring && rawRecurring.status === 'read' ? rawRecurring.read : null;
   if (!rules.length || !plan || !read || !Array.isArray(read.items) || read.unexpectedPaginationEvidence !== false) return applied;
@@ -3080,7 +3087,9 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       if (!tx || tx.pending !== false || tx.contradictoryEvidence === true) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
       if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
-      return ruleCurrencyQualified(tx, rule) && lunchMoneyDebitAmount(tx.amount) > 0;
+      if (rule.transactionKind === 'transfer' && !transactionIsTransfer(tx)) return false;
+      const amount = lunchMoneyDebitAmount(tx.amount);
+      return ruleCurrencyQualified(tx, rule) && (rule.direction === 'credit' ? amount < 0 : amount > 0);
     };
     if (!foundTx.every(accepted) || foundTx.length !== matched.length) continue;
     const pairs = foundTx.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))
@@ -3088,7 +3097,8 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       .map((tx, i) => ({ tx, date: matched[i] }));
     const consistent = pairs.every(({ tx, date }) => {
       const occ = scheduledOccurrence(plan, rule.eventId, date);
-      return occ.length === 1 && billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), occ[0].amount);
+      return occ.length === 1 && (rule.direction === 'credit'
+        || billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), occ[0].amount));
     });
     if (!consistent) continue;
     for (const tx of linked) LM_MATCHED.set(tx, { eventId: rule.eventId, date: null });
@@ -3144,7 +3154,10 @@ function representedEventHitGroups(input) {
           const need = Math.abs(Number(scheduled[0].amount));
           if (!(Math.abs(amount) + IDENTITY_AMOUNT_EPSILON >= need)) continue;
         }
-        if (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT) {
+        // Q2 (lead 2026-11-18): when Lunch Money itself paired this receipt to the occurrence, the
+        // exact-scheduled-amount guard is not asked; the receipt settles at its actual amount. Without that
+        // pairing the incumbent guard applies unchanged (the fallback until the rule names its LM item).
+        if (rule.settlesWhen === SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT && relation !== LM_MATCHED_RELATION) {
           const need = Math.abs(Number(scheduled[0].amount));
           if (!(isFinite(need) && isFinite(amount)
             && Math.abs(Math.abs(amount) - need) <= IDENTITY_AMOUNT_EPSILON)) {
