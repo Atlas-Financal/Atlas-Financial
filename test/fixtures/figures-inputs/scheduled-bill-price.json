@@ -1,0 +1,102 @@
+{
+  "schema": "atlas-figures-input/v1",
+  "id": "scheduled-bill-price",
+  "invented": true,
+  "description": "Invented served data: a monthly subscription whose first occurrence falls in an estimated promotional price term and whose later occurrences restore the regular price, plus a monthly bill marked as not a household obligation.",
+  "origin": {
+    "kind": "test-builder",
+    "source": "test/test-bill-amount-schedule.js baseBill / schedBill / mkPlan at 4a215db6859c42cacb5715d332b0adb9ff8cd6d7, and the 'Invented non-household' bill in test/test-a6-unknown-bill-amount-date.js at the same revision, re-entered literally",
+    "transform": "Served /data.json: meta.asOf = the mkPlan opening; plan.defaults and an invented biweekly payday added so pay periods exist; schedBill with one estimated term; the non-household bill given a day; no debts or extra facilities; no periods payload (absent-periods)."
+  },
+  "limitations": [
+    "absent-periods"
+  ],
+  "periods": null,
+  "data": {
+    "meta": {
+      "asOf": "2027-01-01",
+      "title": "Invented bill amount schedule"
+    },
+    "debts": [],
+    "revolvingExtra": [],
+    "plan": {
+      "windowDays": 91,
+      "defaults": {
+        "targetBuffer": 0
+      },
+      "startingCash": {
+        "breakdown": [
+          {
+            "id": "chequing-a",
+            "value": 1000
+          }
+        ]
+      },
+      "opening": {
+        "asOf": "2027-01-01"
+      },
+      "income": [
+        {
+          "id": "payroll",
+          "label": "Invented payroll",
+          "frequency": "biweekly",
+          "anchor": "2026-12-25",
+          "amount": 2000,
+          "confidence": "confirmed"
+        }
+      ],
+      "bills": [
+        {
+          "id": "sx",
+          "label": "Synthetic Stream",
+          "amount": 20,
+          "day": 10,
+          "frequency": "monthly",
+          "subscription": true,
+          "confidence": "confirmed",
+          "budgetCategory": "subs",
+          "amountSchedule": [
+            {
+              "from": "2027-01-01",
+              "until": "2027-02-01",
+              "amount": 5,
+              "confidence": "estimated"
+            }
+          ]
+        },
+        {
+          "id": "card",
+          "label": "Invented non-household",
+          "frequency": "monthly",
+          "day": 15,
+          "amount": 20,
+          "householdObligation": false,
+          "confidence": "estimated"
+        }
+      ],
+      "obligations": [],
+      "commitments": [],
+      "budget": {
+        "basis": "ytd",
+        "categories": [
+          {
+            "id": "subs",
+            "label": "Subs",
+            "class": "discretionary",
+            "from": [
+              "Subs"
+            ]
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "class": "discretionary",
+            "from": [
+              "Other"
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
