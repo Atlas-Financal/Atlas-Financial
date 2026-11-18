@@ -171,7 +171,7 @@ function accountMapOf(w, { captureCash = false } = {}) {
     // Reserve accounts are mapped only when a Savings pool is configured:
     // the observer refuses a reserve role without one.
     mappings: w.accounts.filter(a => !a.reserve || w.savingsPool || (captureCash && !a.held)).map(a => ({ providerAccountId: String(a.providerId), atlasRole: captureCash && a.reserve && !w.savingsPool ? 'household-cash' : a.role,
-      canonical: { id: a.id, collection: a.collection } })),
+      canonical: { id: a.id, collection: a.collection }, ...(a.externalId ? { externalId: a.externalId } : {}) })),
   };
 }
 

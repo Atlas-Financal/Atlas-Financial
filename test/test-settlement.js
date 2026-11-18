@@ -226,8 +226,8 @@ console.log('\n=== E. garbage settledOn stays reserved ===');
   garbage.commitments[0].settledOn = 'paid';
   ok(!independentlySettledOn(garbage.commitments[0]),
     'independent predicate rejects a non-date settledOn');
-  ok(F.commitmentStatus(garbage.commitments[0]) === 'unsettled',
-    'derived historical status stays unsettled for garbage');
+  ok(F.commitmentSettledOn(garbage.commitments[0]) === null,
+    'garbage has no settled-on date, so it stays unsettled');
   ok(F.commitmentSettledBy(garbage.commitments[0], START) === false,
     'garbage is not settled for the Forecast opening');
   ok(F.expandEvents(garbage, START, END, {}).some(e => e.id === 'camp'),

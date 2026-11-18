@@ -208,7 +208,8 @@
         const cashIncluded = record.cashIncludedAsOf != null && record.cashIncludedAsOf <= asOf;
         payments.push({ id: row.id, scheduledDate: record.scheduledDate, date: dueDate,
           occurrenceKey: row.id + '@' + record.scheduledDate,
-          ...(category?.payments.includes(record) ? { minimumConfirmationSource: 'household-category' } : {}),
+          ...(category?.payments.includes(record) ? { minimumConfirmationSource: record.evidence === 'card-payment-note'
+            ? 'card-payment-note-and-credit' : 'household-category' } : {}),
           cashPaymentStatus: 'sent', cashPaid: record.amount, cashSentOn: record.postedOn,
           ...(identityCounts.get(record.debitId) > 1 ? { householdPaymentEvidence: 'conflict' } : {}),
           cashInclusionStatus: cashIncluded ? 'included' : 'unconfirmed',
@@ -763,16 +764,25 @@
           || counts.get(p.debitId) !== 1 || keys.get(p.id + '@' + p.scheduledDate) !== 1
           || occurrences(row, p.scheduledDate, p.scheduledDate).length !== 1
           || (row.sentPayments != null && !Array.isArray(row.sentPayments))
-          || (row.sentPayments || []).some(o => o.scheduledDate === p.scheduledDate)) continue;
-      payments.push(p);
+          || (row.sentPayments || []).some(o => o.scheduledDate === p.scheduledDate)
+          || (p.evidence !== undefined && (p.evidence !== 'card-payment-note'
+            || !['cashback', 'travelvisa', 'tdcc'].includes(row.debtId)))) continue;
       const due = statementOccurrenceDate(plan, row.id, p.scheduledDate);
       const occurrence = obligationOccurrences(row, p.scheduledDate < due ? p.scheduledDate : due,
         p.scheduledDate > due ? p.scheduledDate : due)
         .find(o => o.scheduledDate === p.scheduledDate);
       // Forecast alone decides amount satisfaction. This is the household's
       // category confirmation, never a fabricated issuer posting transaction.
-      if (occurrence?.confidence === 'confirmed' && occurrence.amount > 0
-          && Math.round(p.amount * 100) >= Math.round(occurrence.amount * 100)) {
+      // A noted TD debit reaches here only when card coverage paired it with
+      // the card's posted PAYMENT - THANK YOU credit (the observer qualifies
+      // it): that credit is the issuer's receipt (lead dispatch U4, option A).
+      // A noted payment that cannot satisfy the minimum is dropped, so the
+      // minimum stays To confirm rather than sent with the issuer unknown.
+      const satisfies = occurrence?.confidence === 'confirmed' && occurrence.amount > 0
+        && Math.round(p.amount * 100) >= Math.round(occurrence.amount * 100);
+      if (p.evidence === 'card-payment-note' && !satisfies) continue;
+      payments.push(p);
+      if (satisfies) {
         receipts.push({ id: p.id, date: p.scheduledDate, effectiveAsOf: packet.asOf });
       }
     }
@@ -2018,6 +2028,35 @@
     if (!Number.isSafeInteger(out.cents)) return null;
     return out;
   }
+  // Rank 18 (lead ruling, OD-021): held outflows (a Mortgage-labelled or
+  // income-category debit no owner claims) are out of the household hold but
+  // still left household cash. The remainder and the close each deduct them
+  // once as their own named term, exactly as savings-item spending: never
+  // twice and never as a household cost. Household-cash rows only (a Savings
+  // or card row moved no Bills cash); a pending row stays deducted, the
+  // conservative side; a replaced pending and a split parent never count.
+  function heldOutflowCycleSpend(plan, asOf, opts, cycle) {
+    const packet = currentPeriodActualsPacket(opts);
+    const out = { cents: 0, count: 0 };
+    if (!packet || !Array.isArray(packet.transactions) || !cycle || !savingsDate(cycle.start)) return out;
+    const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
+    for (const tx of packet.transactions) {
+      if (!tx || !tx.date || tx.accountRole !== 'household-cash') continue;
+      if (tx.date < cycle.start || tx.date > through || skipSplitParent(tx, packet)
+          || isPossibleReplacementPending(tx, duplicateIds)) continue;
+      const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+      if (!cls || cls.kind !== 'held-outflow') continue;
+      const cents = savingsCents(Number(tx.amount), true);
+      if (cents == null) return null;
+      if (!(cents > 0)) continue;
+      out.cents += cents;
+      out.count += 1;
+      if (!Number.isSafeInteger(out.cents)) return null;
+    }
+    return out;
+  }
   function savingsInventory(plan, asOf, opts) {
     const settlementEvidence = opts ? opts.settlementEvidence : null;
     const config = savingsEarmarksState(plan, asOf);
@@ -2759,9 +2798,27 @@
     const notRelied = notReliedUponKeySet(plan, opts, start);
     const held = heldOtherIncomeKeys(plan, opts, start, events, callerOpts);
     if (!represented.size && !notRelied.size && !held.size) return events;
-    return events.filter(e => !represented.has(e.id + '@' + e.date)
-      && !notRelied.has(e.id + '@' + e.date)
-      && !(e.kind === 'income' && held.has(e.id + '@' + e.date)));
+    const observed = represented.size ? representedActualMap(opts) : null;
+    const out = [];
+    for (const e of events) {
+      const key = e.id + '@' + e.date;
+      if (notRelied.has(key) || (e.kind === 'income' && held.has(key))) continue;
+      if (!represented.has(key)) { out.push(e); continue; }
+      // D2: the paid part is already in opening cash; only the remainder of a
+      // fixed bill paid in part is still to leave.
+      const remainder = partlyPaidRemainderEvent(e, observed);
+      if (remainder) out.push(remainder);
+    }
+    return out;
+  }
+  // D2: the cash event still owed on a represented fixed bill paid in part:
+  // its remainder only (the paid part is already in opening cash), or null.
+  function partlyPaidRemainderEvent(event, observed) {
+    if (!event || !(event.amount < 0)) return null;
+    // Already the remainder: never measured against the payment again.
+    if (event.partlyPaidRemainder === true) return event;
+    const partPaid = fixedBillPartialPayment(event, -event.amount, observed);
+    return partPaid ? { ...event, amount: -partPaid.remainderCents / 100, partlyPaidRemainder: true } : null;
   }
 
   // C3: the forward walk excludes exactly the expected Other Income that
@@ -2942,10 +2999,6 @@
         || typeof asOf !== 'string' || !SETTLED_ON.test(asOf) || o.confirmedOn > asOf) return null;
     return { cents, confirmedOn: o.confirmedOn };
   }
-  function commitmentStatus(c) {
-    return commitmentSettledOn(c) ? 'settled' : 'unsettled';
-  }
-
   /* ------------------------------------------- one plan, many windows */
   // The knowledge horizon is how far the master forecast knows. Named
   // ranges are views of that same walk. A short display window cannot
@@ -4016,6 +4069,7 @@
     const to = addDays(start, -1);
     if (!from || from > to) return [];
     const represented = representedKeySet(plan, opts, start);
+    const observed = represented.size ? representedActualMap(opts) : null;
     const innerTrace = trace ? {} : null;
     const inner = expandEventsInternal(plan, from, to, opts, innerTrace);
     const extra = [];
@@ -4030,8 +4084,13 @@
         if (row && commitmentSettledBy(row, start)) continue;
       }
       const key = event.id + '@' + event.date;
-      if (represented.has(key)) continue;
       if (already && already.has(key)) continue;
+      if (represented.has(key)) {
+        // D2: only the remainder of a fixed bill paid in part is still owed.
+        const remainder = partlyPaidRemainderEvent(event, observed);
+        if (remainder) { extra.push(remainder); if (selected) selected.set(event, remainder); }
+        continue;
+      }
       const carried = cardPaidReserved
         ? Object.assign({}, event, { carriedUnresolved: true })
         : event;
@@ -4421,6 +4480,8 @@
             payerLabel: plannedPayerLabel(fundingAccount, b.payingAccount, plan) } : {}),
           jointCash,
           cardPaid,
+          // D2: only an explicit owner mark makes a bill's amount fixed.
+          ...(b.amountFixed === true ? { amountFixed: true } : {}),
         });
       }
     }
@@ -6767,7 +6828,7 @@
   // collapse to one transaction. Confirmed household spend counts the
   // posted side once; the still-visible pending stays recon/pending
   // exposure and is not a second confirmed spend.
-  function pendingPostedDuplicateIdSet(packet) {
+  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds) {
     const flagged = new Set();
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const pendingByKey = new Map();
@@ -6787,9 +6848,16 @@
     for (const [key, pendings] of pendingByKey) {
       const posted = postedByKey.get(key) || [];
       if (pendings.length !== 1 || posted.length !== 1) continue;
-      // The observer proves the posted row replaced a different pending
-      // authorization. This link refers to this exact packet-local peer.
-      if (pendings[0].id != null && posted[0].distinctPendingId === String(pendings[0].id)) continue;
+      // A different authorization can be a reissue of the same purchase.
+      // The exact packet-local link admits its amount only to an estimate.
+      const [pending] = pendings;
+      const [posting] = posted;
+      if (pendingEstimateIds && pending.id != null && posting.distinctPendingId === String(pending.id)
+        && posting.pending === false && posting.savingsPostingEvidence === 'posted'
+        && [pending, posting].every(tx => tx.pendingPostedDuplicate !== true
+          && tx.pendingPostedAmbiguous !== true && tx.contradictoryEvidence !== true)) {
+        pendingEstimateIds.add(String(pending.id));
+      }
       for (const tx of pendings.concat(posted)) {
         if (tx && tx.id != null) flagged.add(String(tx.id));
       }
@@ -6804,8 +6872,7 @@
   }
 
   function confirmedHouseholdAmount(tx, duplicateIds) {
-    // A possible replacement withholds its pending side only. A proven
-    // separate authorization is still an independent pending debit.
+    // Withhold the pending side of every possible replacement.
     if (isPossibleReplacementPending(tx, duplicateIds)) return 0;
     const amt = Number(tx && tx.amount);
     return isFinite(amt) ? amt : 0;
@@ -7223,6 +7290,24 @@
     };
   }
 
+  // Rank 18 (lead ruling, OD-021): a loan/mortgage payment or a reversed
+  // income deposit is never household consumption. When no other owner
+  // (represented bill, obligation, debt or card payment, transfer) claims it,
+  // it is held: To confirm, out of every spending category, Other and budget
+  // progress. Its cash still leaves once: the observed balance holds a posted
+  // row, and a pending household-cash row joins pendingCash.
+  function heldOutflowResult(reason, extra) {
+    return Object.assign({
+      kind: 'held-outflow',
+      categoryId: null,
+      householdSpending: false,
+      reason,
+      needsConfirmation: true,
+      includeReason: reason,
+      atlasRow: null,
+    }, extra || {});
+  }
+
   function cancelledServiceForTransaction(tx, plan) {
     // Posted-debit contract only: raw provider pending rows never qualify,
     // even when Forecast's derived pendingTreatment would treat them as settled.
@@ -7377,11 +7462,20 @@
     }
     return cls;
   }
+  // A Mortgage-labelled debit that would otherwise be household spending is
+  // a loan payment no owner claimed: held, never consumption (rank 18). The
+  // Grok Bot note stays display-only: it names the plan's latest unsettled
+  // mortgage occurrence before the debit, when there is one.
   function withMortgageDueNote(tx, plan, opts, cls) {
-    if (!cls || cls.householdSpending !== true || !tx
+    // Household cash only: the held term deducts household-cash rows, so a
+    // card or Savings row keeps its incumbent owner (never held and dropped).
+    if (!cls || cls.householdSpending !== true || !tx || tx.accountRole !== 'household-cash'
+        || (cls.kind !== 'spend' && cls.kind !== 'unclassified')
         || normalizeCategoryLabel(tx.categoryLabel) !== 'mortgage') return cls;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return cls;
     const due = mortgageDueStillToConfirm(plan, tx.date, opts);
-    return due ? Object.assign({}, cls, { mortgageDueToConfirm: due }) : cls;
+    return heldOutflowResult('mortgage-labelled-debit', due ? { mortgageDueToConfirm: due } : null);
   }
   function classifyCurrentPeriodTransactionCore(tx, plan, opts) {
     if (!tx) {
@@ -7431,16 +7525,20 @@
       // classified exactly as the same debit without the income flag, so
       // every other owner (represented bill, card or debt payment, transfer,
       // business, cancelled service) still claims it and it is counted once.
-      // Only when it would otherwise be household spending does it become
-      // spending that needs confirmation: which income occurrence it reverses
-      // (if any) is not provable here, and the outflow must reduce the period
-      // remainder instead of vanishing or flipping sign.
+      // Only when it would otherwise be household spending is it held
+      // (rank 18): which income occurrence it reverses (if any) is not
+      // provable here, so it is To confirm, never consumption, and its cash
+      // still leaves once instead of vanishing or flipping sign.
       const signed = Number(tx.amount);
       if (isFinite(signed) && signed > 0) {
         const asDebit = classifyCurrentPeriodTransaction(
           Object.assign({}, tx, { isIncome: false }), plan, opts);
         if (asDebit && asDebit.householdSpending === true) {
-          return confirmationResult('income-category-debit', 'income-category-debit');
+          // Household cash only (see withMortgageDueNote): a card or Savings
+          // row keeps the incumbent confirmation row.
+          return tx.accountRole === 'household-cash'
+            ? heldOutflowResult('income-category-debit')
+            : confirmationResult('income-category-debit', 'income-category-debit');
         }
         return asDebit;
       }
@@ -7859,7 +7957,10 @@
   function hasUnresolvedAccountActuals(packet) {
     const txs = packet && packet.transactions;
     if (!Array.isArray(txs)) return false;
-    return txs.some(tx => tx && tx.accountRole === 'unmapped');
+    // A group parent whose children are present is skipped by every consumer
+    // (skipSplitParent); the observer's coverage stamp already withholds when
+    // any listed child is missing or unmapped (U5).
+    return txs.some(tx => tx && tx.accountRole === 'unmapped' && !skipSplitParent(tx, packet));
   }
 
   function actualsCoverageState(asOf, periodStart, opts, failures) {
@@ -8326,7 +8427,17 @@
       if (periodStart && tx.date < periodStart) continue;
       if (asOf && tx.date > asOf) continue;
       if (skipSplitParent(tx, packet)) continue;
-      if (isPossibleReplacementPending(tx, duplicateIds)) continue;
+      if (isPossibleReplacementPending(tx, duplicateIds)) {
+        // A bill payment's pending copy (provider-observe pendingBillCopyIds)
+        // is never spent, but if it is itself unclassified it still makes the
+        // classification incomplete, as it did before it was paired: it may
+        // be a second, unplaced charge.
+        if (tx.pendingBillCopy === true) {
+          const clsCopy = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+          if (classificationIncompleteHouseholdSpend(clsCopy)) { out.unclassified.count += 1; recordHeld(tx, clsCopy); }
+        }
+        continue;
+      }
       const amt = Number(tx.amount);
       if (!isFinite(amt) || amt === 0) {
         const clsZero = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
@@ -8354,7 +8465,16 @@
       if (cls.kind === 'income') { out.excluded.income = roundCent(out.excluded.income + amt); continue; }
       if (cls.kind === 'business') { out.excluded.business = roundCent(out.excluded.business + amt); continue; }
       if (cls.kind === 'external') { out.excluded.external = roundCent(out.excluded.external + amt); continue; }
-      if (cls.kind === 'bill') { out.excluded.bills = roundCent((out.excluded.bills || 0) + amt); continue; }
+      if (cls.kind === 'bill') {
+        out.excluded.bills = roundCent((out.excluded.bills || 0) + amt);
+        // A debit held To confirm on an occurrence only a pending-only row
+        // stands on (provider-observe pendingOnlyOccurrence) is not spent,
+        // but the pair is unresolved: it may be a second, unplaced charge, so
+        // the classification stays incomplete, as it was before the hold.
+        if (cls.reason === 'near-due-bill-unconfirmed' && tx.nearDueBillCandidate
+          && tx.nearDueBillCandidate.pendingOnlyOccurrence === true) { out.unclassified.count += 1; recordHeld(tx, cls); }
+        continue;
+      }
       if (cls.kind === 'refund') {
         // G3a: a posted refund identified as a refund of one named household
         // category nets against that category's spend. Anything else stays
@@ -8377,6 +8497,18 @@
       if (cls.kind === 'savings-paid') {
         // Savings audit (PR 1): already in observed Savings; not household cash.
         out.excluded.savingsPaid = roundCent((out.excluded.savingsPaid || 0) + amt);
+        continue;
+      }
+      if (cls.kind === 'held-outflow') {
+        // Rank 18: held, never consumption. A posted row is already in the
+        // observed balance; a pending household-cash row still leaves cash.
+        // It stays To confirm (counted and listed), with no category amount.
+        if (state === 'pending' && tx.accountRole === 'household-cash' && amt > 0) {
+          out.pendingCash = roundCent(out.pendingCash + amt);
+        }
+        out.excluded.heldOutflows = roundCent((out.excluded.heldOutflows || 0) + amt);
+        out.unclassified.count += 1;
+        recordHeld(tx, cls);
         continue;
       }
       if (cls.kind === 'savings-item') {
@@ -8464,9 +8596,12 @@
       if (typeof amt !== 'number' || !isFinite(amt)) continue;
       const postedOn = row.postedOn && ISO_CALENDAR_DATE.test(String(row.postedOn))
         ? String(row.postedOn) : null;
+      const prior = map.get(row.id + '@' + row.date);
       map.set(row.id + '@' + row.date, {
         actual: roundCent(amt),
         postedOn,
+        // How many linked posted entries name this occurrence (D2 reads one).
+        entries: (prior ? prior.entries : 0) + 1,
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -8497,9 +8632,9 @@
   // paid are magnitudes in dollars. A missing or non-cent value is unknown:
   // no state and no excess is invented. Excess is the paid cents above the
   // planned cents of a settled occurrence; it never changes the settled
-  // status, the remaining (0) or any total. Partial state is not decided
-  // here yet: a paid amount below plan reports state 'underpaid' only, and
-  // the caller keeps its incumbent status. The row publishes the excess only
+  // status, the remaining (0) or any total. A paid amount below plan
+  // reports state 'underpaid' only; fixedBillPartialPayment (D2) decides
+  // whether that leaves a remainder still due. The row publishes the excess only
   // when the planned amount is confirmed (calculated) or estimated
   // (estimated); an unestablished plan publishes none.
   function billPaymentState(planned, paid) {
@@ -8512,6 +8647,31 @@
     const state = paidCents === plannedCents ? 'paid-exact'
       : paidCents > plannedCents ? 'paid-excess' : 'underpaid';
     return { state, plannedCents, paidCents, excessCents, trust: 'calculated' };
+  }
+
+  // D2 (lead dispatch 2026-11-18, census 12; gate ruled on #1320): a fixed
+  // bill paid in part keeps its remainder reserved. The one owner of that
+  // remainder: a bill occurrence whose plan row is explicitly marked
+  // `amountFixed: true` (a contractually fixed payment, marked by the owner),
+  // whose planned amount is confirmed, and whose one linked posted payment,
+  // observed in the packet, is below it. Paid is the observed amount; the
+  // remainder is planned minus paid, in integer cents. `confirmed` alone is
+  // confidence in the planned figure, not a fixed price (a cheaper hydro
+  // charge is not a debt), so every unmarked bill keeps today's PAID with its
+  // Partly paid label. The scheduled-fee pair (tdfees), a card-paid bill and a
+  // schedule-trusted settlement (no payment seen) are not here either.
+  function fixedBillPartialPayment(event, planned, observed) {
+    if (!event || event.kind !== 'bill' || !event.id || !event.date || event.id === 'tdfees'
+      || event.cardPaid === true || event.amountFixed !== true || event.confidence !== 'confirmed') return null;
+    const seen = observed && observed.get(event.id + '@' + event.date);
+    // One linked posted instalment only: several entries for one occurrence
+    // are not one partial payment, so they keep the incumbent reading.
+    if (!seen || seen.settlementBasis || seen.entries !== 1
+      || typeof seen.actual !== 'number' || !Number.isFinite(seen.actual)) return null;
+    const state = billPaymentState(planned, seen.actual);
+    if (state.state !== 'underpaid' || !(state.paidCents > 0)) return null;
+    return { plannedCents: state.plannedCents, paidCents: state.paidCents,
+      remainderCents: state.plannedCents - state.paidCents };
   }
 
   // "Trusted on due date (not seen)": the owner's schedule-trust rule
@@ -8597,7 +8757,8 @@
       || cls.kind === 'card-payment' || cls.kind === 'income'
       || cls.kind === 'business' || cls.kind === 'external' || cls.kind === 'bill'
       || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped'
-      || cls.kind === 'savings-item' || cls.kind === 'savings-paid') {
+      || cls.kind === 'savings-item' || cls.kind === 'savings-paid'
+      || cls.kind === 'held-outflow') {
       return false;
     }
     if (cls.needsConfirmation || cls.kind === 'unclassified') return true;
@@ -8703,13 +8864,16 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const paid = !!(e.id && represented.has(e.id + '@' + e.date));
+      // D2: the same owner as the Bills rows: a fixed bill paid in part is
+      // still required at asOf for its remainder.
+      const partPaid = paid ? fixedBillPartialPayment(e, amt, observed) : null;
       let settlement;
       let actual;
       let remaining;
       if (paid) {
         settlement = 'represented';
         actual = observedActual(observed, e.id, e.date);
-        remaining = 0;
+        remaining = partPaid ? partPaid.remainderCents / 100 : 0;
       } else if (e.date >= asOf) {
         settlement = 'upcoming';
         actual = 0;
@@ -8731,6 +8895,7 @@
         remaining,
         settlement,
         evidenceDate: paid ? observedPostedOn(observed, e.id, e.date, e.date) : null,
+        ...(partPaid ? { partlyPaidRemainder: true } : {}),
         ...(paid && observedSettlementBasis(observed, e.id, e.date)
           ? { settlementBasis: observedSettlementBasis(observed, e.id, e.date) } : {}),
         ...(e.fundingAccount ? { fundingAccount: e.fundingAccount,
@@ -8961,7 +9126,8 @@
       if (item.settlement === 'represented') continue;
       if (item.id && skip.has(item.id)) continue;
       const bill = byKey.get((item.id || '') + '@' + item.date);
-      if (bill && bill.settlement === 'represented') continue;
+      // D2: a fixed bill paid in part is still due this payday for its remainder.
+      if (bill && bill.settlement === 'represented' && bill.partlyPaidRemainder !== true) continue;
       const amount = roundCent(item.amount);
       const remaining = bill && bill.remaining != null ? bill.remaining : amount;
       items.push({
@@ -9097,6 +9263,7 @@
       minimum: firstDebt && firstDebt.payment != null
         ? roundCent(firstDebt.payment) : null,
       extraThisPayday: roundCent(extraAmount),
+      ...staleBalanceFields(firstDebt),
     } : null;
     const otherCards = revolving
       .filter(row => !first || row.id !== first.id)
@@ -9108,6 +9275,7 @@
           balance: row.balance,
           rate: row.rate,
           minimum: d && d.payment != null ? roundCent(d.payment) : null,
+          ...staleBalanceFields(d),
         };
       });
     return { firstCard, otherCards };
@@ -10476,16 +10644,21 @@
   function calendarBillRowFromEventInner(plan, event, asOf, represented, observed, cashAsOf, scheduleDate, opts) {
     const amt = event.minimumAmount != null ? event.minimumAmount : -event.amount;
     if (!(amt > EPSILON)) return null;
-    const paid = calendarOccurrenceRepresented(represented, observed, event.id, event.date);
+    // D2: a carried remainder of a fixed bill paid in part is what is still
+    // owed; the payment seen already counted it once, so it is never paid.
+    const paid = event.partlyPaidRemainder !== true
+      && calendarOccurrenceRepresented(represented, observed, event.id, event.date);
     const inside = recurringInsideOpening(plan, event, cashAsOf);
     const due = scheduleDate || event.date;
     let settlement;
     let actual;
     let remaining;
+    // D2: a fixed bill paid in part stays still due for its remainder.
+    const partPaid = paid ? fixedBillPartialPayment(event, amt, observed) : null;
     if (paid) {
       settlement = 'represented';
       actual = observedActual(observed, event.id, event.date);
-      remaining = 0;
+      remaining = partPaid ? partPaid.remainderCents / 100 : 0;
     } else if (inside) {
       // Assumed inside the opening cash, so cash walks skip it by its
       // settlement. It is still unconfirmed: the household disclosure keeps
@@ -10517,7 +10690,9 @@
     // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
-    // provenance as for the excess). A label only: status, settlement, actual, remaining and every total stay as before.
+    // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
+    // before, except on a bill its owner marked `amountFixed: true`, which stays still due for its remainder (D2,
+    // fixedBillPartialPayment).
     // Scheduled fees (tdfees, Grok Bot rule 17, LEDGER A): a posted linked fee pair below its allowance is Partly paid too.
     // The rest stays to confirm in the same period, estimated whatever the allowance's own confidence, and is never paid.
     // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
@@ -10526,7 +10701,8 @@
     const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
       paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
       shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
-    const status = paid ? 'PAID'
+    const status = partPaid ? 'still due'
+      : paid ? 'PAID'
       : pendingLinked ? 'pending'
       : inside ? OPENING_BILL_STATUS
       : glanceBillStatus(settlement, asOf, due);
@@ -10553,6 +10729,7 @@
       cardPaid: event.cardPaid === true,
       glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
+      ...(partPaid ? { partlyPaidRemainder: true } : {}),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
       ...(event.fundingAccount ? { fundingAccount: event.fundingAccount,
@@ -10739,8 +10916,15 @@
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
         && coversOccurrence;
-      if (prepaidByWalk) prepaidBillSettledBy.set(row, asOf);
-      if (!prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+      // D2: a fixed bill paid in part early, on the walk's own settled set:
+      // the paid part left cash on or before asOf, so the row keeps it as
+      // paid in its planned period and owes only its remainder there; a
+      // later opening already holds the paid part.
+      const prepaidPartial = !prepaidByWalk && window.role === 'future' && row.date && asOf && row.date > asOf
+        && row.partlyPaidRemainder === true && row.settlement === 'represented'
+        && represented && represented.has(row.id + '@' + row.date);
+      if (prepaidByWalk || prepaidPartial) prepaidBillSettledBy.set(row, asOf);
+      if (!prepaidByWalk && !prepaidPartial && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
             || row.settlement === 'represented')) {
@@ -10768,6 +10952,7 @@
         delete row.shortfall;
         delete row.shortfallTrust;
         delete row.shortfallSource;
+        delete row.partlyPaidRemainder;
       }
       // Only this active period owns the still-unspent allowance. A paid
       // historical occurrence cannot reserve it again in a later period.
@@ -10839,8 +11024,10 @@
       if (overdueOnce && paid) {
         const probe = calendarBillRowFromEvent(
           plan, event, asOf, represented, observed, cashAsOf, due, opts);
-        if (!probe || settledInClosedPeriod(probe, due)) continue;
-        unbackedOnce = true;
+        // D2: a fixed once bill paid in part still owes its remainder, which
+        // the cash walk carries; it stays listed, built on its evidence.
+        if (!probe || (probe.partlyPaidRemainder !== true && settledInClosedPeriod(probe, due))) continue;
+        unbackedOnce = probe.partlyPaidRemainder !== true;
       }
       const key = (event.id || event.label || '') + '@' + event.date;
       if (seen.has(key)) continue;
@@ -10960,7 +11147,7 @@
     const displayedBillAbs = r => {
       if (!r) return 0;
       if (r.movement != null && isFinite(Number(r.movement))) {
-        return Math.abs(Number(r.movement));
+        return Math.abs(Number(r.movement)) + partlyPaidRemainderAbs(r);
       }
       if (r.status === 'PAID') {
         const raw = r.actual != null ? r.actual
@@ -11368,9 +11555,15 @@
   // " ...NNNN" ignored, never matched by the digits). Any other named card is
   // 'unknown' and pairs with nothing until its spelling is confirmed.
   // Grok Bot (Plan #6, 2026-11-17): "card payment: TD Personal Credit Card".
+  // Triangle and MBNA names: lead dispatch U4 (the lead writes the ledger
+  // contract while Grok consultation is paused, #821 6964009921).
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
-    'td personal credit card': 'tdcc' });
-  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
+    'td personal credit card': 'tdcc', 'triangle mastercard': 'triangle', 'mbna': 'mbna' });
+  // Card coverage's note path is for TD "TFR-TO C/C" transfers, which pay a TD
+  // card: a Triangle or MBNA name on one is contradictory and stays unconfirmed
+  // (#1316 pre-review). Those names exist for the destination, not this path.
+  const CARD_PAYMENT_NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']
+    .filter(id => Object.values(CARD_PAYMENT_NOTE_CARDS).includes(id)));
   function cardPaymentNoteDestination(tx) {
     const raw = tx && (tx.notes ?? tx.note);
     if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
@@ -12593,6 +12786,7 @@
         : ((cls && (cls.includeReason || cls.reason)) || null),
       pending,
       pendingPostedDuplicate: duplicate,
+      ...(extra && extra.pendingAmountEstimated === true ? { pendingAmountEstimated: true } : {}),
       unexpectedStatus: (cls && cls.unexpectedStatus) || null,
       cancelledServiceId: (cls && cls.cancelledServiceId) || null,
       cancelledServiceLabel: (cls && cls.cancelledServiceLabel) || null,
@@ -12745,15 +12939,14 @@
       .filter(row => windowStart && row.date >= windowStart && (!through || row.date <= through))
       .map(row => row.categoryId) : []);
     // A pending row that only looks like a posted one (same date, account,
-    // amount and merchant) may be a second real purchase. Spent still counts
-    // the posted side once, but until the pair resolves the category's spent
-    // is an estimate, never a precise calculated total, and the pending row
-    // stays listed.
+    // amount and merchant) stays listed with a possible-duplicate warning.
+    // A distinct authorization can contribute to estimated spending.
     const possibleDuplicateCategories = new Set();
     // The plan itself is unchanged, so its trust stays as published.
     const possibleDuplicateTrust = { trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' };
     const packet = currentPeriodActualsPacket(opts);
-    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    const pendingEstimateIds = new Set();
+    const duplicateIds = pendingPostedDuplicateIdSet(packet, pendingEstimateIds);
     // Resolve coverage against the complete ledger, before selecting a category
     // or cycle. Older/ambiguous liabilities still govern the trust of each row.
     const cardCoverage = useActuals && packet
@@ -12773,18 +12966,21 @@
     if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
       for (const { tx, cls, amount: amt } of householdBudgetSupportingRows(plan, packet, windowStart, through,
         Object.assign({}, opts, { categoryRefunds: true }))) {
+        const catId = cls.atlasRow || cls.categoryId;
         const isDuplicate = tx.id != null && duplicateIds.has(String(tx.id));
+        const pendingAmountEstimated = actualsReady && !withheldCategories.has(catId)
+          && tx.id != null && pendingEstimateIds.has(String(tx.id));
         const row = reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate,
+          pendingAmountEstimated,
           cardPurchaseCoverage: amt > 0 && isRevolvingCardAccount(tx)
             ? cardCoverageAnnotation(tx, cardCoverage) : null });
         if (otherSpendingEvidenceEligible(cls)) {
           confirmationRecon.push(row);
           confirmationSpent = roundCent(
-            confirmationSpent + confirmedHouseholdAmount(tx, duplicateIds)
+            confirmationSpent + (row.pendingAmountEstimated ? row.amount : confirmedHouseholdAmount(tx, duplicateIds))
           );
           continue;
         }
-        const catId = cls.atlasRow || cls.categoryId;
         if (catId && CALENDAR_PERIOD_BUDGET_IDS.indexOf(catId) >= 0) {
           if (!reconById.has(catId)) reconById.set(catId, []);
           reconById.get(catId).push(row);
@@ -12809,6 +13005,23 @@
         savingsPaidRows.push(reconTxFrom(tx, cls, { pendingPostedDuplicate: isDuplicate }));
       }
     }
+    // Rank 18: held outflows (To confirm, never spending). The rows the
+    // period's held term deducts once: household cash, not a replaced pending.
+    // Never part of any category, Other spending, or the hold below.
+    const heldOutflowRows = [];
+    if ((actualsReady || coverageLost) && windowStart && packet && Array.isArray(packet.transactions)) {
+      const classifyOpts = Object.assign({}, opts, { packet, currentPeriodActuals: packet });
+      for (const tx of packet.transactions) {
+        if (!tx || !tx.date || tx.date < windowStart || (through && tx.date > through)
+          || skipSplitParent(tx, packet) || tx.accountRole !== 'household-cash'
+          || isPossibleReplacementPending(tx, duplicateIds)) continue;
+        const amount = Number(tx.amount);
+        if (!isFinite(amount) || !(amount > 0)) continue;
+        const cls = classifyCurrentPeriodTransaction(tx, plan, classifyOpts);
+        if (cls.kind !== 'held-outflow') continue;
+        heldOutflowRows.push(reconTxFrom(tx, cls));
+      }
+    }
     // LEDGER A item 3: posted refunds the ledger does not link to a purchase.
     // Display only: never in a category, Other spending, the hold or any total.
     const unlinkedRefundRows = [];
@@ -12827,7 +13040,7 @@
     // G3a: an identified refund row is negative and nets, signed, within its
     // category and window.
     const spentFromRecon = list => roundCent((list || []).reduce((s, r) => {
-      if (r && r.pendingPostedDuplicate === true && r.pending === true) return s;
+      if (r && r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true) return s;
       return s + (Number(r && r.amount) || 0);
     }, 0));
     const byId = new Map();
@@ -13016,6 +13229,8 @@
     // it does on a global withhold; only the category rows stay per-row.
     const anyWithheld = items.some(row => withheldCategories.has(row.id));
     if (anyWithheld) holdTrust = 'estimated';
+    if (items.some(row => row.spent != null && (lookback || row.planned == null || row.spent > row.planned)
+      && row.recon.some(tx => tx.pendingAmountEstimated === true))) holdTrust = 'estimated';
     return {
       items,
       // An invalid declared target has no quantity, so the total hold is
@@ -13042,6 +13257,7 @@
       ...(unlinkedRefundRows.length ? { unlinkedRefunds: {
         total: roundCent(unlinkedRefundRows.reduce((s, r) => s - (Number(r.amount) || 0), 0)),
         trust: 'calculated', reason: 'refund-unlinked', recon: unlinkedRefundRows } } : {}),
+      ...(heldOutflowRows.length ? { heldOutflows: heldOutflowRows } : {}),
       ...(savingsPaidRows.length ? { savingsPaid: { total: null,
         observedTotal: spentFromRecon(savingsPaidRows), complete: false,
         pendingCount: savingsPaidRows.filter(r => r.pending === true && r.pendingPostedDuplicate !== true).length,
@@ -13184,7 +13400,14 @@
   function periodWaterfallBillLoad(bills, openingAsOf, openingSource, amountOf) {
     const amount = amountOf || billAssignedAmount;
     return roundCent((bills || []).reduce((sum, row) => {
-      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) return sum;
+      if (!billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)) {
+        // D2: a fixed bill paid in part whose paid part is already inside
+        // this opening: the opening holds the paid part, not the remainder.
+        return row && row.partlyPaidRemainder === true && !row.needsDate
+          && paidBillAlreadyInPaydayOpening(row, openingAsOf, openingSource)
+          && typeof row.remaining === 'number' && Number.isFinite(row.remaining)
+          ? sum + Math.abs(row.remaining) : sum;
+      }
       return sum + (row.scheduledFeeAllowance
         ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));
@@ -13278,7 +13501,8 @@
     const known = typeof value === 'number' && Number.isFinite(value)
       && [terms.opening, terms.incomeAdded, terms.periodBillLoad, terms.budgetHold, terms.annualSavingsNeed,
         ...(Object.hasOwn(terms, 'earlierCardPurchaseReserve') ? [terms.earlierCardPurchaseReserve] : []),
-        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : [])]
+        ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : []),
+        ...(Object.hasOwn(terms, 'heldOutflowSpending') ? [terms.heldOutflowSpending] : [])]
         .every(v => typeof v === 'number' && Number.isFinite(v));
     if (!known) {
       return { plannedPeriodClose: null, plannedPeriodCloseTrust: 'unknown', plannedPeriodCloseTerms: null,
@@ -13299,7 +13523,8 @@
       plannedPeriodCloseTerms: { ...terms, identity: (Object.hasOwn(terms, 'earlierCardPurchaseReserve')
         ? 'opening-plus-income-minus-bills-budget-annual-savings-and-earlier-card-purchase-reserve'
         : 'opening-plus-income-minus-bills-budget-and-annual-savings')
-          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : ''),
+          + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : '')
+          + (Object.hasOwn(terms, 'heldOutflowSpending') ? '-and-held-outflow-spending' : ''),
         deficit: close < 0 },
       // Every estimate source carries its own reason; one never hides another.
       plannedPeriodCloseReason: [
@@ -13310,7 +13535,8 @@
   }
 
   function composeBalanceAfterDeductionsTerms(
-    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0
+    periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0,
+    heldOutflowSpending = 0
   ) {
     if (periodIncome == null || assignedBills == null
         || householdBudgetHold == null || balanceAfterDeductions == null) {
@@ -13325,12 +13551,14 @@
     const hold = roundCent(householdBudgetHold);
     const remainder = roundCent(balanceAfterDeductions);
     const item = roundCent(Number(savingsItemSpending) || 0);
-    const reconstructed = roundCent(income - bills - hold - item);
+    const held = roundCent(Number(heldOutflowSpending) || 0);
+    const reconstructed = roundCent(income - bills - hold - item - held);
     return {
       periodIncome: income,
       assignedBills: bills,
       householdBudgetHold: hold,
       ...(item > 0 ? { savingsItemSpending: item } : {}),
+      ...(held > 0 ? { heldOutflowSpending: held } : {}),
       balanceAfterDeductions: remainder,
       identity: 'balance-after-deductions',
       closes: Math.abs(reconstructed - remainder) <= 0.005,
@@ -13737,7 +13965,10 @@
           covered: row.minimumCoverage.covered, remaining: row.remaining,
           paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
         const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
-        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')) || row.settlement === 'opening') continue;
+        // D2: a fixed bill paid in part is represented for its paid part only;
+        // its remainder is still cash Bills must hold.
+        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')
+          && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
           issue('remaining-cash-unknown', 'The confidence of a remaining bill cash requirement is unknown.'); continue;
@@ -14065,7 +14296,36 @@
     // payment leg on that card. Recognised by that alone, it pairs only
     // with a TD "TFR-TO C/C" debit (see pairLegs).
     const tdPaymentCreditOnly = tx => !recordedPaymentLike(tx) && tx.pending === false && isTdCardPaymentCredit(tx);
-    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx);
+    // Lead dispatch U5: a Lunch Money group is the household's own record that
+    // its two rows are one card payment, when it spans two accounts and holds
+    // exactly one posted household-cash debit and one posted revolving-card
+    // credit of equal cents. Its rows are payment legs; reconcileCardPurchases
+    // pairs them with each other only (see groupPairs).
+    const groupMembers = new Map();
+    for (const tx of input) {
+      if (tx && tx.parentId != null && tx.isGroup !== true) {
+        const id = String(tx.parentId);
+        if (!groupMembers.has(id)) groupMembers.set(id, []);
+        groupMembers.get(id).push(tx);
+      }
+    }
+    // Lead ruling (#1322, rule 17): the category wins, as in #1316. A group in
+    // which either row carries a spending category is not a card payment; its
+    // rows read exactly as ungrouped (a refund stays a refund).
+    const spendingCategory = row => classifyCurrentPeriodTransaction({ ...row, amount: Math.abs(Number(row.amount)) },
+      plan, { packet }).householdSpending === true;
+    const spendingGroup = id => (groupMembers.get(String(id)) || []).some(spendingCategory);
+    const cardPaymentGroup = tx => {
+      const members = tx && tx.parentId != null ? groupMembers.get(String(tx.parentId)) : null;
+      if (!members || members.length !== 2 || spendingGroup(tx.parentId)) return false;
+      const accountOf = row => [row.atlasAccountId, row.accountId, row.account].find(id => id != null && id !== '');
+      if (accountOf(members[0]) == null || accountOf(members[0]) === accountOf(members[1])) return false;
+      const debit = members.find(row => row.accountRole === 'household-cash' && savingsCents(row.amount, true) > 0);
+      const credit = members.find(row => isRevolvingCardAccount(row) && savingsCents(row.amount, true) < 0);
+      return !!debit && !!credit && debit !== credit && debit.pending === false && credit.pending === false
+        && savingsCents(debit.amount, true) === -savingsCents(credit.amount, true);
+    };
+    const paymentLike = tx => recordedPaymentLike(tx) || tdPaymentCreditOnly(tx) || cardPaymentGroup(tx);
     for (const tx of input) {
       if (tx && (cardLike(tx) || paymentLike(tx)) && !savingsDate(tx.date)) issue('coverage-date-unconfirmed');
       // Under the aggregate rule every card row before the opening is
@@ -14138,6 +14398,10 @@
     // direction, account, pairing or pending state withholds; a pending leg
     // counts only once posted. Money onto the card counts from Bills or
     // Savings (owner rule); a Weekly-funded payment withholds (Codex P1, #849).
+    // Noted TD debits that paired with a posted TD PAYMENT - THANK YOU credit
+    // on the card the note names: the issuer's own receipt of that payment
+    // (lead dispatch U4, option A). Read by the observer only.
+    const notedCreditPairs = [], reversedPairs = new Set();
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
     const aggregatePeriods = [], minimumCoverage = [], savingsFundedByRef = new Map();
@@ -14270,7 +14534,59 @@
         issue('coverage-weekly-funded-payment-unmodeled', pair.card.tx.coverageRef);
         return false;
       };
-      const creditPairs = pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed');
+      // Lead dispatch U5: Lunch Money's own card-payment link. A posted group
+      // (its rows share a parentId) that spans more than one account and holds
+      // exactly one household-cash debit and one card-payment credit of equal
+      // cents proves where that payment went: the two pair directly, whatever
+      // their dates or notes. Any other cross-account group holding a payment
+      // leg withholds. A same-account group (a split) and ungrouped legs pair
+      // as before. Grouped legs never pair outside their group.
+      const groupPairs = [];
+      {
+        const accountOf = tx => [tx.atlasAccountId, tx.accountId, tx.account].find(id => id != null && id !== '');
+        const legOf = new Map();
+        for (const [kind, list] of Object.entries(legs)) for (const leg of list) legOf.set(leg.tx, { kind, leg });
+        const groupIds = new Set([...legOf.keys()].filter(tx => tx.parentId != null).map(tx => String(tx.parentId)));
+        const grouped = new Set();
+        for (const id of groupIds) {
+          const members = input.filter(tx => tx && tx.parentId != null && String(tx.parentId) === id);
+          if (new Set(members.map(accountOf)).size < 2 || spendingGroup(id)) continue;
+          for (const tx of members) grouped.add(tx);
+          const shaped = members.map(tx => legOf.get(tx));
+          const cash = shaped.filter(m => m && m.kind === 'cashDebit');
+          const card = shaped.filter(m => m && m.kind === 'cardCredit');
+          // A debit whose note names a card names its destination itself: a group
+          // that puts it on another card's credit is contradictory (#1322 pre-review).
+          const dest = cash.length === 1 ? cash[0].leg.tx.cardPaymentNoteDestination : null;
+          const valid = members.length === 2 && cash.length === 1 && card.length === 1
+            && cash[0].leg.tx.accountRole === 'household-cash'
+            && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
+            && cash[0].leg.cents === card[0].leg.cents
+            && (dest == null || dest === card[0].leg.account);
+          const noted = valid ? notePays(cash[0].leg) : null;
+          const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
+          if (!valid) {
+            if (counted) issue('coverage-payment-group-unconfirmed', (card[0] || cash[0] || shaped.find(Boolean))?.leg.tx.coverageRef);
+            for (const m of shaped) if (m) m.leg.paired = true;
+            continue;
+          }
+          cash[0].leg.paired = true; card[0].leg.paired = true;
+          // One date rule with pairLegs (#1298): a debit whose note pays this card
+          // is a payment on the debit's own date, so a credit grouped with it after
+          // an opening rollover cannot count it again, and the mirror is not lost.
+          const date = noted === card[0].leg.account ? cash[0].leg.tx.date : card[0].leg.tx.date;
+          if (date >= origin) groupPairs.push({ card: card[0].leg, cash: cash[0].leg, date });
+        }
+        for (const kind of Object.keys(legs)) legs[kind] = legs[kind].filter(leg => !grouped.has(leg.tx));
+      }
+      const creditPairs = [...groupPairs,
+        ...pairLegs(legs.cardCredit, legs.cashDebit, legs.reserveDebit, 'coverage-payment-source-unconfirmed')];
+      // The TD issuer identity is the credit's own PAYMENT - THANK YOU
+      // description, whatever category it is filed under (Codex P2, #1316).
+      for (const pair of creditPairs) {
+        if (pair.card.tx.pending === false && isTdCardPaymentCredit(pair.card.tx)
+          && notePays(pair.cash) === pair.card.account) notedCreditPairs.push(pair);
+      }
       // Lead dispatch (census rank 1; Grok Bot's note ruling, #1275/#1277):
       // a posted TD "TFR-TO C/C" debit whose "card payment: <card>" note names
       // exactly one card in the fixed table is a payment to that card on its
@@ -14407,6 +14723,7 @@
           for (const pair of sortedPayments.slice().reverse()) {
             const cut = Math.min(toReverse, pair.card.cents - pair.scheduled); toReverse -= cut;
             effective.set(pair, pair.card.cents - pair.scheduled - cut);
+            if (cut > 0) reversedPairs.add(pair);
           }
           const minimums = (period.minimums || []).sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
           for (const pair of sortedPayments) {
@@ -14782,7 +15099,10 @@
       accountLabel: row.accountLabel,
       ...(aggregate ? { savingsFunded: issues.length ? null : (savingsFundedByRef.get(row.ref) || 0) / 100 } : {}),
     }]));
-    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs,
+    // A payment that a reversal cut (wholly or partly) is not a receipt (Codex P1, #1316).
+    const noteReceipts = notedCreditPairs.filter(pair => !reversedPairs.has(pair))
+      .map(pair => ({ debitRef: pair.cash.tx.coverageRef, card: pair.card.account }));
+    if (!paymentLinks) return { publication, annotations, householdVisibleRefs: visibleRefs, notedCreditPairs: noteReceipts,
       ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
     // Diagnostic identity is independent of the allocator's iteration order.
     // Inspect all explicitly confirmed declarations, including rejected ones:
@@ -14912,11 +15232,18 @@
       if (paymentAllocations.get(ref)?.status === 'reconciled' && typeof link.refs[1] === 'string') acceptedCashRefs.add(link.refs[1]);
     }
     return { publication, annotations, paymentAllocations, householdVisibleRefs: visibleRefs, acceptedCashRefs, aggregateReversalCashRefs,
-      ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
+      notedCreditPairs: noteReceipts, ...(derivedPolicy ? { coveragePolicy: derivedPolicy } : {}) };
   }
 
   function visaPaymentReconciliation(transactions, opts) {
     return reconcileCardPurchases(transactions, opts).publication;
+  }
+  // The debits card coverage paired, by their "card payment: <card>" note,
+  // with a posted TD PAYMENT - THANK YOU credit on that card. The observer
+  // reads this once to qualify a noted debit as minimum-payment evidence; the
+  // pairing itself stays card coverage's (one authority).
+  function cardNotePaymentReceipts(transactions, opts) {
+    return reconcileCardPurchases(transactions, opts).notedCreditPairs || [];
   }
 
   // The private identity bridge never leaves Forecast. No merchant, amount,
@@ -15026,6 +15353,7 @@
     // exclusion as the remaining-requirement loop below.
     const heldCards = new Set(), heldRefs = new Map();
     for (const row of budget.items) for (const r of (row && row.recon) || []) {
+      if (r && r.pendingAmountEstimated === true) return unknown('household-budget-unavailable');
       if (!r || (r.pendingPostedDuplicate === true && r.pending === true)) continue;
       const source = rowSource(r);
       if (!source) return unknown('household-row-untraceable');
@@ -15962,8 +16290,19 @@
       // item term: linked equals unlinked.
       const itemSpend = (role === 'active' || lookback) && !planUnavailable && budget.spentReady === true
         ? savingsItemCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, refs: new Set() };
-      const afterHouseholdBudget = afterBills != null && itemSpend != null && budget.hold != null
-        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100) : null;
+      // Rank 18: held outflows, on the item term's cycle. Unlike the item
+      // term (whose unlinked twin sits in a category the lost-coverage hold
+      // does not count), a held row's twin was Other spending, which that
+      // hold does count from the known rows. So the held term is deducted
+      // whenever its rows are known: actuals ready, coverage lost, or one
+      // category withheld (#1323 review). Never twice: the row is out of
+      // Other and the hold on every path.
+      const heldSpendComputed = (role === 'active' || lookback) && !planUnavailable
+        && (budget.spentReady === true || budget.coverageLost === true);
+      const heldSpend = heldSpendComputed
+        ? heldOutflowCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, count: 0 };
+      const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && budget.hold != null
+        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
@@ -16009,7 +16348,8 @@
         periodBillLoad,
         planUnavailable ? null : budget.hold,
         balanceAfterDeductions,
-        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0
+        itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0,
+        heldSpend?.cents > 0 ? heldSpend.cents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && closeBillLoad != null
@@ -16029,8 +16369,9 @@
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null && itemSpend != null && budget.hold != null
-        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100) : null;
+        && earlierCardReserve != null && itemSpend != null && heldSpend != null && budget.hold != null
+        ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100
+          - heldSpend.cents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
       // basis (the rows this close deducts, from its opening). Only a
@@ -16376,6 +16717,11 @@
         // Savings audit (PR 1): display only. Already in observed Savings;
         // not in budgetHold, Balance After Deductions, the close or the sweep.
         ...(!planUnavailable && budget.savingsPaid ? { savingsPaidSpending: budget.savingsPaid } : {}),
+        // Rank 18: the held rows and the one term BAD and the close deduct.
+        // The total is the deducted term itself; when the term was not
+        // computed (actuals not ready) the listed rows have no published total.
+        ...(!planUnavailable && budget.heldOutflows ? { heldOutflowsToConfirm: {
+          total: heldSpendComputed && heldSpend != null ? heldSpend.cents / 100 : null, recon: budget.heldOutflows } } : {}),
         // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
         ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
@@ -16418,6 +16764,7 @@
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
+          ...(heldSpend?.cents > 0 ? { heldOutflowSpending: heldSpend.cents / 100 } : {}),
         }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'
@@ -17478,6 +17825,12 @@
     return { unconfirmedBills: amount, unconfirmedBillsTrust: estimated ? 'estimated' : 'calculated' };
   }
 
+  // D2: a fixed bill paid in part counts its paid movement and its remainder
+  // in a bills total, so its full planned cost appears once.
+  function partlyPaidRemainderAbs(row) {
+    return row && row.partlyPaidRemainder === true && typeof row.remaining === 'number'
+      && Number.isFinite(row.remaining) ? Math.abs(row.remaining) : 0;
+  }
   function periodDisplayedBillAbs(row) {
     if (!row) return 0;
     if (row.movement != null && isFinite(Number(row.movement))) {
@@ -19626,7 +19979,8 @@
         if (!finite(row.spent) || !trusted(rowTrust)) { missing = true; continue; }
         amount = roundCent(amount + row.spent);
         const recon = Array.isArray(row.recon) ? row.recon : [];
-        pending ||= recon.some(tx => tx.pending === true && tx.pendingPostedDuplicate !== true);
+        pending ||= recon.some(tx => tx.pending === true
+          && (tx.pendingPostedDuplicate !== true || tx.pendingAmountEstimated === true));
         if (rowTrust === 'estimated') trust = 'estimated';
         evidence.push({ id: row.id, spent: row.spent, otherSpending: row.otherSpending === true, recon });
       }
@@ -20625,6 +20979,7 @@
 
   function recommend(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
+    if (Array.isArray(base.debts)) base.debts = withCardBalanceFreshness(base.debts, plan, asOf);
     // One dated owner policy seeds the same native cash/funding publications.
     // The caller plan, observed balances and confirmation history stay immutable.
     if (savingsCombinedPolicy(plan?.savingsEarmarks?.allocationPolicy, asOf)) {
@@ -22178,6 +22533,8 @@
 
   function projectDebts(plan, debts, asOf, opts) {
     opts = opts || {};
+    debts = withCardBalanceFreshness(debts, plan, asOf);
+    const staleCardBalances = staleCardBalanceList(debts);
     const priority = debtPriority(plan, debts || []);
     // Facilities that are not debt records but do carry revolving headroom —
     // the chequing overdraft. Held CONSTANT across the window on purpose: its
@@ -22413,7 +22770,7 @@
     // arrived verified or confirmed; anything else stays estimated.
     const debtInputConfidence = {};
     for (const d of (debts || [])) {
-      if (d && d.id && !(d.id in debtInputConfidence)) debtInputConfidence[d.id] = d.confidence;
+      if (d && d.id && !(d.id in debtInputConfidence)) debtInputConfidence[d.id] = d.balanceTrust === 'estimated' ? 'estimated' : d.confidence;
     }
     // The same, for dated minimums, keyed by date and obligation id — one
     // obligation can fall several times in a window.
@@ -22887,6 +23244,9 @@
       // Everything an extra payment did NOT reach, so an untargeted one is
       // visible rather than silently vanishing into cash.
       untargetedExtra: opts.extraDebtMonthly > 0 && !extraTarget,
+      // A walk from a stale card balance is an estimate (marks, headroom,
+      // consumer totals, interest and crossings all start from it).
+      ...(staleCardBalances.length ? { trust: 'estimated', staleBalances: staleCardBalances } : {}),
     };
   }
 
@@ -23099,13 +23459,6 @@
     return dollars === 0 ? 'unchanged' : (delta > 0 ? 'growing' : 'falling');
   }
 
-  // Deep Dive captions print `money2` (cents). Classify by that published
-  // cent so two different displayed balances cannot read "unchanged".
-  function publishedCentsId(delta, up, down) {
-    const publishedCents = Math.round(Number(delta) * 100);
-    return publishedCents === 0 ? 'unchanged' : (publishedCents > 0 ? up : down);
-  }
-
   function helocDebtRecord(debts) {
     return (debts || []).find(d => d.id === 'heloc') || null;
   }
@@ -23117,84 +23470,6 @@
     if (!heloc || heloc.balance == null || !prior || prior.v == null) return null;
     const delta = Number(heloc.balance) - Number(prior.v);
     return { delta, id: publishedDeltaId(delta) };
-  }
-
-  function monthYearLabel(iso) {
-    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const month = Number(iso.slice(5, 7));
-    if (month < 1 || month > 12) return null;
-    return months[month - 1] + ' ' + iso.slice(2, 4);
-  }
-
-  function copyHelocPoint(p) {
-    const row = { m: p.m, v: Number(p.v) };
-    if (p.note) row.note = p.note;
-    return row;
-  }
-
-  // Historical monthly observations stay in `data.helocHistory`. The current
-  // opening is `debts.heloc.balance`. Deep Dive composes those; it does not
-  // store today's balance a second time.
-  function publishedHelocHistory(data) {
-    data = data || {};
-    const history = (data.helocHistory || []).map(copyHelocPoint);
-    const heloc = helocDebtRecord(data.debts);
-    if (!heloc || heloc.balance == null) return history;
-    const label = monthYearLabel(data.meta && data.meta.asOf) || 'now';
-    history.push({ m: label, v: Number(heloc.balance), note: 'current opening' });
-    return history;
-  }
-
-  function lastFebruaryPoint(history) {
-    let found = null;
-    for (const p of history || []) {
-      if (/^Feb\b/.test(p.m)) found = p;
-    }
-    return found;
-  }
-
-  function helocRoseEveryMonthSince(history, startIndex, current) {
-    const series = [];
-    for (let i = startIndex; i < (history || []).length; i++) {
-      series.push(Number(history[i].v));
-    }
-    if (current != null) series.push(Number(current));
-    if (series.length < 2) return null;
-    for (let i = 1; i < series.length; i++) {
-      if (!(series[i] > series[i - 1])) return false;
-    }
-    return true;
-  }
-
-  function helocStory(data) {
-    data = data || {};
-    const heloc = helocDebtRecord(data.debts);
-    const history = data.helocHistory || [];
-    const current = heloc && heloc.balance != null ? Number(heloc.balance) : null;
-    const prior = history.length ? copyHelocPoint(history[history.length - 1]) : null;
-    const vsPriorDelta = current != null && prior && prior.v != null
-      ? current - Number(prior.v) : null;
-    const paydown = lastFebruaryPoint(history);
-    const paydownIndex = paydown ? history.lastIndexOf(paydown) : -1;
-    const sincePaydown = current != null && paydown
-      ? current - Number(paydown.v) : null;
-    return {
-      history: publishedHelocHistory(data),
-      current,
-      asOf: data.meta && data.meta.asOf || null,
-      prior,
-      vsPrior: vsPriorDelta,
-      vsPriorId: vsPriorDelta == null ? null
-        : publishedCentsId(vsPriorDelta, 'growing', 'falling'),
-      paydown: paydown ? copyHelocPoint(paydown) : null,
-      sincePaydown,
-      sincePaydownId: sincePaydown == null ? null
-        : publishedCentsId(sincePaydown, 'higher', 'lower'),
-      roseEveryMonthSincePaydown: paydownIndex >= 0
-        ? helocRoseEveryMonthSince(history, paydownIndex, current) : null,
-    };
   }
 
   /* ------------------------------------------ compact snapshot */
@@ -23265,7 +23540,8 @@
   // numbers. data.json keeps the rows being summed.
   function publicationTotals(data) {
     data = data || {};
-    const debts = data.debts || [];
+    const debts = withCardBalanceFreshness(data.debts || [], data.plan, data.plan && data.plan.opening && data.plan.opening.asOf);
+    const staleCardBalances = staleCardBalanceList(debts);
     const assets = assetRows(data);
     let totalDebt = 0;
     let annualInterest = 0;
@@ -23346,37 +23622,19 @@
       helocLimit,
       assetRows: assets,
       incomeLines,
+      // Total debt, credit left and net position built on a stale card
+      // balance are estimates; the stale cards are named.
+      ...(staleCardBalances.length ? { totalDebtTrust: 'estimated', creditLeftTrust: 'estimated',
+        financialAccountsOnlyTrust: 'estimated', staleBalances: staleCardBalances } : {}),
     };
   }
 
-  /* ------------------------------------------ Deep Dive derived totals */
-  // The Deep Dive page used to decide the remaining household-facing
-  // figures B73 recorded as item 8: grouping and totalling `heldElsewhere`,
-  // averaging a period's spending, totalling discretionary spend and its
-  // share, totalling avoidable fees, flagging Cash Back Visa cycles that
-  // do not fit the card's rate, summing implied and charged interest, and
-  // hardcoding "~$1,620/month" for the mortgage and `26.99` for the card.
-  // Widening the ±4pp fit test to 40, swapping the footer rate, halving
-  // the elsewhere total, doubling the monthly average, and replacing
-  // $1,620 with $1,000 left `npm test` green — ALL 22 SUITES PASSED —
-  // because no test could reach the page.
-  //
-  // This coordinator does not walk cash or re-price a card. Spendable cash
-  // is the spendable breakdown sum. The card rate is the Cash Back Visa
-  // debt record. A month of mortgage interest is `monthOfAnnual` on that
-  // debt's `annualInterest` — the same twelfth compactSnapshot uses.
-  // The ±4 percentage-point fit band is the incumbent page rule, kept
-  // here rather than restated.
-  //
-  // `period` is the selected `periods.periods` entry. Without one the
-  // period block is omitted; `renderPeriod` passes the period on screen.
-  const INTEREST_FIT_PP = 4;
-
+  /* ------------------------------------------ published spending type */
   // Mixed essential+discretionary source types cannot publish as either class.
   // `scripts/periods.js` used to keep the first event's type and then add later
   // events into that row, so Health could read as essential only because a
   // medical merchant happened to be encountered first. The existing `unknown`
-  // type already means "no clean essential/discretionary story" to Deep Dive.
+  // type already means "no clean essential/discretionary story".
   function publishedSpendType(types) {
     const unique = [];
     (types || []).forEach(t => {
@@ -23409,86 +23667,6 @@
       if (v.types.length > 1) row.types = v.types.slice().sort();
       return row;
     }).sort((a, b) => b.total - a.total);
-  }
-
-  function deepDive(data, period) {
-    data = data || {};
-    const cash = (data.plan && data.plan.startingCash) || {};
-    const held = cash.heldElsewhere || [];
-    const byClass = {};
-    const classOrder = [];
-    let elsewhere = 0;
-    for (const h of held) {
-      const cls = h.class || 'unknown';
-      if (!byClass[cls]) {
-        byClass[cls] = { class: cls, total: 0, labels: [] };
-        classOrder.push(cls);
-      }
-      byClass[cls].total += h.value;
-      byClass[cls].labels.push(h.label);
-      elsewhere += h.value;
-    }
-
-    const card = (data.debts || []).find(d => d.id === 'cashback') || null;
-    const ic = data.interestCheck || null;
-    let interest = null;
-    if (ic) {
-      if (!card || card.rate == null) {
-        throw new Error('deepDive interest check requires the Cash Back Visa rate');
-      }
-      const rate = card.rate;
-      const rows = (ic.rows || []).map(r => ({
-        stmt: r.stmt,
-        avg: r.avg,
-        implied: r.implied,
-        charged: r.charged,
-        eff: r.eff,
-        off: Math.abs(r.eff - rate) > INTEREST_FIT_PP,
-      }));
-      interest = {
-        rate,
-        rows,
-        impliedTotal: rows.reduce((s, r) => s + r.implied, 0),
-        chargedTotal: rows.reduce((s, r) => s + r.charged, 0),
-      };
-    }
-
-    const mortgage = (data.debts || []).find(d => d.id === 'mortgage') || null;
-    const mortgageMonthly = mortgage && mortgage.annualInterest != null
-      ? monthOfAnnual(mortgage.annualInterest) : null;
-    const heloc = helocStory(data);
-
-    let periodSnap = null;
-    if (period) {
-      const spendingTotal = period.spendingTotal || 0;
-      const months = period.months || 0;
-      const discretionary = (period.spending || [])
-        .filter(s => publishedSpendType(s.types || [s.type]) === 'discretionary')
-        .reduce((a, b) => a + b.total, 0);
-      const avoidable = (period.fees || [])
-        .filter(s => s.type === 'avoidable')
-        .reduce((a, b) => a + b.total, 0);
-      periodSnap = {
-        spendingTotal,
-        interestTotal: period.interestTotal || 0,
-        feesTotal: period.feesTotal || 0,
-        months,
-        spendingMonthly: months > 1 ? spendingTotal / months : null,
-        discretionary,
-        discretionaryShare: discretionary / (spendingTotal || 1) * 100,
-        avoidable,
-      };
-    }
-
-    return {
-      cashAmount: spendableHouseholdCash(data.plan),
-      elsewhere,
-      classes: classOrder.map(k => byClass[k]),
-      interest,
-      mortgageMonthly,
-      heloc,
-      period: periodSnap,
-    };
   }
 
   /* ------------------------------- what the plan is, read one way, once ---- */
@@ -24110,8 +24288,63 @@
   // $165.13 of pending charges and the other did not. Derived from the debt
   // records plus the facilities that are not debts (the chequing overdraft),
   // so there is nothing left to drift.
+  // A card balance older than the card's current statement cycle is not a
+  // current balance (lead dispatch T2, 2026-11-18). The cycle starts on the
+  // card's latest statement close day on or before the as-of day, the same
+  // monthly cycle the owner-approved statement cadence accepts. The balance
+  // date is the card's own stamped balanceAsOf, else the plan opening it was
+  // recorded at. A stale balance is still the best known figure, so it is
+  // kept and tagged estimated with its date; it is never promoted. A debt
+  // with no statement close day is not assessed here.
+  function cardStatementCycleStart(asOf, closeDay) {
+    const day = Number(closeDay);
+    if (!financialDate(asOf) || !Number.isInteger(day) || day < 1 || day > 31) return null;
+    const [y, m] = asOf.split('-').map(Number);
+    const at = (year, month) => `${year}-${String(month).padStart(2, '0')}-${
+      String(Math.min(day, daysInMonth(year, month))).padStart(2, '0')}`;
+    const thisMonth = at(y, m);
+    return thisMonth <= asOf ? thisMonth : (m === 1 ? at(y - 1, 12) : at(y, m - 1));
+  }
+  function cardBalanceFreshness(debt, plan, asOf) {
+    if (!debt || debt.secured || debt.statementCloseDay == null) return null;
+    const cycleStart = cardStatementCycleStart(asOf, debt.statementCloseDay);
+    if (!cycleStart) return null;
+    const balanceAsOf = financialDate(debt.balanceAsOf)
+      || (debt.balanceAsOfUnknown === true ? null : financialDate(plan && plan.opening && plan.opening.asOf));
+    if (balanceAsOf && balanceAsOf >= cycleStart) return null;
+    return {
+      status: 'stale', trust: 'estimated', balanceAsOf: balanceAsOf || null, cycleStart,
+      reason: balanceAsOf
+        ? `estimate — balance dated ${balanceAsOf}, before this statement cycle (from ${cycleStart}).`
+        : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
+    };
+  }
+  function staleCardBalanceList(debts) {
+    return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)
+      .map(d => ({ id: d.id, balanceAsOf: d.balanceFreshness.balanceAsOf, cycleStart: d.balanceFreshness.cycleStart }));
+  }
+  // The tag and date a stale card balance carries wherever it is printed.
+  function staleBalanceFields(debt) {
+    const f = debt && debt.balanceTrust === 'estimated' && debt.balanceFreshness;
+    return f ? { balanceTrust: 'estimated', balanceAsOf: f.balanceAsOf, balanceReason: f.reason } : {};
+  }
+  // Copies only the debts whose balance is stale; current debts pass through
+  // unchanged, so a household with current balances sees identical output.
+  function withCardBalanceFreshness(debts, plan, asOf) {
+    if (!Array.isArray(debts)) return debts;
+    let changed = false;
+    const out = debts.map(d => {
+      const freshness = cardBalanceFreshness(d, plan, asOf);
+      if (!freshness || (d && d.balanceFreshness)) return d;
+      changed = true;
+      return { ...d, balanceTrust: 'estimated', balanceFreshness: freshness };
+    });
+    return changed ? out : debts;
+  }
+
   function utilisation(debts, extra, plan) {
     extra = resolveExtraFacilities(extra, plan);
+    debts = withCardBalanceFreshness(debts, plan, plan && plan.opening && plan.opening.asOf);
     const rows = (debts || []).filter(x => x.limit != null).map(x => {
       const unknownPending = pendingUnknown(x);
       const pending = unknownPending ? null : (x.pending || 0);
@@ -24123,6 +24356,7 @@
         overLimit: publishedOverLimit(x.limit, used, unknownPending),
         overLimitBy: publishedOverLimitBy(x.limit, used, unknownPending),
         pct: x.limit ? (used / x.limit) * 100 : null,
+        ...staleBalanceFields(x),
       };
     });
     for (const e of extra || []) {
@@ -24148,6 +24382,9 @@
         ? { totalAvailableUnknownFrom: rows.filter(r => r.pendingUnknown && r.available == null).map(r => r.id) } : {}),
       totalPending: rows.reduce((s, r) => s + (r.pending || 0), 0),
       overLimitCount: rows.filter(r => r.overLimit === true).length,
+      ...(rows.some(r => r.balanceTrust === 'estimated')
+        ? { totalAvailableTrust: 'estimated',
+          totalAvailableEstimatedFrom: rows.filter(r => r.balanceTrust === 'estimated').map(r => r.id) } : {}),
     };
   }
 
@@ -25295,7 +25532,7 @@
     const rowIncomplete = coverage === 'incomplete' && (
       Array.isArray(packet.cardCoverageUnconfirmed) && packet.cardCoverageUnconfirmed.length > 0
       || Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length > 0
-      || transactions.some(row => row?.accountRole === 'unmapped'));
+      || transactions.some(row => row?.accountRole === 'unmapped' && !skipSplitParent(row, packet)));
     const fetchComplete = (coverage === 'complete' || coverage?.complete === true)
       && transactionCoverageStatus(packet) === 'complete' || rowIncomplete;
     const sourceWindow = packet.savingsFetchCoverage;
@@ -28007,6 +28244,7 @@
   // is $0, not targetBuffer. Planned contributions are not funded.
   // Unavailable walk min or untrusted savings evidence fails closed.
   function baselineTrajectory(plan, debts, asOf, opts) {
+    debts = withCardBalanceFreshness(debts, plan, asOf);
     const ctx = prepareBaselineTrajectoryWalk(plan, debts, asOf, opts);
     if (!ctx || ctx.status !== 'ready') {
       return trajectoryUnavailable(ctx && ctx.reason || 'Forecast could not establish the baseline trajectory.');
@@ -28016,6 +28254,10 @@
     const horizon = ctx.horizon;
     const walkOpts = ctx.walkOpts;
     const debtWalk = ctx.debtWalk;
+    // A debt picture walked from a stale card balance is an estimate.
+    const staleCardBalances = staleCardBalanceList(walkOpts.debts);
+    const debtPictureStatus = staleCardBalances.length ? 'estimated' : 'calculated';
+    const staleCardBalanceNote = staleCardBalances.length ? { staleBalances: staleCardBalances } : {};
     const sim = ctx.sim;
     const events = ctx.events;
     const regime = ctx.regime;
@@ -28086,7 +28328,7 @@
             ? walked.marks[walked.marks.length - 1] : null;
           if (mark) {
             debtPicture = {
-              status: 'calculated',
+              status: debtPictureStatus, ...staleCardBalanceNote,
               asOf: mark.date,
               // Unknown is never $0: a null consumer total stays null, and
               // trajectoryMonthHasPublishedDebt then excludes the month.
@@ -28107,7 +28349,7 @@
         }
       } else {
         debtPicture = {
-          status: 'calculated',
+          status: debtPictureStatus, ...staleCardBalanceNote,
           asOf: span.end,
           consumer: 0,
           secured: 0,
@@ -28382,7 +28624,7 @@
     };
   }
 
-  const Forecast = { periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentStatus, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
@@ -28390,7 +28632,7 @@
     recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly,
     projectDebts, baselineTrajectory, daleEstimatedPayrollDeposits, projectedDalePayroll,
-    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, deepDive, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
+    nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount,
     visaPaymentReconciliation, visaPaymentPublication };

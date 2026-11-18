@@ -14,6 +14,10 @@ const CATEGORIES = Object.freeze({
   'Minimum payment - TD Travel Visa': 'travelvisa',
 });
 const CARD_IDS = new Set(Object.values(CATEGORIES));
+// A "card payment: <card>" note is evidence only for the TD cards, whose
+// issuer receipt is the card's own posted PAYMENT - THANK YOU credit. Triangle
+// and MBNA have no card feed and stay To confirm (lead dispatch U4, option A).
+const NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']);
 const iso = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
   && Number.isFinite(Date.parse(value + 'T00:00:00Z'))
   && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
@@ -31,7 +35,7 @@ function categoryDebt(category) {
 function observe(input) {
   const { plan, accountMap, asOf, transactionWindow: window, pendingCoverage,
     transactions = [], matchesIdentity, matchesReversalIdentity, alreadyAllocated, cycleOpensOn,
-    isExplicitlyPosted } = input;
+    isExplicitlyPosted, coverageReference } = input;
   const packet = { source: SOURCE, asOf, payments: [] };
   if (!iso(asOf) || !window || window.complete !== true || window.hasMore === true
       || window.truncated === true || !iso(window.startDate) || !iso(window.endDate)
@@ -62,7 +66,14 @@ function observe(input) {
   }
   const hits = [];
   for (const tx of transactions) {
-    const debtId = CARD_IDS.has(tx.minimumCategoryDebt) ? tx.minimumCategoryDebt : null;
+    // An exact minimum category is household confirmation (Dale 2026-10-07).
+    // Otherwise a note naming exactly one TD card is a candidate, kept only if
+    // card coverage pairs it with that card's posted credit (qualifyNotePayments).
+    // The category, when present, wins unchanged.
+    const noted = Forecast.cardPaymentNoteDestination({ notes: tx.notes });
+    const byCategory = CARD_IDS.has(tx.minimumCategoryDebt) ? tx.minimumCategoryDebt : null;
+    const byNote = !byCategory && NOTE_CARD_IDS.has(noted) && typeof coverageReference === 'function' ? noted : null;
+    const debtId = byCategory || byNote;
     const map = mapping(tx), amount = cents(tx.amount);
     if (!debtId || tx.pending === true || tx.contradictoryEvidence === true
         || tx.isGroup || tx.parentId || tx.currency !== 'cad' || tx.isIncome === true
@@ -80,7 +91,8 @@ function observe(input) {
       && (r.sentPayments == null || Array.isArray(r.sentPayments)));
     const compatible = [];
     for (const row of rows) {
-      if (!matchesIdentity(tx, row)) continue;
+      // The note names the card; its identity is proved by coverage's pairing.
+      if (!byNote && !matchesIdentity(tx, row)) continue;
       const debt = (plan.debts || []).find(d => d.id === debtId);
       for (const event of events.filter(e => e.id === row.id && e.kind === 'obligation')) {
         if (tx.date < cycleOpensOn(event.date, debt?.statementCloseDay)
@@ -111,10 +123,10 @@ function observe(input) {
         || (/payment.*revers|revers.*payment/i.test(`${other.payee || ''} ${other.originalName || ''}`)
           && mapping(other)?.canonical?.id === debtId)));
     if (reversed) continue;
-    hits.push({ tx, map, amount, debitId, ...target });
+    hits.push({ tx, map, amount, debitId, byNote: !!byNote, ...target });
   }
   for (const hit of hits) {
-    const { tx, map, row, original, debitId } = hit;
+    const { tx, map, row, original, debitId, byNote } = hit;
     // A stable debit cannot confirm several cycles; several debits for one
     // occurrence are ambiguous in this bounded protocol (no guessed allocation).
     if (transactions.filter(t => t.providerTransactionId === tx.providerTransactionId && t.pending !== true).length !== 1
@@ -123,9 +135,25 @@ function observe(input) {
       intent: 'minimum', debitId, postedOn: tx.date, amount: tx.amount,
       currency: 'cad', fundingAccountId: map.canonical.id, pending: false, cashIncludedAsOf: asOf,
       movementIdentity: { source: SOURCE, debitId },
+      ...(byNote ? { evidence: 'card-payment-note', coverageRef: coverageReference(tx), debtId: row.debtId } : {}),
       ...(verifiedIndependentOwnerDebitIds.length ? { verifiedIndependentOwnerDebitIds } : {}) });
   }
   return packet;
 }
 
-module.exports = { SOURCE, CATEGORIES, categoryDebt, observe };
+// Keep a note candidate only when card coverage paired that debit, by its
+// note, with a posted PAYMENT - THANK YOU credit on the same card; drop the
+// internal join fields either way. Category evidence passes unchanged.
+function qualifyNotePayments(packet, receipts) {
+  if (!packet || !Array.isArray(packet.payments)) return packet;
+  const paired = new Set((receipts || []).filter(r => r && r.debitRef && r.card).map(r => r.debitRef + '|' + r.card));
+  const payments = [];
+  for (const p of packet.payments) {
+    if (p?.evidence !== 'card-payment-note') { payments.push(p); continue; }
+    const { coverageRef, debtId, ...kept } = p;
+    if (coverageRef && paired.has(coverageRef + '|' + debtId)) payments.push(kept);
+  }
+  return { ...packet, payments };
+}
+
+module.exports = { SOURCE, CATEGORIES, NOTE_CARD_IDS, categoryDebt, observe, qualifyNotePayments };

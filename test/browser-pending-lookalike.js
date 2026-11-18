@@ -57,6 +57,25 @@ const cases = [
       H.expectMatch(s.all, /Balance After Deductions\$1,000\.00/, 'Balance After Deductions stays 1,400 - 400');
     });
   }],
+  ['a re-issued authorization marks the category and household estimate', async () => {
+    const w = world();
+    const cafe = { date: '2026-10-11', amount: 6.5, category: 'Restaurants', payee: 'Invented cafe' };
+    w.transactions.push(
+      H.lm({ ...cafe, pending: true, raw: { plaid_metadata: { transaction_id: 'invented-cafe-stale' } } }),
+      H.lm({ ...cafe, raw: { plaid_metadata: { transaction_id: 'invented-cafe-posted',
+        pending_transaction_id: 'invented-cafe-reissued' } } }));
+    await H.withBudget(w, async p => {
+      const s = await H.snap(p);
+      // One purchase cleared for 6.50. With the stale 6.50 authorization,
+      // the estimate is 13.00 and the estimated category remainder is 87.00.
+      H.expectMatch(eatingOut(s), /≈\s*estimated \$87\.00 left.*Spent ≈\s*estimated \$13\.00/,
+        'the category marks the spend and allowance estimated');
+      H.expectMatch(s.household, /Household Budget TotalActual \/ Planned ≈\s*estimated \$13\.00/,
+        'the household total marks both amounts as estimated');
+      H.expectMatch(s.household, /Invented cafe\s*Pending\s*Possible duplicate/,
+        'the stale authorization shows the warning');
+    });
+  }],
   ['a pending look-alike in unassigned spending marks Other estimated', async () => {
     const w = world();
     w.transactions.push(
@@ -83,10 +102,10 @@ const cases = [
   ['control: a directed pending-to-posted pair counts once, unmarked', async () => {
     const w = world();
     w.transactions.push(
-      H.lm({ id: 700, date: '2026-10-11', amount: 30, category: 'Groceries', payee: 'Invented bakery', pending: true }),
+      H.lm({ id: 700, date: '2026-10-11', amount: 30, category: 'Groceries', payee: 'Invented bakery', pending: true,
+        raw: { plaid_metadata: { transaction_id: 'invented-plaid-700' } } }),
       H.lm({ id: 701, date: '2026-10-12', amount: 30, category: 'Groceries', payee: 'Invented bakery',
-        raw: { pending_transaction_id: 700, plaid_metadata: { pending_transaction_id: 'invented-plaid-700' } } }));
-    w.transactions[1].plaid_metadata = { transaction_id: 'invented-plaid-700' };
+        raw: { plaid_metadata: { pending_transaction_id: 'invented-plaid-700' } } }));
     await H.withBudget(w, async p => {
       const s = await H.snap(p);
       H.expectMatch(H.category(s, 'Groceries'), /Spent \$30\.00/, 'groceries spent is 30, not 60');

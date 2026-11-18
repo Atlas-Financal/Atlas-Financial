@@ -454,11 +454,34 @@ function isTrustworthyTransactionId(value) {
   return false;
 }
 
+// Lunch Money v2 (spec 2.11.2, POST /transactions/group example): a group
+// parent carries plaid_account_id and manual_account_id null; only its
+// children (returned with include_children) carry accounts. The parent takes
+// the one account every child records, and nothing else: no child, a child
+// with no account or with both, or children on different accounts leaves the
+// parent without an account (unmapped, fail closed). Children are read for
+// their account ids only; they never become rows of their own.
+function groupParentAccountId(raw) {
+  if (!(raw.is_group_parent === true || raw.is_group === true)) return null;
+  const children = Array.isArray(raw.children) ? raw.children : [];
+  if (!children.length) return null;
+  const accounts = new Set();
+  for (const child of children) {
+    const plaid = child && child.plaid_account_id != null, manual = child && child.manual_account_id != null;
+    if (plaid === manual) return null;
+    accounts.add((plaid ? 'plaid:' : 'manual:') + String(plaid ? child.plaid_account_id : child.manual_account_id));
+  }
+  if (accounts.size !== 1) return null;
+  const child = children[0];
+  return child.plaid_account_id != null ? child.plaid_account_id : child.manual_account_id;
+}
+
 function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
   if (!raw || !isTrustworthyTransactionId(raw.id)) fail('Lunch Money transaction is missing a stable id.');
   const accountId = raw.account_id != null ? raw.account_id
     : raw.plaid_account_id != null ? raw.plaid_account_id
-    : raw.manual_account_id;
+    : raw.manual_account_id != null ? raw.manual_account_id
+    : groupParentAccountId(raw);
   const categoryId = raw.category_id != null ? String(raw.category_id) : null;
   const fromIndex = categoryId && categoriesById ? categoriesById.get(categoryId) : null;
   const categoryName = raw.category_name || raw.categoryName
@@ -495,7 +518,17 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     plaidPendingTransactionId: plaidPendingTransactionIdFromRaw(raw),
     isGroup: raw.is_group === true || raw.is_group_parent === true
       || raw.has_children === true,
-    parentId: raw.parent_id != null ? String(raw.parent_id) : null,
+    // v1 parent_id, or v2 group_parent_id (spec 2.11.2) for a row grouped
+    // into a group parent. v2 split pieces (split_parent_id) are not read
+    // here: BACKLOG.md, LM v2 split pieces.
+    parentId: raw.parent_id != null ? String(raw.parent_id)
+      : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
+    // U5: the provider ids of the children Lunch Money lists on a group parent,
+    // so the coverage stamp can tell a complete cross-account group from a
+    // partial one. Internal (never emitted); absent on every other row, so
+    // their shape is unchanged.
+    ...((raw.is_group_parent === true || raw.is_group === true) && Array.isArray(raw.children)
+      ? { groupChildIds: raw.children.map(child => child && isTrustworthyTransactionId(child.id) ? String(child.id) : null) } : {}),
     // Lunch Money v2 transaction recurring_id: the recurring item this row
     // matched. Forecast reads it only to stamp the dogFood flags; it is not
     // published in the served packet.
@@ -667,6 +700,9 @@ function lunchMoneyTransactionsUrl(now, historyDays, base) {
   txUrl.searchParams.set('end_date', end);
   txUrl.searchParams.set('include_pending', 'true');
   txUrl.searchParams.set('include_metadata', 'true');
+  // v2 returns a group parent with no account of its own; its children
+  // (only with include_children) carry the account (groupParentAccountId).
+  txUrl.searchParams.set('include_children', 'true');
   txUrl.startDate = start;
   txUrl.endDate = end;
   return txUrl;
@@ -676,6 +712,7 @@ function lunchMoneyPendingUniverseUrl(base) {
   const txUrl = new URL(`${base || LIVE_BASE}/transactions`);
   txUrl.searchParams.set('is_pending', 'true');
   txUrl.searchParams.set('include_metadata', 'true');
+  txUrl.searchParams.set('include_children', 'true');
   return txUrl;
 }
 
@@ -1361,6 +1398,24 @@ const DUE_OR_UP_TO_TWO_DAYS_AFTER = 'due-or-up-to-two-days-after';
 const DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS = 2;
 const SETTLES_WHEN_AMOUNT_AT_LEAST = 'amount-at-least';
 const SETTLES_WHEN_EXACT_SCHEDULED_AMOUNT = 'exact-scheduled-amount';
+// Q2, owner decision (Dale, 2026-11-18, #821 6967081727): Amanda's two salary
+// streams. A posted CAD credit into the rule's account settles an occurrence
+// once, at its actual amount, when it is within amountToleranceDollars of THAT
+// occurrence's scheduled amount and posts within postingBusinessDays business
+// days (Forecast's Monday-to-Friday count) before or after the projected payday.
+// Amount and timing are the identity here; nothing else is. Fail closed: two
+// qualifying credits for one occurrence, or one credit qualifying for two
+// occurrences, settle nothing (To confirm). Never a pending row, an excluded
+// payee (refund, reversal, reimbursement), an internal household transfer, or a
+// credit another rule identifies.
+const SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY = 'near-scheduled-amount-and-payday';
+const NEAR_PAYDAY_RELATION = 'near-projected-payday';
+// Words that mark a credit as not salary (owner decision 6967081727: reimbursements, coaching and refunds never
+// qualify), read in the payee, the original bank name, the Lunch Money category, the notes and the tags (#1294 review).
+const NEAR_PAYDAY_EXCLUDED_WORDS = Object.freeze([/REFUND/i, /REVERSAL/i, /REIMBURS/i, /COACH/i, /BUSINESS/i]);
+// An income category counts only when its name says salary, or it is Lunch Money's generic "Income"; any other
+// income category (coaching, business, reimbursement, "Other income") is not her pay.
+const NEAR_PAYDAY_SALARY_CATEGORY = /SALARY|PAYROLL|PAYCHE|\bPAY\b|WAGE|^\s*INCOME\s*$/i;
 const SETTLES_WHEN_TWO_LEG_SUM = 'two-leg-sum';
 const SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE = 'schedule-trust-on-due';
 const INHERITED_PENDING_AUTHORIZATION = 'inherited-pending-authorization';
@@ -1503,7 +1558,7 @@ function transferCounterpartMatches(tx, rule, input, amount, diagnostic) {
   const matches = [];
   for (const other of (input && input.transactions) || []) {
     if (!other || other === tx) continue;
-    if (other.pending === true || other.contradictoryEvidence === true) continue;
+    if (!hasPostedReceipt(other)) continue;
     if (String(other.date || '') !== String(tx.date || '')) continue;
     if (!transactionIsTransfer(other)) continue;
     const mapping = mappingFor(mapDoc, other.providerAccountId);
@@ -1706,6 +1761,7 @@ function ruleHasIdentity(rule, diagnostic) {
   if (typeof diagnostic?.record !== 'function') diagnostic = null;
   if (!rule || !rule.eventId) return false;
   if (rule.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) return true;
+  if (nearPaydayRule(rule)) return true;
   if (rule.transactionKind === 'transfer') {
     const present = !!ruleCounterpartExternalId(rule);
     diagnostic?.record(rule.eventId, 'externalIdentity', present,
@@ -1718,14 +1774,26 @@ function ruleHasIdentity(rule, diagnostic) {
   return rulePayeePatterns(rule).length > 0;
 }
 
+function hasPostedReceipt(tx) {
+  // Normalization retains affirmative provider evidence separately from the
+  // display-oriented pending boolean. A missing flag can project false there.
+  return !!tx && tx.pending === false && tx.savingsPostingEvidence === 'posted'
+    && tx.contradictoryEvidence !== true;
+}
+
 function ruleMatchesTransactionIdentity(tx, rule) {
+  return hasPostedReceipt(tx) && matchesIdentityFields(tx, rule);
+}
+
+// Pending-bill disclosure and replacement inheritance can find an identity
+// here. Only a posted receipt can settle it.
+function matchesIdentityFields(tx, rule) {
   if (!tx || !rule) return false;
-  // An opted-in identity must have affirmative provider posting evidence.
-  // This shared boundary also excludes pending-only bill receipts. Invalid
-  // explicit qualifiers fail closed; absent qualifiers retain incumbent rules.
+  // A near-amount-and-payday rule is matched only by nearPaydaySalaryHits.
+  if (rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) return false;
+  // An explicit posting qualifier also constrains candidate-only paths.
   if (Object.hasOwn(rule, 'requiredPostingEvidence')
-      && (rule.requiredPostingEvidence !== 'posted'
-        || tx.pending !== false || tx.savingsPostingEvidence !== 'posted')) {
+      && (rule.requiredPostingEvidence !== 'posted' || !hasPostedReceipt(tx))) {
     return false;
   }
   if (rulePayeeExcludePatterns(rule).some(pattern =>
@@ -1859,6 +1927,59 @@ function coveringStatementCycleDates(plan, rule, postingDate) {
   return [upcoming[0].date];
 }
 
+// Lead dispatch 2026-11-18 (the #1313 answer key's known gap): a payroll
+// credit dated within one business day after its payday (Friday's pay landing
+// Saturday or Monday) settles that payday once, at its actual amount, through
+// the matcher's own ambiguity rules: a second candidate for the payday, or a
+// credit the matcher can place on two occurrences, stays To confirm. Only the
+// plain payroll rule qualifies (a credit identity with no posting-date rule, no
+// settlement mode and no transfer kind); Amanda's near-amount rule keeps its own
+// window. The late payday must be the payroll occurrence just before the credit,
+// with none on the credit's own date, and strictly nearer than the next one.
+// Any amount qualifies: the credit settles at what arrived, exactly as an
+// on-time credit does (lead, 2026-11-18); there is no exact-amount gate.
+// Business days are Forecast's (Monday to Friday, no holiday calendar).
+const PAYROLL_LATE_RELATION = 'payroll-late-one-business-day';
+const PAYROLL_LATE_BUSINESS_DAYS = 1;
+function payrollLateRule(rule) {
+  return !!rule && rule.eventId === 'payroll' && rule.direction === 'credit' && !rule.postingDateRule
+    && !rule.settlesWhen && rule.transactionKind !== 'transfer';
+}
+// The late credit must be the only credit of this identity, on its account,
+// from the day after the previous payday up to the next one, so an early
+// credit for the late payday also competes. A credit that is itself the
+// previous payday's own late posting is that payday's, not a rival, so a pay
+// that is late every time settles every time. Without the transaction list,
+// no late cover (fail closed).
+function payrollLatePayday(plan, rule, posted, tx, transactions) {
+  if (!payrollLateRule(rule) || !plan || !posted || !tx || !Array.isArray(transactions)) return null;
+  const scanFrom = Forecast.addDays(posted, -45);
+  const events = scheduledEventsOnRange(plan, scanFrom, Forecast.addDays(posted, 28))
+    .filter(e => e && e.id === rule.eventId).map(e => e.date).sort();
+  // The payday a credit on `date` would be a late posting of, by date alone.
+  const lateBy = date => {
+    if (events.includes(date)) return null;
+    const payday = events.filter(d => d < date).pop();
+    if (!payday || Forecast.businessDaysAfter(payday, date) > PAYROLL_LATE_BUSINESS_DAYS) return null;
+    const after = events.find(d => d > date);
+    return after && !(Forecast.diffDays(payday, date) < Forecast.diffDays(date, after)) ? null : payday;
+  };
+  const late = lateBy(posted);
+  if (!late) return null;
+  // Settles at the actual amount, as an on-time credit does (lead, 2026-11-18);
+  // the matcher itself needs exactly one occurrence on the payday.
+  const prev = events.filter(d => d < late).pop();
+  const next = events.find(d => d > posted);
+  const windowFrom = prev ? Forecast.addDays(prev, 1) : scanFrom;
+  const rival = transactions.some(other => other && other !== tx
+    && String(other.providerTransactionId) !== String(tx.providerTransactionId)
+    && String(other.providerAccountId) === String(tx.providerAccountId)
+    && lunchMoneyDebitAmount(other.amount) < 0 && matchesIdentityFields(other, rule)
+    && other.date >= windowFrom && (!next || other.date < next)
+    && !(prev && lateBy(other.date) === prev));
+  return rival ? null : late;
+}
+
 function postingDateRelation(scheduledDate, postingDate, rule, tx) {
   const scheduled = parseIsoDate(scheduledDate);
   const posted = parseIsoDate(postingDate);
@@ -1866,6 +1987,10 @@ function postingDateRelation(scheduledDate, postingDate, rule, tx) {
   const lm = tx && LM_MATCHED.get(tx);
   if (lm && rule && lm.eventId === rule.eventId && lm.date === scheduled) return LM_MATCHED_RELATION;
   if (scheduled === posted) return 'same-day';
+  if (payrollLateRule(rule)) {
+    return scheduled < posted && Forecast.businessDaysAfter(scheduled, posted) <= PAYROLL_LATE_BUSINESS_DAYS
+      ? PAYROLL_LATE_RELATION : null;
+  }
   if (rule && rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER) {
     const latest = Forecast.addDays(scheduled, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
     return scheduled < posted && latest && posted <= latest ? 'late-within-two-days' : null;
@@ -1939,7 +2064,7 @@ function coveringEarlyOrDueDates(plan, rule, postingDate) {
   return [];
 }
 
-function coveringScheduledDates(plan, rule, postingDate, tx) {
+function coveringScheduledDates(plan, rule, postingDate, tx, transactions) {
   const posted = parseIsoDate(postingDate);
   if (!plan || !rule || !rule.eventId || !posted) return [];
   // S3: when Lunch Money's own matches for the rule's reviewed item are
@@ -1952,6 +2077,10 @@ function coveringScheduledDates(plan, rule, postingDate, tx) {
   }
   if (rule.postingDateRule === COVER_EARLY_OR_DUE_ON_OR_BEFORE_POSTING) {
     return coveringEarlyOrDueDates(plan, rule, posted);
+  }
+  if (payrollLateRule(rule)) {
+    const late = payrollLatePayday(plan, rule, posted, tx, transactions);
+    return late ? [posted, late] : [posted];
   }
   if (rule.postingDateRule !== COVER_DUE_ON_OR_BEFORE_POSTING) {
     return scheduledDatesForPosting(posted, rule);
@@ -2474,7 +2603,7 @@ function transactionWithMappedAccount(tx, accountMap) {
 
 function soleOwnerConfirmedSpotifyTransaction(transactions, accountMap) {
   const matches = (transactions || []).filter(tx =>
-    tx && tx.pending !== true
+    hasPostedReceipt(tx)
     && Forecast.classifyCurrentPeriodTransaction.ownerConfirmedSpotify(
       transactionWithMappedAccount(tx, accountMap)
     ));
@@ -2704,12 +2833,12 @@ function collectIdentityHits(tx, input, rules) {
   for (const rule of rules || []) {
     if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
     if (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId) continue;
-    if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
+    if (!matchesIdentityFields(tx, rule)) continue;
     if (!ruleCurrencyQualified(tx, rule)) continue;
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
     if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx)) {
+    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx, input.transactions)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
       const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);
@@ -2816,7 +2945,7 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
   const kept = new Set(collapsedTransactions || []);
   const byPostedId = new Map();
   for (const tx of collapsedTransactions || []) {
-    if (!tx || tx.pending === true || tx.providerTransactionId == null || tx.providerTransactionId === '') {
+    if (!hasPostedReceipt(tx) || tx.providerTransactionId == null || tx.providerTransactionId === '') {
       continue;
     }
     const id = String(tx.providerTransactionId);
@@ -2872,6 +3001,126 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
   }
 }
 
+// The one shape a near-amount-and-payday rule may take: a credit rule with a
+// positive dollar tolerance and a whole number of business days.
+function nearPaydayRule(rule) {
+  return !!rule && rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY && rule.direction === 'credit'
+    && !!rule.atlasAccountId && Number.isFinite(rule.amountToleranceDollars) && rule.amountToleranceDollars > 0
+    && Number.isInteger(rule.postingBusinessDays) && rule.postingBusinessDays >= 0;
+}
+
+// Business days between a posting and the projected payday, either side
+// (Forecast.businessDaysAfter: Monday to Friday, no holiday calendar).
+function businessDaysApart(left, right) {
+  return left <= right ? Forecast.businessDaysAfter(left, right) : Forecast.businessDaysAfter(right, left);
+}
+
+// Q2 (owner decision 6967081727): the hits of the near-amount-and-payday rules.
+// Each qualifying credit is pushed under every occurrence it qualifies for; the
+// incumbent classifier then leaves two credits for one occurrence unresolved,
+// and representedEventHitGroups leaves every occurrence a shared credit
+// qualifies for To confirm, before any occurrence is classified.
+function nearPaydaySalaryHits(input, rules) {
+  const hits = [];
+  for (const { tx, amount, rule, mapping } of nearPaydaySalaryCandidates(input, rules)) {
+    // Each calendar day within reach of postingBusinessDays business days (a weekend adds at most
+    // two days per five), read from the income's own schedule.
+    const reach = rule.postingBusinessDays + 2 * Math.ceil((rule.postingBusinessDays + 1) / 5) + 2;
+    const events = scheduledEventsOnRange(input.plan, Forecast.addDays(tx.date, -reach), Forecast.addDays(tx.date, reach))
+      .filter(event => event && event.id === rule.eventId && event.kind === 'income' && event.amount > 0);
+    for (const event of events) {
+      if (businessDaysApart(tx.date, event.date) > rule.postingBusinessDays) continue;
+      if (!(Math.abs(Math.abs(amount) - Math.abs(Number(event.amount))) <= rule.amountToleranceDollars + IDENTITY_AMOUNT_EPSILON)) continue;
+      if (scheduledOccurrence(input.plan, rule.eventId, event.date).length !== 1) continue;
+      hits.push({
+        id: rule.eventId,
+        date: event.date,
+        postingDate: tx.date,
+        postingDateRelation: NEAR_PAYDAY_RELATION,
+        direction: 'credit',
+        providerTransactionId: tx.providerTransactionId,
+        providerAccountId: tx.providerAccountId,
+        payee: tx.payee,
+        identity: 'near-scheduled-amount-and-payday',
+        amountNotUsed: false,
+        observedAmount: amount,
+        atlasAccountId: mapping.canonical.id,
+        settlesWhen: SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY,
+      });
+    }
+  }
+  return hits;
+}
+
+// Every posted credit that could be her pay under a near-amount-and-payday rule, before timing and amount: each
+// exclusion nearPaydaySalaryHits applies (posted native CAD money in on the rule's account; no refund, reversal,
+// reimbursement, coaching or business mark; no non-salary income category; no other credit rule's identity; no
+// internal household move; a transfer only from the rule's salary source). One home for those exclusions: the
+// matcher adds the owner's window, and the early plain-credit hold (futureIncomeUncertainty) reads the same pairs.
+function nearPaydaySalaryCandidates(input, rules) {
+  const window = input && input.transactionWindow;
+  if (!window || window.complete !== true || !parseIsoDate(window.startDate) || !parseIsoDate(window.endDate)) return [];
+  const near = (rules || []).filter(nearPaydayRule);
+  if (!near.length || !input.plan) return [];
+  const others = (rules || []).filter(rule => rule && !nearPaydayRule(rule) && rule.direction === 'credit');
+  const mapDoc = input.accountMap;
+  const posted = tx => tx && tx.pending === false && tx.savingsPostingEvidence === 'posted'
+    && tx.contradictoryEvidence !== true && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
+    && !!parseIsoDate(tx.date) && tx.providerTransactionId != null;
+  const householdRole = mapping => !!mapping && ['household-cash', 'household-reserve'].includes(mapping.atlasRole);
+  // A posted debit of the same amount on another account, within the rule's business-day window of the credit.
+  const equalDebitsNear = (tx, amount, days) => (input.transactions || []).filter(other => other && other !== tx
+    && posted(other) && String(other.providerAccountId) !== String(tx.providerAccountId)
+    && lunchMoneyDebitAmount(other.amount) > 0 && amountsMatchExactly(lunchMoneyDebitAmount(other.amount), Math.abs(amount))
+    && businessDaysApart(other.date, tx.date) <= days);
+  // An internal household move: an equal debit on another household account within the window, the same day or
+  // posted days apart (#1294 review).
+  const internalMove = (tx, amount, days) => equalDebitsNear(tx, amount, days)
+    .some(other => householdRole(mappingFor(mapDoc, other.providerAccountId)));
+  // A credit Lunch Money marks as a transfer (excluded from totals, or a transfer category) is her pay only when its
+  // counterpart is the rule's own salary source account (TENNIS INCOME, the owner-confirmed path): an equal debit there
+  // within the window. Any other transfer is not her pay (#1294 review).
+  const transferFromSalarySource = (tx, amount, days, rule) => {
+    const source = ruleCounterpartExternalId(rule);
+    return !!source && equalDebitsNear(tx, amount, days).some(other => {
+      const mapping = mappingFor(mapDoc, other.providerAccountId);
+      return !!mapping && mapping.atlasRole === EXTERNAL_LIVE_ROLE && mappingExternalId(mapping) === source;
+    });
+  };
+  const textFields = tx => identityPayeeFields(tx).concat(identityOriginalNameFields(tx),
+    [tx.categoryLabel, tx.notes], (Array.isArray(tx.tags) ? tx.tags : []).map(tag => tag && typeof tag === 'object' ? tag.name : tag))
+    .filter(value => typeof value === 'string' && value.trim());
+  const notSalaryIncomeCategory = tx => tx.isIncome === true
+    && !NEAR_PAYDAY_SALARY_CATEGORY.test(String(tx.categoryLabel || ''));
+  const candidates = [];
+  for (const tx of input.transactions || []) {
+    if (!posted(tx)) continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    if (!(amount < 0)) continue;
+    const mapping = mappingFor(mapDoc, tx.providerAccountId);
+    if (!mapping || !mapping.canonical || mapping.atlasRole !== 'household-cash') continue;
+    if (textFields(tx).some(text => NEAR_PAYDAY_EXCLUDED_WORDS.some(word => word.test(text)))) continue;
+    if (notSalaryIncomeCategory(tx)) continue;
+    if (others.some(rule => ruleMatchesTransactionIdentity(tx, rule))) continue;
+    for (const rule of near) {
+      if (mapping.canonical.id !== rule.atlasAccountId) continue;
+      if (internalMove(tx, amount, rule.postingBusinessDays)) continue;
+      if (transactionIsTransfer(tx) && !transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)) continue;
+      if (rulePayeeExcludePatterns(rule).some(pattern => anyIdentityFieldMatches(identityPayeeFields(tx), pattern)
+        || anyIdentityFieldMatches(identityOriginalNameFields(tx), pattern))) continue;
+      // Positive sign of salary, beyond passing the exclusions (#1334 review, lead rulings): a TENNIS INCOME transfer
+      // leg, or a payee matching the rule's salary aliases. A category is never enough: the household files non-pay
+      // credits under a generic income category.
+      const salaryEvidence = transferFromSalarySource(tx, amount, rule.postingBusinessDays, rule)
+        || (Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length > 0
+          && payeeMatchesRule(tx, { payeePatterns: rule.salaryReceiptPayeePatterns, payeeMatchMode: 'exact',
+            payeeExcludePatterns: ['REFUND', 'REVERSAL', 'REIMBURSEMENT'] }));
+      candidates.push({ tx, amount, rule, mapping, salaryEvidence });
+    }
+  }
+  return candidates;
+}
+
 // A salary receipt and its uniquely paired transfer prove more than a generic
 // transfer of the expected amount. Keep source-account business cash excluded:
 // only configured employer payroll aliases, native CAD and a single scheduled
@@ -2886,6 +3135,7 @@ function salaryReceiptTransferHits(input, rules) {
   const salaryRules = (rules || []).filter(rule => {
     const eligible = rule
     && ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
+    && !nearPaydayRule(rule)
     && rule.transactionKind === 'transfer' && rule.direction === 'credit'
     && rule.atlasAccountId === 'chequing-a' && ruleCounterpartExternalId(rule)
     && Array.isArray(rule.salaryReceiptPayeePatterns) && rule.salaryReceiptPayeePatterns.length;
@@ -2894,7 +3144,7 @@ function salaryReceiptTransferHits(input, rules) {
   });
   if (!salaryRules.length) return [];
   const eligibleIds = new Set(salaryRules.map(rule => rule.eventId));
-  const nativePosted = tx => tx && tx.pending !== true && tx.contradictoryEvidence !== true
+  const nativePosted = tx => hasPostedReceipt(tx)
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= window.endDate
     && tx.providerTransactionId != null;
@@ -3135,7 +3385,7 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
       return rows.length === 1 ? rows[0] : null;
     });
     const accepted = tx => {
-      if (!tx || tx.pending !== false || tx.contradictoryEvidence === true) return false;
+      if (!hasPostedReceipt(tx)) return false;
       const mapping = accountMap && mappingFor(accountMap, tx.providerAccountId);
       if (!mapping || !mapping.canonical || (rule.atlasAccountId && mapping.canonical.id !== rule.atlasAccountId)) return false;
       if (rule.transactionKind === 'transfer' && !transactionIsTransfer(tx)) return false;
@@ -3185,14 +3435,14 @@ function representedEventHitGroups(input) {
   const mapDoc = input.accountMap;
   const eventHits = new Map();
   const counterpartAmbiguous = new Map();
-  for (const hit of salaryReceiptTransferHits(input, rules)) {
+  for (const hit of nearPaydaySalaryHits(input, rules).concat(salaryReceiptTransferHits(input, rules))) {
     const key = hit.id + '@' + hit.date;
     const list = eventHits.get(key) || [];
     list.push(hit);
     eventHits.set(key, list);
   }
   for (const tx of input.transactions || []) {
-    if (tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (!hasPostedReceipt(tx)) continue;
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
@@ -3205,7 +3455,7 @@ function representedEventHitGroups(input) {
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
       if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx)) {
+      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx, input.transactions)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
         const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);
@@ -3269,7 +3519,7 @@ function representedEventHitGroups(input) {
   }
   for (const tx of input.transactions || []) {
     const inherited = tx && tx.pendingReplacementHit;
-    if (!inherited || !inherited.id || !inherited.date || tx.pending === true) continue;
+    if (!inherited || !inherited.id || !inherited.date || !hasPostedReceipt(tx)) continue;
     if (cardMinimumNeedsConfirmation(input.plan, inherited.id, input.accountMap)) continue;
     const key = inherited.id + '@' + inherited.date;
     const list = eventHits.get(key) || [];
@@ -3294,7 +3544,25 @@ function representedEventHitGroups(input) {
   }
   const unique = [];
   const ambiguous = [];
+  // Q2 (owner decision 6967081727): one near-amount-and-payday credit that qualifies for two or more
+  // occurrences leaves every one of them To confirm. Found across ALL qualifying hits, before any occurrence
+  // is classified, so an occurrence that is also ambiguous for another reason cannot hide the reuse.
+  const nearKeysByTx = new Map();
   for (const [key, hits] of eventHits) {
+    for (const hit of hits) {
+      if (!hit || hit.settlesWhen !== SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) continue;
+      const keys = nearKeysByTx.get(String(hit.providerTransactionId)) || new Set();
+      keys.add(key);
+      nearKeysByTx.set(String(hit.providerTransactionId), keys);
+    }
+  }
+  const nearShared = new Set([...nearKeysByTx.values()].filter(keys => keys.size > 1).flatMap(keys => [...keys]));
+  for (const [key, hits] of eventHits) {
+    if (nearShared.has(key)) {
+      ambiguous.push({ key, id: hits[0] && hits[0].id, date: hits[0] && hits[0].date, hits,
+        reason: 'transaction-consumed-twice' });
+      continue;
+    }
     const twoLegHits = hits.filter(hit => hit && hit.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM);
     const otherHits = hits.filter(hit => !hit || hit.settlesWhen !== SETTLES_WHEN_TWO_LEG_SUM);
     // A pure shape keeps the incumbent decision. Standing bell is the
@@ -3474,8 +3742,15 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
     && tx.currencySettlementUnconfirmed !== true && tx.currency === 'cad'
     && parseIsoDate(tx.date) && tx.date >= window.startDate && tx.date <= asOf
     && tx.providerTransactionId != null && !used.has(String(tx.providerTransactionId));
-  const rules = stampRuleSetClaims(input.identityRules).filter(rule => ruleHasIdentity(rule)
-    && rule.direction === 'credit' && rule.atlasAccountId === 'chequing-a');
+  const identityRules = stampRuleSetClaims(input.identityRules).filter(rule => ruleHasIdentity(rule));
+  const rules = identityRules.filter(rule => rule.direction === 'credit' && rule.atlasAccountId === 'chequing-a');
+  // U6 (lead, boundary (ii)): a plain credit that could be her pay but posted before the owner's window. A credit
+  // the near-amount matcher placed under any occurrence (settled, or competing To confirm) is explained by it and
+  // never held here; every other candidate passed the matcher's exclusions and differs only in timing or amount.
+  const nearPaydayExplained = new Set(nearPaydaySalaryHits(input, identityRules)
+    .map(hit => String(hit.providerTransactionId)));
+  const nearPaydayEarly = nearPaydaySalaryCandidates(input, identityRules)
+    .filter(candidate => !nearPaydayExplained.has(String(candidate.tx.providerTransactionId)));
   const payroll = rules.filter(rule => rule.eventId === 'payroll' && rule.transactionKind !== 'transfer');
   const salary = rules.filter(rule => ['amandaSalary15', 'amandaSalaryMonthEnd'].includes(rule.eventId)
     && rule.transactionKind === 'transfer' && ruleCounterpartExternalId(rule)
@@ -3559,12 +3834,38 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
       && Forecast.businessDaysAfter(previousEvent.date, credit.date) <= 1
       && Forecast.diffDays(previousEvent.date, credit.date) < Forecast.diffDays(credit.date, futureDate);
     let unresolved = false;
-    for (const credit of input.transactions || []) {
+    // The early plain-credit hold (U6, boundary (ii) as narrowed by the #1334 review), for the near-amount-and-payday
+    // salary rules only. A posted candidate after the previous occurrence, that the matcher did not place, holds the
+    // next occurrence when it carries positive salary evidence (salaryEvidence) and is no less than half that
+    // occurrence's scheduled amount, on any date in the run-up (an early, possibly off-amount, pay). Otherwise the
+    // cash walk counts her early pay as Other Income while the payday is still projected, so the pay is counted twice.
+    // A credit within the rule's tolerance and business days of the payday is the matcher's (settled, or competing To
+    // confirm), so it is never held here. A credit with no sign of salary never withholds the plan. When the occurrence just
+    // before the credit was claimed by nothing, a credit strictly nearer to it than to the next payday is that
+    // occurrence's late pay (left To confirm, not relied on), not the next one arriving early, so it holds nothing,
+    // as lateOfEarlier reads the other scheduled incomes.
+    const futureEvent = events.find(event => event.date > asOf);
+    if (futureEvent && group.some(nearPaydayRule)) {
+      const scheduled = Math.abs(Number(futureEvent.amount));
+      const lateForPrevious = tx => !!previousEvent && earlierUnclaimed
+        && Forecast.diffDays(previousEvent.date, tx.date) < Forecast.diffDays(tx.date, futureEvent.date);
+      unresolved = nearPaydayEarly.some(({ tx, amount, rule, salaryEvidence }) => ids.has(rule.eventId)
+        && native(tx) && afterPrevious(tx) && tx.date < futureEvent.date
+        && salaryEvidence === true && !lateForPrevious(tx) && Math.abs(amount) >= scheduled / 2 - IDENTITY_AMOUNT_EPSILON);
+    }
+    for (const credit of unresolved ? [] : input.transactions || []) {
       if (!native(credit) || !afterPrevious(credit) || !(lunchMoneyDebitAmount(credit.amount) < 0)) continue;
       const mapping = mappingFor(input.accountMap, credit.providerAccountId);
       if (mapping?.atlasRole !== 'household-cash' || mapping.canonical?.id !== 'chequing-a') continue;
       for (const rule of group) {
-        if (!ruleMatchesTransactionIdentity(credit, rule)) continue;
+        // A possible payroll receipt may still justify a hold. A near-amount-and-payday salary rule is never
+        // matched by identity (only nearPaydaySalaryHits settles it), so this hold reads the rule's TENNIS INCOME
+        // transfer shape directly: a transfer credit with its counterpart and salary source, below. One it did not
+        // settle stays held (an early or off-amount pay).
+        const holdIdentity = nearPaydayRule(rule)
+          ? transactionIsTransfer(credit) && !!ruleCounterpartExternalId(rule)
+          : matchesIdentityFields(credit, rule);
+        if (!holdIdentity) continue;
         if (rule.eventId === 'payroll') {
           if (payrollLateOfEarlier(credit) && payrollLateAbsorbed === 0) { payrollLateAbsorbed += 1; break; }
           unresolved = true; break;
@@ -4494,6 +4795,7 @@ function observeCore(input, capture) {
     pendingCoverage: normalized.pendingCoverage,
     cycleOpensOn: (due, day) => statementCloseDateForDue(due, day) || due,
     isExplicitlyPosted: tx => explicitlyPostedCounts.get(tx.providerTransactionId) === 1,
+    coverageReference: cardCoverageReference,
     alreadyAllocated: tx => (planForIdentity.cardPurchaseCoverage?.payments || []).some(p =>
       p.confirmed === true && (p.debitRef === cardCoverageReference(tx) || p.creditRef === cardCoverageReference(tx))),
     matchesIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
@@ -4570,6 +4872,16 @@ function observeCore(input, capture) {
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
+  // U4: a noted TD minimum payment stays evidence only if card coverage, on
+  // this observation's own packet, paired it with the card's posted credit.
+  if (assembled.cardMinimumCategoryEvidence) {
+    const packet = actualsPass.packet;
+    const receipts = (assembled.cardMinimumCategoryEvidence.payments || []).some(p => p?.evidence === 'card-payment-note')
+      && packet && Array.isArray(packet.transactions)
+      ? Forecast.cardNotePaymentReceipts(packet.transactions, { plan: input.data && input.data.plan,
+        asOf: packet.observationAsOf, packet, debts: input.data && input.data.debts }) : [];
+    assembled.cardMinimumCategoryEvidence = MinimumCategory.qualifyNotePayments(assembled.cardMinimumCategoryEvidence, receipts);
+  }
   // S2: the timing applied above, for live-plan to apply to the served plan.
   // Internal to the report; never served.
   // Present only when a schedule applies, so every other report keeps its shape.
@@ -4806,7 +5118,7 @@ function paydayGapCompleteFromEvidence(opts) {
       && String(tx.date) < String(paydayDate);
     if (tx.accountRole === 'household-cash'
       && tx.pending === true
-      && tx.pendingPostedDuplicate !== true
+      && (tx.pendingPostedDuplicate !== true || tx.pendingBillCopy === true)
       && inGap) {
       return false;
     }
@@ -5213,12 +5525,68 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // scheduled occurrence, capped below half of that bill's own interval so
 // a short-cycle bill can never claim its neighbour's charge.
 const NEAR_DUE_BILL_DAYS = 3;
+// The one occurrence of a bill nearest a debit date, with its reach: at most
+// NEAR_DUE_BILL_DAYS, capped below half of that bill's own interval. Null
+// when the bill has no occurrence within 45 days. Shared by the near-due
+// candidates and the pending-copy pairing, so both use one window.
+function nearestBillOccurrence(plan, eventId, date) {
+  const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
+    .filter(e => e.id === eventId).map(e => e.date)
+    .filter((d, i, all) => all.indexOf(d) === i).sort();
+  if (!occ.length) return null;
+  const dist = d => Math.abs(Forecast.diffDays(d, date));
+  const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
+  const i = occ.indexOf(nearest);
+  const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
+    i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
+  const interval = Math.min(...gaps);
+  return { date: nearest, off: dist(nearest), reach: Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1),
+    offsetDays: Forecast.diffDays(nearest, date) };
+}
+// The identity rules the near-due candidates and the pending-copy pairing
+// read: an explicit payee identity, debit direction, a mapped account, not a
+// transfer or a trust-on-due rule, naming a plan bill or obligation.
+function nearDueIdentityRules(opts, plan) {
+  return stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
+    && rule.direction === 'debit' && rule.atlasAccountId
+    && rule.transactionKind !== 'transfer'
+    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
+    && rulePayeePatterns(rule).length > 0
+    && isBillOrObligationEvent(plan, rule.eventId));
+}
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
-  // confirm: a second identity debit near it stays ordinary spending.
-  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
+  // confirm: a second identity debit near it stays ordinary spending. A
+  // pending-only row (pendingOnlyBillActuals, pending: true) is linked
+  // evidence, never a payment: the bill stays reserved, so a posted identity
+  // debit near it (typically that pending charge posting days later without a
+  // provider link) is still held To confirm on the bill. Counting it as
+  // spending while the bill is reserved would deduct the payment twice.
+  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending !== true)
     .map(row => row.id + '@' + row.date));
+  // The occurrences only a pending-only row stands on. A debit held To confirm
+  // on one of them carries pendingOnlyOccurrence: the pending copy and the
+  // posted debit are not resolved as one payment, so Forecast keeps the
+  // category remaining claim classified-incomplete, as before the hold.
+  // The posted debit reads as that pending charge posting only when it is the
+  // pending amount to the cent (one pending row). Any other amount may be a
+  // separate charge beside a bill still pending, so it stays ordinary spending
+  // and the pending bill stays reserved (#1315 re-review note; lead 2026-11-18):
+  // the cautious reading never lets a gap or a second charge vanish.
+  const pendingOnlyCents = new Map();
+  for (const row of representedActuals || []) {
+    if (!row || !row.id || !row.date || row.pending !== true) continue;
+    const key = row.id + '@' + row.date;
+    const list = pendingOnlyCents.get(key) || [];
+    list.push(Math.round(Number(row.actual) * 100));
+    pendingOnlyCents.set(key, list);
+  }
+  const pendingOnly = new Set(pendingOnlyCents.keys());
+  const pendingCopyOf = (key, amount) => {
+    const list = pendingOnlyCents.get(key);
+    return !!(list && list.length === 1 && Number.isFinite(list[0]) && list[0] === Math.round(amount * 100));
+  };
   // So is an occurrence the plan opening already names as represented
   // (effective by the observation date), and a recurring occurrence dated
   // before the settlement opening boundary, which Forecast prints Paid
@@ -5240,12 +5608,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   if (window && window.complete === false) return out;
   const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
   const mapDoc = opts && opts.accountMap;
-  const rules = stampRuleSetClaims(opts && opts.identityRules).filter(rule => rule && rule.eventId
-    && rule.direction === 'debit' && rule.atlasAccountId
-    && rule.transactionKind !== 'transfer'
-    && rule.settlesWhen !== SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE
-    && rulePayeePatterns(rule).length > 0
-    && isBillOrObligationEvent(plan, rule.eventId));
+  const rules = nearDueIdentityRules(opts, plan);
   if (!plan || !rules.length) return out;
   // Posted household-cash debits that pass every gate below except date.
   const eligibleDebit = new Map();
@@ -5253,7 +5616,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     // Posted debits only: unresolved pending cash keeps its incumbent path
     // (it withholds precise funding until it posts or is resolved).
     if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
-    if (tx.pendingPostedDuplicate === true || tx.pendingPostedAmbiguous === true) continue;
+    // A posted row paired with its own pending copy (pendingPostedDuplicate)
+    // is still the payment: the pending side is the possible replacement,
+    // never counted. Without the hold it would be spent beside the reserve.
+    if (tx.pendingPostedAmbiguous === true) continue;
     const localId = existingLocalId(tx.providerTransactionId);
     if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
     const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
@@ -5265,27 +5631,20 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     for (const rule of rules) {
       if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
-      const occ = scheduledEventsOnRange(plan, Forecast.addDays(date, -45), Forecast.addDays(date, 45))
-        .filter(e => e.id === rule.eventId).map(e => e.date)
-        .filter((d, i, all) => all.indexOf(d) === i).sort();
-      if (!occ.length) continue;
-      const dist = d => Math.abs(Forecast.diffDays(d, date));
-      const nearest = occ.reduce((best, d) => (dist(d) < dist(best) ? d : best), occ[0]);
-      const i = occ.indexOf(nearest);
-      const gaps = [i > 0 ? Forecast.diffDays(occ[i - 1], nearest) : Infinity,
-        i < occ.length - 1 ? Forecast.diffDays(nearest, occ[i + 1]) : Infinity];
-      const interval = Math.min(...gaps);
-      const reach = Math.min(NEAR_DUE_BILL_DAYS, Math.ceil(interval / 2) - 1);
-      const off = dist(nearest);
+      const near = nearestBillOccurrence(plan, rule.eventId, date);
       // Same-day identity is the matcher's to settle or leave ambiguous.
-      if (off < 1 || off > reach) continue;
-      found.push({ id: rule.eventId, date: nearest, offsetDays: Forecast.diffDays(nearest, date) });
+      if (!near || near.off < 1 || near.off > near.reach) continue;
+      found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays });
     }
     const unique = found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
+        && (!pendingOnly.has(f.id + '@' + f.date) || pendingCopyOf(f.id + '@' + f.date, amount))
         && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
           (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
-    if (unique.length === 1) out.set(localId, unique[0]);
+    if (unique.length === 1) {
+      out.set(localId, pendingOnly.has(unique[0].id + '@' + unique[0].date)
+        ? { ...unique[0], pendingOnlyOccurrence: true } : unique[0]);
+    }
     eligibleDebit.set(localId, amount);
   }
   // Finish-line audit finding 2: several same-day identity debits for one
@@ -5341,6 +5700,99 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
       else out.delete(row.localId);
     }
+  }
+  return out;
+}
+
+// Lead dispatch 2026-11-18 (after #1315): a bill payment first seen pending
+// on one day and posted on a later day, with no provider link between the two
+// rows, is one payment. The same-day pairing (flagUnresolvedPendingPostedDuplicates)
+// needs equal dates, and a pending identity debit off the due date is never a
+// near-due candidate, so the pending copy was spent beside the bill's reserve
+// or its payment. Here, per occurrence of one bill: exactly one unlinked
+// pending identity debit, within the occurrence's near-due reach (due date
+// included), and exactly one posted payment for that occurrence (the
+// matcher's posted settlement or a held near-due candidate), on the same
+// account, at the same amount to the cent, the pending dated on or before the
+// posted. The pending side takes the existing pendingPostedDuplicate
+// treatment (the posted payment counts once; the pending row stays listed as
+// an unresolved possible replacement, never spent and never dropped) and is
+// also marked pendingBillCopy, so the two places where an unresolved pending
+// row keeps a figure cautious still read it that way: an unclassified copy
+// still makes the category remaining claim classified-incomplete, and a copy
+// in the opening-to-payday gap still leaves that gap unproven. A pending row
+// the same-day pairing already flagged is marked too when it pairs here. The
+// posted payment is not flagged, so every consumer reads it as before.
+// Anything else (two pendings, two posted payments, a pending after the
+// posted row, a different amount or account) is left as it was.
+function pendingBillCopyIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals, nearDueBills) {
+  const out = new Set();
+  const window = opts && opts.transactionWindow;
+  if (window && window.complete === false) return out;
+  const plan = (opts && (opts.planForIdentity || opts.plan)) || null;
+  const mapDoc = opts && opts.accountMap;
+  const rules = nearDueIdentityRules(opts, plan);
+  // Codex P2 on #1319: a posted row dated after the observation date is not
+  // yet in the period's actuals, so it is never evidence that a current
+  // pending row is its copy.
+  const observedOn = parseIsoDate(opts && opts.asOf);
+  if (!plan || !rules.length || !mapDoc || !observedOn) return out;
+  const byLocal = new Map();
+  for (const tx of collapsed || []) {
+    const localId = tx && existingLocalId(tx.providerTransactionId);
+    if (localId) byLocal.set(localId, tx);
+  }
+  const posted = new Map();
+  const addPosted = (key, localId) => {
+    const tx = byLocal.get(localId);
+    if (!tx || tx.pending === true) return;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date || date > observedOn) return;
+    const list = posted.get(key) || [];
+    if (!list.some(row => row.localId === localId)) list.push({ localId, amount, date, account: String(tx.providerAccountId) });
+    posted.set(key, list);
+  };
+  for (const row of representedActuals || []) {
+    if (!row || row.pending === true || !row.id || !row.date || !rules.some(rule => rule.eventId === row.id)) continue;
+    for (const localId of [].concat(row.transactionIds || (row.transactionId ? [row.transactionId] : []))) {
+      addPosted(row.id + '@' + row.date, localId);
+    }
+  }
+  for (const [localId, f] of nearDueBills || []) addPosted(f.id + '@' + f.date, localId);
+  const pending = new Map();
+  for (const tx of collapsed || []) {
+    if (!tx || tx.pending !== true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) continue;
+    const localId = existingLocalId(tx.providerTransactionId);
+    if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+    const mapping = mappingFor(mapDoc, tx.providerAccountId);
+    if (atlasAccountRole(mapping) !== 'household-cash' || !mapping.canonical) continue;
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    const date = parseIsoDate(tx.date);
+    if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+    const keys = new Set();
+    for (const rule of rules) {
+      if (mapping.canonical.id !== rule.atlasAccountId) continue;
+      // A pending row has no posted receipt: like the pending-bill disclosure
+      // (collectIdentityHits), it reads the rule's identity fields only, and a
+      // rule that requires posted evidence still never pairs it.
+      if (!matchesIdentityFields(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
+      const near = nearestBillOccurrence(plan, rule.eventId, date);
+      if (!near || near.off > near.reach) continue;
+      keys.add(rule.eventId + '@' + near.date);
+    }
+    if (keys.size !== 1) continue;
+    const key = [...keys][0];
+    const list = pending.get(key) || [];
+    list.push({ localId, amount, date, account: String(tx.providerAccountId) });
+    pending.set(key, list);
+  }
+  for (const [key, pendings] of pending) {
+    const posts = posted.get(key) || [];
+    if (pendings.length !== 1 || posts.length !== 1) continue;
+    const [p] = pendings, [q] = posts;
+    if (p.account !== q.account || Math.abs(p.amount - q.amount) > IDENTITY_AMOUNT_EPSILON || p.date > q.date) continue;
+    out.add(p.localId);
   }
   return out;
 }
@@ -5524,6 +5976,20 @@ const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.start
   'criteria.granularity', 'criteria.quantity', 'criteria.anchorDate', 'criteria.currency',
   'criteria.plaidAccountId', 'criteria.manualAccountId', 'matches', 'matches.expectedOccurrenceDates',
   'matches.foundTransactions']);
+// Each reviewed, named item the review does not apply is recorded where it
+// is refused, with its Atlas plan row (only when exactly one plan row has the
+// one event id that names it, else null) and one closed reason code (lead
+// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
+const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
+  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
+  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
+  'expected-dates-mismatch']);
+const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
+// The plan-id shape a served refusal may carry: lowercase, starting with a
+// letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
+function recurringRefusalPlanId(v) {
+  return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
+}
 function sanitizedRecurringEvidence(raw, opts) {
   if (raw == null) return null;
   // A response that claims to continue beyond what it returned (paging keys
@@ -5660,20 +6126,6 @@ function applyRecurringSchedule(bill, schedule) {
   return out;
 }
 
-// Each reviewed, named item the review does not apply is recorded where it
-// is refused, with its Atlas plan row (only when exactly one plan row has the
-// one event id that names it, else null) and one closed reason code (lead
-// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
-const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
-  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
-  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
-  'expected-dates-mismatch']);
-const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
-// The plan-id shape a served refusal may carry: lowercase, starting with a
-// letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
-function recurringRefusalPlanId(v) {
-  return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
-}
 function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   const refused = [];
   const done = schedules => ({ schedules, refused });
@@ -6017,6 +6469,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   };
   const txs = [];
   const distinctPendingRows = [];
+  // U5: emitted group-parent id -> the child provider ids Lunch Money lists for
+  // it; emitted row id -> its provider id. Internal to this pass; never emitted.
+  const groupChildIds = new Map(), providerIdOfRow = new Map();
   const bankDescriptions = new Map();
   const join = [];
   const currencyUnconfirmed = [];
@@ -6355,6 +6810,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     txs.push(emittedRow);
     const distinctPending = distinctPendingByPosted.get(tx);
     if (distinctPending) distinctPendingRows.push([emittedRow, distinctPending.providerTransactionId]);
+    if (emittedRow.id != null) {
+      providerIdOfRow.set(String(emittedRow.id), tx.providerTransactionId == null ? null : String(tx.providerTransactionId));
+      if (Array.isArray(tx.groupChildIds)) groupChildIds.set(String(emittedRow.id), tx.groupChildIds);
+    }
     // Same-pass crosswalk capture: the exact surviving transaction that
     // produced this emitted row. Strings are copied at emission, so later
     // row mutation (linkage stamps, metadata stripping, merchant
@@ -6433,6 +6892,14 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     asOf,
     ambiguousGroups: opts.ambiguousBillGroups,
   }, linkedLocalIds, existingLocalId, representedActuals);
+  const pendingBillCopies = pendingBillCopyIds(collapsed, {
+    transactionWindow: window,
+    identityRules: opts.identityRules,
+    planForIdentity: opts.planForIdentity,
+    plan: opts.plan,
+    accountMap: mapDoc,
+    asOf,
+  }, linkedLocalIds, existingLocalId, representedActuals, nearDueBills);
   const linkedMisfits = linkedBillMisfitIds(collapsed, {
     identityRules: opts.identityRules,
     planForIdentity: opts.planForIdentity,
@@ -6444,6 +6911,10 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     else if (tx) tx.representedBill = false;
     if (tx && tx.representedBill !== true && nearDueBills.has(tx.id)) {
       tx.nearDueBillCandidate = { ...nearDueBills.get(tx.id) };
+    }
+    if (tx && tx.pending === true && pendingBillCopies.has(tx.id)) {
+      tx.pendingPostedDuplicate = true;
+      tx.pendingBillCopy = true;
     }
     // A near-due candidate is already named on its bill; one naming only.
     if (tx && tx.representedBill !== true && !tx.nearDueBillCandidate && linkedMisfits.has(tx.id)) {
@@ -6545,9 +7016,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
         state: reason ? 'unresolved' : row.savingsPostingEvidence,
         reason, occurrenceKey: reason ? null : resolution.occurrenceKey });
     }
-    // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1).
+    // A Savings-paid purchase is still listed on the Budget (Savings audit PR 1),
+    // and so is a held outflow under To confirm (rank 18; it was listed as
+    // Other spending before, so it keeps the same identity fields).
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)
-        && cls.kind !== 'savings-paid') {
+        && cls.kind !== 'savings-paid' && cls.kind !== 'held-outflow') {
       delete row.displayedPayee;
       delete row.originalMerchant;
       delete row.displayedNote;
@@ -6582,6 +7055,25 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     : Array.isArray(report && report.transactions) || Array.isArray(report && report.collapsedTransactions);
   // A2: Forecast suppresses a split parent once any child is present, so the
   // present children must reconcile to the parent to the cent.
+  // U5 (lead dispatch): a cross-account group parent has no account of its own
+  // (#1306) and every consumer skips it once its children are present
+  // (skipSplitParent). It is not an unmapped-account gap when exactly the
+  // children Lunch Money lists for it (by id, each once) are present as rows
+  // and every one of them is individually mapped. A parent with any child
+  // missing, duplicated, unlisted or unmapped, or with no listed children,
+  // stays a gap.
+  const completeGroupParent = parent => {
+    if (!parent || parent.isGroup !== true || parent.id == null) return false;
+    const expected = groupChildIds.get(String(parent.id));
+    if (!Array.isArray(expected) || !expected.length || expected.some(id => id == null)
+      || new Set(expected).size !== expected.length) return false;
+    const children = txs.filter(child => child && child !== parent && child.parentId != null
+      && String(child.parentId) === String(parent.id));
+    const present = children.map(child => providerIdOfRow.get(String(child.id)));
+    return children.length === expected.length && new Set(present).size === present.length
+      && present.every(id => id != null && expected.includes(id))
+      && children.every(child => child.accountRole && child.accountRole !== 'unmapped');
+  };
   const splitUnreconciled = txs.some(parent => {
     if (!parent || parent.isGroup !== true || !COVERAGE_ACCOUNT_ROLES.has(parent.accountRole)) return false;
     const children = txs.filter(child => child && child !== parent && child.parentId != null
@@ -6610,7 +7102,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   // droppedCategoryRows (Forecast actualsCoverageState, localizedDrops opt-in).
   const otherCoverageGap = cardCoverageUnconfirmed.length || currencyUnconfirmed.length || droppedCoverageRows > 0
       || syncEvidence.some(row => row.syncEvidence === 'failed')
-      || txs.some(tx => tx && tx.accountRole === 'unmapped')
+      || txs.some(tx => tx && tx.accountRole === 'unmapped' && !completeGroupParent(tx))
       || positiveEvidenceGap;
   if (window.truncated === true || window.complete === false || window.hasMore === true) {
     transactionCoverage = 'truncated';
@@ -6721,7 +7213,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     && droppedRowInCoverage(tx.date, window) && tx.currency !== 'cad').length);
   count('card-coverage-unconfirmed', cardCoverageUnconfirmed.length);
   count('dropped-row', diagnosticDroppedRows.size);
-  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped').length);
+  count('unmapped-account', txs.filter(tx => tx?.accountRole === 'unmapped' && !completeGroupParent(tx)).length);
   count('posting-status-unconfirmed', inWindowCoverageRows.filter(tx => !['posted', 'pending'].includes(tx.savingsPostingEvidence)).length);
   count('split-unreconciled', splitUnreconciled ? 1 : 0);
   count('transactions-missing', collectionPresent ? 0 : 1);
@@ -7017,6 +7509,7 @@ const api = {
   applyRecurringObligationSchedule,
   RECURRING_OBLIGATION_FIELDS,
   RECURRING_REFUSAL_CODES,
+  sanitizedRecurringEvidence,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,

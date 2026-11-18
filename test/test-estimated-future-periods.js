@@ -208,5 +208,47 @@ console.log('\n=== an unresolved card minimum still withholds the future (not a 
   expectWithheldFuture(advice, 'card minimum unresolved');
 }
 
+console.log('\n=== a released later period never counts an unknown bill amount as $0 (#1312 review note 4) ===');
+{
+  // The same invented plan plus one bill whose amount is unknown. The period that holds it publishes its bill load,
+  // bills total, remaining bills and Balance After Deductions as unknown (null, unavailable), never an estimate that
+  // reads the unknown bill as $0. Released periods without it keep their own hand-derived estimates:
+  //   2026-10-23: 3000 - 1200 (Nov 1) - 200 = 1600;  2026-11-20: 3000 - 1200 (Dec 1) - 200 = 1600;
+  //   2026-12-04 and 2026-12-18: 3000 - 0 - 200 = 2800.
+  // An undated unknown could fall in any released period, so every one of them is unknown.
+  const withBill = bill => Object.assign(plan(), { bills: plan().bills.concat([bill]) });
+  const views = advice => [...new Set([...(advice.payPeriodViews || []), ...(advice.defaultView.calendarPeriods || []),
+    advice.nextPeriodView, ...(advice.weekViews || [])])].filter(p => p && p.start > AS_OF && p.currentCashUnconfirmed);
+  const unknownIn = p => ['periodBillLoad', 'totalBillsThisPeriod', 'remainingBills', 'balanceAfterDeductions'].every(k => p[k] == null)
+    && p.periodBillLoadTrust === 'unavailable' && p.balanceAfterDeductionsTrust === 'unavailable';
+  const water = { id: 'water', label: 'Invented water', payingAccount: 'chequing-a' };
+  const SHAPES = [
+    ['a once bill with a null amount on Nov 10', { ...water, amount: null, frequency: 'once', date: '2026-11-10', confidence: 'unknown' }, ['2026-11-06']],
+    ['a monthly bill with a null amount on the 10th', { ...water, amount: null, frequency: 'monthly', day: 10, confidence: 'unknown' }, ['2026-11-06', '2026-12-04']],
+    ['a monthly bill with no amount on the 10th', { ...water, frequency: 'monthly', day: 10, confidence: 'estimated' }, ['2026-11-06', '2026-12-04']],
+  ];
+  const ESTIMATES = { '2026-10-23': 1600, '2026-11-06': 2800, '2026-11-20': 1600, '2026-12-04': 2800, '2026-12-18': 2800 };
+  for (const [label, bill, unknownStarts] of SHAPES) {
+    const a = F.recommend(withBill(bill), AS_OF, Object.assign({ targetBuffer: 500, debts: [] }, OPENING_UNKNOWN));
+    ok(a.scheduledAmounts && a.scheduledAmounts.status === 'unavailable', `${label}: the scheduled amount reads unknown`);
+    const released = views(a);
+    for (const start of unknownStarts) {
+      const hit = released.filter(p => p.start === start);
+      ok(hit.length > 0 && hit.every(unknownIn), `${label}: the ${start} period that holds it publishes its bills and BAD as unknown, never as $0`,
+        JSON.stringify(hit.map(p => [p.periodBillLoad, p.balanceAfterDeductions, p.balanceAfterDeductionsTrust])));
+    }
+    const others = released.filter(p => !unknownStarts.includes(p.start) && Object.hasOwn(ESTIMATES, p.start));
+    ok(others.length > 0 && others.every(p => p.balanceAfterDeductions === ESTIMATES[p.start] && p.balanceAfterDeductionsTrust === 'estimated'),
+      `${label}: every other released period keeps its own hand-derived estimate`,
+      JSON.stringify(others.map(p => [p.start, p.balanceAfterDeductions])));
+  }
+  const undated = F.recommend(withBill({ ...water, amount: 40, frequency: 'monthly', confidence: 'estimated' }), AS_OF,
+    Object.assign({ targetBuffer: 500, debts: [] }, OPENING_UNKNOWN));
+  const releasedUndated = views(undated);
+  ok(releasedUndated.length > 0 && releasedUndated.every(unknownIn),
+    'an undated bill could fall in any released period: every released period publishes its bills and BAD as unknown',
+    JSON.stringify(releasedUndated.map(p => [p.start, p.balanceAfterDeductions])));
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll estimated-future-period checks passed.');

@@ -5,11 +5,14 @@ const clone = x => JSON.parse(JSON.stringify(x));
 module.exports = function fixture(kind = 'amanda', control = 'early') {
   const payroll = kind === 'payroll', amount = payroll ? 2500 : 1800.25;
   const scheduled = payroll ? '2027-01-01' : '2026-10-31';
-  const early = payroll ? '2026-12-31' : '2026-10-30';
+  // Amanda's early receipt is Fri Oct 23, 5 business days before Sat Oct 31: outside the owner's 3-business-day
+  // near-amount window (#821 6967081727), so it is still an unsettled early receipt that this fixture holds.
+  // (A receipt nearer the payday now settles it; test-amanda-pay-near-amount.js proves that.)
+  const early = payroll ? '2026-12-31' : '2026-10-23';
   const asOf = control === 'same-day' ? scheduled : control === 'bracketed' ? '2026-11-01' : early;
   const transfer = control === 'bracketed' ? asOf : asOf;
   const sourceDate = control === 'bracketed' ? early : asOf;
-  const prior = payroll ? '2026-12-30' : '2026-10-29';
+  const prior = payroll ? '2026-12-30' : '2026-10-22';
   const id = payroll ? 'payroll' : 'amandaSalaryMonthEnd';
   const data = { meta: { asOf: prior, title: 'Invented early receipt fixture' }, accounts: [], debts: [], revolvingExtra: [],
     plan: { opening: { asOf: prior, representedEvents: [] }, windowDays: 28,
@@ -41,5 +44,8 @@ module.exports = function fixture(kind = 'amanda', control = 'early') {
       balance_as_of: asOf, updated_at: asOf + 'T17:00:00.000Z', balance_last_update: asOf + 'T17:00:00.000Z' })), transactions,
     transactionWindow: { startDate: prior, endDate: asOf, complete: true, hasMore: false, truncated: false },
     pendingCoverage: { complete: true, basis: 'is_pending-unbounded', hasMore: false, truncated: false } };
-  return { data, accountMap, identityRules, payload, asOf, scheduled, amount, id };
+  // Days from the plan date through the day after the payday: the span a walk needs to reach the occurrence.
+  const daysToPayday = Math.round((Date.parse(scheduled + 'T00:00:00Z') - Date.parse(asOf + 'T00:00:00Z')) / 86400000);
+  const horizonDays = Math.max(3, daysToPayday + 2);
+  return { data, accountMap, identityRules, payload, asOf, scheduled, amount, id, horizonDays };
 };
