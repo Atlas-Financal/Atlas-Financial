@@ -858,8 +858,8 @@ const App = (() => {
     //     Facts name a month, a category or a count, never an amount, and
     //     they compute no new money figure: they only pick which published
     //     month or category is largest. Nothing is stored. They read only an
-    //     unbroken run of fully covered months (cards included, after the
-    //     coverage start), counting back from last month; a history not
+    //     unbroken run of fully covered months (cards included, inside the
+    //     fetched window), counting back from last month; a history not
     //     marked complete, a gap, or an uncovered month ends the run or drops
     //     the fact rather than guessing.
     // The card is aria-hidden decoration like the treatment, so the notice
@@ -892,18 +892,20 @@ const App = (() => {
     const bootFacts = periods => {
       if (!periods || typeof periods !== 'object' || !periods.source || periods.source.complete !== true) return [];
       const current = typeof periods.thisMonth === 'string' ? periods.thisMonth : null;
-      const coverageStart = typeof periods.source.coverageStart === 'string' ? periods.source.coverageStart : null;
+      // The fetched window's own start (not the first transaction's date):
+      // a month the window starts inside is only partly covered.
+      const windowStart = typeof periods.source.queryWindowStart === 'string' ? periods.source.queryWindowStart : null;
       const monthName = key => MONTH_NAMES[Number(String(key).slice(5, 7)) - 1] || null;
       const isMonth = key => typeof key === 'string' && /^\d{4}-\d{2}$/.test(key) && !!monthName(key);
-      if (!isMonth(current) || !coverageStart || !/^\d{4}-\d{2}-\d{2}$/.test(coverageStart)) return [];
+      if (!isMonth(current) || !windowStart || !/^\d{4}-\d{2}-\d{2}$/.test(windowStart)) return [];
       const prevMonth = key => {
         const y = Number(key.slice(0, 4)), m = Number(key.slice(5, 7));
         return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
       };
-      // The first month the history covers in full: the coverage start's own
-      // month only when coverage starts on its first day.
-      const startMonth = coverageStart.slice(0, 7);
-      const firstFull = coverageStart.slice(8, 10) === '01' ? startMonth
+      // The first month the history covers in full: the window start's own
+      // month only when the window starts on its first day.
+      const startMonth = windowStart.slice(0, 7);
+      const firstFull = windowStart.slice(8, 10) === '01' ? startMonth
         : (() => { const y = Number(startMonth.slice(0, 4)), m = Number(startMonth.slice(5, 7));
           return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`; })();
       // A month is usable only when it is published, fully covered (cards
@@ -938,13 +940,16 @@ const App = (() => {
         const count = recent.slice(1).filter((row, i) => row.spending < recent[i].spending).length;
         facts.push(fill(BOOT_FACT_TEMPLATES.lessThanBefore, { count, total }));
       }
-      // "So far this year" needs every month of this year, up to last
-      // month, fully covered (and coverage from the year's first day).
+      // "So far this year" needs the publisher's own year-to-date coverage,
+      // every transaction categorised (categoryClaim 'precise': otherwise
+      // uncategorised spending could change the winner), and every month of
+      // this year, up to last month, fully covered from January.
       const year = current.slice(0, 4);
-      let yearCovered = firstFull <= `${year}-01`;
+      const ytdBlock = periods.periods && periods.periods.ytd;
+      let yearCovered = firstFull <= `${year}-01` && periods.source.categoryClaim === 'precise'
+        && !!ytdBlock && ytdBlock.coverageComplete === true;
       for (let key = prevMonth(current); yearCovered && key >= `${year}-01`; key = prevMonth(key)) yearCovered = usable(key);
-      const ytd = periods.periods && periods.periods.ytd;
-      const categories = (yearCovered && ytd && Array.isArray(ytd.spending) ? ytd.spending : [])
+      const categories = (yearCovered && Array.isArray(ytdBlock.spending) ? ytdBlock.spending : [])
         .filter(row => row && (row.type === 'essential' || row.type === 'discretionary')
           && typeof row.label === 'string' && row.label.trim()
           && typeof row.total === 'number' && Number.isFinite(row.total) && row.total > 0);

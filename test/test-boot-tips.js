@@ -140,9 +140,14 @@ async function lap(page) {
 //     is not fully covered, so no category fact
 //   September cards not covered: run Oct only -> no month facts; year not
 //     covered -> tips only
-//   coverage starts Jan 15: January is partial, run Feb-Oct, 9 months ->
+//   fetch window starts Jan 15: January is partial, run Feb-Oct, 9 months ->
 //     biggest March, lightest August, 3 of 5; the year is not covered from
 //     its first day, so no category fact
+//   uncategorised spending (categoryClaim incomplete), or the publisher's
+//     year-to-date coverage false: the three month facts stay, the
+//     category fact is withheld (the winner could change)
+//   (coverageStart, the first transaction's date, is Jan 2 throughout and
+//     never decides coverage: the fetch window's start does)
 const MONTHLY = [['2026-01', 500], ['2026-02', 520], ['2026-03', 900], ['2026-04', 610], ['2026-05', 600],
   ['2026-06', 650], ['2026-07', 640], ['2026-08', 300], ['2026-09', 450], ['2026-10', 420], ['2026-11', 100]];
 const EXPECTED_FACTS = [
@@ -160,8 +165,9 @@ const EXPECTED_PARTIAL_START = [
   'Of the last 9 months, your lightest spending month was August.',
   'In 3 of the last 5 months, you spent less than the month before.',
 ];
-function inventedPeriods({ complete = true, coverageStart = '2026-01-01', drop = [], uncovered = [] } = {}) {
-  const block = (label, months) => ({ label, months,
+function inventedPeriods({ complete = true, queryWindowStart = '2026-01-01', drop = [], uncovered = [],
+  categoryClaim = 'precise', ytdCoverageComplete = true } = {}) {
+  const block = (label, months, coverageComplete = true) => ({ label, months, coverageComplete,
     spending: [
       { label: 'Invented groceries', total: 900, type: 'essential' },
       { label: 'Invented takeaway', total: 400, type: 'discretionary' },
@@ -170,9 +176,10 @@ function inventedPeriods({ complete = true, coverageStart = '2026-01-01', drop =
     spendingTotal: 6300, fees: [], feesTotal: 0, interest: [], interestTotal: 0 });
   return {
     asOf: '2026-11-14', thisMonth: '2026-11', lastMonth: '2026-10',
-    source: { basis: 'invented', complete, coverageStart, coverageThrough: '2026-11-14' },
+    source: { basis: 'invented', complete, categoryClaim, queryWindowStart,
+      coverageStart: '2026-01-02', coverageThrough: '2026-11-14' },
     periods: { thisMonth: block('This month', 1), lastMonth: block('Last month', 1),
-      ytd: block('Year to date', 11), all: block('All', 11) },
+      ytd: block('Year to date', 11, ytdCoverageComplete), all: block('All', 11) },
     monthly: MONTHLY.filter(([m]) => !drop.includes(m))
       .map(([m, spending]) => ({ m, spending, interest: 0, fees: 0, cardsCovered: !uncovered.includes(m) })),
   };
@@ -289,9 +296,16 @@ async function refreshScreen(browser, periods, contextOpts = {}) {
       'a missing month ends the run: never compares non-adjacent months', JSON.stringify(gap));
     const uncov = await factsFor(inventedPeriods({ uncovered: ['2026-09'] }));
     ok(uncov.length === 0, 'a month with cards not covered ends the run: tips only here', JSON.stringify(uncov));
-    const partial = await factsFor(inventedPeriods({ coverageStart: '2026-01-15' }));
+    const partial = await factsFor(inventedPeriods({ queryWindowStart: '2026-01-15' }));
     ok(JSON.stringify(partial) === JSON.stringify(EXPECTED_PARTIAL_START.slice().sort()),
-      'a partly covered first month is never used, and no year fact', JSON.stringify(partial));
+      'a fetch window starting mid-month: that month is never used, and no year fact', JSON.stringify(partial));
+    const monthsOnly = EXPECTED_FACTS.slice(0, 3).sort();
+    const claim = await factsFor(inventedPeriods({ categoryClaim: 'incomplete' }));
+    ok(JSON.stringify(claim) === JSON.stringify(monthsOnly),
+      'uncategorised spending withholds the category fact', JSON.stringify(claim));
+    const ytdCov = await factsFor(inventedPeriods({ ytdCoverageComplete: false }));
+    ok(JSON.stringify(ytdCov) === JSON.stringify(monthsOnly),
+      'the publisher\'s year-to-date coverage false withholds the category fact', JSON.stringify(ytdCov));
     {
       const { context, page } = await refreshScreen(browser, inventedPeriods({ complete: false }));
       const lines = await lap(page);
