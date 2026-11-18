@@ -135,12 +135,13 @@ function hasBrowser() {
     console.log('\n  SKIP  page case: Playwright Chromium is not available here');
   } else {
     console.log('\n=== page: a stale saved "next period" selection prints no projected opening ===');
-    const texts = [];
+    const texts = [], trustedNodes = [];
     for (const v of [LOW, HIGH]) {
       await H.withBudget(world('chequing B missing', v), async p => {
         await p.page.evaluate(() => sessionStorage.setItem('atlas.planSelection.v1', JSON.stringify({ look: 'next-period', periodId: null })));
         await p.reload();
         texts.push(await p.text('body'));
+        trustedNodes.push(await p.page.$$eval('[data-last-trusted-opening]', nodes => nodes.length));
       });
     }
     await H.closeBrowser();
@@ -148,7 +149,7 @@ function hasBrowser() {
     const differing = a.filter((line, i) => line !== b[i] && !/Latest recorded Bills balance/.test(line));
     ok(differing.length === 0, 'no printed figure moves with the incomplete opening (A\'s own recorded balance aside)',
       differing.slice(0, 4).join(' | '));
-    ok(!/Last trusted opening \$/.test(texts[0]), 'no projected balance is printed as the last trusted opening');
+    ok(trustedNodes.every(n => n === 0), 'no last-trusted-opening line is printed at all', trustedNodes.join(','));
   }
   console.log(failures ? `\n${failures} FAILED` : '\nAll opening-gate checks passed');
   process.exit(failures ? 1 : 0);

@@ -1489,8 +1489,20 @@ function overlayLiveState(input) {
   // the overlay against the canonical plan, not this derived input.
   next.plan = Forecast.withLunchMoneyBudgets(next.plan,
     report.currentPeriodActuals && report.currentPeriodActuals.lunchMoneyBudgets, cutover.liveAsOf || liveAsOf);
-  const cash = Forecast.startingCashAmount(next.plan);
-  if (!isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');
+  // The opening write rule (lead ruling, option B), judged by Forecast's
+  // opening gate, never by the numeric seed: an overlay that takes a
+  // complete opening to incomplete is refused; one that leaves an
+  // already-incomplete opening incomplete applies and reads no starting
+  // cash (Forecast publishes none); a complete result must be consumable.
+  const openingReady = plan => Forecast.openingCashState(plan).status === 'ready';
+  const overlaidReady = openingReady(next.plan);
+  if (openingReady(data.plan) && !overlaidReady) {
+    fail('The overlay would leave the opening cash incomplete: a household chequing opening balance known before is missing, duplicated or unknown after it.');
+  }
+  if (overlaidReady) {
+    const cash = Forecast.startingCashAmount(next.plan);
+    if (typeof cash !== 'number' || !Number.isFinite(cash)) fail('Forecast cannot consume the overlaid starting cash.');
+  }
   const allRefused = refused.concat(postingRefused).sort((a, b) =>
     String(a.locator || a.reason).localeCompare(String(b.locator || b.reason))
     || String(a.reason).localeCompare(String(b.reason)));

@@ -92,15 +92,22 @@ function parseArgs(argv) {
 function cashBreakdown(plan) {
   return POSTED_CASH.map(id => {
     const row = (((plan || {}).startingCash || {}).breakdown || []).find(item => item && item.id === id);
-    return { id, value: row ? Number(row.value) : null };
+    // A missing, null or non-numeric balance is unknown (null), never Number(null) === 0.
+    const known = row && row.value != null && row.value !== '' && Number.isFinite(Number(row.value));
+    return { id, value: known ? Number(row.value) : null };
   });
 }
 
+// Null when any spendable posted-cash row is missing or not a finite number:
+// an unknown balance is unknown, never counted as 0.
 function independentSpendable(plan) {
-  return cashBreakdown(plan).reduce((sum, row) => {
-    if (!row || row.id === 'savings') return sum;
-    return sum + (Number(row.value) || 0);
-  }, 0);
+  let sum = 0;
+  for (const row of cashBreakdown(plan)) {
+    if (row.id === 'savings') continue;
+    if (typeof row.value !== 'number' || !Number.isFinite(row.value)) return null;
+    sum += row.value;
+  }
+  return sum;
 }
 
 function compactOverlays(overlay) {
@@ -241,7 +248,7 @@ function fromIncumbents(opts) {
     forecast: {
       asOf: first.figures.asOf,
       startingCash: forecastCash,
-      independentSpendable: Math.round(spendable * 100) / 100,
+      independentSpendable: spendable == null ? null : Math.round(spendable * 100) / 100,
       cashBreakdown: cashBreakdown(first.overlay.data.plan),
       recommendMode: first.figures.mode,
       weekly: first.figures.weekly,
@@ -272,6 +279,10 @@ function fromIncumbents(opts) {
     },
   };
   if (!looksSanitized(packet)) fail('Closed-loop acceptance packet is not sanitized.');
+  if (typeof forecastCash !== 'number' || !Number.isFinite(forecastCash)) {
+    fail('Forecast starting cash is unknown: the opening breakdown is incomplete.');
+  }
+  if (spendable == null) fail('Independent spendable cash is unknown: a posted cash balance is missing.');
   if (Math.abs(spendable - forecastCash) > 0.005) {
     fail('Independent spendable cash does not match Forecast.startingCashAmount.');
   }
