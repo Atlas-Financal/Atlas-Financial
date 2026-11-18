@@ -1038,6 +1038,24 @@ function paydayGlanceCashNote(alloc, liveOverlay) {
   return glanceUpdatedNote(asOf, liveOverlay);
 }
 
+// Dale, 2026-11-18 ("instead of an estimated tag show the last update
+// date", option A): a figure Forecast publishes as estimated ONLY because a
+// card payment or credit is To confirm (estimateCause 'card-coverage') leads
+// with the bank data's date, followed by a small muted "≈ estimate" mark,
+// in place of the estimate tag. The element keeps
+// data-trust="estimated" and says "estimate" to assistive technology. With no
+// single bank date the caller keeps the estimate word (null here).
+function cardEstimateAsOfHtml(liveOverlay) {
+  const date = providerBalanceDate(liveOverlay);
+  if (!date) return null;
+  const shown = escapeHtml('as of ' + fmtDateLong(date));
+  // Dale chose option A: the date leads, and a small muted "≈ estimate"
+  // mark follows it, so the estimate word stays but is not the headline.
+  return `<span class="trust-tag trust-as-of" data-trust="estimated" data-card-estimate-as-of`
+    + ` title="estimate: card payment to confirm" aria-label="${shown}, estimate: card payment to confirm">${shown}`
+    + ` <small class="trust-as-of-mark" data-card-estimate-mark>≈ estimate</small></span>`;
+}
+
 function providerBalanceDate(liveOverlay) {
   const overlayTrusted = !!(liveOverlay && liveOverlay.applied === true
     && liveOverlay.operatingPlan !== 'unavailable');
@@ -2607,7 +2625,7 @@ function isValidIsoCalendarDate(value) {
   return day <= dim;
 }
 
-function paydayInstructionShellHtml(advice, period, schedule) {
+function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   // AMANDA SLICE 14 — PAYDAY ACTION IDENTITY & FUNDING PARITY.
   // The shell now keeps three identities visibly separate:
   //   1. Current position (today) — the paydayAllocation current-cash
@@ -2662,8 +2680,11 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const alloc = advice && advice.paydayAllocation;
   if (!alloc || !alloc.lines) return '';
   const shellTrust = (advice && advice.paydayShellTrust) || {};
+  const shellCause = (advice && advice.paydayShellEstimateCause) || {};
+  const cardAsOf = cardEstimateAsOfHtml(liveOverlay);
   const trustTag = key => {
     const trust = shellTrust[key];
+    if (trust === 'estimated' && shellCause[key] === 'card-coverage' && cardAsOf) return ' ' + cardAsOf;
     if (trust === 'estimated') return ' <span class="trust-tag trust-estimated">estimate</span>';
     if (trust === 'calculated') return ' <span class="trust-tag">calculated</span>';
     return null;
@@ -5646,7 +5667,7 @@ function budgetTodayCashCardHtml(ctx) {
       ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
       ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}.</p>` : ''}
       ${today?.evidenceFailures?.length ? `<ul>${today.evidenceFailures.map(issue => `<li data-budget-cash-reason="${escape(issue.code)}">${escape(issue.message)}${[issue.accountLabel, issue.categoryLabel, issue.date].some(Boolean) ? `<small data-budget-cash-reason-context>${[issue.accountLabel, issue.categoryLabel, issue.date].filter(Boolean).map(escape).join(' · ')}</small>` : ''}${issue.action ? `<small>${escape(issue.action)}</small>` : ''}</li>`).join('')}</ul>` : !ready ? `<p>${escape(today?.reason || 'Current funding evidence is unavailable.')}</p>` : ''}
-      <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule)}</div>
+      <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule, ctx && ctx.liveOverlay)}</div>
     </section>
   </div>`;
 }
@@ -5734,9 +5755,12 @@ function budgetDetailSheetHtml() {
 const budgetBrowseKnown = value => typeof value === 'number' && Number.isFinite(value);
 const budgetBrowseEscape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function budgetBrowseMoney(value, trust) {
+// asOfHtml: cardEstimateAsOfHtml's date and small mark, given only for a
+// figure estimated solely by card coverage; it replaces the ≈ estimated mark.
+function budgetBrowseMoney(value, trust, asOfHtml) {
   return budgetBrowseKnown(value) && !['unavailable', 'unknown', 'untrusted'].includes(trust)
-    ? `${trust === 'estimated' ? '<span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span> ' : ''}${money2(value)}`
+    ? trust === 'estimated' && asOfHtml ? `${money2(value)} ${asOfHtml}`
+    : `${trust === 'estimated' ? '<span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span> ' : ''}${money2(value)}`
     : '<span class="budget-browse-unknown">Unavailable</span>';
 }
 
@@ -6034,7 +6058,8 @@ function budgetSpendingSectionHtml(period, ctx) {
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
     <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed, savedClose })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
-      ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
+      ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null,
+        remainingKnown && funding.estimateCause === 'card-coverage' ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
