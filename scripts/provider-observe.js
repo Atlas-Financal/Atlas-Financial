@@ -5275,8 +5275,19 @@ function nearDueIdentityRules(opts, plan) {
 function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalId, representedActuals) {
   const out = new Map();
   // An occurrence already settled by its own matched payment has nothing to
-  // confirm: a second identity debit near it stays ordinary spending.
-  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date)
+  // confirm: a second identity debit near it stays ordinary spending. A
+  // pending-only row (pendingOnlyBillActuals, pending: true) is linked
+  // evidence, never a payment: the bill stays reserved, so a posted identity
+  // debit near it (typically that pending charge posting days later without a
+  // provider link) is still held To confirm on the bill. Counting it as
+  // spending while the bill is reserved would deduct the payment twice.
+  const settled = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending !== true)
+    .map(row => row.id + '@' + row.date));
+  // The occurrences only a pending-only row stands on. A debit held To confirm
+  // on one of them carries pendingOnlyOccurrence: the pending copy and the
+  // posted debit are not resolved as one payment, so Forecast keeps the
+  // category remaining claim classified-incomplete, as before the hold.
+  const pendingOnly = new Set((representedActuals || []).filter(row => row && row.id && row.date && row.pending === true)
     .map(row => row.id + '@' + row.date));
   // So is an occurrence the plan opening already names as represented
   // (effective by the observation date), and a recurring occurrence dated
@@ -5331,7 +5342,10 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       .filter(f => !settled.has(f.id + '@' + f.date) && !insideOpening(f.id, f.date)
         && billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), amount,
           (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount));
-    if (unique.length === 1) out.set(localId, unique[0]);
+    if (unique.length === 1) {
+      out.set(localId, pendingOnly.has(unique[0].id + '@' + unique[0].date)
+        ? { ...unique[0], pendingOnlyOccurrence: true } : unique[0]);
+    }
     eligibleDebit.set(localId, amount);
   }
   // Finish-line audit finding 2: several same-day identity debits for one
