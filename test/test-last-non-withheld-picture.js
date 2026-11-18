@@ -71,6 +71,18 @@ if (threads.isMainThread && require.main === module) (async () => {
     m.publish('c', evidence('2026-01-01T15:00:00Z'), display('2026-01-01T15:00:00Z', withheld));
     check(m.readClearDisplay(ctx) === null, 'a withheld first publication leaves no clear picture');
     check(Memory.create().readClearDisplay(ctx) === null, 'a new process holds no clear picture (no persistence)');
+    // A withheld publication under a different display context (the account
+    // map or category mapping changed) supersedes the clear picture: it is
+    // dropped, so a later return to the old context cannot revive it.
+    {
+      const c = Memory.create(), other = { k: 'other' };
+      c.publish('c', evidence('2026-01-02T10:00:00Z'), display('2026-01-02T10:00:00Z', complete));
+      c.publish('c', evidence('2026-01-02T11:00:00Z'), { ...display('2026-01-02T11:00:00Z', withheld), context: other });
+      check(c.readClearDisplay(other) === null, 'a withheld publication under a new context has no clear picture of its own');
+      c.publish('c', evidence('2026-01-02T12:00:00Z'), display('2026-01-02T12:00:00Z', withheld));
+      check(c.readClearDisplay(ctx) === null,
+        'returning to the old context does not revive the clear picture a newer context superseded');
+    }
   }
 
   console.log('2. Every retained-attempt reason has a banner line (parity)');

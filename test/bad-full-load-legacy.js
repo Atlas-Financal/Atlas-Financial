@@ -146,8 +146,9 @@ function walkPeriods(advice, fn) {
 }
 
 // Current engine: prove, then restore (returns a deep JSON copy).
+// Fields main predates are proved empty and removed (forecast-authorized-additions).
 module.exports = function restoreLegacyBadFamily(advice) {
-  return walkPeriods(advice, restorePeriod);
+  return require('./forecast-authorized-additions').withoutAuthorizedAdditions(walkPeriods(advice, restorePeriod));
 };
 // Frozen engine: only the lookback BAD-family omission (returns a deep copy).
 module.exports.frozen = function frozenLegacyBadFamily(advice) {

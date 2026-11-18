@@ -121,7 +121,8 @@ console.log('4. No trust, confidence or claim field moves from main (pending on 
   const onMain = require('./fixtures/near-due-pending-replacement-main-tags.json');
   const s = serve([debit('2026-10-15', { pending: true }), debit('2026-10-17')]);
   const keys = new Set([...Object.keys(onMain), ...Object.keys(s.tags)]);
-  const moved = [...keys].filter(k => s.tags[k] !== onMain[k]);
+  const { authorizedTagKey } = require('./forecast-authorized-additions');
+  const moved = [...keys].filter(k => !(!(k in onMain) && authorizedTagKey(k, s.tags[k])) && s.tags[k] !== onMain[k]);
   ok(Object.keys(onMain).length > 100 && moved.length === 0,
     `all ${Object.keys(onMain).length} fields equal main, so none moves toward certainty`, JSON.stringify(moved.map(k => [k, onMain[k], s.tags[k]])));
   ok(s.claim === 'classified-incomplete', 'the unresolved pending copy keeps the category remaining claim classified-incomplete, never precise', s.claim);

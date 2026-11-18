@@ -2733,7 +2733,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   const cardAsOf = cardEstimateAsOfHtml(liveOverlay);
   const trustTag = key => {
     const trust = shellTrust[key];
-    if (trust === 'estimated' && shellCause[key] === 'card-coverage' && cardAsOf) return ' ' + cardAsOf;
+    if (trust === 'estimated' && shellCause[key] === Forecast.CARD_ESTIMATE_CAUSE && cardAsOf) return ' ' + cardAsOf;
     if (trust === 'estimated') return ' <span class="trust-tag trust-estimated">estimate</span>';
     if (trust === 'calculated') return ' <span class="trust-tag">calculated</span>';
     return null;
@@ -6045,9 +6045,10 @@ function budgetCategoryTrendsHtml(ctx) {
     return `<div class="budget-browse-note" data-budget-category-trends="insufficient">
       <p><strong>Over plan in saved periods</strong> <small>Not enough saved periods yet (${have} of ${need}).</small></p></div>`;
   }
-  const over = (trends.categories || []).filter(row => row && row.periodsOver > 0);
-  const n = trends.periodsUsed;
-  const items = over.map(row => `<li data-budget-category-trend="${budgetBrowseEscape(row.id)}"><span>${budgetBrowseEscape(row.label || row.id)}</span> <small>over in ${row.periodsOver} of ${row.periodsCounted} · ${budgetBrowseMoney(row.averageOverspend, row.trust)} over on average</small></li>`).join('');
+  const count = value => (Number.isInteger(value) && value >= 0 ? value : null);
+  const over = (trends.categories || []).filter(row => row && count(row.periodsOver) > 0 && count(row.periodsCounted) != null);
+  const n = count(trends.periodsUsed);
+  const items = over.map(row => `<li data-budget-category-trend="${budgetBrowseEscape(row.id)}"><span>${budgetBrowseEscape(row.label || row.id)}</span> <small>over in ${count(row.periodsOver)} of ${count(row.periodsCounted)} · ${budgetBrowseMoney(row.averageOverspend, row.trust)} over on average</small></li>`).join('');
   return `<div class="budget-browse-note" data-budget-category-trends="ready">
     <p><strong>Over plan in saved periods</strong> <small>last ${n} saved pay periods</small></p>
     ${items ? `<ul class="budget-category-trends">${items}</ul>` : '<p><small>No category went over plan.</small></p>'}</div>`;
@@ -6159,7 +6160,7 @@ function budgetSpendingSectionHtml(period, ctx) {
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
     <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed, savedClose })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
       ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null,
-        remainingKnown && funding.estimateCause === 'card-coverage' ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
+        remainingKnown && funding.estimateCause === Forecast.CARD_ESTIMATE_CAUSE ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}${period.timelineRole === 'current' ? budgetCategoryTrendsHtml(ctx) : ''}

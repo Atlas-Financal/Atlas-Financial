@@ -2361,15 +2361,16 @@
     if (!Object.hasOwn(cash, 'breakdown')) return Number(cash.amount) || 0;
     return householdChequingOpeningRows(cash).reduce((sum, row) => sum + (row.value ?? 0), 0);
   }
-  // INTERNAL WALK SEED ONLY — see postedHouseholdChequingCash. Pages read
-  // spendableHouseholdCash.
+  // The exported starting cash: the walk seed only when the opening gate
+  // holds, else null (Unknown). Outside the walk no caller (scripts,
+  // validators, previews) ever sees a seed built on an incomplete opening;
+  // the walk itself reads postedHouseholdChequingCash directly.
   function startingCashAmount(plan) {
-    return postedHouseholdChequingCash(plan);
+    return openingCashState(plan).status === 'unavailable' ? null : postedHouseholdChequingCash(plan);
   }
-  // Published "Spendable household cash": the same opening as the walk
-  // seed, or null (Unknown) when the operating breakdown is incomplete.
+  // Published "Spendable household cash": the same gated opening.
   function spendableHouseholdCash(plan) {
-    return openingCashState(plan).status === 'unavailable' ? null : startingCashAmount(plan);
+    return startingCashAmount(plan);
   }
   // Actual designated-reserve evidence is the incumbent `savings` /
   // EMERGENCY SAVING breakdown row only. Held-elsewhere cash (TENNIS
@@ -3662,7 +3663,7 @@
         .reduce((s, e) => s + -e.amount, 0);
       const weekDays = daily.filter(d => d.date >= copy.start && d.date <= copy.end);
       const fullIdx = full.daily.findIndex(d => d.date === copy.start);
-      copy.opening = fullIdx > 0 ? full.daily[fullIdx - 1].balance : startingCashAmount(plan);
+      copy.opening = fullIdx > 0 ? full.daily[fullIdx - 1].balance : postedHouseholdChequingCash(plan);
       copy.closing = weekDays.length ? weekDays[weekDays.length - 1].balance : copy.closing;
       const residual = weekDays.reduce((s, p, i) => {
         const prev = i ? weekDays[i - 1].balance : copy.opening;
@@ -3708,7 +3709,7 @@
       extra: events.filter(e => e.kind === 'extra' || e.kind === 'planned-debt')
         .reduce((s, e) => s + -e.amount, 0),
     };
-    const opening = startIdx > 0 ? full.daily[startIdx - 1].balance : startingCashAmount(plan);
+    const opening = startIdx > 0 ? full.daily[startIdx - 1].balance : postedHouseholdChequingCash(plan);
     const residual = daily.reduce((s, p, i) => {
       const prev = i ? daily[i - 1].balance : opening;
       const eventNet = events.filter(e => cashWalkDate(e, walkStart) === p.date)
@@ -3809,7 +3810,7 @@
     for (const p of daily) {
       if (p.date >= measureFrom && p.balance < min.balance) min = { date: p.date, balance: p.balance };
     }
-    if (min.balance === Infinity) min = { date: asOf, balance: startingCashAmount(plan) };
+    if (min.balance === Infinity) min = { date: asOf, balance: postedHouseholdChequingCash(plan) };
     const buffer = full.buffer;
     const totals = {
       confirmedIncome: weeks.reduce((s, w) => s + w.confirmedIncome, 0),
@@ -3825,9 +3826,9 @@
       extra: weeks.reduce((s, w) => s + w.extra, 0),
     };
     totals.income = totals.confirmedIncome + totals.estimatedIncome;
-    const ending = daily.length ? daily[daily.length - 1].balance : startingCashAmount(plan);
+    const ending = daily.length ? daily[daily.length - 1].balance : postedHouseholdChequingCash(plan);
     if (full.reserveFunding) totals.reserveFunding = events.reduce((sum, event) => sum + reserveFundedAmount(event), 0);
-    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : startingCashAmount(plan)));
+    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : postedHouseholdChequingCash(plan)));
     const suffixMin = new Array(viewDays).fill(Infinity);
     for (let i = viewDays - 1; i >= 0; i--) {
       const later = i + 1 < viewDays ? Math.min(0, suffixMin[i + 1]) : 0;
@@ -4808,7 +4809,7 @@
       list.sort((a, b) => (b.amount > 0 ? 1 : 0) - (a.amount > 0 ? 1 : 0));
     }
 
-    const openingCash = startingCashAmount(plan);
+    const openingCash = postedHouseholdChequingCash(plan);
     let balance = openingCash;
     const daily = [];
     // Seeded from the opening balance only when the whole window is being
@@ -4924,7 +4925,7 @@
     // window breaches the buffer even with everything going to plan. Backward
     // pass over daily net changes: requiredClosing = buffer − (the most the
     // balance ever sits below this week's closing at any later day).
-    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : startingCashAmount(plan)));
+    const delta = daily.map((p, i) => p.balance - (i ? daily[i - 1].balance : postedHouseholdChequingCash(plan)));
     const suffixMin = new Array(days).fill(Infinity);
     for (let i = days - 1; i >= 0; i--) {
       const later = i + 1 < days ? Math.min(0, suffixMin[i + 1]) : 0;
@@ -5006,6 +5007,20 @@
         return copy;
       }) };
   }
+  // An incomplete opening (openingCashState) seeds a walk that is not a
+  // figure. Beyond the generic withholding, every number the seed shapes is
+  // withheld too: the weekly variable spending the cash-derived cap set, and
+  // the nested full-horizon `knowledge` walk (its ending, low and daily
+  // balances). Applied only for the opening state, so other states keep
+  // their incumbent publications.
+  function publishOpeningCashWalk(sim, state) {
+    if (!sim || !state || state.status !== 'unavailable') return sim;
+    const out = publishUnavailableCashWalk(sim, state, 'openingCash');
+    out.weeks = (out.weeks || []).map(row => (Object.hasOwn(row, 'variable') ? { ...row, variable: null } : row));
+    if (out.totals && Object.hasOwn(out.totals, 'variable')) out.totals = { ...out.totals, variable: null };
+    if (out.knowledge && typeof out.knowledge === 'object') out.knowledge = publishOpeningCashWalk(out.knowledge, state);
+    return out;
+  }
   function publishMinimumCashWalk(sim, minimums) {
     return publishUnavailableCashWalk(sim, minimums, 'cardMinimumPayments');
   }
@@ -5071,12 +5086,12 @@
     return out;
   }
   function simulate(plan, asOf, opts) {
-    return publishUnavailableCashWalk(publishUnavailableCashWalk(
+    return publishOpeningCashWalk(publishUnavailableCashWalk(
       publishMinimumCashWalk(
         publishScheduledAmountCashWalk(simulateModel(plan, asOf, opts), plan, opts),
         cardMinimumState(plan, asOf, opts)),
       incomeReconciliationState(plan, asOf), 'incomeReconciliation'),
-    openingCashState(plan), 'openingCash');
+    openingCashState(plan));
   }
   /* ---------------------------------------- funding sequence + verdicts */
   // Presentation order only — not the allocator. Protected items are
@@ -5920,7 +5935,7 @@
       date, end: index + 1 < paydayDates.length
         ? addDays(paydayDates[index + 1], -1) : sim.end,
     }));
-    let before = cents(startingCashAmount(plan));
+    let before = cents(postedHouseholdChequingCash(plan));
     if (periodBasis && paydayDates[0] > asOf) {
       const tail = sim.daily.filter(day => day.date < paydayDates[0]);
       const boundary = tail.at(-1);
@@ -10524,7 +10539,7 @@
     const datedCashKnown = spendableHouseholdCash(plan) != null;
     if (datedCashKnown && asOf === window.start && !liveOpeningAdvanced(plan, asOf)) {
       return {
-        opening: roundCent(startingCashAmount(plan)),
+        opening: roundCent(postedHouseholdChequingCash(plan)),
         openingKnown: true,
         openingAsOf: asOf,
         source: 'payday-morning',
@@ -10532,7 +10547,7 @@
     }
     if (datedCashKnown && !liveOpeningAdvanced(plan, asOf) && plan && plan.opening && plan.opening.asOf === asOf) {
       return {
-        opening: roundCent(startingCashAmount(plan)),
+        opening: roundCent(postedHouseholdChequingCash(plan)),
         openingKnown: true,
         openingAsOf: asOf,
         source: 'cutover-opening',
@@ -15575,8 +15590,18 @@
   // this cause, so the page can show the bank data's date in place of the
   // estimate word. The trust itself is unchanged (still 'estimated').
   // withoutCard is the same figure's trust with the card term removed.
+  // The one cause code the page reads (Forecast.CARD_ESTIMATE_CAUSE).
+  const CARD_ESTIMATE_CAUSE = 'card-coverage';
   function cardEstimateCause(trust, withoutCard) {
-    return trust === 'estimated' && withoutCard === 'calculated' ? 'card-coverage' : null;
+    return trust === 'estimated' && withoutCard === 'calculated' ? CARD_ESTIMATE_CAUSE : null;
+  }
+  // The closed estimate basis of an estimated, ready card coverage, for every
+  // consumer outside Forecast (assistant packet, operating answer): its own
+  // basis when recognised, else the combined one; null when not estimated.
+  function cardCoverageEstimateBasis(coverage) {
+    if (!coverage || coverage.status !== 'ready' || coverage.trust !== 'estimated') return null;
+    return Object.hasOwn(CARD_ESTIMATE_REASONS, coverage.estimateBasis || '')
+      ? coverage.estimateBasis : CARD_ROWS_ESTIMATE_BASIS;
   }
   function cardCoverageTrust(coverage) {
     return coverage && coverage.status === 'ready' && coverage.trust === 'estimated' ? 'estimated' : 'calculated';
@@ -17743,6 +17768,10 @@
             ...(key === 'bills' ? savedBillDisplay(row) : {}), ...JSON.parse(JSON.stringify(row)) };
           delete copy.alsoCarriedToCurrent;
           delete copy.ledgerEntryUnbacked;
+          // A budget row's saved trust tag is kept for saved-period trends
+          // only. The reprint is unchanged by it: no trust word is re-raised
+          // on a saved close's category rows.
+          if (key === 'householdBudget') { delete copy.trust; delete copy.plannedTrust; }
           if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
               && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
             copy.alsoCarriedToCurrent = true;
@@ -17781,6 +17810,59 @@
         earlierCapturedAt: earlier ? earlier.capturedAt : null,
       };
     }
+  }
+
+  // Every saved close stays on the timeline (owner direction, Dale,
+  // 2026-11-18: saved periods are kept, and the household can scroll back
+  // through all of them). The rebuilt lookback covers only the latest
+  // completed windows; a closing record older than the earliest of them gets
+  // its own historical view composed from the stored record alone, through
+  // the same reprint as a rebuilt view (applyCapturedPeriodHistory), so every
+  // reprint rule holds: stored figures only, progress withdrawn, no
+  // per-category trust word re-raised. Nothing is rebuilt or estimated for
+  // these periods; a field the record does not keep is absent. Only closing
+  // records qualify, one per period (the first, as in the reprint). A saved
+  // period that overlaps another, or a rebuilt view, is skipped.
+  function prependSavedOnlyCloses(pack, history) {
+    const views = pack && Array.isArray(pack.views) ? pack.views : null;
+    if (!views) return;
+    const closings = capturedHistoryRecords(history).filter(record => record.content.kind === 'closing');
+    if (!closings.length) return;
+    const shown = views.filter(Boolean);
+    const earliest = shown.map(view => view.start).filter(start => typeof start === 'string').sort()[0];
+    if (!earliest) return;
+    const periods = new Map();
+    for (const record of closings) {
+      const { start, end } = record.content.period;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end || end >= earliest) continue;
+      if (!periods.has(start + '|' + end)) periods.set(start + '|' + end, { start, end });
+    }
+    const ordered = [...periods.values()].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+    const kept = ordered.filter((period, i) => !ordered.some((other, j) => j !== i
+      && other.start <= period.end && period.start <= other.end));
+    if (!kept.length) return;
+    const extra = kept.map(period => {
+      const rangeLabel = formatSpendingCycleRange(period.start, period.end);
+      return {
+        id: 'past:' + period.start, label: rangeLabel, rangeLabel, start: period.start, end: period.end,
+        role: 'lookback', lookback: true, projected: false, timelineRole: 'past', evidenceState: 'historical',
+        spendingCycle: { start: period.start, end: period.end, nextPayday: addDays(period.end, 1), rangeLabel,
+          label: 'Spending cycle: ' + rangeLabel },
+      };
+    });
+    // The reprint reads the current period (never changes it) to disclose a
+    // bill the saved close left unpaid that the current period still carries.
+    const current = views.find(view => view && view.timelineRole === 'current');
+    applyCapturedPeriodHistory(current ? extra.concat(current) : extra, history, null);
+    const composed = extra.filter(view => view.capturedClose);
+    if (!composed.length) return;
+    for (const view of composed) view.capturedClose.savedOnly = true;
+    views.unshift(...composed);
+    const timeline = pack.timeline || (pack.timeline = {});
+    const currentIndex = (Number.isInteger(timeline.currentIndex) ? timeline.currentIndex : 0) + composed.length;
+    timeline.currentIndex = currentIndex;
+    timeline.count = views.length;
+    views.forEach((view, i) => { if (view) view.timelineOffset = i - currentIndex; });
   }
 
   function composePayPeriodTimeline(pastPeriodViews, calendarPeriods, futureRows, bound) {
@@ -18190,6 +18272,23 @@
   // rows whose stored overspend is not a number are not counted.
   const CATEGORY_TREND_WINDOW = 6;
   const CATEGORY_TREND_MINIMUM = 3;
+  // A saved category row the trend can use: its plan and spend are stored
+  // numbers, and its stored plan trust is present and calculated (lead ruling,
+  // option C: an estimated plan, such as a carried Lunch Money budget, and a
+  // row saved before the store kept row trust are not counted). A saved
+  // lookback row stores overspend null, so the over-plan amount is worked
+  // out here from the stored planned and spent, never read from overspend.
+  function categoryTrendRow(row) {
+    if (!row || typeof row !== 'object' || typeof row.id !== 'string' || row.informational === true) return false;
+    // The store's reading rule (scripts/private-period-history-postgres.js,
+    // beside ROWS): the plan's trust is plannedTrust ?? trust. The over-plan
+    // amount also uses the row's spent, so the row's own trust must be
+    // calculated too: a possible duplicate (trust estimated, plannedTrust
+    // calculated) has a calculated plan but an estimated spent.
+    if ((row.plannedTrust ?? row.trust) !== 'calculated' || row.trust !== 'calculated') return false;
+    return typeof row.planned === 'number' && Number.isFinite(row.planned)
+      && typeof row.spent === 'number' && Number.isFinite(row.spent);
+  }
   function categorySpendingTrends(history) {
     const closings = capturedHistoryRecords(history).filter(record => record.content.kind === 'closing');
     const byPeriod = new Map();
@@ -18198,8 +18297,11 @@
       if (!byPeriod.has(key)) byPeriod.set(key, record);
     }
     const saved = [...byPeriod.values()];
+    // A qualifying close was saved complete at capture and has at least one
+    // usable category row.
     const qualifying = saved.filter(record => record.content.closingState === 'complete-at-capture'
-      && Array.isArray(record.content.publication.householdBudget))
+      && Array.isArray(record.content.publication.householdBudget)
+      && record.content.publication.householdBudget.some(categoryTrendRow))
       .sort((a, b) => b.content.period.start.localeCompare(a.content.period.start));
     const used = qualifying.slice(0, CATEGORY_TREND_WINDOW);
     const base = { window: CATEGORY_TREND_WINDOW, minimum: CATEGORY_TREND_MINIMUM,
@@ -18209,20 +18311,20 @@
     if (used.length < CATEGORY_TREND_MINIMUM) {
       return { ...base, status: 'insufficient', trust: 'unavailable', categories: [],
         reason: 'Not enough saved periods yet: a trend needs ' + CATEGORY_TREND_MINIMUM
-          + ' pay periods saved complete at their close.' };
+          + ' pay periods saved complete at their close, with category plans saved as calculated.' };
     }
     const cents = value => Math.round(value * 100);
     const rows = new Map();
     for (const record of used) {
       for (const row of record.content.publication.householdBudget) {
-        if (!row || typeof row.id !== 'string' || row.informational === true) continue;
-        if (typeof row.overspend !== 'number' || !Number.isFinite(row.overspend)) continue;
+        if (!categoryTrendRow(row)) continue;
         const entry = rows.get(row.id) || { id: row.id, label: null, labelFrom: '', periodsCounted: 0, periodsOver: 0, overCents: 0 };
         if (typeof row.label === 'string' && record.content.period.start > entry.labelFrom) {
           entry.label = row.label; entry.labelFrom = record.content.period.start;
         }
+        const overCents = Math.max(0, cents(row.spent) - cents(row.planned));
         entry.periodsCounted += 1;
-        if (cents(row.overspend) > 0) { entry.periodsOver += 1; entry.overCents += cents(row.overspend); }
+        if (overCents > 0) { entry.periodsOver += 1; entry.overCents += overCents; }
         rows.set(row.id, entry);
       }
     }
@@ -19035,7 +19137,7 @@
       majorPlans: plans,
     }));
 
-    const opening = startingCashAmount(plan);
+    const opening = postedHouseholdChequingCash(plan);
     const currentBalancePublication = householdCurrentBalance(plan, asOf, opts);
     const liveCurrentBalance = currentBalancePublication.amount;
 
@@ -20193,7 +20295,14 @@
     }
     if (openingCash) {
       for (const key of ['sim', 'zero']) if (result[key]) {
-        result[key] = publishUnavailableCashWalk(result[key], openingCash, 'openingCash');
+        result[key] = publishOpeningCashWalk(result[key], openingCash);
+      }
+      // The next-period and week views project their cash from the walk
+      // seed; with an incomplete opening none of those balances is a figure.
+      for (const view of [result.nextPeriodView, ...(result.weekViews || [])]) {
+        if (!view) continue;
+        for (const key of ['currentBalance', 'afterBills', 'afterHouseholdBudget',
+          'afterDebtRepayment', 'afterBigPurchases']) if (Object.hasOwn(view, key)) view[key] = null;
       }
       result.funding = null;
       result.infeasible = null;
@@ -21729,7 +21838,7 @@
       // cause survives only while its figure's published trust is still
       // 'estimated' (a later downgrade to unknown drops it).
       const paydayShellEstimateCause = Object.fromEntries(Object.entries((alloc && alloc.paydayShellEstimateCause) || {})
-        .filter(([key, cause]) => cause === 'card-coverage' && paydayShellTrust[key] === 'estimated'));
+        .filter(([key, cause]) => cause === CARD_ESTIMATE_CAUSE && paydayShellTrust[key] === 'estimated'));
       const action = currentPeriodAction(plan, asOf, Object.assign({}, dalePaydayOpts, {
         paydayAllocation: alloc,
       }));
@@ -21950,6 +22059,7 @@
       publishBudgetPeriodProgress(plan, asOf, payPeriodTimelinePack.views, paydayOpts);
       publishBudgetBillDisplayTrust(asOf, payPeriodTimelinePack.views, paydayOpts);
       applyCapturedPeriodHistory(payPeriodTimelinePack.views, base.periodHistory, base.periodHistoryStatus);
+      prependSavedOnlyCloses(payPeriodTimelinePack, base.periodHistory);
       publishBudgetPeriodBankCheck(plan, asOf, payPeriodTimelinePack.views, paydayOpts, base.periodHistory);
       let savingsFunding, savingsSchedule = planSpendFunding;
       if (plan.savingsEarmarks?.allocationPolicy != null) {
@@ -24462,7 +24572,7 @@
     const helocCrossing = helocLimitCrossing(debtProj);
     const cashAt = date => {
       const p = (sim.daily || []).find(x => x.date === date);
-      return p ? p.balance : startingCashAmount(plan);
+      return p ? p.balance : postedHouseholdChequingCash(plan);
     };
 
     const openingId = fundingShort ? 'unfunded' : (gap ? 'coverGap' : 'holdBuffer');
@@ -25938,7 +26048,7 @@
     const events = sim.events.filter(e => cashWalkDate(e, asOf) <= through);
     const ids = new Set(seq.filter(c => c.date >= asOf && c.date <= through
       && c.need != null && c.flexibility !== 'optional').map(c => c.id));
-    const cash = startingCashAmount(plan);
+    const cash = postedHouseholdChequingCash(plan);
     const payments = events.filter(e => ids.has(e.id) && ['commitment', 'bill', 'reserve'].includes(e.kind));
     const paid = roundCent(payments.reduce((s, e) => s - operatingEventAmount(e), 0));
     const income = roundCent(events.filter(e => e.kind === 'income').reduce((s, e) => s + e.amount, 0));
@@ -29080,13 +29190,14 @@
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
-    recommendWeekly, recommend, categorySpendingTrends, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
+    recommendWeekly, recommend, incomeDeadline, amandaHouseholdIncomeDeadline, counterfactuals,
     budgetBreakdown, monthlyFromWeekly, withLunchMoneyBudgets, lunchMoneyTargetCarried, LUNCH_MONEY_BUDGET_CARRIED,
     projectDebts, baselineTrajectory, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
-    billOccurrenceAmount,
-    visaPaymentReconciliation, visaPaymentPublication };
+    billOccurrenceAmount, categorySpendingTrends,
+    visaPaymentReconciliation, visaPaymentPublication,
+    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it

@@ -588,6 +588,35 @@ function classifyRefused(refused) {
   return { unresolved, unsupported };
 }
 
+// Forecast's starting cash as a number, or null when Forecast publishes it as
+// Unknown (an incomplete opening: an operating account missing, duplicated, or
+// unknown). Every write check below fails closed on null; a Number check that
+// passes null (isFinite(null) is true) is never used for this.
+function forecastStartingCash(plan) {
+  const cash = Forecast.startingCashAmount(plan);
+  return typeof cash === 'number' && Number.isFinite(cash) ? cash : null;
+}
+
+// The write rule for the opening (lead ruling, option B). Completeness is
+// judged by Forecast's opening gate (openingCashState), never by the
+// numeric seed:
+//   - a write that takes a complete opening to incomplete is refused;
+//   - a write that leaves an already-incomplete opening incomplete may
+//     apply, and no starting-cash number is read for it (Forecast publishes
+//     none, so a refresh is not frozen while one account is unknown);
+//   - a write that completes the opening, or keeps it complete, must leave
+//     a starting cash Forecast can consume.
+function openingCashReady(plan) {
+  return Forecast.openingCashState(plan).status === 'ready';
+}
+function checkOpeningWrite(beforePlan, afterPlan, consumeMessage) {
+  const afterReady = openingCashReady(afterPlan);
+  if (openingCashReady(beforePlan) && !afterReady) {
+    fail('This write would leave the opening cash incomplete: a household chequing opening balance that was known before is missing, duplicated or unknown after it.');
+  }
+  if (afterReady && forecastStartingCash(afterPlan) == null) fail(consumeMessage);
+}
+
 function downstreamArtifactsFrom(data, proposed) {
   const artifacts = [];
   const cashProposed = (proposed || []).filter(row => row && row.collection === 'cash');
@@ -600,14 +629,26 @@ function downstreamArtifactsFrom(data, proposed) {
       applied = false;
     }
     if (applied) {
-      const before = Forecast.startingCashAmount(data.plan);
-      const after = Forecast.startingCashAmount(next.plan);
-      artifacts.push({
-        kind: 'forecast-starting-cash',
-        wouldChange: !near(before, after),
-        independentDelta: round2(after - before),
-        note: 'Forecast consumes the written document after approval. This preview does not publish the operating answer.',
-      });
+      const before = forecastStartingCash(data.plan);
+      const after = forecastStartingCash(next.plan);
+      if (before == null || after == null) {
+        // An incomplete opening on either side: the consequence is unknown,
+        // never a delta computed from a seed Forecast does not publish.
+        artifacts.push({
+          kind: 'forecast-starting-cash',
+          wouldChange: null,
+          independentDelta: null,
+          startingCash: 'unknown',
+          note: 'Forecast starting cash is unknown: the opening breakdown is incomplete before or after this write. No starting-cash consequence is claimed.',
+        });
+      } else {
+        artifacts.push({
+          kind: 'forecast-starting-cash',
+          wouldChange: !near(before, after),
+          independentDelta: round2(after - before),
+          note: 'Forecast consumes the written document after approval. This preview does not publish the operating answer.',
+        });
+      }
     } else {
       artifacts.push({
         kind: 'forecast-starting-cash',
@@ -2262,8 +2303,7 @@ function applyRecoveryPreview(data, preview, destPath, originalBytes, opts) {
   if (Buffer.compare(fs.readFileSync(destPath), originalBytes) !== 0) {
     fail('Recovery modified data.json. Canonical state was not written.');
   }
-  const cash = Forecast.startingCashAmount(data.plan);
-  if (!isFinite(cash)) fail('Forecast cannot consume the surviving starting cash.');
+  checkOpeningWrite(data.plan, data.plan, 'Forecast cannot consume the surviving starting cash.');
   return {
     positionsWritten: positionsNeeded,
     snapshotWritten: snapshotNeeded,
@@ -2357,8 +2397,7 @@ function validateApplied(before, after, preview) {
       fail(`Approved locator ${change.locator} did not receive ${change.proposedValue}`);
     }
   }
-  const cash = Forecast.startingCashAmount(after.plan);
-  if (!isFinite(cash)) fail('Forecast cannot consume the applied starting cash.');
+  checkOpeningWrite(before.plan, after.plan, 'Forecast cannot consume the applied starting cash.');
   if (after.plan.nextDollar && before.plan.nextDollar) {
     if (JSON.stringify(after.plan.nextDollar) !== JSON.stringify(before.plan.nextDollar)) {
       fail('Refresh must not rewrite plan.nextDollar.');
@@ -2696,8 +2735,7 @@ function validatePendingApplied(before, after, preview) {
       fail(`Approved pending locator ${change.locator} did not receive ${change.proposedValue}`);
     }
   }
-  const cash = Forecast.startingCashAmount(after.plan);
-  if (!isFinite(cash)) fail('Forecast cannot consume the applied starting cash.');
+  checkOpeningWrite(before.plan, after.plan, 'Forecast cannot consume the applied starting cash.');
   const used = Forecast.utilisation(after.debts, null, after.plan);
   if (!used || !Array.isArray(used.rows)) fail('Forecast cannot consume the applied debt pending state.');
 }
@@ -2793,8 +2831,7 @@ function validateOpeningApplied(before, after, preview) {
   if (JSON.stringify(gotEvents) !== JSON.stringify(expectedEvents)) {
     fail('representedEvents do not match the approved candidate-date representation.');
   }
-  const cash = Forecast.startingCashAmount(after.plan);
-  if (!isFinite(cash)) fail('Forecast cannot consume the applied starting cash.');
+  checkOpeningWrite(before.plan, after.plan, 'Forecast cannot consume the applied starting cash.');
   const used = Forecast.utilisation(after.debts, null, after.plan);
   if (!used || !Array.isArray(used.rows)) fail('Forecast cannot consume the applied debt pending state.');
 }
@@ -2849,8 +2886,7 @@ function validatePaydayObservationApplied(before, after, proposal) {
     || String(row.temporalClaim) !== PAYDAY_BOUNDARY_TEMPORAL_CLAIM) {
     fail('Payday observation persist did not write the approved chequing-a packet.');
   }
-  const cash = Forecast.startingCashAmount(after.plan);
-  if (!isFinite(cash)) fail('Forecast cannot consume the surviving starting cash.');
+  checkOpeningWrite(before.plan, after.plan, 'Forecast cannot consume the surviving starting cash.');
 }
 
 function applyPaydayObservationPreview(data, preview, destPath, baselineBytes) {
@@ -3411,6 +3447,7 @@ const api = {
   attachOperatingAnswer,
   applyChange,
   applyPendingChange,
+  downstreamArtifactsFrom,
   validateApplied,
   validatePendingApplied,
   validateOpeningApplied,

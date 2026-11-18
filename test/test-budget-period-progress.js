@@ -237,17 +237,8 @@ const withoutDelta=value=>{
       etransferPublications++;
       delete value.outgoingETransfers;
     }
-    if(Object.hasOwn(value,'categorySpendingTrends')){
-      // Authorized addition (where the household goes over plan, from saved
-      // closes only): these fixtures carry no saved period history, so the
-      // publication is concretely the insufficient state with nothing listed
-      // and no figure; it is then excluded from this frozen comparison.
-      const pub=value.categorySpendingTrends;
-      assert(pub&&pub.status==='insufficient'&&pub.trust==='unavailable','no saved closes: no trend');
-      assert.deepEqual(pub.categories,[],'no saved closes: nothing listed');
-      assert.equal(pub.qualifyingCloses,0,'no saved closes: none counted');
-      delete value.categorySpendingTrends;
-    }
+    // Fields main predates (categorySpendingTrends): proved empty, then removed.
+    require('./forecast-authorized-additions').withoutAuthorizedAdditions(value);
     Object.values(value).forEach(withoutDelta);
   }
   return value;
