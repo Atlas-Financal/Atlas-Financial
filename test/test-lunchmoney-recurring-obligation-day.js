@@ -141,6 +141,40 @@ console.log('3. The cutover never puts two occurrences in one cycle, and never s
   ok(sched('2026-01-25').length === 1 && sched('2026-01-25')[0].fields.day === 25, 'unit: 28th -> 25th accepted', JSON.stringify(sched('2026-01-25')));
 }
 
+console.log('3b. The cutover is never before today; an occurrence still due is never lost (#1293 blocker 1)');
+{
+  // Card monthly on the 7th, statement Oct 7 -> due Oct 8; observed Nov 2.
+  // LM on the 1st with Nov 1 missing: from Nov 2 the 1st's next date is Dec 1,
+  // which would drop the Nov 7 minimum still due. The plan stands: Nov 7, Dec 7.
+  const card = extra => ({ obligations: [{ id: 'triangle', debtId: 'triangle', effect: 'payment', frequency: 'monthly', day: 7,
+    firstDue: '2026-10-07', payingAccount: 'chequing-a', ...extra }], bills: [], opening: { representedEvents: [] } });
+  const stmt = { statementOccurrences: [{ scheduledDate: '2026-10-07', dueDate: '2026-10-08', minimum: 50, currency: 'cad', confidence: 'confirmed' }] };
+  const sched = (plan, anchor, asOf, expectedDates = ['2026-11-01', '2026-12-01']) => O.recurringBillSchedules({ status: 'read', items: [{ recurringId: ID, granularity: 'month', quantity: 1,
+    anchorDate: anchor, startDate: '2026-01-01', endDate: null, currency: 'cad', accountRole: 'household-cash', expectedDates,
+    foundTransactionLocalIds: [] }] }, [{ eventId: 'triangle', lunchMoneyRecurringIds: [ID] }], plan, asOf);
+  ok(sched(card(stmt), '2026-01-01', '2026-11-02').length === 0, 'statement history, observed Nov 2, LM 1st: the plan stands');
+  ok(same(F.occurrences(card(stmt).obligations[0], '2026-11-02', '2026-12-31'), ['2026-11-07', '2026-12-07']), 'plan walk: Nov 7, Dec 7');
+  // Old day 28, statement Oct 28 -> due Oct 28, observed Nov 2. LM's 1st
+  // would first fall on Dec 1: 34 days after Oct 28, inside the gap bounds,
+  // but the Nov 28 minimum still due would be lost. The plan stands.
+  const late = { day: 28, firstDue: '2026-10-28', statementOccurrences: [{ scheduledDate: '2026-10-28', dueDate: '2026-10-28',
+    minimum: 50, currency: 'cad', confidence: 'confirmed' }] };
+  ok(sched(card(late), '2026-01-01', '2026-11-02', ['2026-12-01']).length === 0, 'old 28th, observed Nov 2, LM 1st: Nov 28 kept, the plan stands');
+  // No recorded history at all: the same Nov 7 would be lost.
+  ok(sched(card({}), '2026-01-01', '2026-11-02').length === 0, 'no history, observed Nov 2, LM 1st: the plan stands');
+  // Control: observed Oct 30, LM's 1st replaces Nov 7 with Nov 1 in the same
+  // month (Oct 7 -> Nov 1, 25 days): it leads from Oct 30.
+  const ok1 = sched(card({}), '2026-01-01', '2026-10-30');
+  ok(ok1.length === 1 && same(ok1[0].fields, { day: 1, timingBefore: { from: '2026-10-30', frequency: 'monthly', day: 7 } }),
+    'control, observed Oct 30: the 1st leads from Oct 30', JSON.stringify(ok1));
+  // A card with no known statement may not move to a later day.
+  // Observed Oct 13 (after the 12th): Oct 7 -> Nov 12 would otherwise pass
+  // (the Nov 7 minimum is replaced in November, 36 days). Only this rule
+  // refuses it.
+  ok(sched(card({}), '2026-01-12', '2026-10-13', ['2026-11-12']).length === 0, 'no statement: a later day (the 12th) is refused');
+  ok(sched(card({}), '2026-01-05', '2026-10-13', ['2026-11-05']).length === 1, 'control: an earlier day (the 5th) leads');
+}
+
 console.log('4. Any doubt keeps the plan');
 planStands(serve(fixture(), readItem('2026-01-05', ['2026-10-05'], { granularity: 'week', quantity: 2 })), 'every two weeks');
 planStands(serve(fixture(), readItem('2026-01-05', ['2026-10-05'], { endDate: '2026-12-31' })), 'an ended item');
@@ -157,9 +191,11 @@ console.log('5. HELOC cash leg: LM\'s day moves cashDay; earlier cash days kept 
   const sched = (plan, anchor) => O.recurringBillSchedules({ status: 'read', items: [{ recurringId: ID, granularity: 'month', quantity: 1,
     anchorDate: anchor, startDate: '2026-01-01', endDate: null, currency: 'cad', accountRole: 'household-cash', expectedDates: [],
     foundTransactionLocalIds: [] }] }, [{ eventId: 'heloc', lunchMoneyRecurringIds: [ID] }], plan, '2026-10-05');
-  // No represented cash day: cashDay 15, no cutover.
+  // No represented cash day: the cutover is the observation date, Oct 5; the
+  // Oct 21 cash day is replaced by Oct 15 in the same month.
   const plain = sched(heloc(), '2026-01-15');
-  ok(plain.length === 1 && same(plain[0].fields, { cashDay: 15 }), 'cashDay 15, no cutover', JSON.stringify(plain));
+  ok(plain.length === 1 && same(plain[0].fields, { cashDay: 15, cashTimingBefore: { from: '2026-10-05', frequency: 'monthly', day: 21 } }),
+    'cashDay 15 from Oct 5 (today), the 21st kept before', JSON.stringify(plain));
   // Represented Oct 21: cutover Oct 22; Oct 21 -> Nov 15 is 25 days. The cash
   // walk Oct 1-Dec 31 on the applied row: Oct 21, Nov 15, Dec 15.
   const plan = heloc([{ id: 'heloc', date: '2026-10-21' }]);
@@ -178,9 +214,11 @@ console.log('6. The owner-policy guard: only day / timingBefore / cashDay / cash
   const before = { plan: { obligations: [card, { ...card, id: 'other' }] } };
   const after = patch => ({ plan: { obligations: [{ ...card, ...patch }, { ...card, id: 'other' }] } });
   const throws = (a, set) => { try { Live.assertOwnerPolicyUntouched(before, a, new Set(), set); return false; } catch (_) { return true; } };
-  const tri = new Set(['triangle']);
+  const tri = new Map([['triangle', 'card']]);
   ok(!throws(after({ day: 5, timingBefore: { from: '2026-10-09', frequency: 'monthly', day: 7 } }), tri), 'scheduled: day and timingBefore may differ');
-  ok(throws(after({ day: 5 }), new Set()), 'not scheduled: the day may not differ');
+  ok(throws(after({ day: 5 }), new Map()), 'not scheduled: the day may not differ');
+  ok(throws(after({ cashDay: 15 }), tri), 'a card may not change a HELOC field (cashDay)');
+  ok(throws(after({ day: 5 }), new Map([['triangle', 'heloc']])), 'the HELOC may not change a card field (day)');
   ok(throws(after({ amount: 90 }), tri), 'scheduled: the amount may not differ');
   ok(throws(after({ confidence: 'confirmed' }), tri), 'scheduled: the tag may not differ');
   ok(throws(after({ frequency: 'biweekly' }), tri), 'scheduled: the cadence may not differ');

@@ -605,9 +605,9 @@ function assertOwnerPolicyUntouched(before, after, scheduledBills, scheduledObli
       return ordered;
     });
   };
-  // E1: on a scheduled obligation only RECURRING_OBLIGATION_FIELDS (day,
-  // timingBefore, cashDay, cashTimingBefore) may differ; no tag may.
-  const obligationsScheduled = scheduledObligations instanceof Set ? scheduledObligations : new Set();
+  // E1: on a scheduled obligation only its kind's fields may differ (a card:
+  // day, timingBefore; the HELOC: cashDay, cashTimingBefore); no tag may.
+  const obligationsScheduled = scheduledObligations instanceof Map ? scheduledObligations : new Map();
   const obligationTiming = (beforeRows, afterRows) => {
     if (!obligationsScheduled.size || !Array.isArray(beforeRows) || !Array.isArray(afterRows)
       || beforeRows.length !== afterRows.length) return afterRows;
@@ -615,7 +615,7 @@ function assertOwnerPolicyUntouched(before, after, scheduledBills, scheduledObli
       const was = beforeRows[i];
       if (!row || !was || row.id !== was.id || !obligationsScheduled.has(row.id)) return row;
       const out = { ...row };
-      for (const field of O.RECURRING_OBLIGATION_FIELDS) {
+      for (const field of O.RECURRING_OBLIGATION_FIELDS[obligationsScheduled.get(row.id)] || []) {
         if (Object.hasOwn(was, field)) out[field] = was[field]; else delete out[field];
       }
       const ordered = {};
@@ -1372,14 +1372,14 @@ function overlayLiveState(input) {
   const bills = next.plan.bills || [];
   // E1: a card minimum or the HELOC cash leg takes its day from its reviewed
   // item (cutover kept in timingBefore / cashTimingBefore); no tag changes.
-  const scheduledObligations = new Set();
+  const scheduledObligations = new Map();
   const obligations = next.plan.obligations || [];
   for (const schedule of Array.isArray(report.recurringBillSchedules) ? report.recurringBillSchedules : []) {
     if (!schedule.obligationId || !schedule.fields) continue;
     const i = obligations.findIndex(row => row && row.id === schedule.obligationId);
     if (i < 0 || scheduledObligations.has(schedule.obligationId)) continue;
     obligations[i] = O.applyRecurringObligationSchedule(obligations[i], schedule);
-    scheduledObligations.add(schedule.obligationId);
+    scheduledObligations.set(schedule.obligationId, schedule.kind);
   }
   for (const schedule of Array.isArray(report.recurringBillSchedules) ? report.recurringBillSchedules : []) {
     if (!schedule.billId) continue;
