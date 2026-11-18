@@ -110,7 +110,7 @@ const EXPECTED = {
 };
 const expectedFor = id => ({ status: 'read',
   periods: EXPECTED[id].map(([[start, end], budgeted, level]) => ({ start, end, budgeted, level })) });
-const EXPECTED_ROWS = ['extra', 'groceries', 'leaf', 'restaurants', 'retired'];
+const EXPECTED_ROWS = ['extra', 'fixture', 'groceries', 'leaf', 'restaurants', 'retired', 'text'];
 
 const baseRoutes = (extra = {}) => ({
   '/me': { body: { account_id: 1 } },
@@ -171,7 +171,7 @@ function serve(budgets, ids = IDS, categories = CATEGORIES) {
   ok(block && block.status === 'read' && block.granularity === 'month' && block.quantity === 1 && block.anchorDate === '2026-01-01',
     'the packet carries the block with the budget period settings', JSON.stringify(block && { ...block, byRow: undefined }));
   ok(block && JSON.stringify(Object.keys(block.byRow)) === JSON.stringify(EXPECTED_ROWS),
-    'exactly the rows that name an integer id, keyed by Atlas row id (text and fixture ids name nothing)',
+    'exactly the rows that name a group, keyed by Atlas row id',
     JSON.stringify(block && Object.keys(block.byRow)));
   for (const id of ['groceries', 'restaurants']) {
     ok(block && JSON.stringify(block.byRow[id]) === JSON.stringify(expectedFor(id)),
@@ -183,6 +183,51 @@ function serve(budgets, ids = IDS, categories = CATEGORIES) {
     'an archived group fails closed (group-id-missing)', JSON.stringify(block && block.byRow.retired));
   ok(block && JSON.stringify(block.byRow.leaf) === JSON.stringify({ status: 'unavailable', reason: 'group-id-not-group' }),
     'an id that is a category, not a group, fails closed (group-id-not-group)', JSON.stringify(block && block.byRow.leaf));
+  for (const id of ['text', 'fixture']) {
+    ok(block && JSON.stringify(block.byRow[id]) === JSON.stringify({ status: 'unavailable', reason: 'group-id-invalid' }),
+      `a row whose id is not a positive integer (${id}) fails closed (group-id-invalid)`, JSON.stringify(block && block.byRow[id]));
+  }
+  {
+    // Lead rulings 2026-11-18: duplicates fail closed, a labelled row waiting
+    // for its id names nothing, archived categories leave the children sum,
+    // and a failed catalog read has its own reason.
+    const plan = rows => ({ budget: { categories: rows } });
+    const raw = fetched.lunchMoneyBudgets;
+    const by = (rows, cats = CATEGORIES) => O.sanitizedBudgetEvidence(raw, cats, plan(rows)).byRow;
+    const shared = by([{ id: 'groceries', lunchMoneyCategoryGroupId: 9100 }, { id: 'restaurants', lunchMoneyCategoryGroupId: 9100 },
+      { id: 'travel', lunchMoneyCategoryGroupId: 9200 }]);
+    ok(shared.groceries.reason === 'group-id-duplicate' && shared.restaurants.reason === 'group-id-duplicate'
+      && shared.travel.status === 'read', 'two rows sharing a group id both fail closed (group-id-duplicate); the third reads',
+      JSON.stringify(shared));
+    const twice = by([{ id: 'groceries', lunchMoneyCategoryGroupId: 9100 }, { id: 'groceries', lunchMoneyCategoryGroupId: 9200 }]);
+    ok(JSON.stringify(twice) === JSON.stringify({ groceries: { status: 'unavailable', reason: 'row-id-duplicate' } }),
+      'an Atlas row id used twice fails closed (row-id-duplicate)', JSON.stringify(twice));
+    const labelled = by([{ id: 'groceries', lunchMoneyCategoryGroupLabel: 'Invented food group' },
+      { id: 'travel', lunchMoneyCategoryGroupLabel: 'Invented fun group', lunchMoneyCategoryGroupId: 'Invented fun group' },
+      { id: 'sport', lunchMoneyCategoryGroupId: -5 }, { id: 'tax', lunchMoneyCategoryGroupId: 9100.5 }]);
+    ok(!('groceries' in labelled), 'a labelled row with no id yet names nothing (waiting for its id)', JSON.stringify(labelled));
+    ok(['travel', 'sport', 'tax'].every(id => labelled[id] && labelled[id].reason === 'group-id-invalid'),
+      'a malformed id (text, negative, fractional) fails closed (group-id-invalid)', JSON.stringify(labelled));
+    const failedCatalog = by([{ id: 'groceries', lunchMoneyCategoryGroupId: 9100 }], null);
+    ok(JSON.stringify(failedCatalog) === JSON.stringify({ groceries: { status: 'unavailable', reason: 'categories-read-failed' } }),
+      'a failed categories read fails closed (categories-read-failed)', JSON.stringify(failedCatalog));
+    // Child 202 archived: November's children sum is 250 (201) only, not 350.75.
+    const archivedChild = CATEGORIES.map(c => c.id === 9100
+      ? { ...c, children: [{ id: 201, name: 'Invented a' }, { id: 202, name: 'Invented b', archived: true }] } : c);
+    const ac = by([{ id: 'groceries', lunchMoneyCategoryGroupId: 9100 }], archivedChild).groceries.periods[1];
+    ok(ac && ac.budgeted === 250 && ac.level === 'children', 'an archived category leaves its group\'s children sum (Nov 250)',
+      JSON.stringify(ac));
+    // The same through a child's own group_id.
+    const archivedLoose = CATEGORIES.map(c => c.id === 204 ? { ...c, archived: true } : c);
+    const summary204 = { ...raw, summary: { ...raw.summary, categories: raw.summary.categories.map(r => r.category_id === 204
+      ? { ...r, occurrences: r.occurrences.map((o, i) => i === 0 ? { ...o, budgeted: 60 } : o) } : r) } };
+    const al = O.sanitizedBudgetEvidence(summary204, archivedLoose, plan([{ id: 'restaurants', lunchMoneyCategoryGroupId: 9200 }]))
+      .byRow.restaurants.periods[0];
+    ok(al && al.budgeted === 40, 'an archived category named by its own group_id leaves the sum too (Oct 40, not 100)', JSON.stringify(al));
+    const sane = O.sanitizedBudgetEvidence(raw, CATEGORIES, plan([{ id: 'groceries', lunchMoneyCategoryGroupId: 9100 },
+      { id: 'restaurants', lunchMoneyCategoryGroupId: 9100 }, { id: 'travel', lunchMoneyCategoryGroupId: 'x' }]));
+    ok(O.budgetEvidenceLooksSanitized(sane), 'positive control: every new reason passes the structural check');
+  }
   {
     // Dale renames the food group in Lunch Money: its id is unchanged, so the
     // row still reads the same budgets.
@@ -282,6 +327,7 @@ function serve(budgets, ids = IDS, categories = CATEGORIES) {
         'live: restaurants (group 9200) in October is 40 + 60 = 100 from its children', JSON.stringify(oct(a)));
       ok(b && JSON.stringify(b) === JSON.stringify(a), 'replayed: the same block, byte for byte', JSON.stringify(oct(b)));
       ok(b && b.byRow.leaf.reason === 'group-id-not-group' && b.byRow.extra.reason === 'group-id-missing'
+        && b.byRow.text.reason === 'group-id-invalid'
         && b.byRow.retired.reason === 'group-id-missing',
         'replayed: the category id, the missing id and the archived group fail closed exactly as live');
       const kept = replayed && JSON.stringify(replayed.lunchMoneyBudgets);

@@ -135,7 +135,7 @@ function planOf(w) {
     startingCash: { breakdown: w.accounts.filter(a => !a.held).map(a => ({ id: a.id, label: a.label, value: a.value, evidenceDate: w.asOf, confidence: a.confidence || 'confirmed' })) },
     income: clone(w.income),
     bills: clone(w.bills),
-    obligations: [],
+    obligations: clone(w.obligations || []),
     commitments: clone(w.commitments),
     groups: clone(w.groups),
     funding: { options: [] },

@@ -4956,7 +4956,7 @@ function observeCore(input, capture) {
   // Internal to the report; present only when the history read was asked for.
   if (input.payload && input.payload.amountHistory !== undefined) {
     assembled.derivedAmountFixed = derivedAmountFixedBills(input.payload.amountHistory, {
-      plan: input.data && input.data.plan, accountMap: mapDoc, identityRules,
+      plan: input.data && input.data.plan, debts: input.data && input.data.debts, accountMap: mapDoc, identityRules,
       categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
   } else if (input.payload && input.payload.amountFixedDerivation !== undefined) {
     // A replay from observation memory carries the live derivation's outcome
@@ -5625,14 +5625,45 @@ function derivedAmountFixedBills(history, opts) {
   const mapDoc = opts && opts.accountMap;
   const window = history && history.transactionWindow;
   const out = { source: 'lunchmoney-payment-history', status: 'unavailable',
-    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [] };
+    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [], obligationIds: [] };
   const end = parseIsoDate(window && window.endDate);
   if (!plan || !mapDoc || !window || window.complete !== true || window.truncated === true || window.hasMore === true
     || !parseIsoDate(window.startDate) || !end || !Array.isArray(history.transactions)) return out;
   out.status = 'complete';
-  const bills = new Map((plan.bills || []).filter(b => b && typeof b.id === 'string').map(b => [b.id, b]));
+  // The candidates: plan bills, and plain payment obligations (lead ruling on
+  // #1355: the mortgage). An obligation with statement occurrences (a card
+  // minimum), a revolving card's debt, a non-cash or capitalising leg (the
+  // HELOC), or a once schedule is never a candidate.
+  // An id named by more than one plan row (two bills, two obligations, or a
+  // bill and an obligation) is ambiguous, so it is never a candidate.
+  const idCount = new Map();
+  for (const row of [].concat(plan.bills || [], plan.obligations || [])) {
+    if (row && typeof row.id === 'string') idCount.set(row.id, (idCount.get(row.id) || 0) + 1);
+  }
+  // A revolving card's payment (its debt has a limit or a statement close day)
+  // is a minimum against a moving balance, never a plain obligation, even
+  // when it carries no statement occurrences (lead record on #1369: travel).
+  const debts = new Map(((opts && opts.debts) || []).filter(d => d && typeof d.id === 'string').map(d => [d.id, d]));
+  const revolving = o => {
+    const debt = o.debtId != null ? debts.get(o.debtId) : null;
+    return !!debt && (debt.limit != null || debt.statementCloseDay != null);
+  };
+  const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
+    && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && !revolving(o);
+  const bills = new Map();
+  for (const b of plan.bills || []) {
+    if (b && typeof b.id === 'string' && idCount.get(b.id) === 1) bills.set(b.id, { row: b, kind: 'bill' });
+  }
+  for (const o of plan.obligations || []) {
+    if (o && typeof o.id === 'string' && idCount.get(o.id) === 1 && plainObligation(o)) bills.set(o.id, { row: o, kind: 'obligation' });
+  }
+  // The identity check reads every plan row's rules, candidate or not (Codex P2
+  // on #1374): a row another bill or obligation also identifies is ambiguous
+  // evidence, so leaving a non-candidate out could hand its payment to a
+  // candidate. Only candidates can come out fixed.
   const rules = stampRuleSetClaims(opts.identityRules).filter(rule => rule && rule.direction === 'debit'
-    && rule.atlasAccountId && bills.has(rule.eventId));
+    && rule.atlasAccountId && idCount.has(rule.eventId));
   const normalized = normalizeLunchMoneyPayload({ transactions: history.transactions,
     categories: opts.categories || [], tags: opts.tags || [] }, opts.fetchedAt).transactions;
   const payments = new Map();
@@ -5649,8 +5680,9 @@ function derivedAmountFixedBills(history, opts) {
       && ruleMatchesTransactionIdentity(tx, rule) && ruleCurrencyQualified(tx, rule));
     const ids = Array.from(new Set(hits.map(rule => rule.eventId)));
     if (!ids.length) continue;
-    // A row two bills' rules identify settles neither here.
+    // A row two plan rows' rules identify settles neither here.
     if (ids.length > 1) { ids.forEach(id => unusable.add(id)); continue; }
+    if (!bills.has(ids[0])) continue;
     if (hits.some(rule => AMOUNT_FIXED_EXCLUDED_SETTLES.has(rule.settlesWhen) || rule.transactionKind === 'transfer')) {
       unusable.add(ids[0]); continue;
     }
@@ -5658,7 +5690,7 @@ function derivedAmountFixedBills(history, opts) {
     payments.get(ids[0]).push({ date, cents: Math.round(amount * 100) });
   }
   for (const [id, rows] of payments) {
-    const bill = bills.get(id);
+    const { row: bill, kind } = bills.get(id);
     const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
     if (unusable.has(id) || !interval || bill.amountSchedule !== undefined || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
     rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -5682,9 +5714,10 @@ function derivedAmountFixedBills(history, opts) {
     const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
     if (!sample.every(row => row.cents === plannedCents)) continue;
     if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
-    out.billIds.push(id);
+    (kind === 'obligation' ? out.obligationIds : out.billIds).push(id);
   }
   out.billIds.sort();
+  out.obligationIds.sort();
   return out;
 }
 
@@ -6475,18 +6508,42 @@ function applyRecurringObligationSchedule(row, schedule) {
 // (cadence, carry-forward) are Forecast's, not this reader's.
 const BUDGET_GRANULARITIES = new Set(['day', 'week', 'month', 'year', 'twice a month']);
 const BUDGET_UNAVAILABLE_REASONS = new Set(['budget-read-failed', 'budget-settings-invalid', 'budget-summary-invalid']);
-const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-id-missing', 'group-id-not-group']);
+const BUDGET_ROW_UNAVAILABLE_REASONS = new Set(['group-id-missing', 'group-id-not-group', 'group-id-invalid',
+  'group-id-duplicate', 'row-id-duplicate', 'categories-read-failed']);
 // An Atlas row id: lower-case words and hyphens, never all digits (the shape
 // of a Lunch Money id).
 const BUDGET_ROW_ID = /^(?=[a-z0-9-]*[a-z])[a-z0-9][a-z0-9-]{0,63}$/;
-// Atlas row id -> the Lunch Money group id it reads, from the plan. Only a
-// positive integer names a group; anything else names nothing.
+// Atlas row id -> the Lunch Money group id it reads, or the reason it reads
+// none, from the plan (lead rulings 2026-11-18). A row that names a group
+// (an id or a label) but whose id is not a positive integer is
+// group-id-invalid; an Atlas row id used twice is row-id-duplicate; a group
+// id two rows share is group-id-duplicate on every sharing row. Each fails
+// closed for its own row(s) only. A row naming no group is left out.
 function budgetRowGroupIds(plan) {
-  const out = new Map();
+  const named = [];
+  const seenRow = new Map();
   for (const row of (plan && plan.budget && Array.isArray(plan.budget.categories)) ? plan.budget.categories : []) {
     if (!row || typeof row.id !== 'string' || !BUDGET_ROW_ID.test(row.id)) continue;
+    seenRow.set(row.id, (seenRow.get(row.id) || 0) + 1);
     const id = row.lunchMoneyCategoryGroupId;
-    if (Number.isSafeInteger(id) && id > 0) out.set(row.id, String(id));
+    const names = id !== undefined || row.lunchMoneyCategoryGroupLabel !== undefined;
+    if (!names) continue;
+    named.push({ rowId: row.id, groupId: Number.isSafeInteger(id) && id > 0 ? String(id) : null });
+  }
+  const groupUses = new Map();
+  for (const n of named) if (n.groupId) groupUses.set(n.groupId, (groupUses.get(n.groupId) || 0) + 1);
+  const out = new Map();
+  for (const n of named) {
+    if (seenRow.get(n.rowId) > 1) out.set(n.rowId, { reason: 'row-id-duplicate' });
+    else if (!n.groupId) out.set(n.rowId, { reason: 'group-id-invalid' });
+    else if (groupUses.get(n.groupId) > 1) out.set(n.rowId, { reason: 'group-id-duplicate' });
+    else out.set(n.rowId, { groupId: n.groupId });
+  }
+  // A labelled row without an id is only waiting for its id; it names nothing
+  // yet and is not published (the shipped plan carries labels before ids).
+  for (const row of (plan && plan.budget && Array.isArray(plan.budget.categories)) ? plan.budget.categories : []) {
+    if (row && typeof row.id === 'string' && out.has(row.id) && row.lunchMoneyCategoryGroupId === undefined
+      && seenRow.get(row.id) === 1) out.delete(row.id);
   }
   return out;
 }
@@ -6535,17 +6592,25 @@ function sanitizedBudgetEvidence(raw, rawCategories, plan) {
   const note = (cat, kind) => { if (!kinds.has(String(cat.id)) || kind === 'group') kinds.set(String(cat.id), kind); };
   for (const cat of Array.isArray(rawCategories) ? rawCategories : []) {
     if (!cat || cat.id == null) continue;
+    // An archived category is not part of its group's budget (lead ruling).
     if (cat.is_group === true && Array.isArray(cat.children)) {
       for (const child of cat.children) {
-        if (child && child.id != null) { addChild(cat.id, child.id); note(child, archived(child) ? 'archived' : 'category'); }
+        if (child && child.id != null) {
+          if (!archived(child)) addChild(cat.id, child.id);
+          note(child, archived(child) ? 'archived' : 'category');
+        }
       }
     }
-    if (cat.group_id != null) addChild(cat.group_id, cat.id);
+    if (cat.group_id != null && !archived(cat)) addChild(cat.group_id, cat.id);
     note(cat, archived(cat) ? 'archived' : cat.is_group === true ? 'group' : 'category');
   }
   const ordered = [...periods.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
   const byRow = {};
-  for (const [rowId, groupId] of [...budgetRowGroupIds(plan)].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+  const categoriesRead = Array.isArray(rawCategories);
+  for (const [rowId, named] of [...budgetRowGroupIds(plan)].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (named.reason) { byRow[rowId] = { status: 'unavailable', reason: named.reason }; continue; }
+    if (!categoriesRead) { byRow[rowId] = { status: 'unavailable', reason: 'categories-read-failed' }; continue; }
+    const groupId = named.groupId;
     const kind = kinds.get(groupId);
     if (kind === 'category') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-not-group' }; continue; }
     if (kind !== 'group') { byRow[rowId] = { status: 'unavailable', reason: 'group-id-missing' }; continue; }

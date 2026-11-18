@@ -1038,6 +1038,24 @@ function paydayGlanceCashNote(alloc, liveOverlay) {
   return glanceUpdatedNote(asOf, liveOverlay);
 }
 
+// Dale, 2026-11-18 ("instead of an estimated tag show the last update
+// date", option A): a figure Forecast publishes as estimated ONLY because a
+// card payment or credit is To confirm (estimateCause 'card-coverage') leads
+// with the bank data's date, followed by a small muted "≈ estimate" mark,
+// in place of the estimate tag. The element keeps
+// data-trust="estimated" and says "estimate" to assistive technology. With no
+// single bank date the caller keeps the estimate word (null here).
+function cardEstimateAsOfHtml(liveOverlay) {
+  const date = providerBalanceDate(liveOverlay);
+  if (!date) return null;
+  const shown = escapeHtml('as of ' + fmtDateLong(date));
+  // Dale chose option A: the date leads, and a small muted "≈ estimate"
+  // mark follows it, so the estimate word stays but is not the headline.
+  return `<span class="trust-tag trust-as-of" data-trust="estimated" data-card-estimate-as-of`
+    + ` title="estimate: card payment to confirm" aria-label="${shown}, estimate: card payment to confirm">${shown}`
+    + ` <small class="trust-as-of-mark" data-card-estimate-mark>≈ estimate</small></span>`;
+}
+
 function providerBalanceDate(liveOverlay) {
   const overlayTrusted = !!(liveOverlay && liveOverlay.applied === true
     && liveOverlay.operatingPlan !== 'unavailable');
@@ -2195,11 +2213,12 @@ function householdBudgetCategoryHtml(row, opts = {}) {
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
   // Forecast's plannedTrust, when present, is the plan's own trust; an
   // estimated row with a calculated plan (a possible duplicate) estimates
-  // Spent and Remaining only.
+  // Spent and Remaining only. spentTrust marks Spent estimated alongside an
+  // estimated plan (a carried Lunch Money budget with a possible duplicate).
   const rowEstimated = row.confidence === 'estimated' || row.trust === 'estimated';
   const estimated = (!other || datedOtherPlan) && rowEstimated;
   const plannedEstimated = estimated && (row.plannedTrust == null || row.plannedTrust === 'estimated');
-  const spentEstimated = rowEstimated && row.plannedTrust === 'calculated';
+  const spentEstimated = rowEstimated && (row.plannedTrust === 'calculated' || row.spentTrust === 'estimated');
   const name = row.label || '';
   const context = other
     ? (row.note || 'Not yet assigned to a budget category')
@@ -2606,7 +2625,7 @@ function isValidIsoCalendarDate(value) {
   return day <= dim;
 }
 
-function paydayInstructionShellHtml(advice, period, schedule) {
+function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   // AMANDA SLICE 14 — PAYDAY ACTION IDENTITY & FUNDING PARITY.
   // The shell now keeps three identities visibly separate:
   //   1. Current position (today) — the paydayAllocation current-cash
@@ -2661,8 +2680,11 @@ function paydayInstructionShellHtml(advice, period, schedule) {
   const alloc = advice && advice.paydayAllocation;
   if (!alloc || !alloc.lines) return '';
   const shellTrust = (advice && advice.paydayShellTrust) || {};
+  const shellCause = (advice && advice.paydayShellEstimateCause) || {};
+  const cardAsOf = cardEstimateAsOfHtml(liveOverlay);
   const trustTag = key => {
     const trust = shellTrust[key];
+    if (trust === 'estimated' && shellCause[key] === 'card-coverage' && cardAsOf) return ' ' + cardAsOf;
     if (trust === 'estimated') return ' <span class="trust-tag trust-estimated">estimate</span>';
     if (trust === 'calculated') return ' <span class="trust-tag">calculated</span>';
     return null;
@@ -5645,7 +5667,7 @@ function budgetTodayCashCardHtml(ctx) {
       ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
       ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}.</p>` : ''}
       ${today?.evidenceFailures?.length ? `<ul>${today.evidenceFailures.map(issue => `<li data-budget-cash-reason="${escape(issue.code)}">${escape(issue.message)}${[issue.accountLabel, issue.categoryLabel, issue.date].some(Boolean) ? `<small data-budget-cash-reason-context>${[issue.accountLabel, issue.categoryLabel, issue.date].filter(Boolean).map(escape).join(' · ')}</small>` : ''}${issue.action ? `<small>${escape(issue.action)}</small>` : ''}</li>`).join('')}</ul>` : !ready ? `<p>${escape(today?.reason || 'Current funding evidence is unavailable.')}</p>` : ''}
-      <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule)}</div>
+      <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule, ctx && ctx.liveOverlay)}</div>
     </section>
   </div>`;
 }
@@ -5733,9 +5755,12 @@ function budgetDetailSheetHtml() {
 const budgetBrowseKnown = value => typeof value === 'number' && Number.isFinite(value);
 const budgetBrowseEscape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-function budgetBrowseMoney(value, trust) {
+// asOfHtml: cardEstimateAsOfHtml's date and small mark, given only for a
+// figure estimated solely by card coverage; it replaces the ≈ estimated mark.
+function budgetBrowseMoney(value, trust, asOfHtml) {
   return budgetBrowseKnown(value) && !['unavailable', 'unknown', 'untrusted'].includes(trust)
-    ? `${trust === 'estimated' ? '<span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span> ' : ''}${money2(value)}`
+    ? trust === 'estimated' && asOfHtml ? `${money2(value)} ${asOfHtml}`
+    : `${trust === 'estimated' ? '<span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span> ' : ''}${money2(value)}`
     : '<span class="budget-browse-unknown">Unavailable</span>';
 }
 
@@ -6033,7 +6058,8 @@ function budgetSpendingSectionHtml(period, ctx) {
     <header><div><p class="budget-browse-eyebrow">Spending this period</p><h2 id="budget-spending-heading" tabindex="-1">Household budget</h2></div>${pace != null ? '<span class="budget-pace-key">│ Today</span>' : ''}</header>
     ${householdBudgetCycleText(period) ? `<p class="budget-browse-cycle">${budgetBrowseEscape(householdBudgetCycleText(period))}</p>` : ''}
     <div class="budget-browse-stats"><div><strong data-budget-browse-hold>${budgetProgressValueHtml(progress, 'household', { bankFeedStale: !!feed, savedClose })}</strong>${budgetHouseholdDeltaHtml(progress?.delta, { bankFeedStale: !!feed })}</div>
-      ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
+      ${period.timelineRole === 'current' ? `<div><span>Still planned</span><strong data-budget-browse-remaining>${budgetBrowseMoney(remainingKnown ? funding.remainingHousehold : null, remainingKnown ? funding.trust : null,
+        remainingKnown && funding.estimateCause === 'card-coverage' ? cardEstimateAsOfHtml(ctx && ctx.liveOverlay) : null)}${feed && remainingKnown ? ' ' + budgetSpentIncompleteHtml() : ''}</strong><small>From today</small></div>` : ''}</div>
     ${spendingUnavailable ? `<p class="budget-browse-note blend-house-unavailable" data-budget-spending-unavailable>${budgetBrowseEscape(spendingUnavailable)}</p>` : ''}
     <div class="budget-browse-counts">${count}</div><div class="budget-category-list">${cards || '<p class="budget-browse-note">Category data unavailable.</p>'}</div>
     ${budgetHeldOutflowsBrowseHtml(period)}${budgetSavingsPaidBrowseHtml(period)}${budgetUnlinkedRefundsBrowseHtml(period)}
@@ -6843,14 +6869,20 @@ function paydayAnswerHtml(ctx) {
             Number(r.pending) > 0 ? ` · pending ${money2(r.pending)}` : ''
           }</div>`
         : ''
-    }</td><td>${money2(hasRemaining && r.remaining != null ? r.remaining : r.required)}</td>`);
+    }${
+      r.trust === 'estimated' && r.estimateReason === 'lunch-money-budget-carried-forward'
+        ? '<div class="payday-item-note">Estimated: Lunch Money has no budget set for this month yet, so last month\'s is used.</div>' : ''
+    }</td><td>${r.trust === 'estimated'
+      ? est(money2(hasRemaining && r.remaining != null ? r.remaining : r.required))
+      : money2(hasRemaining && r.remaining != null ? r.remaining : r.required)}</td>`);
   const ess = alloc && alloc.essentials;
   let essentialSummary = '';
   if (ess && (Number(ess.wanted) > 0 || essentialItems.length)) {
     const short = Number(ess.shortfall) || 0;
     const attributed = ess.fundingAttribution;
-    essentialSummary = `<p class="payday-qual">Required for period: ${money2(ess.wanted)}</p>
-      <p class="payday-qual">Cash available for essentials: ${money2(ess.allocated)}</p>${
+    const essMoney = n => ess.trust === 'estimated' ? est(money2(n)) : money2(n);
+    essentialSummary = `<p class="payday-qual">Required for period: ${essMoney(ess.wanted)}</p>
+      <p class="payday-qual">Cash available for essentials: ${essMoney(ess.allocated)}</p>${
         short > 0
           ? `<p class="payday-qual">Essential shortfall: ${money2(short)}. This is not the full amount needed, and it is not a spending allowance.</p>`
           : ''
@@ -7807,7 +7839,7 @@ function renderPlan(d, periods, history) {
           : c.withheldReason ? '<span class="mutedtext">Unknown</span>'
           : c.planned > 0 ? est(money(c.planned)) : '<span class="mutedtext">$0</span>'}</span>
         <span class="cat-hist">${c.target != null
-          ? `budgeted ${money(c.target)}, has been ${money(c.historical)}`
+          ? `budgeted ${c.targetTrust === 'estimated' ? est(money(c.target)) : money(c.target)}, has been ${money(c.historical)}`
           : `has been ${money(c.historical)}`}/mo${c.dated > 0
           ? ` · ${money(c.dated)} dated` : ''}${c.current != null && c.current > 0
           ? ` · ${money(c.current)} current-regime` : ''}${c.sinking > 0

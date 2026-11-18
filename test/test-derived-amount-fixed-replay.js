@@ -80,9 +80,9 @@ async function stub(payload) {
     if (!observation || !observation.evidence) throw new Error('no evidence to replay');
     const kept = observation.evidence.payload;
     ok(!Object.hasOwn(kept, 'amountHistory') && kept.amountFixedDerivation
-      && JSON.stringify(Object.keys(kept.amountFixedDerivation).sort()) === JSON.stringify(['billIds', 'source', 'status', 'window'])
+      && JSON.stringify(Object.keys(kept.amountFixedDerivation).sort()) === JSON.stringify(['billIds', 'obligationIds', 'source', 'status', 'window'])
       && JSON.stringify(kept.amountFixedDerivation.billIds) === JSON.stringify(['resp']),
-      'memory keeps only the derivation record (source, status, window, bill ids), never the history rows',
+      'memory keeps only the derivation record (source, status, window, bill and obligation ids), never the history rows',
       JSON.stringify(kept.amountFixedDerivation));
     ok(!JSON.stringify(kept).includes('2026-05-15'), 'no history row (May 15) is retained in memory');
     const before = mock.calls.length;
