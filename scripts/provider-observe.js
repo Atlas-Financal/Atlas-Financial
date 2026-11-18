@@ -4956,7 +4956,7 @@ function observeCore(input, capture) {
   // Internal to the report; present only when the history read was asked for.
   if (input.payload && input.payload.amountHistory !== undefined) {
     assembled.derivedAmountFixed = derivedAmountFixedBills(input.payload.amountHistory, {
-      plan: input.data && input.data.plan, accountMap: mapDoc, identityRules,
+      plan: input.data && input.data.plan, debts: input.data && input.data.debts, accountMap: mapDoc, identityRules,
       categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
   } else if (input.payload && input.payload.amountFixedDerivation !== undefined) {
     // A replay from observation memory carries the live derivation's outcome
@@ -5632,11 +5632,20 @@ function derivedAmountFixedBills(history, opts) {
   out.status = 'complete';
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
-  // minimum), a non-cash or capitalising leg (the HELOC), or a once schedule is
-  // never a candidate. An id that names both a bill and an obligation is neither.
+  // minimum), a revolving card's debt, a non-cash or capitalising leg (the
+  // HELOC), or a once schedule is never a candidate. An id that names both a bill and an obligation is neither.
   const billIds = new Set((plan.bills || []).filter(b => b && typeof b.id === 'string').map(b => b.id));
+  // A revolving card's payment (its debt has a limit or a statement close day)
+  // is a minimum against a moving balance, never a plain obligation, even
+  // when it carries no statement occurrences (lead record on #1369: travel).
+  const debts = new Map(((opts && opts.debts) || []).filter(d => d && typeof d.id === 'string').map(d => [d.id, d]));
+  const revolving = o => {
+    const debt = o.debtId != null ? debts.get(o.debtId) : null;
+    return !!debt && (debt.limit != null || debt.statementCloseDay != null);
+  };
   const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
-    && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined;
+    && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && !revolving(o);
   const bills = new Map();
   for (const b of plan.bills || []) if (b && typeof b.id === 'string') bills.set(b.id, { row: b, kind: 'bill' });
   for (const o of plan.obligations || []) {

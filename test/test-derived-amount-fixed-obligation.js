@@ -31,10 +31,11 @@ const MORTGAGE = { id: 'mortgage', debtId: 'mortgage', effect: 'payment', label:
 const pay = (amount, date) => H.lm({ date, amount, account: 'chequing-a', payee: 'Invented mortgage co', category: 'Utilities' });
 const HISTORY = ['2026-08-28', '2026-09-11', '2026-09-25'];
 
-function world(paid, { history = HISTORY.map(d => pay(800, d)), obligation = MORTGAGE, withDebts = true } = {}) {
+const MORTGAGE_DEBT = { id: 'mortgage', label: 'Invented mortgage', balance: 200000, rate: 5, payment: 800, confidence: 'confirmed' };
+function world(paid, { history = HISTORY.map(d => pay(800, d)), obligation = MORTGAGE, withDebts = true, debt = MORTGAGE_DEBT } = {}) {
   const w = H.baseWorld();
   w.obligations = [obligation];
-  w.debts = [{ id: 'mortgage', label: 'Invented mortgage', balance: 200000, rate: 5, payment: 800, confidence: 'confirmed' }];
+  w.debts = [debt];
   w.identityRules = (w.identityRules || []).concat([{ eventId: 'mortgage', payeePattern: 'Invented mortgage co',
     atlasAccountId: 'chequing-a', direction: 'debit' }]);
   w.transactions = paid ? [pay(paid, '2026-10-09')] : [];
@@ -47,7 +48,12 @@ function world(paid, { history = HISTORY.map(d => pay(800, d)), obligation = MOR
   const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet, ...(withDebts ? { debts: w.debts } : {}) });
   const period = rec.defaultView.calendarPeriods.find(p => p.start <= w.asOf && p.end >= w.asOf);
   const row = (period.bills || []).find(b => b.id === 'mortgage');
-  return { fixed: served.amountFixed === true, row, remaining: period.remainingBills, day0: rec.sim.daily[0].balance, rec };
+  // The cash walk's own event for this occurrence: what cash actually holds for it.
+  const held = [];
+  for (const week of rec.sim.weeks || []) for (const e of week.events || []) {
+    if (e.id === 'mortgage' && e.date === '2026-10-09') held.push(-e.amount);
+  }
+  return { fixed: served.amountFixed === true, row, remaining: period.remainingBills, day0: rec.sim.daily[0].balance, held, rec };
 }
 
 console.log('1. A plain payment obligation derived fixed keeps its remainder (D2 for obligations)');
@@ -69,6 +75,19 @@ console.log('1. A plain payment obligation derived fixed keeps its remainder (D2
     `${noDebts.day0} vs ${part.day0}`);
 }
 
+console.log('1b. With debts supplied, cash holds exactly the calendar row\'s remaining (Codex P1 / lead blocker on #1369)');
+{
+  // By hand: 800 - 300 = 500, 800 - 500 = 300, 800 - 600 = 200. The debt walk caps the event to that remainder;
+  // a payment measured twice would hold 200, 0 and 0.
+  for (const [paid, remaining] of [[300, 500], [500, 300], [600, 200]]) {
+    const s = world(paid);
+    ok(s.row && s.row.status === 'still due' && s.row.remaining === remaining
+      && JSON.stringify(s.held) === JSON.stringify([remaining]) && s.remaining === remaining,
+      `paid ${paid} of 800: the row says ${remaining} remaining and cash holds exactly ${remaining}`,
+      JSON.stringify([s.row && s.row.remaining, s.held, s.remaining]));
+  }
+}
+
 console.log('2. Without the derivation, the incumbent reading stands');
 {
   const noHistory = world(300, { history: null });
@@ -88,6 +107,10 @@ console.log('3. Obligations that are never fixed');
   ok(!heloc.fixed, 'a capitalising, non-cash obligation (the HELOC shape): never fixed');
   const once = world(300, { obligation: { ...MORTGAGE, frequency: 'once', date: '2026-10-09' } });
   ok(!once.fixed, 'a once obligation: never fixed');
+  // A revolving card's payment with no statement occurrences (the travel shape): its debt has a limit or a close day.
+  const limit = world(300, { debt: { ...MORTGAGE_DEBT, limit: 5000 } });
+  const close = world(300, { debt: { ...MORTGAGE_DEBT, statementCloseDay: 20 } });
+  ok(!limit.fixed && !close.fixed, 'a revolving card\'s payment (debt with a limit, or a statement close day): never fixed, even with identical history');
   // Forecast's own guard: a sent-minimum or statement event is never a fixed partial payment, whatever its flag.
   const ev = { kind: 'obligation', id: 'mortgage', date: '2026-10-09', amountFixed: true, confidence: 'confirmed', effect: 'payment' };
   const observed = new Map([['mortgage@2026-10-09', { actual: 300, entries: 1 }]]);
