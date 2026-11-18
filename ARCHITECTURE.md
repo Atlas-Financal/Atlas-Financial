@@ -1192,9 +1192,10 @@ category, Other spending and budget progress. Its cash still leaves once:
 Balance After Deductions and the planned close each deduct it as their own
 named term (`heldOutflowSpending`), exactly as linked savings-item spending,
 never also through the household hold. The Budget lists it in a To confirm
-block; the mortgage-due note stays display-only. Until the owner admits the
-term to the private period-history projection, a period with a non-zero held
-term fails that projection closed.
+block; the mortgage-due note stays display-only. The private period-history
+projection persists `heldOutflowSpending` in both term sets (owner decision,
+Dale, 2026-11-18, #821), so a held-term period is stored with terms that
+still close.
 
 ### Budget savings-display amendment — owner direction 2026-09-30
 

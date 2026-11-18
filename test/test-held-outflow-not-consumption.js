@@ -150,7 +150,7 @@ console.log('\n=== lost coverage: the held row is still deducted once (#1323 rev
   }
 }
 
-console.log('\n=== period history projection: fails closed on a held term (owner stop pending) ===');
+console.log('\n=== period history projection: a held term is persisted, never dropped (owner decision 2026-11-18) ===');
 {
   const reseal = candidate => {
     const body = { schema: candidate.schema, capturedAt: candidate.capturedAt, content: candidate.content };
@@ -160,14 +160,17 @@ console.log('\n=== period history projection: fails closed on a held term (owner
   let projected = null, error = null;
   try { projected = Pg.project(plain); } catch (e) { error = e; }
   ok(projected && projected.schema === Pg.PROJECTION_SCHEMA, 'a period with no held term projects exactly as before', error && error.code);
+  ok(projected && !Object.hasOwn(projected.content.publication.predictedEndingBalanceTerms || {}, 'heldOutflowSpending'),
+    'no held term is invented where none was published');
   const forged = JSON.parse(JSON.stringify(plain));
   const terms = forged.content.publication.predictedEndingBalanceTerms;
   ok(terms && typeof terms === 'object', 'the fixture publishes BAD terms to forge');
   if (terms) {
     terms.heldOutflowSpending = 40;
-    let code = null;
-    try { Pg.project(reseal(forged)); } catch (e) { code = e.code; }
-    ok(code === 'history-projection-invalid', 'a non-zero held term is refused, never silently dropped', String(code));
+    let kept = null, code = null;
+    try { kept = Pg.project(reseal(forged)); } catch (e) { code = e.code; }
+    ok(kept && kept.content.publication.predictedEndingBalanceTerms.heldOutflowSpending === 40,
+      'a non-zero held term is persisted as published, never silently dropped', String(code));
   }
 }
 
