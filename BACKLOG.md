@@ -866,7 +866,7 @@ A Savings-paid non-item household purchase stays in the household hold (conserva
 
 The period-history engine-commit fallback to `RENDER_GIT_COMMIT` applies on any `git rev-parse` failure (no git binary, dubious ownership, corrupt checkout), not only a missing `.git`; the engine-file dirty check is then skipped, though `filesFingerprint` still records what ran. Source: [PR #861 comment 6699577646](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861#issuecomment-6699577646).
 
-The capture-on-refresh worker is not unref'd, so an in-flight capture can hold server shutdown for up to its bounds (120 s). Source: [PR #861 comment 6699577646](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861#issuecomment-6699577646).
+~~The capture-on-refresh worker is not unref'd, so an in-flight capture can hold server shutdown for up to its bounds (120 s). Source: [PR #861 comment 6699577646](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861#issuecomment-6699577646).~~ Done 2026-11-18 (agent/capture-worker-unref): the owner unrefs the worker after attaching its listeners; `test/test-period-history-refresh-capture.js` C9 proves a real process exits while a capture is in flight.
 
 The period-history projection holds no savings pool, savings-goal or held-balance fields, so a captured close cannot show its savings balance (it shows Unknown). Source: [PR #861 card](https://github.com/tc5v5s64ym-sketch/Atlas-Financial/pull/861).
 
