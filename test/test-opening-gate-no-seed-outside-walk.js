@@ -5,7 +5,7 @@
  * The walk still needs a numeric seed to run, and it keeps one privately
  * (postedHouseholdChequingCash). Everything else must not move with it:
  *   - Forecast.startingCashAmount is null (Unknown) while the gate fails;
- *   - no figure recommend, paydayAllocation, simulate or deepDive publishes
+ *   - no figure recommend, paydayAllocation or simulate publishes
  *     changes when only the value of the present operating account changes;
  *   - a stale saved "next period" Plan selection cannot print a projected
  *     balance as the "Last trusted opening";
@@ -77,7 +77,6 @@ function published({ plan, opts }) {
     recommend: flat(F.recommend(plan, AS_OF, opts)),
     paydayAllocation: flat(F.paydayAllocation(plan, AS_OF, opts)),
     simulate: flat(F.simulate(plan, AS_OF, opts)),
-    deepDive: flat(F.deepDive({ plan, debts: opts.debts })),
   };
 }
 function moved(x, y) {
