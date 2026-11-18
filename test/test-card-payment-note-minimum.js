@@ -167,7 +167,10 @@ for (const name of ['Triangle Mastercard', 'MBNA']) {
     currentPeriodActuals: r.live.report.currentPeriodActuals }).cardPurchaseCoverage) || {}).issues || []);
   check(s.available === unknown.available && codes(s) === codes(unknown),
     name + ' on a TFR-TO C/C: card coverage reads as an unknown name (available ' + s.available + ', ' + codes(s) + ')');
-  check(/coverage-payment-destination-unconfirmed/.test(codes(s)), name + ' on a TFR-TO C/C: destination unconfirmed');
+  // Lead dispatch 2026-11-18 (Dale): the unconfirmed destination degrades.
+  const trust = r => ((r.live.data && F.recommend(r.live.data.plan, NOW, { debts: r.live.data.debts,
+    currentPeriodActuals: r.live.report.currentPeriodActuals }).cardPurchaseCoverage) || {}).trust;
+  check(trust(s) === 'estimated' && trust(unknown) === 'estimated', name + ' on a TFR-TO C/C: destination unconfirmed, an estimate');
   toConfirm(s, name + ' on a TFR-TO C/C');
 }
 // 7. The exact minimum category is unchanged (Dale 2026-10-07): ready, household-category.

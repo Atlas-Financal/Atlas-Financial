@@ -8,8 +8,8 @@
 // plan stays live, the payment is one "To confirm: which card did this pay?"
 // row, and every figure built on the card coverage carries an estimated tag.
 // Money-moving proposals (extra debt, the future path) still wait. A credit
-// back into Bills from an unknown card, or the destination beside any other
-// card issue, withholds exactly as before. A note, group or credit resolves
+// back into Bills from an unknown card, a debit out of Weekly, or the
+// destination beside any other card issue, withholds exactly as before. A note, group or credit resolves
 // it as today. Invented numbers only; every expected figure is hand-derived.
 //
 // World (test/fixtures/card-coverage-aggregate-world.js): payday anchor
@@ -158,6 +158,12 @@ console.log('4. Still withheld, exactly as before');
   const other = run(world([purchase, cashLeg(105), ['card', 30, null, 'purchase', { is_pending: null }]]));
   check(other.coverage.status === 'unavailable' && codes(other).includes('coverage-payment-destination-unconfirmed')
     && codes(other).length > 1 && other.coverage.trust === undefined, 'beside another card issue: withheld, both listed');
+  // A debit out of Weekly: its cash was already counted against the household
+  // hold through the Bills-to-Weekly funding, so ignoring it is not proven
+  // cautious. It withholds as before.
+  const weekly = run(world([purchase, cashLeg(105, {}, 'weekly')]));
+  check(weekly.coverage.status === 'unavailable' && weekly.coverage.trust === undefined
+    && codes(weekly).includes('coverage-payment-destination-unconfirmed'), 'an unpaired Weekly debit still withholds');
   // A pending debit is not a payment yet: as before, it adds nothing.
   const pending = run(world([purchase, cashLeg(105, { is_pending: true })]));
   check(!codes(pending).includes('coverage-payment-destination-unconfirmed') && pending.coverage.trust === undefined,

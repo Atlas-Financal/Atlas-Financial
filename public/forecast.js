@@ -14638,10 +14638,17 @@
       // understate the money left, never overstate it. It is listed To
       // confirm and the coverage is published as an estimate (below). A
       // CREDIT back into Bills from an unknown card still withholds: ignoring
-      // money that came back could leave a purchase looking covered.
+      // money that came back could leave a purchase looking covered. So does
+      // a debit out of Weekly (below).
       for (const leg of [...legs.cashDebit, ...legs.cashCredit, ...legs.reserveDebit]) {
         if (!leg.paired && leg.tx.date >= origin && leg.tx.pending === false) {
-          if (legs.cashCredit.includes(leg)) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
+          // Only a debit out of Bills or Savings degrades. A Weekly debit's cash
+          // was already counted against the household hold through the
+          // Bills-to-Weekly funding, so ignoring it is not proven cautious.
+          const location = householdCashLocationId(leg.tx);
+          const fromBillsOrSavings = location === BILLS_ACCOUNT_ID || location === DESIGNATED_RESERVE_ID
+            || leg.tx.accountRole === 'household-reserve';
+          if (legs.cashCredit.includes(leg) || !fromBillsOrSavings) issue('coverage-payment-destination-unconfirmed', leg.tx.coverageRef);
           else destinationUnconfirmed.push(leg);
         }
       }

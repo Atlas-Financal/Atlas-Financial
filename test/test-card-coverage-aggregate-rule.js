@@ -113,11 +113,18 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 {
   withheld(run(world([['card', 80, null, 'purchase'], ['card', -80, null, 'credit']])),
     'coverage-payment-source-unconfirmed', 'card credit with no household cash leg');
-  withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash']])),
-    'coverage-payment-destination-unconfirmed', 'cash payment with no card leg');
-  // Atlas partial review on #849: the same for a Savings payment debit.
-  withheld(run(world([['card', 80, null, 'purchase'], ['savings', 80, null, 'cash']], { savingsOpening: 1000 })),
-    'coverage-payment-destination-unconfirmed', 'Savings payment with no card leg');
+  // Lead dispatch 2026-11-18 (Dale): a Bills or Savings payment debit with no
+  // card leg no longer withholds. It is applied to no card (the purchase stays
+  // reserved), coverage is an estimate, and the payment is listed To confirm.
+  // test/test-card-payment-destination-estimate.js holds the full proof.
+  for (const [account, why, opts] of [['bills', 'cash payment with no card leg', {}],
+    ['savings', 'Savings payment with no card leg', { savingsOpening: 1000 }]]) {
+    const s = run(world([['card', 80, null, 'purchase'], [account, 80, null, 'cash']], opts));
+    assert.equal(s.coverage.status, 'ready', why + ': published');
+    assert.equal(s.coverage.trust, 'estimated', why + ': an estimate');
+    assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
+    assert.equal(s.coverage.toConfirm.length, 1, why + ': one To-confirm row');
+  }
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, null, 'cash'], ['card', -79.99, null, 'credit']])),
     'coverage-payment-source-unconfirmed', 'unequal cents never pair');
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, '2026-09-18', 'cash'], ['bills', 80, '2026-09-19', 'cash'],
@@ -327,7 +334,13 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   ready(triangle, 0, 'triangle pay-down');
   assert.equal(triangle.coverage.minimumCoverage[0].status, 'covered-by-payment');
   // A generic TFR-TO C/C cannot be tied to the pay-down card: unconfirmed.
-  withheld(run(mbna([['bills', 25, null, 'cash']])), 'coverage-payment-destination-unconfirmed', 'generic C/C transfer');
+  // Since the lead's 2026-11-18 dispatch (Dale) it pays no card: an estimate,
+  // the minimum still to confirm (unpaid), the debit listed To confirm.
+  const generic = run(mbna([['bills', 25, null, 'cash']]));
+  assert.equal(generic.coverage.trust, 'estimated', 'generic C/C transfer: an estimate');
+  assert.equal(generic.coverage.toConfirm.length, 1, 'generic C/C transfer: one To-confirm row');
+  assert.deepEqual(generic.coverage.minimumCoverage.map(m => [m.covered, m.status]), [[0, 'to-confirm']],
+    'generic C/C transfer: the minimum is not paid by it');
   // Activity on a no-feed card contradicts the owner fact and withholds.
   withheld(run(mbna([['card', 30, null, 'purchase']])), 'coverage-pay-down-card-activity-unexpected', 'unexpected purchase');
   // A stale manual balance keeps its own date and is refused as current; a
@@ -361,14 +374,15 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     }
   }
   // Guards stay: a generic C/C from Savings names no card; an unpaired Savings
-  // payment leg has an unknown destination.
+  // payment leg has an unknown destination. Since the lead's 2026-11-18
+  // dispatch (Dale) each pays no card: an estimate, listed To confirm.
   const generic = run(world([['savings', 25, null, 'cash', { payee: 'TFR-TO C/C' }]], { ...reserve, card: 'mbna' }));
-  assert.equal(generic.coverage.status, 'unavailable', 'generic C/C from reserve Savings');
-  assert(generic.coverage.issues.some(i => i.code === 'coverage-payment-destination-unconfirmed'));
+  assert.equal(generic.coverage.trust, 'estimated', 'generic C/C from reserve Savings: an estimate');
+  assert.equal(generic.coverage.toConfirm.length, 1, 'generic C/C from reserve Savings: To confirm');
   const feed = { reserveSavings: true, savingsOpening: 1000 };
   const unpaired = run(world([['card', 80, null, 'purchase'], ['savings', 80, null, 'cash']], feed));
-  assert.equal(unpaired.coverage.status, 'unavailable');
-  assert(unpaired.coverage.issues.some(i => i.code === 'coverage-payment-destination-unconfirmed'));
+  assert.equal(unpaired.coverage.trust, 'estimated', 'unpaired Savings payment: an estimate');
+  assert.equal(unpaired.coverage.reservedCash, 80, 'unpaired Savings payment: the purchase stays reserved');
   // A paired reserve-Savings payment to a feed card is a coverage inflow. The
   // Savings walk's own qualification of that outflow is the NEXT PR (#843
   // finding 11); only the card ledger and the Bills period end are pinned.
