@@ -73,7 +73,7 @@ const TERMS = Object.freeze({
 // payer labels and unplanned other-income items are never projected.
 const ROWS = Object.freeze({
   householdBudget: { id: STR, label: STR, monthly: NUM, plannedWeekly: NUM, plannedPayday: NUM, planned: NUM,
-    spent: NUM, remaining: NUM, overspend: NUM, hold: NUM, projected: BOOL },
+    spent: NUM, remaining: NUM, overspend: NUM, hold: NUM, projected: BOOL, trust: STR, plannedTrust: STR },
   income: { id: STR, label: STR, kind: STR, date: DAY, planned: NUM, amount: NUM, actual: NUM, remaining: NUM,
     settlement: STR, status: STR, confidence: STR },
   bills: { id: STR, label: STR, kind: STR, date: DAY, planned: NUM, amount: NUM, actual: NUM, remaining: NUM,
@@ -264,6 +264,14 @@ function project(candidate) {
     if (!Array.isArray(p[key])) fail('history-projection-invalid');
     // Unplanned other-income items can carry provider text; only plan rows stay.
     publication[key] = p[key].filter(row => !(key === 'income' && row?.otherIncome === true)).map(row => pick(row, spec));
+    // A budget row keeps its trust tag. Forecast tags only a row that is not
+    // calculated (estimated, for example a carried Lunch Money budget), so an
+    // untagged row is stored as 'calculated' (the engine's own default). A
+    // record saved before this rule has no row trust at all: it reads, and
+    // a consumer treats its rows as untagged, never as calculated.
+    if (key === 'householdBudget') publication[key].forEach((row, i) => {
+      if (!Object.hasOwn(row, 'trust') && plain(p[key][i])) row.trust = 'calculated';
+    });
   }
   if (Object.hasOwn(p, 'otherIncome')) publication.otherIncome = p.otherIncome === null ? null : pick(p.otherIncome, OTHER_INCOME);
   const prov = c.provenance;
