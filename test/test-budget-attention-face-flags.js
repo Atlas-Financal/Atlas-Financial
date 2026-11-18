@@ -23,12 +23,14 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
 };
 
-let chromium;
-try { ({ chromium } = require('playwright')); } catch { chromium = null; }
-if (!chromium || process.env.ATLAS_SKIP_BROWSER === '1') {
+function hasBrowser() {
+  try { require.resolve('playwright'); return true; } catch { return false; }
+}
+if (!hasBrowser() || process.env.ATLAS_SKIP_BROWSER === '1') {
   console.log('  SKIP  Playwright Chromium is not available here');
   process.exit(0);
 }
+const { chromium } = require('playwright');
 
 const root = path.join(__dirname, '..');
 const fx = require('./fixtures/budget-surface-data');
