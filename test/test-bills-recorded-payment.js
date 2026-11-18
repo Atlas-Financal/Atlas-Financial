@@ -81,7 +81,9 @@ function numbers(value, path = '', out = {}) {
 // Item 12 (#1156): the overdue Aug 31 once row is carried; its completed
 // period lists it as carried and counts none of it (validated, then restored
 // to the frozen engine's numbers).
-const incumbentNumbers = value => numbers(stripMissingDeposit(stripPaydaySchedule(stripUnconfirmedBills(stripCarriedBills(incumbentAdvice(value, NOW)).advice).advice).advice).advice);
+// Fields main predates (categorySpendingTrends): proved empty, then removed.
+const { withoutAuthorizedAdditions: withoutCategoryTrends } = require('./forecast-authorized-additions');
+const incumbentNumbers = value => numbers(withoutCategoryTrends(stripMissingDeposit(stripPaydaySchedule(stripUnconfirmedBills(stripCarriedBills(incumbentAdvice(value, NOW)).advice).advice).advice).advice));
 // PA-4a-2b C7 (Muse #812 6541501158): a card-held close feeds no numeric
 // dependent opening. In a card-held publication each projected period's
 // opening-dependent chain is null (the frozen engine carried numbers), its

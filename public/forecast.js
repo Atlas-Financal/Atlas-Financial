@@ -18396,6 +18396,82 @@
   // paydayBoundaryCash, invent $0, interpolate, or treat unknown as cash.
   // Oldest payday first so the household can see whether leftover at payday
   // has generally risen or fallen. Not income, savings, or a second engine.
+  // Where the household consistently goes over plan (owner direction, Dale,
+  // 2026-11-18). Read from saved closes only: each figure is the stored
+  // per-category `overspend` (spent over plan, computed at that close). Nothing
+  // is recomputed, rebuilt or estimated. A close qualifies only when it was
+  // complete at capture (closingState 'complete-at-capture': whole-period
+  // evidence, no completeness reason). One close per period (the first, as in
+  // the reprint). The latest `window` qualifying closes are used; with fewer
+  // than `minimum` there is no trend, only the count. Informational rows and
+  // rows whose stored overspend is not a number are not counted.
+  const CATEGORY_TREND_WINDOW = 6;
+  const CATEGORY_TREND_MINIMUM = 3;
+  // A saved category row the trend can use: its plan and spend are stored
+  // numbers, and its stored plan trust is present and calculated (lead ruling,
+  // option C: an estimated plan, such as a carried Lunch Money budget, and a
+  // row saved before the store kept row trust are not counted). A saved
+  // lookback row stores overspend null, so the over-plan amount is worked
+  // out here from the stored planned and spent, never read from overspend.
+  function categoryTrendRow(row) {
+    if (!row || typeof row !== 'object' || typeof row.id !== 'string' || row.informational === true) return false;
+    // The store's reading rule (scripts/private-period-history-postgres.js,
+    // beside ROWS): the plan's trust is plannedTrust ?? trust. The over-plan
+    // amount also uses the row's spent, so the row's own trust must be
+    // calculated too: a possible duplicate (trust estimated, plannedTrust
+    // calculated) has a calculated plan but an estimated spent.
+    if ((row.plannedTrust ?? row.trust) !== 'calculated' || row.trust !== 'calculated') return false;
+    return typeof row.planned === 'number' && Number.isFinite(row.planned)
+      && typeof row.spent === 'number' && Number.isFinite(row.spent);
+  }
+  function categorySpendingTrends(history) {
+    const closings = capturedHistoryRecords(history).filter(record => record.content.kind === 'closing');
+    const byPeriod = new Map();
+    for (const record of closings.slice().sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)))) {
+      const key = record.content.period.start + '|' + record.content.period.end;
+      if (!byPeriod.has(key)) byPeriod.set(key, record);
+    }
+    const saved = [...byPeriod.values()];
+    // A qualifying close was saved complete at capture and has at least one
+    // usable category row.
+    const qualifying = saved.filter(record => record.content.closingState === 'complete-at-capture'
+      && Array.isArray(record.content.publication.householdBudget)
+      && record.content.publication.householdBudget.some(categoryTrendRow))
+      .sort((a, b) => b.content.period.start.localeCompare(a.content.period.start));
+    const used = qualifying.slice(0, CATEGORY_TREND_WINDOW);
+    const base = { window: CATEGORY_TREND_WINDOW, minimum: CATEGORY_TREND_MINIMUM,
+      savedCloses: saved.length, qualifyingCloses: qualifying.length, periodsUsed: used.length,
+      from: used.length ? used[used.length - 1].content.period.start : null,
+      through: used.length ? used[0].content.period.end : null };
+    if (used.length < CATEGORY_TREND_MINIMUM) {
+      return { ...base, status: 'insufficient', trust: 'unavailable', categories: [],
+        reason: 'Not enough saved periods yet: a trend needs ' + CATEGORY_TREND_MINIMUM
+          + ' pay periods saved complete at their close, with category plans saved as calculated.' };
+    }
+    const cents = value => Math.round(value * 100);
+    const rows = new Map();
+    for (const record of used) {
+      for (const row of record.content.publication.householdBudget) {
+        if (!categoryTrendRow(row)) continue;
+        const entry = rows.get(row.id) || { id: row.id, label: null, labelFrom: '', periodsCounted: 0, periodsOver: 0, overCents: 0 };
+        if (typeof row.label === 'string' && record.content.period.start > entry.labelFrom) {
+          entry.label = row.label; entry.labelFrom = record.content.period.start;
+        }
+        const overCents = Math.max(0, cents(row.spent) - cents(row.planned));
+        entry.periodsCounted += 1;
+        if (overCents > 0) { entry.periodsOver += 1; entry.overCents += overCents; }
+        rows.set(row.id, entry);
+      }
+    }
+    const categories = [...rows.values()].map(entry => ({
+      id: entry.id, label: entry.label, periodsCounted: entry.periodsCounted, periodsOver: entry.periodsOver,
+      averageOverspend: entry.periodsOver ? Math.round(entry.overCents / entry.periodsOver) / 100 : null,
+      trust: 'calculated',
+    })).sort((a, b) => b.periodsOver - a.periodsOver
+      || (b.averageOverspend || 0) - (a.averageOverspend || 0) || String(a.label).localeCompare(String(b.label)));
+    return { ...base, status: 'ready', trust: 'calculated', categories, reason: null };
+  }
+
   function planPaydayCarryoverTrend(views) {
     const points = [];
     for (let i = 0; i < (views || []).length; i++) {
@@ -22345,6 +22421,7 @@
         payPeriodViews: payPeriodTimelinePack.views,
         payPeriodTimeline: payPeriodTimelinePack.timeline,
         paydayCarryoverTrend: planPaydayCarryoverTrend(pastPeriodViews),
+        categorySpendingTrends: categorySpendingTrends(base.periodHistory),
         // The options behind `sim`, so a caller overriding the weekly figure
         // re-simulates under the same assumptions instead of inventing its own.
         // Horizon is included so a page override still walks the master plan.
@@ -29253,7 +29330,7 @@
     projectDebts, baselineTrajectory, daleEstimatedPayrollDeposits, projectedDalePayroll,
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
-    billOccurrenceAmount,
+    billOccurrenceAmount, categorySpendingTrends,
     visaPaymentReconciliation, visaPaymentPublication,
     CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;

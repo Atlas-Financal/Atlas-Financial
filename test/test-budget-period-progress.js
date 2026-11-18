@@ -237,6 +237,8 @@ const withoutDelta=value=>{
       etransferPublications++;
       delete value.outgoingETransfers;
     }
+    // Fields main predates (categorySpendingTrends): proved empty, then removed.
+    require('./forecast-authorized-additions').withoutAuthorizedAdditions(value);
     Object.values(value).forEach(withoutDelta);
   }
   return value;
