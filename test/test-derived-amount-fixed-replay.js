@@ -84,10 +84,17 @@ async function stub(payload) {
       && JSON.stringify(kept.amountFixedDerivation.billIds) === JSON.stringify(['resp']),
       'memory keeps only the derivation record (source, status, window, bill and obligation ids), never the history rows',
       JSON.stringify(kept.amountFixedDerivation));
-    ok(!JSON.stringify(kept).includes('2026-05-15'), 'no history row (May 15) is retained in memory');
+    // The bill sheet's series (Dale, 2026-11-18) keeps each identified payment's date and amount for replay, and
+    // nothing else of the row: no payee, no provider id.
+    ok(!JSON.stringify(kept).includes('93101') && !JSON.stringify(kept.billPaymentHistory).includes('TD WATERHOUSE'),
+      'no history row is retained in memory: the series keeps dates and amounts only');
     const before = mock.calls.length;
     const warm = await Live.applyForServer(canonical, env, { evidence: structuredClone(observation.evidence) });
     ok(mock.calls.length === before, 'warm read replays from memory with 0 provider GETs', String(mock.calls.length - before));
+    // The bill sheet's series (Dale, 2026-11-18) replays too: the RESP payments in the six months (Mar to Aug).
+    const respSeries = ((live.liveOverlay.billPaymentHistory || {}).bills || []).find(b => b.billId === 'resp');
+    ok(respSeries && respSeries.payments.length >= 3 && JSON.stringify(warm.liveOverlay.billPaymentHistory) === JSON.stringify(live.liveOverlay.billPaymentHistory),
+      'the bill sheet\'s series replays from memory unchanged', JSON.stringify(respSeries));
     assert.deepStrictEqual(warm, live);
     ok(true, 'the replayed publication equals the live one, fixed flag included');
     // A record in memory is only trusted in its own clean shape: anything else replays as not fixed.

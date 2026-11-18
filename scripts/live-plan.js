@@ -1360,6 +1360,7 @@ function overlayMeta(opts) {
       ? opts.operatingPlanNote
       : operatingPlanNoteFor(operatingPlan),
     currentPeriodActuals: opts.currentPeriodActuals || null,
+    ...(opts.billPaymentHistory ? { billPaymentHistory: opts.billPaymentHistory } : {}),
     observedCash: opts.observedCash || null,
     fetchedAt: opts.fetchedAt || null,
     observedAt: opts.observedAt || opts.fetchedAt || null,
@@ -1523,6 +1524,9 @@ function overlayLiveState(input) {
       evidenceDate: row.evidenceDate || null,
     })),
     currentPeriodActuals: report.currentPeriodActuals || null,
+    // The bill sheet's "Last 6 months" series (Dale, 2026-11-18): present only
+    // when the history read was asked for (server live, CLI --live).
+    ...(report.billPaymentHistory ? { billPaymentHistory: ObservationMemory.billPaymentHistory(report.billPaymentHistory) } : {}),
     observationReceipt: report.observationReceipt,
     observedCash: collectObservedCash(report, liveAsOf || cutover.liveAsOf),
     fetchedAt: report.fetchedAt || null,
@@ -1923,8 +1927,10 @@ async function applyForServer(canonical, env, options) {
         StageTiming.sync('sourceReplayMs', () => {
           // The fixed-amount derivation replays as its outcome record only (#1355):
           // the 200-day history rows are never kept.
-          const inputs = ObservationMemory.sourceInputs(report.derivedAmountFixed
-            ? { ...payload, amountFixedDerivation: report.derivedAmountFixed } : payload);
+          // So does the bill sheet's payment history: its clean per-row series only.
+          const inputs = ObservationMemory.sourceInputs({ ...payload,
+            ...(report.derivedAmountFixed ? { amountFixedDerivation: report.derivedAmountFixed } : {}),
+            ...(report.billPaymentHistory ? { billPaymentHistory: report.billPaymentHistory } : {}) });
           // A field projection cannot change qualification or a single figure.
           // Future observer inputs therefore cause a cache miss until supported.
           const replayReport = StageTiming.sync('normalizeMs', () => observeForOverlay(canonical, inputs, accountMap));
