@@ -1900,6 +1900,49 @@ function coveringStatementCycleDates(plan, rule, postingDate) {
   return [upcoming[0].date];
 }
 
+// Lead dispatch 2026-11-18 (the #1313 answer key's known gap): a payroll
+// credit dated within one business day after its payday (Friday's pay landing
+// Saturday or Monday) settles that payday once, at its actual amount, through
+// the matcher's own ambiguity rules: a second candidate for the payday, or a
+// credit the matcher can place on two occurrences, stays To confirm. Only the
+// plain payroll rule qualifies (a credit identity with no posting-date rule, no
+// settlement mode and no transfer kind); Amanda's near-amount rule keeps its own
+// window. The late payday must be the payroll occurrence just before the credit,
+// with none on the credit's own date, and strictly nearer than the next one.
+// As in #1290, only a credit of exactly that payday's scheduled amount (within
+// the identity epsilon) is a late posting: a short, tiny or oversized credit a
+// day late is not proven to be the pay and is left as before.
+// Business days are Forecast's (Monday to Friday, no holiday calendar).
+const PAYROLL_LATE_RELATION = 'payroll-late-one-business-day';
+const PAYROLL_LATE_BUSINESS_DAYS = 1;
+function payrollLateRule(rule) {
+  return !!rule && rule.eventId === 'payroll' && rule.direction === 'credit' && !rule.postingDateRule
+    && !rule.settlesWhen && rule.transactionKind !== 'transfer';
+}
+// The late credit must be the only credit of this identity, on its account,
+// from the payday up to the next one; without the transaction list, no late
+// cover (fail closed).
+function payrollLatePayday(plan, rule, posted, tx, transactions) {
+  if (!payrollLateRule(rule) || !plan || !posted || !tx || !Array.isArray(transactions)) return null;
+  const events = scheduledEventsOnRange(plan, Forecast.addDays(posted, -7), Forecast.addDays(posted, 28))
+    .filter(e => e && e.id === rule.eventId).map(e => e.date).sort();
+  if (events.includes(posted)) return null;
+  const before = events.filter(d => d < posted);
+  const late = before[before.length - 1];
+  if (!late) return null;
+  if (Forecast.businessDaysAfter(late, posted) > PAYROLL_LATE_BUSINESS_DAYS) return null;
+  const next = events.find(d => d > posted);
+  if (next && !(Forecast.diffDays(late, posted) < Forecast.diffDays(posted, next))) return null;
+  // Settles at the actual amount, as an on-time credit does (lead, 2026-11-18);
+  // the matcher itself needs exactly one occurrence on the payday.
+  const rival = transactions.some(other => other && other !== tx
+    && String(other.providerTransactionId) !== String(tx.providerTransactionId)
+    && String(other.providerAccountId) === String(tx.providerAccountId)
+    && lunchMoneyDebitAmount(other.amount) < 0 && matchesIdentityFields(other, rule)
+    && other.date >= late && (!next || other.date < next));
+  return rival ? null : late;
+}
+
 function postingDateRelation(scheduledDate, postingDate, rule, tx) {
   const scheduled = parseIsoDate(scheduledDate);
   const posted = parseIsoDate(postingDate);
@@ -1907,6 +1950,10 @@ function postingDateRelation(scheduledDate, postingDate, rule, tx) {
   const lm = tx && LM_MATCHED.get(tx);
   if (lm && rule && lm.eventId === rule.eventId && lm.date === scheduled) return LM_MATCHED_RELATION;
   if (scheduled === posted) return 'same-day';
+  if (payrollLateRule(rule)) {
+    return scheduled < posted && Forecast.businessDaysAfter(scheduled, posted) <= PAYROLL_LATE_BUSINESS_DAYS
+      ? PAYROLL_LATE_RELATION : null;
+  }
   if (rule && rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER) {
     const latest = Forecast.addDays(scheduled, DUE_OR_UP_TO_TWO_DAYS_AFTER_DAYS);
     return scheduled < posted && latest && posted <= latest ? 'late-within-two-days' : null;
@@ -1980,7 +2027,7 @@ function coveringEarlyOrDueDates(plan, rule, postingDate) {
   return [];
 }
 
-function coveringScheduledDates(plan, rule, postingDate, tx) {
+function coveringScheduledDates(plan, rule, postingDate, tx, transactions) {
   const posted = parseIsoDate(postingDate);
   if (!plan || !rule || !rule.eventId || !posted) return [];
   // S3: when Lunch Money's own matches for the rule's reviewed item are
@@ -1993,6 +2040,10 @@ function coveringScheduledDates(plan, rule, postingDate, tx) {
   }
   if (rule.postingDateRule === COVER_EARLY_OR_DUE_ON_OR_BEFORE_POSTING) {
     return coveringEarlyOrDueDates(plan, rule, posted);
+  }
+  if (payrollLateRule(rule)) {
+    const late = payrollLatePayday(plan, rule, posted, tx, transactions);
+    return late ? [posted, late] : [posted];
   }
   if (rule.postingDateRule !== COVER_DUE_ON_OR_BEFORE_POSTING) {
     return scheduledDatesForPosting(posted, rule);
@@ -2750,7 +2801,7 @@ function collectIdentityHits(tx, input, rules) {
     if (rule.direction === 'credit' && !(amount < 0)) continue;
     if (rule.direction === 'debit' && !(amount > 0)) continue;
     if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx)) {
+    for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx, input.transactions)) {
       const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
       if (scheduled.length !== 1) continue;
       const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);
@@ -3246,7 +3297,7 @@ function representedEventHitGroups(input) {
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
       if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
-      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx)) {
+      for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx, input.transactions)) {
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
         const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);

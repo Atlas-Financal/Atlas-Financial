@@ -8,11 +8,10 @@
  * Rule (scripts/provider-observe.js futureIncomeUncertainty, payroll only):
  * a POSTED payroll-identified credit dated within one business day after the
  * payday just before it, when nothing claimed that payday, is that payday's
- * late posting when its amount is EXACTLY the payday's scheduled amount. It settles
- * that payday once and is never the next pay. Business
+ * late posting. Since the lead's 2026-11-18 dispatch the matcher settles that
+ * payday from it, at its actual amount, exactly as on time; it is never the next pay and is never the next pay. Business
  * days are Forecast's (Monday to Friday, no holiday calendar). A second
- * qualifying credit, a credit of any other amount, a credit two business days
- * late, or a credit not explicitly posted still holds the plan exactly as before.
+ * qualifying credit, a credit two business days late, or a credit not explicitly posted still holds the plan exactly as before.
  *
  * Path: invented raw Lunch Money payload -> scripts/live-plan.js (acceptance
  * harness) -> served data -> Forecast.recommend. Invented schedule: biweekly
@@ -74,9 +73,12 @@ ok(late.current.incomeTotal === 1400 && late.current.incomeAdded === 1400,
 for (const key of ['available', 'afterBills', 'balanceAfterDeductions', 'plannedPeriodClose', 'budgetHold']) {
   ok(late.current[key] === onTime.current[key], `${key} equals the on-time case (${onTime.current[key]})`, String(late.current[key]));
 }
-ok(late.current.incomeTrust === 'estimated' && late.current.balanceAfterDeductionsTrust === 'estimated',
-  'the late case is tagged estimated, never calculated or confirmed: the deposit is not proven to be the pay',
-  JSON.stringify([late.current.incomeTrust, late.current.balanceAfterDeductionsTrust]));
+// Lead dispatch 2026-11-18 (OWNER DECISION pending on the PR): the late pay now settles the payday, so it is tagged
+// exactly as the on-time pay, never more certain than on time.
+ok(late.current.incomeTrust === onTime.current.incomeTrust
+  && late.current.balanceAfterDeductionsTrust === onTime.current.balanceAfterDeductionsTrust,
+  'the late case is tagged exactly as the on-time case, never more certain',
+  JSON.stringify([late.current.incomeTrust, onTime.current.incomeTrust, late.current.balanceAfterDeductionsTrust]));
 
 console.log('A replay is idempotent');
 const again = run([lateTx()]);
@@ -97,15 +99,14 @@ ok(held(run([pay('2026-10-09', { id: 91101 }), pay('2026-10-09', { id: 91102 }),
 ok(held(run([pay('2026-10-13')])), 'a pay two business days late (Tuesday) holds the plan');
 ok(held(run([pay('2026-10-12', { is_pending: null })])), 'a late credit not explicitly posted holds the plan');
 
-// #1290 review: Forecast does not settle the payday from an absorbed credit, so it publishes the scheduled 1400.
-// Only an exact 1400 makes that equal to the on-time case. Hand-derived: on time, a 700 credit publishes 700 and a
-// 2800 publishes 2800. If absorbed late, they would publish 1400, and a 1 would publish 1401 (counted beside the
-// payday). So each must hold, as on main.
-console.log('Only a credit of exactly the scheduled amount is absorbed');
+// Lead dispatch 2026-11-18: the late credit now settles the payday at its actual amount, exactly as on time. Hand-
+// derived: on time, a 700 credit publishes 700 and a 2800 publishes 2800; late, the same (never 1400, never 1401).
+console.log('A late credit of any amount settles at that amount, exactly as on time');
 for (const amount of [700, 1, 2800, 1400.5, 1399.99]) {
   const lateOdd = run([pay('2026-10-12', undefined, undefined, amount)]);
   const onTimeOdd = run([pay('2026-10-09', undefined, undefined, amount)]);
-  ok(held(lateOdd), `a late credit of ${amount} (not the scheduled 1400) holds the plan`, JSON.stringify([lateOdd.operatingPlan, lateOdd.current && lateOdd.current.incomeTotal]));
+  ok(live(lateOdd) && lateOdd.current.incomeTotal === amount, `a late credit of ${amount} is live and publishes ${amount}`,
+    JSON.stringify([lateOdd.operatingPlan, lateOdd.current && lateOdd.current.incomeTotal]));
   ok(live(onTimeOdd) && onTimeOdd.current.incomeTotal === amount, `control: on time, the same ${amount} is live and publishes ${amount}`,
     JSON.stringify([onTimeOdd.operatingPlan, onTimeOdd.current.incomeTotal]));
 }
