@@ -537,6 +537,7 @@
   ["Lunch Money reviewed recurring items: one GET, reviewed rule-named items as schedule fields only, absent from the assistant packet and figures snapshot (S1, foundation)","test-lunchmoney-recurring-read.js"],
   ["A reviewed Lunch Money recurring item sets its monthly bill's day and confirms its date tag in the served plan; amount, firstDue and settlement stay the plan's (S2)","test-lunchmoney-recurring-bill-day.js"],
   ["A reviewed Lunch Money recurring item leads its bill's cadence where Forecast expands it exactly, and an ended item stops the bill; any doubt keeps the plan's cadence (owner decision 2026-11-18)","test-lunchmoney-recurring-cadence.js"],
+  ["Each reviewed Lunch Money recurring item Atlas did not apply is served as its plan row and one closed reason code, and the assistant packet reads it as a fixed sentence; no provider id or amount (lead dispatch 2026-11-17 part (b))","test-lunchmoney-recurring-refusals.js"],
   ["A card minimum or the HELOC cash leg takes its planned day from its reviewed Lunch Money item, from a cutover after its recorded history, never past the statement due day and never two in a cycle (E1)","test-lunchmoney-recurring-obligation-day.js"],
   ["An opt-in bill settles the occurrences Lunch Money itself matched, only when its matches are consistent; otherwise the incumbent rule applies (S3)","test-lunchmoney-matched-occurrences.js"],
   ["a stale Bills estimate tag is dropped only when the bank feed observed that balance fresh on this refresh","test-observed-bills-estimate.js"],

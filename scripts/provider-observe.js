@@ -4483,6 +4483,8 @@ function observeCore(input, capture) {
     // N2: account sync fields reach the coverage stamp without joining the public report.
     accounts: normalized.accounts,
     recurringItems: input.payload && input.payload.recurringItems,
+    // Part (b): the refusals of this observation's one review, never re-derived.
+    recurringRefused: recurringReview.refused,
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
@@ -5468,9 +5470,14 @@ function sanitizedRecurringEvidence(raw, opts) {
         ? opts.existingLocalId(f.transactionId) : null).filter(Boolean))),
     });
   }
+  // The review's refusals, copied field by field into the closed shape.
+  const refused = (Array.isArray(opts.refused) ? opts.refused : []).map(r => ({
+    billId: r && typeof r.billId === 'string' ? r.billId : null,
+    obligationId: r && typeof r.obligationId === 'string' ? r.obligationId : null,
+    reasonCode: r && r.reasonCode }));
   return { source: 'provider-observe:lunchmoney', status: 'read',
     window: { startDate: raw.read.requestedWindow?.startDate ?? null, endDate: raw.read.requestedWindow?.endDate ?? null },
-    items, dropped };
+    items, dropped, refused };
 }
 
 // S2 (owner decision #821 6956651970 (a)/(b): a REVIEWED Lunch Money
@@ -5553,45 +5560,65 @@ function applyRecurringSchedule(bill, schedule) {
   return out;
 }
 
+// Each reviewed, named item the review does not apply is recorded where it
+// is refused, with its Atlas plan row (only when exactly one plan row has the
+// one event id that names it, else null) and one closed reason code (lead
+// dispatch 2026-11-17 part (b), Option S). No provider id, amount or date.
+const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
+  'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
+  'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
+  'expected-dates-mismatch']);
+const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
 function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
-  const done = schedules => ({ schedules });
+  const refused = [];
+  const done = schedules => ({ schedules, refused });
   if (!block || block.status !== 'read' || !Array.isArray(block.items) || !plan || !asOf) return done([]);
   const bills = Array.isArray(plan.bills) ? plan.bills : [];
+  const obligations = Array.isArray(plan.obligations) ? plan.obligations : [];
+  const rowOf = eventId => {
+    const b = eventId == null ? 0 : bills.filter(bill => bill && bill.id === eventId).length;
+    const o = eventId == null ? 0 : obligations.filter(row => row && row.id === eventId).length;
+    return { billId: b === 1 && o === 0 ? eventId : null, obligationId: o === 1 && b === 0 ? eventId : null };
+  };
+  const refuse = (eventId, reasonCode) => { refused.push({ ...rowOf(eventId), reasonCode }); };
   const byBill = new Map();
   for (const item of block.items) {
-    if (item.startDate && item.startDate > asOf) continue;
     const eventIds = new Set();
     for (const rule of identityRules || []) {
       if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) eventIds.add(String(rule.eventId));
     }
-    if (eventIds.size !== 1) continue;
-    const billId = [...eventIds][0];
-    byBill.set(billId, (byBill.get(billId) || []).concat([item]));
+    const only = eventIds.size === 1 ? [...eventIds][0] : null;
+    if (item.startDate && item.startDate > asOf) { refuse(only, 'not-started'); continue; }
+    if (eventIds.size !== 1) { refuse(null, eventIds.size ? 'several-rules' : 'rule-names-no-event'); continue; }
+    byBill.set(only, (byBill.get(only) || []).concat([item]));
   }
   const out = [];
   for (const [billId, items] of byBill) {
-    if (items.length !== 1) continue;
+    if (items.length !== 1) { for (const _ of items) refuse(billId, 'several-items'); continue; }
     const item = items[0];
     const matches = bills.filter(bill => bill && bill.id === billId);
-    const obligationMatches = (Array.isArray(plan.obligations) ? plan.obligations : []).filter(row => row && row.id === billId);
+    const obligationMatches = obligations.filter(row => row && row.id === billId);
     if (!matches.length && obligationMatches.length === 1) {
       const schedule = recurringObligationSchedule(item, obligationMatches[0], plan, asOf);
-      if (schedule) out.push(schedule);
+      if (schedule.refused) refuse(billId, schedule.refused); else out.push(schedule);
       continue;
     }
-    if (matches.length !== 1 || obligationMatches.length || matches[0].frequency === 'once') continue;
+    if (matches.length !== 1 || obligationMatches.length) {
+      refuse(billId, matches.length || obligationMatches.length ? 'plan-row-ambiguous' : 'no-plan-row'); continue;
+    }
+    if (matches[0].frequency === 'once') { refuse(billId, 'once-bill'); continue; }
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
-    if (!cash || item.accountRole !== 'household-cash') continue;
-    if (!realIsoDay(item.anchorDate) || (item.endDate && !realIsoDay(item.endDate))) continue;
+    if (!cash || item.accountRole !== 'household-cash') { refuse(billId, 'account-mismatch'); continue; }
+    if (!realIsoDay(item.anchorDate) || (item.endDate && !realIsoDay(item.endDate))) { refuse(billId, 'date-invalid'); continue; }
     const timing = recurringItemTiming(item);
-    if (!timing) continue;
+    if (!timing) { refuse(billId, 'cadence-unmapped'); continue; }
     // A cadence change leads only when the item's expected amount per
     // occurrence matches the plan's (the amount stays the plan's). A day move
     // on the same cadence cannot change the load and needs no amount.
     if (timing.frequency !== bill.frequency) {
       const amounts = opts && opts.amounts instanceof Map ? opts.amounts : new Map();
-      if (!recurringAmountConsistent(amounts.get(item.recurringId), bill.amount)) continue;
+      if (!recurringAmountConsistent(amounts.get(item.recurringId), bill.amount)) { refuse(billId, 'cadence-amount-unconfirmed'); continue; }
     }
     // An ended item stops the bill after its end date (lastDue).
     if (item.endDate) timing.lastDue = item.endDate;
@@ -5601,7 +5628,7 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     const expected = item.expectedDates.slice().sort();
     if (expected.length) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
-      if (!expected.every(date => dates.includes(date))) continue;
+      if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
     }
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
@@ -5631,20 +5658,22 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
 //     day's.
 const MONTH_DAYS = 365.25 / 12;
 function recurringObligationSchedule(item, row, plan, asOf) {
+  const refuse = code => ({ refused: code });
   const card = row.effect === 'payment' && row.debtId && !row.nonCash && row.frequency === 'monthly';
   const heloc = row.nonCash && row.cashDay != null && row.frequency === 'monthly';
-  if (!card && !heloc) return null;
-  if (!['chequing-a', 'chequing-b'].includes(row.payingAccount) || item.accountRole !== 'household-cash') return null;
-  if (!realIsoDay(item.anchorDate) || item.endDate) return null;
+  if (!card && !heloc) return refuse('plan-row-unsupported');
+  if (!['chequing-a', 'chequing-b'].includes(row.payingAccount) || item.accountRole !== 'household-cash') return refuse('account-mismatch');
+  if (!realIsoDay(item.anchorDate)) return refuse('date-invalid');
+  if (item.endDate) return refuse('item-ended');
   const timing = recurringItemTiming(item);
-  if (!timing || timing.frequency !== 'monthly') return null;
+  if (!timing || timing.frequency !== 'monthly') return refuse('cadence-unmapped');
   const oldDay = Number(card ? row.day : row.cashDay);
-  if (!(oldDay >= 1 && oldDay <= 31)) return null;
+  if (!(oldDay >= 1 && oldDay <= 31)) return refuse('plan-row-unsupported');
   const statements = card && Array.isArray(row.statementOccurrences) ? row.statementOccurrences : [];
   const latestStatement = statements.filter(r => r && realIsoDay(r.dueDate)).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).pop();
-  if (latestStatement && timing.day > Number(latestStatement.dueDate.slice(8, 10))) return null;
+  if (latestStatement && timing.day > Number(latestStatement.dueDate.slice(8, 10))) return refuse('day-after-statement-due');
   // With no known statement due day, a card's day may only move earlier.
-  if (card && !latestStatement && timing.day > oldDay) return null;
+  if (card && !latestStatement && timing.day > oldDay) return refuse('day-after-statement-due');
   const recorded = [];
   for (const r of statements) for (const d of [r && r.scheduledDate, r && r.dueDate]) if (realIsoDay(d)) recorded.push(d);
   for (const r of (card && Array.isArray(row.sentPayments) ? row.sentPayments : [])) {
@@ -5669,19 +5698,19 @@ function recurringObligationSchedule(item, row, plan, asOf) {
     const monthOf = d => Number(d.slice(0, 4)) * 12 + Number(d.slice(5, 7));
     // No occurrence still due may be lost: the first new one replaces the
     // first earlier-day one due from the cutover, in that same month.
-    if (oldNext && (!next || monthOf(next) !== monthOf(oldNext))) return null;
+    if (oldNext && (!next || monthOf(next) !== monthOf(oldNext))) return refuse('cutover-unsafe');
     if (last && next) {
       // One occurrence per statement cycle: the first new occurrence falls in
       // the calendar month right after the last earlier-day one, and between
       // half a month and a month and a half after it.
       const gap = calendarDaysBetween(last, next);
-      if (monthOf(next) !== monthOf(last) + 1 || !(gap >= MONTH_DAYS / 2 && gap <= MONTH_DAYS * 1.5)) return null;
+      if (monthOf(next) !== monthOf(last) + 1 || !(gap >= MONTH_DAYS / 2 && gap <= MONTH_DAYS * 1.5)) return refuse('cutover-unsafe');
     }
   }
   const expected = item.expectedDates.filter(d => !from || d >= from).sort();
   if (expected.length) {
     const dates = Forecast.occurrences({ frequency: 'monthly', day: timing.day }, expected[0], expected[expected.length - 1]);
-    if (!expected.every(d => dates.includes(d))) return null;
+    if (!expected.every(d => dates.includes(d))) return refuse('expected-dates-mismatch');
   }
   const before = timing.day !== oldDay ? { from, frequency: 'monthly', day: oldDay } : null;
   return { obligationId: row.id, recurringId: item.recurringId, kind: card ? 'card' : 'heloc',
@@ -5714,7 +5743,13 @@ function recurringEvidenceLooksSanitized(block) {
   if (block.status === 'unavailable') {
     return keysAre(block, ['source', 'status', 'reason']) && block.reason === 'recurring-read-failed';
   }
-  if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped'])) return false;
+  if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped', 'refused'])) return false;
+  // A refusal is an Atlas plan row id (never a Lunch Money id, which is all
+  // digits) or null, and one closed reason code; nothing else.
+  const planId = v => v === null || (typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v));
+  if (!Array.isArray(block.refused) || !block.refused.every(r => keysAre(r, RECURRING_REFUSAL_KEYS)
+    && planId(r.billId) && planId(r.obligationId) && !(r.billId && r.obligationId)
+    && RECURRING_REFUSAL_CODES.includes(r.reasonCode))) return false;
   if (!keysAre(block.window, ['startDate', 'endDate'])
     || !(block.window.startDate === null || date(block.window.startDate))
     || !(block.window.endDate === null || date(block.window.endDate))) return false;
@@ -6480,7 +6515,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   }
   const lastSyncedAt = lastSuccessfulSyncAt((opts && opts.accounts) || (report && report.accounts), mapDoc, report && report.fetchedAt);
   let lunchMoneyRecurring = sanitizedRecurringEvidence(opts.recurringItems,
-    { identityRules: opts.identityRules, accountMap: mapDoc, existingLocalId });
+    { identityRules: opts.identityRules, accountMap: mapDoc, existingLocalId, refused: opts.recurringRefused });
   // A block that fails its own structural check is replaced, so it can never
   // empty the packet's transactions below.
   if (lunchMoneyRecurring && !recurringEvidenceLooksSanitized(lunchMoneyRecurring)) {
@@ -6866,6 +6901,7 @@ const api = {
   applyRecurringSchedule,
   applyRecurringObligationSchedule,
   RECURRING_OBLIGATION_FIELDS,
+  RECURRING_REFUSAL_CODES,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
