@@ -9,7 +9,10 @@
 //   R3 nothing else in the stored record changes: with the two row fields
 //      removed, the projection equals main's, captured as a fixture;
 //   R4 the saved-close reprint is unchanged: no trust word reaches a
-//      reprinted category row.
+//      reprinted category row;
+//   R5 a withheld or plan-unknown row is never stored calculated: a category
+//      whose declared target is not a real amount (target-invalid) and a
+//      withheld Other row are stored 'unavailable'.
 // Invented data only (test/fixtures/private-period-history-input.js).
 //
 // `node test/test-saved-close-row-plan-trust.js`
@@ -85,6 +88,29 @@ function closeCandidate(edit) {
   ok(past && past.capturedClose && past.householdBudget.length > 0
     && past.householdBudget.every(budget => !Object.hasOwn(budget, 'trust') && !Object.hasOwn(budget, 'plannedTrust')),
     'R4 the reprinted saved period carries no trust word on any category row');
+
+  // R5 withheld or plan-unknown rows: 'unavailable', never 'calculated'.
+  const withPlan = change => Pg.project(closeCandidate(raw => change(raw.data.plan))).content.publication.householdBudget;
+  const invalid = withPlan(plan => { plan.budget.categories.find(c => c.id === 'groceries').plannedPayday = 'not an amount'; });
+  const invalidRow = invalid.find(budget => budget.id === 'groceries');
+  ok(invalidRow.planned === null && invalidRow.trust === 'unavailable',
+    'R5 a target-invalid category (plan unknown) is stored unavailable, not calculated');
+  ok(invalid.find(budget => budget.id === 'fuel').trust === 'calculated', 'R5 the valid category beside it is stored calculated');
+  const other = withPlan(plan => { plan.budget.categories.push({ id: 'other-spend', label: 'Other', plannedPayday: 'not an amount' }); });
+  const otherRow = other.find(budget => budget.id === 'other-spending');
+  ok(otherRow && otherRow.planned === null && otherRow.trust === 'unavailable',
+    'R5 a withheld Other row (target-invalid) is stored unavailable, not calculated');
+
+  // R5 a withheld row that keeps a finite plan (Forecast's dropped-row
+  // withhold) is stored unavailable too. Tagged on the candidate's own
+  // publication and resealed, as in R1.
+  const dropped = closeCandidate();
+  Object.assign(dropped.content.publication.householdBudget.find(budget => budget.id === 'fuel'), { withheldReason: 'dropped-row', spent: null });
+  const droppedBody = { schema: dropped.schema, capturedAt: dropped.capturedAt, content: dropped.content };
+  const droppedRow = Pg.project({ ...droppedBody, captureId: digest(droppedBody) }).content.publication.householdBudget
+    .find(budget => budget.id === 'fuel');
+  ok(droppedRow.planned === 15 && droppedRow.trust === 'unavailable',
+    'R5 a withheld row with a finite plan (dropped-row) is stored unavailable, not calculated');
 
   console.log(`All ${checks} saved-close row trust checks passed`);
 })().catch(err => { console.error(err); process.exit(1); });

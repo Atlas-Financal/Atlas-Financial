@@ -71,6 +71,14 @@ const TERMS = Object.freeze({
 });
 // Plan-defined rows only. Transaction-level `recon` / `pendingRecon` lists,
 // payer labels and unplanned other-income items are never projected.
+// householdBudget `trust` / `plannedTrust`: Forecast's own row tag, kept for
+// saved-period trends. Forecast tags only a row that is not calculated, so an
+// untagged row with a finite plan and no withheldReason is stored
+// 'calculated'; an untagged withheld or plan-unknown row is stored
+// 'unavailable'. A consumer reads the plan's trust as `plannedTrust ?? trust`,
+// and also requires a finite `planned` (and a finite `spent` for an actual).
+// The household hold's trust is the block-level `budgetHoldTrust`, never a row
+// tag. A record saved before these fields has neither: treat it as untagged.
 const ROWS = Object.freeze({
   householdBudget: { id: STR, label: STR, monthly: NUM, plannedWeekly: NUM, plannedPayday: NUM, planned: NUM,
     spent: NUM, remaining: NUM, overspend: NUM, hold: NUM, projected: BOOL, trust: STR, plannedTrust: STR },
@@ -264,13 +272,14 @@ function project(candidate) {
     if (!Array.isArray(p[key])) fail('history-projection-invalid');
     // Unplanned other-income items can carry provider text; only plan rows stay.
     publication[key] = p[key].filter(row => !(key === 'income' && row?.otherIncome === true)).map(row => pick(row, spec));
-    // A budget row keeps its trust tag. Forecast tags only a row that is not
-    // calculated (estimated, for example a carried Lunch Money budget), so an
-    // untagged row is stored as 'calculated' (the engine's own default). A
-    // record saved before this rule has no row trust at all: it reads, and
-    // a consumer treats its rows as untagged, never as calculated.
+    // A budget row keeps its trust tag (see ROWS). An untagged row is stored
+    // 'calculated' only when its plan is a finite number and it carries no
+    // withheldReason (Forecast's calculated default); otherwise 'unavailable'.
     if (key === 'householdBudget') publication[key].forEach((row, i) => {
-      if (!Object.hasOwn(row, 'trust') && plain(p[key][i])) row.trust = 'calculated';
+      if (Object.hasOwn(row, 'trust')) return;
+      const source = p[key][i];
+      const planKnown = typeof source.planned === 'number' && Number.isFinite(source.planned);
+      row.trust = planKnown && source.withheldReason == null ? 'calculated' : 'unavailable';
     });
   }
   if (Object.hasOwn(p, 'otherIncome')) publication.otherIncome = p.otherIncome === null ? null : pick(p.otherIncome, OTHER_INCOME);
