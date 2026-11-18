@@ -525,9 +525,9 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
       : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
     // U5: how many children Lunch Money lists on a group parent (a count only),
     // so the coverage stamp can tell a complete cross-account group from a
-    // partial one. Null for every other row.
-    groupChildCount: (raw.is_group_parent === true || raw.is_group === true) && Array.isArray(raw.children)
-      ? raw.children.length : null,
+    // partial one. Absent on every other row, so their shape is unchanged.
+    ...((raw.is_group_parent === true || raw.is_group === true) && Array.isArray(raw.children)
+      ? { groupChildCount: raw.children.length } : {}),
     // Lunch Money v2 transaction recurring_id: the recurring item this row
     // matched. Forecast reads it only to stamp the dogFood flags; it is not
     // published in the served packet.
