@@ -65,6 +65,9 @@ const SUPPORTED_LIVE_ROLES = {
 const REQUIRED_LIVE_CASH_IDS = Object.freeze(['chequing-a', 'chequing-b', 'savings']);
 const CURRENT_STATE_HISTORY_DAYS = 14;
 const RECONCILE_HISTORY_DAYS = 120;
+// Fixed-amount derivation (owner decision #821, 2026-11-18): one separate,
+// bounded GET of posted history that feeds only the derived amountFixed flag.
+const AMOUNT_HISTORY_DAYS = 200;
 const BILL_PAYMENT_PENDING_DAYS = 90;
 const PENDING_COVERAGE_BASIS = 'is_pending-unbounded';
 const PENDING_QUERY_PAGE_LIMIT = 1000;
@@ -72,6 +75,7 @@ const PENDING_QUERY_MAX_PAGES = 20;
 const PENDING_COVERAGE_REQUIRED_EVIDENCE =
   'GET /v2/transactions?is_pending=true with no start_date/end_date, paginated until has_more=false.';
 const Forecast = require('../public/forecast.js');
+const ObservationMemory = require('./server-observation-memory.js');
 
 function fail(message) {
   const err = new Error(message);
@@ -932,6 +936,8 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
   );
   const recurringItems = await fetchRecurringEvidence(token, txUrl, base, options);
   const lunchMoneyBudgets = await fetchBudgetEvidence(token, base, now, options);
+  const amountHistory = options && options.amountHistory === true
+    ? await fetchAmountHistory(token, now, base, options) : undefined;
   return {
     provider: 'lunchmoney',
     fetchedAt: now,
@@ -959,6 +965,7 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
     },
     recurringItems,
     lunchMoneyBudgets,
+    ...(amountHistory ? { amountHistory } : {}),
   };
 }
 
@@ -987,6 +994,25 @@ async function fetchBudgetEvidence(token, base, now, options) {
   } catch (err) {
     if (options && options.signal && options.signal.aborted) throw err;
     return { status: 'unavailable', reason: 'budget-read-failed' };
+  }
+}
+
+// The fixed-amount history read: GET /v2/transactions over AMOUNT_HISTORY_DAYS,
+// paged. It feeds only derivedAmountFixedBills. Any failure is recorded as an
+// incomplete window, so no bill is marked fixed; it never fails the refresh.
+async function fetchAmountHistory(token, now, base, options) {
+  const url = lunchMoneyTransactionsUrl(now, AMOUNT_HISTORY_DAYS, base);
+  const window = { startDate: url.startDate, endDate: url.endDate };
+  try {
+    // Coverage diagnostics describe the observation window only; the history
+    // overlaps it, so its rows are never counted a second time.
+    const { onCoverageDiagnostic, ...quiet } = options || {};
+    const page = await fetchLunchMoneyTransactionsPaged(url, token, quiet);
+    return { transactions: page.transactions || [], transactionWindow: { ...window,
+      complete: page.complete === true, hasMore: page.hasMore, truncated: page.truncated === true } };
+  } catch (err) {
+    if (options && options.signal && options.signal.aborted) throw err;
+    return { transactions: [], transactionWindow: { ...window, complete: false, truncated: false } };
   }
 }
 
@@ -4926,6 +4952,18 @@ function observeCore(input, capture) {
   // Internal to the report; never served.
   // Present only when a schedule applies, so every other report keeps its shape.
   if (recurringSchedules.length) assembled.recurringBillSchedules = recurringSchedules;
+  // The fixed-amount derivation, for live-plan to apply to the served plan.
+  // Internal to the report; present only when the history read was asked for.
+  if (input.payload && input.payload.amountHistory !== undefined) {
+    assembled.derivedAmountFixed = derivedAmountFixedBills(input.payload.amountHistory, {
+      plan: input.data && input.data.plan, accountMap: mapDoc, identityRules,
+      categories: input.payload.categories, tags: input.payload.tags, fetchedAt: normalized.fetchedAt });
+  } else if (input.payload && input.payload.amountFixedDerivation !== undefined) {
+    // A replay from observation memory carries the live derivation's outcome
+    // (ObservationMemory.sourceInputs keeps only that record, never the rows).
+    // Memory is bound to the same canonical context, so it derives the same.
+    assembled.derivedAmountFixed = ObservationMemory.amountFixedDerivation(input.payload.amountFixedDerivation);
+  }
   if (capture) {
     capture.packet = actualsPass.packet;
     capture.join = actualsPass.join;
@@ -5565,6 +5603,91 @@ function pendingCardPaidBillLocalIds(collapsed, opts, existingLocalId, represent
 // on a household cash account, and a date within NEAR_DUE_BILL_DAYS of exactly one
 // scheduled occurrence, capped below half of that bill's own interval so
 // a short-cycle bill can never claim its neighbour's charge.
+// Owner decision (#821, 2026-11-18): whether a plan bill's amount is fixed
+// comes from its Lunch Money payment history, never a hand mark. A bill is
+// fixed when (a) its identified posted CAD debits on the rule's own account in
+// the history window, for completed occurrences only (not the current one,
+// whose payment D2 is reading), (b) the latest min(6, count) of them with
+// count >= 3, are (c) all equal to the cent and (d) equal to the plan amount,
+// and (e) the newest is no older than two of the bill's intervals at the
+// window's end.
+// Anything uncertain (an incomplete or truncated window, a row two bills'
+// rules identify, two payments on one day, a two-leg or minimum-style rule,
+// an amount schedule, a once bill) leaves the bill not fixed. Recomputed on
+// every observation, so a price change turns it off with no code change.
+const AMOUNT_FIXED_INTERVAL_DAYS = Object.freeze({ weekly: 7, biweekly: 14, monthly: 31, quarterly: 92, yearly: 366 });
+const AMOUNT_FIXED_SAMPLE = 6;
+const AMOUNT_FIXED_MIN_COUNT = 3;
+const AMOUNT_FIXED_EXCLUDED_SETTLES = new Set(['two-leg-sum', 'amount-at-least', SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE]);
+
+function derivedAmountFixedBills(history, opts) {
+  const plan = opts && opts.plan;
+  const mapDoc = opts && opts.accountMap;
+  const window = history && history.transactionWindow;
+  const out = { source: 'lunchmoney-payment-history', status: 'unavailable',
+    window: window ? { startDate: window.startDate || null, endDate: window.endDate || null } : null, billIds: [] };
+  const end = parseIsoDate(window && window.endDate);
+  if (!plan || !mapDoc || !window || window.complete !== true || window.truncated === true || window.hasMore === true
+    || !parseIsoDate(window.startDate) || !end || !Array.isArray(history.transactions)) return out;
+  out.status = 'complete';
+  const bills = new Map((plan.bills || []).filter(b => b && typeof b.id === 'string').map(b => [b.id, b]));
+  const rules = stampRuleSetClaims(opts.identityRules).filter(rule => rule && rule.direction === 'debit'
+    && rule.atlasAccountId && bills.has(rule.eventId));
+  const normalized = normalizeLunchMoneyPayload({ transactions: history.transactions,
+    categories: opts.categories || [], tags: opts.tags || [] }, opts.fetchedAt).transactions;
+  const payments = new Map();
+  const unusable = new Set();
+  for (const tx of normalized) {
+    if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
+    const date = parseIsoDate(tx.date);
+    const amount = lunchMoneyDebitAmount(tx.amount);
+    if (!date || date > end || !(Number.isFinite(amount) && amount > 0)) continue;
+    if (typeof tx.currency !== 'string' || tx.currency.trim().toLowerCase() !== 'cad') continue;
+    const mapping = mappingFor(mapDoc, tx.providerAccountId);
+    const accountId = mapping && mapping.canonical && mapping.canonical.id;
+    const hits = rules.filter(rule => rule.atlasAccountId === accountId
+      && ruleMatchesTransactionIdentity(tx, rule) && ruleCurrencyQualified(tx, rule));
+    const ids = Array.from(new Set(hits.map(rule => rule.eventId)));
+    if (!ids.length) continue;
+    // A row two bills' rules identify settles neither here.
+    if (ids.length > 1) { ids.forEach(id => unusable.add(id)); continue; }
+    if (hits.some(rule => AMOUNT_FIXED_EXCLUDED_SETTLES.has(rule.settlesWhen) || rule.transactionKind === 'transfer')) {
+      unusable.add(ids[0]); continue;
+    }
+    if (!payments.has(ids[0])) payments.set(ids[0], []);
+    payments.get(ids[0]).push({ date, cents: Math.round(amount * 100) });
+  }
+  for (const [id, rows] of payments) {
+    const bill = bills.get(id);
+    const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
+    if (unusable.has(id) || !interval || bill.amountSchedule !== undefined || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
+    rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    // Two payments on one day are legs or a duplicate, not one fixed price.
+    if (rows.some((row, i) => i > 0 && rows[i - 1].date === row.date)) continue;
+    const planned = Number(bill.amount);
+    if (!Number.isFinite(planned) || planned <= 0) continue;
+    const plannedCents = Math.round(planned * 100);
+    // Completed occurrences only (Codex P1 on #1355): a payment for the current
+    // occurrence (the latest due on or before the window's end) or a later one
+    // is the settlement D2 is reading, possibly a partial one, so it never
+    // decides whether the price is fixed. Each payment belongs to its nearest
+    // scheduled occurrence; with no resolvable schedule the bill is not fixed.
+    const occ = scheduledEventsOnRange(plan, Forecast.addDays(window.startDate, -interval), Forecast.addDays(end, interval))
+      .filter(e => e && e.id === id).map(e => e.date).filter((d, i, all) => all.indexOf(d) === i).sort();
+    const current = occ.filter(d => d <= end).pop();
+    if (!current) continue;
+    const nearest = date => occ.reduce((best, d) => (Math.abs(Forecast.diffDays(d, date)) < Math.abs(Forecast.diffDays(best, date)) ? d : best), occ[0]);
+    const completed = rows.filter(row => nearest(row.date) < current);
+    if (completed.length < AMOUNT_FIXED_MIN_COUNT) continue;
+    const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
+    if (!sample.every(row => row.cents === plannedCents)) continue;
+    if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
+    out.billIds.push(id);
+  }
+  out.billIds.sort();
+  return out;
+}
+
 const NEAR_DUE_BILL_DAYS = 3;
 // The one occurrence of a bill nearest a debit date, with its reach: at most
 // NEAR_DUE_BILL_DAYS, capped below half of that bill's own interval. Null
@@ -7662,6 +7785,8 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  derivedAmountFixedBills,
+  AMOUNT_HISTORY_DAYS,
   recurringItemAmounts,
   applyRecurringSchedule,
   applyRecurringObligationSchedule,

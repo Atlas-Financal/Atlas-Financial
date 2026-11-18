@@ -37,7 +37,7 @@ Date.now = () => Date.parse(CLOCK);
     const count = mock.calls.length;
     let readCheck;
     await Refresh.serve(canonical, env, { preferObservation: true, onCheck(value) { readCheck = value; } });
-    assert.equal(mock.calls.length - count, 10, 'read after constructor failure revalidates live');
+    assert.equal(mock.calls.length - count, 11, 'read after constructor failure revalidates live');
     assert.equal(readCheck.source, 'provider', 'read after constructor failure is a provider check');
     console.log('ATLAS069-CONSTRUCTOR-OK');
   } finally {
