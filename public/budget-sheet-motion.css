@@ -243,6 +243,16 @@ dialog.blend-detail-sheet[open] {
 .blend-detail-sheet .blend-payment-evidence { min-height: 183px; padding: 16px; border-radius: 20px; background: var(--sheet-surface-2); }
 .blend-detail-sheet .blend-payment-evidence > h4 { margin: 0 0 6px; font-size: 12px; text-transform: none; letter-spacing: normal; }
 .blend-detail-sheet .blend-history-unavailable { display: grid; place-items: center; min-height: 170px; border-radius: 20px; background: var(--sheet-surface-2); color: var(--blend-ink-3); font-size: 15px; }
+.blend-detail-sheet .bill-history-unavailable { display: grid; place-items: center; min-height: 170px; margin: 0; border-radius: 20px; background: var(--sheet-surface-2); color: var(--blend-ink-3); font-size: 15px; }
+.blend-detail-sheet .bill-history-source { margin: 0 0 8px; font-size: 12px; color: var(--blend-ink-3); }
+.blend-detail-sheet .bill-history-months { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 16px 12px 12px; list-style: none; border-radius: 20px; background: var(--sheet-surface-2); }
+.blend-detail-sheet .bill-history-months > li { display: grid; grid-template-rows: 96px auto auto auto; gap: 4px; min-width: 0; text-align: center; font-size: 11px; color: var(--blend-ink-2); }
+.blend-detail-sheet .bill-history-bar { align-self: end; justify-self: center; width: 70%; height: var(--bill-history-share, 0%); min-height: 2px; border-radius: 6px 6px 2px 2px; background: var(--blend-ink-2); }
+.blend-detail-sheet [data-bill-history-paid="false"] .bill-history-bar { height: 96px; background: none; border: 1px dashed var(--blend-line); }
+.blend-detail-sheet .bill-history-month { font-weight: 600; color: var(--blend-ink); }
+.blend-detail-sheet .bill-history-amount { font-variant-numeric: tabular-nums; }
+.blend-detail-sheet .bill-history-dates { overflow-wrap: anywhere; color: var(--blend-ink-3); font-size: 10px; }
+.blend-detail-sheet .bill-detail-history > p { font-size: 13px; color: var(--blend-ink-2); }
 .blend-detail-sheet .blend-bill-published { margin-top: 22px; }
 .blend-detail-sheet .blend-bill-published > summary { cursor: pointer; font-size: 13px; color: var(--blend-ink-2); }
 .blend-detail-sheet .pay-period-navigator { margin: 12px 0 0; }
