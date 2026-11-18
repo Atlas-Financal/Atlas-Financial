@@ -5497,11 +5497,17 @@ function sanitizedRecurringEvidence(raw, opts) {
         ? opts.existingLocalId(f.transactionId) : null).filter(Boolean))),
     });
   }
-  // The review's refusals, copied field by field into the closed shape.
-  const refused = (Array.isArray(opts.refused) ? opts.refused : []).map(r => ({
-    billId: r && typeof r.billId === 'string' ? r.billId : null,
-    obligationId: r && typeof r.obligationId === 'string' ? r.obligationId : null,
-    reasonCode: r && r.reasonCode }));
+  // The review's refusals, copied field by field into the closed shape. An
+  // id outside the plan-id shape reads null for that entry only, and an
+  // entry without a closed code is left out, so one bad entry never fails
+  // the whole block (recurringEvidenceLooksSanitized stays strict).
+  const refused = (Array.isArray(opts.refused) ? opts.refused : [])
+    .filter(r => r && RECURRING_REFUSAL_CODES.includes(r.reasonCode))
+    .map(r => {
+      const billId = recurringRefusalPlanId(r.billId) ? r.billId : null;
+      const obligationId = recurringRefusalPlanId(r.obligationId) ? r.obligationId : null;
+      return { billId, obligationId: billId ? null : obligationId, reasonCode: r.reasonCode };
+    });
   return { source: 'provider-observe:lunchmoney', status: 'read',
     window: { startDate: raw.read.requestedWindow?.startDate ?? null, endDate: raw.read.requestedWindow?.endDate ?? null },
     items, dropped, refused };
@@ -5596,6 +5602,11 @@ const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-eve
   'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
   'expected-dates-mismatch']);
 const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
+// The plan-id shape a served refusal may carry: lowercase, starting with a
+// letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
+function recurringRefusalPlanId(v) {
+  return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
+}
 function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   const refused = [];
   const done = schedules => ({ schedules, refused });
@@ -5773,7 +5784,7 @@ function recurringEvidenceLooksSanitized(block) {
   if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped', 'refused'])) return false;
   // A refusal is an Atlas plan row id (never a Lunch Money id, which is all
   // digits) or null, and one closed reason code; nothing else.
-  const planId = v => v === null || (typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v));
+  const planId = v => v === null || recurringRefusalPlanId(v);
   if (!Array.isArray(block.refused) || !block.refused.every(r => keysAre(r, RECURRING_REFUSAL_KEYS)
     && planId(r.billId) && planId(r.obligationId) && !(r.billId && r.obligationId)
     && RECURRING_REFUSAL_CODES.includes(r.reasonCode))) return false;
