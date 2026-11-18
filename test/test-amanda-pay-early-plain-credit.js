@@ -137,6 +137,10 @@ console.log('5. A credit the near-amount rule placed is never held a second time
   const late = serve({ asOf: '2026-10-28', monthEndAmount: 2000, txs: [bills('2026-10-19', 2000)] });
   ok(late.live && JSON.stringify(late.settled) === JSON.stringify(['15@2026-10-15:2000']),
     'with equal amounts, a Mon Oct 19 credit settles Oct 15 late and does not hold Oct 31', JSON.stringify([late.held, late.settled]));
+  // Two late candidates for Oct 15 leave it To confirm; each was placed by the matcher, so neither holds Oct 31.
+  const competing = serve({ asOf: '2026-10-28', monthEndAmount: 2000, txs: [bills('2026-10-16', 2000), bills('2026-10-19', 2000)] });
+  ok(competing.live && competing.settled.length === 0,
+    'with equal amounts, two late candidates leave Oct 15 To confirm and do not hold Oct 31', JSON.stringify([competing.held, competing.settled]));
 }
 
 console.log('6. Once the payday passes, the credit is before the previous occurrence and holds nothing');
@@ -146,6 +150,9 @@ console.log('6. Once the payday passes, the credit is before the previous occurr
   const row = s.rowOf('amandaSalaryMonthEnd', '2026-10-31');
   ok(!!row && row.status !== 'received' && row.alreadyInCash !== true, 'Oct 31 is not received (To confirm, not relied on)',
     JSON.stringify(row && { status: row.status, alreadyInCash: row.alreadyInCash }));
+  // With equal amounts the Oct 26 credit is also within $5 of Nov 15; it is before the previous occurrence, so not held.
+  const equal = serve({ asOf: '2026-11-02', monthEndAmount: 2000, txs: [oct15(), bills('2026-10-26', 2000)] });
+  ok(equal.live, 'with equal amounts, the Oct 26 credit does not hold Nov 15 once Oct 31 has passed', JSON.stringify([equal.held, equal.settled]));
 }
 
 console.log('7. Replay: the same observation twice gives the same result');
