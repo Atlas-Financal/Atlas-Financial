@@ -23,8 +23,8 @@ scaffolding. The rule numbers are kept so existing references (for example
   (owner-reserved stop 4).
 - **Pace rules 11–16** (Dale, 2026-11-08 and 2026-11-09): each PR merges on its
   own, one Merge line, frozen heads, the current address, the real page checked
-  privately, and rule 16's one owner-decided case. They narrow the review and
-  merge rules; they loosen nothing except rule 16's named case.
+  privately, and rule 16's owner-decided cases. They narrow the review and
+  merge rules; they loosen nothing except rule 16's named cases.
 - **Ledger rule 17** (Dale, 2026-11-11): Grok Bot owns the ledger-side work.
 
 **Roles**
@@ -62,7 +62,7 @@ scaffolding. The rule numbers are kept so existing references (for example
 
 **Pace rules** (owner decision, Dale, 2026-11-08, after the 2026-11-07/08
 blitz). Rules 11–15 narrow the review and merge rules in this file; they loosen nothing. Rule 16 is
-the one owner-decided loosening, limited to exactly the case it names.
+the one owner-decided loosening, limited to exactly the cases it names.
 
 11. **No bundles.** Each PR merges on its own through the merge queue after
     its own review; rollups are retired (Dale, 2026-11-08, once the queue
@@ -95,6 +95,13 @@ the one owner-decided loosening, limited to exactly the case it names.
     Dale's direct approval of that change. Otherwise his look is required as
     before. If the head moves, the private diff is re-run on the new exact
     base and head before rule 16 can apply. Rule 15 is unchanged.
+    **Skip when 0** (owner decision, Dale, 2026-11-17; #821 6947634834;
+    OD-015 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)): his
+    separate look is also not needed, with no prior approval, when the
+    private diff on the exact base and head shows 0 household fields moved
+    and a non-builder records that result on the PR, naming that base and
+    head. A head move re-runs the diff first. When any household field
+    moves, his look is required.
 
 **Ledger rule** (owner decision, Dale, 2026-11-11; recorded on #821
 6804776747 and 6805059178).
@@ -123,6 +130,14 @@ the one owner-decided loosening, limited to exactly the case it names.
     This loosens no safety rule: Atlas stays read-only against banks and
     Lunch Money apart from the grants [`ARCHITECTURE.md`](ARCHITECTURE.md)
     records, and no agent working in this repository handles credentials.
+    **Consultation paused for the current Lunch Money push** (owner
+    decision, Dale, 2026-11-17; #821 6964009921; OD-021 in
+    [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)): that push's
+    slices do not wait for a Grok Bot answer; the lead makes those calls,
+    and owner-reserved stops still go to Dale. Grok Bot's earlier answers
+    stand. Every ledger edit stays Dale-confirmed and Atlas stays
+    read-only. The pause ends when the lead posts Grok Bot's operating
+    contract in the Plan #6 thread.
 
 The merge card and its CI checks (`merge-card-check`, risk label) stay as they
 are.
