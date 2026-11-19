@@ -18645,6 +18645,9 @@
       // describe a different evidence window and plan, so it is withdrawn:
       // the aggregates it drives read Unavailable for this period.
       view.budgetProgress = null;
+      // Today's Stack Wallet bills split is today's rows, not the saved
+      // close's: the archive keeps the total only, so no split is published.
+      periodBillLoadPartsByPeriod.delete(view);
       view.capturedClose = {
         source: 'period-history', kind: 'closing', capturedAt: closing.capturedAt,
         asOf: closing.content.asOf ?? null, closingState: closing.content.closingState ?? 'unknown',

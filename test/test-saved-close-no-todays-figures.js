@@ -24,7 +24,7 @@ const Pg = require('../scripts/private-period-history-postgres');
 const { START, END, NEXT, input } = require('./fixtures/private-period-history-input');
 
 let checks = 0;
-const ok = (value, label) => { assert.ok(value, label); checks++; };
+const ok = (value, label, detail) => { assert.ok(value, label + (detail ? " — " + detail : "")); checks++; };
 const withPlan = (raw, bill) => {
   raw.data.plan.bills = [{ id: 'invented-bill', label: 'Invented bill', frequency: 'monthly', day: 10, amount: bill,
     confidence: 'confirmed', payingAccount: 'chequing-a' }];
