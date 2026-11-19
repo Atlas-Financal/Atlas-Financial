@@ -213,7 +213,7 @@ const noSpent = p.rerender("__ctx.advice.payPeriodViews.find(row=>row.timelineRo
     [{status:'unknown',settlement:'upcoming',date:'2026-08-21'}, 'unknown', 'Status unavailable', ''],
     [{status:'pending',settlement:'upcoming',date:'2026-08-21'}, 'pending', 'Payment pending', ''],
     [{status:'needs-date',settlement:'upcoming',date:'2026-08-21'}, 'check', 'Needs a date', ''],
-    [{status:'still due',settlement:'upcoming',date:'2026-08-21',cashPaymentStatus:'sent',householdPaymentStatus:'partial'}, 'check', 'Not paid', 'Partial payment sent'],
+    [{status:'still due',settlement:'upcoming',date:'2026-08-21',cashPaymentStatus:'sent',householdPaymentStatus:'partial'}, 'check', 'Partly paid', 'Rest unknown'],
     [{status:'planned',settlement:'upcoming',date:'2026-08-21',cashPaymentStatus:'sent',householdPaymentStatus:'paid'}, 'due', 'Planned', 'Money sent'],
     [{status:'still due',settlement:'unverified',date:'2026-08-18',cashPaymentStatus:'sent',householdPaymentStatus:'unconfirmed'}, 'check', 'To confirm', 'Payment allocation unconfirmed'],
     [{status:'still due',settlement:'upcoming',date:'2026-08-21',cashPaymentStatus:'sent'}, 'due', 'Not paid', ''],

@@ -6205,7 +6205,11 @@ function budgetBillPresentation(row) {
     return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'To confirm', qualifier: 'Payment allocation unconfirmed' };
   }
   if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'paid') return { kind: 'paid', label: 'Paid', qualifier: 'Money sent' };
-  if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'partial') return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'Not paid', qualifier: 'Partial payment sent' };
+  // A confirmed card minimum with a posted payment below it (Forecast's 'partial'): Partly paid, and the rest stays
+  // Unknown (owner-reserved: a calculated remainder is Dale's decision). Label only; a qualified settlement stays Paid.
+  if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'partial') return settled
+    ? { kind: 'paid', label: 'Paid', qualifier: 'Partial payment sent' }
+    : { kind: 'check', label: 'Partly paid', qualifier: 'Rest unknown' };
   if (row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'sent') return { kind: settled ? 'paid' : 'check', label: settled ? 'Paid' : 'To confirm', qualifier: 'Money sent; minimum amount unconfirmed' };
   if (row.settlement === 'unverified') return { kind: 'check', label: 'To confirm' };
   // Forecast assumes this occurrence is inside the opening cash; there is
