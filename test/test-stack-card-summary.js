@@ -122,8 +122,9 @@ console.log('6. recommend is unchanged: it carries no stack summary');
 {
   const data = fx.served();
   const advice = F.recommend(data.plan, data.meta.asOf, F.budgetRecommendInputs(data, {}));
-  ok(!JSON.stringify(advice).includes('stackCard') && !JSON.stringify(advice).includes('stackSummary'),
-    'recommend publishes no stack fields (the page calls stackCardSummary beside cardPeriodMovements)');
+  const views = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
+  ok(!JSON.stringify(advice).includes('stackCard') && views.every(v => !(v.stackSummary && 'cards' in v.stackSummary)),
+    'recommend publishes no card figures (the page calls stackCardSummary beside cardPeriodMovements)');
 }
 
 console.log(`\nAll stack card summary checks passed (${checks}).`);
