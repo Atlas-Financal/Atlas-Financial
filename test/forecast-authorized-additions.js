@@ -10,8 +10,9 @@
 //   stackSummary (Stack Wallet, every pay period, set last by publishStackSummary):
 //   income (A1) proves its three lines sum to the period's incomeTotal to the
 //   cent and its total copies incomeTotal / incomeTrust, or that every line is
-//   null and unavailable when incomeTotal is withheld. A later key (A2 surplus,
-//   A6 cards) adds its own proof here before it is stripped.
+//   null and unavailable when incomeTotal is withheld. savings (A5) is proved
+//   by proveStackSavings below. A later key (A2 surplus, A6 cards) adds its
+//   own proof here before it is stripped.
 //   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
 //   row's Paid / Not paid word. Presentation only; proved one of its three
 //   words, then removed wherever a published row carries it.
@@ -37,12 +38,39 @@ function proveStackIncome(view, income) {
     }
   }
 }
+// A5: stackSummary.savings. Every goal's saved is null (nothing attributes
+// ledger movement to a goal); needed is a number with a trust word or null
+// and unavailable; totals.needed is the cent sum of every goal's needed or
+// null when any is missing; totals.saved and entitlement are pool-level
+// together, or null; reasons come from the closed set.
+const SAVINGS_REASONS = new Set(['no-per-goal-attribution', 'net-of-period-transfers', 'future-period', 'past-period',
+  'planned-unavailable', 'planned-incomplete', 'pool-level', 'pool-transfer-unavailable']);
+const isFigure = v => typeof v === 'number' && Number.isFinite(v);
+function proveStackSavings(view, savings) {
+  assert.ok(savings && Array.isArray(savings.items) && savings.totals, 'authorized addition: stackSummary.savings lists items and totals');
+  for (const item of savings.items) {
+    assert.equal(item.saved, null, 'authorized addition: a savings goal\'s saved is null (no per-goal attribution)');
+    assert.ok(item.needed === null ? item.trust === 'unavailable' : isFigure(item.needed) && ['calculated', 'estimated'].includes(item.trust),
+      'authorized addition: a savings goal\'s needed is a number with its trust, or null and unavailable');
+    assert.ok(Array.isArray(item.reasons) && item.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings reasons are closed');
+  }
+  const t = savings.totals;
+  const missing = savings.items.filter(item => item.needed === null).map(item => item.id);
+  assert.deepEqual(t.excluded, missing, 'authorized addition: totals.excluded names the goals without a needed');
+  assert.equal(t.needed, savings.items.length && !missing.length
+    ? savings.items.reduce((c, item) => c + Math.round(item.needed * 100), 0) / 100 : null,
+  'authorized addition: totals.needed is the cent sum of every goal\'s needed, or null');
+  assert.ok(t.completeness === 'pool-level' ? isFigure(t.saved) && isFigure(t.entitlement) : t.completeness === 'none' && t.saved === null && t.entitlement === null,
+    'authorized addition: totals.saved and entitlement are pool-level together, or null');
+  assert.ok(Array.isArray(t.reasons) && t.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings totals reasons are closed');
+}
 function withoutStackSummary(node, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return;
   seen.add(node);
   if (Object.hasOwn(node, 'stackSummary') && Object.hasOwn(node, 'incomeTotal')) {
-    assert.deepEqual(Object.keys(node.stackSummary), ['income'], 'authorized addition: stackSummary carries only proved keys');
+    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'savings'], 'authorized addition: stackSummary carries only proved keys');
     proveStackIncome(node, node.stackSummary.income);
+    proveStackSavings(node, node.stackSummary.savings);
     delete node.stackSummary;
   }
   for (const value of Object.values(node)) withoutStackSummary(value, seen);
@@ -77,7 +105,8 @@ function withoutAuthorizedAdditions(advice) {
 // For flattened trust-tag maps ('.path.to.trust' -> value): the addition's
 // own tags, proved unavailable, are not main's fields.
 function authorizedTagKey(key, value) {
-  if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key)) {
+  if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key)
+    || /\.stackSummary\.savings\.(items\.\d+|totals)\.(trust|entitlementTrust)$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }

@@ -12669,9 +12669,82 @@
   function publishStackSummary(result, plan, asOf, opts) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || typeof view !== 'object') continue;
-      view.stackSummary = Object.assign(view.stackSummary || {}, { income: stackIncome(view) });
+      view.stackSummary = Object.assign(view.stackSummary || {}, { income: stackIncome(view), savings: stackSavings(view, result) });
     }
     return result;
+  }
+  // A5 (owner-approved design, Dale 2026-11-19; lead rulings): each pay
+  // period's savings goals, this period's planned amount beside what moved.
+  // One authority, savingsFunding (savingsDailyFunding): the current period's
+  // goal rows (savingsFunding.rows) and each later period's projected rows
+  // (savingsFunding.periodViews[i].packet.rows), keyed by goal row key.
+  //   needed  the row's published thisPeriod, with its thisPeriodTrust; null
+  //           when not published, never 0. For the current period it is net
+  //           of the period's transfers so far (savingsDailyFunding's planned
+  //           capacity is the entitlement less what moved), so it reads
+  //           'still to set aside' (reason net-of-period-transfers); for a
+  //           later period nothing has moved and it is the period's plan.
+  //   saved   null for every goal: nothing attributes ledger movement to a
+  //           goal yet, and a plan instruction to set money aside is never
+  //           proof that it moved.
+  //   totals  needed is the sum of every goal's needed, or null when any is
+  //           missing (never a partial sum); saved is the pool's
+  //           ledger-evidenced transfers this period (period.transferred),
+  //           current period only, completeness 'pool-level', beside the
+  //           period's savings entitlement (period.entitlement) with its trust.
+  // No status field and no funded wording (owner rule).
+  const STACK_TRUST_RANK = { calculated: 0, estimated: 1 };
+  const isSavingsFigure = v => typeof v === 'number' && Number.isFinite(v);
+  const savingsFigureCents = v => Math.round(v * 100);
+  function stackSavings(view, result) {
+    const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
+    const role = view.timelineRole;
+    const period = funding && funding.period && typeof funding.period === 'object' ? funding.period : null;
+    const current = role === 'current' && !!period && period.start === view.start;
+    let rows = [], ready = false;
+    if (current) {
+      rows = Array.isArray(funding.rows) ? funding.rows : [];
+      ready = funding.status === 'ready' && period.status === 'ready';
+    } else if (funding && Array.isArray(funding.periodViews)) {
+      const pv = funding.periodViews.find(p => p && p.start === view.start);
+      const packet = pv && pv.packet && typeof pv.packet === 'object' ? pv.packet : null;
+      rows = packet && Array.isArray(packet.rows) ? packet.rows : [];
+      ready = !!packet && packet.status === 'ready' && role !== 'past';
+    }
+    const savedReason = current ? 'no-per-goal-attribution' : role === 'past' ? 'past-period' : 'future-period';
+    const items = rows.filter(row => row && typeof row.key === 'string').map(row => {
+      const needed = ready && isSavingsFigure(row.thisPeriod) && Object.hasOwn(STACK_TRUST_RANK, row.thisPeriodTrust)
+        ? row.thisPeriod : null;
+      return { id: row.key, label: typeof row.label === 'string' ? row.label : row.key,
+        saved: null, needed, trust: needed === null ? 'unavailable' : row.thisPeriodTrust,
+        reasons: needed === null ? [savedReason, 'planned-unavailable']
+          : current ? [savedReason, 'net-of-period-transfers'] : [savedReason] };
+    });
+    const excluded = items.filter(item => item.needed === null).map(item => item.id);
+    const neededTotal = items.length && !excluded.length
+      ? items.reduce((cents, item) => cents + savingsFigureCents(item.needed), 0) / 100 : null;
+    const transferKnown = current && period.status === 'ready' && isSavingsFigure(period.transferred)
+      && Object.hasOwn(STACK_TRUST_RANK, period.trust);
+    const savedTotal = transferKnown ? period.transferred : null;
+    const entitlementKnown = transferKnown && isSavingsFigure(period.entitlement);
+    const included = [...(neededTotal === null ? [] : items.map(item => item.trust)), ...(transferKnown ? [period.trust] : [])];
+    const reasons = [];
+    if (transferKnown) reasons.push('pool-level');
+    else reasons.push(current ? 'pool-transfer-unavailable' : savedReason);
+    if (!items.length) reasons.push('planned-unavailable');
+    else if (excluded.length) reasons.push('planned-incomplete');
+    else if (current) reasons.push('net-of-period-transfers');
+    return {
+      items,
+      totals: {
+        saved: savedTotal, needed: neededTotal,
+        entitlement: entitlementKnown ? period.entitlement : null,
+        entitlementTrust: entitlementKnown ? period.trust : 'unavailable',
+        trust: included.length ? included.reduce((a, b) => (STACK_TRUST_RANK[b] > STACK_TRUST_RANK[a] ? b : a)) : 'unavailable',
+        completeness: transferKnown ? 'pool-level' : 'none',
+        excluded, reasons,
+      },
+    };
   }
   // A1 (lead ruling F5): Dale's income + Amanda's income + Other income =
   // Total income. Each line sums the same per-row contribution as incomeTotal
