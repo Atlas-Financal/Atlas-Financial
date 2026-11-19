@@ -331,7 +331,7 @@ In `reconcileCardPurchases` (`public/forecast.js`), a card credit that is paymen
 
 When a household debit carries a payDown destination and its note names a different card, the payDown destination wins with no withhold or diagnostic. Decide which one is the authority, or whether the conflict withholds. Proof would be an invented debit with a payDown to one card and a note naming another, read the chosen way once.
 
-**Card minimum category versus a note naming another card** · *#1407 finding; lead ruling, ATLAS LEAD 11, 2026-11-19; NEXT after grouped Savings card payments*
+~~**Card minimum category versus a note naming another card** · *#1407 finding; lead ruling, ATLAS LEAD 11, 2026-11-19; NEXT after grouped Savings card payments*~~ · **DONE 2026-11-19** (#1412, b29f36a2: card identities that disagree, whether payee, minimum category or note, pay neither card; test-card-minimum-category-note-conflict.js)
 
 A debit filed in a "Minimum payment - <card>" category (household minimum confirmation, `cardMinimumOwnedDebits` / card-minimum-category.js) whose `card payment:` note definitely names a different contract card still counts toward the category's card. Ruling: same principle as #1407. The category's card and the note's card conflict, so the debit counts toward neither card's minimum, is held To confirm once, and the minimum stays to-confirm. Proof would be an invented minimum-category debit noted for another card, held once, with neither minimum covered.
 
