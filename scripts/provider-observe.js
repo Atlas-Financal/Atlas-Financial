@@ -6059,6 +6059,28 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   }
   const heldOccurrences = new Set([...out].filter(([localId]) => !futurePosted.has(localId))
     .map(([, f]) => f.id + '@' + f.date));
+  // Every veto this branch reads is bounded to evidence effective at the
+  // observation date, for this branch only (Atlas, #1400; the posted path's
+  // own sets above are unchanged): postedNear, the pending count and
+  // heldOccurrences already read rows through observedOn; settledNow and
+  // pendingOnlyNow read a represented row only when its transaction is
+  // dated (postedOn) on or before observedOn, so a future due-day payment,
+  // posted or pending, never vetoes a current lone pending; opening rows are
+  // already read effective by observedOn; insideOpeningNow reads the opening
+  // boundary only when it is not after observedOn.
+  const effectiveRow = row => !observedOn || (parseIsoDate(row.postedOn || row.date) || '') <= observedOn;
+  const settledNow = new Set();
+  const pendingOnlyNow = new Set();
+  for (const row of representedActuals || []) {
+    if (!row || !row.id || !row.date || !effectiveRow(row)) continue;
+    (row.pending === true ? pendingOnlyNow : settledNow).add(row.id + '@' + row.date);
+  }
+  for (const row of (opening && opening.representedEvents) || []) {
+    if (!row || !row.id || !row.date) continue;
+    if (observedOn && !Forecast.representedEventEffectiveBy(row, observedOn)) continue;
+    settledNow.add(row.id + '@' + row.date);
+  }
+  const insideOpeningNow = (id, date) => insideOpening(id, date) && (!observedOn || openingBoundary <= observedOn);
   for (const c of pendingCandidates) {
     // A pending dated after the observation date is not yet evidence either.
     if (!c.counts) continue;
@@ -6067,7 +6089,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     const f = unique[0];
     const key = f.id + '@' + f.date;
     if (f.off < 1 || pendingPerOccurrence.get(key) !== 1 || postedNear.has(key) || heldOccurrences.has(key)) continue;
-    if (settled.has(key) || insideOpening(f.id, f.date) || pendingOnly.has(key)) continue;
+    if (settledNow.has(key) || insideOpeningNow(f.id, f.date) || pendingOnlyNow.has(key)) continue;
     if (!billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), c.amount,
       (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount)) continue;
     out.set(c.localId, { id: f.id, date: f.date, offsetDays: f.offsetDays, pendingDebit: true });

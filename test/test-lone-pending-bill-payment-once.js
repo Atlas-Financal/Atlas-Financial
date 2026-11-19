@@ -34,7 +34,7 @@ const debit = (date, { pending = false, amount = 100, payee = 'Invented Hydro', 
 const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 100, frequency: 'monthly', day: 15, firstDue: '2026-09-15',
   confidence: 'confirmed', payingAccount: 'chequing-a', householdObligation: true };
 
-function serve(txs, { asOf = '2026-10-17', bills = [HYDRO], rules } = {}) {
+function serve(txs, { asOf = '2026-10-17', bills = [HYDRO], rules, planPatch } = {}) {
   const w = H.baseWorld(asOf);
   w.windowStart = '2026-10-01';
   w.bills = bills;
@@ -43,7 +43,9 @@ function serve(txs, { asOf = '2026-10-17', bills = [HYDRO], rules } = {}) {
   w.transactions = [H.lm({ id: ++nextId, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
     payee: 'Invented employer' }), ...txs];
   H.productionOpening(w);
-  const r = Live.fromObservation({ data: H.canonicalOf(w, H.planOf(w)), payload: H.rawPayload(w),
+  const plan = H.planOf(w);
+  if (planPatch) planPatch(plan);
+  const r = Live.fromObservation({ data: H.canonicalOf(w, plan), payload: H.rawPayload(w),
     accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
   if (r.error) throw r.error;
   const packet = r.data.liveOverlay.currentPeriodActuals;
@@ -173,6 +175,61 @@ console.log('3b. Rows dated after the observation date (Oct 17) never veto the h
   ok(settledPaid.balance === 900 && settledPaid.billIn(settledPaid.current, 'hydro')[0].status === 'PAID'
     && JSON.stringify(settledPaid.paid) === JSON.stringify(['2026-10-15:posted']),
   'the posted settlement path is unchanged: posted on the due date, PAID once (900)');
+}
+
+console.log('3c. Every veto input reads only evidence effective at the observation date (Atlas blocker 6999072398)');
+{
+  // Bill due Oct 18, observed Oct 17. A pending Oct 16 is the only current
+  // evidence for that occurrence; each future-dated row below must not veto it.
+  const due18 = { ...HYDRO, day: 18, firstDue: '2026-09-18' };
+  const opts18 = { bills: [due18] };
+  const ctl = serve([], opts18);
+  const heldOn18 = row => !!(row && row.cls.reason === 'near-due-bill-unconfirmed' && row.cls.billCandidate
+    && row.cls.billCandidate.id === 'hydro' && row.cls.billCandidate.date === '2026-10-18');
+  const lone = serve([debit('2026-10-16', { pending: true })], opts18);
+  ok(ctl.balance === 900 && lone.balance === 900 && heldOn18(lone.rows[0]), 'control: the Oct 16 pending alone is held once (900)',
+    JSON.stringify([ctl.balance, lone.balance]));
+  // pendingOnly: Atlas's exact case. The Oct 18 due-day pending becomes a
+  // represented pending-only row (pendingOnlyBillActuals, unchanged).
+  const a = serve([debit('2026-10-16', { pending: true }), debit('2026-10-18', { pending: true })], opts18);
+  const a16 = a.rows.find(r => r.date === '2026-10-16');
+  ok(a.balance === 900 && heldOn18(a16), 'pendingOnly: a second pending on the future due date (Oct 18) does not veto; Oct 16 held once (900)',
+    JSON.stringify([a.balance, a16.cls.reason]));
+  // settled: the analogous posted case, a payment posted on the future due
+  // date and matched as the occurrence's settlement.
+  const b = serve([debit('2026-10-16', { pending: true }), debit('2026-10-18')], opts18);
+  const b16 = b.rows.find(r => r.date === '2026-10-16');
+  ok(heldOn18(b16) && b.balance === 900, 'settled: a payment posted on the future due date does not veto; Oct 16 held once (900)',
+    JSON.stringify([b.balance, b16.cls.reason, b.paid]));
+  // opening representedEvents: an occurrence the opening names as
+  // represented only from Oct 18 on (effectiveAsOf after the observation).
+  const c = serve([debit('2026-10-16', { pending: true })], { ...opts18, planPatch: plan => {
+    plan.opening.representedEvents = [{ id: 'hydro', date: '2026-10-18', effectiveAsOf: '2026-10-18' }];
+  } });
+  ok(heldOn18(c.rows[0]), 'opening: a represented event effective only from Oct 18 does not veto; Oct 16 held');
+  // insideOpening: an opening boundary set after the observation date
+  // (priorAsOf Oct 19) is re-dated by the live path to the observation
+  // (prior Oct 9), so it cannot veto; the branch also bounds it itself.
+  const f = serve([debit('2026-10-16', { pending: true })], { ...opts18, planPatch: plan => { plan.opening.priorAsOf = '2026-10-19'; } });
+  ok(heldOn18(f.rows[0]), 'insideOpening: an opening boundary after the observation date does not veto; Oct 16 held');
+  // The same inputs dated on the observation date still veto (cautious).
+  const d = serve([debit('2026-10-16', { pending: true }), debit('2026-10-17', { pending: true })], opts18);
+  ok(d.rows.every(r => !r.nearDue || !r.nearDue.pendingDebit), 'a second pending dated on the observation date still vetoes');
+  // A represented row whose transaction is dated on the observation date
+  // still vetoes: bill due Oct 17 (the observation date), paid or pending
+  // that day; the Oct 16 pending is not held beside it.
+  const due17 = { bills: [{ ...HYDRO, day: 17, firstDue: '2026-09-17' }] };
+  const paid17 = serve([debit('2026-10-16', { pending: true }), debit('2026-10-17')], due17);
+  ok(JSON.stringify(paid17.paid) === JSON.stringify(['2026-10-17:posted'])
+    && !(paid17.rows.find(r => r.pending).nearDue || {}).pendingDebit,
+  'a payment posted on the observation date (its due date) settles it and still vetoes the Oct 16 pending', JSON.stringify(paid17.paid));
+  const pend17 = serve([debit('2026-10-16', { pending: true }), debit('2026-10-17', { pending: true })], due17);
+  ok(pend17.paid.includes('2026-10-17:pending') && !(pend17.rows.find(r => r.date === '2026-10-16').nearDue || {}).pendingDebit,
+    'a pending-only row on the observation date (its due date) still vetoes the Oct 16 pending', JSON.stringify(pend17.paid));
+  const e = serve([debit('2026-10-16', { pending: true })], { ...opts18, planPatch: plan => {
+    plan.opening.representedEvents = [{ id: 'hydro', date: '2026-10-18', effectiveAsOf: '2026-10-17' }];
+  } });
+  ok(!e.rows[0].nearDue || !e.rows[0].nearDue.pendingDebit, 'an opening represented event effective on the observation date still vetoes');
 }
 
 console.log('4. Cross-period carry matches the posted twin');
