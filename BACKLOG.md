@@ -749,6 +749,11 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
+**The figures page capture should also observe the Stack page's reads** · QUEUED (ATLAS LEAD 11, 2026-11-19): a named limit of option A (`agent/figures-capture-classic-view`), not a blocker. Full lane: figures hard-gate machinery, Atlas reviews.
+- **Why:** `scripts/figures-page-capture.js` now runs the previous Budget page by its explicit route (`?view=classic`), so making the Stack page the default (B7, #1439) does not shift its Savings observations. Once the Stack page is the page the household reads, the capture covers only the fallback page's Savings consumers, not the Stack page's own reads (the shell's `Forecast.recommend`, the Credit card's `cardPeriodMovements` / `stackCreditLines`).
+- **Closure:** at C1, when the previous page retires, retarget the capture at the Stack page (remove `CAPTURE_LOCATION`'s `?view=classic`) and make its observations stable across the Stack page's states, so the page the household reads stays covered. `test/test-figures-capture-classic-view.js` retires with it.
+- Source: lead ruling on #1439's figures report, 2026-11-19.
+
 **Keep `test/suites.json` sorted by file name, with a check that enforces it** · QUEUED (ATLAS LEAD 11, 2026-11-19): not scheduled until the Stack page switch-over (C1) is done. Light lane: it adds a check and changes no figure code.
 - **Why:** every new suite is appended to the end of the manifest, so any two pull requests in flight together conflict on its last lines. The merge queue then dequeues the second, and its builder has to catch up and get a re-review (#1429 after #1431, #1433 after #1429, 2026-11-19). Sorted entries put parallel additions on different lines.
 - **Caveat, order is load-bearing today:** `test/test.js` runs the manifest in order ("npm test remains the complete ordered serial reference"), and `test/test-ci-split.js` checks that the CI shard groups retain manifest order. Sorting moves suites between shards and could expose a hidden order dependency between suites.
