@@ -113,7 +113,7 @@ console.log('1. Hand-derived invented worlds');
     const cur = byStart(vs, '2026-10-09'), s = surplusOf(cur);
     ok(cur && cur.incomeTotal === 1400 && cur.periodBillLoad === 0 && cur.budgetHold === 400 && cur.balanceAfterDeductions === want.bad,
       `${label}: the published BAD is the hand figure ${want.bad}`, JSON.stringify(cur && [cur.incomeTotal, cur.periodBillLoad, cur.budgetHold, cur.balanceAfterDeductions]));
-    ok(s && s.amount === want.surplus && s.projected === false && s.trust === 'calculated' && s.reason === null,
+    ok(s && s.amount === want.surplus && s.projected === false && s.trust === 'calculated' && !('reason' in s),
       `${label}: surplus ${want.surplus} (1,400 − 0 − 400${want.item ? ' − 200' : ''}), not projected, calculated`, JSON.stringify(s));
     ok(s && s.terms && s.terms.income === 1400 && s.terms.bills === 0 && s.terms.household === 400
       && (want.item ? s.terms.savingsItemSpending === 200 : !('savingsItemSpending' in s.terms)),

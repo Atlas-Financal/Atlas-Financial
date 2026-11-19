@@ -12679,7 +12679,9 @@
   // the minimum (owner decision), so wherever both are published it equals
   // Balance After Deductions plus exactly those two terms. Withheld whenever
   // any term it sums is withheld, or Balance After Deductions (whose
-  // published terms carry the item spending) is.
+  // published terms carry the item spending) is. Shape, shared with the
+  // other stackSummary keys: { amount, trust, ... }, with `reason` only
+  // when withheld (amount null, trust 'unavailable').
   const isStackFigure = v => typeof v === 'number' && Number.isFinite(v);
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, bills or the Household budget) is withheld for this period.';
   function stackSurplus(view) {
@@ -12698,7 +12700,6 @@
       // The same terms as Balance After Deductions, so the same trust.
       trust: view.balanceAfterDeductionsTrust || 'calculated',
       projected,
-      reason: null,
     };
   }
   function calendarIncomeTxFacts(packet) {
