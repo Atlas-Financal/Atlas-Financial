@@ -104,4 +104,11 @@ console.log('5. L-001: no arithmetic on money in the shell');
     'no sum, rounding or arithmetic on a figure');
 }
 
+console.log('6. no text labels (owner decision, 2026-11-19)');
+{
+  const src = read('public/stack-shell.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok(!/Projected/.test(src) && /view\.evidenceState === 'projected'/.test(src),
+    'the shell prints no "Projected" word; a projected chip is marked from the published evidenceState');
+}
+
 console.log(`\nPASS Stack shell static checks (${checks})`);

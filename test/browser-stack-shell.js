@@ -90,6 +90,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
           .every(el => getComputedStyle(el).display === 'none') && document.getElementById('stack-root').checkVisibility(),
         chips: chips.map(c => ({ key: c.dataset.stackPeriod, pressed: c.getAttribute('aria-pressed'),
           now: c.getAttribute('aria-current'), date: c.querySelector('.stack-chip-date').textContent,
+          projected: c.classList.contains('is-projected'),
+          dashed: getComputedStyle(c).borderTopStyle,
           amount: c.querySelector('[data-stack-chip-amount]').textContent })) };
     });
     const F = require('../public/forecast.js');
@@ -108,6 +110,13 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const dates = views.map(v => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' })
       .format(new Date(v.start + 'T12:00:00Z')));
     ok(view.chips.every((c, i) => c.date === dates[i]), 'each chip shows its period start date');
+    ok(views.some(v => v.evidenceState === 'projected') && views.some(v => v.evidenceState !== 'projected')
+      && view.chips.every((c, i) => c.projected === (views[i].evidenceState === 'projected')
+        && (c.dashed === 'dashed') === (views[i].evidenceState === 'projected')),
+    'a projected view (evidenceState, as published) draws a dashed chip; historical and live views do not',
+    JSON.stringify(view.chips.map((c, i) => [views[i].evidenceState, c.projected, c.dashed])));
+    const words = await page.evaluate(() => document.getElementById('stack-root').textContent);
+    ok(!/Projected/i.test(words), 'no "Projected" word anywhere on the Stack page');
     const head = await page.evaluate(() => ({ range: document.querySelector('.stack-period-range').textContent,
       when: document.querySelector('[data-stack-period-when]').textContent }));
     const fmt = iso => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso + 'T12:00:00Z'));
@@ -167,8 +176,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       block: document.querySelector('[data-stack-block="waterfall"]').textContent }));
     const last = after.calls[after.calls.length - 1];
     const lastView = views[views.length - 1];
-    const when = await page.evaluate(() => document.querySelector('[data-stack-period-when]').textContent);
-    ok(when === (lastView.role === 'lookback' ? 'Past' : 'Projected'), 'a future period is headed "Projected"', when);
+    const when = await page.evaluate(() => document.querySelector('[data-stack-period-when]'));
+    ok(lastView.evidenceState === 'projected' && when === null, 'a projected period carries no when-label (no text labels)');
     ok(after.pressed.join() === target && last.key === target && after.block === 'test block ' + target,
       'tapping a chip selects it and the block renders for that period', JSON.stringify(after.pressed));
     ok(last.keys === 'Forecast,data,plan,recommendation,selectedPeriodKey' && last.sameRec && last.plan && last.forecast,

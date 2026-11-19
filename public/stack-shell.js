@@ -80,19 +80,22 @@
     const chips = list.map(view => {
       const key = keyOf(view), amount = surplusOf(view), neg = amount != null && amount < 0;
       const current = view.role === 'active';
-      return `<button class="stack-chip${neg ? ' is-neg' : ''}${current ? ' is-now' : ''}" type="button"`
+      // Owner decision (Dale, 2026-11-19): no text labels. A projected period, as Forecast publishes it
+      // (evidenceState 'projected'), is drawn with a dashed outline; it is never inferred from dates here.
+      const projected = view.evidenceState === 'projected';
+      return `<button class="stack-chip${neg ? ' is-neg' : ''}${current ? ' is-now' : ''}${projected ? ' is-projected' : ''}" type="button"`
         + ` data-stack-period="${esc(key)}" aria-pressed="${key === state.selectedPeriodKey}"`
         + `${current ? ' aria-current="date"' : ''}>`
         + `<span class="stack-chip-date">${esc(dayLabel(view.start))}</span>`
         + `<span class="stack-chip-value${neg ? ' is-neg' : ''}" data-stack-chip-amount>${amount == null ? '' : esc(money(amount))}</span>`
         + '</button>';
     }).join('');
-    return '<div class="stack-tl-head"><span class="stack-tl-word">Projected</span>'
-      + '<button class="stack-now" type="button" data-stack-now>Now</button></div>'
+    return '<div class="stack-tl-head"><button class="stack-now" type="button" data-stack-now>Now</button></div>'
       + `<div class="stack-chips" data-stack-chips>${chips}</div>`;
   }
 
-  // The selected period's range and when-label (design: "This pay period", "Last pay period", "Past", "Projected").
+  // The selected period's range and when-label: "This pay period", "Last pay period" or "Past". A projected period
+  // carries no word (owner decision: no text labels); its chip's dashed outline says it.
   const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   function rangeLabel(view) {
     const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
@@ -107,13 +110,14 @@
     if (view.role === 'active') return 'This pay period';
     const at = list.indexOf(view), now = list.findIndex(v => v.role === 'active');
     if (view.role === 'lookback') return now > 0 && at === now - 1 ? 'Last pay period' : 'Past';
-    return 'Projected';
+    return '';
   }
   function periodHeadHtml() {
     const list = views(), view = list.find(v => keyOf(v) === state.selectedPeriodKey);
     if (!view) return '';
+    const when = whenLabel(view, list);
     return `<h2 class="stack-period-range">${esc(rangeLabel(view))}</h2>`
-      + `<span class="stack-period-when" data-stack-period-when>${esc(whenLabel(view, list))}</span>`;
+      + (when ? `<span class="stack-period-when" data-stack-period-when>${esc(when)}</span>` : '');
   }
 
   function context() {
