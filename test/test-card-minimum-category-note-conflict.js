@@ -198,6 +198,9 @@ console.log('from Savings');
   'a Savings-funded debit is never a minimum payment: the travel minimum stays due either way');
   ok(savingsConflict.held.length === 0 && same(savingsConflict.asked, [[25, 'card-payment-destination-conflict']]),
     'Savings conflict: not held (Savings); the drawer asks once, naming the conflict', JSON.stringify([savingsConflict.held, savingsConflict.asked]));
+  const question = ((savingsConflict.s.advice.defaultView.calendarPeriods[0].cardPurchaseCoverage || {}).toConfirm || [])[0];
+  ok(question && question.question === 'To confirm: which card did this pay? Its payee, category and note don\'t agree on one card.',
+    'Savings conflict (category vs note): the drawer question names the payee, the category and the note', question && question.question);
   ok(savingsConflict.available === 325 && savingsControl.available === 325
     && savingsConflict.afterDeductions === savingsControl.afterDeductions,
   'Savings: Bills untouched, available 325 in both; Balance After Deductions equal (no double count)',

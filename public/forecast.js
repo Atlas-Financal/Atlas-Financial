@@ -15818,7 +15818,7 @@
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
         toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
           question: cardPaymentDestinationConflict(leg.tx)
-            ? 'To confirm: which card did this pay? Its payee and its note name different cards.'
+            ? 'To confirm: which card did this pay? Its payee, category and note don\'t agree on one card.'
             : 'To confirm: which card did this pay?',
           ...(cardPaymentDestinationConflict(leg.tx) ? { diagnostic: 'card-payment-destination-conflict' } : {}),
           date: leg.tx.date, amount: leg.cents / 100,
