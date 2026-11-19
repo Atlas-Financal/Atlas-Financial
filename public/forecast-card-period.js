@@ -254,5 +254,60 @@
       observationAsOf: date(packet?.observationAsOf) ? packet.observationAsOf : null,
       semantics: 'Posted liability movement, not spending-only totals, available cash, payment instructions or minimum settlement.' };
   }
-  return { publish };
+  // Stack Wallet A6 (lead dispatch, 2026-11-19): per card, in one pay period,
+  // how much was paid onto the card against how much was spent on it. A pure
+  // reading of one publish() result: posted rows only (the card ledger is
+  // posted-only), the same kinds publish() assigns, no amount or date
+  // heuristic. A figure that cannot be stated is null with a reason, never 0.
+  // Each figure carries a trust word: 'calculated', 'estimated' (a payment
+  // whose source the card ledger has not reconciled), or 'unavailable'.
+  const STACK_TRUST_ORDER = ['calculated', 'estimated', 'unavailable'];
+  const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => STACK_TRUST_ORDER.indexOf(w)))];
+  function stackCards(publication) {
+    const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
+      && publication.currency === 'CAD' && Array.isArray(publication.cards) ? publication : null;
+    if (!pub) return null;
+    const figure = (amount, trust, reasons) => amount == null
+      ? { amount: null, trust: 'unavailable', reasons: [...new Set(reasons)] }
+      : { amount, trust, reasons: [...new Set(reasons)] };
+    return pub.cards.filter(card => card && card.id !== 'heloc').map(card => {
+      const rows = (Array.isArray(card.posted) ? card.posted : []).map(row => ({ ...row, pending: false }))
+        .concat((Array.isArray(card.pending) ? card.pending : []).map(row => ({ ...row, pending: true })));
+      const transactions = rows.map(row => ({ date: row.date, name: row.displayName || row.payee,
+        amount: row.amount, kind: row.kind, payment: row.kind === 'payment', pending: row.pending }))
+        .sort((a, b) => a.date.localeCompare(b.date) || (a.pending === b.pending ? 0 : a.pending ? 1 : -1));
+      const movement = card.postedMovement;
+      const gaps = movement && movement.trust === 'calculated' && movement.completeness === 'complete'
+        ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
+      let paidCents = 0, spentCents = 0;
+      const paidReasons = [], spentReasons = [];
+      let paidTrust = 'calculated';
+      for (const row of card.posted || []) {
+        const value = typeof row.amount === 'number' && Number.isFinite(row.amount) ? Math.round(row.amount * 100) : null;
+        if (value == null) { paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified'); continue; }
+        if (row.kind === 'payment') {
+          paidCents += -value;
+          if (row.paymentAllocation && row.paymentAllocation.status !== 'reconciled') paidTrust = 'estimated';
+          if (row.paymentAllocation && row.paymentAllocation.status !== 'reconciled') paidReasons.push('card-payment-unconfirmed');
+        } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
+        else if (row.kind === 'credit-unconfirmed') {
+          paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
+        } else spentReasons.push('card-movement-unconfirmed');
+      }
+      const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed');
+      const paid = blocked(paidReasons) ? figure(null, null, gaps.concat(paidReasons))
+        : figure(paidCents / 100, paidTrust, paidReasons);
+      const spent = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
+        : figure(spentCents / 100, 'calculated', spentReasons);
+      const net = paid.amount == null || spent.amount == null
+        ? figure(null, null, paid.reasons.concat(spent.reasons))
+        : figure((paidCents - spentCents) / 100, weakest(paid.trust, spent.trust), paid.reasons.concat(spent.reasons));
+      const state = net.amount == null ? null
+        : !(card.posted || []).length ? 'no-activity'
+        : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
+      return { id: card.id, label: card.label, paid, spent, net, state,
+        ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
+    });
+  }
+  return { publish, stackCards };
 });
