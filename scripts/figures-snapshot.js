@@ -589,13 +589,13 @@ function putPayPeriods(put, putField, advice) {
       for (const [field, key] of [['amount', 'stackSurplus'], ['trust', 'stackSurplusTrust'], ['projected', 'stackSurplusProjected']])
         putField(p + '.' + key, surplus, field);
     }
-    // Its bills split: the mortgage, the card minimums (as one credit total)
-    // and the other bills, with the split's trust.
+    // Its bills split: the mortgage and the other bills, with the split's
+    // trust, and the Credit line as Forecast publishes it
+    // (stackSummary.surplus.terms.credit), never summed here.
     const split = view.stackSummary && view.stackSummary.bills;
     if (split) {
-      const credit = Array.isArray(split.cardMinimums)
-        ? Math.round(split.cardMinimums.reduce((sum, card) => sum + Math.round(card.amount * 100), 0)) / 100 : null;
-      const record = { mortgage: split.mortgage, credit, other: split.other, trust: split.trust };
+      const terms = surplus && surplus.terms;
+      const record = { mortgage: split.mortgage, credit: terms ? terms.credit : null, other: split.other, trust: split.trust };
       for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust']])
         putField(p + '.' + key, record, field);
     }
