@@ -10631,6 +10631,110 @@
     return roundCent(Math.abs(n));
   }
 
+  // Held early-receipt legs against the cash that seeds a close (Atlas
+  // ruling, Plan #6, on #1405). Each leg of a scheduled occurrence (see
+  // calendarIncomeSections) is decided against the seed that actually
+  // produces the close or carry, in one of three outcomes:
+  //  - inside: the seed provably holds the leg, so the close adds only the
+  //    rest of the occurrence;
+  //  - outside: the seed provably does not hold it, so the occurrence is
+  //    added in full and an otherwise known close stays known;
+  //  - unproven: anything else. The close, and every seed, carry or sweep
+  //    built from the same cash, is withheld rather than guessed.
+  // A seed is { kind, asOf, accounts } (and base for a walk):
+  //  frozen  a recorded morning snapshot: cash before asOf's flows;
+  //  walk    a completeness walk from posted cash at base to the morning of
+  //          asOf. Its gap movements carry no transaction identity, so only
+  //          a leg before base is provably inside it;
+  //  posted  a posted balance on asOf, which may or may not hold that day;
+  //  stock   current qualified Bills stock on asOf, reconciled through asOf
+  //          (reconciled) or a direct posted balance;
+  //  swept   a carry after a positive sweep: only its accounts are known, so
+  //          a leg on another account is outside and an in-scope one unproven.
+  // A pending leg is never in posted or frozen cash. A leg with a missing or
+  // ambiguous account is not proof of anything.
+  function earlyReceiptLegMembership(leg, seed) {
+    if (!leg || !leg.date) return 'unproven';
+    // Facts that are outside on their own come first: pending cash is in no
+    // posted or frozen seed, and every seed is household chequing or a
+    // narrowing of it, so a known non-chequing (Savings) leg is outside all.
+    if (leg.pending === true) return 'outside';
+    if (leg.pending !== false || !leg.account) return 'unproven';
+    if (!HOUSEHOLD_CHEQUING_IDS.includes(leg.account)) return 'outside';
+    if (!seed || !Array.isArray(seed.accounts)) return 'unproven';
+    if (!seed.accounts.includes(leg.account)) return 'outside';
+    // A swept seed keeps only its account scope: an in-scope leg's date
+    // proof did not survive the cash that left (falls through to unproven).
+    if (!seed.asOf) return 'unproven';
+    const d = leg.date;
+    if (seed.kind === 'frozen') return d < seed.asOf ? 'inside' : 'outside';
+    if (seed.kind === 'posted') return d < seed.asOf ? 'inside' : d === seed.asOf ? 'unproven' : 'outside';
+    if (seed.kind === 'walk' && seed.base) {
+      if (d >= seed.asOf) return 'outside';
+      return d < seed.base ? 'inside' : 'unproven';
+    }
+    if (seed.kind === 'stock') {
+      if (d < seed.asOf) return 'inside';
+      if (d === seed.asOf) return seed.reconciled === true ? 'inside' : 'unproven';
+      return 'outside';
+    }
+    return 'unproven';
+  }
+  // A seed after a positive sweep: the cash that left takes the date proof
+  // with it, not the account scope. An untraced (null) seed stays null.
+  function earlyReceiptSweptSeed(seed) {
+    return seed && Array.isArray(seed.accounts) ? { kind: 'swept', accounts: seed.accounts.slice() } : null;
+  }
+  // One occurrence row against a seed: the amount its legs already hold in
+  // that cash, and whether any leg's membership is unproven.
+  function earlyReceiptSeedOverlap(row, seed) {
+    const legs = row && Array.isArray(row.earlyReceiptLegs) ? row.earlyReceiptLegs : [];
+    let inside = 0, unproven = false;
+    for (const leg of legs) {
+      const m = earlyReceiptLegMembership(leg, seed);
+      if (m === 'inside') inside += Number(leg.amount) || 0;
+      else if (m === 'unproven') unproven = true;
+    }
+    return { inside: roundCent(inside), unproven };
+  }
+  // The seed a period's own opening is: its source decides the kind.
+  function earlyReceiptOpeningSeed(plan, asOf, role, openingKnown, openingAsOf, openingSource, carried) {
+    if (!openingKnown || !openingAsOf) return null;
+    const accounts = HOUSEHOLD_CHEQUING_IDS.slice();
+    if (openingSource === 'carry-forward') return carried || null;
+    if (openingSource === 'snapshot') return { kind: 'frozen', asOf: openingAsOf, accounts };
+    if (openingSource === 'cutover-walk') {
+      // A future walk is the projected cash walk from the dated posted cash.
+      if (role === 'future') return { kind: 'posted', asOf: cashSnapshotDate(plan, asOf), accounts };
+      const base = plan && plan.opening && plan.opening.asOf;
+      if (!base) return null;
+      // A zero-gap walk is the dated posted balance itself.
+      if (base === openingAsOf) return { kind: 'posted', asOf: openingAsOf, accounts };
+      // Only a walk from dated posted cash reconstructs morning cash here;
+      // a bank-anchor reconstruction proves no leg's membership.
+      if (Object.prototype.hasOwnProperty.call(plan.opening, 'cashReconstructionAnchor')) return null;
+      return { kind: 'walk', base, asOf: openingAsOf, accounts };
+    }
+    if (openingSource === 'payday-morning' || openingSource === 'cutover-opening'
+        || openingSource === 'dated-opening') return { kind: 'posted', asOf: openingAsOf, accounts };
+    return null;
+  }
+  // The leg's one account: every account alias agrees, and it names a
+  // household cash location; otherwise null (unknown).
+  function earlyReceiptLegAccount(tx) {
+    if (!tx) return null;
+    const aliases = [tx.atlasAccountId, tx.accountId, tx.account].filter(id => id != null && id !== '');
+    if (!aliases.length || aliases.some(a => String(a) !== String(aliases[0]))) return null;
+    return householdCashLocationId(tx);
+  }
+  // A close withheld for an unproven leg names that reason.
+  function earlyReceiptCloseReason(unproven, publication) {
+    if (!unproven || !publication || publication.plannedPeriodClose != null) return publication;
+    return { ...publication, plannedPeriodCloseReason: EARLY_RECEIPT_MEMBERSHIP_REASON };
+  }
+  const EARLY_RECEIPT_MEMBERSHIP_REASON = 'The planned period close is unavailable: an early salary receipt held To confirm '
+    + 'may already be inside the cash this close starts from (early-receipt-membership-unproven).';
+
   function calendarIncomeContribution(row) {
     if (!row) return 0;
     // C3: an expectation held To confirm beside an unlinked receipt in its
@@ -12463,6 +12567,40 @@
   // Unlinked credits near that occurrence are held only when together they
   // reach this share of its planned amount, i.e. could be the paycheque.
   const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
+  // The furthest back a salary occurrence's run-up can reach (a monthly or
+  // quarterly cadence is shorter than this).
+  const SCHEDULED_INCOME_RUN_UP_MAX_DAYS = 100;
+  // LEDGER B (ATLAS LEAD 11, 2026-11-19; BACKLOG "Amanda's early pay can still
+  // count twice"): the first day a credit can be an early receipt of this
+  // salary occurrence. Her pay can arrive anywhere in the run-up, so the hold
+  // starts the day after the income's previous occurrence (or, with none in
+  // the data, one cadence interval back from the date), never only 3 days
+  // before. The late side (3 days after) is unchanged. A once income keeps
+  // the 3-day window.
+  // How far back any of this plan's salary run-ups can reach: its longest
+  // recurring income cadence (a previous occurrence is never further back),
+  // within the 100-day cap. Bounds the hold's scan to what can matter.
+  const RUN_UP_CADENCE_DAYS = { biweekly: 14, monthly: 31, quarterly: 92 };
+  function scheduledIncomeRunUpReach(plan) {
+    let reach = SCHEDULED_INCOME_HOLD_DAYS;
+    for (const stream of (plan && plan.income) || []) {
+      if (!stream || stream.frequency === 'once') continue;
+      reach = Math.max(reach, RUN_UP_CADENCE_DAYS[stream.frequency] || SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
+    }
+    return Math.min(reach, SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
+  }
+  function scheduledIncomeRunUpStart(plan, event) {
+    const fallback = addDays(event.date, -SCHEDULED_INCOME_HOLD_DAYS);
+    const stream = ((plan && plan.income) || []).find(row => row && row.id === event.id);
+    if (!stream || stream.frequency === 'once') return fallback;
+    const from = addDays(event.date, -SCHEDULED_INCOME_RUN_UP_MAX_DAYS), to = addDays(event.date, -1);
+    if (!from || !to) return fallback;
+    const prior = occurrences(stream, from, to);
+    const previous = prior.length ? prior[prior.length - 1]
+      : cadenceOccurrences({ ...stream, firstDue: undefined }, from, to).slice(-1)[0];
+    const start = previous ? addDays(previous, 1) : null;
+    return start && start < fallback ? start : fallback;
+  }
 
   // One recommend() derives calendarIncomeSections' packet facts (the
   // pending/posted twin ids and the count of each transaction id) once per
@@ -12602,6 +12740,11 @@
     const { duplicateIds, idCounts } = calendarIncomeTxFacts(packet);
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
+    // The same credits, also over one run-up before the span: an early salary
+    // credit there is already in this span's opening cash.
+    const runUpCandidates = [];
+    const runUpReach = scheduledIncomeRunUpReach(plan);
+    const runUpFrom = addDays(span.start, -runUpReach);
     const settlementCredits = [];
     const oneOffStreamIds = new Set(((plan && plan.income) || [])
       .filter(stream => stream && stream.id != null && stream.frequency === 'once')
@@ -12609,11 +12752,15 @@
     if (packet && Array.isArray(packet.transactions)) {
       for (const tx of packet.transactions) {
         if (!tx || !tx.date) continue;
-        if (tx.date < span.start || tx.date > span.end) continue;
+        if (tx.date < runUpFrom || tx.date > span.end) continue;
         if (skipSplitParent(tx, packet)) continue;
         if (tx.id != null && duplicateIds.has(String(tx.id)) && tx.pending === true) continue;
         if (tx.id != null && linkedIds.has(String(tx.id))) continue;
-        if (isGenuineOtherIncomeTransaction(tx, plan, opts)) actualCandidates.push(tx);
+        if (tx.date < span.start) {
+          if (isGenuineOtherIncomeTransaction(tx, plan, opts)) runUpCandidates.push(tx);
+          continue;
+        }
+        if (isGenuineOtherIncomeTransaction(tx, plan, opts)) { actualCandidates.push(tx); runUpCandidates.push(tx); }
         else if (tx.id != null && tx.pending !== true && idCounts.get(String(tx.id)) === 1
             && isExpectedIncomeSettlementCredit(tx, plan, opts)) settlementCredits.push(tx);
       }
@@ -12753,7 +12900,9 @@
     // one-to-one receipt qualification that window's income rows use
     // (qualifyHistoricalScheduledIncome). No second proof rule.
     const scheduledIncomeProven = event => {
-      if (represented.has(event.id + '@' + event.date)
+      // A receipt the packet links to the occurrence (representedActuals) is
+      // its proof too: a received payday never claims another credit.
+      if (represented.has(event.id + '@' + event.date) || observed.has(event.id + '@' + event.date)
           || postedIdentityIncomeReceipt(plan, event, asOf, opts)) return true;
       const window = windowContainingDate(windows, event.date);
       if (!window || window.role !== 'lookback') return false;
@@ -12761,27 +12910,68 @@
       const [qualified] = qualifyHistoricalScheduledIncome([probe], window, opts);
       return !!(qualified && qualified.historicalReceipt === 'identity-matched');
     };
+    // id@date of a held occurrence -> its held credits' dates and amounts.
+    const scheduledIncomeHeldLegs = new Map();
     const scheduledIncomeHeldIds = (() => {
       const held = new Set();
-      const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
-      const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
+      // An occurrence up to one run-up after the span can claim a credit in it.
+      const from = runUpFrom;
+      const to = addDays(span.end, runUpReach);
       if (!from || !to) return held;
-      const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
+      const credits = runUpCandidates.filter(tx => tx && tx.id != null && tx.date
         && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
+      // Each unproven salary occurrence's window: its run-up (the day after
+      // the income's previous occurrence) to 3 days after its date.
+      const windowsOf = [];
       for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
         if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
         const planned = Number(event.amount);
         if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
         if (scheduledIncomeProven(event)) continue;
-        const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+        windowsOf.push({ event, planned, start: scheduledIncomeRunUpStart(plan, event),
+          end: addDays(event.date, SCHEDULED_INCOME_HOLD_DAYS), credits: [] });
+      }
+      // Two incomes never take each other's credits: a credit belongs to the
+      // one occurrence whose date is nearest it (ties: the earlier date, then
+      // the income id), among the windows that contain it.
+      const containing = tx => windowsOf.filter(w => tx.date >= w.start && tx.date <= w.end)
+        .sort((x, y) => Math.abs(diffDays(x.event.date, tx.date)) - Math.abs(diffDays(y.event.date, tx.date))
+          || x.event.date.localeCompare(y.event.date) || String(x.event.id).localeCompare(String(y.event.id)));
+      for (const tx of credits) {
+        const owner = containing(tx)[0];
+        if (owner) owner.credits.push(tx);
+      }
+      for (const w of windowsOf) {
         // Only credits that together could be this paycheque (whole, or in
         // legs) are held; a small gift or rebate near payday is not it and
         // stays ordinary Other income.
-        const total = near.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
-        if (total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
-          for (const tx of near) held.add(String(tx.id));
+        const total = w.credits.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
+        if (total >= w.planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
+          for (const tx of w.credits) held.add(String(tx.id));
         }
       }
+      // The close's legs: each held credit counts against its owner up to the
+      // owner's planned amount; any excess counts against the next nearest
+      // unproven occurrence whose run-up contains it, so a credit larger than
+      // the nearer paycheque never leaves its excess counted again.
+      const room = new Map(windowsOf.map(w => [w, w.planned]));
+      const legsOf = new Map();
+      for (const tx of credits.filter(c => held.has(String(c.id)))
+        .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)))) {
+        let left = txInflowAmount(tx);
+        for (const w of containing(tx)) {
+          if (!(left > EPSILON)) break;
+          const take = Math.min(left, room.get(w));
+          if (!(take > EPSILON)) continue;
+          room.set(w, room.get(w) - take);
+          left -= take;
+          if (!legsOf.has(w)) legsOf.set(w, []);
+          legsOf.get(w).push({ date: tx.date, amount: roundCent(take),
+            pending: tx.pending === true ? true : tx.pending === false ? false : null,
+            account: earlyReceiptLegAccount(tx) });
+        }
+      }
+      for (const [w, legs] of legsOf) scheduledIncomeHeldLegs.set(w.event.id + '@' + w.event.date, legs);
       return held;
     })();
     for (const tx of actualCandidates) {
@@ -12886,6 +13076,13 @@
     for (let i = 0; i < (windows || []).length; i++) {
       const id = windows[i].id;
       out[id] = sortRows(buckets[id] || []);
+      // A held early credit is this occurrence's cash. The close reads its
+      // legs (earlyReceiptInOpening) so a leg already inside the opening is
+      // not added again.
+      for (const row of out[id]) {
+        const legs = row && row.id && scheduledIncomeHeldLegs.get(row.id + '@' + row.date);
+        if (legs) row.earlyReceiptLegs = legs;
+      }
     }
     return out;
   }
@@ -16609,6 +16806,10 @@
       Object.assign({}, opts, { debts: debts || opts.debts || [] }), priority);
     const periods = [];
     let previousEnding = null;
+    // The seed a carried (carry-forward) opening holds, for the early-receipt
+    // legs (earlyReceiptLegMembership): the cash the previous carry was built
+    // from, narrowed to the accounts it kept.
+    let carriedLegSeed = null;
     // PA-4 (#809 carry-trust redesign, Muse 6535162602 / Atlas 6535096443):
     // the trust of the numeric previousEnding, derived at each assignment
     // from the inputs that carry actually uses. Null whenever no numeric
@@ -16833,6 +17034,10 @@
       const openingKnown = snapshot.openingKnown === true;
       const openingAsOf = snapshot.openingAsOf || null;
       const openingSource = snapshot.source || null;
+      // The cash this period's close starts from, for held early-receipt legs.
+      const legSeed = earlyReceiptOpeningSeed(plan, asOf, role, openingKnown, openingAsOf, openingSource, carriedLegSeed);
+      carriedLegSeed = null;
+      let earlyReceiptUnproven = false;
       const paydayBoundaryOpening = openingKnown
         && isPaydayBoundaryOpening(openingSource, openingAsOf, window.start);
       // ATLAS-026: the income-side mirror of the S1 bill-load rule below.
@@ -16949,21 +17154,31 @@
         if (planUnavailable) continue;
         // not-relied-upon is live-cash settlement. It must not drop
         // period income from the payday-boundary income term.
+        // Held early legs the close's seed provably holds are not added
+        // again; an unproven one withholds the close (earlyReceiptLegMembership).
+        const addOnce = () => {
+          const contribution = calendarIncomeContribution(row);
+          if (!(contribution > 0) || !row || !Array.isArray(row.earlyReceiptLegs)) return contribution;
+          const overlap = earlyReceiptSeedOverlap(row, legSeed);
+          if (overlap.unproven) earlyReceiptUnproven = true;
+          return Math.max(0, contribution - overlap.inside);
+        };
         if (role === 'future') {
           row.alreadyInCash = false;
-          incomeAdded += calendarIncomeContribution(row);
+          incomeAdded += addOnce();
           incomeAddedRows.push(row);
         } else if (openingKnown && !incomeAlreadyInPaydayOpening(
           row, openingAsOf, plan, opts, openingSource
         )) {
-          incomeAdded += calendarIncomeContribution(row);
+          incomeAdded += addOnce();
           incomeAddedRows.push(row);
         }
       }
       // Dated opening cash is not today's operating plan. Do not add
       // later-dated income as arriving-to-spend, and do not publish a
       // leftover chain from that mix.
-      incomeAdded = planUnavailable || incomeLoadUnknown || !openingKnown ? null : roundCent(incomeAdded);
+      incomeAdded = planUnavailable || incomeLoadUnknown || !openingKnown || earlyReceiptUnproven
+        ? null : roundCent(incomeAdded);
       const otherItems = (planUnavailable ? [] : income).filter(r => r && r.otherIncome === true);
       // Other Income publishes each row's qualified contribution: a held
       // expectation adds nothing and a settled row adds its receipt, so the
@@ -17338,6 +17553,18 @@
               && !row.alreadyInCash && !row.notReliedUpon
               && !['represented', 'opening', 'not-relied-upon'].includes(row.settlement));
             const incomeKnown = futureIncome.every(row => savingsCents(row.amount) != null);
+            // The seed's own cash is current Bills stock: a held early leg it
+            // provably holds is not added again; an unproven one withholds it.
+            const stockSeed = { kind: 'stock', asOf, accounts: [BILLS_ACCOUNT_ID],
+              reconciled: opts.s1CurrentBillsStockReconciled === true };
+            let stockLegUnproven = false;
+            const futureIncomeAdded = futureIncome.reduce((sum, row) => {
+              const contribution = calendarIncomeContribution(row);
+              if (!(contribution > 0) || !Array.isArray(row.earlyReceiptLegs)) return sum + contribution;
+              const overlap = earlyReceiptSeedOverlap(row, stockSeed);
+              if (overlap.unproven) stockLegUnproven = true;
+              return sum + Math.max(0, contribution - overlap.inside);
+            }, 0);
             const remainingBills = periodWaterfallBillLoad(assignedBillRows, asOf, 'cutover-opening', deductedBillAmount);
             const overlap = goalPayments.filter(p => p.date >= asOf && p.date <= window.end)
               .reduce((sum, p) => sum + periodWaterfallBillLoad(assignedBillRows.filter(b =>
@@ -17346,10 +17573,9 @@
             // With no current credit permission, an independent zero-receipt
             // tail can still establish Bills. Otherwise the seam is unknown.
             const creditKnown = Number.isSafeInteger(credit) || incomeTotal === 0;
-            const seed = Number.isSafeInteger(stock) && remainingBudget != null && incomeKnown
+            const seed = Number.isSafeInteger(stock) && remainingBudget != null && incomeKnown && !stockLegUnproven
               && periodBillLoad != null && !goalOverlapUnknown && !annualSavingsUnknown && sweepIncomeKnown && creditKnown
-              ? stock + Math.round((futureIncome.reduce((sum, row) => sum + calendarIncomeContribution(row), 0)
-                - remainingBills + overlap) * 100) - remainingBudget - (credit || 0) : null;
+              ? stock + Math.round((futureIncomeAdded - remainingBills + overlap) * 100) - remainingBudget - (credit || 0) : null;
             // A receipt-qualified pooled entitlement cannot draw from another
             // account to make this Bills-only seam work. Preserve its current
             // funding disclosure, but withhold the dependent projection.
@@ -17363,6 +17589,9 @@
             }
             if (previousEnding == null) openingChainLost = true;
             else {
+              // The boundary credit is this seed's sweep: cash that leaves the
+              // carry, so membership is not inherited across a positive one.
+              carriedLegSeed = credit > 0 ? earlyReceiptSweptSeed(stockSeed) : stockSeed;
               // Seed provenance: qualified Bills stock (calculated), the
               // selected future receipts, remaining bills net of the goal
               // rows the overlap restores exactly, remaining budget and the
@@ -17399,6 +17628,10 @@
             // Q6 (Atlas 6541992380 (3)): a qualified scoped close whose cash
             // carry has no inspectable reconciliation term is not carried.
             previousEnding = activeCardClose && activeCardClose.carryReason ? null : plannedCloseCash;
+            // An unproven early leg leaves this close's cash unresolved: no
+            // later opening may come from it or from the fallback walk.
+            if (earlyReceiptUnproven) { previousEnding = null; openingChainLost = true; }
+            let carrySeed = legSeed;
             // R1: an unknown ready-card deduction is not replaced by the
             // fallback cash walk, which would sweep the protected cents.
             if ((activeCardClose || earlierCardReserve == null || budget.hold == null) && previousEnding == null) openingChainLost = true;
@@ -17419,6 +17652,8 @@
                 if (split) {
                   previousEnding = roundCent(previousEnding - (opening - Number(bills.value)));
                   splitBillsStockTrust = startingCashRowTrust(bills);
+                  // The carry keeps only the Bills share of the opening.
+                  carrySeed = carrySeed && { ...carrySeed, accounts: [BILLS_ACCOUNT_ID] };
                 }
                 else if (!others.every(id => rowOf(id) ? Number(rowOf(id).value) === 0 : !listed(id))) {
                   previousEnding = null;
@@ -17431,13 +17666,17 @@
             // the split, the recorded Bills stock), income, bills, budget
             // and the annual provision it deducts.
             if (previousEnding != null) {
+              carriedLegSeed = carrySeed;
               carryTrust = periodWaterfallCombinedTrust(splitBillsStockTrust || activeOpeningTrust,
                 plannedTermsTrust, annualSavingsNeedTrust);
             }
           }
         } else {
-          previousEnding = paydaySweep != null ? roundCent(availableRemainder - paydaySweep) : null;
-          if (paydaySweep == null) openingChainLost = true;
+          previousEnding = paydaySweep != null && !earlyReceiptUnproven ? roundCent(availableRemainder - paydaySweep) : null;
+          if (paydaySweep == null || earlyReceiptUnproven) openingChainLost = true;
+          // A positive sweep moves cash out of the carry: membership is not
+          // inherited across it, so a later leg on this carry is unproven.
+          if (previousEnding != null) carriedLegSeed = paydaySweep > 0 ? earlyReceiptSweptSeed(legSeed) : legSeed;
           // remainder - max(0, remainder) is sign-sensitive, so every input
           // that can move the remainder stays a dependency, even when the
           // carry is zero. The annual provision is restored exactly (same
@@ -17571,7 +17810,7 @@
         predictedEndingBalanceIdentity: afterHouseholdBudget != null
           ? 'balance-after-deductions' : null,
         predictedEndingBalanceTerms,
-        ...plannedPeriodClosePublication(lookback ? null : plannedCloseCash, {
+        ...earlyReceiptCloseReason(earlyReceiptUnproven, plannedPeriodClosePublication(lookback ? null : plannedCloseCash, {
           // The close's own bill term (its opening exclusion), not BAD's.
           opening: paydayBoundaryOpening ? opening : null, incomeAdded, periodBillLoad: closeBillLoad,
           budgetHold: planUnavailable ? null : budget.hold, annualSavingsNeed,
@@ -17587,7 +17826,7 @@
         projected && openingKnown && !openingCarried
           ? 'The planned period close is unavailable: its opening comes from a fallback cash walk whose trust is not established.'
           : null, activeCardClose ? activeCardClose.reason
-          : !lookback && cardCoverageTrust(cardCoverage) === 'estimated' ? cardCoverage.estimateBasis : undefined),
+          : !lookback && cardCoverageTrust(cardCoverage) === 'estimated' ? cardCoverage.estimateBasis : undefined)),
         ...(role === 'active' && cardReserveShortfallDisclosure(plan, cardCoverage)
           ? { cardReserveShortfall: cardReserveShortfallDisclosure(plan, cardCoverage) } : {}),
 
@@ -22410,6 +22649,10 @@
           const packet = currentPeriodActualsPacket(paydayOpts);
           const direct = s1BasisOpening.source === 'payday-morning'
             && s1RiskWindow.start === asOf;
+          // Whether the stock is reconciled through the as-of (every posted
+          // flow that day included) or only a direct posted balance: held
+          // early legs read it (earlyReceiptLegMembership 'stock').
+          paydayOpts.s1CurrentBillsStockReconciled = false;
           if (!packet && direct) return cash.get(BILLS_ACCOUNT_ID);
           const complete = value => value === 'complete' || value && typeof value === 'object'
             && value.complete === true && (value.status == null || value.status === 'complete')
@@ -22481,6 +22724,7 @@
             const basis = cents(s1BasisOpening.opening);
             const total = [...cash.values()].reduce((a, b) => a + b, 0);
             if (basis == null || !Number.isSafeInteger(total) || basis + flow !== total) return null;
+            paydayOpts.s1CurrentBillsStockReconciled = true;
           }
           return cash.get(BILLS_ACCOUNT_ID);
         })();
@@ -29702,7 +29946,7 @@
     };
   }
 
-  const Forecast = { cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
