@@ -1,0 +1,61 @@
+/* Stack page, waterfall block (B2; behind ?view=stack). Scoped to
+ * .stack-waterfall so nothing here reaches the current page. Colours follow
+ * the Stack Wallet design: a light card with a dark slab for the result. */
+.stack-waterfall {
+  --wf-on: #121316;
+  --wf-on2: rgba(18, 19, 22, .62);
+  --wf-line: rgba(18, 19, 22, .13);
+  --wf-slab: #121316;
+  --wf-slab-fg: #ffffff;
+  --wf-good: #dff06e;
+  --wf-bad: #ff9a8c;
+  color: var(--wf-on);
+}
+.stack-waterfall .n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stack-waterfall .wf-math { list-style: none; margin: 10px 0 0; padding: 0 14px; }
+.stack-waterfall .wf-line {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center;
+  padding: 9px 0; font-size: 18px; font-weight: 500;
+}
+.stack-waterfall .op { font-size: 19px; font-weight: 700; color: var(--wf-on2); }
+.stack-waterfall .wf-line .n { font-weight: 700; font-size: 19px; letter-spacing: -.02em; }
+.stack-waterfall .wf-line.tot { font-weight: 800; border-top: 2.5px solid var(--wf-on); margin-top: 6px; padding-top: 13px; }
+.stack-waterfall .wf-line.tot .n { font-weight: 800; }
+/* Credit: the whole line is the toggle; its card minimums open beneath it. */
+.stack-waterfall .wf-credit { display: block; padding: 0; }
+.stack-waterfall .wf-toggle {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; width: 100%;
+  padding: 9px 0; font: inherit; font-size: 18px; font-weight: 500; color: inherit;
+  background: none; border: 0; text-align: inherit; cursor: pointer; border-radius: 12px;
+}
+.stack-waterfall .wf-toggle:disabled { cursor: default; }
+.stack-waterfall .wf-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.stack-waterfall .wf-toggle .lab::after {
+  content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 8px; vertical-align: 2px;
+  border-right: 1.8px solid var(--wf-on2); border-bottom: 1.8px solid var(--wf-on2);
+  transform: rotate(-45deg); transition: transform .3s cubic-bezier(.2, .8, .2, 1);
+}
+.stack-waterfall .wf-toggle:disabled .lab::after { display: none; }
+.stack-waterfall .wf-credit.open .wf-toggle .lab::after { transform: rotate(45deg); }
+.stack-waterfall .wf-cards { list-style: none; margin: 0; padding: 2px 0 6px 62px; }
+.stack-waterfall .wf-card {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 7px 0; font-size: 16px; color: var(--wf-on2); border-top: 1.5px solid var(--wf-line);
+}
+.stack-waterfall .wf-card b { display: block; font-weight: 600; color: var(--wf-on); }
+.stack-waterfall .wf-card small { display: block; font-size: 13px; line-height: 1.3; }
+.stack-waterfall .wf-card .n { font-size: 16px; font-weight: 600; color: var(--wf-on); }
+/* The result slab. */
+.stack-waterfall .wf-slab {
+  margin-top: 10px; border-radius: 26px; padding: 18px 20px 20px;
+  background: var(--wf-slab); color: var(--wf-slab-fg);
+}
+.stack-waterfall .wf-slab .sl { display: flex; gap: 10px; font-size: 15px; font-weight: 600; opacity: .8; }
+.stack-waterfall .wf-slab .n {
+  display: inline-block; font-size: 66px; font-weight: 800; letter-spacing: -.035em; line-height: 1.02;
+  margin-top: 2px; color: var(--wf-good);
+}
+.stack-waterfall .wf-slab.neg .n { color: var(--wf-bad); }
+.stack-waterfall .wf-reason { margin: 8px 0 0; font-size: 14px; opacity: .8; }
+@media (max-width: 380px) { .stack-waterfall .wf-slab .n { font-size: 52px; } }
+@media (prefers-reduced-motion: reduce) { .stack-waterfall .wf-toggle .lab::after { transition: none; } }

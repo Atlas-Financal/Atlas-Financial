@@ -15,7 +15,7 @@
  *      close's withheld lines, a withheld bills split, a withheld surplus;
  *   4. the slab reads Deficit after deductions, with a true minus, only when
  *      the published surplus is negative;
- *   5. the period is chosen by key (id, then start), else the current one;
+ *   5. the period is chosen by its start date (the key), else the current one;
  *   6. the block registers with the Stack shell as 'waterfall';
  *   7. on a real Forecast recommendation for an invented harness world, every
  *      printed amount still equals its published source;
@@ -124,7 +124,7 @@ console.log('3. Unpublished values print nothing (F8)');
       surplus: { amount: null, terms: null, trust: 'unavailable', projected: false, reason: 'Surplus after deductions is unavailable.' },
     } });
   const c = fakeContainer();
-  W.render(c, ctxOf([fullView(), saved], 'p-past'));
+  W.render(c, ctxOf([fullView(), saved], '2026-09-25'));
   const cs = proveSourced(c.innerHTML, saved, 'saved close');
   const blank = cs.filter(x => x.unpublished).map(x => x.source);
   ok(blank.length === 7 && cs.find(x => x.source === W.LINE_SOURCES.total).text === '$2,900.00'
@@ -158,8 +158,8 @@ console.log('5. Period selection');
 {
   const a = fullView({ id: 'pa', start: '2026-10-09', timelineRole: 'current' });
   const b = fullView({ id: 'pb', start: '2026-10-23', timelineRole: 'future' });
-  ok(W.selectedView(ctxOf([a, b], 'pb')) === b, 'by id');
   ok(W.selectedView(ctxOf([a, b], '2026-10-23')) === b, 'by start date');
+  ok(W.selectedView(ctxOf([a, b], 'pb')) === null, 'a key is a start date only: a view id selects nothing');
   ok(W.selectedView(ctxOf([b, a], null)) === a, 'with no key, the current period');
 }
 
@@ -184,7 +184,7 @@ console.log('7. A real Forecast recommendation (invented harness world)');
   let periods = 0;
   for (const view of rec.payPeriodViews || []) {
     const c = fakeContainer();
-    W.render(c, { data, plan: data.plan, recommendation: rec, selectedPeriodKey: view.id || view.start, Forecast: F });
+    W.render(c, { data, plan: data.plan, recommendation: rec, selectedPeriodKey: view.start, Forecast: F });
     c.clickCredit();
     const cs = cells(c.innerHTML);
     const bad = cs.filter(x => !x.unpublished && x.text !== (x.source === W.LINE_SOURCES.surplus

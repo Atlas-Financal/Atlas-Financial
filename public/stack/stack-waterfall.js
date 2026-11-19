@@ -26,7 +26,8 @@
  * Registered with the Stack shell as StackBlocks.register('waterfall', render),
  * render(container, ctx) with ctx = { data, plan, recommendation,
  * selectedPeriodKey, Forecast }. Pure apart from writing container.innerHTML
- * and one click listener for the Credit toggle. */
+ * and one click listener for the Credit toggle. Its styles are its own file,
+ * public/stack/stack-waterfall.css (linked by the shell). */
 (function init(root, factory) {
   const api = factory();
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -63,15 +64,14 @@
     return node;
   };
 
-  // The selected period: the view whose id, else whose start, is the key;
-  // with no key, the current period.
+  // The selected period: selectedPeriodKey is the period's start date
+  // ('YYYY-MM-DD', lead ruling), matched on view.start only; with no key, the
+  // current period.
   function selectedView(ctx) {
     const views = ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
       ? ctx.recommendation.payPeriodViews.filter(v => v && typeof v === 'object') : [];
     const key = ctx ? ctx.selectedPeriodKey : null;
-    if (key != null && key !== '') {
-      return views.find(v => v.id === key) || views.find(v => v.start === key) || null;
-    }
+    if (key != null && key !== '') return views.find(v => v.start === key) || null;
     return views.find(v => v.timelineRole === 'current') || null;
   }
   const cardLabel = (ctx, debtId) => {
@@ -117,7 +117,7 @@
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
     const reason = amount === null && surplus && typeof surplus.reason === 'string'
       ? `<p class="wf-reason">${escape(surplus.reason)}</p>` : '';
-    return `<section class="stack-waterfall" data-block="waterfall" data-period="${escape(view.id || view.start || '')}"${surplus && surplus.projected ? ' data-projected="true"' : ''}>
+    return `<section class="stack-waterfall" data-block="waterfall" data-period="${escape(view.start || '')}"${surplus && surplus.projected ? ' data-projected="true"' : ''}>
   <ul class="wf-math">
     ${line('', 'Dale’s income', amountCell(view, 'dale'), '', 'dale')}
     ${line('+', 'Amanda’s income', amountCell(view, 'amanda'), '', 'amanda')}
