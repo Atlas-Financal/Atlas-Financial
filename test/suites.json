@@ -1,4 +1,5 @@
 [
+  ["Stack page Bills, Budget and Mortgage cards print only published values, nothing for an unpublished one, and nothing loads without ?view=stack (B3)","test-stack-cards.js"],
   ["A card minimum filed for one card with a note naming another pays neither minimum and is held To confirm once","test-card-minimum-category-note-conflict.js"],
   ["Budget Income drawer lines print what the Income headline counted","test-income-drawer-ties-to-headline.js"],
   ["Budget boots without optional funding copy and preserves its unfunded refusal (#727)","test-budget-no-options-funding.js"],
