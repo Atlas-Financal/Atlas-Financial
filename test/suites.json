@@ -88,7 +88,7 @@
   ["private qualified observation reuse, Manual Refresh, context and restart","test-server-observation-memory.js"],
   ["replay result reuse: identical inputs skip Forecast; changed observation, plan, day, engine or write recompute (#822 c)","test-replay-result-reuse.js"],
   ["latest complete refresh retains one dated cohort and truthful failed attempt","test-latest-complete-refresh.js"],
-  ["last non-withheld picture: a hold raised on a complete refresh still shows the last full picture under the banner; every retained reason has a banner line (Dale, 2026-11-18)","test-last-non-withheld-picture.js"],
+  ["last non-withheld picture: a hold raised on a complete refresh still shows the last full picture, with no banner (Dale, 2026-11-18; OD-025)","test-last-non-withheld-picture.js"],
   ["evidence dated before today shows as its own evidence day, whatever the clock or a restart (OD-2)","test-evidence-day-view.js"],
   ["latest complete refresh requires ENV origins and current mapping content","test-latest-complete-refresh-source-kind.js"],
   ["a paid bill's observed actual at or above plan is deducted once; totals agree; below plan keeps the plan (finding 6)","test-bill-actual-deducted.js"],

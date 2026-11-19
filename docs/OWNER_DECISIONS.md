@@ -69,3 +69,9 @@ Each is the lead's record of Dale's decision.
 | ID | Date | Decision | Rule lives in | Source | Status |
 |---|---|---|---|---|---|
 | OD-024 | 2026-11-18 | Rent received from a tenant into Bills counts as Other Income and is then moved to savings by the owner; it nets to zero. | No change needed: the Bills-to-savings transfer pair is an internal movement in `public/forecast.js` (`householdInternalMovements`), so the pair nets to zero | [#821 6978494592](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-6978494592) | settled |
+
+## #821, 2026-11-19
+
+| ID | Date | Decision | Rule lives in | Source | Status |
+|---|---|---|---|---|---|
+| OD-025 | 2026-11-19 | The Budget page shows no banner for a retained last full picture ("Showing the last full picture from … Today's update couldn't be completed: …"); the small "Last updated" line already says when the picture is from. It reverses the 2026-11-18 banner and matches OD-3: a dated or retained view is signalled by the small "Last updated" line only, and the dated-plan note shows only when that line cannot be printed. | `public/plan.js` (`budgetSurfaceHtml`); `ARCHITECTURE.md`, "Last non-withheld picture shown under a whole-plan hold" | [#821 7008553005](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-7008553005) | settled |

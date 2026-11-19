@@ -6,7 +6,8 @@
 // cohort, so before this change the page showed the hold (the Unknown shell),
 // not the last full picture. The process-local observation slot now keeps the
 // last NON-WITHHELD complete publication as well, and the server serves it,
-// under the banner, when the newest is withheld. Invented data only; no
+// as the retained picture, when the newest is withheld. Since OD-025 (Dale,
+// 2026-11-19) the page shows it with no banner and no reason line. Invented data only; no
 // provider write, credential or household file.
 //
 // The withheld refresh is simulated by a worker-only preload that sets
@@ -85,16 +86,13 @@ if (threads.isMainThread && require.main === module) (async () => {
     }
   }
 
-  console.log('2. Every retained-attempt reason has a banner line (parity)');
+  console.log('2. The page prints no banner and no reason line for a retained picture (OD-025)');
   {
     const plan = fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8');
-    const block = plan.match(/const RETAINED_PICTURE_REASONS = Object\.freeze\(\{([\s\S]*?)\}\);/);
-    check(block, 'public/plan.js holds the banner lines');
-    const pageCodes = Array.from(block[1].matchAll(/'([a-z-]+)':/g), m => m[1]).sort();
+    check(!/RETAINED_PICTURE_REASONS|retainedPictureBannerHtml|budget-retained-banner/.test(plan),
+      'public/plan.js holds no banner and no per-reason lines');
     const serverCodes = [...Live.RETAINED_ATTEMPT_REASONS].sort();
-    check(JSON.stringify(pageCodes) === JSON.stringify(serverCodes),
-      'the page has one line for exactly the server\'s closed reason set: ' + JSON.stringify({ pageCodes, serverCodes }));
-    check(serverCodes.includes('current-plan-withheld'), 'the withheld reason is in the closed set');
+    check(serverCodes.includes('current-plan-withheld'), 'the withheld reason is still in the server\'s closed attempt set');
   }
 
   console.log('3. The real server serves the last full picture when the newest refresh is withheld');
@@ -119,14 +117,14 @@ if (threads.isMainThread && require.main === module) (async () => {
       let firstCheck = null;
       const first = await Refresh.serve(canonical, env, { forceRefresh: true, onCheck(value) { firstCheck = value; } }); await drain();
       check(first.liveOverlay.operatingPlan !== 'unavailable' && !first.liveOverlay.retainedRefresh,
-        'a clean complete refresh is current: no hold, no retained banner');
+        'a clean complete refresh is current: no hold, no retained picture');
       check(first.liveOverlay.currentPeriodActuals?.transactionCoverage === 'complete', 'the invented refresh is a complete cohort');
 
       fs.writeFileSync(flag, '1');
       const held = await Refresh.serve(canonical, env, { forceRefresh: true }); await drain();
       check(held.liveOverlay.operatingPlan !== 'unavailable', 'a withheld complete refresh serves the last full picture, not the hold');
       check(held.liveOverlay.retainedRefresh?.attempt?.reason === 'current-plan-withheld',
-        'under the banner, with the withheld reason (' + held.liveOverlay.retainedRefresh?.attempt?.reason + ')');
+        'as the retained picture, with the withheld reason (' + held.liveOverlay.retainedRefresh?.attempt?.reason + ')');
       check(typeof firstCheck?.checkedAt === 'string' && held.liveOverlay.retainedRefresh.observedAt === firstCheck.checkedAt,
         'dated as the full picture: the first publication\'s own check time');
       check(JSON.stringify(held.plan) === JSON.stringify(first.plan), 'the picture\'s plan is the full publication, unchanged');
@@ -205,13 +203,13 @@ if (threads.isMainThread && require.main === module) (async () => {
       fs.writeFileSync(flag, '1');
       const held = await serve('2026-08-20T18:00:00.000Z', synced('2026-08-20T17:55:00.000Z'), { forceRefresh: true });
       check(held.meta?.asOf === '2026-08-18' && held.liveOverlay.retainedRefresh?.attempt?.reason === 'current-plan-withheld',
-        'the Aug 20 refresh is withheld, so the Aug 18 picture shows under the banner');
+        'the Aug 20 refresh is withheld, so the Aug 18 picture shows as the retained picture');
       fs.unlinkSync(flag);
       // The bank's own last sync is Aug 19: between the two held cohorts.
       const between = await serve('2026-08-20T18:30:00.000Z', synced('2026-08-19T17:55:00.000Z'), { forceRefresh: true });
       check(!between.error && between.meta?.asOf !== '2026-08-19',
         'a view older than the newest held cohort is not served (got ' + (between.meta?.asOf || between.error?.code) + ')');
-      check(between.meta?.asOf === '2026-08-18' && !!between.liveOverlay.retainedRefresh, 'the last full picture still shows, under the banner');
+      check(between.meta?.asOf === '2026-08-18' && !!between.liveOverlay.retainedRefresh, 'the last full picture still shows, as the retained picture');
       mock.mode('failure');
       const later = await serve('2026-08-20T18:40:00.000Z', synced('2026-08-19T17:55:00.000Z'), { forceRefresh: true });
       check(!later.error && later.meta?.asOf === '2026-08-18', 'nothing held was dropped: a later failure still shows the last full picture');

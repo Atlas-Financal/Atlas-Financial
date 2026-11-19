@@ -656,11 +656,8 @@ body:has([data-budget-bento]) .budget-bento .blend-now:not([data-blend-now-dated
 }
 
 /* Dale, 2026-11-18: the last full picture, shown unchanged while today's
- * update could not be completed. The banner says so; the page is muted so its
- * figures do not read as today's. */
-.budget-retained-banner {
-  border-left: 3px solid var(--warning);
-}
+ * update could not be completed. The page is muted so its figures do not read
+ * as today's; the small "Last updated" line dates it (OD-025, no banner). */
 .budget-retained-picture {
   filter: saturate(0.55);
   opacity: 0.88;
