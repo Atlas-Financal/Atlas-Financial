@@ -103,7 +103,8 @@ console.log('(b) a payee destination its note contradicts pays no card and is he
   ok(savings.available === 325 && JSON.stringify(savings.minimum) === '[[0,"to-confirm"]]',
     'from Savings: the minimum stays held; available 325 (was 350 with the minimum paid)');
   const question = (savings.s.advice.defaultView.calendarPeriods[0].cardPurchaseCoverage.toConfirm || [])[0];
-  ok(question && /payee and its note name different cards/.test(question.question), 'the question says why');
+  ok(question && question.question === 'To confirm: which card did this pay? Its payee, category and note don\'t agree on one card.',
+    'the question says why, in one line that covers the payee, the category and the note', question && question.question);
 }
 
 console.log('(c) every pairing path refuses a payee/note conflict (Codex P1 on #1407)');
