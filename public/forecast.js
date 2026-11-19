@@ -18398,20 +18398,16 @@
     return views;
   }
 
-  // Chronological projection of completed-period Payday carryover. Copies
-  // the incumbent pastPeriodViews carryover fields; does not call
-  // paydayBoundaryCash, invent $0, interpolate, or treat unknown as cash.
-  // Oldest payday first so the household can see whether leftover at payday
-  // has generally risen or fallen. Not income, savings, or a second engine.
   // Where the household consistently goes over plan (owner direction, Dale,
-  // 2026-11-18). Read from saved closes only: each figure is the stored
-  // per-category `overspend` (spent over plan, computed at that close). Nothing
-  // is recomputed, rebuilt or estimated. A close qualifies only when it was
-  // complete at capture (closingState 'complete-at-capture': whole-period
-  // evidence, no completeness reason). One close per period (the first, as in
-  // the reprint). The latest `window` qualifying closes are used; with fewer
-  // than `minimum` there is no trend, only the count. Informational rows and
-  // rows whose stored overspend is not a number are not counted.
+  // 2026-11-18; lead ruling option C). Read from saved closes only. A saved
+  // lookback row stores overspend null, so each over-plan amount is worked
+  // out here as max(0, spent - planned) from the saved row's numbers, on
+  // usable rows only (categoryTrendRow). Nothing is rebuilt from the ledger or
+  // estimated. A close qualifies only when it was complete at capture
+  // (closingState 'complete-at-capture') and has at least one usable row. One
+  // close per period (the first captured, as in the reprint). The latest
+  // `window` qualifying closes are used; with fewer than `minimum` there is
+  // no trend, only the count.
   const CATEGORY_TREND_WINDOW = 6;
   const CATEGORY_TREND_MINIMUM = 3;
   // A saved category row the trend can use: its plan and spend are stored
@@ -18479,6 +18475,11 @@
     return { ...base, status: 'ready', trust: 'calculated', categories, reason: null };
   }
 
+  // Chronological projection of completed-period Payday carryover. Copies
+  // the incumbent pastPeriodViews carryover fields; does not call
+  // paydayBoundaryCash, invent $0, interpolate, or treat unknown as cash.
+  // Oldest payday first so the household can see whether leftover at payday
+  // has generally risen or fallen. Not income, savings, or a second engine.
   function planPaydayCarryoverTrend(views) {
     const points = [];
     for (let i = 0; i < (views || []).length; i++) {
