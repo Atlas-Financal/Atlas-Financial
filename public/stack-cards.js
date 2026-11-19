@@ -70,9 +70,18 @@
       '<div class="sc-bar"><i style="width:' + width + '%"></i></div>' + body + '</details>';
   }
 
+  // Tappable by attribute only; the shell's sheet owns what opens. A row without
+  // the ids to name its target carries no attribute.
+  function sheetAttrs(target) {
+    return target ? ' data-stack-sheet="' + esc(target) + '" role="button" tabindex="0"' : '';
+  }
+  function billTarget(kind, r) {
+    return r && r.id != null && r.date != null ? kind + ':' + r.id + '@' + r.date : null;
+  }
+
   function stateWord(row) { return row.paidState === 'paid' ? 'Paid' : 'Not paid'; }
-  function stateRow(label, amountText, paid, word) {
-    return '<li class="sc-row"><span><b class="sc-n">' + esc(label) + '</b><small class="sc-st' + (paid ? ' sc-paid' : '') + '">' +
+  function stateRow(label, amountText, paid, word, target) {
+    return '<li class="sc-row"' + sheetAttrs(target) + '><span><b class="sc-n">' + esc(label) + '</b><small class="sc-st' + (paid ? ' sc-paid' : '') + '">' +
       esc(word) + '</small></span>' + (amountText == null ? '' : '<span class="sc-a">' + esc(amountText) + '</span>') + '</li>';
   }
 
@@ -86,7 +95,7 @@
     var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', stateWord(r));
+      return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', stateWord(r), billTarget('bill', r));
     }).join('') + '</ul>';
     var sub = rows.length ? paid + ' of ' + rows.length + ' paid' : 'paid / total';
     return strip('bills', 'Bills', sub, total, null, drawWidth(paid, rows.length), rows.length ? body : '');
@@ -100,7 +109,7 @@
     });
     var body = '<ul class="sc-list">' + cats.map(function (c) {
       var s = money(c.spent), p = money(c.planned);
-      return '<li class="sc-row"><span><b class="sc-n">' + esc(c.label) + '</b><span class="sc-mini"><i style="width:' +
+      return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b><span class="sc-mini"><i style="width:' +
         drawWidth(c.spent, c.planned) + '%"></i></span></span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : esc(s)) + (p == null ? '' : '<i> / ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
@@ -113,7 +122,7 @@
       return isMortgageRow(r) && r.paidState && r.paidState !== 'carried';
     })[0];
     var paid = !!row && row.paidState === 'paid';
-    var body = row ? '<ul class="sc-list">' + stateRow(row.label || row.name || 'Mortgage', money(row.amount), paid, stateWord(row)) + '</ul>' : '';
+    var body = row ? '<ul class="sc-list">' + stateRow(row.label || row.name || 'Mortgage', money(row.amount), paid, stateWord(row), billTarget('mortgage', row)) + '</ul>' : '';
     var sub = row ? stateWord(row) : 'paid / total';
     return strip('mortgage', 'Mortgage', sub, total, null, paid ? 100 : 0, body);
   }
@@ -170,6 +179,17 @@
   function render(container, ctx) {
     if (!container) return;
     container.innerHTML = buildCardsHTML(ctx);
+    // Enter or Space on a focused row acts as a click (once per container).
+    if (!container.__stackCardsKeys && typeof container.addEventListener === 'function') {
+      container.__stackCardsKeys = true;
+      container.addEventListener('keydown', function (e) {
+        var t = e.target;
+        if ((e.key === 'Enter' || e.key === ' ') && t && t.getAttribute && t.getAttribute('data-stack-sheet') && typeof t.click === 'function') {
+          e.preventDefault();
+          t.click();
+        }
+      });
+    }
   }
 
   if (root.StackBlocks && typeof root.StackBlocks.register === 'function') root.StackBlocks.register('cards', render);

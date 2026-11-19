@@ -9,16 +9,16 @@ const view = {
   start: '2026-01-01',
   stackSummary: { bills: { mortgage: 1234.56, cardMinimums: [{ debtId: 'card-a', amount: 77.77 }], other: 888.88, trust: 'calculated' } },
   bills: [
-    { id: 'hydro', label: 'Hydro', amount: 111.11, paidState: 'paid' },
-    { id: 'phone', label: 'Phone', amount: 222.22, paidState: 'not-paid' },
+    { id: 'hydro', date: '2026-01-05', label: 'Hydro', amount: 111.11, paidState: 'paid' },
+    { id: 'phone', date: '2026-01-07', label: 'Phone', amount: 222.22, paidState: 'not-paid' },
     { id: 'old', label: 'Carried one', amount: 999.99, paidState: 'carried' },
-    { id: 'mortgage', debtId: 'mortgage', label: 'Mortgage', amount: 1234.56, paidState: 'not-paid' },
+    { id: 'mortgage', date: '2026-01-02', debtId: 'mortgage', label: 'Mortgage', amount: 1234.56, paidState: 'not-paid' },
     { id: 'cardmin', debtId: 'card-a', label: 'Card A minimum', amount: 77.77, paidState: 'paid' },
   ],
   budgetProgress: { household: { actual: { amount: 333.33 }, planned: { amount: 666.66 } } },
   householdBudget: [
-    { label: 'Groceries', spent: 123.45, planned: 400 },
-    { label: 'Fun <money>', spent: 10.1, planned: 50.5 },
+    { id: 'groceries', label: 'Groceries', spent: 123.45, planned: 400 },
+    { id: 'fun', label: 'Fun <money>', spent: 10.1, planned: 50.5 },
     { label: 'Hidden', informational: true, spent: 5, planned: 5 },
   ],
 };
@@ -125,6 +125,27 @@ assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: nu
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
+
+// 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
+const attr = (h, v) => h.includes('data-stack-sheet="' + v + '" role="button" tabindex="0"');
+assert(attr(card('bills'), 'bill:hydro@2026-01-05') && attr(card('bills'), 'bill:phone@2026-01-07'));
+assert(!card('bills').includes('mortgage:') && !card('bills').includes('bill:old@'));
+assert(attr(card('budget'), 'budget:groceries') && attr(card('budget'), 'budget:fun'));
+assert(attr(card('mortgage'), 'mortgage:mortgage@2026-01-02'));
+const noId = JSON.parse(JSON.stringify(view)); delete noId.bills[0].date; delete noId.householdBudget[0].id;
+const nh = buildCardsHTML(ctx(noId));
+assert(!nh.includes('bill:hydro') && !nh.includes('budget:groceries'), 'no attribute without the ids');
+assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, needed: 2, reasons: [] }], totals: { saved: 1, entitlement: 2, reasons: [] } })).includes('data-stack-sheet'));
+// Enter / Space act as a click
+{
+  let handler = null, clicked = 0;
+  const cont = { addEventListener: (n, f) => { if (n === 'keydown') handler = f; }, innerHTML: '' };
+  require(file).render(cont, ctx(view));
+  assert(handler && cont.innerHTML.includes('data-stack-sheet'));
+  const row = { getAttribute: () => 'bill:hydro@2026-01-05', click: () => clicked++ };
+  ['Enter', ' ', 'a'].forEach(key => handler({ key, target: row, preventDefault() {} }));
+  assert.strictEqual(clicked, 2, 'Enter and Space click; other keys do not');
+}
 
 // 3. no money arithmetic in the page code
 const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');

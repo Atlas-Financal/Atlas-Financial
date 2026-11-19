@@ -25,3 +25,5 @@ padding:8px 0;border-top:1.5px solid var(--sc-line)}
 .sc-a i{font-style:normal;font-weight:500;opacity:.68}
 .sc-mini{height:6px;border-radius:3px;background:var(--sc-bar);margin-top:8px;overflow:hidden}
 .sc-mini i{display:block;height:100%;border-radius:3px;background:var(--sc-ink)}
+[data-stack-sheet]{cursor:pointer}
+[data-stack-sheet]:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:10px}
