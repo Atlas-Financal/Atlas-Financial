@@ -34,6 +34,33 @@
         || whole <= 0) return null;
       return Math.min(1, Math.max(0, part / whole));
     },
+    // B5, the one visual trust treatment (lead ruling, 2026-11-19; owner: no text labels, no dotted underlines): a
+    // figure whose published trust is 'estimated', or any figure of a pay period Forecast publishes as projected
+    // (evidenceState 'projected'), carries the class stack-est. Nothing else does: calculated and verified never, and
+    // an unknown or unavailable figure prints nothing. Read from the published trust, never inferred.
+    isEstimated(trust, view) {
+      return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
+    },
+    estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // A household budget row's published trust, per printed amount, as Forecast publishes it (the reading the current
+    // Budget page documents in plan.js householdBudgetRowHtml): the row's trust (or confidence) marks the row; its plan
+    // is estimated when plannedTrust is absent or 'estimated' (an Other spending row's plan only when it is dated); its
+    // Spent when plannedTrust is 'calculated' (a possible duplicate) or spentTrust is 'estimated'; Left / Over follow
+    // the row. An amount whose own trust field says 'estimated' is always estimated (only ever more cautious than the
+    // page's reading). Returns trust words for estClass, never a figure.
+    budgetTrust(row) {
+      const r = row && typeof row === 'object' ? row : {};
+      const rowEst = r.trust === 'estimated' || r.confidence === 'estimated';
+      const other = r.otherSpending === true || r.needsConfirmation === true;
+      const datedPlan = typeof r.targetEffectiveFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.targetEffectiveFrom)
+        && typeof r.planned === 'number' && Number.isFinite(r.planned);
+      const word = yes => (yes ? 'estimated' : null);
+      return {
+        planned: word(r.plannedTrust === 'estimated' || (rowEst && (!other || datedPlan) && r.plannedTrust == null)),
+        spent: word(r.spentTrust === 'estimated' || (rowEst && r.plannedTrust === 'calculated')),
+        remaining: word(rowEst),
+      };
+    },
   };
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
@@ -87,6 +114,7 @@
     const list = views();
     const chips = list.map(view => {
       const key = keyOf(view), amount = surplusOf(view), neg = amount != null && amount < 0;
+      const surplus = view.stackSummary && view.stackSummary.surplus;
       const current = view.role === 'active';
       // Owner decision (Dale, 2026-11-19): no text labels. A projected period, as Forecast publishes it
       // (evidenceState 'projected'), is drawn with a dashed outline; it is never inferred from dates here.
@@ -95,7 +123,7 @@
         + ` data-stack-period="${esc(key)}" aria-pressed="${key === state.selectedPeriodKey}"`
         + `${current ? ' aria-current="date"' : ''}>`
         + `<span class="stack-chip-date">${esc(dayLabel(view.start))}</span>`
-        + `<span class="stack-chip-value${neg ? ' is-neg' : ''}" data-stack-chip-amount>${amount == null ? '' : esc(money(amount))}</span>`
+        + `<span class="stack-chip-value${neg ? ' is-neg' : ''}${StackBlocks.estClass(surplus && surplus.trust, view)}" data-stack-chip-amount>${amount == null ? '' : esc(money(amount))}</span>`
         + '</button>';
     }).join('');
     return '<div class="stack-tl-head"><button class="stack-now" type="button" data-stack-now>Now</button></div>'

@@ -26,8 +26,11 @@
   let ctx = null, lastRow = null, container = null;
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
-  const row = (label, value) => (value === '' || value == null ? ''
-    : `<div><dt>${esc(label)}</dt><dd class="stack-n">${esc(value)}</dd></div>`);
+  // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
+  // labelCls: the same, for a label that itself holds a figure (a card's "Minimum $X").
+  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
+    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
   function head(kicker, title) {
     return '<div class="stack-sheet-grab" aria-hidden="true"></div><div class="stack-sheet-head"><div>'
@@ -40,28 +43,33 @@
   // A bill: its published amount, its Paid / Not paid word (#1429's paidState), its due date and the paying account.
   // bill.date is the scheduled date, never when a payment posted, so it is labelled "Due" in every state; payerLabel
   // is the planned paying account, not an observed source, so it reads "Comes out of" in every state.
-  function billHtml(bill, kicker) {
+  function billHtml(bill, kicker, v) {
     const word = bill.paidState === 'paid' ? 'Paid' : bill.paidState === 'not-paid' ? 'Not paid' : '';
     return head(kicker, bill.label || '')
-      + `<div class="stack-sheet-big stack-n">${esc(money(bill.amount))}</div>`
+      + `<div class="stack-sheet-big stack-n${est(bill.displayAmountTrust, v)}">${esc(money(bill.amount))}</div>`
       + (word ? `<span class="stack-sheet-pill${bill.paidState === 'paid' ? ' is-on' : ''}">${word}</span>` : '')
       + '<dl>' + row('Due', date(bill.date))
       + row('Comes out of', bill.payerLabel || '') + '</dl>';
   }
 
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.
-  function budgetHtml(item) {
+  function budgetHtml(item, v) {
     const over = num(item.overspend) && item.overspend > 0;
+    const t = window.StackBlocks.budgetTrust ? window.StackBlocks.budgetTrust(item) : {};
+    const spent = est(t.spent, v), planned = est(t.planned, v), rest = est(t.remaining, v);
+    // Spent and planned each carry their own treatment, side by side (never nested, so neither inherits the other's).
     return head('Budget', item.label || '')
-      + `<div class="stack-sheet-big stack-n">${esc(money(item.spent))}${num(item.planned) ? `<i> / ${esc(money(item.planned))}</i>` : ''}</div>`
-      + '<dl>' + row('Spent', money(item.spent)) + row('Budget', money(item.planned))
-      + (over ? row('Over', money(item.overspend)) : row('Left', money(item.remaining))) + '</dl>';
+      + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
+      + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
+      + '<dl>' + row('Spent', money(item.spent), spent) + row('Budget', money(item.planned), planned)
+      + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>';
   }
 
   // A credit line, from the credit block's reading of Forecast.stackCreditLines.
   function cardHtml(line) {
     const credit = window.StackCredit;
-    return credit && typeof credit.sheetHtml === 'function' ? credit.sheetHtml(line, { head, row, money, date, esc }) : '';
+    return credit && typeof credit.sheetHtml === 'function'
+      ? credit.sheetHtml(line, { head, row, money, date, esc }, typeof credit.view === 'function' ? credit.view(ctx) : null) : '';
   }
 
   function find(key) {
@@ -71,11 +79,11 @@
     if (!v) return null;
     if (kind === 'bill' || kind === 'mortgage') {
       const bill = (Array.isArray(v.bills) ? v.bills : []).find(b => b && `${b.id}@${b.date}` === id);
-      return bill ? { kind, html: billHtml(bill, kind === 'mortgage' ? 'Mortgage' : 'Bill') } : null;
+      return bill ? { kind, html: billHtml(bill, kind === 'mortgage' ? 'Mortgage' : 'Bill', v) } : null;
     }
     if (kind === 'budget') {
       const item = (Array.isArray(v.householdBudget) ? v.householdBudget : []).find(b => b && b.id === id);
-      return item ? { kind, html: budgetHtml(item) } : null;
+      return item ? { kind, html: budgetHtml(item, v) } : null;
     }
     if (kind === 'card') {
       const line = window.StackCredit && typeof window.StackCredit.line === 'function' ? window.StackCredit.line(ctx, id) : null;

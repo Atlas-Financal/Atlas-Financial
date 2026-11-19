@@ -691,5 +691,6 @@
   ["The Stack page's Outfit font is self-hosted same-origin under font-src 'self', with its OFL licence (F7)","test-outfit-font.js"],
   ["Each published bill row reads Paid only on payment evidence, Not paid otherwise, carried rows unlisted (Stack Wallet A3)","test-bill-paid-state.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
-  ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"]
+  ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
+  ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"]
 ]

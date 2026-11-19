@@ -39,13 +39,24 @@
   // Forecast's trust word travels with its figure (CLAUDE.md: tag every figure). Only
   // 'estimated' needs a mark; 'unavailable' figures are null and print nothing.
   // The page carries no text label (owner decision): the mark is visual only.
+  // B5: the shell's one rule (StackBlocks.isEstimated): a figure is soft when its published trust is estimated, or
+  // when the selected pay period is projected (estView, set for the duration of one build).
+  var estView = null;
   function isEst() {
-    for (var i = 0; i < arguments.length; i++) if (arguments[i] === 'estimated') return true;
+    var sb = root.StackBlocks;
+    if (!sb || typeof sb.isEstimated !== 'function') return false;
+    if (sb.isEstimated(null, estView)) return true;
+    for (var i = 0; i < arguments.length; i++) if (sb.isEstimated(arguments[i], null)) return true;
     return false;
+  }
+  // A budget category's printed amounts, by Forecast's budget-row semantics (the shell's one reader).
+  function budgetEst(c) {
+    var sb = root.StackBlocks;
+    var t = sb && typeof sb.budgetTrust === 'function' ? sb.budgetTrust(c) : {};
+    return { spent: isEst(t.spent), planned: isEst(t.planned) };
   }
   // No label: an estimated figure is drawn softer (class stack-est), never worded.
   function estCls(on) { return on ? ' stack-est' : ''; }
-  function estWrap(tag, on, html) { return '<' + tag + (on ? ' class="stack-est"' : '') + '>' + html + '</' + tag + '>'; }
 
   // A bar's fill as a CSS percentage, from the shell's one shared drawing ratio (StackBlocks.barWidth, 0 to 1,
   // or null for no bar). Drawing only; never printed.
@@ -128,17 +139,11 @@
     var hhEst = isEst(get(hh, ['actual', 'trust']), get(hh, ['planned', 'trust']));
     var body = '<ul class="sc-list">' + cats.map(function (c) {
       var s = money(c.spent), p = planPublished ? money(c.planned) : null;
-      // Forecast's published semantics, as plan.js householdBudgetRowHtml reads them: the row is estimated by
-      // its confidence or trust; the plan is estimated when its own trust is absent or estimated (an Other row
-      // only with a dated plan); spent is estimated when the plan's trust is calculated or spentTrust says so.
-      var other = c.otherSpending === true;
-      var dated = other && typeof c.targetEffectiveFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(c.targetEffectiveFrom) && isNum(c.planned);
-      var rowEst = c.confidence === 'estimated' || c.trust === 'estimated';
-      var plannedEst = (!other || dated) && rowEst && (c.plannedTrust == null || c.plannedTrust === 'estimated');
-      var spentEst = rowEst && (c.plannedTrust === 'calculated' || c.spentTrust === 'estimated');
+      var est = budgetEst(c);
       return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
         (p == null ? '' : '<span class="sc-mini"><i style="width:' + fill(c.spent, c.planned) + '%"></i></span>') + '</span>' +
-        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : estWrap('span', spentEst, esc(s))) + (p == null ? '' : estWrap('i', plannedEst, ' / ' + esc(p))) + '</span>') + '</li>';
+        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
+          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
     return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', null, null, hhEst);
@@ -205,7 +210,12 @@
   function buildCardsHTML(ctx) {
     var view = selectView(ctx);
     if (!view) return '';
-    return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + savingsCard(view) + '</div>';
+    estView = view;
+    try {
+      return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + savingsCard(view) + '</div>';
+    } finally {
+      estView = null;
+    }
   }
 
   function render(container, ctx) {

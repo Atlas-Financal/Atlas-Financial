@@ -38,7 +38,7 @@ const STUB = `;(function (F) {
           { date: '2026-08-14', name: 'Hardware Shop', amount: 250, kind: 'purchase', payment: false, pending: false },
           { date: '2026-08-18', name: 'Payment thank you', amount: -400, kind: 'payment', payment: true, pending: false },
           { date: '2026-08-19', name: 'Pending Cafe', amount: 12.5, kind: 'purchase', payment: false, pending: true }] },
-      { id: 'cashback', label: 'Green Card', paid: fig(100), spent: fig(260), net: fig(160), minimum: fig(30), toGo: fig(160),
+      { id: 'cashback', label: 'Green Card', paid: fig(100), spent: fig(260, 'estimated'), net: fig(160, 'estimated'), minimum: fig(30), toGo: fig(160, 'estimated'),
         status: 'to-go', minimumCovered: covered(false), transactions: [] },
       { id: 'tdcc', label: 'Red Card', paid: fig(null, 'unknown'), spent: fig(null, 'unknown'), net: fig(null, 'unknown'),
         minimum: fig(15), toGo: fig(null, 'unknown'), status: null, minimumCovered: covered('unknown'), transactions: [] },

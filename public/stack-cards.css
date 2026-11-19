@@ -29,3 +29,4 @@ html.stack-view .sc-own{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
 html.stack-view .sc-own>.sc-n{font-weight:500}
 html.stack-view .sc-own .sc-a{font-weight:700}
 html.stack-view .sc-full{grid-column:1/-1;margin-top:0;height:8px}
+html.stack-view .sc-bar.stack-est,html.stack-view .sc-mini.stack-est{background:transparent;border:1.5px dashed var(--sc-line)}
