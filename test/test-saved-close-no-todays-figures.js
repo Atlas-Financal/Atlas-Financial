@@ -114,6 +114,7 @@ const IDENTITY = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', '
 const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases']);
 const SET_BY_REPLAY = new Set(['budgetProgress', 'capturedClose']);
 const KEPT_FROM_TODAY = {
+  stackSummary: 'derived at publication from this period\'s own published figures (here the saved ones), never saved and never from today\'s balance',
   spendingCycle: 'the cycle window dates, not a figure',
   spendingCycleLabel: 'the cycle window label, not a figure',
   operatingPlanNote: 'a null note on a completed period (only a current plan can be unavailable)',
@@ -140,5 +141,16 @@ ok(stale.length === 0, 'every classified kept field is really present (no dead e
 ok(past.bankCheck && past.bankCheck.status === 'unavailable' && past.bankCheck.gap === null && past.bankCheck.reasonCode === 'not-saved-at-close',
   'a saved close carries no bank-check figure (Unavailable, not saved at close)');
 ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept payday carryover observation is as recorded');
+{
+  // The derived Stack Wallet surplus reads the saved figures, never today's.
+  const s = past.stackSummary && past.stackSummary.surplus;
+  const want = past.incomeTotal != null && past.periodBillLoad != null && past.budgetHold != null && past.balanceAfterDeductions != null
+    ? Math.round((past.incomeTotal - past.periodBillLoad - past.budgetHold
+      - ((past.predictedEndingBalanceTerms && past.predictedEndingBalanceTerms.savingsItemSpending) || 0)) * 100) / 100 : null;
+  ok(s && s.amount === want && (want === null || (s.terms.income === saved.incomeTotal && s.terms.bills === saved.periodBillLoad
+    && s.terms.household === saved.budgetHold)), 'a saved close\'s Stack Wallet surplus is its saved income, bills and Household budget',
+    JSON.stringify({ s, want }));
+  ok(!Object.hasOwn(saved, 'stackSummary'), 'the saved record carries no stackSummary (it is derived, never saved)');
+}
 
 console.log('PASS saved close never shows today\'s figures: ' + checks + ' checks');

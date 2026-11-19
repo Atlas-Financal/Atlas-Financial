@@ -134,7 +134,13 @@ try {
     const refreshed = Live.fromObservation(clone(CLOSE)), options = Operating.recommendOpts(refreshed.data, {});
     options.periods = [];
     const native = Forecast.recommend(refreshed.data.plan, '2030-02-15', options).payPeriodViews.find(p => p.start === ANCHOR);
-    assert.deepEqual(candidate.content.publication, JSON.parse(JSON.stringify(native)));
+    // Exactly the native period, less the derived Stack Wallet stackSummary
+    // (re-derived from these same figures on replay, so never saved).
+    const nativeCopy = JSON.parse(JSON.stringify(native));
+    assert.ok(Object.hasOwn(nativeCopy, 'stackSummary'), 'the native period publishes stackSummary');
+    delete nativeCopy.stackSummary;
+    assert.deepEqual(candidate.content.publication, nativeCopy);
+    assert.ok(!Object.hasOwn(candidate.content.publication, 'stackSummary'), 'the saved publication carries no stackSummary');
     assert.deepEqual(transport(candidate), [], 'full posted window, unbounded pending, fetched after cutoff');
     // The invented income occurrence is unsettled natively; that gap is retained, not dropped.
     assert.deepEqual(reasonsOf(candidate), ['publication:income-actual-unavailable']);
