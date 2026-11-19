@@ -5060,10 +5060,18 @@
 
     const buffer = opts.targetBuffer != null ? opts.targetBuffer : declaredBuffer(plan);
     const cashFloor = buffer + (coverage.status === 'ready' ? coverage.reservedCash : 0);
-    for (const w of weeks) {
+    // Each week's low is the least of its seed and its own days. The day loop
+    // above pushes exactly one row per walked day, in order, and week wi
+    // starts on row 7 * wi, so its days are rows 7 * wi .. 7 * wi + 6 (fewer
+    // in a short final week): the same rows a date-range filter over every
+    // day would pick, read directly. test/test-week-low-own-days.js holds
+    // the one-row-per-day invariant at every walk.
+    for (let wi = 0; wi < weeks.length; wi++) {
+      const w = weeks[wi];
       const seed = w.measuredOpening != null ? w.measuredOpening : w.opening;
       lowSeedByStart.set(w.start, seed);
-      const low = Math.min(seed, ...daily.filter(d => d.date >= w.start && d.date <= w.end).map(d => d.balance));
+      let low = seed;
+      for (let j = wi * 7, stop = Math.min(wi * 7 + 7, daily.length); j < stop; j++) low = Math.min(low, daily[j].balance);
       w.low = low;
       w.belowBuffer = below(low, buffer);
       w.negative = below(low, 0);

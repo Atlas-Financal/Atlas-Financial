@@ -182,6 +182,7 @@
   ["held Other Income set built once per weekly cap search: advice unchanged","test-weekly-search-held-income.js"],
   ["walk date list matches the calendar: advice unchanged","test-walk-date-list.js"],
   ["income guards check the inflow first: every answer unchanged","test-income-guard-inflow-first.js"],
+  ["week lows read from their own days: every answer unchanged","test-week-low-own-days.js"],
   ["held income date deduplication preserves complete Forecast output","test-held-income-date-equivalence.js"],
   ["one recommend derives calendar income packet facts once, exactly as before","test-calendar-income-facts-reuse.js"],
   ["card minimum issuer confirmation across advancing live refreshes","test-card-minimum-issuer-lifecycle.js"],
