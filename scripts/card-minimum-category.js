@@ -34,7 +34,7 @@ function categoryDebt(category) {
 
 function observe(input) {
   const { plan, accountMap, asOf, transactionWindow: window, pendingCoverage,
-    transactions = [], matchesIdentity, matchesReversalIdentity, alreadyAllocated, cycleOpensOn,
+    transactions = [], matchesIdentity, matchesPendingIdentity, matchesReversalIdentity, alreadyAllocated, cycleOpensOn,
     isExplicitlyPosted, coverageReference } = input;
   const packet = { source: SOURCE, asOf, payments: [], disagreements: [] };
   if (!iso(asOf) || !window || window.complete !== true || window.hasMore === true
@@ -74,18 +74,22 @@ function observe(input) {
       && crypto.createHash('sha256').update(SOURCE + ':' + tx.providerTransactionId).digest('hex') === owner.debitId);
     if (linked.length === 1) verifiedIndependentOwnerDebitIds.push(owner.debitId);
   }
-  const hits = [];
+  const hits = [], pendingHits = [];
   for (const tx of transactions) {
     // An exact minimum category is household confirmation (Dale 2026-10-07).
     // Otherwise a note naming exactly one TD card is a candidate, kept only if
     // card coverage pairs it with that card's posted credit (qualifyNotePayments).
     // The category, when present, wins unchanged.
     const noted = Forecast.cardPaymentNoteDestination({ notes: tx.notes });
-    const byCategory = CARD_IDS.has(tx.minimumCategoryDebt) ? tx.minimumCategoryDebt : null;
+    const byCategory = CARD_IDS.has(tx.minimumCategoryDebt) ? tx.minimumCategoryDebt
+      : tx.pending === true && CARD_IDS.has(tx.pendingMinimumCategoryDebt) ? tx.pendingMinimumCategoryDebt : null;
     const byNote = !byCategory && NOTE_CARD_IDS.has(noted) && typeof coverageReference === 'function' ? noted : null;
     const debtId = byCategory || byNote;
     const map = mapping(tx), amount = cents(tx.amount);
-    if (!debtId || tx.pending === true || tx.contradictoryEvidence === true
+    // A pending debit is a label candidate only (Payment pending), and only by
+    // the exact minimum category: a note needs the card's posted credit.
+    const pendingCandidate = tx.pending === true && !!byCategory;
+    if (!debtId || (tx.pending === true && !pendingCandidate) || tx.contradictoryEvidence === true
         || tx.isGroup || tx.parentId || tx.currency !== 'cad' || tx.isIncome === true
         || !(amount > 0) || !iso(tx.date) || tx.date > asOf || tx.date < window.startDate
         || tx.date > window.endDate || map?.atlasRole !== 'household-cash'
@@ -103,7 +107,9 @@ function observe(input) {
     const compatible = [];
     for (const row of rows) {
       // The note names the card; its identity is proved by coverage's pairing.
-      if (!byNote && !matchesIdentity(tx, row)) continue;
+      if (!byNote && !(pendingCandidate
+        ? typeof matchesPendingIdentity === 'function' && matchesPendingIdentity(tx, row)
+        : matchesIdentity(tx, row))) continue;
       const debt = (plan.debts || []).find(d => d.id === debtId);
       for (const event of events.filter(e => e.id === row.id && e.kind === 'obligation')) {
         if (tx.date < cycleOpensOn(event.date, debt?.statementCloseDay)
@@ -124,6 +130,7 @@ function observe(input) {
     }
     if (compatible.length !== 1) continue;
     const target = compatible[0];
+    if (pendingCandidate) { pendingHits.push({ tx, ...target }); continue; }
     if (Forecast.minimumCategoryAllocationConflict(plan, { id: target.row.id, debitId,
       postedOn: tx.date, amount: tx.amount, currency: 'cad', fundingAccountId: map.canonical.id,
       verifiedIndependentOwnerDebitIds })) continue;
@@ -156,6 +163,16 @@ function observe(input) {
       movementIdentity: { source: SOURCE, debitId },
       ...(byNote ? { evidence: 'card-payment-note', coverageRef: coverageReference(tx), debtId: row.debtId } : {}),
       ...(verifiedIndependentOwnerDebitIds.length ? { verifiedIndependentOwnerDebitIds } : {}) });
+  }
+  // Payment pending: one pending categorized debit for one occurrence, with no
+  // posted payment for it in this packet and no owner record. Card row and
+  // occurrence only: no debit identity, no amount (Forecast.cardMinimumPendingKeys).
+  for (const hit of pendingHits) {
+    const { row, original } = hit;
+    if (pendingHits.filter(h => h.row.id === row.id && h.original === original).length !== 1
+        || packet.payments.some(p => p.id === row.id && p.scheduledDate === original)) continue;
+    // Present only when a pending minimum exists, so every other packet keeps its shape.
+    (packet.pendingPayments = packet.pendingPayments || []).push({ id: row.id, scheduledDate: original, pendingOn: hit.tx.date });
   }
   return packet;
 }

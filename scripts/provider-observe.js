@@ -546,6 +546,12 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     categoryId,
     categoryLabel: categoryName,
     minimumCategoryDebt,
+    // A pending debit in an exact card-minimum category: a Payment pending
+    // label candidate only (card-minimum-category.js). Present only on such a
+    // row, so every other row keeps its shape; kind and minimumCategoryDebt
+    // stay posted-only.
+    ...(fromIndex && categoryName === fromIndex.name && raw.is_pending === true && MinimumCategory.categoryDebt(fromIndex)
+      ? { pendingMinimumCategoryDebt: MinimumCategory.categoryDebt(fromIndex) } : {}),
     isIncome,
     excludeFromTotals,
     excludeFromBudget,
@@ -4864,6 +4870,10 @@ function observeCore(input, capture) {
       p.confirmed === true && (p.debitRef === cardCoverageReference(tx) || p.creditRef === cardCoverageReference(tx))),
     matchesIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
       && ruleMatchesTransactionIdentity(tx, rule)),
+    // Payment pending only: the same identity fields without the posted-receipt
+    // requirement (as pending-bill disclosure reads them). Never settles.
+    matchesPendingIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
+      && matchesIdentityFields(tx, rule)),
     // Reversal evidence uses the same payment aliases. Exclusions prevent a
     // reversal from confirming a payment, but must not hide its withdrawal.
     matchesReversalIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
