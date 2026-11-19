@@ -124,6 +124,7 @@
   ["allowlisted page and data responses compress byte-identically; gate, auth and error responses do not","test-response-compression.js"],
   ["a lone pending bill payment near its due date is held To confirm on the bill, counted once","test-lone-pending-bill-payment-once.js"],
   ["the linked-bill note's check names have one home: observer, Forecast and the page agree","test-linked-bill-misfit-check-parity.js"],
+  ["the bill detail's payment-history reasons: every observer reason has its own page text, and every page reason a producer","test-bill-history-reason-parity.js"],
   ["settlement evidence serving: receipt-bound qualified publication read over the construction-fixed serving dependency (ATLAS-080)","test-settlement-evidence-serving.js"],
   ["settlement evidence confirmation: synthetic session-bound prepare/confirm/outcome with atomic no-recovery commits (ATLAS-080)","test-settlement-evidence-confirmation.js"],
   ["settlement evidence terminal certificate: irreversible operation seal, certificate-after-seal and modelled atomic fencing (ATLAS-080)","test-settlement-evidence-terminal-certificate.js"],
