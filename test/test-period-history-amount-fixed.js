@@ -55,13 +55,21 @@ const now = input => () => new Date(Date.parse(input.payload.fetchedAt) + 60000)
 
 // The live publication of one period: the served path (Live.fromObservation over the raw payload, history
 // included) and the recommend options the server builds, exactly as the closing-capture suite reprints it.
+// The live period less the derived Stack Wallet stackSummary, which is built
+// at publication from the period's own figures and never saved.
+const withoutStackSummary = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  if (!copy || !Object.hasOwn(copy, 'stackSummary')) throw new Error('the live period publishes stackSummary');
+  delete copy.stackSummary;
+  return copy;
+};
 function livePeriod(input, start) {
   const refreshed = Live.fromObservation(input);
   const options = Operating.recommendOpts(refreshed.data, {});
   options.periods = input.periods;
   const asOf = Operating.asOfFrom(refreshed.data, {});
   return { report: refreshed.report,
-    row: JSON.parse(JSON.stringify(F.recommend(refreshed.data.plan, asOf, options).payPeriodViews.find(p => p.start === start))) };
+    row: withoutStackSummary(F.recommend(refreshed.data.plan, asOf, options).payPeriodViews.find(p => p.start === start)) };
 }
 const hydro = row => (row && row.bills || []).find(b => b.id === 'hydro') || {};
 function capture(kind, input) {
