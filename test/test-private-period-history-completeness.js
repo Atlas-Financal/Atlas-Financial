@@ -327,6 +327,8 @@ try {
     // observation and the saved opening, never part of the captured record. Exclude exactly it.
     assert.ok(Object.hasOwn(legacyPublication, 'bankCheck'));
     delete legacyPublication.bankCheck;
+    // Stack Wallet: the derived stackSummary is never saved (selectedPublication drops it), so a regenerated record has none.
+    assert.ok(!Object.hasOwn(legacyPublication, 'stackSummary'), 'a regenerated record carries no stackSummary');
     assert.deepEqual(legacyPublication, record.content.publication, 'every existing publication field remains exact');
     regenerated.content.engine = clone(record.content.engine);
     const publicationOnly = clone(regenerated);

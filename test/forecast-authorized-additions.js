@@ -7,7 +7,11 @@
 //
 //   categorySpendingTrends (Forecast.categorySpendingTrends, #1384): with no
 //   qualifying saved close, no trend is published.
-//   stackSummary (Stack Wallet, #821 7013976545) on each pay period:
+//   stackSummary (Stack Wallet, every pay period, set last by publishStackSummary):
+//   income (A1) proves its three lines sum to the period's incomeTotal to the
+//   cent and its total copies incomeTotal / incomeTrust, or that every line is
+//   null and unavailable when incomeTotal is withheld. A later key (A6
+//   cards) adds its own proof here before it is stripped.
 //     bills (A2): the bill total split into mortgage, card minimums and
 //     other, proved to sum to the period's periodBillLoad, or every part
 //     null and unavailable;
@@ -58,25 +62,43 @@ function proveStackSurplus(view, surplus, bills) {
     'authorized addition: surplus = income - bills - household - mortgage - credit - item spending, its own terms');
   assert.ok(['calculated', 'estimated'].includes(surplus.trust), 'authorized addition: a published surplus is calculated or estimated');
 }
-// A pay period's stackSummary, proved key by key, then removed.
-function withoutStackSummary(view) {
-  if (!view || typeof view !== 'object' || !Object.hasOwn(view, 'stackSummary')) return;
-  const summary = view.stackSummary;
-  assert.deepEqual(Object.keys(summary), ['bills', 'surplus'], 'authorized addition: stackSummary carries only proved keys');
-  proveStackBills(view, summary.bills);
-  proveStackSurplus(view, summary.surplus, summary.bills);
-  delete view.stackSummary;
+
+const INCOME_LINES = ['dale', 'amanda', 'other'];
+function proveStackIncome(view, income) {
+  if (view.capturedClose && typeof view.incomeTotal === 'number') {
+    // A saved close: its total stands as saved; the lines are withheld (the archive keeps no income class).
+    assert.equal(income.total.amount, view.incomeTotal, 'authorized addition: a saved close keeps its income total');
+    for (const k of INCOME_LINES) {
+      assert.equal(income[k].amount, null, 'authorized addition: a saved close withholds the income lines');
+      assert.equal(income[k].trust, 'unavailable', 'authorized addition: a withheld line reads unavailable');
+    }
+  } else if (typeof view.incomeTotal === 'number') {
+    const cents = INCOME_LINES.reduce((c, k) => c + Math.round(income[k].amount * 100), 0);
+    assert.equal(cents, Math.round(view.incomeTotal * 100), 'authorized addition: stackSummary.income sums to incomeTotal');
+    assert.equal(income.total.amount, view.incomeTotal, 'authorized addition: stackSummary.income.total is incomeTotal');
+  } else {
+    for (const k of [...INCOME_LINES, 'total']) {
+      assert.equal(income[k].amount, null, 'authorized addition: a withheld incomeTotal withholds stackSummary.income');
+      assert.equal(income[k].trust, 'unavailable', 'authorized addition: a withheld line reads unavailable');
+    }
+  }
+}
+function withoutStackSummary(node, seen = new Set()) {
+  if (!node || typeof node !== 'object' || seen.has(node)) return;
+  seen.add(node);
+  if (Object.hasOwn(node, 'stackSummary') && Object.hasOwn(node, 'incomeTotal')) {
+    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus'], 'authorized addition: stackSummary carries only proved keys');
+    proveStackIncome(node, node.stackSummary.income);
+    proveStackBills(node, node.stackSummary.bills);
+    proveStackSurplus(node, node.stackSummary.surplus, node.stackSummary.bills);
+    delete node.stackSummary;
+  }
+  for (const value of Object.values(node)) withoutStackSummary(value, seen);
 }
 
 function withoutAuthorizedAdditions(advice) {
-  if (!advice || typeof advice !== 'object') return advice;
   withoutStackSummary(advice);
-  for (const list of [advice.payPeriodViews, advice.pastPeriodViews]) {
-    for (const view of Array.isArray(list) ? list : []) withoutStackSummary(view);
-  }
-  const calendar = advice.defaultView && advice.defaultView.calendarPeriods;
-  for (const view of Array.isArray(calendar) ? calendar : []) withoutStackSummary(view);
-  if (!Object.hasOwn(advice, 'categorySpendingTrends')) return advice;
+  if (!advice || typeof advice !== 'object' || !Object.hasOwn(advice, 'categorySpendingTrends')) return advice;
   const trends = advice.categorySpendingTrends;
   assert.equal(trends && trends.status, 'insufficient', 'authorized addition: categorySpendingTrends publishes no trend here');
   assert.equal(trends.trust, 'unavailable', 'authorized addition: categorySpendingTrends reads unavailable');
@@ -89,8 +111,8 @@ function withoutAuthorizedAdditions(advice) {
 // For flattened trust-tag maps ('.path.to.trust' -> value): the addition's
 // own tags, proved unavailable, are not main's fields.
 function authorizedTagKey(key, value) {
-  if (/\.stackSummary\.(surplus|bills)\.trust$/.test(key)) {
-    assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust value`);
+  if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)) {
+    assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
   if (!key.startsWith('.categorySpendingTrends.')) return false;

@@ -12671,14 +12671,15 @@
   // home of each pay period's `stackSummary`: it runs on the exported result
   // after every withholding pass, so each key is read from the period's final
   // published figures and can never disagree with them. Each key has its own
-  // builder (bills and surplus here; the income and cards keys of the same
-  // build add theirs beside it). The plan, as-of and options are passed for a
-  // builder that needs them.
+  // builder (income, bills and surplus here; the cards key of the same build
+  // adds its builder beside them). The plan, as-of and options are passed for
+  // a builder that needs them.
   function publishStackSummary(result, plan, asOf, opts) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || typeof view !== 'object') continue;
       const bills = stackBills(view);
-      view.stackSummary = Object.assign(view.stackSummary || {}, { bills, surplus: stackSurplus(view, bills) });
+      view.stackSummary = Object.assign(view.stackSummary || {},
+        { income: stackIncome(view), bills, surplus: stackSurplus(view, bills) });
     }
     return result;
   }
@@ -12746,6 +12747,72 @@
       trust: view.balanceAfterDeductionsTrust || 'calculated',
       projected,
     };
+  }
+  // A1 (lead ruling F5): Dale's income + Amanda's income + Other income =
+  // Total income. Each line sums the same per-row contribution as incomeTotal
+  // (calendarIncomeContribution); 'named' streams count as Other. Each line
+  // carries the trust its own rows earn, by the incomeTrust rule. The lines
+  // must sum to incomeTotal to the cent; a withheld total, a row without an
+  // income class, or a split that does not sum withholds every line: never
+  // guessed, never zero.
+  const STACK_INCOME_LINE = Object.freeze({ dale: 'dale', amanda: 'amanda', other: 'other', named: 'other' });
+  function stackIncome(view) {
+    const total = view.incomeTotal;
+    const withheld = reason => ({ dale: { amount: null, trust: 'unavailable', reason },
+      amanda: { amount: null, trust: 'unavailable', reason }, other: { amount: null, trust: 'unavailable', reason },
+      total: { amount: null, trust: 'unavailable', reason } });
+    if (typeof total !== 'number' || !Number.isFinite(total)) {
+      return withheld(typeof view.incomeUnavailableReason === 'string' ? view.incomeUnavailableReason
+        : 'Period income is not published for this pay period.');
+    }
+    // A saved close keeps each income row's amount and trust, not who it came
+    // from: its income class is borrowed from today's plan row by id
+    // (CAPTURED_ROW_DISPLAY_KEYS), so a stream re-classed since would move the
+    // saved money between lines. Its total stands as saved; the lines are
+    // withheld with a reason, never allocated by today's classification.
+    if (view.capturedClose) {
+      const reason = 'A saved pay period keeps its income total, not whose income it was, so the split is not published.';
+      const line = { amount: null, trust: 'unavailable', reason };
+      return { dale: { ...line }, amanda: { ...line }, other: { ...line },
+        total: { amount: total, trust: Object.hasOwn({ calculated: 1, estimated: 1, unavailable: 1 }, view.incomeTrust)
+          ? view.incomeTrust : 'unavailable' } };
+    }
+    const lines = { dale: [], amanda: [], other: [] };
+    for (const row of Array.isArray(view.income) ? view.income : []) {
+      const line = row && Object.hasOwn(STACK_INCOME_LINE, row.incomeClass) ? STACK_INCOME_LINE[row.incomeClass] : null;
+      if (!line) return withheld('An income row in this pay period has no income class, so the split is not published.');
+      lines[line].push(row);
+    }
+    // A period-level demotion of incomeTrust reaches every line, so no line
+    // reads more certain than the period allows: a later period estimated
+    // because today's cash is unconfirmed (estimateUnconfirmedOpeningPeriod,
+    // OD-022) is named by its own marker, whatever its rows earn; any other
+    // demotion of the total beyond what its rows earn caps the lines too. A
+    // total that is estimated only because one line is leaves the other
+    // lines their own.
+    const TRUST_RANK = { calculated: 0, estimated: 1, unavailable: 2 };
+    const totalTrust = Object.hasOwn(TRUST_RANK, view.incomeTrust) ? view.incomeTrust : 'unavailable';
+    const allRows = [...lines.dale, ...lines.amanda, ...lines.other];
+    let rowsTrust = periodWaterfallTotalTrust(allRows, total, row => row.amount);
+    if (view.lookback === true && rowsTrust === 'calculated' && allRows.some(historicalIncomeRowUnproven)) rowsTrust = 'estimated';
+    const periodCap = TRUST_RANK[totalTrust] > (TRUST_RANK[rowsTrust] ?? 2) ? totalTrust
+      : view.currentCashUnconfirmed && view.currentCashUnconfirmed.status === 'estimated' && totalTrust !== 'calculated'
+        ? totalTrust : null;
+    const out = {};
+    let cents = 0;
+    for (const line of ['dale', 'amanda', 'other']) {
+      const amount = roundCent(lines[line].reduce((sum, row) => sum + calendarIncomeContribution(row), 0));
+      let trust = periodWaterfallTotalTrust(lines[line], amount, row => row.amount);
+      if (view.lookback === true && trust === 'calculated' && lines[line].some(historicalIncomeRowUnproven)) trust = 'estimated';
+      if (periodCap && TRUST_RANK[periodCap] > (TRUST_RANK[trust] ?? 2)) trust = periodCap;
+      out[line] = { amount, trust };
+      cents += Math.round(amount * 100);
+    }
+    if (cents !== Math.round(total * 100)) {
+      return withheld('The income split does not sum to the published period income, so it is not published.');
+    }
+    out.total = { amount: total, trust: totalTrust };
+    return out;
   }
   function calendarIncomeTxFacts(packet) {
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
