@@ -112,7 +112,7 @@ function withoutAuthorizedAdditions(advice) {
 // own tags, proved unavailable, are not main's fields.
 function authorizedTagKey(key, value) {
   if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key)
-    || /\.stackSummary\.savings\.(items\.\d+|totals)\.(trust|entitlementTrust)$/.test(key)) {
+    || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
