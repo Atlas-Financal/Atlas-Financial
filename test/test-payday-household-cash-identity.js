@@ -271,13 +271,23 @@ check('split parent is not a second pending debit', 5000, [
   { ...pending, id: 'child', parentId: 'parent' },
 ], 300, 4100, false, 600);
 for (const extra of [
-  { accountRole: 'household-external' }, { kindHint: 'transfer' },
+  { accountRole: 'household-external' },
   { representedBill: true },
   { amount: -600 }, { amount: -600, isIncome: true }, { date: '2026-09-05' },
 ]) {
   const a = F.paydayAllocation(plan(), AS_OF, options([{ ...pending, ...extra }]));
   assert.equal(a.essentials.wanted, 900, 'excluded actual cannot change essential cash');
   assert.equal(a.protectedPath.allocated, 0, 'excluded actual cannot encumber pending cash');
+}
+// #1413 (lead, 2026-11-19): a pending generic Transfer out of chequing has left household cash whatever its
+// destination, so it is unsettled cash until it posts (before #1413 it sat in the excluded loop above, allocated 0).
+// It is not spending, so Groceries keeps its full 900 hold; the 600 is held as pending cash:
+// 5000 - 900 - 600 = 3500 releasable.
+{
+  const a = F.paydayAllocation(plan(), AS_OF, options([{ ...pending, kindHint: 'transfer' }]));
+  assert.equal(a.essentials.wanted, 900, 'a pending Transfer is not spending');
+  assert.equal(a.protectedPath.allocated, 600, 'a pending chequing Transfer encumbers pending cash');
+  assert.equal(a.unallocated, 3500, '5000 - 900 - 600 = 3500');
 }
 // A pending debit in an income category is money leaving that needs
 // confirmation: held (rank 18), so Groceries keeps its full 900 hold, and the

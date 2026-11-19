@@ -8718,6 +8718,50 @@
     return !!identifiedCategoryRefund(tx, cls, plan, opts);
   }
 
+  // The pending card payments that encumber household cash: a pending debit
+  // out of a household chequing account that is either #1388's unproven class
+  // (a generic Transfer / Payment label or kind hint, a card-payment category)
+  // or an identified card payment (classified 'card-payment'). A proven
+  // internal movement and a debit that represents a planned bill (its reserve
+  // already holds it) are never here. Posted rows are never here: #1388 holds
+  // them, or the card ledger pays them (#1394).
+  function pendingCardPaymentEncumbers(tx, cls, classifyOpts, asOf) {
+    if (!tx || !cls || transactionPendingState(tx) !== 'pending') return false;
+    if (tx.accountRole !== 'household-cash' || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) return false;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return false;
+    const unproven = cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint');
+    if (!unproven && cls.kind !== 'card-payment') return false;
+    if (provenInternalMovementForTx(tx, classifyOpts || {})) return false;
+    // A pending leg of a household internal movement: the same TD reference
+    // pairing as a posted one (pairHouseholdInternalMovements), read with the
+    // pending flag set aside, so an own-account transfer is not a card payment.
+    // Its counterpart must be observable by the consumer's as-of (Atlas, #1413).
+    if (pendingInternalMovementLeg(tx, classifyOpts, asOf)) return false;
+    if (txMatchesRepresentedBill(tx, classifyOpts || {})) return false;
+    return true;
+  }
+  // Cached per packet and per as-of: the pairing reads only rows dated on or
+  // before the consumer's as-of (the same bound sumCategoryActuals applies), so
+  // a counterpart that is not yet observable never exempts a pending debit.
+  const pendingInternalMovementCache = new WeakMap();
+  function pendingInternalMovementLeg(tx, classifyOpts, asOf) {
+    const packet = currentPeriodActualsPacket(classifyOpts) || (classifyOpts && classifyOpts.packet);
+    if (!packet || !Array.isArray(packet.transactions) || tx.id == null) return false;
+    const key = typeof asOf === 'string' && asOf ? asOf : '';
+    let byAsOf = pendingInternalMovementCache.get(packet);
+    if (!byAsOf) { byAsOf = new Map(); pendingInternalMovementCache.set(packet, byAsOf); }
+    let index = byAsOf.get(key);
+    if (!index) {
+      const observable = packet.transactions.filter(row => row && typeof row.date === 'string' && row.date
+        && (!key || row.date <= key));
+      index = pairHouseholdInternalMovements(observable.map(row => (row.pending === true
+        ? Object.assign({}, row, { pending: false }) : row))).byTxId;
+      byAsOf.set(key, index);
+    }
+    return index.has(String(tx.id));
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -8783,6 +8827,13 @@
           pending: state === 'pending',
           account: tx.atlasAccountId || tx.account || null,
         });
+      }
+      // A pending household-chequing card payment has left household cash as
+      // surely as any pending debit, so it encumbers it until it posts (lead
+      // dispatch, ATLAS LEAD 11, 2026-11-19; #1401 finding i). Posted, it is
+      // held (#1388) or paid to its card (#1394) instead; it is never spending.
+      if (state === 'pending' && pendingCardPaymentEncumbers(tx, cls, classifyOpts, asOf)) {
+        out.pendingCash = roundCent(out.pendingCash + amt);
       }
       if (cls.kind === 'transfer' || cls.kind === 'internal-movement') {
         out.excluded.transfers = roundCent(out.excluded.transfers + amt); continue;
