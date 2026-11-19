@@ -14853,7 +14853,11 @@
       if (!members || members.length !== 2 || spendingGroup(tx.parentId)) return false;
       const accountOf = row => [row.atlasAccountId, row.accountId, row.account].find(id => id != null && id !== '');
       if (accountOf(members[0]) == null || accountOf(members[0]) === accountOf(members[1])) return false;
-      const debit = members.find(row => row.accountRole === 'household-cash' && savingsCents(row.amount, true) > 0);
+      // Owner rule (Dale, via the lead): money onto the card counts from Savings
+      // too, so a grouped Savings debit is a card-payment group exactly as a
+      // grouped Bills debit (lead ruling, ATLAS LEAD 11, 2026-11-19).
+      const debit = members.find(row => ['household-cash', 'household-reserve'].includes(row.accountRole)
+        && savingsCents(row.amount, true) > 0);
       const credit = members.find(row => isRevolvingCardAccount(row) && savingsCents(row.amount, true) < 0);
       return !!debit && !!credit && debit !== credit && debit.pending === false && credit.pending === false
         && savingsCents(debit.amount, true) === -savingsCents(credit.amount, true);
@@ -15135,13 +15139,15 @@
           if (new Set(members.map(accountOf)).size < 2 || spendingGroup(id)) continue;
           for (const tx of members) grouped.add(tx);
           const shaped = members.map(tx => legOf.get(tx));
-          const cash = shaped.filter(m => m && m.kind === 'cashDebit');
+          // A Savings debit is a reserve leg; it counts here as a Bills debit does
+          // (owner rule; lead ruling, ATLAS LEAD 11, 2026-11-19).
+          const cash = shaped.filter(m => m && (m.kind === 'cashDebit' || m.kind === 'reserveDebit'));
           const card = shaped.filter(m => m && m.kind === 'cardCredit');
           // A debit whose note names a card names its destination itself: a group
           // that puts it on another card's credit is contradictory (#1322 pre-review).
           const dest = cash.length === 1 ? cash[0].leg.tx.cardPaymentNoteDestination : null;
           const valid = members.length === 2 && cash.length === 1 && card.length === 1
-            && cash[0].leg.tx.accountRole === 'household-cash'
+            && ['household-cash', 'household-reserve'].includes(cash[0].leg.tx.accountRole)
             && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
             && cash[0].leg.cents === card[0].leg.cents
             && (dest == null || dest === card[0].leg.account)
