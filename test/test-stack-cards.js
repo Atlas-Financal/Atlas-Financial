@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const file = path.join(__dirname, '..', 'public', 'stack', 'stack-cards.js');
+const file = path.join(__dirname, '..', 'public', 'stack-cards.js');
 
 // --- invented published view (shapes from #1426 stackSummary, #1429 paidState, existing budgetProgress) ---
 const view = {
@@ -78,7 +78,7 @@ const z = JSON.parse(JSON.stringify(view)); z.stackSummary.bills.other = 0;
 assert(buildCardsHTML(ctx(z)).includes('$0.00'));
 
 // card colours: every kind's variable is defined in the CSS file
-const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack', 'stack-cards.css'), 'utf8');
+const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8');
 ['bills', 'budget', 'mortgage'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
 
