@@ -22954,7 +22954,10 @@
         savingsFunding.manualInventory = historicalSavings ? savingsInventoryWithCommitmentCost(plan, asOf, paydayOpts) : null;
         savingsFunding.schedule = savingsSchedule;
         const todayReady = savingsFunding.status === 'ready' && savingsFunding.period?.status === 'ready';
-        const savingsNext = savingsSchedule.status !== 'unavailable' ? savingsSchedule.paydays?.[0] : null;
+        // The payday lens reprints the next period's Budget funding (one authority).
+        const nextPeriod = payPeriodTimelinePack.views.find(period => period.timelineRole === 'next');
+        const nextTopUp = savingsProjectedTopUp(nextPeriod
+          ? { start: nextPeriod.start, end: nextPeriod.end, funding: nextPeriod.plannedCostFunding } : null);
         const lensItems = (allocations, ready, byOccurrence) => savingsFunding.backing.items.map(item => ({
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
           // Savings audit (PR 3): the backing's own Saved tag; never upgraded.
@@ -22971,12 +22974,12 @@
             items: lensItems(savingsFunding.period?.allocations || [], todayReady, true),
             unscheduled: savingsFunding.unresolved.map(row => ({ ...row, cost: row.needed, confidence: row.trust })),
             reason: savingsFunding.period?.reason || savingsFunding.backing.reason, when: 'unsent top-up today' },
-          { key: 'payday', ready: !!savingsNext, payday: savingsNext?.payday || null, asOf,
-            trust: planSpendFunding.fundingTrust, fundingTrust: planSpendFunding.fundingTrust,
-            proposal: savingsNext?.contribution ?? null, remaining: savingsNext?.stillToFund ?? null,
-            items: lensItems(savingsNext?.allocations || [], !!savingsNext, false),
+          { key: 'payday', ready: nextTopUp.ready, payday: nextTopUp.ready ? nextPeriod.start : null, asOf,
+            trust: nextTopUp.trust, fundingTrust: nextTopUp.trust,
+            proposal: nextTopUp.contribution, remaining: nextTopUp.remaining,
+            items: lensItems(nextTopUp.allocations, nextTopUp.ready, false),
             unscheduled: savingsFunding.unresolved.map(row => ({ ...row, cost: row.needed, confidence: row.trust })),
-            gap: savingsSchedule.gap, reason: savingsSchedule.reason, when: 'projected top-up this payday' },
+            gap: nextTopUp.gap, reason: nextTopUp.reason, when: 'projected top-up this payday' },
         ];
         savingsFunding.periodViews = payPeriodTimelinePack.views.map(period => ({ id: period.id, start: period.start,
           end: period.end, role: period.timelineRole, funding: period.plannedCostFunding, progress: period.budgetProgress }));
@@ -23050,12 +23053,12 @@
         if (plan.savingsEarmarks?.allocationPolicy != null) for (const view of savingsFunding.periodViews) {
           if (view.role === 'current') continue;
           const projected = ['next', 'future'].includes(view.role);
-          const payday = projected ? savingsSchedule.paydays?.find(row => row.payday === view.start && row.through === view.end) : null;
-          const ready = projected && savingsSchedule.status !== 'unavailable' && !!payday;
+          const topUp = projected ? savingsProjectedTopUp(view) : null;
+          const ready = projected && topUp.ready;
           const rows = savingsFunding.rows.map(row => {
             const ids = [...savingsFunding.backing.items, ...savingsFunding.unresolved]
               .filter(item => row.members.includes(item.key)).map(item => item.id);
-            const contribution = ready ? payday.allocations.filter(part => ids.includes(part.id))
+            const contribution = ready ? topUp.allocations.filter(part => ids.includes(part.id))
               .reduce((sum,part) => sum + savingsCents(part.amount),0) / 100 : null;
             return { ...withholdCommitmentCost(row, asOf), saved: null, savedTrust: 'unknown', needed: projected ? row.needed : null,
               neededTrust: projected ? row.neededTrust : 'unknown', neededRange: projected ? row.neededRange : null,
@@ -23081,9 +23084,9 @@
               : 'Historical saving evidence is unavailable. Current observed savings are not substituted into this earlier period.',
             period: { status: ready ? 'ready' : 'unavailable', kind: projected ? 'projected' : 'historical',
               basis: 'operating-surplus-before-proposals', start: view.start, end: view.end,
-              trust: ready ? 'estimated' : 'unknown', proposal: ready ? payday.contribution : null,
-              actualSaved: null, allocations: ready ? payday.allocations : [], cycleAllocations: ready ? payday.allocations : [],
-              reason: ready ? null : projected ? 'This selected period has no qualified projected top-up.' : 'Historical saved evidence is unknown.' } };
+              trust: ready ? 'estimated' : 'unknown', proposal: ready ? topUp.contribution : null,
+              actualSaved: null, allocations: ready ? topUp.allocations : [], cycleAllocations: ready ? topUp.allocations : [],
+              reason: ready ? null : projected ? topUp.reason : 'Historical saved evidence is unknown.' } };
           if (projected) view.packet.plannedRequirements = savingsPlannedRequirements(
             savingsFunding, knowledgeSim.events, asOf, view);
           if (projected) view.packet.forecastClosing = closingSavings.get(view.end) || {
@@ -27593,6 +27596,45 @@
   // Undated and ambiguous unproved requirements remain visible. A dated
   // requirement that has elapsed (before asOf) is not re-listed here (PA-3);
   // it stays on the current period until settlement evidence exists.
+  // One authority for a projected period's top-up (lead dispatch 2026-11-19):
+  // the Budget's own selected-period funding, payPeriodViews[i].plannedCostFunding,
+  // which the period waterfall prints. The Savings reprints of that same top-up
+  // (the projected packet's proposal, allocations and row "This period", and the
+  // payday lens) are read from it, never from a second cash-walk schedule. A
+  // funding-gap period still publishes its capped contribution, so it is read
+  // as the waterfall reads it. Anything else is withheld: no zero, no re-walk.
+  function savingsProjectedTopUp(view) {
+    const funding = view && view.funding;
+    const withheld = reason => ({ ready: false, contribution: null, allocations: [], remaining: null,
+      trust: 'unknown', gap: null, reason });
+    if (!funding || (funding.status !== 'ready' && funding.status !== 'funding-gap')) {
+      return withheld(funding && typeof funding.reason === 'string' && funding.reason
+        ? funding.reason : 'This selected period has no qualified projected top-up.');
+    }
+    if (funding.start !== view.start || funding.end !== view.end
+        || (funding.trust !== 'calculated' && funding.trust !== 'estimated') || !Array.isArray(funding.items)) {
+      return withheld('The selected period funding does not qualify for this period.');
+    }
+    const total = savingsCents(funding.contribution);
+    if (total == null) return withheld('The selected period funding has no qualified contribution.');
+    const seen = new Set(), allocations = [];
+    let sum = 0, remaining = 0;
+    for (const item of funding.items) {
+      const cents = item ? savingsCents(item.contribution) : null;
+      const left = item ? savingsCents(item.remainingGap, true) : null;
+      if (!item || typeof item.id !== 'string' || !item.id || seen.has(item.id) || cents == null || left == null) {
+        return withheld('The selected period funding items do not qualify.');
+      }
+      seen.add(item.id);
+      sum += cents;
+      remaining += Math.max(0, left);
+      if (cents > 0) allocations.push({ id: item.id, label: item.label, amount: cents / 100 });
+    }
+    if (sum !== total) return withheld('The selected period funding items do not close to its contribution.');
+    return { ready: true, contribution: total / 100, allocations, remaining: remaining / 100,
+      trust: funding.trust, gap: funding.gap || null, reason: null };
+  }
+
   function savingsPlannedRequirements(funding, events, asOf, period) {
     const all = [...funding.backing.items, ...funding.unresolved];
     const counts = new Map();
