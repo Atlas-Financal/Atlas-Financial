@@ -43,7 +43,7 @@ async function open(browser, { query = '', blockStack = false, width = 390, them
     if (u.origin !== 'http://stack.test') return route.abort();
     if (u.pathname === '/data.json') return route.fulfill({ json: served() });
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
-    if (blockStack && u.pathname.startsWith('/stack/')) return route.fulfill({ status: 404, body: '' });
+    if (blockStack && /^\/stack[.-]/.test(u.pathname)) return route.fulfill({ status: 404, body: '' });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     return fs.existsSync(file) && fs.statSync(file).isFile()
       ? route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' })
@@ -115,9 +115,9 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     ok(head.range === range(active) && head.when === 'This pay period',
       'the shell heads the selected period with its range and "This pay period"', JSON.stringify(head));
     const sheets = await page.evaluate(() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => new URL(l.href).pathname)
-      .filter(p => p.startsWith('/stack/')));
-    ok(sheets.join() === ['/stack/stack.css', '/stack/stack-waterfall.css', '/stack/stack-cards.css', '/stack/stack-credit.css',
-      '/stack/stack-sheet.css'].join(), 'the shell and each block stylesheet are loaded under the flag', sheets.join());
+      .filter(p => /^\/stack[.-]/.test(p)));
+    ok(sheets.join() === ['/stack.css', '/stack-waterfall.css', '/stack-cards.css', '/stack-credit.css',
+      '/stack-sheet.css'].join(), 'the shell and each block stylesheet are loaded under the flag', sheets.join());
     const frame = await page.evaluate(() => ({ pile: [...document.querySelector('[data-stack-pile]').querySelectorAll('[data-stack-block]')]
       .map(e => e.dataset.stackBlock), overlay: document.querySelector('[data-stack-block="sheet"]').closest('[data-stack-pile]') === null }));
     ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,

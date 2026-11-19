@@ -5,7 +5,7 @@
  *   1. Without ?view=stack, stack-shell.js defines window.StackBlocks and touches nothing else: no element, class,
  *      stylesheet, App hook or listener. The four block placeholders only register a no-op.
  *   2. With ?view=stack it registers exactly one App render hook and adds the two Stack stylesheets.
- *   3. Every rule in public/stack/stack.css and the four block stylesheets is scoped to html.stack-view, so none can
+ *   3. Every rule in public/stack.css and the four block stylesheets is scoped to html.stack-view, so none can
  *      restyle the current page.
  *   4. index.html loads the shell and then the four block files, after every current script.
  *   5. L-001: the shell prints money only from stackSummary.surplus.amount; it does no arithmetic on a figure.
@@ -36,8 +36,8 @@ function sandbox(search) {
     App: { register: fn => hooks.push(fn) } };
   ctx.window = ctx;
   vm.createContext(ctx);
-  vm.runInContext(read('public/stack/stack-shell.js'), ctx);
-  for (const name of BLOCKS) vm.runInContext(read(`public/stack/stack-${name}.js`), ctx);
+  vm.runInContext(read('public/stack-shell.js'), ctx);
+  for (const name of BLOCKS) vm.runInContext(read(`public/stack-${name}.js`), ctx);
   return { ctx, touched, hooks };
 }
 
@@ -56,14 +56,14 @@ console.log('2. ?view=stack');
 {
   const { touched, hooks } = sandbox('?view=stack');
   ok(hooks.length === 1, 'exactly one App render hook is registered');
-  ok(touched.join() === ['class:stack-view', 'link:/budget-stack-fonts.css', 'link:/stack/stack.css',
-    ...BLOCKS.map(n => `link:/stack/stack-${n}.css`)].join(),
+  ok(touched.join() === ['class:stack-view', 'link:/budget-stack-fonts.css', 'link:/stack.css',
+    ...BLOCKS.map(n => `link:/stack-${n}.css`)].join(),
   'the page is marked and the font, shell and four block stylesheets are added, nothing more', touched.join());
 }
 
 console.log('3. the stylesheet is scoped');
 {
-  const css = ['stack', ...BLOCKS.map(n => 'stack-' + n)].map(f => read(`public/stack/${f}.css`)).join('\n')
+  const css = ['stack', ...BLOCKS.map(n => 'stack-' + n)].map(f => read(`public/${f}.css`)).join('\n')
     .replace(/\/\*[\s\S]*?\*\//g, '');
   const selectors = [];
   const walk = text => {
@@ -87,14 +87,14 @@ console.log('4. index.html');
 {
   const html = read('public/index.html');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
-  const want = ['/stack/stack-shell.js', ...BLOCKS.map(n => `/stack/stack-${n}.js`)];
+  const want = ['/stack-shell.js', ...BLOCKS.map(n => `/stack-${n}.js`)];
   ok(JSON.stringify(scripts.slice(-5)) === JSON.stringify(want), 'the shell and then the four block files load last', scripts.slice(-5).join(' '));
   ok(!/stack\.css|budget-stack-fonts/.test(html), 'index.html links no Stack stylesheet (the shell adds them only under the flag)');
 }
 
 console.log('5. L-001: no arithmetic on money in the shell');
 {
-  const src = read('public/stack/stack-shell.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const src = read('public/stack-shell.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const lines = src.split('\n').filter(line => /\.amount\b/.test(line));
   ok(lines.length === 1 && /s && typeof s\.amount === 'number' && Number\.isFinite\(s\.amount\) \? s\.amount : null/.test(lines[0]),
     'the only figure read is stackSummary.surplus.amount, passed through as published');

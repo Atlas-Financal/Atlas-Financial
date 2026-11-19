@@ -36,11 +36,11 @@
   const root = document.documentElement;
   root.classList.add('stack-view');
   // The shell's stylesheet (tokens, pile, header, timeline), then one stylesheet per block, each owned by its block.
-  for (const href of ['/budget-stack-fonts.css', '/stack/stack.css', ...ORDER.map(name => `/stack/stack-${name}.css`)]) {
+  for (const href of ['/budget-stack-fonts.css', '/stack.css', ...ORDER.map(name => `/stack-${name}.css`)]) {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = href;
-    if (href === '/stack/stack.css') link.addEventListener('load', () => centreNow());
+    if (href === '/stack.css') link.addEventListener('load', () => centreNow());
     document.head.appendChild(link);
   }
 
@@ -212,5 +212,10 @@
     renderAll();
   }
 
-  if (typeof App !== 'undefined' && App.register) App.register(render);
+  if (typeof App !== 'undefined' && App.register) {
+    App.register(render);
+    // App.boot starts in plan.js, before this file loads, and App.register does not replay a render that already
+    // happened: when the data has already arrived, draw now from what App holds.
+    if (App.data) render(App.data, App.periods, App.history);
+  }
 })();
