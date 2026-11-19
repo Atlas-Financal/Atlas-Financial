@@ -7652,19 +7652,26 @@
   // 'unknown' or two-card note is not a definite other card.
   function cardPaymentDestinationConflict(tx) {
     const destination = tx && typeof tx.cardPaymentDestination === 'string' ? tx.cardPaymentDestination : null;
-    if (!destination) return false;
+    const noted = definiteNotedCard(tx);
+    return !!(destination && noted && noted !== destination);
+  }
+  // The one reading of a "card payment: <card>" note as a definite contract
+  // card (the fixed table, MBNA and Triangle included), or null: no note, an
+  // 'unknown' card or a two-card note names no definite card.
+  function definiteNotedCard(tx) {
     const noted = cardPaymentNoteDestination(tx);
-    return !!(noted && noted !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(noted) && noted !== destination);
+    return noted && noted !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(noted) ? noted : null;
   }
   function cardPaymentOtherSideEvidence(tx) {
     if (!tx) return false;
-    if (tx.parentId != null || tx.isGroup === true) return true;
-    // A payee identity and a note that name different cards prove neither card.
+    // A payee identity and a note that name different cards prove neither card,
+    // grouped or not: the card ledger withholds such a group (Codex P1 on #1407),
+    // so the debit is held To confirm and counted once as money out.
     if (cardPaymentDestinationConflict(tx)) return false;
+    if (tx.parentId != null || tx.isGroup === true) return true;
     if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx)
       || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
-    const notedCard = cardPaymentNoteDestination(tx);
-    return !!(notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard));
+    return !!definiteNotedCard(tx);
   }
   function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
@@ -15000,8 +15007,8 @@
       // pairs with no credit at all (obs 4 b). Such a near leg is contradicting
       // evidence: the credit withholds, as below.
       const notedElsewhere = (cash, card) => {
-        const noted = cardPaymentNoteDestination(cash.tx);
-        return !!(noted && noted !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(noted) && noted !== card.account);
+        const noted = definiteNotedCard(cash.tx);
+        return !!(noted && noted !== card.account);
       };
       const matches = (card, cash) => near(card, cash)
         && !notedElsewhere(cash, card) && !cardPaymentDestinationConflict(cash.tx)
@@ -15009,7 +15016,9 @@
           && (cash.tx.cardPaymentNoteDestination == null || cash.tx.cardPaymentNoteDestination === card.account)));
       // The card a posted TD "TFR-TO C/C" debit pays by its note: exactly one
       // card in the fixed name table that the plan maps as a revolving card.
+      // A payee/note conflict pays no card by its note either (obs 4 b; Codex P1 on #1407).
       const notePays = leg => leg.tx.pending === false && leg.tx.tdCardPaymentIdentity === true
+        && !cardPaymentDestinationConflict(leg.tx)
         && CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)
         && debtRows.some(d => d.id === leg.tx.cardPaymentNoteDestination) ? leg.tx.cardPaymentNoteDestination : null;
       // Mutually unique pairing. The card leg fixes the card and the period,
@@ -15091,7 +15100,10 @@
             && cash[0].leg.tx.accountRole === 'household-cash'
             && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
             && cash[0].leg.cents === card[0].leg.cents
-            && (dest == null || dest === card[0].leg.account);
+            && (dest == null || dest === card[0].leg.account)
+            // A debit whose payee and note name different cards pays no card,
+            // grouped or not (obs 4 b; Codex P1 on #1407): the group withholds.
+            && !cardPaymentDestinationConflict(cash[0].leg.tx);
           const noted = valid ? notePays(cash[0].leg) : null;
           const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
           if (!valid) {

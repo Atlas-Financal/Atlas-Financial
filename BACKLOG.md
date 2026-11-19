@@ -331,6 +331,10 @@ In `reconcileCardPurchases` (`public/forecast.js`), a card credit that is paymen
 
 When a household debit carries a payDown destination and its note names a different card, the payDown destination wins with no withhold or diagnostic. Decide which one is the authority, or whether the conflict withholds. Proof would be an invented debit with a payDown to one card and a note naming another, read the chosen way once.
 
+**Card minimum category versus a note naming another card** · *#1407 finding; lead ruling, ATLAS LEAD 11, 2026-11-19; NEXT after grouped Savings card payments*
+
+A debit filed in a "Minimum payment - <card>" category (household minimum confirmation, `cardMinimumOwnedDebits` / card-minimum-category.js) whose `card payment:` note definitely names a different contract card still counts toward the category's card. Ruling: same principle as #1407. The category's card and the note's card conflict, so the debit counts toward neither card's minimum, is held To confirm once, and the minimum stays to-confirm. Proof would be an invented minimum-category debit noted for another card, held once, with neither minimum covered.
+
 ~~**Name Seaspan's pay item and retire the payroll late-posting stopgap** · *Q1 closure; NEXT once the reviewed Lunch Money item for Dale's pay exists (lead asked Money, 2026-11-18)*~~
 
 ~~Q1 (agent/seaspan-pay-lm-matched) lets the payroll rule settle from Lunch Money's own recurring match: a linked deposit settles the payday LM paired it to, early, on time or late, once, at its actual amount. FOUNDATION: the household payroll rule names no item yet. Closure, one PR:~~

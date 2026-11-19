@@ -27,6 +27,8 @@
  *         figures of a no-identity payment (#1388 / #1401), and the cautious side of 290 / 790.
  *       - From Savings, noted for Triangle: Bills untouched, the minimum stays held; available = 500 - 25 - 150 = 325
  *         (it was 350 with the minimum paid). Not held (Savings), so the drawer asks, naming the conflict.
+ *   (c) Every other path a conflicted debit can reach pays no card either (Codex P1 on #1407): a Lunch Money group
+ *       (U5) and the TD note path. Hand values are in section (c).
  *
  * `node test/test-card-payment-note-conflicts.js`
  */
@@ -102,6 +104,40 @@ console.log('(b) a payee destination its note contradicts pays no card and is he
     'from Savings: the minimum stays held; available 325 (was 350 with the minimum paid)');
   const question = (savings.s.advice.defaultView.calendarPeriods[0].cardPurchaseCoverage.toConfirm || [])[0];
   ok(question && /payee and its note name different cards/.test(question.question), 'the question says why');
+}
+
+console.log('(c) every pairing path refuses a payee/note conflict (Codex P1 on #1407)');
+{
+  // Invented: two cards (travel and an MBNA payDown card), the travel card's 25 minimum, an 80 travel purchase, and
+  // a 105 Bills debit. By hand: Bills (500 - 105) = 395; groceries left 150 - 80 = 70.
+  //   - paid: available = 395 - 70 = 325; Balance After Deductions = 1000 - 25 - 150 = 825.
+  //   - a conflict debit held To confirm: Balance After Deductions = 1000 - 25 - 150 - 105 held = 720.
+  const opts = { twoCards: true, payDownOnly: ['mbna'] };
+  const group = { group_parent_id: 777001 };
+  const purchase = ['card', 80, null, 'purchase'];
+  const credit = ['card', -105, null, 'credit', { payee: 'Invented card payment', category_name: 'Credit Card Payment', ...group }];
+  const debit = (payee, extra) => ['bills', 105, null, 'cash', { payee, category_name: 'Credit Card Payment',
+    notes: 'card payment: Travel Visa', ...extra }];
+  const read = x => ({ status: x.coverage.status, paid: x.reconciled, available: x.available, afterDeductions: x.afterDeductions,
+    held: x.held, minimum: x.minimum });
+  // U5 group: Codex's world. A grouped MBNA-payee debit noted for the travel card beside a grouped travel credit.
+  const grouped = read(serve([purchase, debit('MBNA PAYMENT', group), credit], opts));
+  ok(grouped.status === 'unavailable' && grouped.paid === 0 && grouped.available === null,
+    'group: the conflict pays no card; the group withholds, so 325 is never published', JSON.stringify(grouped));
+  ok(JSON.stringify(grouped.held) === '[[105,"card-payment-destination-conflict"]]' && grouped.afterDeductions === 720
+    && JSON.stringify(grouped.minimum) === '[[0,"to-confirm"]]',
+  'group: held To confirm once and counted once as money out (Balance After Deductions 720); minimum to confirm');
+  const groupedControl = read(serve([purchase, debit('Invented card payment', group), credit], opts));
+  ok(groupedControl.paid === 1 && groupedControl.available === 325 && groupedControl.afterDeductions === 825
+    && groupedControl.held.length === 0, 'group control (no payee identity): the group pays the travel card; 325 / 825');
+  // TD note path: an MBNA-payee TD "TFR-TO C/C" debit noted for the travel card, no credit.
+  const td = read(serve([purchase, debit('MBNA PAYMENT', { original_name: 'AB123 TFR-TO C/C' })], opts));
+  ok(td.paid === 0 && JSON.stringify(td.held) === '[[105,"card-payment-destination-conflict"]]'
+    && td.available === 220 && td.afterDeductions === 720,
+  'TD note path: the note does not pay the travel card; held once; available 395 - 25 - 70 - 80 = 220; 720', JSON.stringify(td));
+  const tdControl = read(serve([purchase, debit('TFR-TO C/C', { original_name: 'AB123 TFR-TO C/C' })], opts));
+  ok(tdControl.paid === 1 && tdControl.available === 325 && tdControl.afterDeductions === 825 && tdControl.held.length === 0,
+    'TD note control (no payee identity): the note pays the travel card; 325 / 825');
 }
 
 console.log(`\nAll card payment note conflict checks passed (${checks}).`);
