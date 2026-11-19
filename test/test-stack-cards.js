@@ -157,6 +157,31 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   assert.strictEqual(clicked, 2, 'Enter and Space click; other keys do not');
 }
 
+// 2c. trust: estimated figures carry the estimated tag; calculated ones do not
+{
+  const e = JSON.parse(JSON.stringify(view));
+  e.budgetProgress.household.actual.trust = 'estimated';
+  e.householdBudget[0].plannedTrust = 'estimated';
+  e.stackSummary.bills.trust = 'estimated';
+  const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
+  assert(cardOf('budget').includes('spent / budget \u00b7 estimated'), 'budget headline tagged');
+  assert((cardOf('budget').match(/sc-tag/g) || []).length === 1, 'only the estimated category row is tagged');
+  assert(cardOf('bills').includes('\u00b7 estimated') && cardOf('mortgage').includes('\u00b7 estimated'));
+  assert(!html.includes('estimated'), 'calculated figures carry no tag');
+  const se = withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 5, needed: 3, periodTarget: 8, savedTrust: 'estimated', reasons: [] }],
+    totals: { saved: 5, entitlement: 8, trust: 'calculated', entitlementTrust: 'estimated', reasons: [] } });
+  const sh = savingsOf(se);
+  assert(sh.includes('moved / entitlement \u00b7 estimated') && sh.includes('sc-tag'));
+}
+// 2d. a completed period whose original plan Forecast withholds: no category denominator, no progress bar
+{
+  const h = JSON.parse(JSON.stringify(view));
+  h.budgetProgress.household.planned = { amount: null, trust: 'unavailable' };
+  const hh = buildCardsHTML(ctx(h)), b = hh.split('data-stack-card="budget"')[1].split('</details>')[0];
+  assert(!b.includes(fmt(400)) && !b.includes(fmt(50.5)) && !b.includes('sc-mini'), 'withheld plan not printed or drawn');
+  assert(b.includes(fmt(123.45)), 'spent still printed');
+}
+
 // 3. no money arithmetic in the page code
 const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 assert(!/\.reduce\(/.test(src), 'no reduce over money');

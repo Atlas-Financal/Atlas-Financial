@@ -36,6 +36,15 @@
     return (v < 0 ? '−' : '') + '$' + s;
   }
 
+  // Forecast's trust word travels with its figure (CLAUDE.md: tag every figure). Only
+  // 'estimated' needs a mark; 'unavailable' figures are null and print nothing.
+  function isEst() {
+    for (var i = 0; i < arguments.length; i++) if (arguments[i] === 'estimated') return true;
+    return false;
+  }
+  var EST = ' \u00b7 estimated';
+  function estTag(on) { return on ? '<i class="sc-tag"> estimated</i>' : ''; }
+
   // Bar width for drawing only; never printed.
   function drawWidth(part, whole) {
     if (!isNum(part) || !isNum(whole) || whole <= 0) return 0;
@@ -99,7 +108,7 @@
     var body = '<ul class="sc-list">' + rows.map(function (r) {
       return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', stateWord(r), billTarget('bill', r));
     }).join('') + '</ul>';
-    var sub = rows.length ? paid + ' of ' + rows.length + ' paid' : 'paid / total';
+    var sub = (rows.length ? paid + ' of ' + rows.length + ' paid' : 'paid / total') + (total != null && isEst(split.trust) ? EST : '');
     return strip('bills', 'Bills', sub, total, null, drawWidth(paid, rows.length), rows.length ? body : '');
   }
 
@@ -109,13 +118,19 @@
     var cats = (Array.isArray(view.householdBudget) ? view.householdBudget : []).filter(function (c) {
       return c && !c.informational && c.label;
     });
+    // Forecast withholds the original plan (household.planned.amount null) for a completed period
+    // without a dated snapshot: then no category denominator and no progress geometry is shown.
+    var planPublished = isNum(planned);
+    var hhEst = isEst(get(hh, ['actual', 'trust']), get(hh, ['planned', 'trust']));
     var body = '<ul class="sc-list">' + cats.map(function (c) {
-      var s = money(c.spent), p = money(c.planned);
-      return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b><span class="sc-mini"><i style="width:' +
-        drawWidth(c.spent, c.planned) + '%"></i></span></span>' +
-        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : esc(s)) + (p == null ? '' : '<i> / ' + esc(p) + '</i>') + '</span>') + '</li>';
+      var s = money(c.spent), p = planPublished ? money(c.planned) : null;
+      var est = isEst(c.trust, c.plannedTrust) || c.confidence === 'estimated';
+      return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
+        (p == null ? '' : '<span class="sc-mini"><i style="width:' + drawWidth(c.spent, c.planned) + '%"></i></span>') + '</span>' +
+        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : esc(s)) + (p == null ? '' : '<i> / ' + esc(p) + '</i>') + estTag(est) + '</span>') + '</li>';
     }).join('') + '</ul>';
-    return strip('budget', 'Budget', 'spent / budget', money(spent), money(planned), drawWidth(spent, planned), cats.length ? body : '');
+    var head = money(spent);
+    return strip('budget', 'Budget', 'spent / budget' + (head != null && hhEst ? EST : ''), head, money(planned), drawWidth(spent, planned), cats.length ? body : '');
   }
 
   function mortgageCard(view) {
@@ -125,7 +140,7 @@
     })[0];
     var paid = !!row && row.paidState === 'paid';
     var body = row ? '<ul class="sc-list">' + stateRow(row.label || row.name || 'Mortgage', money(row.amount), paid, stateWord(row), billTarget('mortgage', row)) + '</ul>' : '';
-    var sub = row ? stateWord(row) : 'paid / total';
+    var sub = (row ? stateWord(row) : 'paid / total') + (total != null && isEst(get(view, ['stackSummary', 'bills', 'trust'])) ? EST : '');
     return strip('mortgage', 'Mortgage', sub, total, null, paid ? 100 : 0, body);
   }
 
@@ -156,20 +171,21 @@
       head = planned; sub = 'planned this period';
     } else { head = null; sub = 'savings'; }
     if (head == null && !items.length) return '';
-    if (ex) sub = ex;
+    if (head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null)) sub += EST;
+    if (ex) sub = ex + (head != null && sub.slice(-EST.length) === EST ? EST : '');
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);
       var own = s != null; // this goal's own published saved value (current period, nearest due first)
       if (own) {
         // "$saved of $periodTarget" with a full-width bar; periodTarget is Forecast's, not added here.
         return '<li class="sc-row sc-own"><span class="sc-n">' + esc(i.label) + '</span>' +
-          '<span class="sc-a">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
+          '<span class="sc-a">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + estTag(isEst(i.savedTrust, i.trust)) + '</span>' +
           '<span class="sc-mini sc-full"><i style="width:' + drawWidth(i.saved, i.periodTarget) + '%"></i></span></li>';
       }
       var word = has(i.reasons, 'net-of-period-transfers') ? 'still to set aside ' : 'needs ';
       var right = n == null || has(i.reasons, 'past-period') ? ''
-        : has(i.reasons, 'future-period') ? '<span class="sc-a">' + esc(n) + '<i> planned this period</i></span>'
-        : '<span class="sc-a"><i>' + word + '</i>' + esc(n) + '</span>';
+        : has(i.reasons, 'future-period') ? '<span class="sc-a">' + esc(n) + '<i> planned this period</i>' + estTag(isEst(i.trust)) + '</span>'
+        : '<span class="sc-a"><i>' + word + '</i>' + esc(n) + estTag(isEst(i.trust)) + '</span>';
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b></span>' + right + '</li>';
     }).join('') + '</ul>';
     return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail);

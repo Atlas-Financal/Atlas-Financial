@@ -31,3 +31,4 @@ padding:8px 0;border-top:1.5px solid var(--sc-line)}
 .sc-own>.sc-n{font-weight:500}
 .sc-own .sc-a{font-weight:700}
 .sc-full{grid-column:1/-1;margin-top:0;height:8px}
+.sc-tag{font-style:normal;font-size:.7em;font-weight:600;opacity:.75;margin-left:4px}
