@@ -25,6 +25,8 @@
  *        (triangle, 20th), a non-cash card item 7: load 445 = mortgage 300 +
  *        credit 35 + other 110; surplus 1,400 − 110 − 400 − 300 − 35 = 555;
  *        an unknown hydro amount: load, split and surplus withheld;
+ *        a HELOC's 50 cash minimum and card A's 25 + 7: credit mbna 32 and
+ *        heloc 50, other 0, surplus 918 = BAD;
  *        the card-coverage aggregate world: the 25 minimum is credit whether
  *        unpaid, pending or paid by a 60 payment (BAD 790, surplus 825);
  *        an unusable income override: every surplus null with a reason;
@@ -71,6 +73,7 @@ const CENTS = "      - stackCents(mortgage) - creditCents - stackCents(item);";
 const MORTGAGE_IDS = "    const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));";
 const CARD_OF = "      && isRevolvingCardAccount({ account: o.debtId })).map(o => [String(o.id), String(o.debtId)]));";
 const OTHER = '      other: (totalCents - mortgageCents - minimumsCents) / 100,';
+const HELOC_LINE = '      const line = row.cashMinimum === true ? cashMinimumOf.get(id) : cardOf.get(id);';
 const EXPORT = "  if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;";
 const copies = {
   shipped: require('../public/forecast.js'),
@@ -82,6 +85,7 @@ const copies = {
   noMortgageTerm: compile(replaceOnce(SOURCE, CENTS, CENTS.replace('      - stackCents(mortgage)', '     '), 'no mortgage term'), 'no-mortgage-term'),
   mortgageInOther: compile(replaceOnce(SOURCE, MORTGAGE_IDS, '    const mortgageIds = new Set();', 'mortgage in other'), 'mortgage-in-other'),
   minimumsInOther: compile(replaceOnce(SOURCE, CARD_OF, CARD_OF.replace('isRevolvingCardAccount({ account: o.debtId })', 'false'), 'minimums in other'), 'minimums-in-other'),
+  helocInOther: compile(replaceOnce(SOURCE, HELOC_LINE, '      const line = cardOf.get(id);', 'heloc in other'), 'heloc-in-other'),
   otherIsTotal: compile(replaceOnce(SOURCE, OTHER, '      other: totalCents / 100,', 'other is total'), 'other-is-total'),
   ignoresWithheld: compile(replaceOnce(SOURCE, '    if (!known) {\n      return { amount: null,', '    if (false) {\n      return { amount: null,', 'ignores withheld'), 'ignores-withheld'),
   fixedTrust: compile(replaceOnce(SOURCE, "      trust: view.balanceAfterDeductionsTrust || 'calculated',", "      trust: 'calculated',", 'fixed trust'), 'fixed-trust'),
@@ -100,7 +104,17 @@ const OBLIGATIONS = [
   { id: 'inv-noncash', label: 'Invented non-cash card item', debtId: 'cashback', effect: 'payment', frequency: 'monthly', day: 17, amount: 7,
     nonCash: true, confidence: 'confirmed' },
 ];
-function world({ held = false, item = false, bills = false, hydro = 90 } = {}) {
+// A HELOC (a capitalising, non-cash plan obligation that pays a cash minimum,
+// capitalisingCashMinimumOccurrences) and two minimum rows for one card.
+const HELOC_OBLIGATIONS = [
+  { id: 'inv-heloc', label: 'Invented HELOC', debtId: 'heloc', effect: 'capitalise', nonCash: true, frequency: 'monthly', day: 20,
+    amount: 40, cashPayment: 50, cashDay: 18, confidence: 'confirmed', payingAccount: 'chequing-a' },
+  { id: 'inv-card-a', label: 'Invented card A minimum', debtId: 'mbna', effect: 'payment', frequency: 'monthly', day: 15, amount: 25,
+    confidence: 'confirmed', payingAccount: 'chequing-a' },
+  { id: 'inv-card-a-once', label: 'Invented card A one-off minimum', debtId: 'mbna', effect: 'payment', frequency: 'once', date: '2026-10-19',
+    amount: 7, confidence: 'confirmed', payingAccount: 'chequing-a' },
+];
+function world({ held = false, item = false, bills = false, hydro = 90, heloc = false } = {}) {
   const w = H.baseWorld();
   w.categories.push({ id: MORTGAGE, name: 'Mortgage' });
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
@@ -110,6 +124,7 @@ function world({ held = false, item = false, bills = false, hydro = 90 } = {}) {
         jointCash: false, payingAccount: 'mbna' }];
     w.obligations = structuredClone(OBLIGATIONS);
   }
+  if (heloc) w.obligations = structuredClone(HELOC_OBLIGATIONS);
   if (held) w.transactions.push(H.lm({ date: '2026-10-12', amount: 400, category: MORTGAGE, account: 'chequing-a', payee: 'Invented lender' }));
   if (item) {
     w.commitments = [{ id: 'trip', label: 'Invented trip', date: '2026-11-20', amount: 600, confidence: 'confirmed', sinkingFund: true }];
@@ -183,6 +198,17 @@ console.log('1. Hand-derived invented worlds');
       && surplusOf(unknown).amount === null,
       'an unknown hydro amount withholds the load, so every part and the surplus are null, unavailable, with a reason',
       JSON.stringify(unknown && unknown.stackSummary));
+  }
+  // The HELOC is one of the Credit line's credit lines (owner; lead ruling
+  // 2026-11-19): its 50 cash minimum is Credit, beside card A's 25 + 7 summed
+  // into one row. Load 82 = credit 82, other 0; surplus = BAD = 1,400 − 400 − 82 = 918.
+  {
+    const cur = byStart(views(copies.shipped, harnessArgs({ heloc: true })), '2026-10-09');
+    ok(cur && cur.periodBillLoad === 82 && JSON.stringify(billsOf(cur)) === JSON.stringify({ mortgage: 0,
+      cardMinimums: [{ debtId: 'mbna', amount: 32 }, { debtId: 'heloc', amount: 50 }], other: 0, trust: 'calculated' }),
+      'HELOC world: credit is mbna 32 (25 + 7, one row) and heloc 50; other 0', JSON.stringify(cur && [cur.periodBillLoad, billsOf(cur)]));
+    ok(surplusOf(cur) && surplusOf(cur).amount === 918 && surplusOf(cur).terms.credit === 82 && surplusOf(cur).terms.bills === 0
+      && cur.balanceAfterDeductions === 918, 'its surplus is 918 = BAD, with credit 82 and bills 0', JSON.stringify(surplusOf(cur)));
   }
   // A manual card payment beyond the minimum (test/fixtures/card-coverage-aggregate-world):
   // income 1,000, the 25 card minimum (the only bill), groceries 150. The
@@ -260,7 +286,7 @@ for (const input of Snap.loadInventedInputs()) {
     return [data.plan, data.meta.asOf, Snap.pageOptions(data, input.doc.periods == null ? null : structuredClone(input.doc.periods))];
   });
 }
-for (const spec of [{ bills: true, held: true }, { held: true }, { held: true, item: true }]) corpus.push(harnessArgs(spec));
+for (const spec of [{ bills: true, held: true }, { held: true }, { held: true, item: true }, { heloc: true }]) corpus.push(harnessArgs(spec));
 {
   const w = H.baseWorld();
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
@@ -344,6 +370,8 @@ ok(surplusOf(hand(copies.noMortgageTerm, { bills: true })).amount !== 555, 'drop
 ok(billsOf(hand(copies.mortgageInOther, { bills: true })).mortgage !== 300, 'a mortgage counted in other is caught');
 ok(billsOf(hand(copies.minimumsInOther, { bills: true })).cardMinimums.length === 0
   && audit(copies.minimumsInOther).withMinimums === 0, 'card minimums counted in other are caught');
+ok(billsOf(hand(copies.helocInOther, { heloc: true })).other === 50 && billsOf(hand(copies.shipped, { heloc: true })).other === 0,
+  'a HELOC minimum left in other is caught (the HELOC world reads other 50)');
 ok(billsOf(hand(copies.otherIsTotal, { bills: true })).other === null, 'an other part that double-counts fails the sum and is withheld, never published');
 ok(surplusOf(hand(copies.ignoresWithheld, {}, { incomeOverrides: { payroll: 'not a number' } })).amount !== null,
   'ignoring a withheld term is caught (a figure is published without income)');

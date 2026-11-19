@@ -7393,6 +7393,13 @@
   const REVOLVING_CARD_ACCOUNT_IDS = new Set([
     'cashback', 'tdcc', 'mbna', 'travelvisa', 'triangle',
   ]);
+  // Stack Wallet Credit line (owner decision, Dale: the Credit line lists the
+  // household's credit lines by name, the HELOC among them; lead ruling
+  // 2026-11-19): the revolving cards plus the HELOC. Read only by the Stack
+  // Wallet bills split (periodAssignedBillParts); no other figure uses it.
+  const STACK_CREDIT_LINE_IDS = new Set([...REVOLVING_CARD_ACCOUNT_IDS, 'heloc']);
+  const isStackCreditLine = debtId => debtId != null && debtId !== ''
+    && STACK_CREDIT_LINE_IDS.has(String(debtId).trim().toLowerCase().replace(/[\s_-]+/g, ''));
   const REVOLVING_FINANCE_CHARGE_LABELS = new Set([
     'interest charge',
     'purchase interest',
@@ -14255,9 +14262,10 @@
   // Stack Wallet bills split (owner decision, Dale, waterfall reshape): the
   // same rows and the same amount as periodAssignedBillLoad, each counted in
   // exactly one part. Mortgage is the planHasMortgagePayment obligation family
-  // (debtId or id 'mortgage'); a card minimum is the minimum-first filter's
-  // row (effect 'payment', a revolving-card debtId, not nonCash), summed per
-  // card. Everything else, card-paid bills and scheduled-fee allowances
+  // (debtId or id 'mortgage'); a credit-line minimum is a payment row on a
+  // STACK_CREDIT_LINE_IDS debt (effect 'payment', not nonCash: the cards), or
+  // the cash-minimum row of a capitalising credit line (the HELOC), summed
+  // per debt. Everything else, card-paid bills and scheduled-fee allowances
   // included, is `other`, taken as the remainder of the published total so
   // the three parts equal periodBillLoad to the cent by construction. A
   // covered or pending minimum keeps its full scheduled amount, as the load
@@ -14268,17 +14276,23 @@
     const obligations = ((plan && plan.obligations) || []).filter(o => o && o.id != null);
     const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));
     const cardOf = new Map(obligations.filter(o => o.effect === 'payment' && o.debtId != null && !o.nonCash
-      && isRevolvingCardAccount({ account: o.debtId })).map(o => [String(o.id), String(o.debtId)]));
+      && isStackCreditLine(o.debtId)).map(o => [String(o.id), String(o.debtId)]));
+    // A credit line whose plan obligation capitalises (the HELOC) pays its
+    // minimum as a separate cash row (capitalisingCashMinimumOccurrences,
+    // cashMinimum: true): that row is the line's minimum.
+    const cashMinimumOf = new Map(obligations.filter(o => o.nonCash && o.debtId != null && isStackCreditLine(o.debtId))
+      .map(o => [String(o.id), String(o.debtId)]));
     let mortgageCents = 0;
     const cardCents = new Map();
     for (const row of bills || []) {
       if (!billInPeriodAssignedLoad(row) || row.scheduledFeeAllowance || row.kind !== 'obligation' || row.id == null) continue;
       const id = String(row.id);
-      if (!mortgageIds.has(id) && !cardOf.has(id)) continue;
+      const line = row.cashMinimum === true ? cashMinimumOf.get(id) : cardOf.get(id);
+      if (!mortgageIds.has(id) && !line) continue;
       const cents = Math.round(Number(amount(row)) * 100);
       if (!Number.isFinite(cents)) return null;
       if (mortgageIds.has(id)) mortgageCents += cents;
-      else cardCents.set(cardOf.get(id), (cardCents.get(cardOf.get(id)) || 0) + cents);
+      else cardCents.set(line, (cardCents.get(line) || 0) + cents);
     }
     const totalCents = Math.round(total * 100);
     const minimumsCents = [...cardCents.values()].reduce((a, b) => a + b, 0);
