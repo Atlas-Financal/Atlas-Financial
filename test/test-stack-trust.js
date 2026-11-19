@@ -58,7 +58,14 @@ function view(evidenceState) {
       { id: 'power', date: '2031-03-06', label: 'Power', amount: 80, displayAmountTrust: 'calculated', paidState: 'paid', payerLabel: 'Chequing' },
     ],
     householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 310, spentTrust: 'calculated', planned: 500, plannedTrust: 'estimated',
-      remaining: 190, trust: 'estimated', overspend: 0 }],
+      remaining: 190, trust: 'estimated', overspend: 0 },
+    // Forecast's real producer shapes (public/forecast.js): a carried Lunch Money budget publishes only the row's trust;
+    // a possible duplicate publishes the row estimated with a calculated plan and no spentTrust.
+    { id: 'carried', label: 'Dining', spent: 120, planned: 200, remaining: 80, overspend: 0, trust: 'estimated', estimateReason: 'x' },
+    { id: 'dup', label: 'Pharmacy', spent: 45, planned: 60, remaining: 15, overspend: 0, trust: 'estimated', plannedTrust: 'calculated', estimateReason: 'possible-duplicate' },
+    // An Other spending row: its plan is the owner's undated target, never estimated by the row.
+    { id: 'other', label: 'Other spending', spent: 90, planned: 150, remaining: 60, overspend: 0, trust: 'estimated', otherSpending: true },
+    { id: 'firm', label: 'Fuel', spent: 70, planned: 100, remaining: 30, overspend: 0, trust: 'calculated' }],
   };
 }
 const LINES = [
@@ -125,6 +132,8 @@ console.log('4. credit card and its sheet');
     && /Paid onto it<\/dt><dd class="stack-n">/.test(green) && /stack-sheet-pill is-togo stack-est/.test(green),
   'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
+  ok(/<dt class="stack-est">Minimum \$30<\/dt>/.test(green), 'the estimated minimum amount itself (in its label) is soft, not only "Not yet"');
+  ok(/<dt>Minimum \$25<\/dt>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum label is not');
   const projected = context(view('projected'));
   const pEl = container();
   fns.credit(pEl, projected);
@@ -143,6 +152,18 @@ console.log('5. bill and budget sheets');
     && /Budget<\/dt><dd class="stack-n stack-est"/.test(g) && /Left<\/dt><dd class="stack-n stack-est"/.test(g),
   'budget: calculated spent plain; estimated planned and left soft');
   ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(context(view('projected')), 'bill:power@2031-03-06')), 'a projected period: a bill is soft');
+  // Which of Spent, the plan and Left are soft, read from each budget sheet's own printed values.
+  const soft = key => {
+    const h = win.StackSheet.html(ctx, key);
+    const big = /<div class="stack-sheet-big stack-n"><span( class="stack-est")?>[^<]*<\/span>(?:<i( class="stack-est")?>)?/.exec(h);
+    const dd = name => new RegExp(`${name}</dt><dd class="stack-n( stack-est)?"`).exec(h);
+    return [big && big[1] ? 'spent' : '', big && big[2] ? 'plan' : '', dd('Spent')[1] ? 'Spent' : '', dd('Budget')[1] ? 'Budget' : '',
+      dd('Left')[1] ? 'Left' : ''].filter(Boolean).join(',');
+  };
+  ok(soft('budget:carried') === 'plan,Budget,Left', 'a carried budget (row trust only): the plan and Left are soft, Spent is not', soft('budget:carried'));
+  ok(soft('budget:dup') === 'spent,Spent,Left', 'a possible duplicate (calculated plan): Spent and Left are soft, the plan is not', soft('budget:dup'));
+  ok(soft('budget:other') === 'Left', 'Other spending: its undated plan is never soft; Left follows the row', soft('budget:other'));
+  ok(soft('budget:firm') === '', 'a calculated row: nothing soft', soft('budget:firm'));
 }
 
 console.log('6. no words, no underline');

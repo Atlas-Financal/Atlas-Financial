@@ -42,6 +42,24 @@
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // A household budget row's published trust, per printed amount, as Forecast publishes it (the reading the current
+    // Budget page documents in plan.js householdBudgetRowHtml): the row's trust (or confidence) marks the row; its plan
+    // is estimated when plannedTrust is absent or 'estimated' (an Other spending row's plan only when it is dated); its
+    // Spent when plannedTrust is 'calculated' (a possible duplicate) or spentTrust is 'estimated'; Left / Over follow
+    // the row. Returns trust words for estClass, never a figure.
+    budgetTrust(row) {
+      const r = row && typeof row === 'object' ? row : {};
+      const rowEst = r.trust === 'estimated' || r.confidence === 'estimated';
+      const other = r.otherSpending === true || r.needsConfirmation === true;
+      const datedPlan = typeof r.targetEffectiveFrom === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.targetEffectiveFrom)
+        && typeof r.planned === 'number' && Number.isFinite(r.planned);
+      const word = yes => (yes ? 'estimated' : null);
+      return {
+        planned: word(rowEst && (!other || datedPlan) && (r.plannedTrust == null || r.plannedTrust === 'estimated')),
+        spent: word(rowEst && (r.plannedTrust === 'calculated' || r.spentTrust === 'estimated')),
+        remaining: word(rowEst),
+      };
+    },
   };
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;

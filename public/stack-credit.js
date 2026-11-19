@@ -135,7 +135,7 @@
       + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar' + figs))
       + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent), est(view, trustOf(line.spent)))
         + h.row('Paid onto it', h.money(paid), est(view, trustOf(line.paid))))
-      + (min != null && (covered === true || covered === false) ? h.row(`Minimum ${h.money(min)}`, covered ? 'Covered ✓' : 'Not yet', minEst) : '')
+      + (min != null && (covered === true || covered === false) ? h.row(`Minimum ${h.money(min)}`, covered ? 'Covered ✓' : 'Not yet', minEst, minEst) : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {

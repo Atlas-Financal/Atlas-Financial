@@ -27,8 +27,9 @@
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
   // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
-  const row = (label, value, cls = '') => (value === '' || value == null ? ''
-    : `<div><dt>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  // labelCls: the same, for a label that itself holds a figure (a card's "Minimum $X").
+  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
+    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
   function head(kicker, title) {
@@ -54,11 +55,14 @@
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.
   function budgetHtml(item, v) {
     const over = num(item.overspend) && item.overspend > 0;
-    const spent = est(item.spentTrust, v), planned = est(item.plannedTrust, v);
+    const t = window.StackBlocks.budgetTrust ? window.StackBlocks.budgetTrust(item) : {};
+    const spent = est(t.spent, v), planned = est(t.planned, v), rest = est(t.remaining, v);
+    // Spent and planned each carry their own treatment, side by side (never nested, so neither inherits the other's).
     return head('Budget', item.label || '')
-      + `<div class="stack-sheet-big stack-n${spent}">${esc(money(item.spent))}${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
+      + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
+      + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
       + '<dl>' + row('Spent', money(item.spent), spent) + row('Budget', money(item.planned), planned)
-      + (over ? row('Over', money(item.overspend), est(item.trust, v)) : row('Left', money(item.remaining), est(item.trust, v))) + '</dl>';
+      + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>';
   }
 
   // A credit line, from the credit block's reading of Forecast.stackCreditLines.
