@@ -586,6 +586,7 @@
   ["An opt-in bill settles the occurrences Lunch Money itself matched, only when its matches are consistent; otherwise the incumbent rule applies (S3)","test-lunchmoney-matched-occurrences.js"],
   ["Amanda's pay counts when a posted credit within $5 of that payday's amount reaches Bills within 3 business days of it; two candidates or one credit fitting two paydays stay To confirm (Q2)","test-amanda-pay-near-amount.js"],
   ["A plain Bills credit that could be Amanda's pay, posted before the owner's window, holds her next payday instead of counting twice (U6)","test-amanda-pay-early-plain-credit.js"],
+  ["An early or split salary credit is held To confirm over its payday's run-up and the payday is counted once, including across a period opening","test-early-salary-credit-counted-once.js"],
   ["A near-due bill payment seen pending, then posted days later without a provider link, is deducted once: the posted copy stays held To confirm","test-near-due-pending-replacement.js"],
   ["A card minimum settles from Lunch Money's own match only for one payment covering a confirmed statement minimum in its cycle; otherwise it stays withheld (E2)","test-lunchmoney-matched-card-minimum.js"],
   ["A bill payment first seen pending off its due date and posted days later without a provider link is deducted once: its pending copy is a possible replacement that keeps the claim and the payday gap cautious (lead dispatch 2026-11-18, after #1315)","test-pending-then-posted-bill-once.js"],

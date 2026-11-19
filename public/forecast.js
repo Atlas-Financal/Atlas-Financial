@@ -10477,6 +10477,15 @@
     return roundCent(Math.abs(n));
   }
 
+  // The held early-credit legs of a scheduled occurrence (see
+  // calendarIncomeSections) dated before a payday opening: cash the opening
+  // already holds.
+  function earlyReceiptInOpening(row, openingAsOf) {
+    if (!row || !Array.isArray(row.earlyReceiptLegs) || !openingAsOf) return 0;
+    return roundCent(row.earlyReceiptLegs.filter(leg => leg && leg.date < openingAsOf)
+      .reduce((sum, leg) => sum + (Number(leg.amount) || 0), 0));
+  }
+
   function calendarIncomeContribution(row) {
     if (!row) return 0;
     // C3: an expectation held To confirm beside an unlinked receipt in its
@@ -12464,6 +12473,10 @@
     const { duplicateIds, idCounts } = calendarIncomeTxFacts(packet);
     const linkedIds = representedIncomeTransactionIds(opts, plan);
     const actualCandidates = [];
+    // The same credits, also over one run-up before the span: an early salary
+    // credit there is already in this span's opening cash.
+    const runUpCandidates = [];
+    const runUpFrom = addDays(span.start, -SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
     const settlementCredits = [];
     const oneOffStreamIds = new Set(((plan && plan.income) || [])
       .filter(stream => stream && stream.id != null && stream.frequency === 'once')
@@ -12471,11 +12484,15 @@
     if (packet && Array.isArray(packet.transactions)) {
       for (const tx of packet.transactions) {
         if (!tx || !tx.date) continue;
-        if (tx.date < span.start || tx.date > span.end) continue;
+        if (tx.date < runUpFrom || tx.date > span.end) continue;
         if (skipSplitParent(tx, packet)) continue;
         if (tx.id != null && duplicateIds.has(String(tx.id)) && tx.pending === true) continue;
         if (tx.id != null && linkedIds.has(String(tx.id))) continue;
-        if (isGenuineOtherIncomeTransaction(tx, plan, opts)) actualCandidates.push(tx);
+        if (tx.date < span.start) {
+          if (isGenuineOtherIncomeTransaction(tx, plan, opts)) runUpCandidates.push(tx);
+          continue;
+        }
+        if (isGenuineOtherIncomeTransaction(tx, plan, opts)) { actualCandidates.push(tx); runUpCandidates.push(tx); }
         else if (tx.id != null && tx.pending !== true && idCounts.get(String(tx.id)) === 1
             && isExpectedIncomeSettlementCredit(tx, plan, opts)) settlementCredits.push(tx);
       }
@@ -12623,13 +12640,15 @@
       const [qualified] = qualifyHistoricalScheduledIncome([probe], window, opts);
       return !!(qualified && qualified.historicalReceipt === 'identity-matched');
     };
+    // id@date of a held occurrence -> its held credits' dates and amounts.
+    const scheduledIncomeHeldLegs = new Map();
     const scheduledIncomeHeldIds = (() => {
       const held = new Set();
       // An occurrence up to one run-up after the span can claim a credit in it.
-      const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
+      const from = runUpFrom;
       const to = addDays(span.end, SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
       if (!from || !to) return held;
-      const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
+      const credits = runUpCandidates.filter(tx => tx && tx.id != null && tx.date
         && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
       // Each unproven salary occurrence's window: its run-up (the day after
       // the income's previous occurrence) to 3 days after its date.
@@ -12658,6 +12677,8 @@
         const total = w.credits.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
         if (total >= w.planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
           for (const tx of w.credits) held.add(String(tx.id));
+          scheduledIncomeHeldLegs.set(w.event.id + '@' + w.event.date,
+            w.credits.map(tx => ({ date: tx.date, amount: roundCent(txInflowAmount(tx)) })));
         }
       }
       return held;
@@ -12764,6 +12785,13 @@
     for (let i = 0; i < (windows || []).length; i++) {
       const id = windows[i].id;
       out[id] = sortRows(buckets[id] || []);
+      // A held early credit is this occurrence's cash. The close reads its
+      // legs (earlyReceiptInOpening) so a leg already inside the opening is
+      // not added again.
+      for (const row of out[id]) {
+        const legs = row && row.id && scheduledIncomeHeldLegs.get(row.id + '@' + row.date);
+        if (legs) row.earlyReceiptLegs = legs;
+      }
     }
     return out;
   }
@@ -16782,7 +16810,10 @@
         } else if (openingKnown && !incomeAlreadyInPaydayOpening(
           row, openingAsOf, plan, opts, openingSource
         )) {
-          incomeAdded += calendarIncomeContribution(row);
+          // Held early legs that landed before the opening are already in
+          // it: add only the rest of the occurrence, never below zero.
+          const inOpening = earlyReceiptInOpening(row, openingAsOf);
+          incomeAdded += Math.max(0, calendarIncomeContribution(row) - inOpening);
           incomeAddedRows.push(row);
         }
       }
