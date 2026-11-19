@@ -124,9 +124,11 @@ console.log('5. Unchanged');
   ok(late.balance === 900 && held(late.rows[0]), 'posted Oct 17 alone: held To confirm, 900');
   // Pending on the due date, then posted two days later, is #1315's case and
   // is proved by test/test-near-due-pending-replacement.js on that PR.
+  // The lone pending off the due date is now held once on the bill (lead
+  // ruling 2026-11-19); test/test-lone-pending-bill-payment-once.js proves it.
   const lone = serve([debit('2026-10-16', { pending: true })]);
-  ok(lone.balance === 800 && !lone.rows[0].duplicate,
-    'a lone pending off the due date keeps its incumbent cautious path (800; out of scope, reported)', String(lone.balance));
+  ok(lone.balance === 900 && !lone.rows[0].duplicate && held(lone.rows[0]),
+    'a lone pending off the due date is held To confirm on the bill, counted once (900)', String(lone.balance));
 }
 
 console.log('6. No trust tag moves toward more certainty');

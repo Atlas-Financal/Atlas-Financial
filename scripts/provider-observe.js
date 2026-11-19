@@ -5913,10 +5913,39 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   if (!plan || !rules.length) return out;
   // Posted household-cash debits that pass every gate below except date.
   const eligibleDebit = new Map();
+  // Lead ruling 2026-11-19 (BACKLOG, from #1319): a lone pending identity
+  // debit near a still-due bill is that bill's probable payment, held To
+  // confirm on it while pending, counted once; the bill is not settled and
+  // stays reserved. Collected here, decided after the posted pass below.
+  const pendingCandidates = [];
+  // Occurrences any posted identity debit within reach names, whatever the
+  // gates below decide: a pending row beside one is never held (#1319's
+  // pairing or the incumbent path owns that pair).
+  const postedNear = new Set();
   for (const tx of collapsed || []) {
-    // Posted debits only: unresolved pending cash keeps its incumbent path
-    // (it withholds precise funding until it posts or is resolved).
-    if (!tx || tx.pending === true || tx.contradictoryEvidence === true) continue;
+    if (tx && tx.pending === true) {
+      if (tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) continue;
+      const localId = existingLocalId(tx.providerTransactionId);
+      if (!localId || (linkedLocalIds && linkedLocalIds.has(localId))) continue;
+      const mapping = mapDoc ? mappingFor(mapDoc, tx.providerAccountId) : null;
+      if (atlasAccountRole(mapping) !== 'household-cash' || !mapping.canonical) continue;
+      const amount = lunchMoneyDebitAmount(tx.amount);
+      const date = parseIsoDate(tx.date);
+      if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+      const found = [];
+      for (const rule of rules) {
+        if (mapping.canonical.id !== rule.atlasAccountId) continue;
+        // A pending row has no posted receipt: it reads the rule's identity
+        // fields only, as the pending-copy pairing does, and a rule that
+        // requires posted evidence never names it.
+        if (!matchesIdentityFields(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
+        const near = nearestBillOccurrence(plan, rule.eventId, date);
+        if (!near || near.off > near.reach) continue;
+        found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays, off: near.off });
+      }
+      pendingCandidates.push({ localId, amount, found });
+      continue;
+    }
     // A posted row paired with its own pending copy (pendingPostedDuplicate)
     // is still the payment: the pending side is the possible replacement,
     // never counted. Without the hold it would be spent beside the reserve.
@@ -5933,6 +5962,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
       const near = nearestBillOccurrence(plan, rule.eventId, date);
+      if (near && near.off <= near.reach) postedNear.add(rule.eventId + '@' + near.date);
       // Same-day identity is the matcher's to settle or leave ambiguous.
       if (!near || near.off < 1 || near.off > near.reach) continue;
       found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays });
@@ -6001,6 +6031,36 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
       if (held + row.amount <= reserve + IDENTITY_AMOUNT_EPSILON) held += row.amount;
       else out.delete(row.localId);
     }
+  }
+  // The lone pending debit (lead ruling above). Held only when it names
+  // exactly one occurrence, no other pending identity debit names that
+  // occurrence, no posted identity debit is within its reach, nothing
+  // settled or already stands on it (a matched payment, the opening, a
+  // pending-only row on the due date), it is off the due date, and it passes
+  // the bill's amount gate. Anything else (two pendings for one bill, one
+  // pending that fits two bills) keeps its incumbent path: ordinary spending
+  // beside the reserve, the cautious reading. It carries pendingDebit, so
+  // Forecast keeps the category remaining claim classified-incomplete while
+  // it is pending. The pending-copy pairing's addPosted skips pending rows, so
+  // it is never read there as a posted payment.
+  const pendingPerOccurrence = new Map();
+  for (const c of pendingCandidates) {
+    for (const f of c.found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)) {
+      const key = f.id + '@' + f.date;
+      pendingPerOccurrence.set(key, (pendingPerOccurrence.get(key) || 0) + 1);
+    }
+  }
+  const heldOccurrences = new Set([...out.values()].map(f => f.id + '@' + f.date));
+  for (const c of pendingCandidates) {
+    const unique = c.found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i);
+    if (unique.length !== 1) continue;
+    const f = unique[0];
+    const key = f.id + '@' + f.date;
+    if (f.off < 1 || pendingPerOccurrence.get(key) !== 1 || postedNear.has(key) || heldOccurrences.has(key)) continue;
+    if (settled.has(key) || insideOpening(f.id, f.date) || pendingOnly.has(key)) continue;
+    if (!billDebitAmountConsistent(rules.find(rule => rule.eventId === f.id), c.amount,
+      (scheduledOccurrence(plan, f.id, f.date)[0] || {}).amount)) continue;
+    out.set(c.localId, { id: f.id, date: f.date, offsetDays: f.offsetDays, pendingDebit: true });
   }
   return out;
 }

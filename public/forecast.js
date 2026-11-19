@@ -8706,8 +8706,12 @@
         // stands on (provider-observe pendingOnlyOccurrence) is not spent,
         // but the pair is unresolved: it may be a second, unplaced charge, so
         // the classification stays incomplete, as it was before the hold.
+        // So is a lone pending debit held To confirm (pendingDebit): it is
+        // counted once, against the reserve, but it is still pending and
+        // unresolved, so the claim stays as cautious as before the hold.
         if (cls.reason === 'near-due-bill-unconfirmed' && tx.nearDueBillCandidate
-          && tx.nearDueBillCandidate.pendingOnlyOccurrence === true) { out.unclassified.count += 1; recordHeld(tx, cls); }
+          && (tx.nearDueBillCandidate.pendingOnlyOccurrence === true
+            || tx.nearDueBillCandidate.pendingDebit === true)) { out.unclassified.count += 1; recordHeld(tx, cls); }
         continue;
       }
       if (cls.kind === 'refund') {
