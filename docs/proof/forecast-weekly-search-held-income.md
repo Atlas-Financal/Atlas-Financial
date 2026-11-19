@@ -34,8 +34,9 @@ misses and recomputes. A call without a holder computes exactly as before.
 expansion nor the hold set reads it. `test/test-weekly-search-held-income.js`
 proves this mechanically rather than by inspection:
 
-- At 645 captured weekly probes, it changes `weeklyVariable` alone. The
-  values are 0, 5, 1,234, 80,000, −500, NaN, 1e9, and removed.
+- It captures 645 weekly probes. At up to eight distinct probes per case
+  (303 in all), it changes `weeklyVariable` alone. The values are 0, 5,
+  1,234, 80,000, −500, NaN, 1e9, and removed.
 - Across 2,424 variations, `expandEvents` is byte-identical and the hold set
   is identical. Some of those hold sets are non-empty.
 - Two copies that do read the key are caught: one reads it in the hold set,

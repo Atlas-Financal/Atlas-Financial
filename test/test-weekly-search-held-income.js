@@ -8,8 +8,9 @@
  * change to copies of the same source, compiled here:
  *
  *   1. weeklyVariable reaches neither the event expansion nor the hold set:
- *      at every weekly probe captured on the corpus below, the probe's own
- *      options with weeklyVariable changed alone (to 0, 5, 1,234, 80,000,
+ *      at up to eight distinct weekly probes per case on the corpus below
+ *      (distinct start, end and weeklyVariable), the probe's own options
+ *      with weeklyVariable changed alone (to 0, 5, 1,234, 80,000,
  *      -500, NaN, 1e9 and removed) give a byte-identical expandEvents result
  *      and an identical hold set. Two copies that do read it (one in the hold
  *      set, one in the expansion) are caught by the same comparison;
@@ -187,16 +188,17 @@ function isolation(F, c) {
       if (JSON.stringify(F.expandEvents(call.plan, call.start, call.end, varied)) !== baseEvents || hold(varied) !== baseHold) differ++;
     }
   }
-  return { probes: captured.length, compared, differ, nonEmpty };
+  return { probes: captured.length, varied: seen.size, compared, differ, nonEmpty };
 }
 {
-  let probes = 0, compared = 0, differ = 0, nonEmpty = 0;
+  let probes = 0, varied = 0, compared = 0, differ = 0, nonEmpty = 0;
   for (const c of cases) {
     const r = isolation(copies.shipped, c);
-    probes += r.probes; compared += r.compared; differ += r.differ; nonEmpty += r.nonEmpty;
+    probes += r.probes; varied += r.varied; compared += r.compared; differ += r.differ; nonEmpty += r.nonEmpty;
   }
-  ok(probes > 300 && compared > 1000 && differ === 0,
-    `${compared} single-key variations over ${probes} weekly probes: expansion and hold set identical`, `${differ} differ`);
+  ok(varied > 200 && compared === varied * VARIANTS.length && differ === 0,
+    `${compared} single-key variations at ${varied} distinct weekly probes (of ${probes} captured): expansion and hold set identical`,
+    `${differ} differ`);
   ok(nonEmpty > 0, 'some varied probes carry a non-empty hold set (an expectation held To confirm)', String(nonEmpty));
   const held = cases.filter(c => c.kind === 'held');
   for (const [name, label] of [['readsInHold', 'a hold set that reads weeklyVariable'], ['readsInExpand', 'an expansion that reads weeklyVariable']]) {
