@@ -635,6 +635,7 @@
   ["an unplanned bill-labelled charge stays visible and deducted; only a planned bill match is a bill (Budget audit)","test-unplanned-bill-label-counted.js"],
   ["a loan payment or reversed income is held To confirm, never consumption, and deducted once (rank 18)","test-held-outflow-not-consumption.js"],
   ["a posted chequing Transfer or Payment with no proven other side is held To confirm and deducted once (rank 18)","test-transfer-debit-held.js"],
+  ["a manual-card (MBNA, Triangle) payment beyond the minimum is deducted once as its own term","test-manual-card-beyond-minimum.js"],
   ["the Budget face split bar has one segment per extra term (To confirm, Savings items), each its printed share; no extra term leaves the bar unchanged","test-budget-split-extra-terms.js"],
   ["a pending card charge occupies a card-paid bill only at its exact amount (Budget audit)","test-pending-card-bill-exact-amount.js"],
   ["this-payday already-paid set and cancelled CMAW drop","test-this-payday-already-paid.js"],
