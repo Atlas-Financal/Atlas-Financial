@@ -321,6 +321,12 @@ try {
     // observation and the saved opening, never part of the captured record. Exclude exactly it.
     assert.ok(Object.hasOwn(legacyPublication, 'bankCheck'));
     delete legacyPublication.bankCheck;
+    // Stack Wallet A1: the current period also publishes its income split (Forecast publishStackSummary), set last on the
+    // live plan and never part of the captured record. Check it sums to the published income total, then exclude exactly it.
+    const split = legacyPublication.stackSummary.income;
+    assert.equal(split.total.amount, legacyPublication.incomeTotal);
+    assert.equal(cc(split.dale.amount) + cc(split.amanda.amount) + cc(split.other.amount), cc(legacyPublication.incomeTotal));
+    delete legacyPublication.stackSummary;
     assert.deepEqual(legacyPublication, record.content.publication, 'every existing publication field remains exact');
     regenerated.content.engine = clone(record.content.engine);
     const publicationOnly = clone(regenerated);
