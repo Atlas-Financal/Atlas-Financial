@@ -107,7 +107,7 @@ const fuel = (planned, spent, tags) => ['fuel', 'Fuel', planned, spent, tags];
   const row = id => r.categories.find(c => c.id === id);
   ok(r.status === 'ready' && r.trust === 'calculated' && r.periodsUsed === 3, 'three qualifying closes: a calculated trend');
   ok(row('fuel').periodsOver === 2 && row('fuel').periodsCounted === 3 && row('fuel').averageOverspend === 15.01,
-    'Fuel: over in 2 of 3, 15.01 over on average, worked out from saved planned and spent');
+    'Fuel: over in 2 of 3, averaging 15.01 when over, worked out from saved planned and spent');
   ok(row('groceries').periodsOver === 0 && row('groceries').averageOverspend === null, 'Groceries: never over, no average');
   ok(row('eating-out').periodsCounted === 1 && row('eating-out').periodsOver === 1 && row('eating-out').averageOverspend === 5,
     'Eating out: a missing row and a carried (estimated) plan are not counted');
@@ -154,7 +154,9 @@ const fuel = (planned, spent, tags) => ['fuel', 'Fuel', planned, spent, tags];
   context.ctx = { advice, asOf: '2030-06-10', plan: today.data.plan };
   const html = vm.runInContext('budgetCategoryTrendsHtml(ctx)', context);
   ok(/data-budget-category-trends="ready"/.test(html) && /Fuel/.test(html) && /over in 2 of 3/.test(html)
-    && /\$12\.50 over on average/.test(html), 'the page lists Fuel: over in 2 of 3, $12.50 over on average');
+    && /averaging \$12\.50 when over/.test(html), 'the page lists Fuel: over in 2 of 3, averaging $12.50 when over');
+  ok(/<small>3 saved pay periods<\/small>/.test(html) && !/last \d+ saved pay periods/.test(html) && !/over on average/.test(html),
+    'the heading counts the saved pay periods used, and no line reads as an average over every period');
   ok(!/Groceries/.test(html), 'a category never over plan is not listed');
   ok(!/≈|estimated/.test(html), 'no estimate mark: the figures are calculated from saved closes');
   context.ctx = { advice: { categorySpendingTrends: F.categorySpendingTrends(history.slice(0, 1)) } };

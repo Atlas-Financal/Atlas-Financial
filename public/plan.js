@@ -6062,9 +6062,9 @@ function budgetCategoryTrendsHtml(ctx) {
   const count = value => (Number.isInteger(value) && value >= 0 ? value : null);
   const over = (trends.categories || []).filter(row => row && count(row.periodsOver) > 0 && count(row.periodsCounted) != null);
   const n = count(trends.periodsUsed);
-  const items = over.map(row => `<li data-budget-category-trend="${budgetBrowseEscape(row.id)}"><span>${budgetBrowseEscape(row.label || row.id)}</span> <small>over in ${count(row.periodsOver)} of ${count(row.periodsCounted)} · ${budgetBrowseMoney(row.averageOverspend, row.trust)} over on average</small></li>`).join('');
+  const items = over.map(row => `<li data-budget-category-trend="${budgetBrowseEscape(row.id)}"><span>${budgetBrowseEscape(row.label || row.id)}</span> <small>over in ${count(row.periodsOver)} of ${count(row.periodsCounted)} · averaging ${budgetBrowseMoney(row.averageOverspend, row.trust)} when over</small></li>`).join('');
   return `<div class="budget-browse-note" data-budget-category-trends="ready">
-    <p><strong>Over plan in saved periods</strong> <small>last ${n} saved pay periods</small></p>
+    <p><strong>Over plan in saved periods</strong> <small>${n} saved pay periods</small></p>
     ${items ? `<ul class="budget-category-trends">${items}</ul>` : '<p><small>No category went over plan.</small></p>'}</div>`;
 }
 
