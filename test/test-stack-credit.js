@@ -110,6 +110,12 @@ console.log('2. closed card totals');
   ok(!/data-stack-credit-total|paid back \/ spent|stack-credit-bar/.test(none.html) && !/excludes/.test(none.html),
     "'none': no total, label, bar or excludes line");
   ok(!/Line of credit/.test(text(partial.html).split('Blue Visa')[0]), 'HELOC is not named in the closed totals line');
+  {
+    const { fns } = load();
+    const el = container();
+    fns.credit(el, { ...context(TOTALS.complete), Forecast: { cardPeriodMovements: () => ({}) } });
+    ok(el.innerHTML === '', 'without Forecast.stackCreditLines (A6b not yet on main) the card renders nothing');
+  }
   const [args, linesCall] = complete.calls;
   ok(args[3].start === VIEW.start && args[3].end === VIEW.end && args[4].liveOverlay === null && linesCall[2] === VIEW.stackSummary.bills,
     'reads the selected period, the applied overlay (none here) and view.stackSummary.bills');
