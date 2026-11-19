@@ -12678,17 +12678,21 @@
   const isStackFigure = v => typeof v === 'number' && Number.isFinite(v);
   const stackCents = v => Math.round(v * 100);
   const STACK_BILLS_UNAVAILABLE = 'The bills split is unavailable: this period\'s bill total is withheld.';
+  const STACK_BILLS_UNSPLIT = 'The bills split is unavailable: this period\'s bill total has no split from this calculation (a saved close keeps its total, not the split).';
   // The period's published bill total split into mortgage, card minimums and
   // other bills (periodAssignedBillParts). Published only while the period's
   // final periodBillLoad is a number and the split still sums to it to the
-  // cent; otherwise every part is null. Trust is the bill total's own.
+  // cent; otherwise every part is null. A period rebuilt from a saved close
+  // carries its saved total but no split, so its split (and the surplus) is
+  // withheld, never re-derived from today's rows. Trust is the bill total's own.
   function stackBills(view) {
     const parts = periodBillLoadPartsByPeriod.get(view);
     const total = view.periodBillLoad;
     const sums = parts && isStackFigure(total) && view.operatingPlanUnavailable !== true
       && stackCents(parts.mortgage) + parts.cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0)
         + stackCents(parts.other) === stackCents(total);
-    if (!sums) return { mortgage: null, cardMinimums: null, other: null, trust: 'unavailable', reason: STACK_BILLS_UNAVAILABLE };
+    if (!sums) return { mortgage: null, cardMinimums: null, other: null, trust: 'unavailable',
+      reason: !parts && isStackFigure(total) && view.operatingPlanUnavailable !== true ? STACK_BILLS_UNSPLIT : STACK_BILLS_UNAVAILABLE };
     return {
       mortgage: parts.mortgage,
       cardMinimums: parts.cardMinimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
@@ -12707,7 +12711,7 @@
   // terms carry the item spending) is. Shape, shared with the other
   // stackSummary keys: { amount, trust, ... }, with `reason` only when
   // withheld (amount null, trust 'unavailable').
-  const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, bills or the Household budget) is withheld for this period.';
+  const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';
   function stackSurplus(view, bills) {
     const projected = view.evidenceState === 'projected';
     const terms = view.predictedEndingBalanceTerms;

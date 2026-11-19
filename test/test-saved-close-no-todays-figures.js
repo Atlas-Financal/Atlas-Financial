@@ -114,7 +114,7 @@ const IDENTITY = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', '
 const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases']);
 const SET_BY_REPLAY = new Set(['budgetProgress', 'capturedClose']);
 const KEPT_FROM_TODAY = {
-  stackSummary: 'derived at publication from this period\'s own published figures (here the saved ones), never saved and never from today\'s balance',
+  stackSummary: 'derived at publication, never saved; for a saved close its bills split and surplus are withheld (the split is not saved), never taken from today\'s rows or balance',
   spendingCycle: 'the cycle window dates, not a figure',
   spendingCycleLabel: 'the cycle window label, not a figure',
   operatingPlanNote: 'a null note on a completed period (only a current plan can be unavailable)',
@@ -142,21 +142,16 @@ ok(past.bankCheck && past.bankCheck.status === 'unavailable' && past.bankCheck.g
   'a saved close carries no bank-check figure (Unavailable, not saved at close)');
 ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept payday carryover observation is as recorded');
 {
-  // The derived Stack Wallet bills split and surplus read the saved figures,
-  // never today's: the split sums to the saved bill total, and the surplus
-  // is saved income − that whole total − saved Household budget − item.
+  // A saved close keeps its bill total, not the Stack Wallet bills split, so
+  // the split and the surplus it feeds are withheld with a reason, never
+  // re-derived from today's rows; its saved figures themselves are unchanged.
   const s = past.stackSummary && past.stackSummary.surplus, b = past.stackSummary && past.stackSummary.bills;
-  const cents = v => Math.round(v * 100);
-  const want = past.incomeTotal != null && past.periodBillLoad != null && past.budgetHold != null && past.balanceAfterDeductions != null
-    ? Math.round((past.incomeTotal - past.periodBillLoad - past.budgetHold
-      - ((past.predictedEndingBalanceTerms && past.predictedEndingBalanceTerms.savingsItemSpending) || 0)) * 100) / 100 : null;
-  ok(b && (saved.periodBillLoad == null ? b.other === null
-    : cents(b.mortgage) + cents(b.other) + b.cardMinimums.reduce((t, c) => t + cents(c.amount), 0) === cents(saved.periodBillLoad)),
-    'a saved close\'s Stack Wallet bills split sums to its saved bill total', JSON.stringify(b));
-  ok(s && s.amount === want && (want === null || (s.terms.income === saved.incomeTotal
-    && cents(s.terms.bills) + cents(s.terms.mortgage) + cents(s.terms.credit) === cents(saved.periodBillLoad)
-    && s.terms.household === saved.budgetHold)), 'a saved close\'s Stack Wallet surplus is its saved income, bills and Household budget',
-    JSON.stringify({ s, want }));
+  ok(b && b.mortgage === null && b.cardMinimums === null && b.other === null && b.trust === 'unavailable'
+    && /saved close keeps its total, not the split/.test(b.reason || ''),
+    'a saved close publishes no Stack Wallet bills split (unavailable, saved total only)', JSON.stringify(b));
+  ok(s && s.amount === null && s.terms === null && s.trust === 'unavailable' && typeof s.reason === 'string'
+    && past.periodBillLoad === saved.periodBillLoad && past.incomeTotal === saved.incomeTotal,
+    'so its surplus is withheld too, beside its saved income and bill total', JSON.stringify({ s, bills: past.periodBillLoad }));
   ok(!Object.hasOwn(saved, 'stackSummary'), 'the saved record carries no stackSummary (it is derived, never saved)');
 }
 
