@@ -207,9 +207,16 @@ test('invented inputs: closed schema, invented origin, own periods declaration, 
   // Every household id, account reference, label and payee string anywhere in
   // data.json, except the engine's own conventions (account ids hard-coded in
   // public/forecast.js, the payroll stream id, generic facility ids and the
-  // groceries category) that invented ledgers across the suite share.
+  // groceries category) that invented ledgers across the suite share. The five
+  // card ids are the card identities hard-coded in public/forecast-card-period.js
+  // (cardIdentities); an invented card ledger must use them to be published.
   const CONVENTIONS = new Set(['chequing-a', 'chequing-b', 'savings', 'savings-dont-touch', 'payroll', 'heloc',
-    'overdraft', 'groceries', 'Groceries']);
+    'overdraft', 'groceries', 'Groceries', 'travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna']);
+  // The card conventions are exactly the published card identities, so this list cannot widen silently.
+  const cardSource = fs.readFileSync(path.join(ROOT, 'public/forecast-card-period.js'), 'utf8');
+  for (const id of ['travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna']) {
+    assert.ok(cardSource.includes("['" + id + "', "), id + ' is a hard-coded card identity');
+  }
   const householdStrings = new Set();
   const collect = value => {
     if (Array.isArray(value)) { value.forEach(collect); return; }

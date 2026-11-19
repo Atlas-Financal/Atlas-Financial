@@ -1,4 +1,5 @@
 [
+  ["Stack page Bills, Budget, Mortgage and Savings cards print only published values, nothing for an unpublished one, rows carry the sheet attribute, and nothing loads without ?view=stack (B3)","test-stack-cards.js"],
   ["Stack Wallet A1: each pay period publishes its income split (Dale, Amanda, Other) summing to incomeTotal","test-income-split.js"],
   ["A card minimum filed for one card with a note naming another pays neither minimum and is held To confirm once","test-card-minimum-category-note-conflict.js"],
   ["Budget Income drawer lines print what the Income headline counted","test-income-drawer-ties-to-headline.js"],
@@ -173,6 +174,7 @@
   ["card minimum repair stock, proof and identity conservation","test-card-minimum-repair-conservation.js"],
   ["selected Seaspan card movement endpoints, coverage and conservation","test-card-period-movements.js"],
   ["posted card movement so far, independent of saved endpoints and gated by transaction evidence","test-card-posted-period-movement.js"],
+  ["Stack Wallet A6: Forecast.stackCardSummary states, per card and pay period, paid onto against spent on, from one cardPeriodMovements publication: posted only, null with a reason and never 0, pending listed and moving nothing (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-card-summary.js"],
   ["A1 own card observation date, age-neutral movement and missing evidence","test-a1-card-feed-evidence.js"],
   ["card detail panel lead and balance disclosure placement","test-card-panel-lead.js"],
   ["card-window allocation diagnostics through synthetic provider evidence","test-card-payment-diagnostics.js"],
@@ -690,5 +692,7 @@
   ["current spendable copy and recorded cash membership","test-recorded-cash-labels.js"],
   ["The Stack page's Outfit font is self-hosted same-origin under font-src 'self', with its OFL licence (F7)","test-outfit-font.js"],
   ["Each published bill row reads Paid only on payment evidence, Not paid otherwise, carried rows unlisted (Stack Wallet A3)","test-bill-paid-state.js"],
-  ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"]
+  ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
+  ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
+  ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"]
 ]

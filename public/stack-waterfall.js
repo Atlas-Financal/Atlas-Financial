@@ -58,6 +58,22 @@
     credit: 'stackSummary.surplus.terms.credit',
     surplus: 'stackSummary.surplus.amount',
   });
+  // B5: the published trust of each row's figure, for the shell's one trust treatment (StackBlocks.estClass).
+  const TRUST_SOURCES = Object.freeze({
+    dale: 'stackSummary.income.dale.trust',
+    amanda: 'stackSummary.income.amanda.trust',
+    other: 'stackSummary.income.other.trust',
+    total: 'stackSummary.income.total.trust',
+    bills: 'stackSummary.bills.trust',
+    budget: 'budgetHoldTrust',
+    mortgage: 'stackSummary.bills.trust',
+    credit: 'stackSummary.bills.trust',
+    surplus: 'stackSummary.surplus.trust',
+  });
+  const est = (view, path) => {
+    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
+    return blocks && typeof blocks.estClass === 'function' ? blocks.estClass(readPath(view, path), view) : '';
+  };
   const readPath = (view, path) => {
     let node = view;
     for (const key of path.split('.')) node = node && typeof node === 'object' ? node[key] : undefined;
@@ -83,7 +99,7 @@
   function amountCell(view, key, { sign = false } = {}) {
     const value = readPath(view, LINE_SOURCES[key]);
     return isAmount(value)
-      ? `<span class="n" data-source="${LINE_SOURCES[key]}">${escape(sign ? signed(value) : money(value))}</span>`
+      ? `<span class="n${est(view, TRUST_SOURCES[key])}" data-source="${LINE_SOURCES[key]}">${escape(sign ? signed(value) : money(value))}</span>`
       : `<span class="n" data-source="${LINE_SOURCES[key]}" data-unpublished="true"></span>`;
   }
   const line = (op, label, cell, cls = '', row = '') =>
@@ -95,7 +111,7 @@
     return cards.map((card, i) => {
       const source = `stackSummary.bills.cardMinimums.${i}.amount`;
       const cell = card && isAmount(card.amount)
-        ? `<span class="n" data-source="${source}">${escape(money(card.amount))}</span>`
+        ? `<span class="n${est(view, 'stackSummary.bills.trust')}" data-source="${source}">${escape(money(card.amount))}</span>`
         : `<span class="n" data-source="${source}" data-unpublished="true"></span>`;
       return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b><small>Minimum</small></span>${cell}</li>`;
     }).join('');
