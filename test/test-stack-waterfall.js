@@ -2,7 +2,7 @@
 /* Stack page waterfall block (B2): every printed amount is a named published
  * value, copied as is.
  *
- * public/stack/stack-waterfall.js prints the selected pay period's waterfall
+ * public/stack-waterfall.js prints the selected pay period's waterfall
  * (three income lines, Total income, − Bills, − Budget, − Mortgage, − Credit,
  * = Surplus or Deficit after deductions), Credit opening in place to one row
  * per card minimum. This proves, on invented data only:
@@ -33,7 +33,7 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail !== '' ? ' — ' + detail : ''}`);
 };
 
-const FILE = path.join(__dirname, '..', 'public', 'stack', 'stack-waterfall.js');
+const FILE = path.join(__dirname, '..', 'public', 'stack-waterfall.js');
 // 6. Registration: a shell registry present before the file loads receives it.
 const registered = [];
 globalThis.StackBlocks = { register: (name, fn) => registered.push([name, fn]) };

@@ -1,6 +1,6 @@
 /* Stack page, waterfall block (B2; behind ?view=stack). Every selector is
  * scoped to html.stack-view, so nothing here reaches the current page.
- * Colours are the shell's tokens (public/stack/stack.css): a light frame
+ * Colours are the shell's tokens (public/stack.css): a light frame
  * with a dark slab for the result. The frame itself is the shell's. */
 html.stack-view .stack-waterfall { color: var(--stack-on); }
 html.stack-view .stack-waterfall .n { font-variant-numeric: tabular-nums; white-space: nowrap; }

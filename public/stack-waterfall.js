@@ -27,7 +27,7 @@
  * render(container, ctx) with ctx = { data, plan, recommendation,
  * selectedPeriodKey, Forecast }. Pure apart from writing container.innerHTML
  * and one click listener for the Credit toggle. Its styles are its own file,
- * public/stack/stack-waterfall.css (linked by the shell). */
+ * public/stack-waterfall.css (linked by the shell). */
 (function init(root, factory) {
   const api = factory();
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
