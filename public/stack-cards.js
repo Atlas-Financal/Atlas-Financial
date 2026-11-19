@@ -43,8 +43,8 @@
     for (var i = 0; i < arguments.length; i++) if (arguments[i] === 'estimated') return true;
     return false;
   }
-  // No label: an estimated figure is drawn softer (class sc-est), never worded.
-  function estCls(on) { return on ? ' sc-est' : ''; }
+  // No label: an estimated figure is drawn softer (class stack-est), never worded.
+  function estCls(on) { return on ? ' stack-est' : ''; }
 
   // Bar width for drawing only; never printed.
   function drawWidth(part, whole) {

@@ -159,24 +159,24 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   assert.strictEqual(clicked, 2, 'Enter and Space click; other keys do not');
 }
 
-// 2c. trust: estimated figures are drawn softer (class sc-est); the word never appears; calculated ones carry no class
+// 2c. trust: estimated figures are drawn softer (class stack-est); the word never appears; calculated ones carry no class
 {
   const e = JSON.parse(JSON.stringify(view));
   e.budgetProgress.household.actual.trust = 'estimated';
   e.householdBudget[0].plannedTrust = 'estimated';
   e.stackSummary.bills.trust = 'estimated';
   const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
-  assert(/class="sc-f sc-est"/.test(cardOf('budget')) && /class="sc-bar sc-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/sc-a sc-est/g) || []).length === 1, 'only the estimated category row is soft');
-  assert(/class="sc-f sc-est"/.test(cardOf('bills')) && /class="sc-f sc-est"/.test(cardOf('mortgage')));
+  assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
+  assert((cardOf('budget').match(/sc-a stack-est/g) || []).length === 1, 'only the estimated category row is soft');
+  assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
-  assert(!html.includes('sc-est'), 'calculated figures carry no class');
+  assert(!html.includes('stack-est'), 'calculated figures carry no class');
   const se = withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 5, needed: 3, periodTarget: 8, savedTrust: 'estimated', reasons: [] }],
     totals: { saved: 5, entitlement: 8, trust: 'calculated', entitlementTrust: 'estimated', reasons: [] } });
   const sh = savingsOf(se);
-  assert(/class="sc-f sc-est"/.test(sh) && /sc-a sc-est/.test(sh) && /sc-mini sc-full sc-est/.test(sh) && !/estimated/i.test(sh));
+  assert(/class="sc-f stack-est"/.test(sh) && /sc-a stack-est/.test(sh) && /sc-mini sc-full stack-est/.test(sh) && !/estimated/i.test(sh));
   assert(!/moved \/ entitlement/.test(sh), 'no jargon subtitle');
-  assert(/sc-est/.test(css), 'the css draws the soft style');
+  assert(/stack-est/.test(css), 'the css draws the soft style');
 }
 // 2d. a completed period whose original plan Forecast withholds: no category denominator, no progress bar
 {
