@@ -31,7 +31,8 @@ const publish = x => F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
   { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay });
 const split = { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 },
   { debtId: 'heloc', amount: 50 }], trust: 'calculated' };
-const lines = (x, bills = split) => F.stackCreditLines(publish(x), bills);
+const lines = (x, bills = split) => F.stackCreditLines(publish(x), bills).lines;
+const totals = (x, bills = split) => F.stackCreditLines(publish(x), bills).totals;
 const line = (x, id, bills) => lines(x, bills).find(c => c.id === id);
 
 console.log('1. Hand-derived status, to go and minimum covered');
@@ -55,7 +56,7 @@ console.log('1. Hand-derived status, to go and minimum covered');
       && m.minimumCovered.value === 'unknown', id + ': paid / spent unavailable, so status and toGo null, covered unknown');
   }
   const h = line(x, 'heloc');
-  ok(h.minimum.amount === 50 && h.paid.amount === null && h.paid.reasons.includes('heloc-movement-not-published')
+  ok(h.minimum.amount === 50 && h.paid.amount === null && h.paid.reasons.includes('not-a-spend-card')
     && h.status === null && h.minimumCovered.value === 'unknown', 'HELOC: minimum 50 only; paid / spent not published');
 }
 
@@ -93,6 +94,28 @@ console.log('4. A6 is unchanged');
   ok(same([t.paid, t.spent, t.net, t.state, t.transactions], [base.paid, base.spent, base.net, base.state, base.transactions]),
     'stackCreditLines carries A6\'s figures as published');
   ok(F.stackCreditLines(null, split) === null, 'anything but a card-period publication publishes nothing');
+}
+
+console.log('5. Totals over stated cards, with completeness explicit');
+{
+  const x = fx.fixture();
+  const t = totals(x);
+  // Stated: Travel 100 / 207.40, Cash Back 250 / 114.20, Emerald 0 / 0. Triangle and Amazon are unavailable.
+  ok(t.paid === 350 && t.spent === 321.6 && t.completeness === 'partial' && same(t.excluded, ['triangle', 'mbna'])
+    && same(t.reasons, ['some-cards-unavailable']),
+  'partial: paid 100 + 250 + 0 = 350, spent 207.40 + 114.20 + 0 = 321.60, excluding Triangle and Amazon', JSON.stringify(t));
+  ok(t.trust === 'estimated', 'trust is the weakest stated line (Travel and Cash Back payments are estimated), not relabelled');
+  ok(!t.excluded.includes('heloc'), 'HELOC is never in the totals and never listed as excluded');
+  const all = fx.fixture();
+  all.packet.syncEvidence.forEach(r => { r.syncEvidence = 'proven'; r.fields.last_fetch = true; });
+  const full = totals(all);
+  ok(full.completeness === 'complete' && full.excluded.length === 0 && full.reasons.length === 0
+    && full.paid === 350 && full.spent === 416.9,
+  'complete when every card is stated: spent 321.60 + Triangle 51.30 + Amazon (89.00 - 45.00) = 416.90', JSON.stringify(full));
+  const none = fx.fixture(); none.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
+  const n = totals(none);
+  ok(n.paid === null && n.spent === null && n.completeness === 'none' && n.reasons.length > 0
+    && same(n.excluded, ['travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna']), 'none: null with reasons, every card excluded');
 }
 
 console.log(`\nAll stack credit line checks passed (${checks}).`);

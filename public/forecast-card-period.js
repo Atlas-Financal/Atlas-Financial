@@ -342,10 +342,10 @@
     };
     const unavailable = reason => ({ amount: null, trust: 'unavailable', reasons: [reason] });
     const heloc = { id: 'heloc', label: LINE_LABELS.heloc,
-      paid: unavailable('heloc-movement-not-published'), spent: unavailable('heloc-movement-not-published'),
-      net: unavailable('heloc-movement-not-published'), state: null, stateReasons: ['heloc-movement-not-published'],
+      paid: unavailable('not-a-spend-card'), spent: unavailable('not-a-spend-card'),
+      net: unavailable('not-a-spend-card'), state: null, stateReasons: ['not-a-spend-card'],
       transactions: [] };
-    return cards.concat([heloc]).map(card => {
+    const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
       const paid = card.paid, spent = card.spent;
       const known = paid.amount !== null && spent.amount !== null;
@@ -366,6 +366,22 @@
           trust: covered === 'unknown' ? 'unavailable' : weakest(paid.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paid.reasons.concat(minimum.reasons))] : [] } };
     });
+    // Totals over the stated cards only (lead ruling, 2026-11-19): a partial
+    // sum is incomplete, not an estimate, so its completeness is explicit and
+    // its trust is the stated lines' own. HELOC is never in the totals and is
+    // not listed as excluded: it is not a spend card.
+    const spendLines = lines.filter(line => line.id !== 'heloc');
+    const stated = spendLines.filter(line => line.paid.amount !== null && line.spent.amount !== null);
+    const excluded = spendLines.filter(line => !stated.includes(line)).map(line => line.id);
+    const totals = !stated.length
+      ? { paid: null, spent: null, trust: 'unavailable', completeness: 'none', excluded,
+        reasons: [...new Set(spendLines.flatMap(line => line.paid.reasons.concat(line.spent.reasons)))] }
+      : { paid: stated.reduce((sum, line) => sum + cents(line.paid.amount), 0) / 100,
+        spent: stated.reduce((sum, line) => sum + cents(line.spent.amount), 0) / 100,
+        trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
+        completeness: excluded.length ? 'partial' : 'complete', excluded,
+        reasons: excluded.length ? ['some-cards-unavailable'] : [] };
+    return { lines, totals };
   }
   return { publish, stackCards, stackCreditLines };
 });
