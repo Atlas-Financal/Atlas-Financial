@@ -4872,6 +4872,12 @@ function observeCore(input, capture) {
     cycleOpensOn: (due, day) => statementCloseDateForDue(due, day) || due,
     isExplicitlyPosted: tx => explicitlyPostedCounts.get(tx.providerTransactionId) === 1,
     coverageReference: cardCoverageReference,
+    // The served row's payee card, by the same derivation and identity flags.
+    payeeCardDestination: tx => payeeCardDestination(tx, mappingFor(mapDoc, tx.providerAccountId),
+      Forecast.classifyCurrentPeriodTransaction.derivedFlags({ payee: tx.payee, displayedPayee: tx.payee,
+        originalName: tx.originalName, original_name: tx.originalName, originalMerchant: tx.originalName || tx.payee,
+        notes: tx.notes, note: tx.notes || tx.note, kind: tx.kind, date: tx.date, amount: tx.amount },
+      planForIdentity)),
     alreadyAllocated: tx => (planForIdentity.cardPurchaseCoverage?.payments || []).some(p =>
       p.confirmed === true && (p.debitRef === cardCoverageReference(tx) || p.creditRef === cardCoverageReference(tx))),
     matchesIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
@@ -5240,6 +5246,16 @@ function paydayGapCompleteFromEvidence(opts) {
     }
   }
   return true;
+}
+
+// The payee identity's card (MBNA, CAN TIRE MC as Triangle) for a household
+// cash or Savings (reserve) debit, or null: money onto the card counts from
+// either (owner rule). The generic TD "TFR-TO C/C" names no card. The one
+// derivation, read by the served row and by the card-minimum observer.
+function payeeCardDestination(tx, mapping, flags) {
+  if (!tx || !['household-cash', 'household-reserve'].includes(atlasAccountRole(mapping))) return null;
+  if (isMbnaCardPayment(tx)) return 'mbna';
+  return flags && flags.cardPaymentIdentity === true && flags.tdCardPaymentIdentity !== true ? 'triangle' : null;
 }
 
 function atlasAccountRole(mapping) {
@@ -7430,10 +7446,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // (MBNA, CAN TIRE MC) on a household cash or Savings (reserve) debit:
       // money onto the card counts from either (owner rule). The generic TD
       // "TFR-TO C/C" names no card and never sets this.
-      ...(['household-cash', 'household-reserve'].includes(atlasAccountRole(mapping)) && amount > 0
-        ? (isMbnaCardPayment(tx) ? { cardPaymentDestination: 'mbna' }
-          : flags.cardPaymentIdentity === true && flags.tdCardPaymentIdentity !== true
-            ? { cardPaymentDestination: 'triangle' } : {}) : {}),
+      ...(amount > 0 && payeeCardDestination(tx, mapping, flags)
+        ? { cardPaymentDestination: payeeCardDestination(tx, mapping, flags) } : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
       ...(flags.helocFinanceChargeIdentity === true ? { helocFinanceChargeIdentity: true } : {}),
       internalTransferIdentity: flags.internalTransferIdentity,

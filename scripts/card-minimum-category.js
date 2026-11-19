@@ -35,7 +35,7 @@ function categoryDebt(category) {
 function observe(input) {
   const { plan, accountMap, asOf, transactionWindow: window, pendingCoverage,
     transactions = [], matchesIdentity, matchesPendingIdentity, matchesReversalIdentity, alreadyAllocated, cycleOpensOn,
-    isExplicitlyPosted, coverageReference } = input;
+    isExplicitlyPosted, coverageReference, payeeCardDestination } = input;
   const packet = { source: SOURCE, asOf, payments: [], disagreements: [] };
   if (!iso(asOf) || !window || window.complete !== true || window.hasMore === true
       || window.truncated === true || !iso(window.startDate) || !iso(window.endDate)
@@ -89,12 +89,14 @@ function observe(input) {
     // A pending debit is a label candidate only (Payment pending), and only by
     // the exact minimum category: a note needs the card's posted credit.
     const pendingCandidate = tx.pending === true && !!byCategory;
-    // A category naming one card and a "card payment:" note naming a different
-    // definite card is a conflict (lead ruling, ATLAS LEAD 11, 2026-11-19):
-    // neither wins, so it pays no card's minimum and gets no pending label.
-    // An owner record of the debit still decides it (the owned branch below).
+    // A category, a payee identity and a "card payment:" note that name
+    // different definite cards are a conflict (lead rulings, ATLAS LEAD 11,
+    // 2026-11-19; Atlas blocker on #1412): neither wins, so it pays no card's
+    // minimum and gets no pending label. An owner record of the debit still
+    // decides it (the owned branch below).
+    const payeeCard = byCategory && typeof payeeCardDestination === 'function' ? payeeCardDestination(tx) : null;
     const noteConflict = !!byCategory && Forecast.cardPaymentDestinationConflict({ notes: tx.notes,
-      minimumCategoryDebt: byCategory });
+      minimumCategoryDebt: byCategory, ...(payeeCard ? { cardPaymentDestination: payeeCard } : {}) });
     if (!debtId || (tx.pending === true && !pendingCandidate) || tx.contradictoryEvidence === true
         || tx.isGroup || tx.parentId || tx.currency !== 'cad' || tx.isIncome === true
         || !(amount > 0) || !iso(tx.date) || tx.date > asOf || tx.date < window.startDate

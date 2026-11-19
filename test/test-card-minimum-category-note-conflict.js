@@ -3,7 +3,9 @@
  * Y (lead ruling, ATLAS LEAD 11, 2026-11-19, found by LEDGER A on #1407). Neither the category nor the note wins
  * silently: the debit counts toward neither card's minimum, X's minimum stays to confirm, and the debit is held To
  * confirm once (one listing, no double count with #1388 / #1401 / #1407). The shared reading is #1407's
- * cardPaymentDestinationConflict, with destination = the payee identity's card ?? the posted minimum category's card.
+ * cardPaymentDestinationConflict over three definite cards: the payee identity's card, the posted minimum category's
+ * card and the note's card. Any two that disagree are a conflict, with or without a note, with no precedence (Atlas
+ * blocker on #1412 and the lead's ruling for its repair).
  * Pending rows stay label-only (#1402): a conflicted pending debit gets no Payment pending label.
  *
  * Path: invented raw Lunch Money rows (category and note) -> scripts/live-plan.js fromObservation (the card-minimum
@@ -39,11 +41,17 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' â
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 const CATEGORY = 'Minimum payment - TD Travel Visa';
-function serve({ notes = null, account = 'bills', pending = false, opts = {}, edit } = {}) {
-  const rows = [[account, 25, null, 'cash', { id: 91001, payee: 'TFR-TO C/C', original_name: 'AB123 TFR-TO C/C',
-    category_id: 9001, category_name: CATEGORY, is_pending: pending, ...(notes ? { notes } : {}) }]];
+const MBNA_CATEGORY = 'Minimum payment - Amazon Mastercard';
+function serve({ notes = null, account = 'bills', pending = false, opts = {}, edit, payee = 'TFR-TO C/C',
+  originalName = 'AB123 TFR-TO C/C', category = true } = {}) {
+  const named = category === 'mbna' ? { category_id: 9002, category_name: MBNA_CATEGORY }
+    : category ? { category_id: 9001, category_name: CATEGORY } : { category_name: 'Credit Card Payment' };
+  const rows = [[account, 25, null, 'cash', { id: 91001, payee, original_name: originalName, ...named,
+    is_pending: pending, ...(notes ? { notes } : {}) }]];
   const x = world(rows, { savingsOpening: 500, ...opts, edit: x => {
     x.payload.categories = [{ id: 9001, name: CATEGORY, is_income: false, is_group: false,
+      exclude_from_totals: true, exclude_from_budget: true },
+    { id: 9002, name: MBNA_CATEGORY, is_income: false, is_group: false,
       exclude_from_totals: true, exclude_from_budget: true }];
     if (edit) edit(x);
   } });
@@ -53,10 +61,11 @@ function serve({ notes = null, account = 'bills', pending = false, opts = {}, ed
   const held = period.heldOutflowsToConfirm;
   const bill = id => (s.advice.defaultView.bills || []).filter(b => b.id === id).map(b => [b.status, b.remaining]);
   return { s, evidence, payments: (evidence.payments || []).length, pendingPayments: evidence.pendingPayments || null,
-    travel: bill('travel'), second: bill('second-minimum'),
+    travel: bill('travel'), second: bill('second-minimum'), mbna: bill('mbna'),
     held: held && Array.isArray(held.recon) ? held.recon.map(r => [r.amount, r.reason || r.includeReason || null]) : [],
     asked: ((period.cardPurchaseCoverage || {}).toConfirm || []).map(r => [r.amount, r.diagnostic || null]),
     available: s.period.fromTodayFunding.availableNow, afterDeductions: s.advice.defaultView.predictedEndingBalance,
+    reconciled: (s.coverage.payments || []).filter(p => p.status === 'reconciled').length,
     debit: s.packet.transactions.find(t => t.amount === 25) };
 }
 
@@ -96,6 +105,88 @@ console.log('card Y\'s own minimum is not paid either');
   ok(toY.afterDeductions === base.afterDeductions - 25 && toY.available === base.available - 25,
     'noted for the second card: exactly one 25 more out than the control (the held debit), no double count',
     JSON.stringify([base.available, toY.available, base.afterDeductions, toY.afterDeductions]));
+}
+
+console.log('a payee that agrees with the note never masks a contradicting category (Atlas blocker on #1412)');
+{
+  // Invented: two cards, MBNA configured for pay-down with its own 40 minimum, the travel card's 25 minimum, Bills
+  // 500, groceries 150. A 25 Bills debit with payee MBNA PAYMENT and note "card payment: MBNA". By hand:
+  //   - no category (control): pay-down settles it against MBNA (one reconciled payment, MBNA 15 left);
+  //     available = 500 - 25 debit - 25 travel - 15 MBNA - 150 = 285.
+  //   - filed as Minimum payment - TD Travel Visa: the category contradicts the note, so it pays neither card: no
+  //     reconciliation, travel still due 25, MBNA still due 40, held once;
+  //     available = 500 - 25 - 25 - 40 - 150 = 260, exactly the 25 debit below the control (counted once).
+  const opts = { twoCards: true, payDownOnly: ['mbna'] };
+  const second = x => x.data.plan.obligations.push({ id: 'second-minimum', label: 'Invented second minimum', debtId: 'mbna',
+    effect: 'payment', frequency: 'once', date: x.asOf, amount: 40, payingAccount: 'chequing-a', confidence: 'confirmed' });
+  const mbnaPayee = { payee: 'MBNA PAYMENT', originalName: 'MBNA PAYMENT', notes: 'card payment: MBNA', opts, edit: second };
+  const payDown = serve({ ...mbnaPayee, category: false });
+  ok(payDown.reconciled === 1 && same(payDown.second, [['still due', 15]]) && payDown.held.length === 0 && payDown.available === 285,
+    'control (payee and note MBNA, no category): pay-down settles MBNA; 15 left; available 285',
+    JSON.stringify([payDown.reconciled, payDown.second, payDown.held, payDown.available]));
+  const all = serve(mbnaPayee);
+  ok(all.debit.cardPaymentDestination === 'mbna' && all.debit.minimumCategoryDebt === 'travelvisa'
+    && all.debit.cardPaymentNoteDestination === 'mbna', 'the served row carries all three: payee MBNA, category travel, note MBNA');
+  ok(all.payments === 0 && all.reconciled === 0 && same(all.travel, [['still due', 25]]) && same(all.second, [['still due', 40]]),
+    'all three set: pays neither card: no minimum payment, no pay-down reconciliation; both minimums still due (25, 40)',
+    JSON.stringify([all.payments, all.reconciled, all.travel, all.second]));
+  ok(same(all.held, [[25, 'card-payment-destination-conflict']]) && all.asked.length === 0,
+    'all three set: held To confirm once, the conflict named; the drawer does not ask again', JSON.stringify([all.held, all.asked]));
+  ok(all.available === 260 && payDown.available - all.available === 25
+    && payDown.afterDeductions - all.afterDeductions === 25,
+  'all three set: available 260, and both figures exactly the 25 debit below the control (no double count)',
+  JSON.stringify([all.available, payDown.afterDeductions, all.afterDeductions]));
+}
+
+console.log('any two definite cards that disagree are a conflict; all three agreeing is not (lead ruling on #1412)');
+{
+  // Invented: two cards, MBNA configured for pay-down with its own 20 minimum (obligation 'mbna', whose identity is
+  // the "MBNA M/C" payee), the travel card's 25 minimum, Bills 500, groceries 150. A 25 Bills debit. By hand:
+  //   - a conflict pays neither card: travel 25 and MBNA 20 still due, nothing reconciled, held once;
+  //     available = 500 - 25 debit - 25 - 20 - 150 = 280.
+  //   - all three naming MBNA: the MBNA minimum category pays the MBNA minimum (PAID); nothing held.
+  const opts = { twoCards: true, payDownOnly: ['mbna'] };
+  const mbnaMinimum = x => x.data.plan.obligations.push({ id: 'mbna', label: 'Invented MBNA minimum', debtId: 'mbna',
+    effect: 'payment', frequency: 'once', date: x.asOf, amount: 20, payingAccount: 'chequing-a', confidence: 'confirmed' });
+  const mbnaPayee = { payee: 'MBNA M/C', originalName: 'MBNA M/C', opts, edit: mbnaMinimum };
+  const conflictOf = (label, x) => {
+    ok(x.payments === 0 && x.reconciled === 0 && same(x.travel, [['still due', 25]]) && same(x.mbna, [['still due', 20]])
+      && same(x.held, [[25, 'card-payment-destination-conflict']]) && x.asked.length === 0 && x.available === 280,
+    label + ': pays neither card (25 and 20 still due, nothing reconciled); held once; available 280',
+    JSON.stringify([x.payments, x.reconciled, x.travel, x.mbna, x.held, x.asked, x.available]));
+  };
+  const payeeCategory = serve({ ...mbnaPayee });
+  ok(payeeCategory.debit.cardPaymentDestination === 'mbna' && payeeCategory.debit.minimumCategoryDebt === 'travelvisa'
+    && !Object.hasOwn(payeeCategory.debit, 'cardPaymentNoteDestination'), 'payee MBNA and category travel, no note: both stamped');
+  conflictOf('payee vs category (no note)', payeeCategory);
+  conflictOf('category vs note (payee names no card)', serve({ opts, edit: mbnaMinimum, notes: 'card payment: MBNA' }));
+  conflictOf('payee vs note (no minimum category)', serve({ ...mbnaPayee, category: false, notes: 'card payment: Travel Visa' }));
+  const agree = serve({ ...mbnaPayee, category: 'mbna', notes: 'card payment: MBNA' });
+  ok(agree.debit.cardPaymentDestination === 'mbna' && agree.debit.minimumCategoryDebt === 'mbna'
+    && agree.debit.cardPaymentNoteDestination === 'mbna', 'all three name MBNA: all stamped');
+  ok(agree.payments === 1 && same(agree.mbna, [['PAID', 0]]) && same(agree.travel, [['still due', 25]])
+    && agree.held.length === 0, 'all three agree: no conflict; the MBNA minimum is paid; nothing held',
+  JSON.stringify([agree.payments, agree.mbna, agree.travel, agree.held]));
+}
+
+console.log('the observer refuses a payee/category disagreement on its own (identity matched by any path)');
+{
+  // A direct call: identity is stubbed as matched (as a recurring link or item note could match it), so only the
+  // destination guard decides. Invented ledger; one obligation 'travel' due 2026-09-20.
+  const plan = { income: [], bills: [], commitments: [], obligations: [{ id: 'travel', debtId: 'travelvisa', effect: 'payment', frequency: 'once', date: '2026-09-20',
+    amount: 25, payingAccount: 'chequing-a', confidence: 'confirmed' }], debts: [{ id: 'travelvisa', statementCloseDay: 17 }] };
+  const base = { plan, asOf: '2026-09-20',
+    accountMap: { mappings: [{ providerAccountId: '3001', canonical: { collection: 'cash', id: 'chequing-a' }, atlasRole: 'household-cash' }] },
+    transactionWindow: { startDate: '2026-09-01', endDate: '2026-09-20', complete: true, hasMore: false, truncated: false },
+    pendingCoverage: { complete: true }, cycleOpensOn: () => '2026-08-25', matchesIdentity: () => true,
+    isExplicitlyPosted: () => true,
+    transactions: [{ providerTransactionId: '91001', providerAccountId: '3001', date: '2026-09-18', amount: 25, currency: 'cad',
+      pending: false, minimumCategoryDebt: 'travelvisa', payee: 'MBNA M/C', notes: null }] };
+  const paid = Category.observe(base).payments.length;
+  const refused = Category.observe({ ...base, payeeCardDestination: () => 'mbna' }).payments.length;
+  const agreeing = Category.observe({ ...base, payeeCardDestination: () => 'travelvisa' }).payments.length;
+  ok(paid === 1 && refused === 0 && agreeing === 1,
+    'a payee card that disagrees with the category refuses the payment; an agreeing or absent one does not', JSON.stringify([paid, refused, agreeing]));
 }
 
 console.log('from Savings');
