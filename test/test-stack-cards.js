@@ -86,7 +86,7 @@ assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
 assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
 const sv = JSON.parse(JSON.stringify(view));
 sv.stackSummary.savings = { items: [{ id: 'r', label: 'Rainy day', saved: 20.5, needed: 40 }, { id: 't', label: 'Trip', saved: 0, needed: 90.25 }, { id: 'c', label: 'Car <fund>', saved: 5, needed: 60 }],
-  totals: { saved: 20.5, needed: 130.25, completeness: 'none', excluded: ['c', 'gone'] } };
+  totals: { saved: 20.5, entitlement: 130.25, needed: 999.99, completeness: 'none', excluded: ['c', 'gone'] } };
 const sh = buildCardsHTML(ctx(sv));
 const sc = sh.split('data-stack-card="savings"')[1].split('</details>')[0];
 assert(sc.includes(fmt(20.5) + '<i> of ' + fmt(130.25)), 'headline is saved of needed');
@@ -97,10 +97,10 @@ amounts(sc).forEach(a => assert([20.5, 130.25, 40, 0, 90.25, 5, 60].map(fmt).inc
 // pool-level: moved of needed; goals without their own saved read "needs", no bar; one with saved reads "of" with a bar
 const pv = JSON.parse(JSON.stringify(sv));
 pv.stackSummary.savings.totals.completeness = 'pool-level';
-pv.stackSummary.savings.items[0].saved = null; pv.stackSummary.savings.items[1].saved = null;
+pv.stackSummary.savings.items[0].reasons = ['net-of-period-transfers']; pv.stackSummary.savings.items[0].saved = null; pv.stackSummary.savings.items[1].saved = null;
 const pc = buildCardsHTML(ctx(pv)).split('data-stack-card="savings"')[1].split('</details>')[0];
-assert(pc.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' needed</i>'), 'pool header');
-assert(pc.includes('<i>needs </i>' + fmt(40)) && pc.includes('<i>needs </i>' + fmt(90.25)));
+assert(pc.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' this period</i>'), 'pool header');
+assert(pc.includes('<i>still to set aside </i>' + fmt(40)) && pc.includes('<i>needs </i>' + fmt(90.25)));
 assert((pc.match(/sc-mini/g) || []).length === 1, 'only the goal with its own saved has a bar');
 assert(pc.includes(fmt(5) + '<i> of ' + fmt(60)));
 assert(!/Funded/i.test(pc) && pc.includes('excludes Car &lt;fund&gt;'));
@@ -123,3 +123,12 @@ require(file); // loads inertly with no StackBlocks
 assert.deepStrictEqual(registered, {});
 console.log('test-stack-cards: ok');
 
+
+// future period: totals.saved null => no header figure; rows say needs
+{
+  const fv = JSON.parse(JSON.stringify(sv));
+  fv.stackSummary.savings.totals = { saved: null, entitlement: null, completeness: 'none', excluded: [] };
+  fv.stackSummary.savings.items = [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }];
+  const fh = buildCardsHTML(ctx(fv)).split('data-stack-card="savings"')[1].split('</details>')[0];
+  assert(!fh.includes('sc-f') && fh.includes('<i>needs </i>' + fmt(40)) && !fh.includes('sc-mini'));
+}

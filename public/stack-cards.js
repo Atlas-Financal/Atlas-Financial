@@ -14,7 +14,7 @@
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
- *     {saved, needed, completeness ('pool-level' | 'none'), excluded[] (ids of goals with no needed)}  (A5; plain numbers or null)
+ *     {saved, entitlement, completeness ('pool-level' | 'none'), excluded[] (ids of goals with no needed)}  (A5; plain numbers or null)
  */
 (function (root) {
   'use strict';
@@ -127,8 +127,9 @@
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
     var t = sv.totals || {};
     var amt = function (v) { return v; }; // plain numbers or null (A5)
-    var saved = money(amt(t.saved)), needed = money(amt(t.needed));
-    if (saved == null && needed == null && !items.length) return '';
+    var saved = money(amt(t.saved)), needed = money(amt(t.entitlement));
+    if (saved == null && !items.length) return '';
+    if (saved == null) needed = null; // nothing moved published (a future period): no header figure
     var labelOf = {};
     items.forEach(function (i) { if (i.id != null) labelOf[String(i.id)] = i.label; });
     var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
@@ -142,13 +143,14 @@
       var s = money(amt(i.saved)), n = money(amt(i.needed));
       var own = s != null;
       var right = own ? '<span class="sc-a">' + esc(s) + (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>'
-        : n == null ? '' : '<span class="sc-a"><i>needs </i>' + esc(n) + '</span>';
+        : n == null ? '' : '<span class="sc-a"><i>' + (Array.isArray(i.reasons) && i.reasons.indexOf('net-of-period-transfers') >= 0
+          ? 'still to set aside ' : 'needs ') + '</i>' + esc(n) + '</span>';
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b>' +
         (own ? '<span class="sc-mini"><i style="width:' + drawWidth(amt(i.saved), amt(i.needed)) + '%"></i></span>' : '') +
         '</span>' + right + '</li>';
     }).join('') + '</ul>';
     return strip('savings', 'Savings', ex || (pool ? 'moved / needed' : 'needed'), saved, needed,
-      drawWidth(amt(t.saved), amt(t.needed)), items.length ? body : '', pool ? ' moved of ' : ' of ', pool ? ' needed' : '');
+      drawWidth(amt(t.saved), amt(t.entitlement)), items.length ? body : '', pool ? ' moved of ' : ' of ', pool ? ' this period' : '');
   }
 
   function buildCardsHTML(ctx) {
