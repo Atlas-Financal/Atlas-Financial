@@ -118,4 +118,14 @@ console.log('5. Totals over stated cards, with completeness explicit');
     && same(n.excluded, ['travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna']), 'none: null with reasons, every card excluded');
 }
 
+console.log('6. A payment row with no allocation is estimated, never calculated');
+{
+  const pub = { source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current',
+    cards: [{ id: 'travelvisa', label: 'Travel', postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] },
+      posted: [{ id: 'p', date: '2026-08-18', payee: 'Invented', amount: -40, kind: 'payment', pending: false }], pending: [] }] };
+  const card = F.stackCardSummary(pub)[0];
+  ok(card.paid.amount === 40 && card.paid.trust === 'estimated' && card.paid.reasons.includes('card-payment-unconfirmed'),
+    'a payment with no paymentAllocation: paid 40, estimated');
+}
+
 console.log(`\nAll stack credit line checks passed (${checks}).`);

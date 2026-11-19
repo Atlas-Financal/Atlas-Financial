@@ -287,8 +287,11 @@
         if (value == null) { paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified'); continue; }
         if (row.kind === 'payment') {
           paidCents += -value;
-          if (row.paymentAllocation && row.paymentAllocation.status !== 'reconciled') paidTrust = 'estimated';
-          if (row.paymentAllocation && row.paymentAllocation.status !== 'reconciled') paidReasons.push('card-payment-unconfirmed');
+          // A payment the card ledger has not reconciled (or carries no
+          // allocation at all) is estimated; only a reconciled one is calculated.
+          if (!row.paymentAllocation || row.paymentAllocation.status !== 'reconciled') {
+            paidTrust = 'estimated'; paidReasons.push('card-payment-unconfirmed');
+          }
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
         else if (row.kind === 'credit-unconfirmed') {
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
