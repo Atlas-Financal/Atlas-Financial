@@ -67,12 +67,17 @@ function once(needle) {
 }
 for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK, SEARCH_MEMO, SEARCH_GUESS]) once(anchor);
 once('  function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {');
+// The weekly cap search's holder (speed-up 3) is a second kind of search.
+const WEEKLY_HOLDER = '    const weeklyHeldReuse = { plan, entries: [] };';
+once(WEEKLY_HOLDER);
 // Every copy counts fresh computations and walk resolutions the same way.
-// Each payday search, and each hold-set computation made inside one (the
-// caller handed a holder slot), are counted too.
+// Each search that hands its probes a holder (a payday search, a weekly cap
+// search), and each hold-set computation made inside one (the caller handed
+// a holder slot), are counted too.
 const SEARCH_START = '  function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {';
 const COUNTED = SOURCE.replace(COMPUTE, count('fresh') + ' if (reuse) ' + count('freshInSearch') + ' ' + COMPUTE)
   .replace(SEARCH_START, SEARCH_START + ' ' + count('searches'))
+  .replace(WEEKLY_HOLDER, WEEKLY_HOLDER + ' ' + count('searches'))
   .replace(WALK, '    ' + count('walkResolves') + '\n' + WALK);
 const patched = (needle, replacement) => COUNTED.replace(needle, replacement);
 // 1. Reference: no holder is ever honoured, so every call computes afresh.

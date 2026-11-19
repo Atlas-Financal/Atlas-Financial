@@ -2939,8 +2939,15 @@
   // income overrides and additional income events), but it returns a new
   // object and a new closure each time, which could never match by identity.
   // The hold set itself is still computed from the resolved options.
+  // The weekly cap search (recommendWeekly) hands its probes a holder too.
+  // Its probes differ only in `weeklyVariable`, which the walk spends day by
+  // day in simulateModel and which neither expandEvents nor
+  // calendarIncomeSections reads; its `seq` is one object for the whole
+  // search, so it matches by identity. test/test-weekly-search-held-income.js
+  // varies weeklyVariable alone and checks the expansion and the hold set
+  // are unchanged.
   const HELD_OTHER_INCOME_PROBE_ONLY = new Set(
-    ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse']);
+    ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse', 'weeklyVariable']);
   function heldOtherIncomeInputsMatch(a, b) {
     if (a === b) return true;
     if (!a || !b) return false;
@@ -20200,8 +20207,11 @@
     });
     if (searchOpts.viewDays == null) searchOpts.viewDays = searchOpts.horizonDays;
     const seq = fundingSequence(plan, asOf, searchOpts);
+    // One held-income holder for this search only (see heldOtherIncomeKeys):
+    // the probes differ only in weeklyVariable, so the hold set is built once.
+    const weeklyHeldReuse = { plan, entries: [] };
     const fits = w => protectedPlanCheck(plan, asOf, Object.assign({}, searchOpts, {
-      weeklyVariable: w, seq,
+      weeklyVariable: w, seq, heldOtherIncomeReuse: weeklyHeldReuse,
     })).feasible;
     if (!fits(0)) return 0; // even zero spending breaches the protected plan
     let lo = 0, hi = 5000;
