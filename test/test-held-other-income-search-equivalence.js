@@ -47,6 +47,11 @@ const GIVEN = 'const given = callerOpts || opts;';
 // Inside resolveDalePayrollWalk, past its early return: reached only when the
 // options really carry walk data to resolve.
 const WALK = '    const through = walk.through;\n    const represented = new Set(walk.represented || []);';
+// The payday search's own probe saving (LEAD 10 hotspot #2): its per-search
+// probe memo and verified boundary guess. Switched off together, they give
+// the full per-probe bisection this holder's saving was measured against.
+const SEARCH_MEMO = '      let result = checked.get(cents);';
+const SEARCH_GUESS = '    if (guess != null && guess >= loC && guess < hiC && fits(guess)) {';
 
 function compile(source) {
   const mod = new Module(FILE, module);
@@ -60,9 +65,14 @@ function once(needle) {
   const at = SOURCE.indexOf(needle);
   assert.ok(at >= 0 && SOURCE.indexOf(needle, at + 1) < 0, 'patch anchor occurs exactly once: ' + needle);
 }
-for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK]) once(anchor);
+for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK, SEARCH_MEMO, SEARCH_GUESS]) once(anchor);
+once('  function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {');
 // Every copy counts fresh computations and walk resolutions the same way.
-const COUNTED = SOURCE.replace(COMPUTE, count('fresh') + ' ' + COMPUTE)
+// Each payday search, and each hold-set computation made inside one (the
+// caller handed a holder slot), are counted too.
+const SEARCH_START = '  function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {';
+const COUNTED = SOURCE.replace(COMPUTE, count('fresh') + ' if (reuse) ' + count('freshInSearch') + ' ' + COMPUTE)
+  .replace(SEARCH_START, SEARCH_START + ' ' + count('searches'))
   .replace(WALK, '    ' + count('walkResolves') + '\n' + WALK);
 const patched = (needle, replacement) => COUNTED.replace(needle, replacement);
 // 1. Reference: no holder is ever honoured, so every call computes afresh.
@@ -83,9 +93,19 @@ const checking = compile(patched(HIT,
 // 3. Teeth: a reuse that forgets the hold set.
 const forgetful = compile(patched(HIT,
   'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) return new Set();'));
-assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey]).size === 5, 'five independent engine copies');
+// The holder's saving, on equal search work. The search's own probe saving
+// (memo and guess) is switched off on both sides, so the full per-probe
+// bisection runs with the holder off (perProbe) and on (holderBisect): only
+// the holder differs, as when its four-in-five bar was set. The shipped path
+// (memo and guess on) is checked separately against reference, which differs
+// from shipped only by the holder too.
+const fullBisection = text => text.replace(SEARCH_MEMO, '      let result;').replace(SEARCH_GUESS, '    if (false) {');
+const perProbe = compile(fullBisection(patched(HOLDER, 'const holder = null;')));
+const holderBisect = compile(fullBisection(COUNTED));
+assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey, perProbe, holderBisect]).size === 7,
+  'seven independent engine copies');
 
-const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0, walkResolves: 0 }; };
+const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, freshInSearch: 0, searches: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0, walkResolves: 0 }; };
 function outcome(F, data, asOf, extra) {
   reset();
   const input = structuredClone(data);
@@ -169,9 +189,21 @@ for (const [label, world, extra, expectHeld] of CASES) {
     `${before.proof.fresh} without, ${after.proof.fresh} with`);
   if (world.transactions !== 0) {
     ok(checked.proof.reuses > 0, 'the payday search reaches reuse on this world', String(checked.proof.reuses));
-    // The saving this change exists for: at least four in five rebuilds go.
-    ok(after.proof.fresh * 5 <= before.proof.fresh, 'at least four in five hold-set rebuilds are gone',
-      `${before.proof.fresh} -> ${after.proof.fresh}`);
+    // The saving this change exists for, on equal search work (the full
+    // per-probe bisection on both sides): at least four in five rebuilds go.
+    const everyProbe = outcome(perProbe, data, AS_OF, extra);
+    const holderOn = outcome(holderBisect, data, AS_OF, extra);
+    ok(holderOn.proof.fresh * 5 <= everyProbe.proof.fresh,
+      'full bisection: at least four in five hold-set rebuilds are gone with the holder',
+      `${everyProbe.proof.fresh} -> ${holderOn.proof.fresh}`);
+    // The shipped search (memo and guess on), holder on versus off: inside a
+    // search the hold set is built at most once per search, while without the
+    // holder this world rebuilds it more often than that.
+    ok(before.proof.searches === after.proof.searches && after.proof.searches > 0
+      && before.proof.freshInSearch > before.proof.searches
+      && after.proof.freshInSearch <= after.proof.searches,
+      'shipped search: at most one hold-set rebuild per search with the holder',
+      `${after.proof.searches} searches: ${before.proof.freshInSearch} rebuilds without the holder, ${after.proof.freshInSearch} with`);
   }
   reuses += checked.proof.reuses;
   nonEmptyReuses += checked.proof.nonEmptyReuses;
