@@ -12744,6 +12744,9 @@
       }
       out.set(row.key, cents);
     }
+    // The goals' saved must add up to the period's transfers, or the page would
+    // print two figures that disagree: a pool member in no goal row withholds it.
+    if ([...out.values()].reduce((a, b) => a + b, 0) !== transferred) return null;
     return out;
   }
   function stackSavings(view, result) {

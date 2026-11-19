@@ -24,15 +24,18 @@
  *      target 80 either way; 0 vs 30 moved of 80; next and future periods gross,
  *      nothing moved, 'future-period'; past periods all null;
  *   2. every period of the invented figures evaluations (and the harness item
- *      world): each item is its savingsFunding row copied, saved null, the
- *      totals rules, pool-level only on the current period, closed reasons,
- *      no status field and no funded wording;
+ *      world): each item's needed is its savingsFunding row copied, the goals'
+ *      saved (current period only) sum to the period's transfers, the totals
+ *      rules, pool-level only on the current period, closed reasons, no status
+ *      field and no funded wording;
  *   3. every existing field is byte-equal without the new key;
  *   4. mutants are caught: saved from the pool backing (the savings-pot
  *      rule), transfers attributed farthest-due first, needed from the goal's
  *      whole cost, a partial needed total, a
  *      moved total on a future period, a missing entitlement, the net reason
- *      dropped.
+ *      dropped;
+ *   6. the figures snapshot captures every total and per-goal figure and tag;
+ *   7. the attribution fails closed on inputs it cannot trust.
  *
  * Invented data only. `node test/test-stack-savings-summary.js` */
 const fs = require('node:fs');
@@ -256,6 +259,9 @@ console.log('7. The attribution fails closed on inputs it cannot trust');
   ok(attribute(world({ asOf: undefined })) === null, 'a missing as-of withholds the split (the stale-balance guard cannot pass silently)');
   ok(attribute(world({ rows: [{ key: 'group:club', members: ['club@2026-12-01', 'gone@2026-12-09'] }] })) === null,
     'a goal member missing from the pool backing withholds the split (never counted as 0)');
+  ok(attribute(world({ backing: { status: 'ready', unallocated: 0, items: [{ key: 'club@2026-12-01', saved: 20, needed: 50, date: '2026-12-01' },
+    { key: 'orphan@2026-12-09', saved: 10, needed: 10, date: '2026-12-09' }] } })) === null,
+    'a pool member in no goal row withholds the split (the goals\' saved would not add up to the moved total)');
   ok(attribute(world({ goalAllocation: { status: 'ready', balanceDates: [{ date: '2026-10-19' }] } })) === null, 'a pool balance dated before the as-of withholds the split');
 }
 
