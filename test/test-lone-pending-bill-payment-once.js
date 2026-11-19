@@ -212,6 +212,43 @@ console.log('3c. Every veto input reads only evidence effective at the observati
   // (prior Oct 9), so it cannot veto; the branch also bounds it itself.
   const f = serve([debit('2026-10-16', { pending: true })], { ...opts18, planPatch: plan => { plan.opening.priorAsOf = '2026-10-19'; } });
   ok(heldOn18(f.rows[0]), 'insideOpening: an opening boundary after the observation date does not veto; Oct 16 held');
+  // Lead question on #1400 (ATLAS LEAD 11): could holding that pending make
+  // money look higher, because the opening already absorbed the occurrence?
+  // No: Forecast plans from the observation date, and the opening absorbs
+  // only occurrences dated before that start (forecast.js representedKeySet:
+  // the start day itself, or prior <= date < start), so an occurrence on or
+  // after the observation is reserved whatever boundary the canonical holds.
+  // The bill stays still due and reserved once, and the held pending is
+  // counted once: 900, never 1000 (no reserve and no spend) and no longer
+  // 800 (both).
+  const [fBill] = f.billIn(f.current, 'hydro');
+  ok(fBill && fBill.date === '2026-10-18' && fBill.status === 'still due' && f.remaining === 100,
+    'opening boundary after the observation: the Oct 18 bill stays still due, 100 reserved', JSON.stringify([fBill && fBill.status, f.remaining]));
+  ok(f.balance === 900 && f.balance !== 1000, 'opening boundary after the observation: balance 900 (once), never 1000', String(f.balance));
+  // The same world with Forecast served the opening as the canonical held it
+  // (priorAsOf Oct 19 kept, not re-dated): still not absorbed, still 900.
+  {
+    const w = H.baseWorld('2026-10-17');
+    w.windowStart = '2026-10-01';
+    w.bills = [due18];
+    w.identityRules = w.identityRules.concat([{ eventId: 'hydro', payeePattern: 'Invented Hydro', atlasAccountId: 'chequing-a', direction: 'debit' }]);
+    w.transactions = [H.lm({ id: ++nextId, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
+      payee: 'Invented employer' }), debit('2026-10-16', { pending: true })];
+    H.productionOpening(w);
+    const plan = H.planOf(w);
+    plan.opening.priorAsOf = '2026-10-19';
+    const r = Live.fromObservation({ data: H.canonicalOf(w, plan), payload: H.rawPayload(w),
+      accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
+    if (r.error) throw r.error;
+    const served = JSON.parse(JSON.stringify(r.data.plan));
+    served.opening.priorAsOf = '2026-10-19';
+    const adv = F.recommend(served, '2026-10-17', { currentPeriodActuals: r.data.liveOverlay.currentPeriodActuals, debts: r.data.debts });
+    const cur = adv.defaultView.calendarPeriods.find(p => p.start <= '2026-10-17' && p.end >= '2026-10-17');
+    const bill = (cur.bills || []).find(b => b.id === 'hydro' && b.date === '2026-10-18');
+    ok(bill && bill.status === 'still due' && cur.remainingBills === 100 && cur.balanceAfterDeductions === 900,
+      'served with priorAsOf Oct 19 kept: the bill is still due, 100 reserved, balance 900, never 1000',
+      JSON.stringify([bill && bill.status, cur.remainingBills, cur.balanceAfterDeductions]));
+  }
   // The same inputs dated on the observation date still veto (cautious).
   const d = serve([debit('2026-10-16', { pending: true }), debit('2026-10-17', { pending: true })], opts18);
   ok(d.rows.every(r => !r.nearDue || !r.nearDue.pendingDebit), 'a second pending dated on the observation date still vetoes');
