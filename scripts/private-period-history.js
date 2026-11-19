@@ -182,7 +182,15 @@ function engineCommit({ git = runGit, env = process.env } = {}) {
 function selectedPublication(advice, period) {
   const row = (advice.payPeriodViews || []).find(p => p.start === period.start && p.end === period.end);
   if (!row) fail('history-forecast-period-unavailable');
-  return safeJson(row);
+  const publication = safeJson(row);
+  // Stack Wallet A3's per-bill paidState is derived from each row's own saved
+  // fields (Forecast billPaidState), so it is not saved: the record keeps
+  // exactly the fields it saved before, every earlier contentKey is
+  // unchanged, and a replayed close re-derives it from its saved rows.
+  for (const bill of Array.isArray(publication.bills) ? publication.bills : []) {
+    if (bill && typeof bill === 'object') delete bill.paidState;
+  }
+  return publication;
 }
 
 // The provider's delivered decimal text to whole cents, exactly: an optional minus, at most 12 integer digits, and optionally a

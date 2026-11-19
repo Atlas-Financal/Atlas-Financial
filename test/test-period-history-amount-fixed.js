@@ -55,13 +55,22 @@ const now = input => () => new Date(Date.parse(input.payload.fetchedAt) + 60000)
 
 // The live publication of one period: the served path (Live.fromObservation over the raw payload, history
 // included) and the recommend options the server builds, exactly as the closing-capture suite reprints it.
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 function livePeriod(input, start) {
   const refreshed = Live.fromObservation(input);
   const options = Operating.recommendOpts(refreshed.data, {});
   options.periods = input.periods;
   const asOf = Operating.asOfFrom(refreshed.data, {});
   return { report: refreshed.report,
-    row: JSON.parse(JSON.stringify(F.recommend(refreshed.data.plan, asOf, options).payPeriodViews.find(p => p.start === start))) };
+    row: withoutBillPaidState(F.recommend(refreshed.data.plan, asOf, options).payPeriodViews.find(p => p.start === start)) };
 }
 const hydro = row => (row && row.bills || []).find(b => b.id === 'hydro') || {};
 function capture(kind, input) {

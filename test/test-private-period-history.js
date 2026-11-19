@@ -10,6 +10,15 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 
 const START = '2030-02-01', END = '2030-02-14';
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -62,7 +71,7 @@ try {
   const refreshed = Live.fromObservation(source), options = Operating.recommendOpts(refreshed.data, {});
   options.periods = source.periods;
   const native = Forecast.recommend(refreshed.data.plan, START, options).payPeriodViews.find(p => p.start === START);
-  assert.deepEqual(candidate.content.publication, JSON.parse(JSON.stringify(native)), 'archive reprints native Forecast without a second planner');
+  assert.deepEqual(candidate.content.publication, withoutBillPaidState(native), 'archive reprints native Forecast without a second planner');
   assert.equal(native.householdBudget.find(row => row.id === 'groceries').spent, 12.34, 'invented posted CAD debit is preserved independently');
   rejects(() => History.append({ destination: temporary, candidate }), 'history-capture-disabled');
   rejects(() => History.capture(source), 'history-capture-clock-owned');

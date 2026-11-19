@@ -12,6 +12,15 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 
 // Biweekly payroll anchored 2030-02-01: cycles 02-01..02-14, 02-15..02-28,
 // 03-01..03-14. A capture on 02-15 (first day of cycle 2) must close cycle 1.
@@ -72,7 +81,7 @@ try {
   options.periods = source.periods;
   const native = Forecast.recommend(refreshed.data.plan, NEXT_START, options)
     .payPeriodViews.find(p => p.start === START && p.end === END);
-  assert.deepEqual(candidate.content.publication, JSON.parse(JSON.stringify(native)),
+  assert.deepEqual(candidate.content.publication, withoutBillPaidState(native),
     'closing capture reprints the native Forecast row for the closed period');
 
   // The seam owns the selection: caller kind / periodStart / clock refused.

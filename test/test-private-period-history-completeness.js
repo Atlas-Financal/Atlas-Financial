@@ -1,4 +1,13 @@
 'use strict';
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 // History H1: declared source completeness, closing state and household-day
 // cutoff on new captures; legacy v1 byte/hash/ID compatibility; receipt path.
 // Entirely invented finances and identities. No data.json, live GET or credential.
@@ -134,7 +143,7 @@ try {
     const refreshed = Live.fromObservation(clone(CLOSE)), options = Operating.recommendOpts(refreshed.data, {});
     options.periods = [];
     const native = Forecast.recommend(refreshed.data.plan, '2030-02-15', options).payPeriodViews.find(p => p.start === ANCHOR);
-    assert.deepEqual(candidate.content.publication, JSON.parse(JSON.stringify(native)));
+    assert.deepEqual(candidate.content.publication, withoutBillPaidState(native));
     assert.deepEqual(transport(candidate), [], 'full posted window, unbounded pending, fetched after cutoff');
     // The invented income occurrence is unsettled natively; that gap is retained, not dropped.
     assert.deepEqual(reasonsOf(candidate), ['publication:income-actual-unavailable']);

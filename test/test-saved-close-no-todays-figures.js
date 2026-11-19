@@ -141,4 +141,33 @@ ok(past.bankCheck && past.bankCheck.status === 'unavailable' && past.bankCheck.g
   'a saved close carries no bank-check figure (Unavailable, not saved at close)');
 ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept payday carryover observation is as recorded');
 
+// S5 the bill-row audit (Stack Wallet A3): every key on a saved close's bill row is the capture's own, a display key
+// borrowed by id (CAPTURED_ROW_DISPLAY_KEYS: wording only), or a word derived at publication from the row's own saved
+// fields and listed here. A new derived word on a bill row fails this until it is classified, and a derived word never
+// enters the stored record (so no contentKey moves).
+const BILL_ROW_DISPLAY = new Set(['informational', 'note']);
+const BILL_ROW_DERIVED = {
+  paidState: 'Paid / Not paid, derived last by Forecast.billPaidState from the saved row\'s own status and settlement',
+};
+// Pre-existing (main): the display amount and its tag, which savedBillDisplay derives from the saved row on replay.
+const BILL_ROW_FROM_SAVED = {
+  movement: 'the display amount, from the saved actual or planned amount (savedBillDisplay)',
+  displayAmountBasis: 'which saved amount is shown (savedBillDisplay)',
+  displayAmountTrust: 'that amount\'s tag, never more certain than the saved confidence (savedBillDisplay)',
+};
+for (const [i, row] of past.bills.entries()) {
+  const own = new Set(Object.keys(saved.bills[i] || {}));
+  const extra = Object.keys(row).filter(k => !own.has(k) && !BILL_ROW_DISPLAY.has(k));
+  const unclassified = extra.filter(k => !Object.hasOwn(BILL_ROW_DERIVED, k) && !Object.hasOwn(BILL_ROW_FROM_SAVED, k));
+  ok(unclassified.length === 0, `saved bill row ${row.id}: every key is the capture's own, a display key or a classified derived word: ` + unclassified.join(', '));
+  ok([...Object.keys(BILL_ROW_DERIVED), ...Object.keys(BILL_ROW_FROM_SAVED)].every(k => extra.includes(k)),
+    `saved bill row ${row.id}: every classified key is really present (no dead entries)`);
+  ok(row.paidState === F.billPaidState(saved.bills[i]), `saved bill row ${row.id}: its word is re-derived from the saved row (${row.paidState})`);
+}
+for (const stored of [closing.content.publication, saved]) {
+  for (const row of stored.bills || []) {
+    ok(Object.keys(BILL_ROW_DERIVED).every(k => !Object.hasOwn(row, k)), `the stored record's bill row ${row.id} carries no derived word`);
+  }
+}
+
 console.log('PASS saved close never shows today\'s figures: ' + checks + ' checks');
