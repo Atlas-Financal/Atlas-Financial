@@ -529,9 +529,10 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     // v2 split identity (spec 2.11.2): a split piece carries split_parent_id
     // and a split parent is_split_parent. Read only by the dropped-row rule
     // (droppedRowCategory), as a v1 parent_id piece is there. Never parentId:
-    // the group-parent rules keep group_parent_id / parent_id alone.
-    // Internal (never emitted).
-    splitIdentity: raw.split_parent_id != null || raw.is_split_parent === true,
+    // the group-parent rules keep group_parent_id / parent_id alone. Like the
+    // U5 group child ids, it is present only on a v2 split row, so every other
+    // row's shape is unchanged; the served packet rows never carry it.
+    ...(raw.split_parent_id != null || raw.is_split_parent === true ? { splitIdentity: true } : {}),
     // U5: the provider ids of the children Lunch Money lists on a group parent,
     // so the coverage stamp can tell a complete cross-account group from a
     // partial one. Internal (never emitted); absent on every other row, so

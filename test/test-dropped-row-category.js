@@ -131,7 +131,7 @@ check('v2 split identity never feeds the group-parent rules, and nothing double-
   assert.ok(piece, 'the split piece is in the packet');
   assert.equal(piece.parentId ?? null, null, 'a v2 split piece gets no group-parent link');
   assert.equal(piece.isGroup, false, 'and is not a group');
-  assert.equal(Object.hasOwn(piece, 'splitIdentity'), false, 'the split identity is internal, never emitted');
+  assert.equal(Object.hasOwn(piece, 'splitIdentity'), false, 'the served packet row never carries the split identity');
   assert.equal(r.packet.transactionCoverage, 'complete', 'a readable split piece drops nothing');
   assert.equal(r.row('groceries').spent, 50, 'Groceries 40 + 10 = 50: the piece counts once');
   assert.equal(r.period.budgetProgress.household.actual.amount, 75.5, 'Household 65.5 + 10 = 75.5');
