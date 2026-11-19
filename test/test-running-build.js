@@ -30,7 +30,8 @@ async function browserProof(base, expected, suffix) {
       await context.request.post(base + '/login', { form: { password: PASSWORD } });
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
-      await page.goto(base);
+      // The previous page (kept at ?view=classic until C1): the label sits centred below Current Balance.
+      await page.goto(base + '/?view=classic');
       await page.locator('.budget-step-summary').first().waitFor();
       const label = page.locator('.running-build');
       assert.equal(await label.innerText(), expected);
@@ -41,6 +42,18 @@ async function browserProof(base, expected, suffix) {
       assert.equal(align, 'center');
       assert.equal(await label.evaluate(el => getComputedStyle(el).fontSize), '12px');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      // B7: the default Budget page is the Stack page; the label stays visible, centred, below it.
+      await page.goto(base);
+      await page.locator('#stack-root [data-stack-period]').first().waitFor();
+      const stackLabel = page.locator('.running-build');
+      assert.equal(await stackLabel.innerText(), expected);
+      const stackBox = await stackLabel.boundingBox();
+      const pile = await page.locator('#stack-root').boundingBox();
+      assert.ok(stackBox && pile && stackBox.height > 0 && stackBox.height < 40 && stackBox.y >= pile.y + pile.height - 1,
+        JSON.stringify({ stackBox, pile }));
+      assert.equal(await stackLabel.evaluate(el => getComputedStyle(el).textAlign), 'center');
+      assert.equal(await stackLabel.evaluate(el => getComputedStyle(el).fontSize), '12px');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       const dir = process.env.ATLAS_BUILD_SCREENSHOTS_DIR;
       if (dir) {
         fs.mkdirSync(dir, { recursive: true });
@@ -50,7 +63,7 @@ async function browserProof(base, expected, suffix) {
     }
     assert.deepEqual(errors, []);
     assert.deepEqual(external, [], 'no external requests or GitHub dependency');
-    console.log(`PASS full routed Budget build label ${suffix}: desktop 1440 / phone 390 / narrow 320, App.boot, synthetic financial JSON, centred below Current Balance, no overflow/errors/external requests`);
+    console.log(`PASS full routed Budget build label ${suffix}: desktop 1440 / phone 390 / narrow 320, App.boot, synthetic financial JSON, centred below Current Balance (?view=classic) and below the Stack page (default), no overflow/errors/external requests`);
   } finally { await browser.close(); }
 }
 

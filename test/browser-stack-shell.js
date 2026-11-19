@@ -2,8 +2,11 @@
 /* B1, the Stack Wallet page shell, in a real browser: real App.boot, the real public/ files, invented data only
  * (test/fixtures/budget-surface-data.js served for /data.json by route interception; no server, no household data).
  *
- *   1. No flag: the current page is unchanged. With the Stack scripts served or blocked, the rendered body is
- *      byte-identical; no Stack stylesheet, class or element appears.
+ *   1. ?view=classic (the previous page, kept until C1): unchanged. With the Stack scripts served or blocked, the
+ *      rendered body is byte-identical; no Stack stylesheet, class or element appears.
+ *   1b. B7, the switch-over: with no query (and with ?view=stack) the Stack page is the Budget page.
+ *   5. B7 fail-safe: if the shell throws while drawing, it removes itself and the page is the classic page, body
+ *      byte-identical to ?view=classic, never blank. Without JavaScript the default route and ?view=classic match.
  *   2. ?view=stack: the shell replaces the current page with the title "Budget", the quiet "Last updated" line from
  *      the overlay's sync instant (the current footer's rule), and one timeline chip per published pay period with its
  *      date, the current period marked and selected.
@@ -34,8 +37,8 @@ function served() {
   return d;
 }
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light' } = {}) {
-  const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce' });
+async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light', tamperShell = null, js = true } = {}) {
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce', javaScriptEnabled: js });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
@@ -45,12 +48,13 @@ async function open(browser, { query = '', blockStack = false, width = 390, them
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     if (blockStack && /^\/stack[.-]/.test(u.pathname)) return route.fulfill({ status: 404, body: '' });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
-    return fs.existsSync(file) && fs.statSync(file).isFile()
-      ? route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' })
-      : route.fulfill({ status: 404, body: '' });
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
+    let body = fs.readFileSync(file);
+    if (tamperShell && u.pathname === '/stack-shell.js') body = tamperShell(body.toString('utf8'));
+    return route.fulfill({ body, contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
   await page.goto('http://stack.test/' + query);
-  await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+  if (js) await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
   return { page, errors };
 }
 const settle = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -58,11 +62,11 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH });
   try {
-    console.log('1. no flag: the current page is unchanged');
+    console.log('1. ?view=classic: the previous page is unchanged');
     {
       // The current page's wave animation stamps a time-based phase on each load (--blend-wave-phase); that one
       // value is normalised, everything else must match exactly.
-      const a = await open(browser), b = await open(browser, { blockStack: true });
+      const a = await open(browser, { query: '?view=classic' }), b = await open(browser, { query: '?view=classic', blockStack: true });
       await settle(a.page); await settle(b.page);
       const bodyA = await a.page.evaluate(() => document.body.innerHTML.replace(/<script[^>]*><\/script>/g, '').replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '--blend-wave-phase:;'));
       const bodyB = await b.page.evaluate(() => document.body.innerHTML.replace(/<script[^>]*><\/script>/g, '').replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '--blend-wave-phase:;'));
@@ -73,10 +77,23 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       const probe = await a.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
         root: !!document.getElementById('stack-root'), css: [...document.querySelectorAll('link[rel=stylesheet]')]
           .some(l => /\/stack\/|budget-stack-fonts/.test(l.href)), blocks: typeof window.StackBlocks?.register }));
-      ok(!probe.cls && !probe.root && !probe.css, 'no Stack class, element or stylesheet without the flag', JSON.stringify(probe));
+      ok(!probe.cls && !probe.root && !probe.css, 'no Stack class, element or stylesheet with ?view=classic', JSON.stringify(probe));
       ok(probe.blocks === 'function', 'StackBlocks exists for the block files');
       ok(a.errors.length === 0 && b.errors.length === 0, 'no page errors', a.errors.concat(b.errors).join('; '));
       await a.page.close(); await b.page.close();
+    }
+
+    console.log('1b. B7: the default route is the Stack page');
+    for (const query of ['', '?view=stack']) {
+      const { page, errors } = await open(browser, { query });
+      await page.waitForSelector('#stack-root [data-stack-period]', { timeout: 30000 });
+      const probe = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+        title: document.querySelector('#stack-root h1')?.textContent,
+        hidden: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice'))
+          .every(el => getComputedStyle(el).display === 'none') }));
+      ok(probe.cls && probe.title === 'Budget' && probe.hidden, `${query || '(no query)'}: the Stack page shows and the previous page is hidden`, JSON.stringify(probe));
+      ok(errors.length === 0, `${query || '(no query)'}: no page errors`, errors.join('; '));
+      await page.close();
     }
 
     console.log('2. ?view=stack: title, Last updated, one chip per published pay period');
@@ -216,6 +233,29 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       }
       console.log('  screenshots written to ' + shots);
     }
+    console.log('5. B7 fail-safe and no JavaScript');
+    {
+      const normal = body => body.replace(/<script[^>]*><\/script>/g, '').replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '--blend-wave-phase:;');
+      const classic = await open(browser, { query: '?view=classic' });
+      await settle(classic.page);
+      const classicBody = normal(await classic.page.evaluate(() => document.body.innerHTML));
+      // The shell's own drawing throws (a tampered copy of stack-shell.js, served only to this page).
+      const broken = await open(browser, { tamperShell: src => src.replace('function timelineHtml() {',
+        "function timelineHtml() { throw new Error('invented shell failure');") });
+      await settle(broken.page);
+      const probe = await broken.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+        root: !!document.getElementById('stack-root'), text: document.querySelector('.wrap').innerText.trim().length }));
+      ok(!probe.cls && !probe.root && probe.text > 0, 'a shell failure removes the Stack page and the previous page shows (not blank)', JSON.stringify(probe));
+      const brokenBody = normal(await broken.page.evaluate(() => document.body.innerHTML));
+      ok(brokenBody === classicBody, 'after the fallback, the body is byte-identical to ?view=classic');
+      ok(broken.errors.length === 0, 'the failure is caught (no uncaught page error)', broken.errors.join('; '));
+      await classic.page.close(); await broken.page.close();
+      const a = await open(browser, { js: false }), b = await open(browser, { query: '?view=classic', js: false });
+      const [ba, bb] = [await a.page.evaluate(() => document.body.innerHTML), await b.page.evaluate(() => document.body.innerHTML)];
+      ok(ba === bb && ba.trim().length > 0, 'without JavaScript, the default route and ?view=classic serve the same non-empty page');
+      await a.page.close(); await b.page.close();
+    }
+
     console.log(`\nPASS Stack shell browser checks (${checks})`);
   } finally {
     await browser.close();

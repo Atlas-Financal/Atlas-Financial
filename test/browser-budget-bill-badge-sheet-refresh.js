@@ -38,7 +38,7 @@ const SHEET_ROW = '[data-budget-detail-body] [data-period-bill="hydro"][data-bil
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css')
           ? 'text/css' : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('[data-blend-rings]').waitFor();
       const row = sel => page.evaluate(s => {
         const rows = [...document.querySelectorAll(s)];

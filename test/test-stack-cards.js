@@ -201,7 +201,7 @@ assert(!/\.reduce\(/.test(src), 'no reduce over money');
 
 // 4. no-flag: nothing outside this file loads it, and without a shell nothing renders
 const index = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-// B1's index.html loads the file after the shell; without ?view=stack the shell never calls a renderer, and
+// B1's index.html loads the file after the shell; with ?view=classic the shell never calls a renderer, and
 // loading the file itself only registers a function (no element, style, listener or fetch).
 assert(index.indexOf('/stack-shell.js') < index.indexOf('/stack-cards.js'), 'cards file loads after the shell');
 assert(!/document\.(createElement|write)|addEventListener\('(DOMContentLoaded|load)/.test(fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('function render')[0]), 'no load-time side effects');

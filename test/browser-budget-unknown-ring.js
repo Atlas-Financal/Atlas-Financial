@@ -58,7 +58,7 @@ const root = path.join(__dirname, '..');
             : file.endsWith('.css') ? 'text/css' : 'text/html',
         });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       await page.locator('[data-blend-rings]').waitFor();
       return page;

@@ -50,7 +50,7 @@ async function closeSheet(page) {
     }
     return route.fulfill({ body: bytes, contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
    });
-   await page.goto('http://daily-savings.test/');
+   await page.goto('http://daily-savings.test/?view=classic');
    // Blend face: the waterfall is display: contents inside the hero and the
    // Savings stock step moves to the hero foot (budget-blend.js paintHero).
    const overview = page.locator('.blend-hero').first();

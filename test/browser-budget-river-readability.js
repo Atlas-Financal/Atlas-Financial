@@ -99,7 +99,7 @@ const COMPONENT = [
       assert.equal(hash(bytes), binding.files[key]?.sha256, 'Served bytes equal bound source: ' + key);
       return route.fulfill({ body: bytes, contentType: ({ '.css': 'text/css', '.js': 'application/javascript', '.woff2': 'font/woff2' })[path.extname(file)] || 'text/html' });
     });
-    await page.goto('http://budget.test/'); await page.evaluate(() => document.fonts.ready);
+    await page.goto('http://budget.test/?view=classic'); await page.evaluate(() => document.fonts.ready);
     if (!options.riverHarness) await page.waitForSelector('#operating-surface');
     return page;
   };

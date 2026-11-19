@@ -87,7 +87,7 @@ async function main() {
           try { return route.fulfill({ body: asset(relative, variant), contentType: type }); }
           catch { return route.fulfill({ status: 404, body: '' }); }
         });
-        await page.goto('http://budget.test/'); await page.locator('[data-budget-surface]').waitFor();
+        await page.goto('http://budget.test/?view=classic'); await page.locator('[data-budget-surface]').waitFor();
         // The blend river hides this native control; use its incumbent handler
         // for selected-period fixtures, without claiming a navigation proof.
         if (state === 'future' || state === 'history') await page.locator(`[data-budget-window-step="${state === 'future' ? 1 : -1}"]`).evaluate(button => button.click());

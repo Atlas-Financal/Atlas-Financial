@@ -248,7 +248,7 @@ async function rerenderInPlace(page, nextData) {
     //    across bill, obligation, commitment, and all-3 combined (1440px & 390px)
     // =========================================================================
     servedData = fx.served();
-    await page.goto(origin + '/');
+    await page.goto(origin + '/?view=classic');
     await page.locator('[data-budget-cash-hero]').waitFor();
 
     const checkBudgetValidBaseline = async label => {

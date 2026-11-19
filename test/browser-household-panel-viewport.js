@@ -120,7 +120,7 @@ async function scenario(browser, vp, motion, trigger, closer, position) {
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
     page.on('pageerror', e => errors.push(tag + ': ' + e.message));
-    await page.goto(ORIGIN + '/');
+    await page.goto(ORIGIN + '/?view=classic');
     await page.locator('[data-budget-surface]').waitFor();
     assert.equal(await page.evaluate(() => App.data.meta.title), 'Synthetic Budget surface');
     assert.equal(await page.evaluate(() => document.documentElement.clientWidth), vp.width, 'true CSS-pixel width');

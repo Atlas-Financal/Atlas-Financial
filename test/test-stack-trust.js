@@ -28,7 +28,7 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' â
 
 function load() {
   const ctx = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
-    location: { search: '' }, document: { addEventListener: () => {}, getElementById: () => null } };
+    location: { search: '?view=classic' }, document: { addEventListener: () => {}, getElementById: () => null } };
   ctx.window = ctx; ctx.globalThis = ctx;
   vm.createContext(ctx);
   vm.runInContext(read('public/stack-shell.js'), ctx);

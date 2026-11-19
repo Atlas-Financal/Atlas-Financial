@@ -30,7 +30,7 @@ function input(purchase) {
           await context.addCookies([{ name, value, url: server.base, httpOnly: true }]);
           const page = await context.newPage();
           page.on('pageerror', e => errors.push(e.message));
-          await page.goto(server.base + '/');
+          await page.goto(server.base + '/?view=classic');
           await page.locator('#priorities-ledger .row, #priorities-ledger div').first().waitFor({ state: 'attached' });
           await page.locator('#major-plans-list .fund').first().waitFor({ state: 'attached' });
           assert.match(await page.locator('#major-plans-list').textContent(), verdict, 'goal verdict at ' + width);

@@ -1,9 +1,12 @@
 /* Stack Wallet page shell (B1, lead dispatch 2026-11-19; design: the Stack Wallet artifact, invented data).
  *
- * Behind ?view=stack only. Without the flag this file defines window.StackBlocks (so the block files can register)
- * and does nothing else: no stylesheet, no element, no render hook, no listener. The current page is unchanged.
+ * The default Budget page (B7, switch-over; lead dispatch 2026-11-19). ?view=classic keeps the previous page as a
+ * fallback until C1 retires it: with it, this file defines window.StackBlocks (so the block files can register) and does
+ * nothing else: no stylesheet, no element, no render hook, no listener. ?view=stack is an alias of the default.
+ * Fail-safe: if the shell itself throws while drawing, it removes itself and the previous page shows (never a blank
+ * page). A failing block only empties its own container.
  *
- * With the flag it owns:
+ * Otherwise it owns:
  *   - flag routing: <html class="stack-view">, the Stack stylesheets, and #stack-root in place of the current page;
  *   - the one Forecast call for the page, made with the same input builder the current page uses
  *     (Forecast.budgetRecommendInputs, default knobs, the same ATLAS-080 settlement outcome);
@@ -65,7 +68,8 @@
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
 
-  const on = typeof location !== 'undefined' && new URLSearchParams(location.search).get('view') === 'stack';
+  // Every view but ?view=classic is the Stack page (B7); a missing location (a test harness) is the classic page.
+  const on = typeof location !== 'undefined' && new URLSearchParams(location.search).get('view') !== 'classic';
   if (!on || typeof document === 'undefined') return;
 
   const root = document.documentElement;
@@ -206,7 +210,20 @@
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(centreNow);
   }
 
+  // B7 fail-safe: a throw in the shell's own drawing hands the page back to the previous page, never a blank one.
+  let failed = false;
+  function fallBack(error) {
+    failed = true;
+    root.classList.remove('stack-view');
+    const el = document.getElementById('stack-root');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    if (typeof console !== 'undefined') console.error('stack page failed; showing the classic page', error);
+  }
   function renderAll() {
+    if (failed) return;
+    try { drawAll(); } catch (error) { fallBack(error); }
+  }
+  function drawAll() {
     const el = mount();
     el.querySelector('[data-stack-updated]').textContent = lastUpdated(state.data);
     const timeline = el.querySelector('[data-stack-block="timeline"]');
@@ -228,6 +245,11 @@
   }
 
   function render(d, periods) {
+    if (failed) return;
+    try { prepare(d, periods); } catch (error) { fallBack(error); return; }
+    renderAll();
+  }
+  function prepare(d, periods) {
     state.data = d;
     state.periods = periods;
     // The same settlement gate the current page applies first (plan.js planSettlementOutcome, ATLAS-080):
@@ -243,7 +265,6 @@
       state.selectedPeriodKey = active ? keyOf(active) : list.length ? keyOf(list[0]) : null;
     }
     state.ready = true;
-    renderAll();
   }
 
   if (typeof App !== 'undefined' && App.register) {

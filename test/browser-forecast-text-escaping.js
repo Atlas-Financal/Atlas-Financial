@@ -81,7 +81,7 @@ const worlds = {
         new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(note)))
           .observe(document, { childList: true, subtree: true });
       });
-      await page.goto('http://atlas.test/');
+      await page.goto('http://atlas.test/?view=classic');
       await page.waitForFunction(() => document.querySelector('[data-budget-surface]'), null, { timeout: 20000 })
         .catch(() => errors.push(`${name}: the Budget never rendered`));
       // Show the diagnostics section and render it.

@@ -2,9 +2,10 @@
 /* B1, the Stack Wallet page shell: the static and no-flag guarantees, checked in CI without a browser.
  * (test/browser-stack-shell.js is the real-browser proof: no-flag body identical, chips print published values only.)
  *
- *   1. Without ?view=stack, stack-shell.js defines window.StackBlocks and touches nothing else: no element, class,
- *      stylesheet, App hook or listener. The four block placeholders only register a no-op.
- *   2. With ?view=stack it registers exactly one App render hook and adds the two Stack stylesheets.
+ *   1. With ?view=classic (the previous page, kept until C1), stack-shell.js defines window.StackBlocks and touches
+ *      nothing else: no element, class, stylesheet, App hook or listener.
+ *   2. By default (B7), and with ?view=stack or any other view, it registers exactly one App render hook and adds the
+ *      Stack stylesheets.
  *   3. Every rule in public/stack.css and the four block stylesheets is scoped to html.stack-view, so none can
  *      restyle the current page.
  *   4. index.html loads the shell and then the four block files, after every current script.
@@ -28,7 +29,7 @@ function sandbox(search) {
     apply: () => { touched.push(name + '()'); return trap(name + '()'); } });
   const hooks = [];
   const ctx = { console, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON,
-    location: { search }, document: search.includes('view=stack') ? {
+    location: { search }, document: !search.includes('view=classic') ? {
       documentElement: { classList: { add: c => touched.push('class:' + c) } },
       head: { appendChild: el => touched.push('link:' + el.href) },
       createElement: () => ({ addEventListener: () => {} }), querySelector: () => null, getElementById: () => null, body: null,
@@ -41,24 +42,24 @@ function sandbox(search) {
   return { ctx, touched, hooks };
 }
 
-console.log('1. no flag');
+console.log('1. ?view=classic');
 {
-  const { ctx, touched, hooks } = sandbox('');
+  const { ctx, touched, hooks } = sandbox('?view=classic');
   ok(typeof ctx.window.StackBlocks.register === 'function', 'window.StackBlocks is defined for the block files');
   ok(touched.length === 0, 'the document is never touched', touched.join(', '));
   ok(hooks.length === 0, 'no App render hook is registered');
   ok(ctx.window.StackBlocks.names().join() === BLOCKS.join(), 'each placeholder registers its own block name', ctx.window.StackBlocks.names().join());
-  const other = sandbox('?view=classic');
-  ok(other.touched.length === 0 && other.hooks.length === 0, 'any other view value is the current page too');
+  const other = sandbox('?a=1&view=classic');
+  ok(other.touched.length === 0 && other.hooks.length === 0, 'view=classic among other parameters is the previous page too');
 }
 
-console.log('2. ?view=stack');
-{
-  const { touched, hooks } = sandbox('?view=stack');
-  ok(hooks.length === 1, 'exactly one App render hook is registered');
+console.log('2. the default: no view, ?view=stack, or any other view');
+for (const search of ['', '?view=stack', '?view=other', '?a=1']) {
+  const { touched, hooks } = sandbox(search);
+  ok(hooks.length === 1, `${search || '(no query)'}: exactly one App render hook is registered`);
   ok(touched.join() === ['class:stack-view', 'link:/budget-stack-fonts.css', 'link:/stack.css',
     ...BLOCKS.map(n => `link:/stack-${n}.css`)].join(),
-  'the page is marked and the font, shell and four block stylesheets are added, nothing more', touched.join());
+  `${search || '(no query)'}: the page is marked and the font, shell and four block stylesheets are added, nothing more`, touched.join());
 }
 
 console.log('3. the stylesheet is scoped');

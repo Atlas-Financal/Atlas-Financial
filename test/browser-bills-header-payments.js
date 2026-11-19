@@ -29,7 +29,7 @@ const states = [], errors = [], writes = [], external = [];
         const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
         return fs.existsSync(file) ? route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }) : route.fulfill({ status: 404, body: '' });
       });
-      await page.goto('http://bills.test/');
+      await page.goto('http://bills.test/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       assert.equal(await page.evaluate(() => App.data.meta.title), 'Invented Bills header payments');
       const trigger = page.locator('[data-operating-question="04"] > details > summary');

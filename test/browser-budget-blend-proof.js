@@ -100,7 +100,7 @@ const composite = (fg, bg) => {
         servedSourceSha256[relative] = sha256;
         return route.fulfill({ body: bytes, contentType: type });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       if(!options?.riverHarness)await page.locator('[data-budget-surface]').waitFor();
       await page.evaluate(async () => {
         await document.fonts.ready;
