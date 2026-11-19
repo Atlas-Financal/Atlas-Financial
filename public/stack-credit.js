@@ -82,11 +82,11 @@
     const ok = status && status.cls === 'is-ok';
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${ok ? ' is-on' : ''}">${TICK}</span>`
-      + `<span class="stack-credit-name"><b>${esc(line.label)}</b>`
+      + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
+      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}">${status ? esc(status.text) : ''}</span></span>`
       + (sub ? `<small>${esc(sub)}</small>` : '')
       + (heloc ? '' : bar(amountOf(line.paid), amountOf(line.spent), 'stack-credit-minibar'))
       + (min ? `<small class="stack-credit-min">${esc(min)}</small>` : '') + '</span>'
-      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}">${status ? esc(status.text) : ''}</span>`
       + `${CHEV}</button></li>`;
   }
 
