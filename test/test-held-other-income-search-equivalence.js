@@ -47,6 +47,11 @@ const GIVEN = 'const given = callerOpts || opts;';
 // Inside resolveDalePayrollWalk, past its early return: reached only when the
 // options really carry walk data to resolve.
 const WALK = '    const through = walk.through;\n    const represented = new Set(walk.represented || []);';
+// The payday search's own probe saving (LEAD 10 hotspot #2): its per-search
+// probe memo and verified boundary guess. Switched off together, they give
+// the full per-probe bisection this holder's saving was measured against.
+const SEARCH_MEMO = '      let result = checked.get(cents);';
+const SEARCH_GUESS = '    if (guess != null && guess >= loC && guess < hiC && fits(guess)) {';
 
 function compile(source) {
   const mod = new Module(FILE, module);
@@ -60,7 +65,7 @@ function once(needle) {
   const at = SOURCE.indexOf(needle);
   assert.ok(at >= 0 && SOURCE.indexOf(needle, at + 1) < 0, 'patch anchor occurs exactly once: ' + needle);
 }
-for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK]) once(anchor);
+for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK, SEARCH_MEMO, SEARCH_GUESS]) once(anchor);
 // Every copy counts fresh computations and walk resolutions the same way.
 const COUNTED = SOURCE.replace(COMPUTE, count('fresh') + ' ' + COMPUTE)
   .replace(WALK, '    ' + count('walkResolves') + '\n' + WALK);
@@ -83,7 +88,12 @@ const checking = compile(patched(HIT,
 // 3. Teeth: a reuse that forgets the hold set.
 const forgetful = compile(patched(HIT,
   'if (entry.start === start && heldOtherIncomeInputsMatch(entry.opts, given)) return new Set();'));
-assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey]).size === 5, 'five independent engine copies');
+// The holder's saving is measured against every probe of the full bisection,
+// as when the holder was built: the search's own fewer probes are not
+// counted as the holder's saving, and do not hide a holder that saves nothing.
+const perProbe = compile(patched(HOLDER, 'const holder = null;')
+  .replace(SEARCH_MEMO, '      let result;').replace(SEARCH_GUESS, '    if (false) {'));
+assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey, perProbe]).size === 6, 'six independent engine copies');
 
 const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0, walkResolves: 0 }; };
 function outcome(F, data, asOf, extra) {
@@ -169,9 +179,11 @@ for (const [label, world, extra, expectHeld] of CASES) {
     `${before.proof.fresh} without, ${after.proof.fresh} with`);
   if (world.transactions !== 0) {
     ok(checked.proof.reuses > 0, 'the payday search reaches reuse on this world', String(checked.proof.reuses));
-    // The saving this change exists for: at least four in five rebuilds go.
-    ok(after.proof.fresh * 5 <= before.proof.fresh, 'at least four in five hold-set rebuilds are gone',
-      `${before.proof.fresh} -> ${after.proof.fresh}`);
+    // The saving this change exists for: at least four in five rebuilds go,
+    // against every probe of the full per-probe search.
+    const everyProbe = outcome(perProbe, data, AS_OF, extra);
+    ok(after.proof.fresh * 5 <= everyProbe.proof.fresh, 'at least four in five hold-set rebuilds are gone',
+      `${everyProbe.proof.fresh} -> ${after.proof.fresh}`);
   }
   reuses += checked.proof.reuses;
   nonEmptyReuses += checked.proof.nonEmptyReuses;
