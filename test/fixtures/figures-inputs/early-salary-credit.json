@@ -5,7 +5,7 @@
   "description": "Invented served data: an early Other Income credit held To confirm over two unproven salary run-ups. The Oct 2 payroll takes 1000 of it, inside the Oct 2 morning snapshot, so the active close does not add that again; the 400 excess is held for a side income first due Oct 30, and after the Oct 16 period sweeps, the Oct 30 close is withheld (early-receipt-membership-unproven).",
   "origin": {
     "kind": "invented-ledger",
-    "source": "test/fixtures/figures-inputs/card-paid-clear.json and the two-hop sweep case of test/test-early-salary-credit-counted-once.js section 10, re-entered literally",
+    "source": "test/test-early-salary-credit-counted-once.js section 10 (the two-hop sweep case) on the card-paid-clear invented input, re-entered literally",
     "transform": "Added an invented monthly side income (day 30, first due 2026-10-30, 400, confirmed); one posted Other Income credit of 1400 on 2026-10-01 to chequing-a in currentPeriodActuals; the Oct 2 paydaySnapshot opening and the chequing-a starting cash each raised by 1400 (the credit is inside that posted cash)."
   },
   "limitations": [
