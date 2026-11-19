@@ -346,6 +346,20 @@
     }
     return out;
   }
+  // The walk's calendar: addDays(start, i) for i in [0, days). Every probe of
+  // a search walks the same days from the same start, so the last list is
+  // kept and handed back only for exactly that start and length; any other
+  // start or length builds a new one. The list is frozen, so no caller can
+  // change a kept date. Same answer as calling addDays on every day.
+  let walkDateMemo = null;
+  function walkDateList(start, days) {
+    if (walkDateMemo && walkDateMemo.start === start && walkDateMemo.dates.length === days) return walkDateMemo.dates;
+    const dates = [];
+    for (let i = 0; i < days; i++) dates.push(addDays(start, i));
+    Object.freeze(dates);
+    walkDateMemo = { start, dates };
+    return dates;
+  }
   function diffDays(a, b) { // b - a in days
     return Math.round((toUTC(b) - toUTC(a)) / 86400000);
   }
@@ -4956,8 +4970,9 @@
     const variableByDate = new Map();
     const lowSeedByStart = new Map();
 
+    const walkDates = walkDateList(start, days);
     for (let i = 0; i < days; i++) {
-      const date = addDays(start, i);
+      const date = walkDates[i];
       const measured = date >= measureFrom;
       if (i % 7 === 0) {
         week = {
