@@ -94,9 +94,7 @@ html.stack-view .stack-wf-block { background: var(--stack-wf); color: var(--stac
 html.stack-view .stack-wf-block:last-child { padding-bottom: 8px; }
 html.stack-view .stack-period-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 14px; }
 html.stack-view .stack-period-range { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -.035em; }
-html.stack-view .stack-period-when {
-  font-size: 12.5px; font-weight: 600; color: #ffffff; background: #121316; border-radius: 999px; padding: 6px 12px; white-space: nowrap;
-}
+html.stack-view .stack-period-now { flex: none; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
 /* Cards and credit draw their own coloured blocks; their sections are plain frames in the pile. */
 html.stack-view .stack-bare { box-shadow: none; border-radius: 0; }
 html.stack-view .stack-overlay:empty { display: none; }

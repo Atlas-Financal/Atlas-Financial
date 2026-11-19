@@ -94,8 +94,8 @@
       + `<div class="stack-chips" data-stack-chips>${chips}</div>`;
   }
 
-  // The selected period's range and when-label: "This pay period", "Last pay period" or "Past". A projected period
-  // carries no word (owner decision: no text labels); its chip's dashed outline says it.
+  // The selected period's range, plus a marker when it is the current period. No text labels (owner decision, Dale,
+  // 2026-11-19): a projected period is told apart by its chip's dashed outline, not by a word.
   const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   function rangeLabel(view) {
     const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
@@ -106,18 +106,12 @@
     return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
       ? String(b.getUTCDate()) : rangeDate.format(b));
   }
-  function whenLabel(view, list) {
-    if (view.role === 'active') return 'This pay period';
-    const at = list.indexOf(view), now = list.findIndex(v => v.role === 'active');
-    if (view.role === 'lookback') return now > 0 && at === now - 1 ? 'Last pay period' : 'Past';
-    return '';
-  }
   function periodHeadHtml() {
-    const list = views(), view = list.find(v => keyOf(v) === state.selectedPeriodKey);
+    const view = views().find(v => keyOf(v) === state.selectedPeriodKey);
     if (!view) return '';
-    const when = whenLabel(view, list);
+    const current = view.role === 'active';
     return `<h2 class="stack-period-range">${esc(rangeLabel(view))}</h2>`
-      + (when ? `<span class="stack-period-when" data-stack-period-when>${esc(when)}</span>` : '');
+      + (current ? '<span class="stack-period-now" data-stack-period-now role="img" aria-label="Current pay period"></span>' : '');
   }
 
   function context() {

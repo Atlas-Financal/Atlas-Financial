@@ -116,13 +116,13 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     'a projected view (evidenceState, as published) draws a dashed chip; historical and live views do not',
     JSON.stringify(view.chips.map((c, i) => [views[i].evidenceState, c.projected, c.dashed])));
     const words = await page.evaluate(() => document.getElementById('stack-root').textContent);
-    ok(!/Projected/i.test(words), 'no "Projected" word anywhere on the Stack page');
+    ok(!/Projected|Past|Last pay period|This pay period/i.test(words), 'no period label anywhere on the Stack page (no text labels)');
     const head = await page.evaluate(() => ({ range: document.querySelector('.stack-period-range').textContent,
-      when: document.querySelector('[data-stack-period-when]').textContent }));
+      text: document.querySelector('[data-stack-period-head]').textContent, dot: !!document.querySelector('[data-stack-period-now]') }));
     const fmt = iso => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso + 'T12:00:00Z'));
     const range = v => fmt(v.start) + ' \u2013 ' + (v.start.slice(0, 7) === v.end.slice(0, 7) ? String(Number(v.end.slice(8))) : fmt(v.end));
-    ok(head.range === range(active) && head.when === 'This pay period',
-      'the shell heads the selected period with its range and "This pay period"', JSON.stringify(head));
+    ok(head.range === range(active) && head.text === range(active) && head.dot,
+      'the shell heads the current period with its range and the current-period marker, and no words', JSON.stringify(head));
     const sheets = await page.evaluate(() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => new URL(l.href).pathname)
       .filter(p => /^\/stack[.-]/.test(p)));
     ok(sheets.join() === ['/stack.css', '/stack-waterfall.css', '/stack-cards.css', '/stack-credit.css',
@@ -176,8 +176,10 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       block: document.querySelector('[data-stack-block="waterfall"]').textContent }));
     const last = after.calls[after.calls.length - 1];
     const lastView = views[views.length - 1];
-    const when = await page.evaluate(() => document.querySelector('[data-stack-period-when]'));
-    ok(lastView.evidenceState === 'projected' && when === null, 'a projected period carries no when-label (no text labels)');
+    const later = await page.evaluate(() => ({ text: document.querySelector('[data-stack-period-head]').textContent,
+      dot: !!document.querySelector('[data-stack-period-now]') }));
+    ok(lastView.evidenceState === 'projected' && later.text === range(lastView) && !later.dot,
+      'another period is headed by its range alone: no label, no current marker', JSON.stringify(later));
     ok(after.pressed.join() === target && last.key === target && after.block === 'test block ' + target,
       'tapping a chip selects it and the block renders for that period', JSON.stringify(after.pressed));
     ok(last.keys === 'Forecast,data,plan,recommendation,selectedPeriodKey' && last.sameRec && last.plan && last.forecast,
