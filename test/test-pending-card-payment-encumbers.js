@@ -77,6 +77,24 @@ console.log('3. A pending own-account transfer is not a card payment');
     'a pending Bills -> Weekly transfer whose TD reference pairs: 325, unchanged', JSON.stringify(internal));
 }
 
+console.log('3b. The counterpart must be observable by the as-of (Atlas, #1413)');
+{
+  // The same pending Bills -> Weekly pair, with the Weekly leg dated the day after the as-of. It is in the packet but
+  // not yet observable, so it cannot prove the debit is an own-account move: the 60 encumbers, as an unproven Transfer.
+  const T = { category_name: 'Transfer' };
+  const pair = weeklyDate => [['bills', 60, null, 'cash', { payee: 'AB123 TFR-TO 0000', original_name: 'AB123 TFR-TO 0000', ...T, ...P }],
+    ['weekly', -60, weeklyDate, 'cash', { payee: 'AB123 TFR-FR 0000', original_name: 'AB123 TFR-FR 0000', ...T, ...P }]];
+  const balances = x => { x.payload.accounts[0].balance += 60; };
+  const s = run(world(pair('2026-09-21'), { card: 'mbna', policy, edit: balances }));
+  ok(s.packet.transactions.some(t => t.date === '2026-09-21' && t.amount === -60),
+    'the next-day counterpart is in the served packet (so the bound is what excludes it)');
+  const f = s.period.fromTodayFunding;
+  const next = { status: f.status, available: f.availableNow, reason: f.reason || '' };
+  ok(withheld60(next), 'a next-day counterpart does not exempt the pending debit: withheld, never 325', JSON.stringify(next));
+  const sameDay = funding(pair(null), x => { x.payload.accounts[0].balance += 60; x.payload.accounts[1].balance -= 60; });
+  ok(sameDay.status === 'ready' && sameDay.available === 325, 'the same-day genuine pair still exempts it: 325', JSON.stringify(sameDay));
+}
+
 console.log('4. A pending payment that has since posted counts once');
 {
   const pend = { ...P, plaid_metadata: JSON.stringify({ transaction_id: 'pend-1' }) };
