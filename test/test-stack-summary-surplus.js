@@ -71,7 +71,7 @@ function compile(text, name) {
 }
 const CENTS = "      - stackCents(mortgage) - creditCents - stackCents(item);";
 const MORTGAGE_IDS = "    const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));";
-const CARD_OF = "      && isRevolvingCardAccount({ account: o.debtId })).map(o => [String(o.id), String(o.debtId)]));";
+const CARD_OF = "      && isStackCreditLine(o.debtId)).map(o => [String(o.id), String(o.debtId)]));";
 const OTHER = '      other: (totalCents - mortgageCents - minimumsCents) / 100,';
 const HELOC_LINE = '      const line = row.cashMinimum === true ? cashMinimumOf.get(id) : cardOf.get(id);';
 const EXPORT = "  if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;";
@@ -84,7 +84,7 @@ const copies = {
   noCredit: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - creditCents', ''), 'no credit'), 'no-credit'),
   noMortgageTerm: compile(replaceOnce(SOURCE, CENTS, CENTS.replace('      - stackCents(mortgage)', '     '), 'no mortgage term'), 'no-mortgage-term'),
   mortgageInOther: compile(replaceOnce(SOURCE, MORTGAGE_IDS, '    const mortgageIds = new Set();', 'mortgage in other'), 'mortgage-in-other'),
-  minimumsInOther: compile(replaceOnce(SOURCE, CARD_OF, CARD_OF.replace('isRevolvingCardAccount({ account: o.debtId })', 'false'), 'minimums in other'), 'minimums-in-other'),
+  minimumsInOther: compile(replaceOnce(SOURCE, CARD_OF, CARD_OF.replace('isStackCreditLine(o.debtId)', 'false'), 'minimums in other'), 'minimums-in-other'),
   helocInOther: compile(replaceOnce(SOURCE, HELOC_LINE, '      const line = cardOf.get(id);', 'heloc in other'), 'heloc-in-other'),
   otherIsTotal: compile(replaceOnce(SOURCE, OTHER, '      other: totalCents / 100,', 'other is total'), 'other-is-total'),
   ignoresWithheld: compile(replaceOnce(SOURCE, '    if (!known) {\n      return { amount: null,', '    if (false) {\n      return { amount: null,', 'ignores withheld'), 'ignores-withheld'),
@@ -369,7 +369,7 @@ ok(surplusOf(hand(copies.noCredit, { bills: true })).amount !== 555, 'dropping t
 ok(surplusOf(hand(copies.noMortgageTerm, { bills: true })).amount !== 555, 'dropping the mortgage term is caught (the bills world reads 855)');
 ok(billsOf(hand(copies.mortgageInOther, { bills: true })).mortgage !== 300, 'a mortgage counted in other is caught');
 ok(billsOf(hand(copies.minimumsInOther, { bills: true })).cardMinimums.length === 0
-  && audit(copies.minimumsInOther).withMinimums === 0, 'card minimums counted in other are caught');
+  && billsOf(hand(copies.minimumsInOther, { bills: true })).other === 145, 'card minimums counted in other are caught (the bills world reads other 145)');
 ok(billsOf(hand(copies.helocInOther, { heloc: true })).other === 50 && billsOf(hand(copies.shipped, { heloc: true })).other === 0,
   'a HELOC minimum left in other is caught (the HELOC world reads other 50)');
 ok(billsOf(hand(copies.otherIsTotal, { bills: true })).other === null, 'an other part that double-counts fails the sum and is withheld, never published');
