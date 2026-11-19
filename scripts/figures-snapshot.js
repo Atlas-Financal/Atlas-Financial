@@ -557,7 +557,7 @@ const PERIOD_FIELDS = ['role', 'timelineRole', 'end', 'opening', 'openingTrust',
   'predictedEndingBalance', 'predictedEndingBalanceIdentity', 'paydaySweep', 'paydaySweepTrust', 'plannedPeriodClose',
   'plannedPeriodCloseTrust', 'plannedPeriodCloseReason', 'operatingPlanUnavailable'];
 const PERIOD_BILL_FIELDS = ['amount', 'status', 'settlement', 'confidence', 'dateConfidence', 'displayAmountBasis',
-  'displayAmountTrust', 'cardPaid'];
+  'displayAmountTrust', 'cardPaid', 'paidState'];
 
 // One key per identity; a repeated identity gets an ordinal instead of
 // silently overwriting the first.

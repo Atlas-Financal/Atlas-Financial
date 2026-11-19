@@ -7,10 +7,26 @@
 //
 //   categorySpendingTrends (Forecast.categorySpendingTrends, #1384): with no
 //   qualifying saved close, no trend is published.
+//   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
+//   row's Paid / Not paid word. Presentation only; proved one of its three
+//   words, then removed wherever a published row carries it.
 const assert = require('node:assert/strict');
 
+const PAID_STATES = new Set(['paid', 'not-paid', 'carried']);
+function withoutBillPaidState(node, seen = new Set()) {
+  if (!node || typeof node !== 'object' || seen.has(node)) return;
+  seen.add(node);
+  if (Object.hasOwn(node, 'paidState') && Object.hasOwn(node, 'settlement')) {
+    assert.ok(PAID_STATES.has(node.paidState), `authorized addition: bill paidState is one of three words (${node.paidState})`);
+    delete node.paidState;
+  }
+  for (const value of Object.values(node)) withoutBillPaidState(value, seen);
+}
+
 function withoutAuthorizedAdditions(advice) {
-  if (!advice || typeof advice !== 'object' || !Object.hasOwn(advice, 'categorySpendingTrends')) return advice;
+  if (!advice || typeof advice !== 'object') return advice;
+  withoutBillPaidState(advice);
+  if (!Object.hasOwn(advice, 'categorySpendingTrends')) return advice;
   const trends = advice.categorySpendingTrends;
   assert.equal(trends && trends.status, 'insufficient', 'authorized addition: categorySpendingTrends publishes no trend here');
   assert.equal(trends.trust, 'unavailable', 'authorized addition: categorySpendingTrends reads unavailable');
