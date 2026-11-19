@@ -7680,13 +7680,36 @@
   // #6; lead, #1388), and neither is an 'unknown' card or a renamed payee with
   // no note. A noted debit's card minimum stays in the bill load until
   // confirmed, so holding it too would count it twice (lead blocker on #1388).
+  // BACKLOG obs 4 (b) (#1298 review; lead ruling, ATLAS LEAD 11, 2026-11-19):
+  // the "card payment: <card>" note is the bank-side identity (operating
+  // contract). A debit whose payee identity names one manual card (the
+  // observer's cardPaymentDestination: MBNA, Triangle) while its note names a
+  // different contract card is contradictory: neither wins silently. It pays no
+  // card, its minimum stays to confirm, and it is held To confirm (counted once
+  // as money out) with the reason 'card-payment-destination-conflict'. An
+  // 'unknown' or two-card note is not a definite other card.
+  function cardPaymentDestinationConflict(tx) {
+    const destination = tx && typeof tx.cardPaymentDestination === 'string' ? tx.cardPaymentDestination : null;
+    const noted = definiteNotedCard(tx);
+    return !!(destination && noted && noted !== destination);
+  }
+  // The one reading of a "card payment: <card>" note as a definite contract
+  // card (the fixed table, MBNA and Triangle included), or null: no note, an
+  // 'unknown' card or a two-card note names no definite card.
+  function definiteNotedCard(tx) {
+    const noted = cardPaymentNoteDestination(tx);
+    return noted && noted !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(noted) ? noted : null;
+  }
   function cardPaymentOtherSideEvidence(tx) {
     if (!tx) return false;
+    // A payee identity and a note that name different cards prove neither card,
+    // grouped or not: the card ledger withholds such a group (Codex P1 on #1407),
+    // so the debit is held To confirm and counted once as money out.
+    if (cardPaymentDestinationConflict(tx)) return false;
     if (tx.parentId != null || tx.isGroup === true) return true;
     if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx)
       || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
-    const notedCard = cardPaymentNoteDestination(tx);
-    return !!(notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard));
+    return !!definiteNotedCard(tx);
   }
   function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
@@ -7700,7 +7723,9 @@
     // 'card-payment' stamp) is another reason and stays proven.
     const generic = (cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
       || (cls.kind === 'card-payment' && cls.reason === 'kind-hint' && (hint === 'payment' || hint === 'bill-payment'));
-    if (!generic) return null;
+    // A payee identity contradicted by its note proves nothing (obs 4 b).
+    const conflicted = cardPaymentDestinationConflict(tx);
+    if (!generic && !conflicted) return null;
     if (cardPaymentOtherSideEvidence(tx)) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
     if (tx.cardMinimumOwned === true) return null;
@@ -7718,7 +7743,7 @@
     }
     // Grok Bot condition 2: the owner record and the ledger's link disagree
     // (card or occurrence): neither counts it, so it is held and named.
-    return heldOutflowResult('transfer-debit-unproven',
+    return heldOutflowResult(conflicted ? 'card-payment-destination-conflict' : 'transfer-debit-unproven',
       tx.cardMinimumDisagreement === true ? { cardMinimumDisagreement: true } : null);
   }
   // The one reader of held outflows for a packet: the classifier's own held
@@ -14948,7 +14973,10 @@
       for (const tx of pool) {
         const card = cardLike(tx), pay = paymentLike(tx);
         const counted = tx.date >= origin;
-        if (!card && payDownOnly.has(tx.cardPaymentDestination)) {
+        // A payee destination its note contradicts pays no card (obs 4 b): it
+        // falls through as an ordinary cash leg, pairs with nothing (matches),
+        // and is listed To confirm with the conflict named.
+        if (!card && payDownOnly.has(tx.cardPaymentDestination) && !cardPaymentDestinationConflict(tx)) {
           const cents = money(tx), cashLoc = householdCashLocationId(tx);
           if (!counted) continue;
           if (typeof tx.pending !== 'boolean') { issue('coverage-pending-status-unconfirmed', tx.coverageRef); continue; }
@@ -15017,12 +15045,24 @@
       // A card leg and a cash leg can pair when they are near, and a TD
       // "PAYMENT - THANK YOU" credit only with a TD "TFR-TO C/C" debit whose
       // note names no card or this card.
+      // BACKLOG obs 4 (a) (lead ruling, 2026-11-19): the note is the bank-side
+      // identity, so no card credit pairs with a debit whose note names a
+      // different contract card, and a debit whose payee and note disagree
+      // pairs with no credit at all (obs 4 b). Such a near leg is contradicting
+      // evidence: the credit withholds, as below.
+      const notedElsewhere = (cash, card) => {
+        const noted = definiteNotedCard(cash.tx);
+        return !!(noted && noted !== card.account);
+      };
       const matches = (card, cash) => near(card, cash)
+        && !notedElsewhere(cash, card) && !cardPaymentDestinationConflict(cash.tx)
         && (!tdPaymentCreditOnly(card.tx) || (cash.tx.tdCardPaymentIdentity === true
           && (cash.tx.cardPaymentNoteDestination == null || cash.tx.cardPaymentNoteDestination === card.account)));
       // The card a posted TD "TFR-TO C/C" debit pays by its note: exactly one
       // card in the fixed name table that the plan maps as a revolving card.
+      // A payee/note conflict pays no card by its note either (obs 4 b; Codex P1 on #1407).
       const notePays = leg => leg.tx.pending === false && leg.tx.tdCardPaymentIdentity === true
+        && !cardPaymentDestinationConflict(leg.tx)
         && CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)
         && debtRows.some(d => d.id === leg.tx.cardPaymentNoteDestination) ? leg.tx.cardPaymentNoteDestination : null;
       // Mutually unique pairing. The card leg fixes the card and the period,
@@ -15104,7 +15144,10 @@
             && cash[0].leg.tx.accountRole === 'household-cash'
             && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
             && cash[0].leg.cents === card[0].leg.cents
-            && (dest == null || dest === card[0].leg.account);
+            && (dest == null || dest === card[0].leg.account)
+            // A debit whose payee and note name different cards pays no card,
+            // grouped or not (obs 4 b; Codex P1 on #1407): the group withholds.
+            && !cardPaymentDestinationConflict(cash[0].leg.tx);
           const noted = valid ? notePays(cash[0].leg) : null;
           const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
           if (!valid) {
@@ -15692,7 +15735,10 @@
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
         toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
-          question: 'To confirm: which card did this pay?',
+          question: cardPaymentDestinationConflict(leg.tx)
+            ? 'To confirm: which card did this pay? Its payee and its note name different cards.'
+            : 'To confirm: which card did this pay?',
+          ...(cardPaymentDestinationConflict(leg.tx) ? { diagnostic: 'card-payment-destination-conflict' } : {}),
           date: leg.tx.date, amount: leg.cents / 100,
           fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null }, leg.tx)),
         ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
