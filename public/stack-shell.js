@@ -34,6 +34,14 @@
         || whole <= 0) return null;
       return Math.min(1, Math.max(0, part / whole));
     },
+    // B5, the one visual trust treatment (lead ruling, 2026-11-19; owner: no text labels, no dotted underlines): a
+    // figure whose published trust is 'estimated', or any figure of a pay period Forecast publishes as projected
+    // (evidenceState 'projected'), carries the class stack-est. Nothing else does: calculated and verified never, and
+    // an unknown or unavailable figure prints nothing. Read from the published trust, never inferred.
+    isEstimated(trust, view) {
+      return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
+    },
+    estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
   };
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
@@ -87,6 +95,7 @@
     const list = views();
     const chips = list.map(view => {
       const key = keyOf(view), amount = surplusOf(view), neg = amount != null && amount < 0;
+      const surplus = view.stackSummary && view.stackSummary.surplus;
       const current = view.role === 'active';
       // Owner decision (Dale, 2026-11-19): no text labels. A projected period, as Forecast publishes it
       // (evidenceState 'projected'), is drawn with a dashed outline; it is never inferred from dates here.
@@ -95,7 +104,7 @@
         + ` data-stack-period="${esc(key)}" aria-pressed="${key === state.selectedPeriodKey}"`
         + `${current ? ' aria-current="date"' : ''}>`
         + `<span class="stack-chip-date">${esc(dayLabel(view.start))}</span>`
-        + `<span class="stack-chip-value${neg ? ' is-neg' : ''}" data-stack-chip-amount>${amount == null ? '' : esc(money(amount))}</span>`
+        + `<span class="stack-chip-value${neg ? ' is-neg' : ''}${StackBlocks.estClass(surplus && surplus.trust, view)}" data-stack-chip-amount>${amount == null ? '' : esc(money(amount))}</span>`
         + '</button>';
     }).join('');
     return '<div class="stack-tl-head"><button class="stack-now" type="button" data-stack-now>Now</button></div>'

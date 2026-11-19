@@ -74,9 +74,7 @@ html.stack-view .stack-chip::after { content: ""; width: 5px; height: 5px; borde
 html.stack-view .stack-chip.is-now::after { background: currentColor; }
 /* A projected period (Forecast's evidenceState 'projected'): dashed outline and softer value, no fill; no word. */
 html.stack-view .stack-chip.is-projected { background: transparent; border: 1.5px dashed var(--stack-t-dash); }
-html.stack-view .stack-chip.is-projected .stack-chip-value { opacity: .7; }
 html.stack-view .stack-chip.is-projected[aria-pressed="true"] { border-color: var(--stack-t-sel); }
-html.stack-view .stack-chip.is-projected[aria-pressed="true"] .stack-chip-value { opacity: 1; }
 html.stack-view .stack-chip-date { font-size: 11px; font-weight: 600; color: var(--stack-t-muted); white-space: nowrap; }
 html.stack-view .stack-chip-value {
   min-height: 1.3em; font-size: 13px; font-weight: 800; letter-spacing: -.02em;
@@ -101,3 +99,8 @@ html.stack-view .stack-overlay:empty { display: none; }
 
 @media (max-width: 472px) { html.stack-view .stack-root { padding-left: 16px; padding-right: 16px; } }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-chip { transition: none; } }
+/* B5, the one visual trust treatment (StackBlocks.estClass): an estimated or projected figure is drawn in softer ink;
+ * a bar from estimated figures gets a dashed outline in place of its fill. No word, no underline (owner). */
+html.stack-view .stack-est { opacity: .58; }
+html.stack-view .stack-credit-bar.stack-est > i, html.stack-view .stack-credit-minibar.stack-est > i,
+html.stack-view .stack-sheet-bar.stack-est > i { background: transparent; border: 1.5px dashed currentColor; box-sizing: border-box; }

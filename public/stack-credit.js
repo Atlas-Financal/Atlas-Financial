@@ -48,7 +48,7 @@
         liveOverlay: overlay,
       });
       const result = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
-      out = result && Array.isArray(result.lines) && result.totals ? result : null;
+      out = result && Array.isArray(result.lines) && result.totals ? { lines: result.lines, totals: result.totals, view } : null;
     }
     readings.set(ctx, out);
     return out;
@@ -57,6 +57,10 @@
     const width = window.StackBlocks.barWidth ? window.StackBlocks.barWidth(part, of) : null;
     return width == null ? '' : `<span class="${cls}" aria-hidden="true"><i style="width:${(width * 100).toFixed(1)}%"></i></span>`;
   };
+  // B5: the shell's one trust treatment, from the published trust of the figures printed (never inferred).
+  const trustOf = figure => (figure && typeof figure === 'object' ? figure.trust : undefined);
+  const est = (view, ...trusts) => (window.StackBlocks.estClass && trusts.some(t => window.StackBlocks.isEstimated(t, view))
+    ? ' stack-est' : '');
 
   // The published status word: "Paid back", "$X to go" (coral), "Upcoming"; nothing when status is null.
   function statusOf(line) {
@@ -74,19 +78,23 @@
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `Paid back ${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
 
-  function lineHtml(line) {
+  function lineHtml(line, view) {
     const heloc = line.id === 'heloc';
     const status = heloc ? null : statusOf(line);
     const sub = heloc ? '' : paidOfSpent(line);
     const min = minimumText(line);
     const ok = status && status.cls === 'is-ok';
+    // A status is read from the line's paid and spent (and toGo when it prints an amount): soft when any is estimated.
+    const figs = est(view, trustOf(line.paid), trustOf(line.spent));
+    const stat = est(view, trustOf(line.paid), trustOf(line.spent), status && status.cls === 'is-togo' ? trustOf(line.toGo) : null);
+    const minEst = est(view, trustOf(line.minimum), line.minimumCovered && line.minimumCovered.trust);
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${ok ? ' is-on' : ''}">${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
-      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}">${status ? esc(status.text) : ''}</span></span>`
-      + (sub ? `<small>${esc(sub)}</small>` : '')
-      + (heloc ? '' : bar(amountOf(line.paid), amountOf(line.spent), 'stack-credit-minibar'))
-      + (min ? `<small class="stack-credit-min">${esc(min)}</small>` : '') + '</span>'
+      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status ? stat : ''}">${status ? esc(status.text) : ''}</span></span>`
+      + (sub ? `<small class="stack-credit-sub-line${figs}">${esc(sub)}</small>` : '')
+      + (heloc ? '' : bar(amountOf(line.paid), amountOf(line.spent), 'stack-credit-minibar' + figs))
+      + (min ? `<small class="stack-credit-min${minEst}">${esc(min)}</small>` : '') + '</span>'
       + `${CHEV}</button></li>`;
   }
 
@@ -99,31 +107,35 @@
     // A partial total is printed only with the cards it leaves out; a partial total naming none prints nothing.
     const shown = num(t.paid) && num(t.spent)
       && (t.completeness === 'complete' || (t.completeness === 'partial' && excluded.length > 0));
+    const totalEst = est(reading.view, t.trust);
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
       + '<span class="stack-credit-hd"><span class="stack-credit-title">Credit</span>'
-      + (shown ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${esc(money(t.paid))}<i> / ${esc(money(t.spent))}</i></span>` : '')
+      + (shown ? `<span class="stack-credit-figure stack-n${totalEst}" data-stack-credit-total>${esc(money(t.paid))}<i> / ${esc(money(t.spent))}</i></span>` : '')
       + (shown ? '<span class="stack-credit-sub">paid back / spent</span>' : '')
       + (excluded.length ? `<span class="stack-credit-excludes" data-stack-credit-excludes>excludes ${esc(excluded.join(', '))}</span>` : '')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
-      + (shown ? bar(t.paid, t.spent, 'stack-credit-bar') : '')
+      + (shown ? bar(t.paid, t.spent, 'stack-credit-bar' + totalEst) : '')
       + `<div class="stack-credit-exp"${open ? '' : ' inert'}><div><ul class="stack-credit-list">`
-      + reading.lines.map(lineHtml).join('') + '</ul></div></div></section>';
+      + reading.lines.map(line => lineHtml(line, reading.view)).join('') + '</ul></div></div></section>';
   }
 
   // The sheet's view of one line (stack-sheet.js asks for it with its own helpers).
-  function sheetHtml(line, h) {
+  function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
+    const figs = est(view, trustOf(line.paid), trustOf(line.spent));
+    const minEst = est(view, trustOf(line.minimum), line.minimumCovered && line.minimumCovered.trust);
     const status = heloc ? null : statusOf(line);
     const paid = amountOf(line.paid), spent = amountOf(line.spent), min = amountOf(line.minimum);
     const covered = line.minimumCovered && line.minimumCovered.value;
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return h.head('Credit', line.label || '')
-      + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>` : '')
-      + (status ? `<span class="stack-sheet-pill ${status.cls}${status.cls === 'is-ok' ? ' is-on' : ''}">${h.esc(status.text)}</span>` : '')
-      + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar'))
-      + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent)) + h.row('Paid onto it', h.money(paid)))
-      + (min != null && (covered === true || covered === false) ? h.row(`Minimum ${h.money(min)}`, covered ? 'Covered ✓' : 'Not yet') : '')
+      + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n${figs}">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>` : '')
+      + (status ? `<span class="stack-sheet-pill ${status.cls}${status.cls === 'is-ok' ? ' is-on' : ''}${est(view, trustOf(line.paid), trustOf(line.spent), status.cls === 'is-togo' ? trustOf(line.toGo) : null)}">${h.esc(status.text)}</span>` : '')
+      + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar' + figs))
+      + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent), est(view, trustOf(line.spent)))
+        + h.row('Paid onto it', h.money(paid), est(view, trustOf(line.paid))))
+      + (min != null && (covered === true || covered === false) ? h.row(`Minimum ${h.money(min)}`, covered ? 'Covered ✓' : 'Not yet', minEst) : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
@@ -140,6 +152,7 @@
   window.StackCredit = {
     read,
     line: (ctx, id) => { const r = read(ctx); return r ? r.lines.find(l => l && l.id === id) || null : null; },
+    view: ctx => { const r = read(ctx); return r ? r.view : null; },
     sheetHtml,
   };
 
