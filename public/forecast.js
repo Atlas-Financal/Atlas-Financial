@@ -12310,8 +12310,8 @@
   function isGenuineOtherIncomeTransaction(tx, plan, opts) {
     if (!tx) return false;
     if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'household-reserve') return false;
-    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON)) return false;
+    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     // Account-identity invariant: a TFR-(TO|FR) leg is not new household
     // resources, even when Lunch Money labels it Income.
     if (isInternalHouseholdTransfer(tx)) return false;
@@ -12356,8 +12356,8 @@
   // belongs to that category (G3a) and never settles income.
   function isExpectedIncomeSettlementCredit(tx, plan, opts) {
     if (!tx || tx.accountRole !== 'household-cash' || tx.isIncome === true) return false;
-    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON) || isInternalHouseholdTransfer(tx)) return false;
+    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (tx.kindHint || tx.excludeFromTotals === true) return false;
     const packet = currentPeriodActualsPacket(opts);
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
