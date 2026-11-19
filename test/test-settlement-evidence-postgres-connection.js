@@ -17,6 +17,25 @@ const config = () => ({ host, port: 5432, database: 'synthetic', user: 'syntheti
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return { promise, resolve, reject }; };
 const tick = () => new Promise(r => setImmediate(r));
 const delay = ms => new Promise(r => setTimeout(r, ms));
+// Virtual time for the subtests where an instant step must beat a short real
+// budget (F9 part 1, F13 runtime timeout, F16 'failed'). On a loaded CI runner
+// the OS can deschedule the process for longer than 8 ms between a deadline
+// stamp and its re-check, so the instant step itself timed out (merge-queue
+// flake, 2026-11-19). Here the module's setTimeout and performance.now both
+// read one virtual clock that moves only when the test advances it: instant
+// work completes at virtual 0 ms, and a deadline fires only when the test
+// crosses it. Budgets and assertions are unchanged; the module is untouched.
+const perfHooks = require('node:perf_hooks').performance;
+function virtualClock(t) {
+  let now = 0;
+  const ownNow = Object.prototype.hasOwnProperty.call(perfHooks, 'now'), realNow = perfHooks.now;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  perfHooks.now = () => now;
+  return {
+    advance(ms) { now += ms; t.mock.timers.tick(ms); },
+    restore() { if (ownNow) perfHooks.now = realNow; else delete perfHooks.now; t.mock.timers.reset(); },
+  };
+}
 const safeError = code => Object.assign(new Error(CANARY + ' postgres://hidden:password@host'), { code, detail: CANARY, cause: CANARY });
 function metadata() {
   return [
@@ -226,11 +245,17 @@ test('F8 malformed identity, elevated role, effective ACL or schema never qualif
     const w=world({query:q=>q.index===0?{command:'SELECT',rows}:undefined}); await assert.rejects(w.open());assert.equal(w.ends,1);
   }
 });
-test('F9 query and aggregate preflight deadlines retire without later dispatch', async () => {
-  const gate=deferred(),w=world({query:q=>q.index===1?gate.promise:undefined});
-  const e=await w.open({timeouts:{query:8,preflight:30}}).catch(retirement);
-  assert.equal(e.diagnostic.category,'timeout'); assert.equal(w.ends,1); assert.equal(w.queries.length,2);
-  gate.resolve({command:'SELECT',rows:[metadata()[1]]});await tick();assert.equal(w.queries.length,2);
+test('F9 query and aggregate preflight deadlines retire without later dispatch', async (t) => {
+  const clock=virtualClock(t);
+  try {
+    const gate=deferred(),w=world({query:q=>q.index===1?gate.promise:undefined});
+    const opening=w.open({timeouts:{query:8,preflight:30}}).catch(retirement);
+    await tick(); assert.equal(w.queries.length,2,'the instant identity query passes at virtual 0 ms; role is dispatched');
+    clock.advance(8);
+    const e=await opening;
+    assert.equal(e.diagnostic.category,'timeout'); assert.equal(w.ends,1); assert.equal(w.queries.length,2);
+    gate.resolve({command:'SELECT',rows:[metadata()[1]]});await tick();assert.equal(w.queries.length,2);
+  } finally { clock.restore(); }
   const x=world({query:async q=>{if(q.index<4)await delay(7);}});
   const ex=await x.open({timeouts:{query:30,preflight:12}}).catch(retirement);
   assert.equal(ex.diagnostic.category,'timeout');assert.ok(x.queries.length<4);assert.equal(x.ends,1);
@@ -259,10 +284,14 @@ test('F13 runtime rejection preserves safe SQLSTATE before adapter wrapping and 
   await assert.rejects(owner.documentStore.read());assert.equal(owner.status().primary.code,'57P01');
   await assert.rejects(owner.documentStore.read());assert.equal(w.queries.length,5);await owner.retire();assert.equal(w.constructed,1);
 });
-test('F13 runtime query timeout suppresses late result', async()=>{
-  const gate=deferred(),w=world({query:q=>q.index>=4?gate.promise:undefined}),owner=await w.open({timeouts:{query:8}});
-  await assert.rejects(owner.documentStore.read());gate.resolve({command:'SELECT',rows:[]});await tick();
-  assert.equal(owner.status().primary.category,'timeout');await owner.retire();assert.equal(w.ends,1);
+test('F13 runtime query timeout suppresses late result', async(t)=>{
+  const clock=virtualClock(t);
+  try {
+    const gate=deferred(),w=world({query:q=>q.index>=4?gate.promise:undefined}),owner=await w.open({timeouts:{query:8}});
+    const read=owner.documentStore.read();await tick();clock.advance(8);
+    await assert.rejects(read);gate.resolve({command:'SELECT',rows:[]});await tick();
+    assert.equal(owner.status().primary.category,'timeout');await owner.retire();assert.equal(w.ends,1);
+  } finally { clock.restore(); }
 });
 test('F14 explicit retirement is once-only and fences late work', async()=>{
   const gate=deferred(),w=world({query:q=>q.index===4?gate.promise:undefined}),owner=await w.open();
@@ -279,12 +308,18 @@ test('F15 malformed COMMIT and unlock acknowledgements retire exact owner', asyn
     assert.notEqual(owner.status().state,'ready');assert.equal((await owner.retire()).primary.stage,'adapter');assert.equal(w.ends,1);
   }
 });
-test('F16 failed/hanging close is bounded, explicit and never retried', async()=>{
+test('F16 failed/hanging close is bounded, explicit and never retried', async(t)=>{
   for(const mode of ['failed','unconfirmed']){
-    const gate=deferred(),w=world({end:()=>mode==='failed'?Promise.reject(safeError('ECONNRESET')):gate.promise});
-    const owner=await w.open({timeouts:{close:8}});const a=owner.retire(),b=owner.retire();assert.equal(a,b);
-    const report=await a;assert.equal(report.close,mode);assert.ok(report.closeDiagnostic);assert.equal(w.ends,1);
-    gate.resolve();await tick();assert.equal((await owner.retire()).close,mode);assert.equal(w.ends,1);
+    // 'failed': the instant rejection must beat the 8 ms close budget, so it
+    // runs on virtual time. 'unconfirmed' keeps the real clock (a stall only
+    // makes it more unconfirmed).
+    const clock=mode==='failed'?virtualClock(t):null;
+    try {
+      const gate=deferred(),w=world({end:()=>mode==='failed'?Promise.reject(safeError('ECONNRESET')):gate.promise});
+      const owner=await w.open({timeouts:{close:8}});const a=owner.retire(),b=owner.retire();assert.equal(a,b);
+      const report=await a;assert.equal(report.close,mode);assert.ok(report.closeDiagnostic);assert.equal(w.ends,1);
+      gate.resolve();await tick();assert.equal((await owner.retire()).close,mode);assert.equal(w.ends,1);
+    } finally { if (clock) clock.restore(); }
   }
 });
 test('F17 unsupported diagnostic codes and rejected late promises never escape', async()=>{
