@@ -12696,16 +12696,21 @@
       if (!line) return withheld('An income row in this pay period has no income class, so the split is not published.');
       lines[line].push(row);
     }
-    // A period-level demotion of incomeTrust beyond what its rows earn (for
-    // example OD-022's estimated future periods) reaches every line, so no
-    // line reads more certain than the period allows. A total that is
-    // estimated only because one line is leaves the other lines their own.
+    // A period-level demotion of incomeTrust reaches every line, so no line
+    // reads more certain than the period allows: a later period estimated
+    // because today's cash is unconfirmed (estimateUnconfirmedOpeningPeriod,
+    // OD-022) is named by its own marker, whatever its rows earn; any other
+    // demotion of the total beyond what its rows earn caps the lines too. A
+    // total that is estimated only because one line is leaves the other
+    // lines their own.
     const TRUST_RANK = { calculated: 0, estimated: 1, unavailable: 2 };
     const totalTrust = Object.hasOwn(TRUST_RANK, view.incomeTrust) ? view.incomeTrust : 'unavailable';
     const allRows = [...lines.dale, ...lines.amanda, ...lines.other];
     let rowsTrust = periodWaterfallTotalTrust(allRows, total, row => row.amount);
     if (view.lookback === true && rowsTrust === 'calculated' && allRows.some(historicalIncomeRowUnproven)) rowsTrust = 'estimated';
-    const periodCap = TRUST_RANK[totalTrust] > (TRUST_RANK[rowsTrust] ?? 2) ? totalTrust : null;
+    const periodCap = TRUST_RANK[totalTrust] > (TRUST_RANK[rowsTrust] ?? 2) ? totalTrust
+      : view.currentCashUnconfirmed && view.currentCashUnconfirmed.status === 'estimated' && totalTrust !== 'calculated'
+        ? totalTrust : null;
     const out = {};
     let cents = 0;
     for (const line of ['dale', 'amanda', 'other']) {

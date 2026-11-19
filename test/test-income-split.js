@@ -105,4 +105,25 @@ console.log('a period withheld after the waterfall (whole-plan hold) is never le
   later && JSON.stringify(split(later)));
 }
 
+console.log('a period estimated as a whole keeps every line estimated even when one of its own rows is already estimated');
+{
+  // Codex finding on #1428 (b89a41ec): with a confirmed Dale 1,000 and an estimated named 50 in the same future period,
+  // the rows already earn 'estimated', so a cap keyed only on "total weaker than its rows" never fired and Dale read
+  // calculated beside the period's own unconfirmed-cash marker. The marker now caps every line.
+  const x = world([['card', 80, null, 'purchase']], { edit: w => { w.data.plan.income.push({ ...NAMED, date: '2026-10-05' }); } });
+  const d = Live.withoutCompleteRefresh(run(x).observed.data);
+  const views = F.recommend(d.plan, x.asOf, F.budgetRecommendInputs(d, {})).payPeriodViews;
+  const oct = views.find(v => v.start === '2026-10-02');
+  ok(oct && oct.currentCashUnconfirmed && oct.currentCashUnconfirmed.status === 'estimated' && oct.incomeTrust === 'estimated'
+    && split(oct).other.amount === 50 && split(oct).dale.amount > 0,
+  'Oct 2 period: today\'s cash unconfirmed, so the period is estimated; it holds Dale\'s payroll and the named 50',
+  oct && JSON.stringify({ c: oct.currentCashUnconfirmed, t: oct.incomeTrust, s: split(oct) }));
+  ok(oct && ['dale', 'amanda', 'other', 'total'].every(k => split(oct)[k].trust === 'estimated'),
+    'and every line reads estimated: Dale\'s confirmed payroll is never calculated in a period estimated as a whole',
+    oct && JSON.stringify(split(oct)));
+  const plain = active(periods([{ ...NAMED, date: '2026-09-29' }]));
+  ok(split(plain).dale.trust === 'calculated' && split(plain).other.trust === 'estimated',
+    'control, cash confirmed: an estimated named line leaves Dale\'s confirmed line calculated');
+}
+
 console.log(`\nAll income split checks passed (${checks}).`);
