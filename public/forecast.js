@@ -2370,11 +2370,18 @@
   }
   // An explicit breakdown needs both operating accounts exactly once,
   // with a known balance on each. Other accounts cannot fill a missing row.
+  // Without a breakdown the opening is the single starting-cash amount: a
+  // null, missing or non-finite amount is unknown, never ready at 0. A known
+  // 0 is a real opening and stays ready.
+  function knownOpeningAmount(amount) {
+    if (typeof amount === 'number') return Number.isFinite(amount);
+    return typeof amount === 'string' && amount.trim() !== '' && Number.isFinite(Number(amount));
+  }
   function openingCashState(plan) {
     const cash = (plan && plan.startingCash) || {};
     const unknown = Object.hasOwn(cash, 'breakdown')
       ? householdChequingOpeningRows(cash).filter(row => row.value == null).map(row => row.id)
-      : [];
+      : knownOpeningAmount(cash.amount) ? [] : ['startingCash'];
     const asOf = (plan && plan.opening && plan.opening.asOf) || null;
     if (!unknown.length) return { status: 'ready', asOf, accounts: [], reason: null };
     return { status: 'unavailable', asOf, accounts: unknown,
