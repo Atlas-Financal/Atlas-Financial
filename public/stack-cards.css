@@ -1,0 +1,34 @@
+/* Stack page Bills, Budget, Mortgage and Savings cards. Loaded only under ?view=stack; every selector is scoped to html.stack-view. The cards keep their own pastel fills and dark ink in both themes, as in the design. */
+html.stack-view .sc-cards{--sc-ink:#121316;--sc-muted:#6c6d74;--sc-line:rgba(18,19,22,.13);--sc-bar:rgba(18,19,22,.13);
+--sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;--sc-savings:#b4ead3;display:flex;flex-direction:column;gap:12px;font-family:inherit}
+html.stack-view .sc-card{background:var(--sc-k);color:var(--sc-ink);border-radius:32px;padding:16px 20px;min-width:0}
+html.stack-view .sc-card>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto;
+grid-template-areas:"t f" "s f";align-items:center;column-gap:10px}
+html.stack-view .sc-card>summary::-webkit-details-marker{display:none}
+html.stack-view .sc-card>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:12px}
+html.stack-view .sc-t{grid-area:t;font-size:18px;font-weight:800;letter-spacing:-.02em}
+html.stack-view .sc-s{grid-area:s;font-size:13.5px;font-weight:500;opacity:.68}
+html.stack-view .sc-f{grid-area:f;font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
+html.stack-view .sc-f i{font-style:normal;font-size:.6em;font-weight:600;opacity:.68}
+html.stack-view .sc-bar{height:8px;border-radius:4px;background:var(--sc-bar);margin-top:12px;overflow:hidden}
+html.stack-view .sc-bar i{display:block;height:100%;border-radius:4px;background:var(--sc-ink)}
+html.stack-view .sc-card[open] .sc-bar{height:12px}
+html.stack-view .sc-list{list-style:none;margin:14px 0 0;padding:0}
+html.stack-view .sc-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;min-height:54px;
+padding:8px 0;border-top:1.5px solid var(--sc-line)}
+html.stack-view .sc-n{font-size:17px;font-weight:600;display:block}
+html.stack-view .sc-st{font-size:13.5px;font-weight:500;opacity:.68;display:block}
+html.stack-view .sc-st.sc-paid{opacity:1;font-weight:700}
+html.stack-view .sc-a{font-size:18px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
+html.stack-view .sc-a i{font-style:normal;font-weight:500;opacity:.68}
+html.stack-view .sc-mini{height:6px;border-radius:3px;background:var(--sc-bar);margin-top:8px;overflow:hidden}
+html.stack-view .sc-mini i{display:block;height:100%;border-radius:3px;background:var(--sc-ink)}
+html.stack-view [data-stack-sheet]{cursor:pointer}
+html.stack-view [data-stack-sheet]:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:10px}
+html.stack-view .sc-own{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
+html.stack-view .sc-own>.sc-n{font-weight:500}
+html.stack-view .sc-own .sc-a{font-weight:700}
+html.stack-view .sc-full{grid-column:1/-1;margin-top:0;height:8px}
+html.stack-view .stack-est{opacity:.62}
+html.stack-view .sc-f.stack-est,html.stack-view .sc-a.stack-est{text-decoration:underline dashed;text-decoration-thickness:1.5px;text-underline-offset:4px}
+html.stack-view .sc-bar.stack-est,html.stack-view .sc-mini.stack-est{background:transparent;border:1.5px dashed var(--sc-line)}

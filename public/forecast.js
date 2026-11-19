@@ -12657,7 +12657,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts);
+      return publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts));
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12743,6 +12743,32 @@
     }
     out.total = { amount: total, trust: totalTrust };
     return out;
+  }
+  // Stack Wallet A3 (owner decision, Dale, F2 on #821: "Not paid" until a payment shows up, because autopay dates
+  // move). Each published bill row's one Paid / Not paid word, read from the row's final fields and set as the last step
+  // on the published result, so a later pass (a withheld period, a saved close's captured rows) is never left stale.
+  // Presentation only: no settlement, reserve or figure reads it.
+  //   paid      payment evidence: settled from a seen payment (PAID / represented, not on the owner's schedule-trust
+  //             rule), a payment pending, money sent toward it (a minimum sent, allocation unconfirmed or partial);
+  //   not-paid  everything else: schedule-trusted on its due date (not seen), inside the opening balance, due date
+  //             passed with nothing seen, needs a date, upcoming, unknown;
+  //   carried   a completed period's copy of an occurrence the current period carries: not listed.
+  function billPaidState(row) {
+    if (!row || typeof row !== 'object') return 'not-paid';
+    if (row.status === 'carried' || row.settlement === 'carried') return 'carried';
+    if (row.status === 'pending' || row.settlement === 'pending') return 'paid';
+    if (row.cashPaymentStatus === 'sent') return 'paid';
+    if (row.settlement === 'unverified' || row.settlement === 'unknown' || row.status === 'unknown') return 'not-paid';
+    if (row.settlementBasis === 'schedule-trust-on-due') return 'not-paid';
+    return row.status === 'PAID' || row.settlement === 'represented' ? 'paid' : 'not-paid';
+  }
+  function publishBillPaidStates(result) {
+    for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
+      for (const row of (view && Array.isArray(view.bills) ? view.bills : [])) {
+        if (row && typeof row === 'object') row.paidState = billPaidState(row);
+      }
+    }
+    return result;
   }
   function calendarIncomeTxFacts(packet) {
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
@@ -30063,5 +30089,6 @@
   // The exported recommend opens the packet-facts reuse scope around it
   // (the same object module.exports / root.Forecast already hold).
   Forecast.recommend = recommendWithIncomeTxFacts;
+  Forecast.billPaidState = billPaidState;
 
 })(typeof window !== 'undefined' ? window : globalThis);
