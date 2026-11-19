@@ -12684,9 +12684,20 @@
   //           capacity is the entitlement less what moved), so it reads
   //           'still to set aside' (reason net-of-period-transfers); for a
   //           later period nothing has moved and it is the period's plan.
-  //   saved   null for every goal: nothing attributes ledger movement to a
-  //           goal yet, and a plan instruction to set money aside is never
-  //           proof that it moved.
+  //   saved   current period only: this period's ledger-evidenced pool
+  //           transfers (period.transferred) attributed by the owner's rule,
+  //           "the savings pool funds savings goals in order of closest date"
+  //           (Dale, 2026-11-19): each goal's share of the pool's funds under
+  //           the backing's own need-date allocator (savingsLedgerPool) less
+  //           its share of the same funds without this period's transfers.
+  //           The shares sum to the transfers exactly. A goal topped up past
+  //           this period's plan reads full (known behaviour, lead ruling).
+  //           Withheld (null) when any input is unpublished or a pool balance
+  //           predates the as-of (a transfer might not be in it); null on
+  //           every later or past period. A plan instruction to set money
+  //           aside is never proof that it moved.
+  //   periodTarget  saved + needed (still to set aside), the bar's whole,
+  //           current period only, when both are published.
   //   totals  needed is the sum of every goal's needed, or null when any is
   //           missing (never a partial sum); saved is the pool's
   //           ledger-evidenced transfers this period (period.transferred),
@@ -12696,6 +12707,39 @@
   const STACK_TRUST_RANK = { calculated: 0, estimated: 1 };
   const isSavingsFigure = v => typeof v === 'number' && Number.isFinite(v);
   const savingsFigureCents = v => Math.round(v * 100);
+  // Owner rule (Dale, 2026-11-19): the pool funds goals nearest due date
+  // first. Map of goal row key -> cents of this period's transfers, or null.
+  // The backing's published shares fill the pool's funds (shares + the
+  // unallocated rest) in its own need-date order; the same allocator over the
+  // funds less this period's transfers gives the shares without them; each
+  // member's difference is what the transfers funded, summed to its row.
+  function stackSavingsAttribution(funding) {
+    const period = funding.period, backing = funding.backing, allocation = funding.goalAllocation;
+    const transferred = isSavingsFigure(period.transferred) ? savingsFigureCents(period.transferred) : null;
+    if (transferred === null || transferred < 0 || !backing || backing.status !== 'ready' || !Array.isArray(backing.items)
+        || !isSavingsFigure(backing.unallocated) || !allocation || allocation.status !== 'ready'
+        || !Array.isArray(allocation.balanceDates) || !allocation.balanceDates.length
+        || allocation.balanceDates.some(row => !row || typeof row.date !== 'string' || row.date < funding.asOf)) return null;
+    const items = backing.items;
+    if (items.some(item => !item || typeof item.key !== 'string' || !isSavingsFigure(item.saved) || !isSavingsFigure(item.needed)
+        || typeof item.date !== 'string')) return null;
+    const funds = items.reduce((cents, item) => cents + savingsFigureCents(item.saved), 0) + savingsFigureCents(backing.unallocated);
+    if (transferred > funds) return null;
+    const without = savingsLedgerPool({ cashCents: funds - transferred, liabilities: [],
+      needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: savingsFigureCents(item.needed) })) });
+    if (without.status !== 'ready') return null;
+    const byMember = new Map(items.map((item, i) => [item.key, savingsFigureCents(item.saved) - without.shares[i].cents]));
+    if ([...byMember.values()].some(cents => !Number.isSafeInteger(cents) || cents < 0)
+        || [...byMember.values()].reduce((a, b) => a + b, 0) !== transferred) return null;
+    const out = new Map();
+    for (const row of Array.isArray(funding.rows) ? funding.rows : []) {
+      if (!row || typeof row.key !== 'string' || !Array.isArray(row.members)) return null;
+      let cents = 0;
+      for (const member of row.members) cents += byMember.get(member) || 0;
+      out.set(row.key, cents);
+    }
+    return out;
+  }
   function stackSavings(view, result) {
     const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
     const role = view.timelineRole;
@@ -12712,13 +12756,22 @@
       ready = !!packet && packet.status === 'ready' && role !== 'past';
     }
     const savedReason = current ? 'no-per-goal-attribution' : role === 'past' ? 'past-period' : 'future-period';
+    const attributed = current && ready ? stackSavingsAttribution(funding) : null;
     const items = rows.filter(row => row && typeof row.key === 'string').map(row => {
       const needed = ready && isSavingsFigure(row.thisPeriod) && Object.hasOwn(STACK_TRUST_RANK, row.thisPeriodTrust)
         ? row.thisPeriod : null;
+      const savedCents = attributed && attributed.has(row.key) ? attributed.get(row.key) : null;
+      const saved = savedCents === null ? null : savedCents / 100;
+      const savedWord = saved === null ? savedReason : 'owner-rule:nearest-due-first';
+      const reasons = needed === null ? [savedWord, 'planned-unavailable']
+        : current ? [savedWord, 'net-of-period-transfers'] : [savedWord];
       return { id: row.key, label: typeof row.label === 'string' ? row.label : row.key,
-        saved: null, needed, trust: needed === null ? 'unavailable' : row.thisPeriodTrust,
-        reasons: needed === null ? [savedReason, 'planned-unavailable']
-          : current ? [savedReason, 'net-of-period-transfers'] : [savedReason] };
+        saved, needed,
+        periodTarget: saved !== null && needed !== null ? (savedCents + savingsFigureCents(needed)) / 100 : null,
+        trust: needed === null ? 'unavailable' : row.thisPeriodTrust,
+        savedTrust: saved === null ? 'unavailable'
+          : STACK_TRUST_RANK[funding.period.trust] > STACK_TRUST_RANK.calculated ? funding.period.trust : 'calculated',
+        reasons };
     });
     const excluded = items.filter(item => item.needed === null).map(item => item.id);
     const neededTotal = items.length && !excluded.length
@@ -12730,6 +12783,7 @@
     const included = [...(neededTotal === null ? [] : items.map(item => item.trust)), ...(transferKnown ? [period.trust] : [])];
     const reasons = [];
     if (transferKnown) reasons.push('pool-level');
+    if (attributed) reasons.push('owner-rule:nearest-due-first');
     else reasons.push(current ? 'pool-transfer-unavailable' : savedReason);
     if (!items.length) reasons.push('planned-unavailable');
     else if (excluded.length) reasons.push('planned-incomplete');

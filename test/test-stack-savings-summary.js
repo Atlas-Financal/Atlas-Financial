@@ -7,8 +7,11 @@
  *   item.needed   the row's thisPeriod (null when unpublished, never 0); for
  *                 the current period it is net of the period's transfers so
  *                 far (reason net-of-period-transfers);
- *   item.saved    always null: nothing attributes ledger movement to a goal,
- *                 and a plan instruction is never proof money moved;
+ *   item.saved    current period only: the pool's ledger-evidenced period
+ *                 transfers attributed by the owner's rule (Dale, 2026-11-19:
+ *                 the pool funds goals nearest due date first), summing to
+ *                 the transfers exactly; null on later and past periods;
+ *   item.periodTarget  saved + still to set aside (the bar's whole);
  *   totals        needed = cent sum of every goal's needed, or null; saved =
  *                 the pool's ledger-evidenced period transfers and
  *                 entitlement = the period's savings entitlement, current
@@ -17,7 +20,8 @@
  *   1. hand-derived invented worlds (figures inputs savings-live-ready and
  *      savings-live-partial: the same plan, entitlement 80, the second with a
  *      30 transfer already made): current club still to set aside 80 vs 50 =
- *      80 − 30, saved 0 vs 30 moved of 80; next and future periods gross,
+ *      80 − 30, saved 0 vs 30 (the nearest-due goal takes it), the same
+ *      target 80 either way; 0 vs 30 moved of 80; next and future periods gross,
  *      nothing moved, 'future-period'; past periods all null;
  *   2. every period of the invented figures evaluations (and the harness item
  *      world): each item is its savingsFunding row copied, saved null, the
@@ -25,7 +29,8 @@
  *      no status field and no funded wording;
  *   3. every existing field is byte-equal without the new key;
  *   4. mutants are caught: saved from the pool backing (the savings-pot
- *      rule), needed from the goal's whole cost, a partial needed total, a
+ *      rule), transfers attributed farthest-due first, needed from the goal's
+ *      whole cost, a partial needed total, a
  *      moved total on a future period, a missing entitlement, the net reason
  *      dropped.
  *
@@ -61,12 +66,15 @@ const NEEDED = "      const needed = ready && isSavingsFigure(row.thisPeriod) &&
 const copies = {
   shipped: require('../public/forecast.js'),
   without: compile(replaceOnce(SOURCE, ', savings: stackSavings(view, result) }', ' }', 'pass off'), 'without'),
-  savedFromBacking: compile(replaceOnce(SOURCE, '        saved: null, needed, trust:', '        saved: isSavingsFigure(row.saved) ? row.saved : null, needed, trust:', 'saved from backing'), 'saved-from-backing'),
+  savedFromBacking: compile(replaceOnce(SOURCE, '      const saved = savedCents === null ? null : savedCents / 100;',
+    '      const saved = isSavingsFigure(row.saved) ? row.saved : null;', 'saved from backing'), 'saved-from-backing'),
+  farthestFirst: compile(replaceOnce(SOURCE, '      needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: savingsFigureCents(item.needed) })) });',
+    "      needs: items.map((item, rank) => ({ key: item.key, needDate: '9999-12-31', rank: items.length - rank, unpaidCents: savingsFigureCents(item.needed) })) });", 'farthest first'), 'farthest-first'),
   neededFromCost: compile(replaceOnce(SOURCE, NEEDED, NEEDED.split('row.thisPeriod').join('row.needed'), 'needed from cost'), 'needed-from-cost'),
   partialNeeded: compile(replaceOnce(SOURCE, '    const neededTotal = items.length && !excluded.length', '    const neededTotal = items.length', 'partial needed'), 'partial-needed'),
   futureMoved: compile(replaceOnce(SOURCE, '    const transferKnown = current && period.status', '    const transferKnown = !!period && period.status', 'future moved'), 'future-moved'),
   noEntitlement: compile(replaceOnce(SOURCE, '        entitlement: entitlementKnown ? period.entitlement : null,', '        entitlement: null,', 'no entitlement'), 'no-entitlement'),
-  noNetReason: compile(replaceOnce(SOURCE, "          : current ? [savedReason, 'net-of-period-transfers'] : [savedReason] };", '          : [savedReason] };', 'no net reason'), 'no-net-reason'),
+  noNetReason: compile(replaceOnce(SOURCE, "        : current ? [savedWord, 'net-of-period-transfers'] : [savedWord];", '        : [savedWord];', 'no net reason'), 'no-net-reason'),
 };
 
 const INPUTS = Snap.loadInventedInputs();
@@ -91,12 +99,18 @@ console.log('1. Hand-derived invented worlds');
     'a 30 transfer: club still to set aside 50 = 80 − 30; 30 moved of 80', JSON.stringify(p0.totals));
   ok(item(p0, 'group:club').needed === item(r0, 'group:club').needed - p0.totals.saved,
     'still to set aside falls by exactly what moved (net of the period\'s transfers)');
-  ok(p0.items.every(x => x.saved === null && x.reasons.includes('no-per-goal-attribution') && x.reasons.includes('net-of-period-transfers'))
-    && p0.totals.reasons.includes('pool-level') && p0.totals.reasons.includes('net-of-period-transfers'),
-    'the current period names its saved null as unattributed and its needed as net', JSON.stringify(p0.items));
+  ok(item(p0, 'group:club').saved === 30 && item(p0, 'yearly-bill:home-cost').saved === 0
+    && item(r0, 'group:club').saved === 0 && item(r0, 'yearly-bill:home-cost').saved === 0,
+    'owner rule: the 30 funds the nearest goal with need left (club\'s far cost; near and home are fully backed), 0 elsewhere',
+    JSON.stringify(p0.items.map(x => [x.id, x.saved])));
+  ok(item(p0, 'group:club').periodTarget === 80 && item(r0, 'group:club').periodTarget === 80,
+    'the bar\'s whole is the same 80 in both worlds: saved + still to set aside = 30 + 50 = 0 + 80');
+  ok(p0.items.every(x => x.reasons.includes('owner-rule:nearest-due-first') && x.reasons.includes('net-of-period-transfers') && x.savedTrust === 'calculated')
+    && p0.totals.reasons.includes('pool-level') && p0.totals.reasons.includes('owner-rule:nearest-due-first'),
+    'the current period names its saved as the owner rule and its needed as net', JSON.stringify(p0.items));
   ok(p0.totals.needed === 50 && p0.totals.excluded.length === 0, 'totals.needed is every goal\'s still-to-set-aside, summed (50 + 0)');
   const next = sav(byRole(partial, 'next')[0]);
-  ok(next && next.items.length > 0 && next.items.every(x => x.saved === null && x.reasons.join() === 'future-period')
+  ok(next && next.items.length > 0 && next.items.every(x => x.saved === null && x.periodTarget === null && x.reasons.join() === 'future-period')
     && next.totals.saved === null && next.totals.entitlement === null && next.totals.completeness === 'none',
     'the next period: gross plan, nothing moved, future-period', JSON.stringify(next && next.totals));
   const past = sav(byRole(partial, 'past').at(-1));
@@ -119,10 +133,11 @@ for (const inp of INPUTS) for (const shift of [0, 3, 7, 14]) corpus.push(F => ru
   if (error) throw error;
   corpus.push(F => F.recommend(structuredClone(data.plan), w.asOf, { debts: structuredClone(data.debts), currentPeriodActuals: structuredClone(packet) }));
 }
-const REASONS = new Set(['no-per-goal-attribution', 'net-of-period-transfers', 'future-period', 'past-period',
+const REASONS = new Set(['no-per-goal-attribution', 'owner-rule:nearest-due-first', 'net-of-period-transfers', 'future-period', 'past-period',
   'planned-unavailable', 'planned-incomplete', 'pool-level', 'pool-transfer-unavailable']);
 function audit(F) {
-  const r = { periods: 0, items: 0, published: 0, poolLevel: 0, copyFail: 0, savedFail: 0, totalFail: 0, poolFail: 0, reasonFail: 0, wordingFail: 0, netFail: 0 };
+  const r = { periods: 0, items: 0, published: 0, poolLevel: 0, attributed: 0, copyFail: 0, savedFail: 0, savedSumFail: 0, targetFail: 0,
+    totalFail: 0, poolFail: 0, reasonFail: 0, wordingFail: 0, netFail: 0 };
   for (const args of corpus) {
     const res = args(F);
     const funding = res.savingsFunding;
@@ -141,11 +156,16 @@ function audit(F) {
         const row = rows[i] || {};
         if (x.id !== row.key) r.copyFail++;
         if (x.needed !== null) { r.published++; if (x.needed !== row.thisPeriod || x.trust !== row.thisPeriodTrust) r.copyFail++; }
-        if (x.saved !== null) r.savedFail++;
+        if (x.saved !== null && !current) r.savedFail++;
+        if (x.saved !== null) r.attributed++;
+        if ((x.saved !== null && x.needed !== null) ? x.periodTarget !== Math.round((x.saved + x.needed) * 100) / 100 : x.periodTarget !== null) r.targetFail++;
         if (!x.reasons.every(c => REASONS.has(c))) r.reasonFail++;
         if (current && x.needed !== null && !x.reasons.includes('net-of-period-transfers')) r.netFail++;
         if (!current && x.reasons.includes('net-of-period-transfers')) r.netFail++;
       });
+      if (s.items.length && s.items.every(x => x.saved !== null)
+          && s.items.reduce((c, x) => c + Math.round(x.saved * 100), 0) !== Math.round(s.totals.saved * 100)) r.savedSumFail++;
+      if (s.items.some(x => x.saved !== null) && !s.items.every(x => x.saved !== null)) r.savedSumFail++;
       const missing = s.items.filter(x => x.needed === null).map(x => x.id);
       const sum = s.items.length && !missing.length ? s.items.reduce((c, x) => c + Math.round(x.needed * 100), 0) / 100 : null;
       if (s.totals.needed !== sum || JSON.stringify(s.totals.excluded) !== JSON.stringify(missing)) r.totalFail++;
@@ -161,7 +181,9 @@ function audit(F) {
 const a = audit(copies.shipped);
 ok(a.periods > 100 && a.published > 20 && a.poolLevel >= 5 && a.copyFail === 0,
   `every goal row is its savingsFunding row copied (${a.items} goals, ${a.published} published, ${a.periods} periods)`, JSON.stringify(a));
-ok(a.savedFail === 0, 'no goal ever publishes a saved figure', String(a.savedFail));
+ok(a.savedFail === 0 && a.attributed > 5, `only the current period attributes saved per goal (${a.attributed} goals)`, String(a.savedFail));
+ok(a.savedSumFail === 0, 'the goals\' saved sum to the period\'s transfers exactly, all or none', String(a.savedSumFail));
+ok(a.targetFail === 0, 'each periodTarget is saved + still to set aside, or null', String(a.targetFail));
 ok(a.totalFail === 0, 'totals.needed is the cent sum of every goal\'s needed, or null with the missing goals excluded', String(a.totalFail));
 ok(a.poolFail === 0, `the pool-level moved and entitlement figures appear only on the current period, as published (${a.poolLevel} periods)`, String(a.poolFail));
 ok(a.netFail === 0, 'every current-period needed is marked net of the period\'s transfers, and no later one is', String(a.netFail));
@@ -178,7 +200,10 @@ console.log('3. Every existing field is byte-equal');
 console.log('4. Mutants are caught');
 {
   const partial = F => sav(byRole(run(F, input('savings-live-partial')), 'current')[0]);
-  ok(audit(copies.savedFromBacking).savedFail > 0, 'saved read from the pool backing (a stock, not a movement) is caught');
+  ok(audit(copies.savedFromBacking).savedSumFail > 0 || item(partial(copies.savedFromBacking), 'group:club').saved !== 30,
+    'saved read from the pool backing (a stock, not a movement) is caught');
+  ok(item(partial(copies.farthestFirst), 'group:club').saved !== 30 || item(partial(copies.farthestFirst), 'yearly-bill:home-cost').saved !== 0
+    || audit(copies.farthestFirst).savedSumFail > 0, 'transfers attributed farthest-due first are caught');
   ok(item(partial(copies.neededFromCost), 'group:club').needed !== 50 && audit(copies.neededFromCost).copyFail > 0,
     'needed read from the goal\'s whole cost instead of this period\'s plan is caught');
   ok(audit(copies.partialNeeded).totalFail > 0, 'a partial needed total passed off as a total is caught');

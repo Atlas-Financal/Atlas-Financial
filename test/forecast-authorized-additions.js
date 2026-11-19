@@ -38,23 +38,29 @@ function proveStackIncome(view, income) {
     }
   }
 }
-// A5: stackSummary.savings. Every goal's saved is null (nothing attributes
-// ledger movement to a goal); needed is a number with a trust word or null
+// A5: stackSummary.savings. A goal's saved is the current period's transfers
+// attributed by the owner's nearest-due rule, summing to them, or null; needed is a number with a trust word or null
 // and unavailable; totals.needed is the cent sum of every goal's needed or
 // null when any is missing; totals.saved and entitlement are pool-level
 // together, or null; reasons come from the closed set.
-const SAVINGS_REASONS = new Set(['no-per-goal-attribution', 'net-of-period-transfers', 'future-period', 'past-period',
+const SAVINGS_REASONS = new Set(['no-per-goal-attribution', 'owner-rule:nearest-due-first', 'net-of-period-transfers', 'future-period', 'past-period',
   'planned-unavailable', 'planned-incomplete', 'pool-level', 'pool-transfer-unavailable']);
 const isFigure = v => typeof v === 'number' && Number.isFinite(v);
 function proveStackSavings(view, savings) {
   assert.ok(savings && Array.isArray(savings.items) && savings.totals, 'authorized addition: stackSummary.savings lists items and totals');
   for (const item of savings.items) {
-    assert.equal(item.saved, null, 'authorized addition: a savings goal\'s saved is null (no per-goal attribution)');
+    assert.ok(item.saved === null ? item.savedTrust === 'unavailable' && item.periodTarget === null
+      : isFigure(item.saved) && ['calculated', 'estimated'].includes(item.savedTrust) && view.timelineRole === 'current',
+    'authorized addition: a goal\'s saved is the current period\'s attributed transfers, or null');
     assert.ok(item.needed === null ? item.trust === 'unavailable' : isFigure(item.needed) && ['calculated', 'estimated'].includes(item.trust),
       'authorized addition: a savings goal\'s needed is a number with its trust, or null and unavailable');
     assert.ok(Array.isArray(item.reasons) && item.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings reasons are closed');
   }
   const t = savings.totals;
+  if (savings.items.length && savings.items.every(item => item.saved !== null)) {
+    assert.equal(savings.items.reduce((c, item) => c + Math.round(item.saved * 100), 0), Math.round(t.saved * 100),
+      'authorized addition: the goals\' saved sum to the period\'s transfers');
+  }
   const missing = savings.items.filter(item => item.needed === null).map(item => item.id);
   assert.deepEqual(t.excluded, missing, 'authorized addition: totals.excluded names the goals without a needed');
   assert.equal(t.needed, savings.items.length && !missing.length
