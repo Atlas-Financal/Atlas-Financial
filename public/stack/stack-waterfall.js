@@ -66,13 +66,13 @@
 
   // The selected period: selectedPeriodKey is the period's start date
   // ('YYYY-MM-DD', lead ruling), matched on view.start only; with no key, the
-  // current period.
+  // active period, as the shell defaults.
   function selectedView(ctx) {
     const views = ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
       ? ctx.recommendation.payPeriodViews.filter(v => v && typeof v === 'object') : [];
     const key = ctx ? ctx.selectedPeriodKey : null;
     if (key != null && key !== '') return views.find(v => v.start === key) || null;
-    return views.find(v => v.timelineRole === 'current') || null;
+    return views.find(v => v.role === 'active') || views.find(v => v.timelineRole === 'current') || null;
   }
   const cardLabel = (ctx, debtId) => {
     const debt = ctx && ctx.data && Array.isArray(ctx.data.debts) ? ctx.data.debts.find(d => d && d.id === debtId) : null;
