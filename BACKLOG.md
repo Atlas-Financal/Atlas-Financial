@@ -323,11 +323,11 @@ Inferred personal from its transactions, not verified.
 
 U6 (#1334) holds the next payday only on a credit with positive salary evidence (a TENNIS INCOME transfer leg, or a payee matching the rule's salary aliases; a category never counts) at half or more of the amount. Her pay can still count twice in the run-up when it arrives early with none of that evidence and outside the owner's window (more than $5 off or more than 3 business days early), or as two credits each under half. Decide whether either case needs a hold, given that a blank plan is a real cost. Proof would be an invented early split pay whose payday is counted once.
 
-**Card payment pairing: a payment-like card credit pairs with a TD debit without reading the debit's note** · *pre-existing; #1298 review obs 4 (a), lead 2026-11-18*
+~~**Card payment pairing: a payment-like card credit pairs with a TD debit without reading the debit's note** · *pre-existing; #1298 review obs 4 (a), lead 2026-11-18*~~ · **CLOSED 2026-11-19** (lead ruling: the note is the bank-side identity; no card credit pairs with a debit noted for another card, and the credit withholds; test-card-payment-note-conflicts.js)
 
 In `reconcileCardPurchases` (`public/forecast.js`), a card credit that is payment-like through its own fields pairs with an equal TD household debit without checking that debit's note, so a debit whose note names a different card can still pair with it. Decide whether a conflicting debit note should withhold the pair, as the group step does. Proof would be an invented TD debit noted for one card beside an equal payment-like credit on another, which pairs with neither.
 
-**Card payment pairing: a payDown destination silently wins over a different note card** · *pre-existing; #1298 review obs 4 (b), lead 2026-11-18*
+~~**Card payment pairing: a payDown destination silently wins over a different note card** · *pre-existing; #1298 review obs 4 (b), lead 2026-11-18*~~ · **CLOSED 2026-11-19** (lead ruling: neither wins; the debit pays no card and is held To confirm once as 'card-payment-destination-conflict'; test-card-payment-note-conflicts.js)
 
 When a household debit carries a payDown destination and its note names a different card, the payDown destination wins with no withhold or diagnostic. Decide which one is the authority, or whether the conflict withholds. Proof would be an invented debit with a payDown to one card and a note naming another, read the chosen way once.
 
