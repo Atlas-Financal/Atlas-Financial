@@ -13292,7 +13292,10 @@
 
   // 'links disagree' names both bills; 'category' names the claimed category as it now reads,
   // or, once removed, the last name Dale confirmed for it.
-  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category'];
+  // The one home for these names: the Budget page reads this export, and
+  // test/test-linked-bill-misfit-check-parity.js keeps the observer's
+  // emitted checks (provider-observe linkedBillMisfitIds) equal to it.
+  const LINKED_BILL_MISFIT_CHECKS = Object.freeze(['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category']);
   function linkedBillMisfitFrom(tx) {
     const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
     if (!misfit || typeof misfit.id !== 'string' || !misfit.id
@@ -29624,7 +29627,7 @@
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount, categorySpendingTrends,
     visaPaymentReconciliation, visaPaymentPublication,
-    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis };
+    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis, LINKED_BILL_MISFIT_CHECKS };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it

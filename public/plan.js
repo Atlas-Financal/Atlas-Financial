@@ -2190,7 +2190,7 @@ function householdBudgetMetric(label, amount, opts) {
       // Display-only (Forecast owns it): linked to one bill but doesn't fit
       // it; counted here once and the bill stays To confirm.
       const misfit = tx.linkedBillMisfit;
-      const misfitCheck = misfit && ['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category'].includes(misfit.check)
+      const misfitCheck = misfit && Forecast.LINKED_BILL_MISFIT_CHECKS.includes(misfit.check)
         ? misfit.check : null;
       const billName = label => label ? esc(label) : 'a planned bill';
       // The same one-line note: two bills when the links disagree; the category by name when it was renamed.
