@@ -65,7 +65,7 @@ function compile(text, name) {
 const AMOUNT = '      amount: roundCent(view.incomeTotal - view.periodBillLoad - view.budgetHold - item),';
 const copies = {
   shipped: require('../public/forecast.js'),
-  without: compile(replaceOnce(SOURCE, 'return publishStackSummary(recommend(plan, asOf, opts));', 'return recommend(plan, asOf, opts);', 'pass off'), 'without'),
+  without: compile(replaceOnce(SOURCE, 'return publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts);', 'return recommend(plan, asOf, opts);', 'pass off'), 'without'),
   subtractsHeld: compile(replaceOnce(SOURCE, AMOUNT, AMOUNT.replace(' - item),',
     ' - item - ((view.heldOutflowsToConfirm && view.heldOutflowsToConfirm.total) || 0)),'), 'subtracts held'), 'subtracts-held'),
   noItem: compile(replaceOnce(SOURCE, AMOUNT, AMOUNT.replace(' - item),', '),'), 'no item'), 'no-item'),

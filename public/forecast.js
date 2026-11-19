@@ -12652,7 +12652,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishStackSummary(recommend(plan, asOf, opts));
+      return publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts);
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12660,11 +12660,13 @@
   }
 
   // Stack Wallet (owner decision, Dale, #821 7013976545, waterfall option 3).
-  // Each pay period's `stackSummary` is read from that period's final
-  // published figures, after every withholding pass has run, so it can never
-  // disagree with them. It is a sum of published terms; nothing is
-  // recomputed and no walk changes.
-  function publishStackSummary(result) {
+  // The one home of each pay period's `stackSummary`: it runs on the exported
+  // result after every withholding pass, so each key is read from the
+  // period's final published figures and can never disagree with them. Each
+  // key has its own builder (surplus here; the income and cards keys of the
+  // same build add theirs beside it). The plan, as-of and options are passed
+  // for a builder that needs them; the surplus reads only the period.
+  function publishStackSummary(result, plan, asOf, opts) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || typeof view !== 'object') continue;
       view.stackSummary = Object.assign(view.stackSummary || {}, { surplus: stackSurplus(view) });
