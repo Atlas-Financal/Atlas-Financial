@@ -37,13 +37,14 @@
       + '</button></div>';
   }
 
-  // A bill: its published amount, its Paid / Not paid word (#1429's paidState), when, and the paying account.
+  // A bill: its published amount, its Paid / Not paid word (#1429's paidState), its due date and the paying account.
+  // bill.date is the scheduled date, never when a payment posted, so it is labelled "Due" in every state.
   function billHtml(bill, kicker) {
     const word = bill.paidState === 'paid' ? 'Paid' : bill.paidState === 'not-paid' ? 'Not paid' : '';
     return head(kicker, bill.label || '')
       + `<div class="stack-sheet-big stack-n">${esc(money(bill.amount))}</div>`
       + (word ? `<span class="stack-sheet-pill${bill.paidState === 'paid' ? ' is-on' : ''}">${word}</span>` : '')
-      + '<dl>' + row(bill.paidState === 'paid' ? 'Paid on' : 'Due', date(bill.date))
+      + '<dl>' + row('Due', date(bill.date))
       + row(bill.paidState === 'paid' ? 'Paid from' : 'Comes out of', bill.payerLabel || '') + '</dl>';
   }
 

@@ -127,11 +127,12 @@
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
-          // A payment onto the card is published negative with payment: true; it prints as "+" and its size.
-          const size = num(t.amount) ? h.money(Math.abs(t.amount)) : '';
+          // A payment onto the card is published negative with payment: true; its printed value's minus sign becomes "+".
+          const printed = h.money(t.amount);
+          const shown = t.payment ? printed.replace(/^−/, '+') : printed;
           return `<li class="${t.payment ? 'is-pay' : ''}${t.pending ? ' is-pending' : ''}">`
             + `<span class="stack-sheet-txd">${h.esc(h.date(t.date))}</span><span class="stack-sheet-txl">${h.esc(t.name || '')}</span>`
-            + `<span class="stack-sheet-txa stack-n">${size ? (t.payment ? '+' : '') + h.esc(size) : ''}</span></li>`;
+            + `<span class="stack-sheet-txa stack-n">${h.esc(shown)}</span></li>`;
         }).join('') + '</ul>'
         : ''));
   }

@@ -10,7 +10,7 @@
  *      "Upcoming"), "Minimum $X covered ✓ / not yet" from minimumCovered, nothing for 'unknown'. HELOC: minimum only.
  *   4. No ratio or percent text reaches the page: a bar's width appears only inside a style attribute.
  *   5. The sheet, for a card line, a bill, a mortgage row and a budget row: published fields only.
- *   6. L-001: the two block files do no arithmetic on money (Math.abs on a payment's printed size is the one exception).
+ *   6. L-001: the two block files do no arithmetic on money (a payment's "+" replaces the printed minus sign).
  * `node test/test-stack-credit.js`
  */
 const assert = require('node:assert/strict');
@@ -56,7 +56,8 @@ const LINES = [
 ];
 const VIEW = {
   start: '2031-03-01', end: '2031-03-14', stackSummary: { bills: { amount: 1 } },
-  bills: [{ id: 'water', date: '2031-03-05', label: 'Water', amount: 64, paidState: 'paid', payerLabel: 'Chequing' },
+  // A paid bill whose payment posted on another day than its scheduled date (an invented extra field the sheet must not read).
+  bills: [{ id: 'water', date: '2031-03-05', postedOn: '2031-03-07', label: 'Water', amount: 64, paidState: 'paid', payerLabel: 'Chequing' },
     { id: 'mort', date: '2031-03-12', label: 'Mortgage', amount: 1850, paidState: 'not-paid', payerLabel: 'Joint' }],
   householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 310, planned: 500, remaining: 190, overspend: 0 },
     { id: 'fun', label: 'Fun', spent: 130, planned: 100, remaining: 0, overspend: 30 }],
@@ -160,7 +161,9 @@ console.log('5. the sheet');
   ok(/\$160 to go/.test(green) && /Minimum \$30 Not yet/.test(green) && /Transactions$/.test(green), 'to-go sheet with an empty list', green);
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
   ok(!/Minimum/.test(red), "'unknown' minimum check prints nothing in the sheet", red);
-  ok(text(win.StackSheet.html(ctx, 'bill:water@2031-03-05')) === 'Bill Water $64 Paid Paid on Mar 5 Paid from Chequing', 'bill sheet');
+  const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
+  ok(water === 'Bill Water $64 Paid Due Mar 5 Paid from Chequing' && !/Paid on|Mar 7/.test(water),
+    'paid bill sheet: its scheduled date is labelled Due, never as when it was paid (it posted on another day)', water);
   ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage Mortgage $1,850 Not paid Due Mar 12 Comes out of Joint', 'mortgage sheet');
   ok(text(win.StackSheet.html(ctx, 'budget:groceries')) === 'Budget Groceries $310 / $500 Spent $310 Budget $500 Left $190', 'budget sheet');
   ok(text(win.StackSheet.html(ctx, 'budget:fun')) === 'Budget Fun $130 / $100 Spent $130 Budget $100 Over $30', 'overspent budget sheet');
@@ -177,8 +180,8 @@ console.log('6. L-001: no arithmetic on money');
     ok(!/\.reduce\(|Math\.(round|floor|ceil)\(|\b(amount|paid|spent|net|minimum|planned|remaining|overspend)\s*[+\-*/]\s|[\s(][+\-*/]\s*(paid|spent|t\.amount|\w+\.amount)\b/.test(src),
       `${file}: no sum, rounding or arithmetic on a figure`);
   }
-  const credit = read('public/stack-credit.js');
-  ok((credit.match(/Math\.abs\(/g) || []).length === 1 && /h\.money\(Math\.abs\(t\.amount\)\)/.test(credit), "Math.abs only for a payment's printed size");
+  const both = read('public/stack-credit.js') + read('public/stack-sheet.js');
+  ok(!/Math\.\w+\(/.test(both.replace(/Math\.min\(1, Math\.max\(0,/g, '')), 'no Math call in either block file');
 }
 
 console.log(`\nPASS Stack credit card and sheet (${checks})`);
