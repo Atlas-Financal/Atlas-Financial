@@ -24,7 +24,7 @@ const Pg = require('../scripts/private-period-history-postgres');
 const { START, END, NEXT, input } = require('./fixtures/private-period-history-input');
 
 let checks = 0;
-const ok = (value, label) => { assert.ok(value, label); checks++; };
+const ok = (value, label, detail) => { assert.ok(value, label + (detail ? " — " + detail : "")); checks++; };
 const withPlan = (raw, bill) => {
   raw.data.plan.bills = [{ id: 'invented-bill', label: 'Invented bill', frequency: 'monthly', day: 10, amount: bill,
     confidence: 'confirmed', payingAccount: 'chequing-a' }];
@@ -114,6 +114,7 @@ const IDENTITY = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', '
 const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases']);
 const SET_BY_REPLAY = new Set(['budgetProgress', 'capturedClose']);
 const KEPT_FROM_TODAY = {
+  stackSummary: 'derived at publication, never saved; for a saved close its income split is re-derived from the saved income rows and total (checked below), never from today\'s',
   spendingCycle: 'the cycle window dates, not a figure',
   spendingCycleLabel: 'the cycle window label, not a figure',
   operatingPlanNote: 'a null note on a completed period (only a current plan can be unavailable)',
@@ -140,5 +141,27 @@ ok(stale.length === 0, 'every classified kept field is really present (no dead e
 ok(past.bankCheck && past.bankCheck.status === 'unavailable' && past.bankCheck.gap === null && past.bankCheck.reasonCode === 'not-saved-at-close',
   'a saved close carries no bank-check figure (Unavailable, not saved at close)');
 ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept payday carryover observation is as recorded');
+{
+  // Stack Wallet A1 (Atlas blocker on 87864228): the archive keeps each income row's amount and trust, not its class, so
+  // a saved close withholds the per-person lines and keeps only its saved total. Re-classing today's stream for the same
+  // id must not move the saved money between lines.
+  const split = past.stackSummary && past.stackSummary.income;
+  const withheld = s => ['dale', 'amanda', 'other'].every(k => s[k].amount === null && s[k].trust === 'unavailable'
+    && /keeps its income total, not whose income it was/.test(s[k].reason || ''));
+  ok(split && withheld(split) && split.total.amount === saved.incomeTotal && split.total.trust === past.incomeTrust,
+    'a saved close keeps its income total and withholds the per-person lines', JSON.stringify(split));
+  ok(plain.stackSummary.income.dale.amount === plain.incomeTotal && plain.stackSummary.income.dale.trust !== 'unavailable',
+    'control: an uncaptured period publishes its split', JSON.stringify(plain.stackSummary.income));
+  ok(!Object.hasOwn(saved, 'stackSummary'), 'the saved record carries no stackSummary (it is derived, never saved)');
+  const reclassed = todayPlan();
+  for (const row of reclassed.income || []) row.incomeClass = 'other';
+  const at = history => F.recommend(JSON.parse(JSON.stringify(reclassed)), '2030-02-20',
+    { debts, periods: [], ...(history ? { periodHistory: history } : {}) }).payPeriodViews.find(r => r.start === START && r.end === END);
+  const again = at([record]), againPlain = at(null);
+  ok(againPlain.stackSummary.income.other.amount === againPlain.incomeTotal && againPlain.stackSummary.income.dale.amount === 0,
+    'control: re-classing today\'s stream as Other really moves an uncaptured period\'s split', JSON.stringify(againPlain.stackSummary.income));
+  ok(again.capturedClose && JSON.stringify(again.stackSummary.income) === JSON.stringify(split),
+    'but the saved close\'s split is unchanged by today\'s re-classing', JSON.stringify(again.stackSummary.income));
+}
 
 console.log('PASS saved close never shows today\'s figures: ' + checks + ' checks');

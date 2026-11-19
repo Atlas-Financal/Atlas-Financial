@@ -10,6 +10,14 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+// The live period less the derived Stack Wallet stackSummary, which is built
+// at publication from the period's own figures and never saved.
+const withoutStackSummary = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  if (!copy || !Object.hasOwn(copy, 'stackSummary')) throw new Error('the live period publishes stackSummary');
+  delete copy.stackSummary;
+  return copy;
+};
 
 const START = '2030-02-01', END = '2030-02-14';
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -62,7 +70,7 @@ try {
   const refreshed = Live.fromObservation(source), options = Operating.recommendOpts(refreshed.data, {});
   options.periods = source.periods;
   const native = Forecast.recommend(refreshed.data.plan, START, options).payPeriodViews.find(p => p.start === START);
-  assert.deepEqual(candidate.content.publication, JSON.parse(JSON.stringify(native)), 'archive reprints native Forecast without a second planner');
+  assert.deepEqual(candidate.content.publication, withoutStackSummary(native), 'archive reprints native Forecast without a second planner');
   assert.equal(native.householdBudget.find(row => row.id === 'groceries').spent, 12.34, 'invented posted CAD debit is preserved independently');
   rejects(() => History.append({ destination: temporary, candidate }), 'history-capture-disabled');
   rejects(() => History.capture(source), 'history-capture-clock-owned');

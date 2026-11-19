@@ -12690,6 +12690,18 @@
       return withheld(typeof view.incomeUnavailableReason === 'string' ? view.incomeUnavailableReason
         : 'Period income is not published for this pay period.');
     }
+    // A saved close keeps each income row's amount and trust, not who it came
+    // from: its income class is borrowed from today's plan row by id
+    // (CAPTURED_ROW_DISPLAY_KEYS), so a stream re-classed since would move the
+    // saved money between lines. Its total stands as saved; the lines are
+    // withheld with a reason, never allocated by today's classification.
+    if (view.capturedClose) {
+      const reason = 'A saved pay period keeps its income total, not whose income it was, so the split is not published.';
+      const line = { amount: null, trust: 'unavailable', reason };
+      return { dale: { ...line }, amanda: { ...line }, other: { ...line },
+        total: { amount: total, trust: Object.hasOwn({ calculated: 1, estimated: 1, unavailable: 1 }, view.incomeTrust)
+          ? view.incomeTrust : 'unavailable' } };
+    }
     const lines = { dale: [], amanda: [], other: [] };
     for (const row of Array.isArray(view.income) ? view.income : []) {
       const line = row && Object.hasOwn(STACK_INCOME_LINE, row.incomeClass) ? STACK_INCOME_LINE[row.incomeClass] : null;

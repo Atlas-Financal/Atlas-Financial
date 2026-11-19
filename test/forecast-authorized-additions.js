@@ -16,7 +16,14 @@ const assert = require('node:assert/strict');
 
 const INCOME_LINES = ['dale', 'amanda', 'other'];
 function proveStackIncome(view, income) {
-  if (typeof view.incomeTotal === 'number') {
+  if (view.capturedClose && typeof view.incomeTotal === 'number') {
+    // A saved close: its total stands as saved; the lines are withheld (the archive keeps no income class).
+    assert.equal(income.total.amount, view.incomeTotal, 'authorized addition: a saved close keeps its income total');
+    for (const k of INCOME_LINES) {
+      assert.equal(income[k].amount, null, 'authorized addition: a saved close withholds the income lines');
+      assert.equal(income[k].trust, 'unavailable', 'authorized addition: a withheld line reads unavailable');
+    }
+  } else if (typeof view.incomeTotal === 'number') {
     const cents = INCOME_LINES.reduce((c, k) => c + Math.round(income[k].amount * 100), 0);
     assert.equal(cents, Math.round(view.incomeTotal * 100), 'authorized addition: stackSummary.income sums to incomeTotal');
     assert.equal(income.total.amount, view.incomeTotal, 'authorized addition: stackSummary.income.total is incomeTotal');
