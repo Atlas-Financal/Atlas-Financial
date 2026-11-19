@@ -21,8 +21,8 @@
  *      account field throws when turned into text is the one case where order
  *      shows (the old order throws, the new one rejects the debit first), and
  *      the test shows exactly that, so the claim rests on rows being plain;
- *   3. identical advice with the old order on all 60 invented figures
- *      evaluations, two held-income worlds and a 753-transaction world;
+ *   3. identical advice with the old order on every invented figures
+ *      input at +0/3/7/14/30 days, two held-income worlds and a 753-transaction world;
  *   4. mutants a slip here could make are caught: no inflow guard in the
  *      income test, the settlement inflow guard flipped, and a tennis-account
  *      test that also matches household chequing. Removing the early tennis
@@ -101,9 +101,14 @@ const copies = {
 ok(new Set(Object.values(copies)).size === Object.keys(copies).length, `${Object.keys(copies).length} independent engine copies`);
 
 // The corpus: each case returns the recommend arguments, freshly cloned.
+// The corpus size is derived from the input directory itself (read apart from
+// the loader), so a loader that dropped an input, or a corpus below its 13 inputs, fails here.
+const SHIFTS = [0, 3, 7, 14, 30];
+const INVENTED_INPUTS = fs.readdirSync(path.join(__dirname, 'fixtures', 'figures-inputs')).filter(f => f.endsWith('.json')).length;
+const INVENTED_EVALUATIONS = INVENTED_INPUTS * SHIFTS.length;
 const cases = [];
 for (const input of Snap.loadInventedInputs()) {
-  for (const shift of [0, 3, 7, 14, 30]) {
+  for (const shift of SHIFTS) {
     cases.push({ id: `${input.id} +${shift}`, kind: 'invented', args: F => {
       const data = structuredClone(input.doc.data);
       return [data.plan, F.addDays(data.meta.asOf, shift),
@@ -241,8 +246,8 @@ console.log('3. Identical advice in both orders');
     if (now === before && !now.startsWith('error')) same++;
     else ok(false, `${c.id}: advice identical`);
   }
-  ok(cases.filter(c => c.kind === 'invented').length === 60 && same === cases.length,
-    `advice identical on all ${cases.length} cases (60 invented evaluations, 2 held worlds, the 753-transaction world)`, `${same} of ${cases.length}`);
+  ok(cases.filter(c => c.kind === 'invented').length === INVENTED_EVALUATIONS && INVENTED_INPUTS >= 13 && same === cases.length,
+    `advice identical on all ${cases.length} cases (${INVENTED_EVALUATIONS} invented evaluations, 2 held worlds, the 753-transaction world)`, `${same} of ${cases.length}`);
 }
 
 console.log('4. Mutants are caught; the early tennis guard decides no answer on its own');
