@@ -15177,7 +15177,11 @@
             amount -= toMinimum;
             pair.minimumCents = toMinimum; pair.minimumParts = minimumParts;
             const { taken, left } = consume(state, amount, 'covered', 'aggregate-coverage');
+            // Household chequing only: a Savings (reserve) funded payment's cents
+            // already left the Savings pool, never Balance After Deductions' cash.
             if (payDownOnly.has(account) && left > 0
+              && HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(pair.cash.tx)) !== -1
+              && pair.cash.tx.accountRole === 'household-cash'
               && !(account === 'mbna' && payDownActivity.get(account)?.has(start))) {
               payDownBeyond.push({ account, accountLabel: label(account), date: pair.cash.tx.date, cents: left });
             }

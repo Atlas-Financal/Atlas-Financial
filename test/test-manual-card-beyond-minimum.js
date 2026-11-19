@@ -77,6 +77,32 @@ ok((triPurchase.coverage.payDownBeyondMinimum || []).some(row => row.account ===
 const mbnaPending = run(card('mbna', [pay(60), ['card', 30, null, 'purchase', { is_pending: true }]]));
 ok(term(mbnaPending) === 35, 'MBNA with only a pending purchase: posted rows only, so the excess still counts');
 
+console.log('\n=== household chequing only: a Savings-funded payment is not this term (pre-review blocker) ===');
+{
+  const reserve = { reserveSavings: true, savingsOpening: 1000 };
+  for (const [name, payee] of [['mbna', 'MBNA PAYMENT'], ['triangle', 'CAN TIRE MC']]) {
+    const fromSavings = run(card(name, [['savings', 60, null, 'cash', { payee, category_name: 'DEBT&PAYMENTS' }]], reserve));
+    ok(fromSavings.coverage.payments.some(row => row.minimumPayment === 25 && row.cardPayment === 35) && term(fromSavings) === undefined
+      && !(fromSavings.coverage.payDownBeyondMinimum || []).length,
+      name + ' paid 60 from Savings: the ledger still pays the 25 minimum, but the 35 never left household chequing, so no term',
+      JSON.stringify(fromSavings.coverage.payDownBeyondMinimum));
+    const fromBills = run(card(name, [['bills', 60, null, 'cash', { payee, category_name: 'DEBT&PAYMENTS' }]], reserve));
+    ok(term(fromBills) === 35, name + ' control: the same payment from Bills is the 35 term');
+  }
+}
+
+console.log('\n=== the term\'s cycle is the card ledger\'s pay period ===');
+{
+  // Payday anchor 2026-09-18: periods 09-18..10-01 and 10-02..10-15. A 60 payment on the last day of
+  // the first period, with its 25 minimum also there, is that period's 35, never the next period's.
+  const boundary = ['bills', 60, '2026-10-01', 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }];
+  const r = run(card('mbna', [boundary], { asOf: '2026-10-03', minimumDate: '2026-10-01' }));
+  const first = r.advice.payPeriodViews.find(view => view.start === '2026-09-18');
+  ok(first && first.predictedEndingBalanceTerms && first.predictedEndingBalanceTerms.manualCardPaymentBeyondMinimum === 35
+    && term(r) === undefined, 'a payment on the period\'s last day counts in that period only',
+  JSON.stringify([first && first.predictedEndingBalanceTerms, term(r)]));
+}
+
 console.log('\n=== what is not this term ===');
 const pendingPay = run(card('mbna', [pay(60, 'MBNA M/C', { is_pending: true })]));
 ok(term(pendingPay) === undefined, 'a pending payment: unchanged (posted only)');
