@@ -10488,12 +10488,23 @@
   }
 
   // The held early-credit legs of a scheduled occurrence (see
-  // calendarIncomeSections) dated before a payday opening: cash the opening
-  // already holds. A pending leg is not in the opening snapshot, so it is
-  // never counted as already there (it stays held, not relied upon).
-  function earlyReceiptInOpening(row, openingAsOf) {
-    if (!row || !Array.isArray(row.earlyReceiptLegs) || !openingAsOf) return 0;
-    return roundCent(row.earlyReceiptLegs.filter(leg => leg && leg.pending !== true && leg.date < openingAsOf)
+  // calendarIncomeSections) that are already inside an opening's cash, so
+  // the close adds only the rest of the occurrence. One rule, the opening's
+  // own membership: a leg is inside only when it is posted (a snapshot never
+  // holds pending cash), on a household chequing account (the opening is
+  // chequing; a Savings credit was never in it), and dated before the
+  // opening, or on its date when the opening source may hold same-day posted
+  // cash (openingMayHoldSameDayCash, the one same-day contract). anchor is
+  // the opening the cash came from: a carried opening holds what its source
+  // period's opening held.
+  function earlyReceiptLegInOpening(leg, anchor) {
+    if (!leg || !anchor || !anchor.asOf || leg.pending !== false || leg.inChequing !== true || !leg.date) return false;
+    if (leg.date < anchor.asOf) return true;
+    return leg.date === anchor.asOf && openingMayHoldSameDayCash(anchor.source);
+  }
+  function earlyReceiptInOpening(row, anchor) {
+    if (!row || !Array.isArray(row.earlyReceiptLegs) || !anchor) return 0;
+    return roundCent(row.earlyReceiptLegs.filter(leg => earlyReceiptLegInOpening(leg, anchor))
       .reduce((sum, leg) => sum + (Number(leg.amount) || 0), 0));
   }
 
@@ -12720,7 +12731,9 @@
           room.set(w, room.get(w) - take);
           left -= take;
           if (!legsOf.has(w)) legsOf.set(w, []);
-          legsOf.get(w).push({ date: tx.date, amount: roundCent(take), pending: tx.pending === true });
+          legsOf.get(w).push({ date: tx.date, amount: roundCent(take), pending: tx.pending === true,
+            inChequing: tx.accountRole === 'household-cash'
+              && HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) !== -1 });
         }
       }
       for (const [w, legs] of legsOf) scheduledIncomeHeldLegs.set(w.event.id + '@' + w.event.date, legs);
@@ -16528,6 +16541,9 @@
       Object.assign({}, opts, { debts: debts || opts.debts || [] }), priority);
     const periods = [];
     let previousEnding = null;
+    // The opening whose cash a carried (carry-forward) opening holds, for the
+    // early-receipt legs (earlyReceiptInOpening).
+    let carriedLegAnchor = null;
     // PA-4 (#809 carry-trust redesign, Muse 6535162602 / Atlas 6535096443):
     // the trust of the numeric previousEnding, derived at each assignment
     // from the inputs that carry actually uses. Null whenever no numeric
@@ -16752,6 +16768,16 @@
       const openingKnown = snapshot.openingKnown === true;
       const openingAsOf = snapshot.openingAsOf || null;
       const openingSource = snapshot.source || null;
+      // Where this period's opening cash came from, for held early-receipt
+      // legs: a carry-forward holds what the period it carries from held; a
+      // future walk starts from the dated posted cash; any other known
+      // opening is its own.
+      const legAnchor = !openingKnown ? null
+        : openingSource === 'carry-forward' ? carriedLegAnchor
+        : role === 'future' && openingSource === 'cutover-walk'
+          ? { asOf: cashSnapshotDate(plan, asOf), source: 'cutover-opening' }
+        : { asOf: openingAsOf, source: openingSource };
+      carriedLegAnchor = legAnchor;
       const paydayBoundaryOpening = openingKnown
         && isPaydayBoundaryOpening(openingSource, openingAsOf, window.start);
       // ATLAS-026: the income-side mirror of the S1 bill-load rule below.
@@ -16870,14 +16896,15 @@
         // period income from the payday-boundary income term.
         if (role === 'future') {
           row.alreadyInCash = false;
-          incomeAdded += calendarIncomeContribution(row);
+          // A held early leg already in the carried opening is not added again.
+          incomeAdded += Math.max(0, calendarIncomeContribution(row) - earlyReceiptInOpening(row, legAnchor));
           incomeAddedRows.push(row);
         } else if (openingKnown && !incomeAlreadyInPaydayOpening(
           row, openingAsOf, plan, opts, openingSource
         )) {
           // Held early legs that landed before the opening are already in
           // it: add only the rest of the occurrence, never below zero.
-          const inOpening = earlyReceiptInOpening(row, openingAsOf);
+          const inOpening = earlyReceiptInOpening(row, legAnchor);
           incomeAdded += Math.max(0, calendarIncomeContribution(row) - inOpening);
           incomeAddedRows.push(row);
         }
