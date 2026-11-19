@@ -8,10 +8,13 @@
 //   categorySpendingTrends (Forecast.categorySpendingTrends, #1384): with no
 //   qualifying saved close, no trend is published.
 //   stackSummary (Stack Wallet, #821 7013976545) on each pay period:
-//     surplus (A2): proved to equal the period's published Balance After
-//     Deductions plus its held outflows and manual card payments beyond the
-//     minimum, with Balance After Deductions' trust, or null and unavailable
-//     whenever a term it sums is withheld.
+//     bills (A2): the bill total split into mortgage, card minimums and
+//     other, proved to sum to the period's periodBillLoad, or every part
+//     null and unavailable;
+//     surplus (A2): income − other bills − household − mortgage − credit −
+//     item spending, proved against its own terms and the bills split here,
+//     and on unmodified output to equal Balance After Deductions plus its
+//     held outflows and card payments beyond the minimum.
 const assert = require('node:assert/strict');
 
 const finite = v => typeof v === 'number' && Number.isFinite(v);
@@ -22,7 +25,20 @@ const finite = v => typeof v === 'number' && Number.isFinite(v);
 // the period's published Balance After Deductions (surplus = BAD + held +
 // beyond the minimum) is proved on unmodified output in
 // test/test-stack-summary-surplus.js.
-function proveStackSurplus(view, surplus) {
+const cents = v => Math.round(v * 100);
+function proveStackBills(view, bills) {
+  assert.ok(bills && typeof bills === 'object', 'authorized addition: stackSummary.bills is published');
+  if (bills.other === null) {
+    assert.ok(bills.mortgage === null && bills.cardMinimums === null && bills.trust === 'unavailable' && typeof bills.reason === 'string',
+      'authorized addition: a withheld bills split is null throughout, unavailable, with a reason');
+    return;
+  }
+  assert.ok(finite(bills.mortgage) && finite(bills.other) && Array.isArray(bills.cardMinimums)
+    && bills.cardMinimums.every(card => card && typeof card.debtId === 'string' && finite(card.amount)),
+    'authorized addition: a published bills split lists its parts');
+  assert.ok(['calculated', 'estimated'].includes(bills.trust), 'authorized addition: a published bills split is calculated or estimated');
+}
+function proveStackSurplus(view, surplus, bills) {
   assert.ok(surplus && typeof surplus === 'object', 'authorized addition: stackSummary.surplus is published');
   assert.equal(typeof surplus.projected, 'boolean', 'authorized addition: surplus.projected is a flag');
   if (surplus.amount === null) {
@@ -32,18 +48,23 @@ function proveStackSurplus(view, surplus) {
     return;
   }
   const t = surplus.terms;
-  assert.ok(t && finite(t.income) && finite(t.bills) && finite(t.household), 'authorized addition: a published surplus lists its terms');
+  assert.ok(t && finite(t.income) && finite(t.bills) && finite(t.household) && finite(t.mortgage) && finite(t.credit),
+    'authorized addition: a published surplus lists its terms');
+  assert.ok(bills.other === t.bills && bills.mortgage === t.mortgage
+    && bills.cardMinimums.reduce((sum, card) => sum + cents(card.amount), 0) === cents(t.credit),
+    'authorized addition: the surplus\'s bills, mortgage and credit terms are the bills split');
   const item = finite(t.savingsItemSpending) ? t.savingsItemSpending : 0;
-  assert.ok(Math.abs(surplus.amount - (t.income - t.bills - t.household - item)) <= 0.005,
-    'authorized addition: surplus = income - bills - household - item spending, its own terms');
+  assert.equal(cents(surplus.amount), cents(t.income) - cents(t.bills) - cents(t.household) - cents(t.mortgage) - cents(t.credit) - cents(item),
+    'authorized addition: surplus = income - bills - household - mortgage - credit - item spending, its own terms');
   assert.ok(['calculated', 'estimated'].includes(surplus.trust), 'authorized addition: a published surplus is calculated or estimated');
 }
 // A pay period's stackSummary, proved key by key, then removed.
 function withoutStackSummary(view) {
   if (!view || typeof view !== 'object' || !Object.hasOwn(view, 'stackSummary')) return;
   const summary = view.stackSummary;
-  assert.deepEqual(Object.keys(summary), ['surplus'], 'authorized addition: stackSummary carries only proved keys');
-  proveStackSurplus(view, summary.surplus);
+  assert.deepEqual(Object.keys(summary), ['bills', 'surplus'], 'authorized addition: stackSummary carries only proved keys');
+  proveStackBills(view, summary.bills);
+  proveStackSurplus(view, summary.surplus, summary.bills);
   delete view.stackSummary;
 }
 
@@ -68,7 +89,7 @@ function withoutAuthorizedAdditions(advice) {
 // For flattened trust-tag maps ('.path.to.trust' -> value): the addition's
 // own tags, proved unavailable, are not main's fields.
 function authorizedTagKey(key, value) {
-  if (/\.stackSummary\.surplus\.trust$/.test(key)) {
+  if (/\.stackSummary\.(surplus|bills)\.trust$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust value`);
     return true;
   }

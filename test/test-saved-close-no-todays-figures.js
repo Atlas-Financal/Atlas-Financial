@@ -142,12 +142,19 @@ ok(past.bankCheck && past.bankCheck.status === 'unavailable' && past.bankCheck.g
   'a saved close carries no bank-check figure (Unavailable, not saved at close)');
 ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept payday carryover observation is as recorded');
 {
-  // The derived Stack Wallet surplus reads the saved figures, never today's.
-  const s = past.stackSummary && past.stackSummary.surplus;
+  // The derived Stack Wallet bills split and surplus read the saved figures,
+  // never today's: the split sums to the saved bill total, and the surplus
+  // is saved income − that whole total − saved Household budget − item.
+  const s = past.stackSummary && past.stackSummary.surplus, b = past.stackSummary && past.stackSummary.bills;
+  const cents = v => Math.round(v * 100);
   const want = past.incomeTotal != null && past.periodBillLoad != null && past.budgetHold != null && past.balanceAfterDeductions != null
     ? Math.round((past.incomeTotal - past.periodBillLoad - past.budgetHold
       - ((past.predictedEndingBalanceTerms && past.predictedEndingBalanceTerms.savingsItemSpending) || 0)) * 100) / 100 : null;
-  ok(s && s.amount === want && (want === null || (s.terms.income === saved.incomeTotal && s.terms.bills === saved.periodBillLoad
+  ok(b && (saved.periodBillLoad == null ? b.other === null
+    : cents(b.mortgage) + cents(b.other) + b.cardMinimums.reduce((t, c) => t + cents(c.amount), 0) === cents(saved.periodBillLoad)),
+    'a saved close\'s Stack Wallet bills split sums to its saved bill total', JSON.stringify(b));
+  ok(s && s.amount === want && (want === null || (s.terms.income === saved.incomeTotal
+    && cents(s.terms.bills) + cents(s.terms.mortgage) + cents(s.terms.credit) === cents(saved.periodBillLoad)
     && s.terms.household === saved.budgetHold)), 'a saved close\'s Stack Wallet surplus is its saved income, bills and Household budget',
     JSON.stringify({ s, want }));
   ok(!Object.hasOwn(saved, 'stackSummary'), 'the saved record carries no stackSummary (it is derived, never saved)');

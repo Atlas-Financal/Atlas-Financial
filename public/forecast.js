@@ -12659,44 +12659,73 @@
     }
   }
 
-  // Stack Wallet (owner decision, Dale, #821 7013976545, waterfall option 3).
-  // The one home of each pay period's `stackSummary`: it runs on the exported
-  // result after every withholding pass, so each key is read from the
-  // period's final published figures and can never disagree with them. Each
-  // key has its own builder (surplus here; the income and cards keys of the
-  // same build add theirs beside it). The plan, as-of and options are passed
-  // for a builder that needs them; the surplus reads only the period.
+  // Stack Wallet (owner decision, Dale, #821 7013976545, waterfall option 3;
+  // reshaped by Dale to Income − Bills − Budget − Mortgage − Credit). The one
+  // home of each pay period's `stackSummary`: it runs on the exported result
+  // after every withholding pass, so each key is read from the period's final
+  // published figures and can never disagree with them. Each key has its own
+  // builder (bills and surplus here; the income and cards keys of the same
+  // build add theirs beside it). The plan, as-of and options are passed for a
+  // builder that needs them.
   function publishStackSummary(result, plan, asOf, opts) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || typeof view !== 'object') continue;
-      view.stackSummary = Object.assign(view.stackSummary || {}, { surplus: stackSurplus(view) });
+      const bills = stackBills(view);
+      view.stackSummary = Object.assign(view.stackSummary || {}, { bills, surplus: stackSurplus(view, bills) });
     }
     return result;
   }
-  // "Surplus after deductions": period income − bills − Household budget −
-  // savings-item spending. Unlike Balance After Deductions it does not
-  // subtract the held (To confirm) outflows or manual card payments beyond
-  // the minimum (owner decision), so wherever both are published it equals
-  // Balance After Deductions plus exactly those two terms. Withheld whenever
-  // any term it sums is withheld, or Balance After Deductions (whose
-  // published terms carry the item spending) is. Shape, shared with the
-  // other stackSummary keys: { amount, trust, ... }, with `reason` only
-  // when withheld (amount null, trust 'unavailable').
   const isStackFigure = v => typeof v === 'number' && Number.isFinite(v);
+  const stackCents = v => Math.round(v * 100);
+  const STACK_BILLS_UNAVAILABLE = 'The bills split is unavailable: this period\'s bill total is withheld.';
+  // The period's published bill total split into mortgage, card minimums and
+  // other bills (periodAssignedBillParts). Published only while the period's
+  // final periodBillLoad is a number and the split still sums to it to the
+  // cent; otherwise every part is null. Trust is the bill total's own.
+  function stackBills(view) {
+    const parts = periodBillLoadPartsByPeriod.get(view);
+    const total = view.periodBillLoad;
+    const sums = parts && isStackFigure(total) && view.operatingPlanUnavailable !== true
+      && stackCents(parts.mortgage) + parts.cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0)
+        + stackCents(parts.other) === stackCents(total);
+    if (!sums) return { mortgage: null, cardMinimums: null, other: null, trust: 'unavailable', reason: STACK_BILLS_UNAVAILABLE };
+    return {
+      mortgage: parts.mortgage,
+      cardMinimums: parts.cardMinimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
+      other: parts.other,
+      trust: view.periodBillLoadTrust || 'calculated',
+    };
+  }
+  // "Surplus after deductions": Income − Bills (other) − Budget (the Household
+  // budget hold) − Mortgage − Credit (the card minimums), less savings-item
+  // spending. The three bill terms are the bills split, so together they are
+  // the period's whole bill load. Unlike Balance After Deductions it does not
+  // subtract the held (To confirm) outflows or manual card payments beyond the
+  // minimum (owner decision), so wherever both are published it equals
+  // Balance After Deductions plus exactly those two terms. Withheld whenever
+  // any term it sums is withheld, or Balance After Deductions (whose published
+  // terms carry the item spending) is. Shape, shared with the other
+  // stackSummary keys: { amount, trust, ... }, with `reason` only when
+  // withheld (amount null, trust 'unavailable').
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, bills or the Household budget) is withheld for this period.';
-  function stackSurplus(view) {
+  function stackSurplus(view, bills) {
     const projected = view.evidenceState === 'projected';
     const terms = view.predictedEndingBalanceTerms;
     const item = terms && isStackFigure(terms.savingsItemSpending) ? terms.savingsItemSpending : 0;
-    const known = isStackFigure(view.incomeTotal) && isStackFigure(view.periodBillLoad) && isStackFigure(view.budgetHold)
+    const known = isStackFigure(view.incomeTotal) && isStackFigure(view.budgetHold)
+      && !!bills && isStackFigure(bills.other) && isStackFigure(bills.mortgage) && Array.isArray(bills.cardMinimums)
       && isStackFigure(view.balanceAfterDeductions) && !!terms && view.operatingPlanUnavailable !== true;
     if (!known) {
       return { amount: null, terms: null, trust: 'unavailable', projected, reason: STACK_SURPLUS_UNAVAILABLE };
     }
+    const creditCents = bills.cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
+    const cents = stackCents(view.incomeTotal) - stackCents(bills.other) - stackCents(view.budgetHold)
+      - stackCents(bills.mortgage) - creditCents - stackCents(item);
     return {
-      amount: roundCent(view.incomeTotal - view.periodBillLoad - view.budgetHold - item),
-      terms: { income: roundCent(view.incomeTotal), bills: roundCent(view.periodBillLoad),
-        household: roundCent(view.budgetHold), ...(item > 0 ? { savingsItemSpending: roundCent(item) } : {}) },
+      amount: cents / 100,
+      terms: { income: roundCent(view.incomeTotal), bills: bills.other, household: roundCent(view.budgetHold),
+        mortgage: bills.mortgage, credit: creditCents / 100,
+        ...(item > 0 ? { savingsItemSpending: roundCent(item) } : {}) },
       // The same terms as Balance After Deductions, so the same trust.
       trust: view.balanceAfterDeductionsTrust || 'calculated',
       projected,
@@ -14213,6 +14242,47 @@
         ? row.scheduledFeeAllowance.periodCost : amount(row));
     }, 0));
   }
+
+  // Stack Wallet bills split (owner decision, Dale, waterfall reshape): the
+  // same rows and the same amount as periodAssignedBillLoad, each counted in
+  // exactly one part. Mortgage is the planHasMortgagePayment obligation family
+  // (debtId or id 'mortgage'); a card minimum is the minimum-first filter's
+  // row (effect 'payment', a revolving-card debtId, not nonCash), summed per
+  // card. Everything else, card-paid bills and scheduled-fee allowances
+  // included, is `other`, taken as the remainder of the published total so
+  // the three parts equal periodBillLoad to the cent by construction. A
+  // covered or pending minimum keeps its full scheduled amount, as the load
+  // does. Null when the load is null.
+  function periodAssignedBillParts(bills, amountOf, plan, total) {
+    if (typeof total !== 'number' || !Number.isFinite(total)) return null;
+    const amount = amountOf || billAssignedAmount;
+    const obligations = ((plan && plan.obligations) || []).filter(o => o && o.id != null);
+    const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));
+    const cardOf = new Map(obligations.filter(o => o.effect === 'payment' && o.debtId != null && !o.nonCash
+      && isRevolvingCardAccount({ account: o.debtId })).map(o => [String(o.id), String(o.debtId)]));
+    let mortgageCents = 0;
+    const cardCents = new Map();
+    for (const row of bills || []) {
+      if (!billInPeriodAssignedLoad(row) || row.scheduledFeeAllowance || row.kind !== 'obligation' || row.id == null) continue;
+      const id = String(row.id);
+      if (!mortgageIds.has(id) && !cardOf.has(id)) continue;
+      const cents = Math.round(Number(amount(row)) * 100);
+      if (!Number.isFinite(cents)) return null;
+      if (mortgageIds.has(id)) mortgageCents += cents;
+      else cardCents.set(cardOf.get(id), (cardCents.get(cardOf.get(id)) || 0) + cents);
+    }
+    const totalCents = Math.round(total * 100);
+    const minimumsCents = [...cardCents.values()].reduce((a, b) => a + b, 0);
+    return {
+      mortgage: mortgageCents / 100,
+      cardMinimums: [...cardCents].map(([debtId, cents]) => ({ debtId, amount: cents / 100 })),
+      other: (totalCents - mortgageCents - minimumsCents) / 100,
+    };
+  }
+  // Each published waterfall period's bills split, for publishStackSummary
+  // only. Keyed by the period object, so a period rebuilt as a copy finds
+  // none and its split is withheld, never guessed.
+  const periodBillLoadPartsByPeriod = new WeakMap();
 
   // Authoritative frozen-waterfall bill load: each assigned period
   // occurrence once, including subsequently PAID rows that are not
@@ -17315,6 +17385,8 @@
       const periodBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodAssignedBillLoad(assignedBillRows, deductedBillAmount);
+      const billLoadParts = periodBillLoad == null ? null
+        : periodAssignedBillParts(assignedBillRows, deductedBillAmount, plan, periodBillLoad);
       const closeBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource, deductedBillAmount);
@@ -17911,6 +17983,7 @@
                     ? 'Opening this pay period. Carried forward, not income.'
                     : null))))),
       });
+      if (billLoadParts) periodBillLoadPartsByPeriod.set(periods[periods.length - 1], billLoadParts);
       if (unconfirmedOpeningFuture) estimateUnconfirmedOpeningPeriod(periods[periods.length - 1],
         opts.operatingPlanNote || 'Current plan unavailable. The dated opening is stale.');
     }
