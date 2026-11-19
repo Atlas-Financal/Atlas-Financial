@@ -14,7 +14,7 @@ const cases = [
   ['conflicting-allocation', [sent(), sent({ amount: 1 })], false, 'Payment allocation unconfirmed'],
   ['conflicting-purpose', [sent(), sent({ intent: 'purchase-backfill' })], false, 'Payment allocation unconfirmed'],
   ['conflicting-settled', [sent({ cashIncludedAsOf: NOW }), sent({ amount: 1 })], true, 'Payment allocation unconfirmed'],
-  ['partial', [sent({ amount: 46.38 })], false, 'Partial payment sent'],
+  ['partial', [sent({ amount: 46.38 })], false, 'Rest unknown'],
   ['partial-settled', [sent({ amount: 23.11, cashIncludedAsOf: NOW })], true, 'Partial payment sent'],
   ['estimated-settled', [sent({ cashIncludedAsOf: NOW })], true, 'minimum amount unconfirmed'],
   ['pending', [sent({ pending: true })], false, null],

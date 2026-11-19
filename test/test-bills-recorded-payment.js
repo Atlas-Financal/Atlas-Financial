@@ -233,7 +233,8 @@ for (const mode of ['partial', 'estimated']) for (const receipt of [false, true]
   eq(row.householdPaymentStatus, conflict ? 'unconfirmed' : mode === 'partial' ? 'partial' : 'sent', name + ': action remains separate');
   eq(render.presentation(row).kind === 'paid', receipt, name + ': qualified issuer settlement stays Paid');
   eq(render.presentation(row).qualifier, conflict ? 'Payment allocation unconfirmed'
-    : mode === 'partial' ? 'Partial payment sent' : 'Money sent; minimum amount unconfirmed', name + ': qualifier retained');
+    : mode === 'partial' ? (receipt ? 'Partial payment sent' : 'Rest unknown') : 'Money sent; minimum amount unconfirmed', name + ': qualifier retained');
+  if (mode === 'partial' && !conflict && !receipt) eq(render.presentation(row).label, 'Partly paid', name + ': a short confirmed minimum reads Partly paid, never Paid');
   eq([row.status, row.settlement, row.remaining, row.issuerMinimumStatus, row.cashInclusionStatus],
     [baseline.row.status, baseline.row.settlement, baseline.row.remaining, baseline.row.issuerMinimumStatus, baseline.row.cashInclusionStatus], name + ': existing authority unchanged');
   frozenEq(r, baseline.r, name + ': all monetary/null publications unchanged');
