@@ -19008,15 +19008,41 @@
     }
     return probe;
   }
-  function paydayPlanFits(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse, heldOtherIncomeReuse) {
+  function paydayPlanCheck(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse, heldOtherIncomeReuse) {
     const probe = paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled);
     if (cardCoverageReuse) probe.cardCoverageReuse = cardCoverageReuse;
     if (heldOtherIncomeReuse) probe.heldOtherIncomeReuse = heldOtherIncomeReuse;
-    return protectedPlanCheck(plan, asOf, probe).feasible;
+    return protectedPlanCheck(plan, asOf, probe);
+  }
+  // The boundary the infeasible top probe points at: the top less its largest
+  // shortfall, in whole cents. Null unless every failure carries a finite,
+  // positive dollar shortfall (a card-coverage failure carries none).
+  function paydayBoundaryGuess(check, hiC) {
+    const failures = check && Array.isArray(check.failures) ? check.failures : [];
+    if (!failures.length) return null;
+    let worst = 0;
+    for (const failure of failures) {
+      const shortfall = failure && failure.shortfall;
+      if (typeof shortfall !== 'number' || !Number.isFinite(shortfall) || !(shortfall > 0)) return null;
+      worst = Math.max(worst, shortfall);
+    }
+    return hiC - Math.ceil(Math.round(worst * 100 * 1e6) / 1e6);
   }
   // Largest same-day removal at which protectedPlanCheck still holds.
   // Negative means that much cash must be added before the protected plan
   // holds. Monotonic in the removal, so the cent search is exact.
+  //
+  // LEAD 10 hotspot #2: fewer probes, same boundary. Each probe is a full
+  // simulation, so (1) a probe is never repeated within one search: the
+  // answer for each cent amount is remembered for this search only; and
+  // (2) before bisecting, the top probe's shortfall names a candidate
+  // boundary g. It is used only when fits(g) and not fits(g + 1) (or, one
+  // cent on, fits(g + 1) and not fits(g + 2)) and g lies in [lo, hi). Under
+  // the monotonicity this search already assumes, the bisection's answer is
+  // the one cent b in [lo, hi) with fits(b) and not fits(b + 1), so a
+  // verified g is that same b. Any other case (no numeric shortfall, a guess
+  // out of range, a failed verification) runs the bisection below,
+  // unchanged.
   function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {
     // Card coverage is identical for every probe of this one search.
     const cardCoverageReuse = {
@@ -19028,12 +19054,26 @@
     };
     // The held Other Income set is identical for every probe of this one search.
     const heldOtherIncomeReuse = { plan, entries: [] };
-    const fits = cents => paydayPlanFits(plan, asOf, masterOpts, cents / 100, extraDisabled,
-      cardCoverageReuse, heldOtherIncomeReuse);
+    const checked = new Map();
+    const check = cents => {
+      let result = checked.get(cents);
+      if (result === undefined) {
+        result = paydayPlanCheck(plan, asOf, masterOpts, cents / 100, extraDisabled,
+          cardCoverageReuse, heldOtherIncomeReuse);
+        checked.set(cents, result);
+      }
+      return result;
+    };
+    const fits = cents => check(cents).feasible;
     let loC = Math.round(roundCent(loBound) * 100);
     let hiC = Math.round(roundCent(hiBound) * 100);
     if (hiC < loC) hiC = loC;
     if (fits(hiC)) return roundCent(hiC / 100);
+    const guess = paydayBoundaryGuess(check(hiC), hiC);
+    if (guess != null && guess >= loC && guess < hiC && fits(guess)) {
+      if (!fits(guess + 1)) return roundCent(guess / 100);
+      if (guess + 1 < hiC && !fits(guess + 2)) return roundCent((guess + 1) / 100);
+    }
     if (!fits(loC)) {
       let add = Math.max(100, Math.abs(loC) || 100);
       while (add < 1e9 && !fits(-add)) add *= 2;
