@@ -201,81 +201,138 @@ console.log('7. The next period carries the same cash as the control');
     'next period BAD and close equal the control\'s', JSON.stringify([s.next && s.next.balanceAfterDeductions, control.next && control.next.balanceAfterDeductions]));
 }
 
-console.log('8. A held leg counts as already in the opening only when the opening holds it');
+console.log('8. Each held leg against the cash that seeds the close: inside, outside or unproven');
+// Atlas ruling (Plan #6) on #1405: a leg the seed provably holds is not added again (inside); a leg it provably does
+// not hold leaves the occurrence added in full and the close known (outside); anything else withholds the close and
+// every carry from it (unproven, early-receipt-membership-unproven). Every expected close is the matching control's.
+const UNPROVEN = /early-receipt-membership-unproven/;
+const World = require('./fixtures/held-other-income-search-world');
 {
-  // Atlas BLOCKERS on #1405 at 58d5c26b: one rule, the opening's own membership (earlyReceiptLegInOpening). Invented
-  // household of realistic size (held-other-income-search-world): an unproven 450 benefit on the 20th; a 450 Other
-  // Income credit is held for it. Each case models the opening's real content and must read its control's close.
-  const World = require('./fixtures/held-other-income-search-world');
-  const close = ({ asOf, snapshot = null, receipt = null, chequingBump = 0, toSavings = false }) => {
+  // Invented household (held-other-income-search-world): an unproven 450 benefit on the 20th holds a 450 Other Income
+  // credit. The period runs Nov 13 to 26. bump models a posted balance that holds the credit.
+  const seeded = ({ asOf = '2026-11-16', snapshot = null, base = null, gap = null, receipt = null, bump = 0, account = null }) => {
     const d = World.build({ asOf, receipts: receipt ? [{ id: 'r', date: receipt, amount: 450 }] : [] });
-    if (snapshot) d.plan.opening.paydaySnapshot = { ...snapshot };
+    if (snapshot) d.plan.opening.paydaySnapshot = { periodStart: '2026-11-13', asOf: '2026-11-13', opening: snapshot };
     else delete d.plan.opening.paydaySnapshot;
-    d.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value += chequingBump;
-    if (toSavings) {
-      for (const tx of d.liveOverlay.currentPeriodActuals.transactions) {
-        if (tx.categoryLabel === 'Other Income') { tx.accountRole = 'household-reserve'; tx.atlasAccountId = tx.account = 'savings'; }
-      }
+    if (base) d.plan.opening.asOf = base;
+    d.plan.startingCash.breakdown.find(row => row.id === 'chequing-a').value += bump;
+    for (const tx of d.liveOverlay.currentPeriodActuals.transactions) {
+      if (tx.categoryLabel !== 'Other Income' || !account) continue;
+      if (account === 'savings') { tx.accountRole = 'household-reserve'; tx.atlasAccountId = tx.account = 'savings'; }
+      if (account === 'ambiguous') { tx.account = 'chequing-b'; }
     }
-    const advice = F.recommend(d.plan, asOf, World.recommendOptions(d));
-    const p = advice.defaultView.calendarPeriods.find(period => period.start <= asOf && period.end >= asOf);
-    return { source: p.openingSource, close: p.plannedPeriodClose };
+    const options = World.recommendOptions(d);
+    if (gap) options.paydayGapCash = gap;
+    const p = F.recommend(d.plan, asOf, options).defaultView.calendarPeriods.find(x => x.start <= asOf && x.end >= asOf);
+    return { source: p.openingSource, close: p.plannedPeriodClose, reason: p.plannedPeriodCloseReason || '' };
   };
-  const snap = opening => ({ periodStart: '2026-11-13', asOf: '2026-11-13', opening });
-  // (1) Same-day leg, two opening sources side by side.
-  const pmControl = close({ asOf: '2026-11-13' });
-  const pm = close({ asOf: '2026-11-13', receipt: '2026-11-13', chequingBump: 450 });
-  ok(pmControl.source === 'payday-morning' && pm.source === 'payday-morning' && pm.close === pmControl.close,
-    'payday-morning posted cash holding a same-day posted 450: the close does not add the benefit again (= control)',
-    JSON.stringify([pm.close, pmControl.close]));
-  const snapControl = close({ asOf: '2026-11-16', snapshot: snap(900) });
-  const sameDay = close({ asOf: '2026-11-16', snapshot: snap(900), receipt: '2026-11-13' });
-  ok(snapControl.source === 'snapshot' && sameDay.close === snapControl.close,
-    'a frozen morning snapshot never holds that day\'s 450: the benefit is still added in full (= control)',
-    JSON.stringify([sameDay.close, snapControl.close]));
-  // (2) Account membership: a pre-opening posted credit on Bills (chequing) is in the opening; on Savings it is not.
-  const bills = close({ asOf: '2026-11-16', snapshot: snap(900 + 450), receipt: '2026-11-10' });
-  ok(bills.close === snapControl.close, 'a posted 450 on chequing before the snapshot (inside it): the close does not add it again (= control)',
-    JSON.stringify([bills.close, snapControl.close]));
-  const savings = close({ asOf: '2026-11-16', snapshot: snap(900), receipt: '2026-11-10', toSavings: true });
-  ok(savings.close === snapControl.close,
-    'the same 450 posted to Savings is not in the chequing opening: nothing is taken out of the close (= control)',
-    JSON.stringify([savings.close, snapControl.close]));
+  const same = (got, ctl, why) => ok(got.source === ctl.source && Number.isFinite(ctl.close) && got.close === ctl.close,
+    why + ' (= control ' + ctl.close + ')', JSON.stringify([got.source, got.close, ctl.close]));
+  const withheld = (got, source, why) => ok(got.source === source && got.close === null && UNPROVEN.test(got.reason),
+    why + ': close withheld (early-receipt-membership-unproven)', JSON.stringify([got.source, got.close]));
+  // Frozen morning snapshot (Nov 13): before = inside; same day and after = outside.
+  const snapCtl = seeded({ snapshot: 900 });
+  same(seeded({ snapshot: 900 + 450, receipt: '2026-11-10' }), snapCtl, 'snapshot, posted 450 on chequing before it: inside, not added again');
+  same(seeded({ snapshot: 900, receipt: '2026-11-13' }), snapCtl, 'snapshot, posted 450 on the snapshot day: outside (a morning snapshot holds none of that day)');
+  same(seeded({ snapshot: 900, receipt: '2026-11-14' }), snapCtl, 'snapshot, posted 450 after it: outside');
+  same(seeded({ snapshot: 900, receipt: '2026-11-10', account: 'savings' }), snapCtl, 'snapshot, the 450 on Savings before it: outside (not in the chequing opening)');
+  withheld(seeded({ snapshot: 900, receipt: '2026-11-10', account: 'ambiguous' }), 'snapshot', 'snapshot, a leg whose account aliases disagree');
+  // Payday-morning posted balance (as of Nov 13): before = inside; same day = unproven.
+  const pmCtl = seeded({ asOf: '2026-11-13' });
+  same(seeded({ asOf: '2026-11-13', receipt: '2026-11-11', bump: 450 }), pmCtl, 'payday-morning posted cash, posted 450 before it: inside');
+  withheld(seeded({ asOf: '2026-11-13', receipt: '2026-11-13', bump: 450 }), 'payday-morning',
+    'payday-morning posted cash, a same-day posted 450 (may or may not be in that balance)');
+  // Zero-gap cutover-walk (dated opening = the period start): a posted balance, so the same rules.
+  const zeroCtl = seeded({ base: '2026-11-13' });
+  same(seeded({ base: '2026-11-13', receipt: '2026-11-11', bump: 450 }), zeroCtl, 'zero-gap walk, posted 450 before it: inside');
+  withheld(seeded({ base: '2026-11-13', receipt: '2026-11-13', bump: 450 }), 'cutover-walk', 'zero-gap walk, a same-day posted 450');
+  // Reconstructing cutover-walk (posted cash Nov 10 walked to the Nov 13 morning): before the base = inside; on the
+  // base or in the gap = unproven (its gap movements carry no transaction identity); the morning on = outside.
+  const gap = { complete: true, coverageStart: '2026-11-11', coverageThrough: '2026-11-16', movements: [] };
+  const walkCtl = seeded({ base: '2026-11-10', gap });
+  ok(walkCtl.source === 'cutover-walk' && Number.isFinite(walkCtl.close), 'reconstructing walk control has a known close', JSON.stringify(walkCtl));
+  same(seeded({ base: '2026-11-10', gap, receipt: '2026-11-09', bump: 450 }), walkCtl, 'reconstructing walk, posted 450 before its base: inside');
+  withheld(seeded({ base: '2026-11-10', gap, receipt: '2026-11-10', bump: 450 }), 'cutover-walk', 'reconstructing walk, a 450 on its base day');
+  withheld(seeded({ base: '2026-11-10', gap, receipt: '2026-11-11' }), 'cutover-walk', 'reconstructing walk, a 450 in its gap');
+  same(seeded({ base: '2026-11-10', gap, receipt: '2026-11-13' }), walkCtl, 'reconstructing walk, a 450 on the morning it reaches: outside');
 }
 
-console.log('9. Next-period carry: a carried opening holds what its source period held, no more');
+console.log('9. Carries: a carried opening holds what the seed it was built from held, no more');
+const Snap = require('../scripts/figures-snapshot.js');
+const inventedInput = name => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'figures-inputs', name + '.json'), 'utf8'));
+const otherIncome = (date, amount, account = 'chequing-a') => ({ currency: 'CAD', id: 'early-1', date, amount: -amount,
+  pending: false, isIncome: true, savingsPostingEvidence: 'posted', categoryLabel: 'Other Income', excludeFromTotals: false,
+  excludeFromBudget: false, accountRole: 'household-cash', atlasAccountId: account, account, payee: 'Invented payer',
+  displayedPayee: 'Invented payer', merchantKnown: true, isGroup: false, parentId: null });
+// Both inputs: payroll biweekly from Oct 2, as of Oct 7, a frozen Oct 2 snapshot, plus an unproven 400 side income on
+// the 20th (in the next period, Oct 16 to 29). A credit before the snapshot is in the snapshot and in posted cash.
+const carried = (name, { tx = null, inSnapshot = false, observed = false, sideDay = 20 }) => {
+  const doc = structuredClone(inventedInput(name)), d = doc.data;
+  d.plan.income.push({ id: 'side', label: 'Invented side income', frequency: 'monthly', day: sideDay, amount: 400, confidence: 'confirmed' });
+  if (tx) {
+    d.liveOverlay.currentPeriodActuals.transactions.push(tx);
+    const amount = -tx.amount;
+    const rows = [d.plan.startingCash.breakdown, ...(observed ? [d.liveOverlay.observedCash.accounts] : [])];
+    for (const list of rows) { const row = list.find(r => r.id === tx.atlasAccountId); row.value = roundTo(row.value + amount); }
+    if (inSnapshot) d.plan.opening.paydaySnapshot.opening = roundTo(d.plan.opening.paydaySnapshot.opening + amount);
+  }
+  const ps = F.recommend(d.plan, d.meta.asOf, Snap.pageOptions(d, doc.periods == null ? null : structuredClone(doc.periods)))
+    .defaultView.calendarPeriods.filter(p => p.end >= d.meta.asOf);
+  return { current: ps[0].plannedPeriodClose, next: ps[1].plannedPeriodClose, nextSource: ps[1].openingSource,
+    nextReason: ps[1].plannedPeriodCloseReason || '' };
+};
+function roundTo(v) { return Math.round(v * 100) / 100; }
 {
-  // Invented figures input card-paid-clear (payroll 1000 biweekly from Oct 2, snapshot 500 on Oct 2, as of Oct 7),
-  // plus an unproven 400 side income on the 20th, which falls in the next period (Oct 16 to 29, carried forward).
-  const Snap = require('../scripts/figures-snapshot.js');
-  const base = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'figures-inputs', 'card-paid-clear.json'), 'utf8'));
-  const credit = (date, amount) => ({ currency: 'cad', id: 'early-1', date, amount: -amount, pending: false,
-    categoryLabel: 'Other Income', isIncome: true, excludeFromTotals: false, excludeFromBudget: false,
-    accountRole: 'household-cash', atlasAccountId: 'chequing-a', account: 'chequing-a', payee: 'Invented payer',
-    merchantKnown: true, isGroup: false, parentId: null });
-  const closes = ({ tx = null, snapshotBump = 0 }) => {
-    const doc = structuredClone(base), d = doc.data;
-    d.plan.income.push({ id: 'side', label: 'Invented side income', frequency: 'monthly', day: 20, amount: 400, confidence: 'confirmed' });
-    d.plan.opening.paydaySnapshot.opening += snapshotBump;
-    d.liveOverlay.currentPeriodActuals.transactions = tx ? [tx] : [];
-    const advice = F.recommend(d.plan, d.meta.asOf, Snap.pageOptions(d, doc.periods == null ? null : structuredClone(doc.periods)));
-    const [current, next] = advice.defaultView.calendarPeriods.filter(p => p.end >= d.meta.asOf);
-    return { current: current.plannedPeriodClose, next: next.plannedPeriodClose, nextSource: next.openingSource };
-  };
-  const ctl = closes({});
-  ok(ctl.nextSource === 'carry-forward' && Number.isFinite(ctl.next), 'control: the next period carries a known close',
-    JSON.stringify(ctl));
-  // A posted 1400 on Oct 1, inside the Oct 2 snapshot: 1000 against Oct 2's payroll, the 400 excess against Oct 20.
-  const pre = closes({ tx: credit('2026-10-01', 1400), snapshotBump: 1400 });
+  // Noncombined carry (card-paid-clear: the next opening carries the active close).
+  const ctl = carried('card-paid-clear', {});
+  ok(ctl.nextSource === 'carry-forward' && Number.isFinite(ctl.next), 'noncombined control: the next period carries a known close', JSON.stringify(ctl));
+  // A posted 1400 on Oct 1 (inside the snapshot): Oct 2's payroll takes 1000 at the close, the 400 excess is held for
+  // Oct 20. The carry holds that 400, so the next period does not add it again.
+  const pre = carried('card-paid-clear', { tx: otherIncome('2026-10-01', 1400), inSnapshot: true });
   ok(pre.current === ctl.current + 400 && pre.next === ctl.next,
-    'a posted 1400 before the opening: the current close keeps the 400 for Oct 20, and the next period does not add it '
-    + 'again (next close = control)', JSON.stringify([pre, ctl]));
-  // A posted 2400 on Oct 5, after the opening: held (not relied on), so it is in neither close nor the carry, and the
-  // next period still adds its occurrences in full.
-  const inPeriod = closes({ tx: credit('2026-10-05', 2400) });
-  ok(inPeriod.current === ctl.current && inPeriod.next === ctl.next,
-    'a posted 2400 after the opening is not in the carried opening: the next period still adds its paydays (= control)',
-    JSON.stringify([inPeriod, ctl]));
+    'noncombined carry, a posted 1400 inside the snapshot: current = control + 400, next = control', JSON.stringify([pre, ctl]));
+  // A posted 2400 on Oct 5, after the snapshot: held, so in neither close nor the carry (outside).
+  const after = carried('card-paid-clear', { tx: otherIncome('2026-10-05', 2400) });
+  ok(after.current === ctl.current && after.next === ctl.next,
+    'noncombined carry, a posted 2400 after the snapshot: outside the carry, next = control', JSON.stringify([after, ctl]));
+  // Pooled-to-Bills split: the same 1400 on Weekly (chequing-b), inside the pooled snapshot. The current close counts
+  // it as for Bills (current = control + 400), but the carry keeps only the Bills share, so the Weekly 1400 leaves the
+  // chain: carry = control carry + 400 - 1400. The 400 side leg is on Weekly, outside that Bills-only carry, so the next
+  // period adds the side income in full: next = control - 1000.
+  // Unproven withholds the chain: the same 1400 with account aliases that disagree. The current close is withheld
+  // and the next period gets no opening at all (no carry, no fallback walk from the same unresolved cash).
+  const unknownAccount = carried('card-paid-clear', { tx: { ...otherIncome('2026-10-01', 1400), account: 'chequing-b' }, inSnapshot: true });
+  ok(unknownAccount.current === null && unknownAccount.next === null && unknownAccount.nextSource === null,
+    'an unproven leg withholds the current close and every later opening (no carry, no fallback walk)',
+    JSON.stringify(unknownAccount));
+  const weekly = carried('card-paid-clear', { tx: otherIncome('2026-10-01', 1400, 'chequing-b'), inSnapshot: true });
+  ok(weekly.current === ctl.current + 400 && weekly.next === ctl.next - 1000,
+    'noncombined pooled-to-Bills split, the 1400 on Weekly: its side leg is outside the Bills-only carry (next = control - 1000)',
+    JSON.stringify([weekly, ctl]));
+}
+{
+  // Combined Savings (savings-chained-closes: the next opening is seeded from current qualified Bills stock, reconciled
+  // through Oct 7). The Oct 2 payroll is a linked receipt, so it claims no credit.
+  const ctl = carried('savings-chained-closes', {});
+  ok(ctl.nextSource === 'carry-forward' && Number.isFinite(ctl.next), 'combined control: the next period carries the Bills-stock seed', JSON.stringify(ctl));
+  // A posted 600 on Bills before the snapshot: the side income's 400 leg is inside the Bills stock, so the next period
+  // adds it once (next = control + 200, the unclaimed rest); the current close keeps all 600 (current = control + 600).
+  const bills = carried('savings-chained-closes', { tx: otherIncome('2026-09-30', 600), inSnapshot: true, observed: true });
+  ok(bills.current === ctl.current + 600 && bills.next === ctl.next + 200,
+    'combined, a posted 600 on Bills inside the stock: next adds the 400 once (next = control + 200)', JSON.stringify([bills, ctl]));
+  // The same 600 on Weekly: the Bills-only stock does not hold it, so the next period adds the side income in full.
+  const weekly = carried('savings-chained-closes', { tx: otherIncome('2026-09-30', 600, 'chequing-b'), inSnapshot: true, observed: true });
+  ok(weekly.current === ctl.current + 600 && weekly.next === ctl.next,
+    'combined, the 600 on Weekly: outside the Bills stock, the next period adds the side income in full (next = control)',
+    JSON.stringify([weekly, ctl]));
+  // The side income on the 12th instead: later in THIS period (after the Oct 7 as-of), so the seed's own future-income
+  // term reads the leg. The 400 leg is inside the Bills stock, so the seed adds it once: next = control + 200; the
+  // current close (snapshot) also holds it: current = control + 200.
+  const ctl12 = carried('savings-chained-closes', { sideDay: 12 });
+  const later = carried('savings-chained-closes', { tx: otherIncome('2026-09-30', 600), inSnapshot: true, observed: true, sideDay: 12 });
+  ok(Number.isFinite(ctl12.next) && later.current === ctl12.current + 200 && later.next === ctl12.next + 200,
+    'combined, a 600 on Bills for a payday later this period: the Bills-stock seed adds its 400 leg once (next = control + 200)',
+    JSON.stringify([later, ctl12]));
 }
 
 if (failures) { console.log(`\n${failures} check(s) failed.`); process.exit(1); }
