@@ -66,6 +66,7 @@ const FIELD_CLASSES = Object.freeze([
   ['budget-period-operating-plan', 'Budget', 'period.*.operatingPlanUnavailable', 'flag'],
   ['budget-period-bill-amount', 'Budget', 'period.*.bill.*.amount', 'money'],
   ['budget-period-bill-status', 'Budget', 'period.*.bill.*.status', 'tag'],
+  ['budget-period-bill-paid-state', 'Budget', 'period.*.bill.*.paidState', 'tag'],
   ['budget-period-card-paid-bill', 'Budget', 'period.*.bill.*.cardPaid', 'true'],
   ['budget-bills-at-end', 'Budget', 'period.billsAtEnd.amount', 'money'],
   ['budget-period-opening-trust', 'Trust', 'period.*.openingTrust', 'tag'],
