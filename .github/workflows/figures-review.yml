@@ -135,6 +135,7 @@ jobs:
               ['budget-period-operating-plan', 'period.*.operatingPlanUnavailable', 'flag'],
               ['budget-period-bill-amount', 'period.*.bill.*.amount', 'money'],
               ['budget-period-bill-status', 'period.*.bill.*.status', 'tag'],
+              ['budget-period-bill-paid-state', 'period.*.bill.*.paidState', 'tag'],
               ['budget-period-card-paid-bill', 'period.*.bill.*.cardPaid', 'true'],
               ['budget-bills-at-end', 'period.billsAtEnd.amount', 'money'],
               ['budget-period-opening-trust', 'period.*.openingTrust', 'tag'], ['budget-period-income-trust', 'period.*.incomeTrust', 'tag'],

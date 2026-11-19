@@ -188,6 +188,13 @@ function selectedPublication(advice, period) {
   // keeps exactly the fields it saved before, every earlier contentKey is
   // unchanged, and a replayed close re-derives it from its saved figures.
   delete publication.stackSummary;
+  // Stack Wallet A3's per-bill paidState is derived from each row's own saved
+  // fields (Forecast billPaidState), so it is not saved: the record keeps
+  // exactly the fields it saved before, every earlier contentKey is
+  // unchanged, and a replayed close re-derives it from its saved rows.
+  for (const bill of Array.isArray(publication.bills) ? publication.bills : []) {
+    if (bill && typeof bill === 'object') delete bill.paidState;
+  }
   return publication;
 }
 
