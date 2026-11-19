@@ -12,6 +12,15 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 // The live period less the derived Stack Wallet stackSummary, which is built
 // at publication from the period's own figures and never saved.
 const withoutStackSummary = row => {
@@ -80,7 +89,7 @@ try {
   options.periods = source.periods;
   const native = Forecast.recommend(refreshed.data.plan, NEXT_START, options)
     .payPeriodViews.find(p => p.start === START && p.end === END);
-  assert.deepEqual(candidate.content.publication, withoutStackSummary(native),
+  assert.deepEqual(candidate.content.publication, withoutBillPaidState(withoutStackSummary(native)),
     'closing capture reprints the native Forecast row for the closed period');
 
   // The seam owns the selection: caller kind / periodStart / clock refused.
