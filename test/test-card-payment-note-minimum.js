@@ -181,8 +181,11 @@ for (const name of ['Triangle Mastercard', 'MBNA']) {
 }
 {
   const s = run(world({ category: true, note: 'card payment: TD Cash Back Visa ...8888' }));
-  check(s.state.status === 'ready' && s.state.payments[0].minimumConfirmationSource === 'household-category',
-    'category with a note naming another card: the category wins, as on main');
+  // Lead ruling (ATLAS LEAD 11, 2026-11-19; found by LEDGER A on #1407): a category naming one card and a note
+  // naming another is a conflict. Neither wins: no minimum payment for either card (the category no longer wins).
+  check(s.state.status === 'incumbent' && s.state.payments.length === 0 && s.evidence.payments.length === 0
+    && s.row && s.row.status !== 'PAID',
+  'category with a note naming another card: neither wins; the category card\'s minimum is not paid');
 }
 // 8. The packet's card-minimum ownership mark follows the QUALIFIED evidence (Codex P1 on #1388):
 // a noted debit the card's credit pairs stays owned; one it does not pair is never left marked owned.

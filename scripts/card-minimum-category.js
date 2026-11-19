@@ -89,6 +89,12 @@ function observe(input) {
     // A pending debit is a label candidate only (Payment pending), and only by
     // the exact minimum category: a note needs the card's posted credit.
     const pendingCandidate = tx.pending === true && !!byCategory;
+    // A category naming one card and a "card payment:" note naming a different
+    // definite card is a conflict (lead ruling, ATLAS LEAD 11, 2026-11-19):
+    // neither wins, so it pays no card's minimum and gets no pending label.
+    // An owner record of the debit still decides it (the owned branch below).
+    const noteConflict = !!byCategory && Forecast.cardPaymentDestinationConflict({ notes: tx.notes,
+      minimumCategoryDebt: byCategory });
     if (!debtId || (tx.pending === true && !pendingCandidate) || tx.contradictoryEvidence === true
         || tx.isGroup || tx.parentId || tx.currency !== 'cad' || tx.isIncome === true
         || !(amount > 0) || !iso(tx.date) || tx.date > asOf || tx.date < window.startDate
@@ -132,7 +138,7 @@ function observe(input) {
           && records[0].scheduledDate === compatible[0].original)) packet.disagreements.push(debitId);
       continue;
     }
-    if (compatible.length !== 1) continue;
+    if (noteConflict || compatible.length !== 1) continue;
     const target = compatible[0];
     if (pendingCandidate) { pendingHits.push({ tx, ...target }); continue; }
     if (Forecast.minimumCategoryAllocationConflict(plan, { id: target.row.id, debitId,

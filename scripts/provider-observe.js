@@ -7446,6 +7446,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       parentId: localIdFor(tx.parentId),
       pendingPostedDuplicate: tx.pendingPostedDuplicate === true,
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
+      // The posted minimum category's card, present only on such a row, so the
+      // held reader can see a category/note conflict (cardPaymentDestinationConflict).
+      ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
     };
     txs.push(emittedRow);
     const distinctPending = distinctPendingByPosted.get(tx);
