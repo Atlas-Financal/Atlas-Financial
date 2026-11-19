@@ -27,6 +27,10 @@ const vm = require('vm');
 const { mask } = require('./js-scan');
 
 const ROOT = path.join(__dirname, '..');
+// The page the capture runs: the previous Budget page, by its explicit route (?view=classic), so making the Stack page
+// the default Budget page (B7) does not change what this capture observes (the previous page's Savings consumers).
+// Temporary: retarget at C1, when the previous page retires (then the capture observes the Stack page's own reads).
+const CAPTURE_LOCATION = Object.freeze({ pathname: '/', search: '?view=classic', hash: '', href: 'http://capture.invalid/?view=classic' });
 // v3 (adopted design 6554987596 + 6555018088 + 6555036724; Muse 6556013994):
 // per-advice exact-context anchors, global result#k indexes, the enumerated
 // loading and handler forms below, and test-mode descriptor originals.
@@ -434,7 +438,7 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
     document,
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     sessionStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
-    location: { pathname: '/', search: '', hash: '', href: 'http://capture.invalid/' },
+    location: { ...CAPTURE_LOCATION },
     history: { replaceState() {}, pushState() {} },
     navigator: { userAgent: 'figures-page-capture', serviceWorker: { register: refuse('service worker registration') } },
     // The page's own boot fetches its inputs. The served bodies are the input
@@ -771,4 +775,4 @@ function capturePages(data, periods, root = ROOT, options = {}) {
 }
 
 module.exports = { capturePages, pageScripts, budgetStates, withPerturbations, perturbed: () => PERTURBATIONS.size > 0, observed,
-  describeValue, adviceAnchors, WINDOW_HANDLER_EVENTS, CAPTURE_VERSION, PAGE_HTML, ENTRY };
+  describeValue, adviceAnchors, WINDOW_HANDLER_EVENTS, CAPTURE_VERSION, PAGE_HTML, ENTRY, CAPTURE_LOCATION };
