@@ -94,6 +94,16 @@ assert(sc.includes('excludes Car &lt;fund&gt;'));
 assert(sc.includes('Rainy day') && sc.includes(fmt(40)) && sc.includes('$0.00<i> of ' + fmt(90.25)));
 assert(!/Funded|Not funded/i.test(sh), 'no Funded wording');
 amounts(sc).forEach(a => assert([20.5, 130.25, 40, 0, 90.25, 5, 60].map(fmt).includes(a), 'unpublished savings amount ' + a));
+// pool-level: moved of needed; goals without their own saved read "needs", no bar; one with saved reads "of" with a bar
+const pv = JSON.parse(JSON.stringify(sv));
+pv.stackSummary.savings.totals.completeness = 'pool-level';
+pv.stackSummary.savings.items[0].saved = null; pv.stackSummary.savings.items[1].saved = null;
+const pc = buildCardsHTML(ctx(pv)).split('data-stack-card="savings"')[1].split('</details>')[0];
+assert(pc.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' needed</i>'), 'pool header');
+assert(pc.includes('<i>needs </i>' + fmt(40)) && pc.includes('<i>needs </i>' + fmt(90.25)));
+assert((pc.match(/sc-mini/g) || []).length === 1, 'only the goal with its own saved has a bar');
+assert(pc.includes(fmt(5) + '<i> of ' + fmt(60)));
+assert(!/Funded/i.test(pc) && !pc.includes('excludes'));
 sv.stackSummary.savings.totals.completeness = 'complete';
 assert(!buildCardsHTML(ctx(sv)).includes('excludes'));
 sv.stackSummary.savings.totals = { saved: null, needed: null };

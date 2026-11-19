@@ -14,7 +14,7 @@
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
- *     {saved, needed, completeness, excluded[] (item ids)}         (A5; saved/needed as a number or {amount})
+ *     {saved, needed, completeness ('pool-level' | ...), excluded[] (item ids)}         (A5; saved/needed as a number or {amount})
  */
 (function (root) {
   'use strict';
@@ -62,9 +62,9 @@
 
   function isMortgageRow(r) { return !!r && (r.debtId === 'mortgage' || r.id === 'mortgage'); }
 
-  function strip(kind, title, sub, figure, figureOf, width, body, sep) {
+  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail) {
     var f = figure == null ? '' : '<span class="sc-f">' + esc(figure) +
-      (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + '</i>') + '</span>';
+      (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
       '<summary><span class="sc-t">' + esc(title) + '</span><span class="sc-s">' + esc(sub) + '</span>' + f + '</summary>' +
       '<div class="sc-bar"><i style="width:' + width + '%"></i></div>' + body + '</details>';
@@ -134,14 +134,21 @@
     var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
       .filter(function (l) { return l; }); // an id with no listed item has no label to print
     var ex = t.completeness === 'partial' && exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
+    // A pool-level total (savings land in one pool): "moved of needed"; each goal
+    // says what it needs, with no bar. A goal with its own published saved
+    // value reads "saved of needed" with a bar, so that design switches on by itself.
+    var pool = t.completeness === 'pool-level';
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var s = money(amt(i.saved)), n = money(amt(i.needed));
-      return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b><span class="sc-mini"><i style="width:' +
-        drawWidth(amt(i.saved), amt(i.needed)) + '%"></i></span></span>' +
-        (s == null && n == null ? '' : '<span class="sc-a">' + (s == null ? '' : esc(s)) +
-          (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>') + '</li>';
+      var own = s != null;
+      var right = own ? '<span class="sc-a">' + esc(s) + (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>'
+        : n == null ? '' : '<span class="sc-a"><i>needs </i>' + esc(n) + '</span>';
+      return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b>' +
+        (own ? '<span class="sc-mini"><i style="width:' + drawWidth(amt(i.saved), amt(i.needed)) + '%"></i></span>' : '') +
+        '</span>' + right + '</li>';
     }).join('') + '</ul>';
-    return strip('savings', 'Savings', ex || 'saved / needed', saved, needed, drawWidth(amt(t.saved), amt(t.needed)), items.length ? body : '', ' of ');
+    return strip('savings', 'Savings', ex || (pool ? 'moved / needed' : 'saved / needed'), saved, needed,
+      drawWidth(amt(t.saved), amt(t.needed)), items.length ? body : '', pool ? ' moved of ' : ' of ', pool ? ' needed' : '');
   }
 
   function buildCardsHTML(ctx) {
