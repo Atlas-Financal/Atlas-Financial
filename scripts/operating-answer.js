@@ -291,9 +291,7 @@ function projectFromAdvice(advice, data, opts, asOf) {
       // permission rests on an estimated card coverage (cautious, never above).
       ...(!planUnavailable && advice && Forecast.cardCoverageEstimateBasis(advice.cardPurchaseCoverage)
         ? { trust: 'estimated', estimateBasis: Forecast.cardCoverageEstimateBasis(advice.cardPurchaseCoverage),
-          toConfirmCount: (Array.isArray(advice.cardPurchaseCoverage.toConfirm) ? advice.cardPurchaseCoverage.toConfirm.length : 0)
-            + (Number.isInteger(advice.cardPurchaseCoverage.toConfirmListedUnderHeld)
-              ? advice.cardPurchaseCoverage.toConfirmListedUnderHeld : 0) }
+          toConfirmCount: Array.isArray(advice.cardPurchaseCoverage.toConfirm) ? advice.cardPurchaseCoverage.toConfirm.length : 0 }
         : {}),
     },
     futureCostProtection: {

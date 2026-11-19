@@ -14638,6 +14638,28 @@
   // One evidence-qualified purchase/payment ledger. The historical API name
   // is retained for #491's consumer; it now covers mapped revolving cards.
   // A provider payment proves movement, never household allocation intent.
+  // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19). A card-ledger
+  // "which card did this pay?" row remembers its packet transaction privately
+  // (never published), so a pay period can drop the rows its own Budget To
+  // confirm already holds: the period's actual held rows are the one
+  // authority, never a recomputation. The trust and estimate basis still read
+  // every unconfirmed row, so no tag moves; a row the held list does not hold
+  // (Savings, an earlier pay period) keeps its question.
+  const COVERAGE_ROW_TRANSACTION = new WeakMap();
+  function coverageRowFor(row, tx) {
+    if (tx && tx.id != null) COVERAGE_ROW_TRANSACTION.set(row, String(tx.id));
+    return row;
+  }
+  function coverageListedOnce(coverage, heldRows) {
+    if (!coverage || coverage.trust !== 'estimated' || !Array.isArray(coverage.toConfirm)
+      || !Array.isArray(heldRows) || !heldRows.length) return coverage;
+    const held = new Set(heldRows.filter(row => row && row.id != null).map(row => String(row.id)));
+    const listed = coverage.toConfirm.filter(row => row && row.basis === CARD_DESTINATION_ESTIMATE_BASIS
+      && held.has(COVERAGE_ROW_TRANSACTION.get(row)));
+    if (!listed.length) return coverage;
+    return Object.assign({}, coverage, { toConfirmListedUnderHeld: listed.length,
+      toConfirm: coverage.toConfirm.filter(row => !listed.includes(row)) });
+  }
   function reconcileCardPurchases(transactions, opts) {
     opts = opts || {};
     const plan = opts.plan || {};
@@ -15561,17 +15583,6 @@
       [purposeUnconfirmed, CARD_CREDIT_PURPOSE_ESTIMATE_BASIS], [sourceUnconfirmed, CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]]
       .filter(([rows]) => rows.length > 0).map(([, basis]) => basis);
     const destinationEstimate = !issues.length && estimateKinds.length > 0;
-    // The destination-unconfirmed payments the held reader lists in the active
-    // period's Budget To confirm (unprovenTransferDebit, the same rule, with the
-    // card pairing it consults known false: these legs are unpaired). Every
-    // other one (Savings, a prior period, a row the reader does not hold) keeps
-    // its question here, so no row leaves both lists.
-    const heldListCycle = spendingCycle(plan, asOf);
-    const heldOpts = { packet, currentPeriodActuals: packet, debts: opts.debts };
-    const listedAsHeld = leg => !!(heldListCycle && leg.tx.date >= heldListCycle.start && leg.tx.date <= asOf
-      && unprovenTransferDebit(leg.tx, classifyCurrentPeriodTransaction(leg.tx, plan, heldOpts), plan, heldOpts, () => false));
-    const destinationHeldElsewhere = destinationEstimate ? destinationUnconfirmed.filter(listedAsHeld) : [];
-    const destinationAsked = destinationUnconfirmed.filter(leg => !destinationHeldElsewhere.includes(leg));
     const estimateBasis = !destinationEstimate ? null
       : estimateKinds.length === 1 ? estimateKinds[0] : CARD_ROWS_ESTIMATE_BASIS;
     // Opening carry can fall inside a cycle. Only a corresponding visible
@@ -15632,15 +15643,10 @@
       // can only understate the money left). Each payment is one To-confirm row.
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
-        // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19): a payment the
-        // held reader already lists in this period's Budget To confirm is
-        // counted here, not asked a second time. The trust and basis above
-        // still read every unconfirmed row, so no tag moves.
-        ...(destinationHeldElsewhere.length ? { toConfirmListedUnderHeld: destinationHeldElsewhere.length } : {}),
-        toConfirm: [...destinationAsked.map(leg => ({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
+        toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
           question: 'To confirm: which card did this pay?',
           date: leg.tx.date, amount: leg.cents / 100,
-          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })),
+          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null }, leg.tx)),
         ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
           question: 'To confirm: was this card credit a payment or a refund?',
           date: leg.tx.date, amount: leg.cents / 100, onCard: label(leg.account) })),
@@ -17304,8 +17310,10 @@
         // read by no total above.
         bills: planUnavailable ? [] : (section.carriedRows ? bills.concat(section.carriedRows) : bills),
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
+        // Listed once: the period's own held rows (below) are the authority.
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
-          ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
+          ? { cardPurchaseCoverage: coverageListedOnce(cardCoverageState(plan, asOf, opts),
+            !planUnavailable ? budget.heldOutflows : null) } : {}),
         // A completed period's total withholds on the same in-window unknown
         // amount as unconfirmedBills: an unknown bill is never summed as 0.
         // An open period whose bill load is unknown (a scheduled amount with
