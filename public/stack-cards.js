@@ -39,9 +39,21 @@
   // Forecast's trust word travels with its figure (CLAUDE.md: tag every figure). Only
   // 'estimated' needs a mark; 'unavailable' figures are null and print nothing.
   // The page carries no text label (owner decision): the mark is visual only.
+  // B5: the shell's one rule (StackBlocks.isEstimated): a figure is soft when its published trust is estimated, or
+  // when the selected pay period is projected (estView, set for the duration of one build).
+  var estView = null;
   function isEst() {
-    for (var i = 0; i < arguments.length; i++) if (arguments[i] === 'estimated') return true;
+    var sb = root.StackBlocks;
+    if (!sb || typeof sb.isEstimated !== 'function') return false;
+    if (sb.isEstimated(null, estView)) return true;
+    for (var i = 0; i < arguments.length; i++) if (sb.isEstimated(arguments[i], null)) return true;
     return false;
+  }
+  // A budget category's printed amounts, by Forecast's budget-row semantics (the shell's one reader).
+  function budgetEst(c) {
+    var sb = root.StackBlocks;
+    var t = sb && typeof sb.budgetTrust === 'function' ? sb.budgetTrust(c) : {};
+    return { spent: isEst(t.spent), planned: isEst(t.planned) };
   }
   // No label: an estimated figure is drawn softer (class stack-est), never worded.
   function estCls(on) { return on ? ' stack-est' : ''; }
@@ -125,10 +137,11 @@
     var hhEst = isEst(get(hh, ['actual', 'trust']), get(hh, ['planned', 'trust']));
     var body = '<ul class="sc-list">' + cats.map(function (c) {
       var s = money(c.spent), p = planPublished ? money(c.planned) : null;
-      var est = isEst(c.trust, c.plannedTrust) || c.confidence === 'estimated';
+      var est = budgetEst(c);
       return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
         (p == null ? '' : '<span class="sc-mini"><i style="width:' + drawWidth(c.spent, c.planned) + '%"></i></span>') + '</span>' +
-        (s == null && p == null ? '' : '<span class="sc-a' + estCls(est) + '">' + (s == null ? '' : esc(s)) + (p == null ? '' : '<i> / ' + esc(p) + '</i>') + '</span>') + '</li>';
+        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
+          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
     return strip('budget', 'Budget', 'spent / budget', head, money(planned), drawWidth(spent, planned), cats.length ? body : '', null, null, hhEst);
@@ -195,7 +208,12 @@
   function buildCardsHTML(ctx) {
     var view = selectView(ctx);
     if (!view) return '';
-    return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + savingsCard(view) + '</div>';
+    estView = view;
+    try {
+      return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + savingsCard(view) + '</div>';
+    } finally {
+      estView = null;
+    }
   }
 
   function render(container, ctx) {
