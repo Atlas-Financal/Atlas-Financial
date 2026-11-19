@@ -26,6 +26,14 @@
       if (state.ready) renderAll();
     },
     names: () => [...renderers.keys()],
+    // The one drawing ratio the blocks share (lead ruling, 2026-11-19): a bar's fill, 0 to 1, from two published
+    // figures. Drawing only: never printed, never used for a status, colour or decision. null (no bar) unless both
+    // figures are published numbers and the whole is above zero.
+    barWidth(part, whole) {
+      if (typeof part !== 'number' || typeof whole !== 'number' || !Number.isFinite(part) || !Number.isFinite(whole)
+        || whole <= 0) return null;
+      return Math.min(1, Math.max(0, part / whole));
+    },
   };
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
