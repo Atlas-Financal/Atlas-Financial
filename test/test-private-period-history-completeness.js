@@ -1,4 +1,13 @@
 'use strict';
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 // History H1: declared source completeness, closing state and household-day
 // cutoff on new captures; legacy v1 byte/hash/ID compatibility; receipt path.
 // Entirely invented finances and identities. No data.json, live GET or credential.
@@ -136,7 +145,7 @@ try {
     const native = Forecast.recommend(refreshed.data.plan, '2030-02-15', options).payPeriodViews.find(p => p.start === ANCHOR);
     // Exactly the native period, less the derived Stack Wallet stackSummary
     // (re-derived from these same figures on replay, so never saved).
-    const nativeCopy = JSON.parse(JSON.stringify(native));
+    const nativeCopy = withoutBillPaidState(native);
     assert.ok(Object.hasOwn(nativeCopy, 'stackSummary'), 'the native period publishes stackSummary');
     delete nativeCopy.stackSummary;
     assert.deepEqual(candidate.content.publication, nativeCopy);
