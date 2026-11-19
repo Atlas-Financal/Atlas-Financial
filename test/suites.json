@@ -321,6 +321,7 @@
   ["a malformed posted history row makes its period incomplete, never precise","test-periods-malformed-incomplete.js"],
   ["last month is the previous calendar month on every day, incl. month ends and leap years","test-periods-last-month.js"],
   ["decision-first payday operating surface (AF-OPERATE-02)","test-operating-surface.js"],
+  ["the current-period worksheet (#payday-answer) stays hidden: its figures are not all trust-tagged (BACKLOG)","test-payday-answer-stays-hidden.js"],
   ["plain-language household homepage","test-household-view.js"],
   ["approved Budget UI presentation","test-budget-ui-polish.js"],
   ["Budget review future settlement and zero-plan markers","test-budget-review-regressions.js"],
