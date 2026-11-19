@@ -523,10 +523,16 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     isGroup: raw.is_group === true || raw.is_group_parent === true
       || raw.has_children === true,
     // v1 parent_id, or v2 group_parent_id (spec 2.11.2) for a row grouped
-    // into a group parent. v2 split pieces (split_parent_id) are not read
-    // here: BACKLOG.md, LM v2 split pieces.
+    // into a group parent.
     parentId: raw.parent_id != null ? String(raw.parent_id)
       : raw.group_parent_id != null ? String(raw.group_parent_id) : null,
+    // v2 split identity (spec 2.11.2): a split piece carries split_parent_id
+    // and a split parent is_split_parent. Read only by the dropped-row rule
+    // (droppedRowCategory), as a v1 parent_id piece is there. Never parentId:
+    // the group-parent rules keep group_parent_id / parent_id alone. Like the
+    // U5 group child ids, it is present only on a v2 split row, so every other
+    // row's shape is unchanged; the served packet rows never carry it.
+    ...(raw.split_parent_id != null || raw.is_split_parent === true ? { splitIdentity: true } : {}),
     // U5: the provider ids of the children Lunch Money lists on a group parent,
     // so the coverage stamp can tell a complete cross-account group from a
     // partial one. Internal (never emitted); absent on every other row, so
@@ -7120,7 +7126,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     if (tx.providerTransactionId == null || tx.providerTransactionId === '' || tx.pending === true) return null;
     if (tx.currency !== 'cad' || tx.coverageCurrencyConflict === true) return null;
     if (tx.isIncome === true || tx.excludeFromTotals === true || tx.excludeFromBudget === true) return null;
-    if (tx.isGroup === true || tx.parentId != null) return null;
+    if (tx.isGroup === true || tx.parentId != null || tx.splitIdentity === true) return null;
     if (kindHintFromTransaction(tx) || isMbnaCardPayment(tx) || outgoingETransferDescriptorIdentity(tx.originalName)) return null;
     if (typeof tx.categoryLabel !== 'string' || !tx.categoryLabel.trim()) return null;
     const atlasAccountId = mapping && mapping.canonical && mapping.canonical.id ? mapping.canonical.id : null;
