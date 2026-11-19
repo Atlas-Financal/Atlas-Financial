@@ -105,6 +105,12 @@ const fallbacks = [
   ['pending row', [{ ...DROP, pending: true }]],
   ['card-payment kind', [{ ...DROP, raw: { kind: 'payment' } }]],
   ['split child', [{ ...DROP, raw: { parent_id: 700001 } }]],
+  // LM v2 (spec 2.11.2): a split piece carries split_parent_id, a split
+  // parent is_split_parent. Each is excluded as split identity, as the v1
+  // parent_id piece above is (BACKLOG, LM v2 split pieces).
+  ['v2 split piece (split_parent_id)', [{ ...DROP, raw: { split_parent_id: 700002 } }]],
+  ['v2 split parent (is_split_parent)', [{ ...DROP, raw: { is_split_parent: true } }]],
+  ['v2 group child (group_parent_id), as before', [{ ...DROP, raw: { group_parent_id: 700003 } }]],
 ];
 for (const [name, extra] of fallbacks) {
   check(name + ': no localisation, every category withheld', () => {
@@ -117,6 +123,24 @@ for (const [name, extra] of fallbacks) {
     totalsUnknown(r, name);
   });
 }
+check('v2 split identity never feeds the group-parent rules, and nothing double-counts', () => {
+  // A readable v2 split piece: Groceries 40 (control) + 10 = 50, counted once.
+  const r = run([{ date: '2026-10-11', amount: 10, category: 'Groceries', payee: 'Invented grocer C',
+    raw: { split_parent_id: 700004 } }]);
+  const piece = r.packet.transactions.find(tx => tx.amount === 10);
+  assert.ok(piece, 'the split piece is in the packet');
+  assert.equal(piece.parentId ?? null, null, 'a v2 split piece gets no group-parent link');
+  assert.equal(piece.isGroup, false, 'and is not a group');
+  assert.equal(Object.hasOwn(piece, 'splitIdentity'), false, 'the split identity is internal, never emitted');
+  assert.equal(r.packet.transactionCoverage, 'complete', 'a readable split piece drops nothing');
+  assert.equal(r.row('groceries').spent, 50, 'Groceries 40 + 10 = 50: the piece counts once');
+  assert.equal(r.period.budgetProgress.household.actual.amount, 75.5, 'Household 65.5 + 10 = 75.5');
+  // A v2 group child keeps its group-parent link exactly as before.
+  const g = run([{ date: '2026-10-11', amount: 10, category: 'Groceries', payee: 'Invented grocer D',
+    raw: { group_parent_id: 700005 } }]);
+  const child = g.packet.transactions.find(tx => tx.amount === 10);
+  assert.ok(child && child.parentId != null, 'a v2 group child keeps its parent link');
+});
 check('no provider id: the observation is refused outright (as on main), never localised', () => {
   const w = H.baseWorld();
   w.transactions = [H.lm({ ...DROP, omitId: true })];
