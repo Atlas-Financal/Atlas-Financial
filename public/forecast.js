@@ -12685,7 +12685,7 @@
   // cent; otherwise every part is null. A period rebuilt from a saved close
   // carries its saved total but no split, so its split (and the surplus) is
   // withheld, never re-derived from today's rows. Trust is the bill total's own.
-  // The parts are destructured, not read as `x.mortgage`: test-invariants finds
+  // The parts are destructured, not read with a dot: test-invariants finds
   // a data.json key's reader by that text, and the plan's top-level `mortgage`
   // key has none.
   function stackBills(view) {
