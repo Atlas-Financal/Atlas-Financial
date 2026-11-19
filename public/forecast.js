@@ -14803,6 +14803,11 @@
     // in a pay period whose manual account holds no posted purchase (one
     // source per card per period); Triangle always.
     const payDownBeyond = [], payDownActivity = new Map();
+    // Lead blocker on #1394: an early payment (no minimum in its own pay
+    // period) first meets the card's next minimum occurrence, which the next
+    // period still reserves; only the rest is beyond it. Each next occurrence
+    // is met once, across payments (cents left to meet, by occurrence).
+    const earlyMet = new Map();
     if (aggregate) {
       for (const key of ['payments', 'refunds', 'reversals']) {
         if (policy[key] != null && !(Array.isArray(policy[key]) && policy[key].length === 0)) issue('coverage-records-invalid');
@@ -15179,11 +15184,26 @@
             const { taken, left } = consume(state, amount, 'covered', 'aggregate-coverage');
             // Household chequing only: a Savings (reserve) funded payment's cents
             // already left the Savings pool, never Balance After Deductions' cash.
-            if (payDownOnly.has(account) && left > 0
+            let beyond = left;
+            if (payDownOnly.has(account) && left > 0 && !minimums.length) {
+              const next = minimumRows.filter(row => row.debtId === account)
+                .flatMap(row => obligationOccurrences(row, addDays(start, 1), addDays(start, 120))
+                  .map(occurrence => ({ key: row.id + '@' + (occurrence.scheduledDate || occurrence.date),
+                    date: occurrence.date, cents: savingsCents(occurrence.amount) })))
+                .filter(occurrence => occurrence.cents != null && occurrence.cents > 0 && periodOf(occurrence.date) > start)
+                .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))[0];
+              if (next) {
+                const open = earlyMet.has(next.key) ? earlyMet.get(next.key) : next.cents;
+                const meet = Math.min(beyond, open);
+                earlyMet.set(next.key, open - meet);
+                beyond -= meet;
+              }
+            }
+            if (payDownOnly.has(account) && beyond > 0
               && HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(pair.cash.tx)) !== -1
               && pair.cash.tx.accountRole === 'household-cash'
               && !(account === 'mbna' && payDownActivity.get(account)?.has(start))) {
-              payDownBeyond.push({ account, accountLabel: label(account), date: pair.cash.tx.date, cents: left });
+              payDownBeyond.push({ account, accountLabel: label(account), date: pair.cash.tx.date, cents: beyond });
             }
             // #843 finding 11: purchase cents a Savings leg paid. Those cents
             // already left the Savings pool; Bills never pays them.

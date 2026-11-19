@@ -61,21 +61,26 @@ for (const category of ['Pets', 'Credit Card', 'Shopping']) {
   const filed = run(card('triangle', [pay(60, 'CAN TIRE MC', { category_name: category })]));
   ok(term(filed) === 35, 'condition 4: CAN TIRE MC filed as ' + category + ' is still the Triangle payment (payee identity)');
 }
-const noMinimum = run(card('mbna', [pay(60)], { minimumDate: '2026-10-08' }));
-ok(term(noMinimum) === 60 && cents(noMinimum.period.balanceAfterDeductions) === cents(1000 - 150 - 60),
-  'no minimum due in the period: the whole 60 is beyond it (remainder 790 = 1,000 - 150 - 60)',
-  JSON.stringify([term(noMinimum), noMinimum.period.balanceAfterDeductions, noMinimum.period.periodBillLoad]));
-
-console.log('\n=== MBNA one source per period; Triangle always ===');
-const mbnaPurchase = run(card('mbna', [pay(60), ['card', 30, null, 'purchase']]));
-ok((mbnaPurchase.coverage.payDownBeyondMinimum || []).length === 0 && term(mbnaPurchase) === undefined,
-  'MBNA with a posted purchase on its manual account that period: the excess is not counted (the purchases are its source)',
-  JSON.stringify(mbnaPurchase.coverage.payDownBeyondMinimum));
-const triPurchase = run(card('triangle', [pay(60, 'CAN TIRE MC'), ['card', 30, null, 'purchase']]));
-ok((triPurchase.coverage.payDownBeyondMinimum || []).some(row => row.account === 'triangle' && row.amount === 35) && term(triPurchase) === 35,
-  'Triangle with the same purchase: still counted once (no other tracking)', JSON.stringify(triPurchase.coverage.payDownBeyondMinimum));
-const mbnaPending = run(card('mbna', [pay(60), ['card', 30, null, 'purchase', { is_pending: true }]]));
-ok(term(mbnaPending) === 35, 'MBNA with only a pending purchase: posted rows only, so the excess still counts');
+// Early payment (lead blocker on #1394): no minimum in the payment's own period, so it first meets
+// the card's next minimum occurrence (25, due 2026-10-08 in the next period), which that period still
+// reserves; only the rest is beyond it. Across both periods the money counted equals the cash that left.
+const early = run(card('mbna', [pay(60)], { minimumDate: '2026-10-08' }));
+const nextPeriod = early.advice.payPeriodViews.find(view => view.start === '2026-10-02');
+ok(term(early) === 35 && cents(early.period.balanceAfterDeductions) === cents(1000 - 150 - 35),
+  'early 60 with the next minimum 25 not yet due: 35 beyond it here (remainder 815 = 1,000 - 150 - 35)',
+  JSON.stringify([term(early), early.period.balanceAfterDeductions]));
+const earlyControl = run(card('mbna', [], { minimumDate: '2026-10-08' }));
+const controlNext = earlyControl.advice.payPeriodViews.find(view => view.start === '2026-10-02');
+ok(nextPeriod && controlNext && nextPeriod.periodBillLoad === controlNext.periodBillLoad
+  && (controlNext.bills || []).some(bill => bill.id === 'mbna-minimum' && bill.amount === 25),
+  'the next period still reserves its 25 minimum exactly as with no payment', JSON.stringify([nextPeriod && nextPeriod.periodBillLoad, controlNext && controlNext.periodBillLoad]));
+ok(cents(term(early)) + 2500 === 6000, 'so across both periods 35 + 25 = 60, the payment, counted once');
+const small = run(card('mbna', [pay(20)], { minimumDate: '2026-10-08' }));
+ok(term(small) === undefined, 'an early payment smaller than the next minimum: no term (it all meets that minimum)');
+const twoEarly = run(card('mbna', [pay(20), ['bills', 20, '2026-09-19', 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }]],
+  { minimumDate: '2026-10-08' }));
+ok(term(twoEarly) === 15, 'two early 20s against the next 25 minimum: the minimum is met once (20 + 5), 15 beyond',
+  JSON.stringify(twoEarly.coverage.payDownBeyondMinimum));
 
 console.log('\n=== household chequing only: a Savings-funded payment is not this term (pre-review blocker) ===');
 {
