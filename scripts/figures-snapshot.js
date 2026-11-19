@@ -575,6 +575,13 @@ function putPayPeriods(put, putField, advice) {
     if (!view || typeof view.start !== 'string' || !view.start) throw new Error('pay period without a start date');
     const p = uniqueKey(periodKeys, 'period.' + segment(view.start));
     for (const field of PERIOD_FIELDS) putField(p + '.' + field, view, field);
+    // Stack Wallet "Surplus after deductions" (owner decision, #821 7013976545):
+    // the published amount, its trust and whether the period is projected.
+    const surplus = view.stackSummary && view.stackSummary.surplus;
+    if (surplus) {
+      for (const [field, key] of [['amount', 'stackSurplus'], ['trust', 'stackSurplusTrust'], ['projected', 'stackSurplusProjected']])
+        putField(p + '.' + key, surplus, field);
+    }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {
       const b = uniqueKey(billKeys, p + '.bill.' + segment(bill && bill.id) + '@' + segment(bill && bill.date));

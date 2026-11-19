@@ -12652,11 +12652,52 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return recommend(plan, asOf, opts);
+      return publishStackSummary(recommend(plan, asOf, opts));
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
     }
+  }
+
+  // Stack Wallet (owner decision, Dale, #821 7013976545, waterfall option 3).
+  // Each pay period's `stackSummary` is read from that period's final
+  // published figures, after every withholding pass has run, so it can never
+  // disagree with them. It is a sum of published terms; nothing is
+  // recomputed and no walk changes.
+  function publishStackSummary(result) {
+    for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
+      if (!view || typeof view !== 'object') continue;
+      view.stackSummary = Object.assign(view.stackSummary || {}, { surplus: stackSurplus(view) });
+    }
+    return result;
+  }
+  // "Surplus after deductions": period income − bills − Household budget −
+  // savings-item spending. Unlike Balance After Deductions it does not
+  // subtract the held (To confirm) outflows or manual card payments beyond
+  // the minimum (owner decision), so wherever both are published it equals
+  // Balance After Deductions plus exactly those two terms. Withheld whenever
+  // any term it sums is withheld, or Balance After Deductions (whose
+  // published terms carry the item spending) is.
+  const isStackFigure = v => typeof v === 'number' && Number.isFinite(v);
+  const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, bills or the Household budget) is withheld for this period.';
+  function stackSurplus(view) {
+    const projected = view.evidenceState === 'projected';
+    const terms = view.predictedEndingBalanceTerms;
+    const item = terms && isStackFigure(terms.savingsItemSpending) ? terms.savingsItemSpending : 0;
+    const known = isStackFigure(view.incomeTotal) && isStackFigure(view.periodBillLoad) && isStackFigure(view.budgetHold)
+      && isStackFigure(view.balanceAfterDeductions) && !!terms && view.operatingPlanUnavailable !== true;
+    if (!known) {
+      return { amount: null, terms: null, trust: 'unavailable', projected, reason: STACK_SURPLUS_UNAVAILABLE };
+    }
+    return {
+      amount: roundCent(view.incomeTotal - view.periodBillLoad - view.budgetHold - item),
+      terms: { income: roundCent(view.incomeTotal), bills: roundCent(view.periodBillLoad),
+        household: roundCent(view.budgetHold), ...(item > 0 ? { savingsItemSpending: roundCent(item) } : {}) },
+      // The same terms as Balance After Deductions, so the same trust.
+      trust: view.balanceAfterDeductionsTrust || 'calculated',
+      projected,
+      reason: null,
+    };
   }
   function calendarIncomeTxFacts(packet) {
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
