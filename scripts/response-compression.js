@@ -106,10 +106,21 @@ function compressAllowlisted(req, res, next) {
   const originalWrite = res.write;
   const originalEnd = res.end;
   let ended = false;
+  let chunkStatus = null;
+  // Body chunks belong to the status they were written under. If the status
+  // then changes (a static read that fails partway hands the response to the
+  // error handler, which sets 500 and writes its own page with its own
+  // Content-Length), the chunks already buffered are an abandoned body:
+  // drop them, so the error response goes out exactly as its handler wrote it.
+  function keep(buffer) {
+    if (chunkStatus !== null && res.statusCode !== chunkStatus) chunks.length = 0;
+    chunkStatus = res.statusCode;
+    if (buffer) chunks.push(buffer);
+  }
 
   res.write = function write(chunk, encoding, callback) {
     const buffer = toBuffer(chunk, encoding);
-    if (buffer) chunks.push(buffer);
+    if (buffer) keep(buffer);
     const cb = typeof encoding === 'function' ? encoding : callback;
     if (typeof cb === 'function') process.nextTick(cb);
     return true;
@@ -120,8 +131,7 @@ function compressAllowlisted(req, res, next) {
     ended = true;
     if (typeof chunk === 'function') { callback = chunk; chunk = null; }
     if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
-    const buffer = toBuffer(chunk, encoding);
-    if (buffer) chunks.push(buffer);
+    keep(toBuffer(chunk, encoding));
     res.write = originalWrite;
     res.end = originalEnd;
     const body = Buffer.concat(chunks);
@@ -132,7 +142,9 @@ function compressAllowlisted(req, res, next) {
     if (!coding || !shouldCompress(res, body)) return finishIdentity();
     compressBody(coding, body, (err, encoded) => {
       if (res.destroyed) return;
-      if (err) return finishIdentity();
+      // Headers flushed while zlib ran cannot be changed any more: send the
+      // body as is rather than throw ERR_HTTP_HEADERS_SENT in this callback.
+      if (err || res.headersSent) return finishIdentity();
       res.setHeader('Content-Encoding', coding);
       res.setHeader('Content-Length', encoded.length);
       res.end(encoded, callback);

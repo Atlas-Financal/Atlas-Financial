@@ -93,6 +93,23 @@ const BIG_JSON = JSON.stringify({ rows: Array.from({ length: 400 }, (_, i) => ({
 const BIG_TEXT = 'invented body line\n'.repeat(400);
 assert.ok(Buffer.byteLength(BIG_JSON) > 4 * MIN_BYTES && Buffer.byteLength(BIG_TEXT) > 4 * MIN_BYTES);
 
+const STATIC_DIR = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'atlas-compress-'));
+fs.writeFileSync(path.join(STATIC_DIR, 'failing.js'), BIG_TEXT);
+const realCreateReadStream = fs.createReadStream;
+fs.createReadStream = function createReadStream(file, ...rest) {
+  if (String(file).endsWith(path.join(path.basename(STATIC_DIR), 'failing.js'))) {
+    const { Readable } = require('node:stream');
+    let sent = false;
+    return new Readable({
+      read() {
+        if (!sent) { sent = true; this.push(Buffer.from(BIG_TEXT.slice(0, 2000))); return; }
+        this.destroy(Object.assign(new Error('invented read failure'), { code: 'EIO' }));
+      },
+    });
+  }
+  return realCreateReadStream.call(this, file, ...rest);
+};
+
 let mini = null;
 let miniPort = 0;
 before(async () => {
@@ -119,12 +136,31 @@ before(async () => {
     app.all(p, (_req, res) => res.type('json').send(BIG_JSON));
   }
   app.get('/image.png', (_req, res) => res.type('png').send(Buffer.alloc(8192, 7)));
+  // The pattern of a static read that fails partway: headers and part of the
+  // body are written, then the error goes to the default error handler.
+  app.get('/partial.js', (_req, res, next) => {
+    res.type('js');
+    res.setHeader('Content-Length', Buffer.byteLength(BIG_TEXT));
+    res.write(BIG_TEXT.slice(0, 2000));
+    setImmediate(() => next(new Error('invented read failure')));
+  });
+  // Headers flushed after the body is handed over, while zlib is running.
+  app.get('/flushed.js', (_req, res) => {
+    res.type('js').send(BIG_TEXT);
+    res.flushHeaders();
+  });
+  // A real static file whose read stream fails partway (fs stubbed below).
+  app.use(express.static(STATIC_DIR, { etag: false, lastModified: false }));
   app.get('/app.js', (_req, res) => res.type('js').send(BIG_TEXT));
   app.post('/data.json', (_req, res) => res.type('json').send(BIG_JSON));
   miniPort = await freePort();
   await new Promise(resolve => { mini = app.listen(miniPort, '127.0.0.1', resolve); });
 });
-after(() => { if (mini) mini.close(); });
+after(() => {
+  if (mini) mini.close();
+  fs.createReadStream = realCreateReadStream;
+  fs.rmSync(STATIC_DIR, { recursive: true, force: true });
+});
 
 const AE = { 'accept-encoding': 'br, gzip' };
 
@@ -184,6 +220,28 @@ test('direct: excluded routes and non-GET methods pass through untouched', async
   assert.ok(!varies(post), 'POST /data.json: no Vary added');
   const head = await request(miniPort, { method: 'HEAD', path: '/app.js', headers: AE });
   assert.equal(head.headers['content-encoding'], undefined, 'HEAD: not compressed');
+});
+
+test('direct: a body that fails partway is dropped; the error response goes out uncompressed with a matching length', async () => {
+  for (const p of ['/partial.js', '/failing.js']) {
+    for (const headers of [{}, AE, { 'accept-encoding': 'gzip' }]) {
+      const r = await request(miniPort, { path: p, headers });
+      assert.equal(r.status, 500, `${p} ${JSON.stringify(headers)}: the error handler's status`);
+      assert.equal(r.headers['content-encoding'], undefined, `${p}: not compressed`);
+      assert.ok(!varies(r), `${p}: no Vary on the error`);
+      assert.equal(Number(r.headers['content-length']), r.raw.length, `${p}: Content-Length matches the body sent`);
+      assert.ok(!r.raw.includes(Buffer.from('invented body line')), `${p}: no part of the abandoned body is sent`);
+    }
+  }
+});
+
+test('direct: headers flushed while zlib runs: the body is sent as is, with no thrown error', async () => {
+  for (const headers of [AE, { 'accept-encoding': 'gzip' }]) {
+    const r = await request(miniPort, { path: '/flushed.js', headers });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['content-encoding'], undefined, 'the flushed headers carry no encoding');
+    assert.equal(r.raw.toString(), BIG_TEXT, 'the identity body follows the flushed headers');
+  }
 });
 
 /* ------------------------------ real server ------------------------------ */
