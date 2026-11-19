@@ -25,11 +25,13 @@ const view = {
 const ctx = (v, key) => ({ data: {}, plan: {}, recommendation: { payPeriodViews: [v] }, selectedPeriodKey: key === undefined ? '2026-01-01' : key, Forecast: {} });
 
 let registered = {};
-global.window = undefined;
-globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; } };
+// The real shell supplies StackBlocks (register and the shared barWidth); without ?view=stack it only defines them.
+global.window = globalThis;
+require('../public/stack-shell.js');
+assert.strictEqual(typeof StackBlocks.barWidth, 'function');
 delete require.cache[require.resolve(file)];
 const mod = require(file);
-assert.strictEqual(typeof registered.cards, 'function', 'registers as cards');
+assert(StackBlocks.names().includes('cards'), 'registers as cards');
 const { buildCardsHTML } = mod;
 
 const fmt = n => { const w = Math.round(Math.abs(n) * 100) % 100 === 0; return (n < 0 ? '−' : '') + '$' + Math.abs(n).toLocaleString('en-CA', { minimumFractionDigits: w ? 0 : 2, maximumFractionDigits: w ? 0 : 2 }); };
@@ -163,11 +165,11 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
 {
   const e = JSON.parse(JSON.stringify(view));
   e.budgetProgress.household.actual.trust = 'estimated';
-  e.householdBudget[0].plannedTrust = 'estimated';
+  e.householdBudget[0].trust = 'estimated'; e.householdBudget[0].plannedTrust = 'estimated';
   e.stackSummary.bills.trust = 'estimated';
   const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/sc-a stack-est/g) || []).length === 1, 'only the estimated category row is soft');
+  assert((cardOf('budget').match(/stack-est/g) || []).length === 3, 'headline, bar, and the one estimated row (spent unmarked, plan marked)');
   assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
   assert(!html.includes('stack-est'), 'calculated figures carry no class');
@@ -176,7 +178,7 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   const sh = savingsOf(se);
   assert(/class="sc-f stack-est"/.test(sh) && /sc-a stack-est/.test(sh) && /sc-mini sc-full stack-est/.test(sh) && !/estimated/i.test(sh));
   assert(!/moved \/ entitlement/.test(sh), 'no jargon subtitle');
-  assert(/stack-est/.test(css), 'the css draws the soft style');
+  assert(!/stack-est/.test(css), 'the shared style lives in B5, not here');
 }
 // 2d. a completed period whose original plan Forecast withholds: no category denominator, no progress bar
 {
@@ -185,6 +187,42 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   const hh = buildCardsHTML(ctx(h)), b = hh.split('data-stack-card="budget"')[1].split('</details>')[0];
   assert(!b.includes(fmt(400)) && !b.includes(fmt(50.5)) && !b.includes('sc-mini'), 'withheld plan not printed or drawn');
   assert(b.includes(fmt(123.45)), 'spent still printed');
+}
+
+// 2e. budget row trust reads Forecast's published semantics (as plan.js householdBudgetRowHtml does)
+{
+  const rowOf = (row, planned = 100) => {
+    const v = JSON.parse(JSON.stringify(view)); v.householdBudget = [Object.assign({ id: 'x', label: 'Row', spent: 40, planned }, row)];
+    const h = buildCardsHTML(ctx(v)), b = h.split('data-stack-card="budget"')[1].split('</details>')[0];
+    return b.slice(b.indexOf('<li class="sc-row"'));
+  };
+  const spentSoft = h => /<span class="stack-est">\$40<\/span>/.test(h), planSoft = h => /<i class="stack-est"> \/ \$100<\/i>/.test(h);
+  let r = rowOf({});                                           // calculated row
+  assert(!spentSoft(r) && !planSoft(r));
+  r = rowOf({ trust: 'estimated' });                           // estimated, no plan trust: plan soft, spent not
+  assert(planSoft(r) && !spentSoft(r));
+  r = rowOf({ confidence: 'estimated', plannedTrust: 'calculated' }); // possible duplicate: spent soft, plan not
+  assert(spentSoft(r) && !planSoft(r));
+  r = rowOf({ trust: 'estimated', plannedTrust: 'estimated', spentTrust: 'estimated' }); // carried target
+  assert(spentSoft(r) && planSoft(r));
+  r = rowOf({ trust: 'estimated', plannedTrust: 'estimated' });
+  assert(!spentSoft(r) && planSoft(r), 'spent is soft only for a calculated plan or a spentTrust');
+  r = rowOf({ otherSpending: true, trust: 'estimated' });      // Other without a dated plan: plan not marked
+  assert(!planSoft(r));
+  r = rowOf({ otherSpending: true, trust: 'estimated', targetEffectiveFrom: '2026-01-01' });
+  assert(planSoft(r), 'a dated Other plan follows the row');
+  assert(!/estimated/i.test(r));
+}
+
+// 2f. the bar fill comes from the shell's shared StackBlocks.barWidth; no local ratio helper
+assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth removed');
+assert(/StackBlocks/.test(fs.readFileSync(file, 'utf8')));
+{
+  const wide = JSON.parse(JSON.stringify(view)); wide.householdBudget[0].spent = 200; wide.householdBudget[0].planned = 400;
+  const b = buildCardsHTML(ctx(wide)).split('data-stack-card="budget"')[1];
+  assert(b.includes('style="width:' + StackBlocks.barWidth(200, 400) * 100 + '%"'), 'row bar = barWidth(spent, planned)');
+  const zero = JSON.parse(JSON.stringify(view)); zero.householdBudget[0].planned = 0;
+  assert(buildCardsHTML(ctx(zero)).split('data-stack-card="budget"')[1].includes('width:0%'), 'no whole: empty bar');
 }
 
 // 3. no money arithmetic in the page code
