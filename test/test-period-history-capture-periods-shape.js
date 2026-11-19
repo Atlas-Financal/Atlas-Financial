@@ -86,7 +86,12 @@ test('S2 page equivalence: the stored closing equals Forecast on the same period
   const served = Forecast.recommend(live.data.plan, asOf, { ...Operating.recommendOpts(live.data, {}), periods: shape });
   const view = served.payPeriodViews.find(p => p.start === START && p.end === END);
   assert.ok(view, 'the served Forecast has the closed period');
-  assert.deepEqual(closing.content.publication, withoutBillPaidState(view), 'stored close equals the served publication');
+  // The served period less the derived Stack Wallet stackSummary, which is
+  // built at publication from the period's own figures and never saved.
+  const servedPeriod = withoutBillPaidState(view);
+  assert.ok(Object.hasOwn(servedPeriod, 'stackSummary'), 'the served period publishes stackSummary');
+  delete servedPeriod.stackSummary;
+  assert.deepEqual(closing.content.publication, servedPeriod, 'stored close equals the served publication');
   assert.deepEqual(closing.content.evidence.forecastOptions.periods, shape, 'Forecast received the same periods object');
 });
 

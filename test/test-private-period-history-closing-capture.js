@@ -21,6 +21,14 @@ const withoutBillPaidState = row => {
   for (const b of bills) delete b.paidState;
   return copy;
 };
+// The live period less the derived Stack Wallet stackSummary, which is built
+// at publication from the period's own figures and never saved.
+const withoutStackSummary = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  if (!copy || !Object.hasOwn(copy, 'stackSummary')) throw new Error('the live period publishes stackSummary');
+  delete copy.stackSummary;
+  return copy;
+};
 
 // Biweekly payroll anchored 2030-02-01: cycles 02-01..02-14, 02-15..02-28,
 // 03-01..03-14. A capture on 02-15 (first day of cycle 2) must close cycle 1.
@@ -81,7 +89,7 @@ try {
   options.periods = source.periods;
   const native = Forecast.recommend(refreshed.data.plan, NEXT_START, options)
     .payPeriodViews.find(p => p.start === START && p.end === END);
-  assert.deepEqual(candidate.content.publication, withoutBillPaidState(native),
+  assert.deepEqual(candidate.content.publication, withoutBillPaidState(withoutStackSummary(native)),
     'closing capture reprints the native Forecast row for the closed period');
 
   // The seam owns the selection: caller kind / periodStart / clock refused.

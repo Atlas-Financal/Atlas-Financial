@@ -64,13 +64,21 @@ const withoutBillPaidState = row => {
   for (const b of bills) delete b.paidState;
   return copy;
 };
+// The live period less the derived Stack Wallet stackSummary, which is built
+// at publication from the period's own figures and never saved.
+const withoutStackSummary = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  if (!copy || !Object.hasOwn(copy, 'stackSummary')) throw new Error('the live period publishes stackSummary');
+  delete copy.stackSummary;
+  return copy;
+};
 function livePeriod(input, start) {
   const refreshed = Live.fromObservation(input);
   const options = Operating.recommendOpts(refreshed.data, {});
   options.periods = input.periods;
   const asOf = Operating.asOfFrom(refreshed.data, {});
   return { report: refreshed.report,
-    row: withoutBillPaidState(F.recommend(refreshed.data.plan, asOf, options).payPeriodViews.find(p => p.start === start)) };
+    row: withoutBillPaidState(withoutStackSummary(F.recommend(refreshed.data.plan, asOf, options).payPeriodViews.find(p => p.start === start))) };
 }
 const hydro = row => (row && row.bills || []).find(b => b.id === 'hydro') || {};
 function capture(kind, input) {

@@ -183,6 +183,11 @@ function selectedPublication(advice, period) {
   const row = (advice.payPeriodViews || []).find(p => p.start === period.start && p.end === period.end);
   if (!row) fail('history-forecast-period-unavailable');
   const publication = safeJson(row);
+  // Stack Wallet's stackSummary is derived from this same period's published
+  // figures (Forecast publishStackSummary), so it is not saved: the record
+  // keeps exactly the fields it saved before, every earlier contentKey is
+  // unchanged, and a replayed close re-derives it from its saved figures.
+  delete publication.stackSummary;
   // Stack Wallet A3's per-bill paidState is derived from each row's own saved
   // fields (Forecast billPaidState), so it is not saved: the record keeps
   // exactly the fields it saved before, every earlier contentKey is
