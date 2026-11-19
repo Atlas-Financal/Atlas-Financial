@@ -107,10 +107,14 @@ console.log('4. A genuine second charge still deducts, never vanishes');
   ok(otherAmount.balance === 810 && !otherAmount.rows.some(r => r.duplicate),
     'a pending of a different amount is not paired: it deducts (900 - 90 = 810)', String(otherAmount.balance));
   // Codex P2 on #1319: a posted row dated after the observation date (Oct 17)
-  // is not yet evidence; the current pending still deducts, as on main.
+  // is not yet evidence, so the pending is never paired to it as its copy.
+  // Since #1400 (lead ruling 2026-11-19; Atlas blocker 6998836646) that same
+  // future row no longer vetoes the lone-pending hold either: the pending is
+  // the only current evidence, so it is held To confirm on the bill once (900).
   const future = serve([debit('2026-10-16', { pending: true }), debit('2026-10-18')]);
-  ok(future.balance === 800 && !future.rows.some(r => r.duplicate),
-    'a posted row dated after the observation date is not paired: the pending still deducts (800)', String(future.balance));
+  const futurePending = future.rows.find(r => r.pending);
+  ok(future.balance === 900 && !future.rows.some(r => r.duplicate) && held(futurePending),
+    'a posted row dated after the observation date is not paired; the current pending is held once (900)', String(future.balance));
   const twoPending = serve([debit('2026-10-13', { pending: true }), debit('2026-10-14', { pending: true }), debit('2026-10-15')]);
   ok(!twoPending.rows.some(r => r.duplicate) && twoPending.balance === 700,
     'two pendings near one posted payment: no pairing, both deduct (900 - 200 = 700)', String(twoPending.balance));
@@ -124,9 +128,11 @@ console.log('5. Unchanged');
   ok(late.balance === 900 && held(late.rows[0]), 'posted Oct 17 alone: held To confirm, 900');
   // Pending on the due date, then posted two days later, is #1315's case and
   // is proved by test/test-near-due-pending-replacement.js on that PR.
+  // The lone pending off the due date is now held once on the bill (lead
+  // ruling 2026-11-19); test/test-lone-pending-bill-payment-once.js proves it.
   const lone = serve([debit('2026-10-16', { pending: true })]);
-  ok(lone.balance === 800 && !lone.rows[0].duplicate,
-    'a lone pending off the due date keeps its incumbent cautious path (800; out of scope, reported)', String(lone.balance));
+  ok(lone.balance === 900 && !lone.rows[0].duplicate && held(lone.rows[0]),
+    'a lone pending off the due date is held To confirm on the bill, counted once (900)', String(lone.balance));
 }
 
 console.log('6. No trust tag moves toward more certainty');

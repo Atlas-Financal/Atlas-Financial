@@ -7632,6 +7632,24 @@
   // pending row is unchanged (excluded as before). Returns the held result
   // (marked cardMinimumUnknown when the card-minimum owner cannot say whether
   // it owns this debit), or null.
+  // The one test of a debit's own card-payment evidence, shared by the held
+  // reader (unprovenTransferDebit) and the card ledger's To-confirm listing
+  // (reconcileCardPurchases; lead ruling, ATLAS LEAD 11, 2026-11-19): a Lunch
+  // Money group, the payment's own identity (the observer's payee identities
+  // and its 'card-payment' stamp), or a "card payment: <card>" note naming a
+  // contract card (the fixed table, MBNA and Triangle included). A
+  // card-payment or debt-payment CATEGORY alone is not proof (Grok Bot, Plan
+  // #6; lead, #1388), and neither is an 'unknown' card or a renamed payee with
+  // no note. A noted debit's card minimum stays in the bill load until
+  // confirmed, so holding it too would count it twice (lead blocker on #1388).
+  function cardPaymentOtherSideEvidence(tx) {
+    if (!tx) return false;
+    if (tx.parentId != null || tx.isGroup === true) return true;
+    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx)
+      || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
+    const notedCard = cardPaymentNoteDestination(tx);
+    return !!(notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard));
+  }
   function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
     if (tx.accountRole !== 'household-cash'
@@ -7645,20 +7663,8 @@
     const generic = (cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
       || (cls.kind === 'card-payment' && cls.reason === 'kind-hint' && (hint === 'payment' || hint === 'bill-payment'));
     if (!generic) return null;
-    if (tx.parentId != null || tx.isGroup === true) return null;
+    if (cardPaymentOtherSideEvidence(tx)) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
-    // A card payment by its own identity (the observer's payee identities and
-    // its 'card-payment' stamp). A card-payment or debt-payment CATEGORY alone
-    // is not proof (Grok Bot, Plan #6; lead, #1388): only a pair, a group or an
-    // identity proves the other side, so such a debit is held like any other.
-    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment') return null;
-    // A "card payment: <card>" note naming a contract card (the fixed table,
-    // MBNA and Triangle included) is the payment's own identity: that card's
-    // minimum stays in the bill load until confirmed, so holding the debit
-    // too would count it twice (lead blocker on #1388). An 'unknown' card,
-    // and a renamed payee with no note, prove nothing.
-    const notedCard = cardPaymentNoteDestination(tx);
-    if (notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard)) return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
@@ -8706,8 +8712,12 @@
         // stands on (provider-observe pendingOnlyOccurrence) is not spent,
         // but the pair is unresolved: it may be a second, unplaced charge, so
         // the classification stays incomplete, as it was before the hold.
+        // So is a lone pending debit held To confirm (pendingDebit): it is
+        // counted once, against the reserve, but it is still pending and
+        // unresolved, so the claim stays as cautious as before the hold.
         if (cls.reason === 'near-due-bill-unconfirmed' && tx.nearDueBillCandidate
-          && tx.nearDueBillCandidate.pendingOnlyOccurrence === true) { out.unclassified.count += 1; recordHeld(tx, cls); }
+          && (tx.nearDueBillCandidate.pendingOnlyOccurrence === true
+            || tx.nearDueBillCandidate.pendingDebit === true)) { out.unclassified.count += 1; recordHeld(tx, cls); }
         continue;
       }
       if (cls.kind === 'refund') {
@@ -14717,6 +14727,28 @@
   // One evidence-qualified purchase/payment ledger. The historical API name
   // is retained for #491's consumer; it now covers mapped revolving cards.
   // A provider payment proves movement, never household allocation intent.
+  // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19). A card-ledger
+  // "which card did this pay?" row remembers its packet transaction privately
+  // (never published), so a pay period can drop the rows its own Budget To
+  // confirm already holds: the period's actual held rows are the one
+  // authority, never a recomputation. The trust and estimate basis still read
+  // every unconfirmed row, so no tag moves; a row the held list does not hold
+  // (Savings, an earlier pay period) keeps its question.
+  const COVERAGE_ROW_TRANSACTION = new WeakMap();
+  function coverageRowFor(row, tx) {
+    if (tx && tx.id != null) COVERAGE_ROW_TRANSACTION.set(row, String(tx.id));
+    return row;
+  }
+  function coverageListedOnce(coverage, heldRows) {
+    if (!coverage || coverage.trust !== 'estimated' || !Array.isArray(coverage.toConfirm)
+      || !Array.isArray(heldRows) || !heldRows.length) return coverage;
+    const held = new Set(heldRows.filter(row => row && row.id != null).map(row => String(row.id)));
+    const listed = coverage.toConfirm.filter(row => row && row.basis === CARD_DESTINATION_ESTIMATE_BASIS
+      && held.has(COVERAGE_ROW_TRANSACTION.get(row)));
+    if (!listed.length) return coverage;
+    return Object.assign({}, coverage, { toConfirmListedUnderHeld: listed.length,
+      toConfirm: coverage.toConfirm.filter(row => !listed.includes(row)) });
+  }
   function reconcileCardPurchases(transactions, opts) {
     opts = opts || {};
     const plan = opts.plan || {};
@@ -15700,10 +15732,10 @@
       // can only understate the money left). Each payment is one To-confirm row.
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
-        toConfirm: [...destinationUnconfirmed.map(leg => ({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
+        toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
           question: 'To confirm: which card did this pay?',
           date: leg.tx.date, amount: leg.cents / 100,
-          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })),
+          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null }, leg.tx)),
         ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
           question: 'To confirm: was this card credit a payment or a refund?',
           date: leg.tx.date, amount: leg.cents / 100, onCard: label(leg.account) })),
@@ -17370,8 +17402,10 @@
         // read by no total above.
         bills: planUnavailable ? [] : (section.carriedRows ? bills.concat(section.carriedRows) : bills),
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
+        // Listed once: the period's own held rows (below) are the authority.
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
-          ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
+          ? { cardPurchaseCoverage: coverageListedOnce(cardCoverageState(plan, asOf, opts),
+            !planUnavailable ? budget.heldOutflows : null) } : {}),
         // A completed period's total withholds on the same in-window unknown
         // amount as unconfirmedBills: an unknown bill is never summed as 0.
         // An open period whose bill load is unknown (a scheduled amount with
@@ -19096,15 +19130,41 @@
     }
     return probe;
   }
-  function paydayPlanFits(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse, heldOtherIncomeReuse) {
+  function paydayPlanCheck(plan, asOf, masterOpts, removeAmount, extraDisabled, cardCoverageReuse, heldOtherIncomeReuse) {
     const probe = paydayProbeOpts(masterOpts, asOf, removeAmount, extraDisabled);
     if (cardCoverageReuse) probe.cardCoverageReuse = cardCoverageReuse;
     if (heldOtherIncomeReuse) probe.heldOtherIncomeReuse = heldOtherIncomeReuse;
-    return protectedPlanCheck(plan, asOf, probe).feasible;
+    return protectedPlanCheck(plan, asOf, probe);
+  }
+  // The boundary the infeasible top probe points at: the top less its largest
+  // shortfall, in whole cents. Null unless every failure carries a finite,
+  // positive dollar shortfall (a card-coverage failure carries none).
+  function paydayBoundaryGuess(check, hiC) {
+    const failures = check && Array.isArray(check.failures) ? check.failures : [];
+    if (!failures.length) return null;
+    let worst = 0;
+    for (const failure of failures) {
+      const shortfall = failure && failure.shortfall;
+      if (typeof shortfall !== 'number' || !Number.isFinite(shortfall) || !(shortfall > 0)) return null;
+      worst = Math.max(worst, shortfall);
+    }
+    return hiC - Math.ceil(Math.round(worst * 100 * 1e6) / 1e6);
   }
   // Largest same-day removal at which protectedPlanCheck still holds.
   // Negative means that much cash must be added before the protected plan
   // holds. Monotonic in the removal, so the cent search is exact.
+  //
+  // LEAD 10 hotspot #2: fewer probes, same boundary. Each probe is a full
+  // simulation, so (1) a probe is never repeated within one search: the
+  // answer for each cent amount is remembered for this search only; and
+  // (2) before bisecting, the top probe's shortfall names a candidate
+  // boundary g. It is used only when fits(g) and not fits(g + 1) (or, one
+  // cent on, fits(g + 1) and not fits(g + 2)) and g lies in [lo, hi). Under
+  // the monotonicity this search already assumes, the bisection's answer is
+  // the one cent b in [lo, hi) with fits(b) and not fits(b + 1), so a
+  // verified g is that same b. Any other case (no numeric shortfall, a guess
+  // out of range, a failed verification) runs the bisection below,
+  // unchanged.
   function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {
     // Card coverage is identical for every probe of this one search.
     const cardCoverageReuse = {
@@ -19116,12 +19176,26 @@
     };
     // The held Other Income set is identical for every probe of this one search.
     const heldOtherIncomeReuse = { plan, entries: [] };
-    const fits = cents => paydayPlanFits(plan, asOf, masterOpts, cents / 100, extraDisabled,
-      cardCoverageReuse, heldOtherIncomeReuse);
+    const checked = new Map();
+    const check = cents => {
+      let result = checked.get(cents);
+      if (result === undefined) {
+        result = paydayPlanCheck(plan, asOf, masterOpts, cents / 100, extraDisabled,
+          cardCoverageReuse, heldOtherIncomeReuse);
+        checked.set(cents, result);
+      }
+      return result;
+    };
+    const fits = cents => check(cents).feasible;
     let loC = Math.round(roundCent(loBound) * 100);
     let hiC = Math.round(roundCent(hiBound) * 100);
     if (hiC < loC) hiC = loC;
     if (fits(hiC)) return roundCent(hiC / 100);
+    const guess = paydayBoundaryGuess(check(hiC), hiC);
+    if (guess != null && guess >= loC && guess < hiC && fits(guess)) {
+      if (!fits(guess + 1)) return roundCent(guess / 100);
+      if (guess + 1 < hiC && !fits(guess + 2)) return roundCent((guess + 1) / 100);
+    }
     if (!fits(loC)) {
       let add = Math.max(100, Math.abs(loC) || 100);
       while (add < 1e9 && !fits(-add)) add *= 2;
