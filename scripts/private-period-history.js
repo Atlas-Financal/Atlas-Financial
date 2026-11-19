@@ -182,7 +182,13 @@ function engineCommit({ git = runGit, env = process.env } = {}) {
 function selectedPublication(advice, period) {
   const row = (advice.payPeriodViews || []).find(p => p.start === period.start && p.end === period.end);
   if (!row) fail('history-forecast-period-unavailable');
-  return safeJson(row);
+  const publication = safeJson(row);
+  // Stack Wallet's stackSummary is derived from this same period's published
+  // figures (Forecast publishStackSummary), so it is not saved: the record
+  // keeps exactly the fields it saved before, every earlier contentKey is
+  // unchanged, and a replayed close re-derives it from its saved figures.
+  delete publication.stackSummary;
+  return publication;
 }
 
 // The provider's delivered decimal text to whole cents, exactly: an optional minus, at most 12 integer digits, and optionally a
