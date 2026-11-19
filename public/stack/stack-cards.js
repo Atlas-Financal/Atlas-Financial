@@ -72,7 +72,7 @@
     if (key == null) return null;
     for (var i = 0; i < views.length; i++) {
       var v = views[i];
-      if (v && (v.key === key || v.periodKey === key || v.id === key || v.start === key)) return v;
+      if (v && v.start === key) return v; // key contract: the period's start date, 'YYYY-MM-DD'
     }
     return null;
   }

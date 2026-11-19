@@ -6,7 +6,7 @@ const file = path.join(__dirname, '..', 'public', 'stack', 'stack-cards.js');
 
 // --- invented published view (shapes from #1426 stackSummary, #1429 paidState, existing budgetProgress) ---
 const view = {
-  key: 'p1',
+  start: '2026-01-01',
   stackSummary: { bills: { mortgage: 1234.56, cardMinimums: [{ debtId: 'card-a', amount: 77.77 }], other: 888.88, trust: 'calculated' } },
   bills: [
     { id: 'hydro', label: 'Hydro', amount: 111.11, paidState: 'paid' },
@@ -22,7 +22,7 @@ const view = {
     { label: 'Hidden', informational: true, spent: 5, planned: 5 },
   ],
 };
-const ctx = (v, key) => ({ data: {}, plan: {}, recommendation: { payPeriodViews: [v] }, selectedPeriodKey: key === undefined ? 'p1' : key, Forecast: {} });
+const ctx = (v, key) => ({ data: {}, plan: {}, recommendation: { payPeriodViews: [v] }, selectedPeriodKey: key === undefined ? '2026-01-01' : key, Forecast: {} });
 
 let registered = {};
 global.window = undefined;
@@ -69,7 +69,7 @@ bare.householdBudget = [{ label: 'X', spent: null }];
 const h2 = buildCardsHTML(ctx(bare));
 assert(!/\$0(\.00)?\b/.test(h2) && amounts(h2).length === 0, 'unpublished figure printed');
 assert(!h2.includes('Not paid') && !h2.includes('>Paid<'), 'state printed without paidState');
-const none = { key: 'p1' }; // no stackSummary at all (#1426 not merged)
+const none = { start: '2026-01-01' }; // no stackSummary at all (#1426 not merged)
 assert.strictEqual(amounts(buildCardsHTML(ctx(none))).length, 0);
 assert.strictEqual(buildCardsHTML(ctx(view, 'zzz')), '', 'unknown period renders nothing');
 assert.strictEqual(buildCardsHTML(null), '');
@@ -88,3 +88,4 @@ registered = {}; delete globalThis.StackBlocks; delete require.cache[require.res
 require(file); // loads inertly with no StackBlocks
 assert.deepStrictEqual(registered, {});
 console.log('test-stack-cards: ok');
+
