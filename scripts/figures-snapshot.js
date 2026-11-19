@@ -605,6 +605,13 @@ function putPayPeriods(put, putField, advice) {
     if (!view || typeof view.start !== 'string' || !view.start) throw new Error('pay period without a start date');
     const p = uniqueKey(periodKeys, 'period.' + segment(view.start));
     for (const field of PERIOD_FIELDS) putField(p + '.' + field, view, field);
+    // Stack Wallet A1: the income split's three lines and their trust, copied as published.
+    const stackIncome = view.stackSummary && view.stackSummary.income;
+    for (const [line, key] of [['dale', 'incomeDale'], ['amanda', 'incomeAmanda'], ['other', 'incomeOther']]) {
+      const row = stackIncome && stackIncome[line];
+      putField(p + '.' + key, row, 'amount');
+      putField(p + '.' + key + 'Trust', row, 'trust');
+    }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {
       const b = uniqueKey(billKeys, p + '.bill.' + segment(bill && bill.id) + '@' + segment(bill && bill.date));
