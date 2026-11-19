@@ -27,3 +27,7 @@ padding:8px 0;border-top:1.5px solid var(--sc-line)}
 .sc-mini i{display:block;height:100%;border-radius:3px;background:var(--sc-ink)}
 [data-stack-sheet]{cursor:pointer}
 [data-stack-sheet]:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:10px}
+.sc-own{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
+.sc-own>.sc-n{font-weight:500}
+.sc-own .sc-a{font-weight:700}
+.sc-full{grid-column:1/-1;margin-top:0;height:8px}

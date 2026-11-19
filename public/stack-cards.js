@@ -158,16 +158,19 @@
     if (head == null && !items.length) return '';
     if (ex) sub = ex;
     var body = '<ul class="sc-list">' + items.map(function (i) {
-      var s = money(i.saved), n = money(i.needed);
-      var own = s != null; // a goal's own published saved value (not published today)
+      var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);
+      var own = s != null; // this goal's own published saved value (current period, nearest due first)
+      if (own) {
+        // "$saved of $periodTarget" with a full-width bar; periodTarget is Forecast's, not added here.
+        return '<li class="sc-row sc-own"><span class="sc-n">' + esc(i.label) + '</span>' +
+          '<span class="sc-a">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
+          '<span class="sc-mini sc-full"><i style="width:' + drawWidth(i.saved, i.periodTarget) + '%"></i></span></li>';
+      }
       var word = has(i.reasons, 'net-of-period-transfers') ? 'still to set aside ' : 'needs ';
-      var right = own ? '<span class="sc-a">' + esc(s) + (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>'
-        : n == null || has(i.reasons, 'past-period') ? ''
+      var right = n == null || has(i.reasons, 'past-period') ? ''
         : has(i.reasons, 'future-period') ? '<span class="sc-a">' + esc(n) + '<i> planned this period</i></span>'
         : '<span class="sc-a"><i>' + word + '</i>' + esc(n) + '</span>';
-      return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b>' +
-        (own ? '<span class="sc-mini"><i style="width:' + drawWidth(i.saved, i.needed) + '%"></i></span>' : '') +
-        '</span>' + right + '</li>';
+      return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b></span>' + right + '</li>';
     }).join('') + '</ul>';
     return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail);
   }

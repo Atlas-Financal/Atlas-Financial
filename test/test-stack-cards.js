@@ -116,10 +116,20 @@ const past = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', save
   totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: ['past-period'] } }));
 assert(amounts(past).length === 0);
 
-// a goal's own published saved value switches on "saved of needed" with a bar
-const own = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: 10, needed: 40, reasons: [] }],
-  totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: [] } }));
-assert(own.includes(fmt(10) + '<i> of ' + fmt(40)) && own.includes('sc-mini'));
+// current period with per-goal saved (nearest due first): "$saved of $periodTarget", full-width bar, $0 with an empty bar
+const per = savingsOf(withSavings({ items: [
+  { id: 'club', label: 'Club', saved: 30, needed: 50, periodTarget: 80, savedTrust: 'calculated', reasons: ['net-of-period-transfers', 'owner-rule:nearest-due-first'] },
+  { id: 'home', label: 'Home', saved: 0, needed: 20, periodTarget: 20, reasons: ['net-of-period-transfers'] },
+  { id: 'over', label: 'Topped', saved: 90, needed: 0, periodTarget: 90, reasons: [] },
+  { id: 'nope', label: 'No attribution', saved: null, needed: 15, periodTarget: null, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] }],
+  totals: { saved: 120, needed: 85, entitlement: 190, completeness: 'pool-level', excluded: [], reasons: ['pool-level'] } }));
+assert(per.includes('<span class="sc-a">' + fmt(30) + '<i> of ' + fmt(80) + '</i></span>'));
+assert(per.includes('<span class="sc-a">$0<i> of ' + fmt(20) + '</i></span>') && per.includes('<i style="width:0%">'));
+assert(per.includes(fmt(90) + '<i> of ' + fmt(90)) && per.includes('width:100%'), 'a topped-up goal reads full, not capped differently');
+assert((per.match(/sc-full/g) || []).length === 3, 'bar only on goals with saved');
+assert(per.includes('<i>still to set aside </i>' + fmt(15)), 'no attribution falls back to still to set aside');
+assert(!per.includes(fmt(50)), 'needed is not printed on a row with its own saved');
+amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 15, 120, 190].map(fmt).includes(a), 'unpublished amount ' + a));
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
 
 // card colours: every kind's variable is defined in the CSS file
