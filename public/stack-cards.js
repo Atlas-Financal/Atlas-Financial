@@ -14,7 +14,7 @@
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
- *     {saved, needed, completeness, excludedLabels[]}             (A5; shape assumed until it merges)
+ *     {saved, needed, completeness, excluded[] (item ids)}         (A5; saved/needed as a number or {amount})
  */
 (function (root) {
   'use strict';
@@ -126,18 +126,22 @@
     if (!sv || typeof sv !== 'object') return '';
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
     var t = sv.totals || {};
-    var saved = money(t.saved), needed = money(t.needed);
+    var amt = function (v) { return v && typeof v === 'object' ? v.amount : v; };
+    var saved = money(amt(t.saved)), needed = money(amt(t.needed));
     if (saved == null && needed == null && !items.length) return '';
-    var ex = t.completeness === 'partial' && Array.isArray(t.excludedLabels) && t.excludedLabels.length
-      ? 'excludes ' + t.excludedLabels.join(', ') : null;
+    var labelOf = {};
+    items.forEach(function (i) { if (i.id != null) labelOf[String(i.id)] = i.label; });
+    var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
+      .filter(function (l) { return l; }); // an id with no listed item has no label to print
+    var ex = t.completeness === 'partial' && exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
     var body = '<ul class="sc-list">' + items.map(function (i) {
-      var s = money(i.saved), n = money(i.needed);
+      var s = money(amt(i.saved)), n = money(amt(i.needed));
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b><span class="sc-mini"><i style="width:' +
-        drawWidth(i.saved, i.needed) + '%"></i></span></span>' +
+        drawWidth(amt(i.saved), amt(i.needed)) + '%"></i></span></span>' +
         (s == null && n == null ? '' : '<span class="sc-a">' + (s == null ? '' : esc(s)) +
           (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
-    return strip('savings', 'Savings', ex || 'saved / needed', saved, needed, drawWidth(t.saved, t.needed), items.length ? body : '', ' of ');
+    return strip('savings', 'Savings', ex || 'saved / needed', saved, needed, drawWidth(amt(t.saved), amt(t.needed)), items.length ? body : '', ' of ');
   }
 
   function buildCardsHTML(ctx) {
