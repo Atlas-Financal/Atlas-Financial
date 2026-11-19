@@ -29,4 +29,6 @@ html.stack-view .sc-own{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
 html.stack-view .sc-own>.sc-n{font-weight:500}
 html.stack-view .sc-own .sc-a{font-weight:700}
 html.stack-view .sc-full{grid-column:1/-1;margin-top:0;height:8px}
-html.stack-view .sc-tag{font-style:normal;font-size:.7em;font-weight:600;opacity:.75;margin-left:4px}
+html.stack-view .sc-est{opacity:.62}
+html.stack-view .sc-f.sc-est,html.stack-view .sc-a.sc-est{text-decoration:underline dashed;text-decoration-thickness:1.5px;text-underline-offset:4px}
+html.stack-view .sc-bar.sc-est,html.stack-view .sc-mini.sc-est{background:transparent;border:1.5px dashed var(--sc-line)}
