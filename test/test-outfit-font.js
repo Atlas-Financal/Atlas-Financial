@@ -50,7 +50,9 @@ test('the stylesheet points only at the same-origin font files', () => {
 test('the current page loads neither the stylesheet nor the font', () => {
   const html = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
   assert.ok(!/budget-stack-fonts\.css|Outfit/.test(html), 'index.html is unchanged by F7');
-  for (const name of fs.readdirSync(PUBLIC).filter(f => f.endsWith('.css') && f !== 'budget-stack-fonts.css')) {
+  // The Stack page's own stylesheets (public/stack*.css, B1) are the font's consumer; the shell links them only under
+  // ?view=stack and scopes every rule to html.stack-view (test-stack-shell.js), so the current page never uses it.
+  for (const name of fs.readdirSync(PUBLIC).filter(f => f.endsWith('.css') && f !== 'budget-stack-fonts.css' && !/^stack[.-]/.test(f))) {
     assert.ok(!/Outfit/.test(fs.readFileSync(path.join(PUBLIC, name), 'utf8')), `${name} does not use Outfit`);
   }
 });
