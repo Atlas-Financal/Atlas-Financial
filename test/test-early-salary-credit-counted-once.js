@@ -266,20 +266,26 @@ const otherIncome = (date, amount, account = 'chequing-a') => ({ currency: 'CAD'
   displayedPayee: 'Invented payer', merchantKnown: true, isGroup: false, parentId: null });
 // Both inputs: payroll biweekly from Oct 2, as of Oct 7, a frozen Oct 2 snapshot, plus an unproven 400 side income on
 // the 20th (in the next period, Oct 16 to 29). A credit before the snapshot is in the snapshot and in posted cash.
-const carried = (name, { tx = null, inSnapshot = false, observed = false, sideDay = 20 }) => {
+const carried = (name, { tx = null, inSnapshot = false, observed = false, sideDay = 20, firstDue = null, bill = 0, billDate = '2026-10-20', views = false }) => {
   const doc = structuredClone(inventedInput(name)), d = doc.data;
-  d.plan.income.push({ id: 'side', label: 'Invented side income', frequency: 'monthly', day: sideDay, amount: 400, confidence: 'confirmed' });
+  d.plan.income.push({ id: 'side', label: 'Invented side income', frequency: 'monthly', day: sideDay, amount: 400,
+    confidence: 'confirmed', ...(firstDue ? { firstDue } : {}) });
+  if (bill) d.plan.bills.push({ id: 'invented-big', label: 'Invented big bill', frequency: 'once', date: billDate, amount: bill, confidence: 'confirmed' });
   if (tx) {
     d.liveOverlay.currentPeriodActuals.transactions.push(tx);
     const amount = -tx.amount;
     const rows = [d.plan.startingCash.breakdown, ...(observed ? [d.liveOverlay.observedCash.accounts] : [])];
-    for (const list of rows) { const row = list.find(r => r.id === tx.atlasAccountId); row.value = roundTo(row.value + amount); }
+    // Posted cash only, on an account the input lists (a pending credit is in no balance).
+    if (tx.pending === false) {
+      for (const list of rows) { const row = list.find(r => r.id === tx.atlasAccountId); if (row) row.value = roundTo(row.value + amount); }
+    }
     if (inSnapshot) d.plan.opening.paydaySnapshot.opening = roundTo(d.plan.opening.paydaySnapshot.opening + amount);
   }
-  const ps = F.recommend(d.plan, d.meta.asOf, Snap.pageOptions(d, doc.periods == null ? null : structuredClone(doc.periods)))
-    .defaultView.calendarPeriods.filter(p => p.end >= d.meta.asOf);
+  const advice = F.recommend(d.plan, d.meta.asOf, Snap.pageOptions(d, doc.periods == null ? null : structuredClone(doc.periods)));
+  const ps = (views ? advice.payPeriodViews : advice.defaultView.calendarPeriods).filter(p => p.end >= d.meta.asOf);
   return { current: ps[0].plannedPeriodClose, next: ps[1].plannedPeriodClose, nextSource: ps[1].openingSource,
-    nextReason: ps[1].plannedPeriodCloseReason || '' };
+    nextReason: ps[1].plannedPeriodCloseReason || '', nextSweep: ps[1].paydaySweep,
+    third: ps[2] ? ps[2].plannedPeriodClose : undefined, thirdReason: ps[2] ? ps[2].plannedPeriodCloseReason || '' : '' };
 };
 function roundTo(v) { return Math.round(v * 100) / 100; }
 {
@@ -317,14 +323,30 @@ function roundTo(v) { return Math.round(v * 100) / 100; }
   ok(ctl.nextSource === 'carry-forward' && Number.isFinite(ctl.next), 'combined control: the next period carries the Bills-stock seed', JSON.stringify(ctl));
   // A posted 600 on Bills before the snapshot: the side income's 400 leg is inside the Bills stock, so the next period
   // adds it once (next = control + 200, the unclaimed rest); the current close keeps all 600 (current = control + 600).
+  // This seed subtracts a positive boundary credit (its sweep to Savings), so membership is not inherited across it:
+  // a posted 600 inside the Bills stock, held 400 for the next period's side income, withholds the next close.
   const bills = carried('savings-chained-closes', { tx: otherIncome('2026-09-30', 600), inSnapshot: true, observed: true });
-  ok(bills.current === ctl.current + 600 && bills.next === ctl.next + 200,
-    'combined, a posted 600 on Bills inside the stock: next adds the 400 once (next = control + 200)', JSON.stringify([bills, ctl]));
-  // The same 600 on Weekly: the Bills-only stock does not hold it, so the next period adds the side income in full.
+  ok(bills.current === ctl.current + 600 && bills.next === null && UNPROVEN.test(bills.nextReason),
+    'combined, a posted 600 on Bills carried across the seed\'s positive sweep: the next close is withheld, not subtracted',
+    JSON.stringify([bills, ctl]));
+  // The same 600 on Weekly is chequing too: after the sweep its membership is unproven as well.
   const weekly = carried('savings-chained-closes', { tx: otherIncome('2026-09-30', 600, 'chequing-b'), inSnapshot: true, observed: true });
-  ok(weekly.current === ctl.current + 600 && weekly.next === ctl.next,
-    'combined, the 600 on Weekly: outside the Bills stock, the next period adds the side income in full (next = control)',
-    JSON.stringify([weekly, ctl]));
+  ok(weekly.current === ctl.current + 600 && weekly.next === null && UNPROVEN.test(weekly.nextReason),
+    'combined, the 600 on Weekly across the positive sweep: withheld', JSON.stringify([weekly, ctl]));
+  // A zero boundary credit (a 150 bill on Oct 12 leaves no surplus to sweep) keeps the Bills-stock seed. A 600 on Bills
+  // before the snapshot is inside it: the next period adds the 400 leg once (next = control + 200). The same 600 on
+  // Weekly is outside the Bills-only stock, though it is inside the pooled snapshot: the next close is the control's.
+  const noSweep = { bill: 150, billDate: '2026-10-12' };
+  const ctlNoSweep = carried('savings-chained-closes', noSweep);
+  ok(ctlNoSweep.nextSweep > 0 && Number.isFinite(ctlNoSweep.next), 'combined zero-credit control: a known next close', JSON.stringify(ctlNoSweep));
+  const billsKept = carried('savings-chained-closes', { ...noSweep, tx: otherIncome('2026-09-30', 600), inSnapshot: true, observed: true });
+  ok(billsKept.next === ctlNoSweep.next + 200,
+    'combined, zero boundary credit, a 600 on Bills inside the stock: next adds the 400 leg once (next = control + 200)',
+    JSON.stringify([billsKept, ctlNoSweep]));
+  const weeklyKept = carried('savings-chained-closes', { ...noSweep, tx: otherIncome('2026-09-30', 600, 'chequing-b'), inSnapshot: true, observed: true });
+  ok(weeklyKept.next === ctlNoSweep.next,
+    'combined, zero boundary credit, the 600 on Weekly: outside the Bills-only stock seed (next = control)',
+    JSON.stringify([weeklyKept, ctlNoSweep]));
   // The side income on the 12th instead: later in THIS period (after the Oct 7 as-of), so the seed's own future-income
   // term reads the leg. The 400 leg is inside the Bills stock, so the seed adds it once: next = control + 200; the
   // current close (snapshot) also holds it: current = control + 200.
@@ -333,6 +355,63 @@ function roundTo(v) { return Math.round(v * 100) / 100; }
   ok(Number.isFinite(ctl12.next) && later.current === ctl12.current + 200 && later.next === ctl12.next + 200,
     'combined, a 600 on Bills for a payday later this period: the Bills-stock seed adds its 400 leg once (next = control + 200)',
     JSON.stringify([later, ctl12]));
+}
+
+console.log('10. A two-hop carry across a sweep: membership is not inherited across a positive sweep');
+{
+  // card-paid-clear plus a 400 side income first due Oct 30 (its run-up starts Oct 1; the Oct 16 payroll's starts Oct 3).
+  // A posted 1400 on Oct 1, inside the Oct 2 snapshot: Oct 2's payroll takes 1000, the 400 excess is held for Oct 30.
+  // The Oct 16 period sweeps its remainder (positive), so the Oct 30 opening no longer proves what the old seed held.
+  const opts = { sideDay: 30, firstDue: '2026-10-30', views: true };
+  const ctl = carried('card-paid-clear', opts);
+  ok(ctl.nextSweep > 0 && Number.isFinite(ctl.third), 'control: Oct 16 sweeps a positive amount and Oct 30 has a known close',
+    JSON.stringify(ctl));
+  const swept = carried('card-paid-clear', { ...opts, tx: otherIncome('2026-10-01', 1400), inSnapshot: true });
+  ok(swept.current === ctl.current + 400 && swept.third === null && UNPROVEN.test(swept.thirdReason),
+    'a held leg carried across a positive sweep: Oct 30 is withheld (early-receipt-membership-unproven), not subtracted',
+    JSON.stringify([swept, ctl]));
+  // A pending leg, and a Savings leg, are outside on their own: the same carry stays known.
+  const pending = carried('card-paid-clear', { ...opts, tx: { ...otherIncome('2026-10-01', 1400), pending: true, savingsPostingEvidence: 'pending' } });
+  ok(pending.third === ctl.third, 'the same 1400 pending: outside on its own, Oct 30 stays known (= control)', JSON.stringify([pending, ctl]));
+  const savings = carried('card-paid-clear', { ...opts, tx: { ...otherIncome('2026-10-01', 1400, 'savings'), accountRole: 'household-reserve' } });
+  ok(savings.third === ctl.third, 'the same 1400 on Savings: outside every chequing seed, Oct 30 stays known (= control)', JSON.stringify([savings, ctl]));
+  // Zero sweep: a 5000 bill on Oct 20 leaves Oct 16 below zero, so nothing is swept and the seed is inherited. The 400
+  // leg is inside it, so Oct 30 adds the side income once: Oct 30 = its control's.
+  const ctl0 = carried('card-paid-clear', { ...opts, bill: 5000 });
+  const kept = carried('card-paid-clear', { ...opts, bill: 5000, tx: otherIncome('2026-10-01', 1400), inSnapshot: true });
+  ok(ctl0.nextSweep === 0 && Number.isFinite(ctl0.third) && kept.third === ctl0.third,
+    'a zero sweep keeps the seed: the Oct 1 leg is inside, Oct 30 adds the side income once (= control)', JSON.stringify([kept, ctl0]));
+}
+
+console.log('11. Bank-anchor production path: a pending leg alone, or a Savings leg alone, leaves the known close known');
+{
+  // The invented bank end-of-day anchor fixture (live path, which earns the payday snapshot from the anchor), plus an
+  // unproven 400 side income on the 12th.
+  const Live2 = require('../scripts/live-plan');
+  const { fixture } = require('./fixtures/payday-bank-eod-anchor');
+  const base = fixture();
+  const live = Live2.fromObservation({ data: base.data, payload: base.payload, accountMap: base.accountMap });
+  const leg = extra => ({ id: 'early-1', date: '2026-10-10', amount: -400, currency: 'CAD', pending: false,
+    savingsPostingEvidence: 'posted', categoryLabel: 'Other Income', isIncome: true, atlasAccountId: 'chequing-a',
+    account: 'chequing-a', accountRole: 'household-cash', payee: 'Invented payer', displayedPayee: 'Invented payer', ...extra });
+  const active = tx => {
+    const plan = structuredClone(live.data.plan);
+    plan.income.push({ id: 'side', label: 'Invented side income', frequency: 'monthly', day: 12, amount: 400, confidence: 'confirmed' });
+    const overlay = structuredClone(live.data.liveOverlay);
+    if (tx) overlay.currentPeriodActuals.transactions.push(tx);
+    const views = F.recommend(plan, base.asOf, { ...base.x.opts, weeklyVariable: 0, debts: [], ...overlay }).payPeriodViews
+      .filter(p => p.end >= base.asOf);
+    return { source: views[0].openingSource, close: views[0].plannedPeriodClose,
+      membership: views.some(p => UNPROVEN.test(p.plannedPeriodCloseReason || '')) };
+  };
+  const ctl = active(null);
+  ok(Number.isFinite(ctl.close), 'bank-anchor control: a known close', JSON.stringify(ctl));
+  for (const [why, tx] of [['a pending 400 alone', leg({ pending: true, savingsPostingEvidence: 'pending' })],
+    ['a 400 on Savings alone', leg({ date: '2026-09-30', atlasAccountId: 'savings', account: 'savings', accountRole: 'household-reserve' })]]) {
+    const got = active(tx);
+    ok(got.source === ctl.source && got.close === ctl.close && !got.membership,
+      'bank anchor, ' + why + ': the close stays known (= control) and no close is withheld for membership', JSON.stringify([got, ctl]));
+  }
 }
 
 if (failures) { console.log(`\n${failures} check(s) failed.`); process.exit(1); }

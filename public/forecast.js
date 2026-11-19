@@ -10508,9 +10508,14 @@
   // A pending leg is never in posted or frozen cash. A leg with a missing or
   // ambiguous account is not proof of anything.
   function earlyReceiptLegMembership(leg, seed) {
-    if (!leg || !seed || !seed.asOf || !Array.isArray(seed.accounts) || !leg.date) return 'unproven';
+    if (!leg || !leg.date) return 'unproven';
+    // Facts that are outside on their own come first: pending cash is in no
+    // posted or frozen seed, and every seed is household chequing or a
+    // narrowing of it, so a known non-chequing (Savings) leg is outside all.
     if (leg.pending === true) return 'outside';
     if (leg.pending !== false || !leg.account) return 'unproven';
+    if (!HOUSEHOLD_CHEQUING_IDS.includes(leg.account)) return 'outside';
+    if (!seed || !seed.asOf || !Array.isArray(seed.accounts)) return 'unproven';
     if (!seed.accounts.includes(leg.account)) return 'outside';
     const d = leg.date;
     if (seed.kind === 'frozen') return d < seed.asOf ? 'inside' : 'outside';
@@ -17394,7 +17399,9 @@
             }
             if (previousEnding == null) openingChainLost = true;
             else {
-              carriedLegSeed = stockSeed;
+              // The boundary credit is this seed's sweep: cash that leaves the
+              // carry, so membership is not inherited across a positive one.
+              carriedLegSeed = credit > 0 ? null : stockSeed;
               // Seed provenance: qualified Bills stock (calculated), the
               // selected future receipts, remaining bills net of the goal
               // rows the overlap restores exactly, remaining budget and the
@@ -17477,7 +17484,9 @@
         } else {
           previousEnding = paydaySweep != null && !earlyReceiptUnproven ? roundCent(availableRemainder - paydaySweep) : null;
           if (paydaySweep == null || earlyReceiptUnproven) openingChainLost = true;
-          if (previousEnding != null) carriedLegSeed = legSeed;
+          // A positive sweep moves cash out of the carry: membership is not
+          // inherited across it, so a later leg on this carry is unproven.
+          if (previousEnding != null) carriedLegSeed = paydaySweep > 0 ? null : legSeed;
           // remainder - max(0, remainder) is sign-sensitive, so every input
           // that can move the remainder stays a dependency, even when the
           // carry is zero. The annual provision is restored exactly (same
