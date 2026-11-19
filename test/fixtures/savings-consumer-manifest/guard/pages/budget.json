@@ -16,7 +16,12 @@
   "public/budget-polish.js",
   "public/aurora.js",
   "public/budget-river.js",
-  "public/budget-blend.js"
+  "public/budget-blend.js",
+  "public/stack-shell.js",
+  "public/stack-waterfall.js",
+  "public/stack-cards.js",
+  "public/stack-credit.js",
+  "public/stack-sheet.js"
  ],
- "html": "d9c625b7a68f949259ae208922aaa855511cb118d88f04901b7a1c5f9b970eff"
+ "html": "b9d19ca02f82dd5fd6e0568f4ed7bf71c75d732e364e81b75835102a468c76c2"
 }
