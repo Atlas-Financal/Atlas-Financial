@@ -174,6 +174,7 @@
   ["card minimum repair stock, proof and identity conservation","test-card-minimum-repair-conservation.js"],
   ["selected Seaspan card movement endpoints, coverage and conservation","test-card-period-movements.js"],
   ["posted card movement so far, independent of saved endpoints and gated by transaction evidence","test-card-posted-period-movement.js"],
+  ["Stack Wallet A6: Forecast.stackCardSummary states, per card and pay period, paid onto against spent on, from one cardPeriodMovements publication: posted only, null with a reason and never 0, pending listed and moving nothing (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-card-summary.js"],
   ["A1 own card observation date, age-neutral movement and missing evidence","test-a1-card-feed-evidence.js"],
   ["card detail panel lead and balance disclosure placement","test-card-panel-lead.js"],
   ["card-window allocation diagnostics through synthetic provider evidence","test-card-payment-diagnostics.js"],
@@ -186,6 +187,7 @@
   ["walk date list matches the calendar: advice unchanged","test-walk-date-list.js"],
   ["income guards check the inflow first: every answer unchanged","test-income-guard-inflow-first.js"],
   ["week lows read from their own days: every answer unchanged","test-week-low-own-days.js"],
+  ["Stack Wallet surplus after deductions per pay period","test-stack-summary-surplus.js"],
   ["Stack page waterfall block: every printed amount is a named published value","test-stack-waterfall.js"],
   ["held income date deduplication preserves complete Forecast output","test-held-income-date-equivalence.js"],
   ["one recommend derives calendar income packet facts once, exactly as before","test-calendar-income-facts-reuse.js"],
@@ -692,5 +694,6 @@
   ["Each published bill row reads Paid only on payment evidence, Not paid otherwise, carried rows unlisted (Stack Wallet A3)","test-bill-paid-state.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
-  ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"]
+  ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
+  ["The figures page capture runs the previous Budget page by its explicit route (?view=classic), unchanged when the Stack page is the default","test-figures-capture-classic-view.js"]
 ]

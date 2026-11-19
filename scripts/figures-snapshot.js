@@ -541,6 +541,7 @@ if (trajectory.status === 'ready') {
 }
 
 putPayPeriods(put, putField, advice);
+putStackCards(put, putField, advice, data, plan, asOf);
 putSavingsPublication(put, putField, advice, selectPublications(advice, asOf));
 
 return out;
@@ -568,6 +569,35 @@ function uniqueKey(used, key) {
   return candidate;
 }
 
+/* ---- Stack Wallet A6: Forecast.stackCardSummary per pay period --------- */
+// The page calls Forecast.cardPeriodMovements for a selected period with the
+// applied live overlay (public/plan.js budgetCardMovementsHtml) and reads
+// Forecast.stackCardSummary of that publication. The same call per published
+// pay period, copied as published: paid, spent and net with each figure's
+// trust word, and the card's state. Transaction rows are display only.
+const STACK_FIGURES = ['paid', 'spent', 'net'];
+function putStackCards(put, putField, advice, data, plan, asOf) {
+  const views = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
+  const overlay = data.liveOverlay && data.liveOverlay.applied === true ? data.liveOverlay : null;
+  const periodKeys = new Set();
+  for (const view of views) {
+    const p = uniqueKey(periodKeys, 'period.' + segment(view.start));
+    const publication = F.cardPeriodMovements(plan, data.debts, asOf, { start: view.start, end: view.end },
+      { currentPeriodActuals: overlay ? overlay.currentPeriodActuals || null : null,
+        cardPeriodBalanceEvidence: overlay ? overlay.cardPeriodBalanceEvidence || null : null, liveOverlay: overlay });
+    const cards = F.stackCardSummary(publication) || [];
+    const cardKeys = new Set();
+    for (const card of cards) {
+      const c = uniqueKey(cardKeys, p + '.stackCard.' + segment(card.id));
+      for (const field of STACK_FIGURES) {
+        put(c + '.' + field, card[field].amount);
+        put(c + '.' + field + 'Trust', card[field].trust);
+      }
+      putField(c + '.state', card, 'state');
+    }
+  }
+}
+
 function putPayPeriods(put, putField, advice) {
   const views = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
   const periodKeys = new Set();
@@ -581,6 +611,23 @@ function putPayPeriods(put, putField, advice) {
       const row = stackIncome && stackIncome[line];
       putField(p + '.' + key, row, 'amount');
       putField(p + '.' + key + 'Trust', row, 'trust');
+    }
+    // Stack Wallet "Surplus after deductions" (owner decision, #821 7013976545):
+    // the published amount, its trust and whether the period is projected.
+    const surplus = view.stackSummary && view.stackSummary.surplus;
+    if (surplus) {
+      for (const [field, key] of [['amount', 'stackSurplus'], ['trust', 'stackSurplusTrust'], ['projected', 'stackSurplusProjected']])
+        putField(p + '.' + key, surplus, field);
+    }
+    // Its bills split: the mortgage and the other bills, with the split's
+    // trust, and the Credit line as Forecast publishes it
+    // (stackSummary.surplus.terms.credit), never summed here.
+    const split = view.stackSummary && view.stackSummary.bills;
+    if (split) {
+      const terms = surplus && surplus.terms;
+      const record = { mortgage: split.mortgage, credit: terms ? terms.credit : null, other: split.other, trust: split.trust };
+      for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust']])
+        putField(p + '.' + key, record, field);
     }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {

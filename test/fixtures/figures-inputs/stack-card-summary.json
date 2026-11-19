@@ -1,0 +1,1215 @@
+{
+  "schema": "atlas-figures-input/v1",
+  "id": "stack-card-summary",
+  "invented": true,
+  "description": "Invented Stack Wallet card week: posted card charges, payments, a refund, interest and one pending charge across three synced cards (two manual cards without positive sync evidence), so Forecast.stackCardSummary publishes paid, spent, net and state with their trust words.",
+  "origin": {
+    "kind": "test-builder",
+    "source": "test/fixtures/card-posted-period-movement-data.js served()",
+    "transform": "Serialized served() as /data.json, unchanged."
+  },
+  "limitations": [
+    "absent-periods"
+  ],
+  "periods": null,
+  "data": {
+    "meta": {
+      "asOf": "2026-08-20",
+      "title": "Synthetic Budget surface"
+    },
+    "accounts": [],
+    "revolvingExtra": [],
+    "debts": [
+      {
+        "structure": "Revolving",
+        "secured": false,
+        "limit": 5000,
+        "pending": 0,
+        "rate": 19.99,
+        "id": "travelvisa",
+        "label": "Example Travel",
+        "balance": 927.4
+      },
+      {
+        "structure": "Revolving",
+        "secured": false,
+        "limit": 5000,
+        "pending": 0,
+        "rate": 19.99,
+        "id": "cashback",
+        "label": "Example Cash Back",
+        "balance": 2264.2
+      },
+      {
+        "structure": "Revolving",
+        "secured": false,
+        "limit": 5000,
+        "pending": 0,
+        "rate": 19.99,
+        "id": "tdcc",
+        "label": "Example Emerald",
+        "balance": 1100
+      },
+      {
+        "structure": "Revolving",
+        "secured": false,
+        "limit": 5000,
+        "pending": 0,
+        "rate": 19.99,
+        "id": "triangle",
+        "label": "Example Triangle",
+        "balance": 1980,
+        "evidenceDate": "2026-08-17"
+      },
+      {
+        "structure": "Revolving",
+        "secured": false,
+        "limit": 5000,
+        "pending": 0,
+        "rate": 19.99,
+        "id": "mbna",
+        "label": "Example Amazon",
+        "balance": 760,
+        "evidenceDate": "2026-08-08"
+      }
+    ],
+    "plan": {
+      "windowDays": 91,
+      "opening": {
+        "asOf": "2026-08-20",
+        "representedEvents": [
+          {
+            "id": "payroll",
+            "date": "2026-08-14",
+            "effectiveAsOf": "2026-08-20"
+          },
+          {
+            "id": "invented-2",
+            "date": "2026-08-15",
+            "effectiveAsOf": "2026-08-20"
+          }
+        ],
+        "notReliedUponEvents": [],
+        "priorAsOf": "2026-08-13",
+        "paydaySnapshot": {
+          "periodStart": "2026-08-14",
+          "asOf": "2026-08-14",
+          "opening": 619.49
+        }
+      },
+      "cardPurchaseCoverage": {
+        "opening": {
+          "asOf": "2026-08-20",
+          "confirmed": true,
+          "currency": "cad",
+          "fundingAccountId": "chequing-a",
+          "purchases": []
+        },
+        "payments": [],
+        "refunds": [],
+        "reversals": []
+      },
+      "startingCash": {
+        "breakdown": [
+          {
+            "id": "chequing-a",
+            "label": "Synthetic bills account",
+            "value": 865
+          },
+          {
+            "id": "chequing-b",
+            "label": "Synthetic spending account",
+            "value": 160
+          },
+          {
+            "id": "savings",
+            "label": "Synthetic savings",
+            "value": 0
+          }
+        ]
+      },
+      "defaults": {
+        "targetBuffer": 300,
+        "extraDebtMonthly": 0,
+        "scenario": "expected"
+      },
+      "income": [
+        {
+          "id": "payroll",
+          "label": "invented-1",
+          "frequency": "biweekly",
+          "anchor": "2026-08-14",
+          "amount": 2600,
+          "confidence": "confirmed"
+        },
+        {
+          "id": "partner",
+          "label": "Partner salary",
+          "frequency": "monthly",
+          "day": 25,
+          "amount": 1450,
+          "confidence": "estimated"
+        }
+      ],
+      "bills": [
+        {
+          "id": "invented-2",
+          "label": "invented-3",
+          "frequency": "monthly",
+          "day": 15,
+          "amount": 1400,
+          "confidence": "confirmed",
+          "payingAccount": "chequing-a"
+        },
+        {
+          "id": "hydro",
+          "label": "Hydro",
+          "frequency": "monthly",
+          "day": 18,
+          "amount": 120,
+          "confidence": "estimated",
+          "payingAccount": "chequing-a"
+        },
+        {
+          "id": "internet",
+          "label": "Internet",
+          "frequency": "monthly",
+          "day": 24,
+          "amount": 85,
+          "confidence": "confirmed",
+          "payingAccount": "chequing-a"
+        }
+      ],
+      "obligations": [
+        {
+          "id": "card-minimum",
+          "label": "Synthetic card minimum",
+          "debtId": "travelvisa",
+          "effect": "payment",
+          "frequency": "monthly",
+          "day": 22,
+          "amount": 60,
+          "confidence": "confirmed",
+          "payingAccount": "chequing-a"
+        }
+      ],
+      "budget": {
+        "categories": [
+          {
+            "id": "groceries",
+            "label": "Groceries",
+            "class": "essential",
+            "from": [
+              "Groceries"
+            ],
+            "plannedPayday": 450,
+            "confidence": "confirmed"
+          },
+          {
+            "id": "invented-4",
+            "label": "Fuel",
+            "class": "essential",
+            "from": [
+              "Gas"
+            ],
+            "plannedPayday": 160,
+            "confidence": "confirmed"
+          },
+          {
+            "id": "invented-5",
+            "label": "Eating out",
+            "class": "discretionary",
+            "from": [
+              "Restaurants"
+            ],
+            "plannedPayday": 120,
+            "confidence": "confirmed"
+          }
+        ]
+      },
+      "commitments": [
+        {
+          "id": "school-trip",
+          "label": "School trip",
+          "date": "2026-09-12",
+          "amount": 400,
+          "confidence": "confirmed"
+        },
+        {
+          "id": "winter-tires",
+          "label": "Winter tires",
+          "date": "2026-10-15",
+          "amount": 900,
+          "confidence": "estimated"
+        }
+      ],
+      "cardMinimumCategoryEvidence": {
+        "source": "lunchmoney-minimum-category",
+        "asOf": "2026-08-20",
+        "payments": [],
+        "disagreements": []
+      }
+    },
+    "liveOverlay": {
+      "schema": "atlas-live-plan-overlay/v1",
+      "writesCanonicalState": false,
+      "productionWrite": false,
+      "unattended": false,
+      "applied": true,
+      "historicalOpeningAsOf": "2026-08-13",
+      "effectiveAsOf": "2026-08-20",
+      "observedAsOf": "2026-08-20",
+      "representedEvents": [
+        {
+          "id": "payroll",
+          "date": "2026-08-14",
+          "effectiveAsOf": "2026-08-20"
+        },
+        {
+          "id": "invented-2",
+          "date": "2026-08-15",
+          "effectiveAsOf": "2026-08-20"
+        }
+      ],
+      "notReliedUponEvents": [],
+      "overlays": [
+        {
+          "locator": "cash:chequing-a",
+          "field": "value",
+          "currentValue": 15,
+          "proposedValue": 1215,
+          "evidenceDate": "2026-08-20",
+          "reason": "reconcile CHANGE; evidence newer than canonical opening"
+        },
+        {
+          "locator": "cash:chequing-b",
+          "field": "value",
+          "currentValue": 604.49,
+          "proposedValue": 160,
+          "evidenceDate": "2026-08-20",
+          "reason": "reconcile CHANGE; evidence newer than canonical opening"
+        },
+        {
+          "locator": "debts:travelvisa",
+          "field": "balance",
+          "proposedValue": 927.4,
+          "evidenceDate": "2026-08-20"
+        },
+        {
+          "locator": "debts:cashback",
+          "field": "balance",
+          "proposedValue": 2264.2,
+          "evidenceDate": "2026-08-20"
+        },
+        {
+          "locator": "debts:tdcc",
+          "field": "balance",
+          "proposedValue": 1100,
+          "evidenceDate": "2026-08-20"
+        },
+        {
+          "locator": "debts:triangle",
+          "field": "balance",
+          "proposedValue": 1980,
+          "evidenceDate": "2026-08-17"
+        },
+        {
+          "locator": "debts:mbna",
+          "field": "balance",
+          "proposedValue": 760,
+          "evidenceDate": "2026-08-08"
+        }
+      ],
+      "refused": [],
+      "source": "provider-observe:lunchmoney",
+      "note": "In-memory overlay for today's live plan. Dated openings and snapshots are unchanged.",
+      "reason": null,
+      "operatingPlan": "live",
+      "operatingPlanNote": null,
+      "currentPeriodActuals": {
+        "schema": "atlas-current-period-actuals/v1",
+        "observationAsOf": "2026-08-20",
+        "coverageStart": "2026-08-14",
+        "coverageThrough": "2026-08-20",
+        "transactionWindow": {
+          "startDate": "2026-08-14",
+          "endDate": "2026-08-20",
+          "complete": true,
+          "hasMore": false,
+          "truncated": false
+        },
+        "pendingCoverage": "complete",
+        "transactionCoverage": "complete",
+        "syncEvidence": [
+          {
+            "id": "travelvisa",
+            "role": "revolving-credit",
+            "syncEvidence": "proven",
+            "fields": {
+              "last_fetch": true,
+              "plaid_last_successful_update": false,
+              "status": false
+            }
+          },
+          {
+            "id": "cashback",
+            "role": "revolving-credit",
+            "syncEvidence": "proven",
+            "fields": {
+              "last_fetch": true,
+              "plaid_last_successful_update": false,
+              "status": false
+            }
+          },
+          {
+            "id": "tdcc",
+            "role": "revolving-credit",
+            "syncEvidence": "proven",
+            "fields": {
+              "last_fetch": true,
+              "plaid_last_successful_update": false,
+              "status": false
+            }
+          },
+          {
+            "id": "triangle",
+            "role": "revolving-credit",
+            "syncEvidence": "absent",
+            "fields": {
+              "last_fetch": false,
+              "plaid_last_successful_update": false,
+              "status": false
+            }
+          },
+          {
+            "id": "mbna",
+            "role": "revolving-credit",
+            "syncEvidence": "absent",
+            "fields": {
+              "last_fetch": false,
+              "plaid_last_successful_update": false,
+              "status": false
+            }
+          }
+        ],
+        "cardCoverageUnconfirmed": [],
+        "outgoingETransferUnconfirmed": [],
+        "cardCoverageRequired": true,
+        "currencyUnconfirmed": [],
+        "savingsMovementUnconfirmed": [],
+        "savingsFetchCoverage": {
+          "complete": true,
+          "startDate": "2026-08-13",
+          "endDate": "2026-08-20"
+        },
+        "paydayGapComplete": true,
+        "representedActuals": [],
+        "transactions": [
+          {
+            "id": "tx-1",
+            "coverageRef": "pc-c55d54975ee9ea6fd295a7ba",
+            "date": "2026-08-14",
+            "amount": -2600,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "Income",
+            "isIncome": true,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-a",
+            "account": "chequing-a",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": true,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "tx-2",
+            "coverageRef": "pc-2e267ec62646e1fd14d3e5e1",
+            "date": "2026-08-15",
+            "amount": 1400,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "Housing",
+            "isIncome": false,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-a",
+            "account": "chequing-a",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": true,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "tx-3",
+            "coverageRef": "pc-ceee50494f3c8dff4ed1a909",
+            "date": "2026-08-16",
+            "amount": 212.4,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "Groceries",
+            "displayedPayee": "Synthetic grocer",
+            "originalMerchant": "Synthetic grocer",
+            "isIncome": false,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-b",
+            "account": "chequing-b",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": false,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "tx-4",
+            "coverageRef": "pc-85f3e1048869d14241ee1bab",
+            "date": "2026-08-17",
+            "amount": 74.2,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "Gas",
+            "displayedPayee": "Synthetic fuel stop",
+            "originalMerchant": "Synthetic fuel stop",
+            "isIncome": false,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-b",
+            "account": "chequing-b",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": false,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "tx-5",
+            "coverageRef": "pc-84fba4327f845b807beaa2a6",
+            "date": "2026-08-18",
+            "amount": 38.75,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "Restaurants",
+            "displayedPayee": "Synthetic diner",
+            "originalMerchant": "Synthetic diner",
+            "isIncome": false,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-b",
+            "account": "chequing-b",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": false,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "tx-6",
+            "coverageRef": "pc-d4516d321b144aa20b93e95f",
+            "date": "2026-08-19",
+            "amount": 96.15,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "Groceries",
+            "displayedPayee": "Synthetic market",
+            "originalMerchant": "Synthetic market",
+            "isIncome": false,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-b",
+            "account": "chequing-b",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": false,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "tx-7",
+            "coverageRef": "pc-d477dd8a42eada24c401488d",
+            "date": "2026-08-19",
+            "amount": 22.99,
+            "currency": "cad",
+            "coverageCurrencyConflict": false,
+            "pending": false,
+            "savingsPostingEvidence": "posted",
+            "pendingTreatment": "confirmed-settled",
+            "categoryLabel": "invented-6",
+            "displayedPayee": "Synthetic general store",
+            "originalMerchant": "Synthetic general store",
+            "isIncome": false,
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-b",
+            "account": "chequing-b",
+            "kindHint": null,
+            "dogFood": false,
+            "convenienceStore": false,
+            "canadianTire": false,
+            "groceryUncertain": false,
+            "groceryMixed": false,
+            "merchantKnown": true,
+            "fuelEvidence": false,
+            "confirmedGrocery": false,
+            "confirmedFuel": false,
+            "ownerConfirmedFuel": false,
+            "ownerConfirmedSpotify": false,
+            "ownerConfirmedNobleOccurrence": false,
+            "daleGuiltFreeMerchant": false,
+            "amazonMerchant": false,
+            "cardPaymentIdentity": false,
+            "outgoingETransferIdentity": false,
+            "cardFinanceChargeIdentity": false,
+            "internalTransferIdentity": false,
+            "externalCashDeposit": false,
+            "cashWithdrawalIdentity": false,
+            "tfrReference": null,
+            "tfrDirection": null,
+            "personalOwner": null,
+            "isGroup": false,
+            "parentId": null,
+            "pendingPostedDuplicate": false,
+            "pendingPostedAmbiguous": false,
+            "representedBill": false,
+            "pendingMatchingCardPaidBill": false
+          },
+          {
+            "id": "cash-leg-a",
+            "coverageRef": "invented-cash-leg-a",
+            "atlasAccountId": "chequing-a",
+            "account": "chequing-a",
+            "accountRole": "household-cash",
+            "date": "2026-08-18",
+            "amount": 100,
+            "currency": "cad",
+            "kindHint": "payment",
+            "pending": false
+          },
+          {
+            "id": "cash-leg-b",
+            "coverageRef": "invented-cash-leg-b",
+            "atlasAccountId": "chequing-a",
+            "account": "chequing-a",
+            "accountRole": "household-cash",
+            "date": "2026-08-17",
+            "amount": 250,
+            "currency": "cad",
+            "kindHint": "payment",
+            "pending": false
+          },
+          {
+            "id": "charge-a",
+            "coverageRef": "invented-charge-a",
+            "atlasAccountId": "travelvisa",
+            "account": "travelvisa",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-16",
+            "amount": 172.4,
+            "currency": "cad",
+            "displayedPayee": "Example grocer",
+            "categoryLabel": "Groceries",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "charge-b",
+            "coverageRef": "invented-charge-b",
+            "atlasAccountId": "travelvisa",
+            "account": "travelvisa",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-18",
+            "amount": 63.75,
+            "currency": "cad",
+            "displayedPayee": "Example bookshop",
+            "categoryLabel": "Groceries",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "payment-a",
+            "coverageRef": "invented-payment-a",
+            "atlasAccountId": "travelvisa",
+            "account": "travelvisa",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-18",
+            "amount": -100,
+            "currency": "cad",
+            "displayedPayee": "Payment received",
+            "categoryLabel": "Groceries",
+            "kindHint": "payment",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "refund-a",
+            "coverageRef": "invented-refund-a",
+            "atlasAccountId": "travelvisa",
+            "account": "travelvisa",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-19",
+            "amount": -35,
+            "currency": "cad",
+            "displayedPayee": "Example return",
+            "categoryLabel": "Groceries",
+            "kindHint": "refund",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "interest-a",
+            "coverageRef": "invented-interest-a",
+            "atlasAccountId": "travelvisa",
+            "account": "travelvisa",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-19",
+            "amount": 6.25,
+            "currency": "cad",
+            "displayedPayee": "Example interest",
+            "categoryLabel": "Groceries",
+            "kindHint": "interest",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "pending-a",
+            "coverageRef": "invented-pending-a",
+            "atlasAccountId": "travelvisa",
+            "account": "travelvisa",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-20",
+            "amount": 28.6,
+            "currency": "cad",
+            "displayedPayee": "Example café",
+            "categoryLabel": "Groceries",
+            "pending": true,
+            "savingsPostingEvidence": "pending"
+          },
+          {
+            "id": "cashback-charge",
+            "coverageRef": "invented-cashback-charge",
+            "atlasAccountId": "cashback",
+            "account": "cashback",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-15",
+            "amount": 114.2,
+            "currency": "cad",
+            "displayedPayee": "Example market",
+            "categoryLabel": "Groceries",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "cashback-payment",
+            "coverageRef": "invented-cashback-payment",
+            "atlasAccountId": "cashback",
+            "account": "cashback",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-17",
+            "amount": -250,
+            "currency": "cad",
+            "displayedPayee": "Payment received",
+            "categoryLabel": "Groceries",
+            "kindHint": "card-payment",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "triangle-a",
+            "coverageRef": "invented-triangle-a",
+            "atlasAccountId": "triangle",
+            "account": "triangle",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-18",
+            "amount": 51.3,
+            "currency": "cad",
+            "displayedPayee": "Example hardware shop",
+            "categoryLabel": "Groceries",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "amazon-a",
+            "coverageRef": "invented-amazon-a",
+            "atlasAccountId": "mbna",
+            "account": "mbna",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-16",
+            "amount": 89,
+            "currency": "cad",
+            "displayedPayee": "Example online store",
+            "categoryLabel": "Groceries",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          },
+          {
+            "id": "amazon-refund",
+            "coverageRef": "invented-amazon-refund",
+            "atlasAccountId": "mbna",
+            "account": "mbna",
+            "accountRole": "revolving-credit",
+            "date": "2026-08-19",
+            "amount": -45,
+            "currency": "cad",
+            "displayedPayee": "Example return",
+            "categoryLabel": "Groceries",
+            "kindHint": "refund",
+            "pending": false,
+            "savingsPostingEvidence": "posted"
+          }
+        ],
+        "cardMinimumOwnership": "available"
+      },
+      "observedCash": {
+        "complete": true,
+        "asOf": "2026-08-20",
+        "accounts": [
+          {
+            "id": "chequing-a",
+            "value": 865,
+            "evidenceDate": "2026-08-20"
+          },
+          {
+            "id": "chequing-b",
+            "value": 160,
+            "evidenceDate": "2026-08-20"
+          },
+          {
+            "id": "savings",
+            "value": 0,
+            "evidenceDate": "2026-08-20"
+          }
+        ]
+      },
+      "fetchedAt": "2026-08-20T18:00:00.000Z",
+      "observedAt": "2026-08-20T18:00:00.000Z",
+      "observationReceipt": {
+        "salaryMatcherDiagnostic": {
+          "schema": "atlas-salary-matcher-diagnostic/v2",
+          "scope": "latest-covered-occurrence",
+          "slots": [
+            {
+              "slot": "midmonth",
+              "target": "none",
+              "outcome": "not-evaluated",
+              "gates": {
+                "window": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "rule": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "externalIdentity": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "householdCredit": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "transferIdentity": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "counterpart": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "externalRole": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "nativePostedCad": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "sourceIncome": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "sourceTiming": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "sourceAccount": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "amountGuard": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "payrollAlias": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "payrollReceipt": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "occurrence": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "representation": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                }
+              },
+              "reasons": []
+            },
+            {
+              "slot": "month-end",
+              "target": "none",
+              "outcome": "not-evaluated",
+              "gates": {
+                "window": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "rule": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "externalIdentity": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "householdCredit": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "transferIdentity": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "counterpart": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "externalRole": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "nativePostedCad": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "sourceIncome": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "sourceTiming": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "sourceAccount": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "amountGuard": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "payrollAlias": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "payrollReceipt": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "occurrence": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                },
+                "representation": {
+                  "evaluated": false,
+                  "passed": false,
+                  "rejected": false
+                }
+              },
+              "reasons": []
+            }
+          ]
+        }
+      }
+    },
+    "refreshTrust": {
+      "schema": "atlas-refresh-trust/v1",
+      "source": "incumbent-observation-reconciliation-forecast",
+      "writesCanonicalState": false,
+      "displayState": "partially-current",
+      "observedAsOf": "2026-08-20",
+      "reconciledAsOf": "2026-08-20",
+      "remainingClaim": "precise",
+      "categoryRemainingClaim": "classified-incomplete",
+      "exactFiguresAvailable": true,
+      "coverageLimits": [
+        {
+          "id": "classified-incomplete",
+          "text": "Category allocation is incomplete, so named remaining is not an exact claim."
+        }
+      ],
+      "unresolvedMaterial": [
+        {
+          "kind": "unmatched-household-cash-must-not-write",
+          "id": null,
+          "date": "2026-08-19",
+          "text": "A material observation could not be safely classified."
+        },
+        {
+          "kind": "unmatched-household-cash-must-not-write",
+          "id": null,
+          "date": "2026-08-16",
+          "text": "A material observation could not be safely classified."
+        },
+        {
+          "kind": "unmatched-household-cash-must-not-write",
+          "id": null,
+          "date": "2026-08-19",
+          "text": "A material observation could not be safely classified."
+        },
+        {
+          "kind": "unmatched-household-cash-must-not-write",
+          "id": null,
+          "date": "2026-08-18",
+          "text": "A material observation could not be safely classified."
+        },
+        {
+          "kind": "unmatched-household-cash-must-not-write",
+          "id": null,
+          "date": "2026-08-17",
+          "text": "A material observation could not be safely classified."
+        },
+        {
+          "kind": "unmatched-household-cash",
+          "id": null,
+          "date": null,
+          "text": "5 unmatched household cash movements were not classified into modeled items."
+        }
+      ],
+      "canonicalProposalWaiting": true,
+      "canonicalProposalCount": 2,
+      "ownerQuestion": {
+        "id": "hydro",
+        "date": "2026-08-18",
+        "reason": "unverified-settlement-owner-fact",
+        "text": "Atlas still needs a household fact before treating this modeled item as settled. Hydro."
+      },
+      "observationReady": true,
+      "overlayApplied": true,
+      "refreshPath": "on-demand-reload"
+    }
+  }
+}
