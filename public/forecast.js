@@ -12716,6 +12716,9 @@
   function stackSavingsAttribution(funding) {
     const period = funding.period, backing = funding.backing, allocation = funding.goalAllocation;
     const transferred = isSavingsFigure(period.transferred) ? savingsFigureCents(period.transferred) : null;
+    // Fail closed: an unknown trust word or a missing as-of withholds the split
+    // rather than defaulting the goals' saved to a more certain tag.
+    if (!Object.hasOwn(STACK_TRUST_RANK, period.trust) || typeof funding.asOf !== 'string') return null;
     if (transferred === null || transferred < 0 || !backing || backing.status !== 'ready' || !Array.isArray(backing.items)
         || !isSavingsFigure(backing.unallocated) || !allocation || allocation.status !== 'ready'
         || !Array.isArray(allocation.balanceDates) || !allocation.balanceDates.length
@@ -12735,7 +12738,10 @@
     for (const row of Array.isArray(funding.rows) ? funding.rows : []) {
       if (!row || typeof row.key !== 'string' || !Array.isArray(row.members)) return null;
       let cents = 0;
-      for (const member of row.members) cents += byMember.get(member) || 0;
+      for (const member of row.members) {
+        if (!byMember.has(member)) return null;
+        cents += byMember.get(member);
+      }
       out.set(row.key, cents);
     }
     return out;
@@ -12770,7 +12776,7 @@
         periodTarget: saved !== null && needed !== null ? (savedCents + savingsFigureCents(needed)) / 100 : null,
         trust: needed === null ? 'unavailable' : row.thisPeriodTrust,
         savedTrust: saved === null ? 'unavailable'
-          : STACK_TRUST_RANK[funding.period.trust] > STACK_TRUST_RANK.calculated ? funding.period.trust : 'calculated',
+          : funding.period.trust === 'estimated' ? 'estimated' : 'calculated',
         reasons };
     });
     const excluded = items.filter(item => item.needed === null).map(item => item.id);

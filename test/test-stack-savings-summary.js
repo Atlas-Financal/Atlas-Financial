@@ -230,5 +230,29 @@ console.log('6. The figures snapshot captures every published per-goal figure an
     && snap['period.' + view.start + '.stackSavingsGoal.group:club.periodTarget'] === 80, 'club saved 30 and target 80 are in the snapshot');
 }
 
+console.log('7. The attribution fails closed on inputs it cannot trust');
+{
+  // A copy that exposes the attribution, called on an invented minimal pool:
+  // one goal with 30 saved of which this period moved 30.
+  const exposed = compile(replaceOnce(SOURCE, '  function stackSavings(view, result) {',
+    '  globalThis.__stackSavingsAttribution = stackSavingsAttribution;\n  function stackSavings(view, result) {', 'expose'), 'expose');
+  const attribute = globalThis.__stackSavingsAttribution;
+  delete globalThis.__stackSavingsAttribution;
+  ok(exposed && typeof attribute === 'function', 'the attribution is reachable on an exposed copy');
+  const world = over => Object.assign({
+    asOf: '2026-10-20', rows: [{ key: 'group:club', members: ['club@2026-12-01'] }],
+    period: { transferred: 30, trust: 'calculated' },
+    backing: { status: 'ready', unallocated: 0, items: [{ key: 'club@2026-12-01', saved: 30, needed: 50, date: '2026-12-01' }] },
+    goalAllocation: { status: 'ready', balanceDates: [{ date: '2026-10-20' }] },
+  }, over);
+  const good = attribute(world({}));
+  ok(good instanceof Map && good.get('group:club') === 3000, 'control: 30 moved is attributed to the one goal', String(good && good.get('group:club')));
+  ok(attribute(world({ period: { transferred: 30, trust: 'verified' } })) === null, 'an unknown trust word withholds the split (never defaults to calculated)');
+  ok(attribute(world({ asOf: undefined })) === null, 'a missing as-of withholds the split (the stale-balance guard cannot pass silently)');
+  ok(attribute(world({ rows: [{ key: 'group:club', members: ['club@2026-12-01', 'gone@2026-12-09'] }] })) === null,
+    'a goal member missing from the pool backing withholds the split (never counted as 0)');
+  ok(attribute(world({ goalAllocation: { status: 'ready', balanceDates: [{ date: '2026-10-19' }] } })) === null, 'a pool balance dated before the as-of withholds the split');
+}
+
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack savings checks passed`);
 process.exit(failures ? 1 : 0);
