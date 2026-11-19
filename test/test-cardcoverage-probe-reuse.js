@@ -76,8 +76,9 @@ function check(name, fn) {
 // Bound: each cent search may compute card coverage once; every other call
 // site in one recommend() evaluation (master walk, funding sequence, payday
 // allocation, recommend's published coverage) still computes it directly.
-// On this fixture that is 41-45 per evaluation, independent of the probe count
-// (136-239 probes); one-per-probe was 161-265. 60 leaves margin for
+// On this fixture that is 41-47 per evaluation, independent of the probe count;
+// one-per-probe was 161-265 (122-325 since the payday search takes fewer
+// probes). 60 leaves margin for
 // incidental call-site changes and stays far below one-per-probe.
 const MAX_CARD_COVERAGE_PER_EVALUATION = 60;
 
@@ -87,7 +88,13 @@ console.log(`counts per evaluation: reuse cardCoverageState=${base.cardCoverageS
   `reference cardCoverageState=${baseRef.cardCoverageState} simulateModel=${baseRef.simulateModel}`);
 
 check('cardCoverageState invocations per recommend() evaluation are bounded', () => {
-  assert.ok(base.simulateModel > 100, `fixture must exercise the probe search (simulateModel=${base.simulateModel})`);
+  // The fixture must tell once-per-search from once-per-probe: without the
+  // reuse, this same evaluation must exceed the bound. (It used to require
+  // over 100 simulations; the payday search now finds its boundary in fewer
+  // probes, LEAD 10 hotspot #2, so the probe count no longer stands in for
+  // that, and the reference count says it directly.)
+  assert.ok(baseRef.cardCoverageState > MAX_CARD_COVERAGE_PER_EVALUATION,
+    `fixture must exercise the probe search: without reuse cardCoverageState ran ${baseRef.cardCoverageState} times, not above the bound ${MAX_CARD_COVERAGE_PER_EVALUATION}`);
   assert.ok(base.cardCoverageState <= MAX_CARD_COVERAGE_PER_EVALUATION,
     `cardCoverageState ran ${base.cardCoverageState} times in one evaluation (simulateModel ${base.simulateModel}); bound ${MAX_CARD_COVERAGE_PER_EVALUATION}`);
 });
