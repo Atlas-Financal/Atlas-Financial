@@ -56,8 +56,9 @@ const LINES = [
 ];
 const VIEW = {
   start: '2031-03-01', end: '2031-03-14', stackSummary: { bills: { amount: 1 } },
-  // A paid bill whose payment posted on another day than its scheduled date (an invented extra field the sheet must not read).
-  bills: [{ id: 'water', date: '2031-03-05', postedOn: '2031-03-07', label: 'Water', amount: 64, paidState: 'paid', payerLabel: 'Chequing' },
+  // A paid bill whose payment posted on another day, from another account, than planned (invented extra fields the
+  // sheet must not read: Forecast publishes neither on the row).
+  bills: [{ id: 'water', date: '2031-03-05', postedOn: '2031-03-07', paidFromLabel: 'Savings', label: 'Water', amount: 64, paidState: 'paid', payerLabel: 'Chequing' },
     { id: 'mort', date: '2031-03-12', label: 'Mortgage', amount: 1850, paidState: 'not-paid', payerLabel: 'Joint' }],
   householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 310, planned: 500, remaining: 190, overspend: 0 },
     { id: 'fun', label: 'Fun', spent: 130, planned: 100, remaining: 0, overspend: 30 }],
@@ -162,8 +163,8 @@ console.log('5. the sheet');
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
   ok(!/Minimum/.test(red), "'unknown' minimum check prints nothing in the sheet", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
-  ok(water === 'Bill Water $64 Paid Due Mar 5 Paid from Chequing' && !/Paid on|Mar 7/.test(water),
-    'paid bill sheet: its scheduled date is labelled Due, never as when it was paid (it posted on another day)', water);
+  ok(water === 'Bill Water $64 Paid Due Mar 5 Comes out of Chequing' && !/Paid on|Paid from|Mar 7|Savings/.test(water),
+    'paid bill sheet: the scheduled date reads Due and the planned account Comes out of, never as observed evidence', water);
   ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage Mortgage $1,850 Not paid Due Mar 12 Comes out of Joint', 'mortgage sheet');
   ok(text(win.StackSheet.html(ctx, 'budget:groceries')) === 'Budget Groceries $310 / $500 Spent $310 Budget $500 Left $190', 'budget sheet');
   ok(text(win.StackSheet.html(ctx, 'budget:fun')) === 'Budget Fun $130 / $100 Spent $130 Budget $100 Over $30', 'overspent budget sheet');
