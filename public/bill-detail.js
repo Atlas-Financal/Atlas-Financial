@@ -321,18 +321,17 @@
       + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + otherProof
       + historyHtml(row, data) + '</div></details>';
   }
-  const VISA_REASONS = {
-    'payment-intent-unconfirmed': 'Link the Bills debit and confirm which purchases this payment covers. Amount and timing do not prove its purpose.',
-    'incomplete-evidence': 'The purchase window is incomplete, so this payment is not split.',
-    'ambiguous-credit': 'A credit in the window is neither a payment nor a refund.',
-    'pending-possible-replacement': 'Pending and posted entries do not establish one purchase.',
-    'pending-settlement-ambiguous': 'Pending and posted entries do not establish one purchase.',
-    'missing-amount': 'The payment amount is missing.',
-    'missing-date': 'The payment date is missing.',
-    'missing-account': 'The card account is missing.',
-    'contradictory-account': 'The card account is contradictory.',
-    'missing-identity': 'The payment has no transaction identity.',
-  };
+
+  // The card ledger owns the reasons and their lines (Forecast.CARD_PAYMENT_REASONS, #1416): the page prints the
+  // line for the reason it was given, and invents none. A reason the set does not hold (only possible if the rows did
+  // not come from Forecast.visaPaymentPublication) prints the ledger's own fail-closed line; with no ledger loaded,
+  // the row says only that it is unreconciled.
+  function cardPaymentReasonText(reason) {
+    const F = forecast();
+    const lines = F && F.CARD_PAYMENT_REASONS;
+    if (!lines) return 'reason unavailable.';
+    return Object.hasOwn(lines, reason || '') ? lines[reason] : lines['payment-reason-unavailable'];
+  }
 
   // Formats Forecast.visaPaymentPublication rows. No addition, comparison,
   // or other money math: backfill and card payment are printed as supplied.
@@ -392,7 +391,7 @@
       const split = row.status === 'reconciled'
         && typeof row.backfill === 'number' && typeof row.cardPayment === 'number'
         ? 'Confirmed backfill ' + money(row.backfill) + ' / other allocation ' + money(row.cardPayment)
-        : 'Unreconciled — ' + (VISA_REASONS[row.reason] || 'This payment could not be reconciled.');
+        : 'Unreconciled — ' + cardPaymentReasonText(row.reason);
       const covered = (Array.isArray(row.purchases) ? row.purchases : []).map(item =>
         '<li>' + escape(date(item && item.date) ? item.date : 'Date unavailable')
         + ' · ' + escape(money(item && item.amount))
