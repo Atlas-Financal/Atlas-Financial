@@ -33,6 +33,9 @@ function virtualClock(t) {
   perfHooks.now = () => now;
   return {
     advance(ms) { now += ms; t.mock.timers.tick(ms); },
+    // Time passes with no timer callback run yet: the stall a loaded runner
+    // could only produce by chance, made deterministic.
+    jump(ms) { now += ms; },
     restore() { if (ownNow) perfHooks.now = realNow; else delete perfHooks.now; t.mock.timers.reset(); },
   };
 }
@@ -256,6 +259,37 @@ test('F9 query and aggregate preflight deadlines retire without later dispatch',
     assert.equal(e.diagnostic.category,'timeout'); assert.equal(w.ends,1); assert.equal(w.queries.length,2);
     gate.resolve({command:'SELECT',rows:[metadata()[1]]});await tick();assert.equal(w.queries.length,2);
   } finally { clock.restore(); }
+  // A result that arrives after its query deadline, before the timer has run
+  // (the post-await deadline re-check), still times out and dispatches nothing more.
+  {
+    const clock=virtualClock(t);
+    try {
+      const gate=deferred(),w=world({query:q=>q.index===1?gate.promise:undefined});
+      const opening=w.open({timeouts:{query:8,preflight:30}}).then(()=>null,retirement);
+      await tick(); assert.equal(w.queries.length,2);
+      clock.jump(9); gate.resolve({command:'SELECT',rows:[metadata()[1]]});
+      const late=await opening;
+      assert.ok(late,'a result after its query deadline is refused, not accepted');
+      assert.equal(late.diagnostic.category,'timeout'); assert.equal(late.diagnostic.stage,'role');
+      assert.equal(w.queries.length,2,'no later query is dispatched'); assert.equal(w.ends,1);
+    } finally { clock.restore(); }
+  }
+  // Time spent between queries past the aggregate preflight deadline (here
+  // while the identity row is read) refuses the next query before dispatch.
+  {
+    const clock=virtualClock(t);
+    try {
+      const identity={...metadata()[0]};
+      let jumped=false;
+      Object.defineProperty(identity,'searchPath',{enumerable:true,get(){if(!jumped){jumped=true;clock.jump(31);}return 'pg_catalog';}});
+      const w=world({query:q=>q.index===0?{command:'SELECT',rows:[identity]}:undefined});
+      const refused=await w.open({timeouts:{query:30,preflight:30}}).then(()=>null,retirement);
+      assert.ok(jumped,'the identity row was read');
+      assert.ok(refused,'a query after the aggregate preflight deadline is refused');
+      assert.equal(refused.diagnostic.category,'timeout'); assert.equal(refused.diagnostic.stage,'role');
+      assert.equal(w.queries.length,1,'the role query is never dispatched'); assert.equal(w.ends,1);
+    } finally { clock.restore(); }
+  }
   const x=world({query:async q=>{if(q.index<4)await delay(7);}});
   const ex=await x.open({timeouts:{query:30,preflight:12}}).catch(retirement);
   assert.equal(ex.diagnostic.category,'timeout');assert.ok(x.queries.length<4);assert.equal(x.ends,1);
