@@ -686,5 +686,6 @@
   ["snapshot CLI keeps a missing balance unknown (A13)","test-snapshot-missing-cash-unknown.js"],
   ["canonical refresh keeps a missing balance unknown, never 0 (A13 follow-up)","test-refresh-unknown-balance-not-zero.js"],
   ["current spendable copy and recorded cash membership","test-recorded-cash-labels.js"],
-  ["The Stack page's Outfit font is self-hosted same-origin under font-src 'self', with its OFL licence (F7)","test-outfit-font.js"]
+  ["The Stack page's Outfit font is self-hosted same-origin under font-src 'self', with its OFL licence (F7)","test-outfit-font.js"],
+  ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"]
 ]
