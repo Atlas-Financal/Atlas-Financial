@@ -1,2 +1,53 @@
-/* Stack Wallet block waterfall: styles owned by its block file (public/stack-waterfall.js). Placeholder from B1;
- * loaded only under ?view=stack. Keep every selector scoped to html.stack-view. */
+/* Stack page, waterfall block (B2; behind ?view=stack). Every selector is
+ * scoped to html.stack-view, so nothing here reaches the current page.
+ * Colours are the shell's tokens (public/stack.css): a light frame
+ * with a dark slab for the result. The frame itself is the shell's. */
+html.stack-view .stack-waterfall { color: var(--stack-on); }
+html.stack-view .stack-waterfall .n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+html.stack-view .stack-waterfall .wf-math { list-style: none; margin: 10px 0 0; padding: 0 14px; }
+html.stack-view .stack-waterfall .wf-line {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center;
+  padding: 9px 0; font-size: 18px; font-weight: 500;
+}
+html.stack-view .stack-waterfall .op { font-size: 19px; font-weight: 700; color: var(--stack-on2); }
+html.stack-view .stack-waterfall .wf-line .n { font-weight: 700; font-size: 19px; letter-spacing: -.02em; }
+html.stack-view .stack-waterfall .wf-line.tot { font-weight: 800; border-top: 2.5px solid var(--stack-on); margin-top: 6px; padding-top: 13px; }
+html.stack-view .stack-waterfall .wf-line.tot .n { font-weight: 800; }
+/* Credit: the whole line is the toggle; its card minimums open beneath it. */
+html.stack-view .stack-waterfall .wf-credit { display: block; padding: 0; }
+html.stack-view .stack-waterfall .wf-toggle {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; width: 100%;
+  padding: 9px 0; font: inherit; font-size: 18px; font-weight: 500; color: inherit;
+  background: none; border: 0; text-align: inherit; cursor: pointer; border-radius: 12px;
+}
+html.stack-view .stack-waterfall .wf-toggle:disabled { cursor: default; }
+html.stack-view .stack-waterfall .wf-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+html.stack-view .stack-waterfall .wf-toggle .lab::after {
+  content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 8px; vertical-align: 2px;
+  border-right: 1.8px solid var(--stack-on2); border-bottom: 1.8px solid var(--stack-on2);
+  transform: rotate(-45deg); transition: transform .3s cubic-bezier(.2, .8, .2, 1);
+}
+html.stack-view .stack-waterfall .wf-toggle:disabled .lab::after { display: none; }
+html.stack-view .stack-waterfall .wf-credit.open .wf-toggle .lab::after { transform: rotate(45deg); }
+html.stack-view .stack-waterfall .wf-cards { list-style: none; margin: 0; padding: 2px 0 6px 62px; }
+html.stack-view .stack-waterfall .wf-card {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 7px 0; font-size: 16px; color: var(--stack-on2); border-top: 1.5px solid var(--stack-on-line);
+}
+html.stack-view .stack-waterfall .wf-card b { display: block; font-weight: 600; color: var(--stack-on); }
+html.stack-view .stack-waterfall .wf-card small { display: block; font-size: 13px; line-height: 1.3; }
+html.stack-view .stack-waterfall .wf-card .n { font-size: 16px; font-weight: 600; color: var(--stack-on); }
+/* The result slab. */
+html.stack-view .stack-waterfall .wf-slab {
+  margin-top: 10px; border-radius: 26px; padding: 18px 20px 20px;
+  background: var(--stack-slab); color: var(--stack-slab-fg);
+}
+html.stack-view .stack-waterfall .wf-slab .sl { display: flex; gap: 10px; font-size: 15px; font-weight: 600; opacity: .8; }
+html.stack-view .stack-waterfall .wf-slab .n {
+  display: inline-block; font-size: 66px; font-weight: 800; letter-spacing: -.035em; line-height: 1.02;
+  margin-top: 2px; color: var(--stack-slab-good);
+}
+html.stack-view .stack-waterfall .wf-slab.neg .n { color: var(--stack-slab-bad); }
+html.stack-view .stack-waterfall .wf-reason { margin: 8px 0 0; font-size: 14px; opacity: .8; }
+@media (max-width: 380px) { html.stack-view .stack-waterfall .wf-slab .n { font-size: 52px; } }
+@media (prefers-reduced-motion: reduce) { html.stack-view .stack-waterfall .wf-toggle .lab::after { transition: none; } }
