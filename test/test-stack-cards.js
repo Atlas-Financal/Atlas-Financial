@@ -77,6 +77,11 @@ assert.strictEqual(buildCardsHTML(null), '');
 const z = JSON.parse(JSON.stringify(view)); z.stackSummary.bills.other = 0;
 assert(buildCardsHTML(ctx(z)).includes('$0.00'));
 
+// card colours: every kind's variable is defined in the CSS file
+const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack', 'stack-cards.css'), 'utf8');
+['bills', 'budget', 'mortgage'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
+assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
+
 // 3. no money arithmetic in the page code
 const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 assert(!/\.reduce\(/.test(src), 'no reduce over money');
