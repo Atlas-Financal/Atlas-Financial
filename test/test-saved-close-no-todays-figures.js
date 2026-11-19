@@ -114,7 +114,7 @@ const IDENTITY = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', '
 const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases']);
 const SET_BY_REPLAY = new Set(['budgetProgress', 'capturedClose']);
 const KEPT_FROM_TODAY = {
-  stackSummary: 'derived at publication, never saved; for a saved close its income split is re-derived from the saved income rows and total (checked below), never from today\'s',
+  stackSummary: 'derived at publication, never saved; for a saved close its income lines, bills split and surplus are withheld (only the saved income total is kept), never taken from today\'s rows or balance',
   spendingCycle: 'the cycle window dates, not a figure',
   spendingCycleLabel: 'the cycle window label, not a figure',
   operatingPlanNote: 'a null note on a completed period (only a current plan can be unavailable)',
@@ -162,6 +162,16 @@ ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept
     'control: re-classing today\'s stream as Other really moves an uncaptured period\'s split', JSON.stringify(againPlain.stackSummary.income));
   ok(again.capturedClose && JSON.stringify(again.stackSummary.income) === JSON.stringify(split),
     'but the saved close\'s split is unchanged by today\'s re-classing', JSON.stringify(again.stackSummary.income));
+  // A saved close keeps its bill total, not the Stack Wallet bills split, so
+  // the split and the surplus it feeds are withheld with a reason, never
+  // re-derived from today's rows; its saved figures themselves are unchanged.
+  const s = past.stackSummary && past.stackSummary.surplus, b = past.stackSummary && past.stackSummary.bills;
+  ok(b && b.mortgage === null && b.cardMinimums === null && b.other === null && b.trust === 'unavailable'
+    && /saved close keeps its total, not the split/.test(b.reason || ''),
+    'a saved close publishes no Stack Wallet bills split (unavailable, saved total only)', JSON.stringify(b));
+  ok(s && s.amount === null && s.terms === null && s.trust === 'unavailable' && typeof s.reason === 'string'
+    && past.periodBillLoad === saved.periodBillLoad && past.incomeTotal === saved.incomeTotal,
+    'so its surplus is withheld too, beside its saved income and bill total', JSON.stringify({ s, bills: past.periodBillLoad }));
 }
 
 // S5 the bill-row audit (Stack Wallet A3): every key on a saved close's bill row is the capture's own, a display key
