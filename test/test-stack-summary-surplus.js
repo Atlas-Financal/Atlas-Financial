@@ -67,7 +67,7 @@ function compile(text, name) {
   mod._compile(text, FILE.replace(/\.js$/, '-' + name + '.js'));
   return mod.exports;
 }
-const CENTS = "      - stackCents(bills.mortgage) - creditCents - stackCents(item);";
+const CENTS = "      - stackCents(mortgage) - creditCents - stackCents(item);";
 const MORTGAGE_IDS = "    const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));";
 const CARD_OF = "      && isRevolvingCardAccount({ account: o.debtId })).map(o => [String(o.id), String(o.debtId)]));";
 const OTHER = '      other: (totalCents - mortgageCents - minimumsCents) / 100,';
@@ -79,7 +79,7 @@ const copies = {
   subtractsHeld: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(';', ' - stackCents((view.heldOutflowsToConfirm && view.heldOutflowsToConfirm.total) || 0);'), 'subtracts held'), 'subtracts-held'),
   noItem: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - stackCents(item);', ';'), 'no item'), 'no-item'),
   noCredit: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - creditCents', ''), 'no credit'), 'no-credit'),
-  noMortgageTerm: compile(replaceOnce(SOURCE, CENTS, CENTS.replace('      - stackCents(bills.mortgage)', '     '), 'no mortgage term'), 'no-mortgage-term'),
+  noMortgageTerm: compile(replaceOnce(SOURCE, CENTS, CENTS.replace('      - stackCents(mortgage)', '     '), 'no mortgage term'), 'no-mortgage-term'),
   mortgageInOther: compile(replaceOnce(SOURCE, MORTGAGE_IDS, '    const mortgageIds = new Set();', 'mortgage in other'), 'mortgage-in-other'),
   minimumsInOther: compile(replaceOnce(SOURCE, CARD_OF, CARD_OF.replace('isRevolvingCardAccount({ account: o.debtId })', 'false'), 'minimums in other'), 'minimums-in-other'),
   otherIsTotal: compile(replaceOnce(SOURCE, OTHER, '      other: totalCents / 100,', 'other is total'), 'other-is-total'),

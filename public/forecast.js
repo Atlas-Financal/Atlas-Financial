@@ -12685,18 +12685,22 @@
   // cent; otherwise every part is null. A period rebuilt from a saved close
   // carries its saved total but no split, so its split (and the surplus) is
   // withheld, never re-derived from today's rows. Trust is the bill total's own.
+  // The parts are destructured, not read as `x.mortgage`: test-invariants finds
+  // a data.json key's reader by that text, and the plan's top-level `mortgage`
+  // key has none.
   function stackBills(view) {
     const parts = periodBillLoadPartsByPeriod.get(view);
     const total = view.periodBillLoad;
+    const { mortgage, cardMinimums, other } = parts || {};
     const sums = parts && isStackFigure(total) && view.operatingPlanUnavailable !== true
-      && stackCents(parts.mortgage) + parts.cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0)
-        + stackCents(parts.other) === stackCents(total);
+      && stackCents(mortgage) + cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0)
+        + stackCents(other) === stackCents(total);
     if (!sums) return { mortgage: null, cardMinimums: null, other: null, trust: 'unavailable',
       reason: !parts && isStackFigure(total) && view.operatingPlanUnavailable !== true ? STACK_BILLS_UNSPLIT : STACK_BILLS_UNAVAILABLE };
     return {
-      mortgage: parts.mortgage,
-      cardMinimums: parts.cardMinimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
-      other: parts.other,
+      mortgage,
+      cardMinimums: cardMinimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
+      other,
       trust: view.periodBillLoadTrust || 'calculated',
     };
   }
@@ -12716,19 +12720,20 @@
     const projected = view.evidenceState === 'projected';
     const terms = view.predictedEndingBalanceTerms;
     const item = terms && isStackFigure(terms.savingsItemSpending) ? terms.savingsItemSpending : 0;
+    const { mortgage, cardMinimums, other } = bills || {};
     const known = isStackFigure(view.incomeTotal) && isStackFigure(view.budgetHold)
-      && !!bills && isStackFigure(bills.other) && isStackFigure(bills.mortgage) && Array.isArray(bills.cardMinimums)
+      && isStackFigure(other) && isStackFigure(mortgage) && Array.isArray(cardMinimums)
       && isStackFigure(view.balanceAfterDeductions) && !!terms && view.operatingPlanUnavailable !== true;
     if (!known) {
       return { amount: null, terms: null, trust: 'unavailable', projected, reason: STACK_SURPLUS_UNAVAILABLE };
     }
-    const creditCents = bills.cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
-    const cents = stackCents(view.incomeTotal) - stackCents(bills.other) - stackCents(view.budgetHold)
-      - stackCents(bills.mortgage) - creditCents - stackCents(item);
+    const creditCents = cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
+    const cents = stackCents(view.incomeTotal) - stackCents(other) - stackCents(view.budgetHold)
+      - stackCents(mortgage) - creditCents - stackCents(item);
     return {
       amount: cents / 100,
-      terms: { income: roundCent(view.incomeTotal), bills: bills.other, household: roundCent(view.budgetHold),
-        mortgage: bills.mortgage, credit: creditCents / 100,
+      terms: { income: roundCent(view.incomeTotal), bills: other, household: roundCent(view.budgetHold),
+        mortgage, credit: creditCents / 100,
         ...(item > 0 ? { savingsItemSpending: roundCent(item) } : {}) },
       // The same terms as Balance After Deductions, so the same trust.
       trust: view.balanceAfterDeductionsTrust || 'calculated',
