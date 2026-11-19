@@ -16199,9 +16199,22 @@
     return row || { status: 'unconfirmed', remaining: null, accountLabel: 'Credit card' };
   }
 
+  // The card ledger's closed set of reasons an unreconciled card payment row
+  // may publish, with the one line the page prints for each (lead, 2026-11-19;
+  // #1416). Any other reason publishes as 'payment-reason-unavailable', so the
+  // page never receives a code it has no line for. Each line states the row's
+  // state only; none claims a payment is settled or verified.
+  const CARD_PAYMENT_REASONS = Object.freeze({
+    'payment-intent-unconfirmed': 'Link the Bills debit and confirm which purchases this payment covers. Amount and timing do not prove its purpose.',
+    'payment-reason-unavailable': 'Atlas cannot say why this payment is unmatched, so it is applied to no purchase.',
+  });
+  function cardPaymentPublishedReason(row) {
+    if (row.status === 'reconciled') return row.reason || null;
+    return Object.hasOwn(CARD_PAYMENT_REASONS, row.reason || '') ? row.reason : 'payment-reason-unavailable';
+  }
   function visaPaymentPublication(row) {
     return row ? { id: row.id, date: row.date, accountLabel: row.accountLabel,
-      status: row.status, reason: row.reason || null, amount: row.amount,
+      status: row.status, reason: cardPaymentPublishedReason(row), amount: row.amount,
       backfill: row.backfill, cardPayment: row.cardPayment, otherPurpose: row.otherPurpose || null,
       purchases: (row.purchases || []).map(p => ({ date: p.date, amount: p.amount, categoryLabel: p.categoryLabel })) } : null;
   }
@@ -29957,7 +29970,7 @@
     nextDue, nextPaymentOut, dueOnOrAfter, unallocatedCash, compactSnapshot, publicationTotals, publishedSpendType, rollupSpending, planStatus, below, mission, planPhases, nextMove, utilisation, capitalisingCashMinimumOccurrences,
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount, categorySpendingTrends,
-    visaPaymentReconciliation, visaPaymentPublication,
+    visaPaymentReconciliation, visaPaymentPublication, CARD_PAYMENT_REASONS,
     CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis, LINKED_BILL_MISFIT_CHECKS };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
