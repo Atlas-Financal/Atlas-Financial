@@ -58,10 +58,12 @@
   // No label: an estimated figure is drawn softer (class stack-est), never worded.
   function estCls(on) { return on ? ' stack-est' : ''; }
 
-  // Bar width for drawing only; never printed.
-  function drawWidth(part, whole) {
-    if (!isNum(part) || !isNum(whole) || whole <= 0) return 0;
-    return Math.max(0, Math.min(100, part / whole * 100));
+  // A bar's fill as a CSS percentage, from the shell's one shared drawing ratio (StackBlocks.barWidth, 0 to 1,
+  // or null for no bar). Drawing only; never printed.
+  function fill(part, whole) {
+    var sb = root.StackBlocks;
+    var r = sb && typeof sb.barWidth === 'function' ? sb.barWidth(part, whole) : null;
+    return r == null ? 0 : r * 100;
   }
 
   function selectView(ctx) {
@@ -122,7 +124,7 @@
       return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', stateWord(r), billTarget('bill', r));
     }).join('') + '</ul>';
     var sub = rows.length ? paid + ' of ' + rows.length + ' paid' : 'paid / total';
-    return strip('bills', 'Bills', sub, total, null, drawWidth(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust));
+    return strip('bills', 'Bills', sub, total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust));
   }
 
   function budgetCard(view) {
@@ -139,12 +141,12 @@
       var s = money(c.spent), p = planPublished ? money(c.planned) : null;
       var est = budgetEst(c);
       return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
-        (p == null ? '' : '<span class="sc-mini"><i style="width:' + drawWidth(c.spent, c.planned) + '%"></i></span>') + '</span>' +
+        (p == null ? '' : '<span class="sc-mini"><i style="width:' + fill(c.spent, c.planned) + '%"></i></span>') + '</span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
           + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
-    return strip('budget', 'Budget', 'spent / budget', head, money(planned), drawWidth(spent, planned), cats.length ? body : '', null, null, hhEst);
+    return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', null, null, hhEst);
   }
 
   function mortgageCard(view) {
@@ -180,7 +182,7 @@
     var head, headOf = null, sub, tail = null, sep = null, width = 0;
     if (moved != null && entitlement != null) {
       head = moved; headOf = entitlement; sep = ' moved of '; tail = ' this period'; sub = '';
-      width = drawWidth(t.saved, t.entitlement);
+      width = fill(t.saved, t.entitlement);
     } else if (has(t.reasons, 'future-period') && planned != null) {
       head = planned; sub = 'planned this period';
     } else { head = null; sub = ''; }
@@ -194,7 +196,7 @@
         // "$saved of $periodTarget" with a full-width bar; periodTarget is Forecast's, not added here.
         return '<li class="sc-row sc-own"><span class="sc-n">' + esc(i.label) + '</span>' +
           '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
-          '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + drawWidth(i.saved, i.periodTarget) + '%"></i></span></li>';
+          '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + fill(i.saved, i.periodTarget) + '%"></i></span></li>';
       }
       var word = has(i.reasons, 'net-of-period-transfers') ? 'still to set aside ' : 'needs ';
       var right = n == null || has(i.reasons, 'past-period') ? ''
