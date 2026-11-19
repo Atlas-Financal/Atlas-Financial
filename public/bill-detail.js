@@ -365,7 +365,17 @@
     const fromLabel = id => id === 'chequing-a' ? 'Bills' : id === 'savings' ? 'Savings' : 'A household account';
     const pendingRows = (coverage && coverage.trust === 'estimated' && Array.isArray(coverage.toConfirm)
       ? coverage.toConfirm : []).filter(row => row && typeof row === 'object');
-    const toConfirm = pendingRows.length
+    // A payment already listed in the Budget To confirm is pointed to, never
+    // asked a second time (lead ruling, ATLAS LEAD 11, 2026-11-19).
+    const listedElsewhere = coverage && coverage.trust === 'estimated'
+      && Number.isInteger(coverage.toConfirmListedUnderHeld) && coverage.toConfirmListedUnderHeld > 0
+      ? coverage.toConfirmListedUnderHeld : 0;
+    const listedNote = listedElsewhere
+      ? '<p data-card-payment-listed-under-held>' + escape(String(listedElsewhere))
+        + (listedElsewhere === 1 ? ' card payment whose card is not confirmed is' : ' card payments whose card is not confirmed are')
+        + ' listed under To confirm. Until confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p>'
+      : '';
+    const toConfirm = (pendingRows.length
       ? '<div class="visa-payment-to-confirm" data-card-payment-to-confirm data-trust="estimated"><h4>To confirm</h4>'
         + pendingRows.map(row => '<div class="operating-line" data-card-payment-to-confirm-row><span>'
           + escape(text(row.question) || 'To confirm: which card did this pay?') + '</span><span>'
@@ -373,7 +383,7 @@
           + (text(row.onCard) ? ' · on ' + escape(text(row.onCard)) : ' · from ' + escape(fromLabel(row.fromAccount)))
           + '</span></div>').join('')
         + '<p>Until each row is confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p></div>'
-      : '';
+      : '') + listedNote;
     if (!payments.length) return carry + toConfirm;
     const blocks = payments.map(row => {
       if (!row || typeof row !== 'object') return '';

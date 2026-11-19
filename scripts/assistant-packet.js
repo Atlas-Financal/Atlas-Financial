@@ -265,7 +265,9 @@ function cardCoverageEstimate(advice) {
   const basis = Forecast.cardCoverageEstimateBasis(coverage);
   if (!basis) return null;
   return { basis, reason: Forecast.CARD_ESTIMATE_REASONS[basis],
-    toConfirmCount: Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0 };
+    // A payment the Budget To confirm already lists is counted here too (listed once, counted once).
+    toConfirmCount: (Array.isArray(coverage.toConfirm) ? coverage.toConfirm.length : 0)
+      + (Number.isInteger(coverage.toConfirmListedUnderHeld) ? coverage.toConfirmListedUnderHeld : 0) };
 }
 // A published section under the estimate: a graded tag (or none) becomes
 // estimated; unknown or unavailable stays as it is (never more certain).

@@ -7632,6 +7632,24 @@
   // pending row is unchanged (excluded as before). Returns the held result
   // (marked cardMinimumUnknown when the card-minimum owner cannot say whether
   // it owns this debit), or null.
+  // The one test of a debit's own card-payment evidence, shared by the held
+  // reader (unprovenTransferDebit) and the card ledger's To-confirm listing
+  // (reconcileCardPurchases; lead ruling, ATLAS LEAD 11, 2026-11-19): a Lunch
+  // Money group, the payment's own identity (the observer's payee identities
+  // and its 'card-payment' stamp), or a "card payment: <card>" note naming a
+  // contract card (the fixed table, MBNA and Triangle included). A
+  // card-payment or debt-payment CATEGORY alone is not proof (Grok Bot, Plan
+  // #6; lead, #1388), and neither is an 'unknown' card or a renamed payee with
+  // no note. A noted debit's card minimum stays in the bill load until
+  // confirmed, so holding it too would count it twice (lead blocker on #1388).
+  function cardPaymentOtherSideEvidence(tx) {
+    if (!tx) return false;
+    if (tx.parentId != null || tx.isGroup === true) return true;
+    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx)
+      || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
+    const notedCard = cardPaymentNoteDestination(tx);
+    return !!(notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard));
+  }
   function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
     if (tx.accountRole !== 'household-cash'
@@ -7645,20 +7663,8 @@
     const generic = (cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
       || (cls.kind === 'card-payment' && cls.reason === 'kind-hint' && (hint === 'payment' || hint === 'bill-payment'));
     if (!generic) return null;
-    if (tx.parentId != null || tx.isGroup === true) return null;
+    if (cardPaymentOtherSideEvidence(tx)) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
-    // A card payment by its own identity (the observer's payee identities and
-    // its 'card-payment' stamp). A card-payment or debt-payment CATEGORY alone
-    // is not proof (Grok Bot, Plan #6; lead, #1388): only a pair, a group or an
-    // identity proves the other side, so such a debit is held like any other.
-    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment') return null;
-    // A "card payment: <card>" note naming a contract card (the fixed table,
-    // MBNA and Triangle included) is the payment's own identity: that card's
-    // minimum stays in the bill load until confirmed, so holding the debit
-    // too would count it twice (lead blocker on #1388). An 'unknown' card,
-    // and a renamed payee with no note, prove nothing.
-    const notedCard = cardPaymentNoteDestination(tx);
-    if (notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard)) return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
@@ -15555,6 +15561,17 @@
       [purposeUnconfirmed, CARD_CREDIT_PURPOSE_ESTIMATE_BASIS], [sourceUnconfirmed, CARD_PAYMENT_SOURCE_ESTIMATE_BASIS]]
       .filter(([rows]) => rows.length > 0).map(([, basis]) => basis);
     const destinationEstimate = !issues.length && estimateKinds.length > 0;
+    // The destination-unconfirmed payments the held reader lists in the active
+    // period's Budget To confirm (unprovenTransferDebit, the same rule, with the
+    // card pairing it consults known false: these legs are unpaired). Every
+    // other one (Savings, a prior period, a row the reader does not hold) keeps
+    // its question here, so no row leaves both lists.
+    const heldListCycle = spendingCycle(plan, asOf);
+    const heldOpts = { packet, currentPeriodActuals: packet, debts: opts.debts };
+    const listedAsHeld = leg => !!(heldListCycle && leg.tx.date >= heldListCycle.start && leg.tx.date <= asOf
+      && unprovenTransferDebit(leg.tx, classifyCurrentPeriodTransaction(leg.tx, plan, heldOpts), plan, heldOpts, () => false));
+    const destinationHeldElsewhere = destinationEstimate ? destinationUnconfirmed.filter(listedAsHeld) : [];
+    const destinationAsked = destinationUnconfirmed.filter(leg => !destinationHeldElsewhere.includes(leg));
     const estimateBasis = !destinationEstimate ? null
       : estimateKinds.length === 1 ? estimateKinds[0] : CARD_ROWS_ESTIMATE_BASIS;
     // Opening carry can fall inside a cycle. Only a corresponding visible
@@ -15615,7 +15632,12 @@
       // can only understate the money left). Each payment is one To-confirm row.
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
-        toConfirm: [...destinationUnconfirmed.map(leg => ({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
+        // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19): a payment the
+        // held reader already lists in this period's Budget To confirm is
+        // counted here, not asked a second time. The trust and basis above
+        // still read every unconfirmed row, so no tag moves.
+        ...(destinationHeldElsewhere.length ? { toConfirmListedUnderHeld: destinationHeldElsewhere.length } : {}),
+        toConfirm: [...destinationAsked.map(leg => ({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
           question: 'To confirm: which card did this pay?',
           date: leg.tx.date, amount: leg.cents / 100,
           fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })),

@@ -133,7 +133,13 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     assert.equal(s.coverage.status, 'ready', why + ': published');
     assert.equal(s.coverage.trust, 'estimated', why + ': an estimate');
     assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
-    assert.equal(s.coverage.toConfirm.length, 1, why + ': one To-confirm row');
+    // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19): a no-identity Bills
+    // debit is in the Budget To confirm (#1388's held reader), so the card
+    // ledger counts it there instead of asking again; a Savings one is not
+    // held, so it is asked here. Either way, one To-confirm row.
+    const listed = s.coverage.toConfirmListedUnderHeld || 0;
+    assert.equal(s.coverage.toConfirm.length + listed, 1, why + ': one To-confirm row');
+    assert.equal(listed, account === 'bills' ? 1 : 0, why + ': listed under the held To confirm only from Bills');
   }
   // Unequal cents never pair: the debit and the credit are each To confirm
   // and count toward no card, so the purchase stays reserved.
@@ -144,7 +150,8 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     assert.equal(s.coverage.estimateBasis, 'card-coverage-rows-unconfirmed', why + ': both kinds');
     assert.equal(s.coverage.reservedCash, 80, why + ': the purchase stays reserved');
     assert.equal(s.coverage.payments.filter(p => p.status === 'reconciled').length, 0, why + ': never paired');
-    assert.equal(s.coverage.toConfirm.length, 2, why + ': two To-confirm rows');
+    assert.equal(s.coverage.toConfirm.length + (s.coverage.toConfirmListedUnderHeld || 0), 2, why + ': two To-confirm rows');
+    assert.equal(s.coverage.toConfirmListedUnderHeld, 1, why + ': the Bills debit is listed under the held To confirm');
   }
   withheld(run(world([['card', 80, null, 'purchase'], ['bills', 80, '2026-09-18', 'cash'], ['bills', 80, '2026-09-19', 'cash'],
     ['card', -80, null, 'credit']])), 'coverage-payment-pair-ambiguous', 'two candidate cash legs');
@@ -369,7 +376,11 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
   // the minimum still to confirm (unpaid), the debit listed To confirm.
   const generic = run(mbna([['bills', 25, null, 'cash']]));
   assert.equal(generic.coverage.trust, 'estimated', 'generic C/C transfer: an estimate');
-  assert.equal(generic.coverage.toConfirm.length, 1, 'generic C/C transfer: one To-confirm row');
+  // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19): from Bills it is in
+  // the Budget To confirm (#1388's held reader), not asked again here.
+  assert.equal(generic.coverage.toConfirm.length + (generic.coverage.toConfirmListedUnderHeld || 0), 1,
+    'generic C/C transfer: one To-confirm row');
+  assert.equal(generic.coverage.toConfirmListedUnderHeld, 1, 'generic C/C transfer: listed under the held To confirm');
   assert.deepEqual(generic.coverage.minimumCoverage.map(m => [m.covered, m.status]), [[0, 'to-confirm']],
     'generic C/C transfer: the minimum is not paid by it');
   // Activity on a no-feed card contradicts the owner fact and withholds.
