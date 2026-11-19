@@ -1,0 +1,161 @@
+{
+  "schema": "atlas-figures-input/v1",
+  "id": "early-salary-credit",
+  "invented": true,
+  "description": "Invented served data: an early Other Income credit held To confirm over two unproven salary run-ups. The Oct 2 payroll takes 1000 of it, inside the Oct 2 morning snapshot, so the active close does not add that again; the 400 excess is held for a side income first due Oct 30, and after the Oct 16 period sweeps, the Oct 30 close is withheld (early-receipt-membership-unproven).",
+  "origin": {
+    "kind": "invented-ledger",
+    "source": "test/test-early-salary-credit-counted-once.js section 10 (the two-hop sweep case) on the card-paid-clear invented input, re-entered literally",
+    "transform": "Added an invented monthly side income (day 30, first due 2026-10-30, 400, confirmed); one posted Other Income credit of 1400 on 2026-10-01 to chequing-a in currentPeriodActuals; the Oct 2 paydaySnapshot opening and the chequing-a starting cash each raised by 1400 (the credit is inside that posted cash)."
+  },
+  "limitations": [
+    "absent-periods"
+  ],
+  "periods": null,
+  "data": {
+    "meta": {
+      "asOf": "2026-10-07",
+      "title": "Invented PA-4 card-paid planned close"
+    },
+    "debts": [
+      {
+        "id": "card",
+        "label": "Invented card",
+        "secured": false,
+        "balance": 300,
+        "pending": 0,
+        "pendingUnknown": false,
+        "limit": 1000,
+        "rate": 19.99,
+        "payment": 25,
+        "frequency": "Monthly minimum",
+        "confidence": "estimated"
+      }
+    ],
+    "revolvingExtra": [],
+    "plan": {
+      "windowDays": 120,
+      "defaults": {
+        "targetBuffer": 0,
+        "extraDebtMonthly": 0,
+        "scenario": "expected"
+      },
+      "opening": {
+        "asOf": "2026-10-07",
+        "paydaySnapshot": {
+          "periodStart": "2026-10-02",
+          "asOf": "2026-10-02",
+          "opening": 1900
+        },
+        "representedEvents": [
+          {
+            "id": "payroll",
+            "date": "2026-10-02"
+          }
+        ]
+      },
+      "startingCash": {
+        "breakdown": [
+          {
+            "id": "chequing-a",
+            "value": 1900
+          },
+          {
+            "id": "chequing-b",
+            "value": 0
+          }
+        ]
+      },
+      "income": [
+        {
+          "id": "payroll",
+          "label": "Invented payroll",
+          "frequency": "biweekly",
+          "anchor": "2026-10-02",
+          "amount": 1000,
+          "confidence": "confirmed"
+        },
+        {
+          "id": "side",
+          "label": "Invented side income",
+          "frequency": "monthly",
+          "day": 30,
+          "firstDue": "2026-10-30",
+          "amount": 400,
+          "confidence": "confirmed"
+        }
+      ],
+      "bills": [
+        {
+          "id": "b1",
+          "label": "Synthetic bill",
+          "frequency": "monthly",
+          "day": 20,
+          "amount": 120,
+          "confidence": "confirmed"
+        },
+        {
+          "id": "card-service",
+          "label": "Invented card-paid service",
+          "frequency": "monthly",
+          "day": 12,
+          "amount": 15,
+          "confidence": "estimated",
+          "payingAccount": "card"
+        }
+      ],
+      "obligations": [
+        {
+          "id": "card-min",
+          "debtId": "card",
+          "effect": "payment",
+          "label": "Invented card minimum",
+          "frequency": "monthly",
+          "day": 18,
+          "amount": 25,
+          "confidence": "estimated",
+          "payingAccount": "chequing-a"
+        }
+      ],
+      "commitments": [],
+      "budget": {
+        "categories": []
+      }
+    },
+    "liveOverlay": {
+      "applied": true,
+      "operatingPlan": "live",
+      "currentPeriodActuals": {
+        "schema": "atlas-current-period-actuals/v1",
+        "observationAsOf": "2026-10-07",
+        "coverageStart": "2026-09-01",
+        "coverageThrough": "2026-10-07",
+        "pendingCoverage": "complete",
+        "transactionCoverage": "complete",
+        "representedActuals": [],
+        "transactions": [
+          {
+            "currency": "CAD",
+            "id": "early-1",
+            "date": "2026-10-01",
+            "amount": -1400,
+            "pending": false,
+            "isIncome": true,
+            "savingsPostingEvidence": "posted",
+            "categoryLabel": "Other Income",
+            "excludeFromTotals": false,
+            "excludeFromBudget": false,
+            "accountRole": "household-cash",
+            "atlasAccountId": "chequing-a",
+            "account": "chequing-a",
+            "payee": "Invented payer",
+            "displayedPayee": "Invented payer",
+            "merchantKnown": true,
+            "isGroup": false,
+            "parentId": null
+          }
+        ]
+      }
+    }
+  }
+}
