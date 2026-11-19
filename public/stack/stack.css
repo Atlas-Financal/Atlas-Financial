@@ -1,0 +1,89 @@
+/* Stack Wallet page (B1 shell). Loaded only under ?view=stack (stack-shell.js adds it), and every rule is scoped to
+ * html.stack-view, so the current page is unaffected even if this file were loaded. Tokens follow the Stack Wallet
+ * design (invented-data artifact); the timeline block is light grey in light mode (lead call, 2026-11-19). */
+html.stack-view {
+  --stack-bg: #ecebe7; --stack-panel: #ffffff; --stack-ink: #121316; --stack-muted: #6c6d74;
+  --stack-wf: #ffffff; --stack-on: #121316; --stack-on2: rgba(18, 19, 22, .62); --stack-on-line: rgba(18, 19, 22, .13);
+  --stack-bills: #c6c9ff; --stack-budget: #dff06e; --stack-cards: #b4ead3; --stack-save: #ffcfb3; --stack-mort: #f5bfe3;
+  --stack-slab: #121316; --stack-slab-fg: #ffffff; --stack-slab-good: #dff06e; --stack-slab-bad: #ff9a8c;
+  --stack-t-bg: #dddcd6; --stack-t-fg: #121316; --stack-t-muted: #63646b; --stack-t-chip: #f1f0ec;
+  --stack-t-sel: #121316; --stack-t-selfg: #ffffff; --stack-t-neg: #c8372d;
+  --stack-lift: 0 -16px 30px -20px rgba(18, 19, 22, .35);
+  --stack-sans: "Outfit", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  html.stack-view:not([data-theme="light"]) {
+    --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3; --stack-wf: #f4f2ec;
+    --stack-t-bg: #17181d; --stack-t-fg: #f4f3ef; --stack-t-muted: #9a9ba3; --stack-t-chip: #33353d;
+    --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477;
+    --stack-lift: 0 -18px 34px -18px rgba(0, 0, 0, .7);
+  }
+}
+html.stack-view[data-theme="dark"] {
+  --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3; --stack-wf: #f4f2ec;
+  --stack-t-bg: #17181d; --stack-t-fg: #f4f3ef; --stack-t-muted: #9a9ba3; --stack-t-chip: #33353d;
+  --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477;
+  --stack-lift: 0 -18px 34px -18px rgba(0, 0, 0, .7);
+}
+
+/* The Stack page replaces the current page's content; the boot notice (loading, errors) stays visible. */
+html.stack-view body { background: var(--stack-bg); color: var(--stack-ink); font-family: var(--stack-sans); }
+html.stack-view .wrap > :not(#stack-root):not([data-boot-notice]) { display: none !important; }
+/* The site header copies the current page's "Last updated" line; the Stack page prints its own under the title. */
+html.stack-view .site-head [data-blend-updated] { display: none; }
+html.stack-view .stack-root {
+  box-sizing: border-box; max-width: 440px; margin: 0 auto; padding: 18px 0 48px;
+  display: flex; flex-direction: column; gap: 14px; -webkit-font-smoothing: antialiased; width: 100%; min-width: 0;
+}
+html.stack-view .stack-root *, html.stack-view .stack-root *::before, html.stack-view .stack-root *::after { box-sizing: border-box; }
+html.stack-view .stack-root button {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit;
+}
+html.stack-view .stack-root button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 12px; }
+
+html.stack-view .stack-top { padding-top: 4px; }
+html.stack-view .stack-top h1 { margin: 0; font-size: 46px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+html.stack-view .stack-updated { margin: 8px 0 0; font-size: 13.5px; color: var(--stack-muted); }
+html.stack-view .stack-updated:empty { display: none; }
+
+/* The pile: each block overlaps the one above it. An empty block (a placeholder) takes no space. */
+html.stack-view .stack-pile { display: flex; flex-direction: column; min-width: 0; }
+html.stack-view .stack-block { position: relative; min-width: 0; border-radius: 38px; margin-top: -38px; box-shadow: var(--stack-lift); }
+html.stack-view .stack-block:first-child { margin-top: 0; box-shadow: none; }
+html.stack-view .stack-block:empty { display: none; }
+
+/* Block 1, the timeline. */
+html.stack-view .stack-tl { background: var(--stack-t-bg); color: var(--stack-t-fg); padding: 16px 12px 52px; }
+html.stack-view .stack-tl:last-child { padding-bottom: 16px; }
+html.stack-view .stack-tl-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 6px 10px; }
+html.stack-view .stack-tl-word { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--stack-t-muted); }
+html.stack-view .stack-root .stack-now {
+  font-size: 12px; font-weight: 700; color: var(--stack-t-fg); border-radius: 999px; padding: 4px 11px;
+  box-shadow: inset 0 0 0 1.5px var(--stack-t-chip);
+}
+html.stack-view .stack-chips {
+  display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity;
+  margin: 0 -12px; padding: 2px 12px;
+}
+html.stack-view .stack-chips::-webkit-scrollbar { display: none; }
+html.stack-view .stack-chip {
+  flex: none; min-width: 58px; padding: 9px 6px 6px; scroll-snap-align: center; border-radius: 15px;
+  background: var(--stack-t-chip); display: flex; flex-direction: column; align-items: center; gap: 1px;
+  transition: background-color .25s, color .25s;
+}
+html.stack-view .stack-chip::after { content: ""; width: 5px; height: 5px; border-radius: 50%; margin-top: 3px; }
+html.stack-view .stack-chip.is-now::after { background: currentColor; }
+html.stack-view .stack-chip-date { font-size: 11px; font-weight: 600; color: var(--stack-t-muted); white-space: nowrap; }
+html.stack-view .stack-chip-value {
+  min-height: 1.3em; font-size: 13px; font-weight: 800; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+html.stack-view .stack-chip-value.is-neg { color: var(--stack-t-neg); }
+html.stack-view .stack-chip[aria-pressed="true"] { background: var(--stack-t-sel); color: var(--stack-t-selfg); }
+html.stack-view .stack-chip.is-neg[aria-pressed="true"] { background: var(--stack-t-neg); }
+html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-date,
+html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-value.is-neg { color: inherit; }
+html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-date { opacity: .7; }
+
+@media (max-width: 472px) { html.stack-view .stack-root { padding-left: 16px; padding-right: 16px; } }
+@media (prefers-reduced-motion: reduce) { html.stack-view .stack-chip { transition: none; } }

@@ -1,0 +1,104 @@
+'use strict';
+/* B1, the Stack Wallet page shell: the static and no-flag guarantees, checked in CI without a browser.
+ * (test/browser-stack-shell.js is the real-browser proof: no-flag body identical, chips print published values only.)
+ *
+ *   1. Without ?view=stack, stack-shell.js defines window.StackBlocks and touches nothing else: no element, class,
+ *      stylesheet, App hook or listener. The four block placeholders only register a no-op.
+ *   2. With ?view=stack it registers exactly one App render hook and adds the two Stack stylesheets.
+ *   3. Every rule in public/stack/stack.css is scoped to html.stack-view, so the file cannot restyle the current page.
+ *   4. index.html loads the shell and then the four block files, after every current script.
+ *   5. L-001: the shell prints money only from stackSummary.surplus.amount; it does no arithmetic on a figure.
+ * `node test/test-stack-shell.js`
+ */
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const root = path.join(__dirname, '..');
+const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
+let checks = 0;
+const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
+const BLOCKS = ['waterfall', 'cards', 'credit', 'sheet'];
+
+function sandbox(search) {
+  const touched = [];
+  const trap = name => new Proxy(function () {}, { get: (_t, key) => { touched.push(name + '.' + String(key)); return trap(name + '.' + String(key)); },
+    apply: () => { touched.push(name + '()'); return trap(name + '()'); } });
+  const hooks = [];
+  const ctx = { console, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON,
+    location: { search }, document: search.includes('view=stack') ? {
+      documentElement: { classList: { add: c => touched.push('class:' + c) } },
+      head: { appendChild: el => touched.push('link:' + el.href) },
+      createElement: () => ({}), querySelector: () => null, getElementById: () => null, body: null,
+    } : trap('document'),
+    App: { register: fn => hooks.push(fn) } };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(read('public/stack/stack-shell.js'), ctx);
+  for (const name of BLOCKS) vm.runInContext(read(`public/stack/stack-${name}.js`), ctx);
+  return { ctx, touched, hooks };
+}
+
+console.log('1. no flag');
+{
+  const { ctx, touched, hooks } = sandbox('');
+  ok(typeof ctx.window.StackBlocks.register === 'function', 'window.StackBlocks is defined for the block files');
+  ok(touched.length === 0, 'the document is never touched', touched.join(', '));
+  ok(hooks.length === 0, 'no App render hook is registered');
+  ok(ctx.window.StackBlocks.names().join() === BLOCKS.join(), 'each placeholder registers its own block name', ctx.window.StackBlocks.names().join());
+  const other = sandbox('?view=classic');
+  ok(other.touched.length === 0 && other.hooks.length === 0, 'any other view value is the current page too');
+}
+
+console.log('2. ?view=stack');
+{
+  const { touched, hooks } = sandbox('?view=stack');
+  ok(hooks.length === 1, 'exactly one App render hook is registered');
+  ok(touched.join() === 'class:stack-view,link:/budget-stack-fonts.css,link:/stack/stack.css',
+    'the page is marked and the font and Stack stylesheets are added, nothing more', touched.join());
+}
+
+console.log('3. the stylesheet is scoped');
+{
+  const css = read('public/stack/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const selectors = [];
+  const walk = text => {
+    let depth = 0, start = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === '{') {
+        const head = text.slice(start, i).trim();
+        if (depth === 0 && head.startsWith('@media')) { const end = matching(text, i); walk(text.slice(i + 1, end)); i = end; start = i + 1; continue; }
+        if (depth === 0) selectors.push(...head.split(',').map(s => s.trim()));
+        depth++;
+      } else if (text[i] === '}') { depth--; if (depth === 0) start = i + 1; }
+    }
+  };
+  const matching = (text, open) => { let d = 0; for (let i = open; i < text.length; i++) { if (text[i] === '{') d++; else if (text[i] === '}' && --d === 0) return i; } return text.length; };
+  walk(css);
+  const loose = selectors.filter(s => s && !s.startsWith('html.stack-view'));
+  ok(selectors.length > 20 && loose.length === 0, `all ${selectors.length} selectors start with html.stack-view`, loose.join(' | '));
+}
+
+console.log('4. index.html');
+{
+  const html = read('public/index.html');
+  const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
+  const want = ['/stack/stack-shell.js', ...BLOCKS.map(n => `/stack/stack-${n}.js`)];
+  ok(JSON.stringify(scripts.slice(-5)) === JSON.stringify(want), 'the shell and then the four block files load last', scripts.slice(-5).join(' '));
+  ok(!/stack\.css|budget-stack-fonts/.test(html), 'index.html links no Stack stylesheet (the shell adds them only under the flag)');
+}
+
+console.log('5. L-001: no arithmetic on money in the shell');
+{
+  const src = read('public/stack/stack-shell.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const lines = src.split('\n').filter(line => /\.amount\b/.test(line));
+  ok(lines.length === 1 && /s && typeof s\.amount === 'number' && Number\.isFinite\(s\.amount\) \? s\.amount : null/.test(lines[0]),
+    'the only figure read is stackSummary.surplus.amount, passed through as published');
+  // An operator applied to a figure: a +, -, * or / with whitespace or a bracket before it (so an attribute name such as
+  // data-stack-chip-amount is not one), next to amount, view.<field> or v.<field>.
+  ok(!/\.reduce\(|Math\.(round|abs|floor|ceil)\(|[\s)][+\-*/]\s*(amount\b|view\.|v\.)|\b(amount|view\.\w+|v\.\w+)\s*[+\-*/]\s/.test(src),
+    'no sum, rounding or arithmetic on a figure');
+}
+
+console.log(`\nPASS Stack shell static checks (${checks})`);
