@@ -128,12 +128,16 @@ console.log('Identity is required: payee, mapped account, debit');
     JSON.stringify(candidateOf(res, 'Invented hydro')));
 }
 
-console.log('Pending cash keeps its incumbent path');
+// Lead ruling 2026-11-19: a lone pending identity debit near the due date is
+// now held To confirm on the bill, marked pendingDebit (proved end to end by
+// test/test-lone-pending-bill-payment-once.js).
+console.log('A lone pending identity debit is held, marked pending');
 {
   const res = run([{ ...HYDRO }], [H.lm({ date: '2026-10-13', amount: 90, category: 'Utilities', account: 'chequing-a',
     payee: 'Invented hydro', pending: true })]);
-  ok(candidateOf(res, 'Invented hydro') === null, 'a pending identity debit near the due date is not held',
-    JSON.stringify(candidateOf(res, 'Invented hydro')));
+  const c = candidateOf(res, 'Invented hydro');
+  ok(c && c.id === 'hydro' && c.date === '2026-10-12' && c.pendingDebit === true,
+    'a lone pending identity debit near the due date is held on the bill, marked pendingDebit', JSON.stringify(c));
 }
 
 console.log('Same-day matching is unchanged');
