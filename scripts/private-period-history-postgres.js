@@ -64,9 +64,13 @@ const PUBLICATION = Object.freeze({
 });
 const TERMS = Object.freeze({
   predictedEndingBalanceTerms: { periodIncome: NUM, assignedBills: NUM, householdBudgetHold: NUM,
-    savingsItemSpending: NUM, heldOutflowSpending: NUM, balanceAfterDeductions: NUM, identity: STR, closes: BOOL },
+    savingsItemSpending: NUM, heldOutflowSpending: NUM, manualCardPaymentBeyondMinimum: NUM,
+    balanceAfterDeductions: NUM, identity: STR, closes: BOOL },
   plannedPeriodCloseTerms: { opening: NUM, incomeAdded: NUM, periodBillLoad: NUM, budgetHold: NUM,
     annualSavingsNeed: NUM, earlierCardPurchaseReserve: NUM, savingsItemSpending: NUM, heldOutflowSpending: NUM,
+    // Grok Bot (Plan #6; lead, 2026-11-19): grows like #1389's ROWS. An older
+    // record without it reads it as absent, never 0, and its own terms close.
+    manualCardPaymentBeyondMinimum: NUM,
     identity: STR, deficit: BOOL },
 });
 // Plan-defined rows only. Transaction-level `recon` / `pendingRecon` lists,

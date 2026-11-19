@@ -2087,6 +2087,30 @@
     }
     return out;
   }
+  // Grok Bot (Plan #6, 1795043398.586159): manual-card (MBNA, Triangle)
+  // payments beyond the minimum on this cycle, as the card ledger allocated
+  // them (reconcileCardPurchases' payDownBeyondMinimum). Read, never
+  // recomputed: one authority. Posted cash debits dated in the cycle only.
+  function manualCardBeyondMinimumCycle(coverage, cycle, asOf) {
+    const out = { cents: 0, rows: [] };
+    if (!coverage || !cycle || !savingsDate(cycle.start)) return out;
+    const through = savingsDate(cycle.end) && cycle.end < asOf ? cycle.end : asOf;
+    const byCard = new Map();
+    for (const row of Array.isArray(coverage.payDownBeyondMinimum) ? coverage.payDownBeyondMinimum : []) {
+      if (!row || !savingsDate(row.date) || row.date < cycle.start || row.date > through) continue;
+      const cents = savingsCents(row.amount, true);
+      if (cents == null) return null;
+      if (!(cents > 0)) continue;
+      out.cents += cents;
+      const entry = byCard.get(row.account) || { account: row.account, accountLabel: row.accountLabel || null, cents: 0, count: 0 };
+      entry.cents += cents; entry.count += 1;
+      byCard.set(row.account, entry);
+    }
+    if (!Number.isSafeInteger(out.cents)) return null;
+    out.rows = Array.from(byCard.values()).sort((a, b) => a.account.localeCompare(b.account))
+      .map(({ cents, ...row }) => ({ ...row, amount: cents / 100 }));
+    return out;
+  }
   function savingsInventory(plan, asOf, opts) {
     const settlementEvidence = opts ? opts.settlementEvidence : null;
     const config = savingsEarmarksState(plan, asOf);
@@ -13853,7 +13877,8 @@
       && [terms.opening, terms.incomeAdded, terms.periodBillLoad, terms.budgetHold, terms.annualSavingsNeed,
         ...(Object.hasOwn(terms, 'earlierCardPurchaseReserve') ? [terms.earlierCardPurchaseReserve] : []),
         ...(Object.hasOwn(terms, 'savingsItemSpending') ? [terms.savingsItemSpending] : []),
-        ...(Object.hasOwn(terms, 'heldOutflowSpending') ? [terms.heldOutflowSpending] : [])]
+        ...(Object.hasOwn(terms, 'heldOutflowSpending') ? [terms.heldOutflowSpending] : []),
+        ...(Object.hasOwn(terms, 'manualCardPaymentBeyondMinimum') ? [terms.manualCardPaymentBeyondMinimum] : [])]
         .every(v => typeof v === 'number' && Number.isFinite(v));
     if (!known) {
       return { plannedPeriodClose: null, plannedPeriodCloseTrust: 'unknown', plannedPeriodCloseTerms: null,
@@ -13875,7 +13900,8 @@
         ? 'opening-plus-income-minus-bills-budget-annual-savings-and-earlier-card-purchase-reserve'
         : 'opening-plus-income-minus-bills-budget-and-annual-savings')
           + (Object.hasOwn(terms, 'savingsItemSpending') ? '-and-savings-item-spending' : '')
-          + (Object.hasOwn(terms, 'heldOutflowSpending') ? '-and-held-outflow-spending' : ''),
+          + (Object.hasOwn(terms, 'heldOutflowSpending') ? '-and-held-outflow-spending' : '')
+          + (Object.hasOwn(terms, 'manualCardPaymentBeyondMinimum') ? '-and-manual-card-payment-beyond-minimum' : ''),
         deficit: close < 0 },
       // Every estimate source carries its own reason; one never hides another.
       plannedPeriodCloseReason: [
@@ -13889,7 +13915,7 @@
 
   function composeBalanceAfterDeductionsTerms(
     periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0,
-    heldOutflowSpending = 0
+    heldOutflowSpending = 0, manualCardPaymentBeyondMinimum = 0
   ) {
     if (periodIncome == null || assignedBills == null
         || householdBudgetHold == null || balanceAfterDeductions == null) {
@@ -13905,13 +13931,15 @@
     const remainder = roundCent(balanceAfterDeductions);
     const item = roundCent(Number(savingsItemSpending) || 0);
     const held = roundCent(Number(heldOutflowSpending) || 0);
-    const reconstructed = roundCent(income - bills - hold - item - held);
+    const beyond = roundCent(Number(manualCardPaymentBeyondMinimum) || 0);
+    const reconstructed = roundCent(income - bills - hold - item - held - beyond);
     return {
       periodIncome: income,
       assignedBills: bills,
       householdBudgetHold: hold,
       ...(item > 0 ? { savingsItemSpending: item } : {}),
       ...(held > 0 ? { heldOutflowSpending: held } : {}),
+      ...(beyond > 0 ? { manualCardPaymentBeyondMinimum: beyond } : {}),
       balanceAfterDeductions: remainder,
       identity: 'balance-after-deductions',
       closes: Math.abs(reconstructed - remainder) <= 0.005,
@@ -14767,6 +14795,14 @@
     const derivedPolicy = aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, opening: policy.opening,
       payments: [], refunds: [], reversals: [] } : null;
     const aggregatePeriods = [], minimumCoverage = [], savingsFundedByRef = new Map();
+    // Grok Bot (Plan #6, 1795043398.586159; lead, 2026-11-19): the part of a
+    // pay-down (manual) card payment above that card's minimum in its pay
+    // period, or the whole payment when no minimum is due, left household
+    // cash and pays existing debt. This walk is its one authority: the same
+    // minimum-first allocation that settles the minimum. MBNA counts it only
+    // in a pay period whose manual account holds no posted purchase (one
+    // source per card per period); Triangle always.
+    const payDownBeyond = [], payDownActivity = new Map();
     if (aggregate) {
       for (const key of ['payments', 'refunds', 'reversals']) {
         if (policy[key] != null && !(Array.isArray(policy[key]) && policy[key].length === 0)) issue('coverage-records-invalid');
@@ -14801,6 +14837,13 @@
           continue;
         }
         if (card && payDownOnly.has(cardId(tx)) && counted) {
+          // A posted purchase on the manual account (by account and posting
+          // state only, never a merchant): that card's period has its own source.
+          const activityCents = money(tx), activityStart = periodOf(tx.date);
+          if (tx.pending === false && activityCents != null && activityCents > 0 && activityStart) {
+            if (!payDownActivity.has(cardId(tx))) payDownActivity.set(cardId(tx), new Set());
+            payDownActivity.get(cardId(tx)).add(activityStart);
+          }
           issue('coverage-pay-down-card-activity-unexpected', tx.coverageRef); continue;
         }
         if (!card && !pay) continue;
@@ -15134,6 +15177,10 @@
             amount -= toMinimum;
             pair.minimumCents = toMinimum; pair.minimumParts = minimumParts;
             const { taken, left } = consume(state, amount, 'covered', 'aggregate-coverage');
+            if (payDownOnly.has(account) && left > 0
+              && !(account === 'mbna' && payDownActivity.get(account)?.has(start))) {
+              payDownBeyond.push({ account, accountLabel: label(account), date: pair.cash.tx.date, cents: left });
+            }
             // #843 finding 11: purchase cents a Savings leg paid. Those cents
             // already left the Savings pool; Bills never pays them.
             if (householdCashLocationId(pair.cash.tx) === DESIGNATED_RESERVE_ID || pair.cash.tx.accountRole === 'household-reserve') {
@@ -15493,6 +15540,7 @@
         ? 'Confirm the card-coverage opening, transaction units, and the account and direction of each card payment before using available cash.'
         : 'Confirm the card-coverage opening, transaction units and explicit purchase/payment links before using available cash.',
       ...(aggregate ? { rule: CARD_COVERAGE_AGGREGATE_RULE, periods: aggregatePeriods,
+        payDownBeyondMinimum: payDownBeyond.map(({ cents, ...row }) => ({ ...row, amount: cents / 100 })),
         minimumCoverage: minimumCoverage.map(({ paymentRefs, paymentIndexes, ...row }) => ({ ...row,
           paymentIds: paymentIndexes.filter(index => index != null).map(index => 'coverage-payment-' + (index + 1)) })) } : {}),
       reservedCash: issues.length ? null : knownReserve, knownObservedReserve: knownReserve,
@@ -16773,8 +16821,13 @@
         && (budget.spentReady === true || budget.coverageLost === true);
       const heldSpend = heldSpendComputed
         ? heldOutflowCycleSpend(plan, asOf, opts, budget.spendingCycle) : { cents: 0, count: 0 };
-      const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && budget.hold != null
-        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100) : null;
+      // Grok Bot (Plan #6, 1795043398.586159): manual-card payments beyond
+      // the minimum, deducted once as their own term (never To confirm).
+      const beyondMinimum = (role === 'active' || lookback) && !planUnavailable
+        ? manualCardBeyondMinimumCycle(cardCoverage, budget.spendingCycle, asOf) : { cents: 0, rows: [] };
+      const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && beyondMinimum != null
+        && budget.hold != null
+        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100 - beyondMinimum.cents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
@@ -16821,7 +16874,8 @@
         planUnavailable ? null : budget.hold,
         balanceAfterDeductions,
         itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0,
-        heldSpend?.cents > 0 ? heldSpend.cents / 100 : 0
+        heldSpend?.cents > 0 ? heldSpend.cents / 100 : 0,
+        beyondMinimum?.cents > 0 ? beyondMinimum.cents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && closeBillLoad != null
@@ -16841,9 +16895,9 @@
         ? readyCloseCardReserveCents(plan, asOf, opts, cardCoverage,
           assignedBillRows.filter(row => billBelongsOnPaydayWaterfall(row, openingAsOf, openingSource)), itemSpend?.refs) : 0;
       const cashAfterHouseholdBudget = cashAfterBills != null && !annualSavingsUnknown && !annualSnapshotCarryUnknown
-        && earlierCardReserve != null && itemSpend != null && heldSpend != null && budget.hold != null
+        && earlierCardReserve != null && itemSpend != null && heldSpend != null && beyondMinimum != null && budget.hold != null
         ? roundCent(cashAfterBills - budget.hold - annualSavingsNeed - earlierCardReserve / 100 - itemSpend.cents / 100
-          - heldSpend.cents / 100) : null;
+          - heldSpend.cents / 100 - beyondMinimum.cents / 100) : null;
       // PA-4a-2b option (b): under a card hold the active planned close and
       // its dependent carry consume ONE qualified result on the close's own
       // basis (the rows this close deducts, from its opening). Only a
@@ -17198,6 +17252,9 @@
           // card-minimum owner could not read a record; name what, never 0.
           ...(budget.heldOutflows.some(row => row && row.cardMinimumUnknown === true)
             ? { cardMinimumUnreadable: cardMinimumUnreadableNames(currentPeriodActualsPacket(opts)) } : {}) } } : {}),
+        // Grok Bot: the per-card rows the beyond-minimum term deducts once.
+        ...(!planUnavailable && beyondMinimum && beyondMinimum.rows.length
+          ? { manualCardPaymentsBeyondMinimum: { total: beyondMinimum.cents / 100, rows: beyondMinimum.rows } } : {}),
         // LEDGER A item 3: display only, never in a total (see calendarHouseholdBudget).
         ...(!planUnavailable && budget.unlinkedRefunds ? { unlinkedRefunds: budget.unlinkedRefunds } : {}),
         budgetHold: planUnavailable ? null : budget.hold,
@@ -17241,6 +17298,7 @@
           ...(earlierCardReserve > 0 ? { earlierCardPurchaseReserve: earlierCardReserve / 100 } : {}),
           ...(itemSpend?.cents > 0 ? { savingsItemSpending: itemSpend.cents / 100 } : {}),
           ...(heldSpend?.cents > 0 ? { heldOutflowSpending: heldSpend.cents / 100 } : {}),
+          ...(beyondMinimum?.cents > 0 ? { manualCardPaymentBeyondMinimum: beyondMinimum.cents / 100 } : {}),
         }, [plannedTermsTrust, annualSavingsNeedTrust, plannedOpeningTrust, ...(lookback ? [] : [cardCoverageTrust(cardCoverage)])],
         lookback || cardCoverage.status !== 'unavailable' ? 'none'
           : activeCardClose ? (activeCardClose.status === 'qualified' ? 'match'
