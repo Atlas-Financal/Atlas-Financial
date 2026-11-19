@@ -15,7 +15,9 @@
  *   4. answers are primitives (a string, a number), so no caller can mutate a
  *      remembered result;
  *   5. forecast.js still loads as a browser script (window.Forecast, no
- *      module), with the memo working there.
+ *      module), with the memo working there;
+ *   6. each memo stays within its 8,192-entry bound, clears when full, and
+ *      answers correctly across the clears.
  *
  * `node test/test-forecast-date-memo.js`
  */
@@ -130,6 +132,37 @@ console.log('5. forecast.js still loads as a browser script');
     ok(BF.addDays('2026-12-31', 1) === '2027-01-01' && BF.addDays('2026-12-31', 1) === '2027-01-01'
       && BF.diffDays('2026-02-27', '2026-03-01') === 2, 'the browser copy answers, first call and memo');
   }
+}
+
+console.log('6. Each memo stays within its 8,192-entry bound and clears');
+{
+  // A private copy whose Map is observed: the two memos are the Maps the
+  // module builds on first use of the date functions, after loading.
+  const source = fs.readFileSync(path.join(__dirname, '../public/forecast.js'), 'utf8');
+  const maps = [];
+  class ObservedMap extends Map { constructor(...args) { super(...args); maps.push(this); } }
+  const context = { module: { exports: {} }, Map: ObservedMap };
+  vm.runInNewContext(source, context, { filename: 'forecast-memo-bound.js' });
+  const P = context.module.exports;
+  const before = maps.length;
+  P.addDays('2026-01-01', 1);
+  const memos = maps.slice(before);
+  ok(memos.length === 2, 'first use builds exactly the two date memos', String(memos.length));
+  let maxSize = 0, cleared = 0, last = memos.map(m => m.size), wrong = 0;
+  let day = '2000-01-01';
+  for (let i = 0; i < 30000; i++) {
+    const got = P.addDays(day, i % 5);
+    if (got !== refAddDays(day, i % 5)) wrong++;
+    if (i % 5 === 4) day = refAddDays(day, 1);
+    memos.forEach((m, k) => {
+      maxSize = Math.max(maxSize, m.size);
+      if (m.size < last[k]) cleared++;
+      last[k] = m.size;
+    });
+  }
+  ok(maxSize === 8192, 'a memo reaches, and never exceeds, 8,192 entries', String(maxSize));
+  ok(cleared >= 1, 'a full memo clears and refills', String(cleared));
+  ok(wrong === 0, 'every answer across the clears matches the reference', String(wrong));
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} date-memo checks passed`);

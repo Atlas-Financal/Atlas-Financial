@@ -307,8 +307,10 @@
   // a string), so a cached result cannot be mutated by a caller. Only a
   // string date and a number offset are memoised; any other argument takes
   // the unmemoised path exactly as before. A call that throws is never
-  // cached: the error is raised before the store. A NaN from a malformed
-  // string is the same value either way. Each memo clears at its bound, so
+  // cached: the error is raised before the store. A malformed date string
+  // makes toUTC return NaN; that NaN is stored and returned like any other
+  // number (a hit is tested with === undefined, so NaN is still a hit), and
+  // addDays on it throws before storing. Each memo clears at its bound, so
   // a long-running process cannot grow it without limit. They are created on
   // first use, so loading the module constructs no Map of its own here.
   const DATE_MEMO_LIMIT = 8192;
