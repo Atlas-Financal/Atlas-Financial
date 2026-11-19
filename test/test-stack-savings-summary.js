@@ -225,7 +225,12 @@ console.log('6. The figures snapshot captures every published per-goal figure an
     const key = 'period.' + view.start + '.stackSavingsGoal.' + g.id + '.' + field;
     if (!Object.hasOwn(snap, key) || JSON.stringify(snap[key]) !== JSON.stringify(g[field])) missing++;
   }
-  ok(goals.length > 1 && missing === 0, 'each goal\'s needed, saved, period target and trust tags are captured as published', String(missing));
+  for (const [field, key] of [['needed', 'stackSavingsNeeded'], ['saved', 'stackSavingsSaved'], ['entitlement', 'stackSavingsEntitlement'],
+    ['trust', 'stackSavingsTrust'], ['entitlementTrust', 'stackSavingsEntitlementTrust'], ['completeness', 'stackSavingsCompleteness']]) {
+    const k = 'period.' + view.start + '.' + key;
+    if (!Object.hasOwn(snap, k) || JSON.stringify(snap[k]) !== JSON.stringify(sav(view).totals[field])) missing++;
+  }
+  ok(goals.length > 1 && missing === 0, 'every total and each goal\'s needed, saved, period target and trust tags are captured as published', String(missing));
   ok(snap['period.' + view.start + '.stackSavingsGoal.group:club.saved'] === 30
     && snap['period.' + view.start + '.stackSavingsGoal.group:club.periodTarget'] === 80, 'club saved 30 and target 80 are in the snapshot');
 }
