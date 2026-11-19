@@ -329,10 +329,12 @@ function roundTo(v) { return Math.round(v * 100) / 100; }
   ok(bills.current === ctl.current + 600 && bills.next === null && UNPROVEN.test(bills.nextReason),
     'combined, a posted 600 on Bills carried across the seed\'s positive sweep: the next close is withheld, not subtracted',
     JSON.stringify([bills, ctl]));
-  // The same 600 on Weekly is chequing too: after the sweep its membership is unproven as well.
+  // A sweep removes cash, not account scope: the carried seed is swept but still Bills-only, so the same 600 on Weekly
+  // is outside it and the next close equals the no-receipt control's.
   const weekly = carried('savings-chained-closes', { tx: otherIncome('2026-09-30', 600, 'chequing-b'), inSnapshot: true, observed: true });
-  ok(weekly.current === ctl.current + 600 && weekly.next === null && UNPROVEN.test(weekly.nextReason),
-    'combined, the 600 on Weekly across the positive sweep: withheld', JSON.stringify([weekly, ctl]));
+  ok(weekly.current === ctl.current + 600 && weekly.next === ctl.next && !UNPROVEN.test(weekly.nextReason),
+    'combined, the 600 on Weekly across the positive sweep: outside the swept Bills-only seed (next = control)',
+    JSON.stringify([weekly, ctl]));
   // A zero boundary credit (a 150 bill on Oct 12 leaves no surplus to sweep) keeps the Bills-stock seed. A 600 on Bills
   // before the snapshot is inside it: the next period adds the 400 leg once (next = control + 200). The same 600 on
   // Weekly is outside the Bills-only stock, though it is inside the pooled snapshot: the next close is the control's.
@@ -375,12 +377,42 @@ console.log('10. A two-hop carry across a sweep: membership is not inherited acr
   ok(pending.third === ctl.third, 'the same 1400 pending: outside on its own, Oct 30 stays known (= control)', JSON.stringify([pending, ctl]));
   const savings = carried('card-paid-clear', { ...opts, tx: { ...otherIncome('2026-10-01', 1400, 'savings'), accountRole: 'household-reserve' } });
   ok(savings.third === ctl.third, 'the same 1400 on Savings: outside every chequing seed, Oct 30 stays known (= control)', JSON.stringify([savings, ctl]));
+  // The same 1400 on Weekly: the carry keeps only the Bills share, and the Oct 16 sweep keeps that scope (swept, Bills
+  // only), so the Weekly leg is outside it and Oct 30 stays known (= control).
+  const weeklySwept = carried('card-paid-clear', { ...opts, tx: otherIncome('2026-10-01', 1400, 'chequing-b'), inSnapshot: true });
+  ok(weeklySwept.third === ctl.third && !UNPROVEN.test(weeklySwept.thirdReason),
+    'the same 1400 on Weekly across the positive sweep: outside the swept Bills-only seed, Oct 30 stays known (= control)',
+    JSON.stringify([weeklySwept, ctl]));
   // Zero sweep: a 5000 bill on Oct 20 leaves Oct 16 below zero, so nothing is swept and the seed is inherited. The 400
   // leg is inside it, so Oct 30 adds the side income once: Oct 30 = its control's.
   const ctl0 = carried('card-paid-clear', { ...opts, bill: 5000 });
   const kept = carried('card-paid-clear', { ...opts, bill: 5000, tx: otherIncome('2026-10-01', 1400), inSnapshot: true });
   ok(ctl0.nextSweep === 0 && Number.isFinite(ctl0.third) && kept.third === ctl0.third,
     'a zero sweep keeps the seed: the Oct 1 leg is inside, Oct 30 adds the side income once (= control)', JSON.stringify([kept, ctl0]));
+}
+
+console.log('10b. The swept seed and the null-provenance seed, directly');
+{
+  const posted = (account, extra = {}) => ({ date: '2026-10-01', amount: 400, pending: false, account, ...extra });
+  const swept = F.earlyReceiptSweptSeed({ kind: 'stock', asOf: '2026-10-07', accounts: ['chequing-a'], reconciled: true });
+  ok(swept && swept.kind === 'swept' && !swept.asOf && swept.accounts.join() === 'chequing-a',
+    'a positive sweep keeps the seed\'s account scope and drops its date proof', JSON.stringify(swept));
+  ok(F.earlyReceiptSweptSeed(null) === null, 'a null (untraced) seed stays null across a sweep');
+  ok(F.earlyReceiptLegMembership(posted('chequing-b'), swept) === 'outside'
+    && F.earlyReceiptLegMembership(posted('chequing-a'), swept) === 'unproven',
+    'swept Bills-only seed: a Weekly leg is outside, a Bills leg is unproven');
+  ok(F.earlyReceiptLegMembership(posted('savings'), swept) === 'outside'
+    && F.earlyReceiptLegMembership(posted('chequing-a', { pending: true }), swept) === 'outside',
+    'swept seed: a Savings leg and a pending leg are outside');
+  // A known bank-anchor opening (a nonzero-gap walk from a bank statement anchor) has no membership seed.
+  const anchorPlan = { opening: { asOf: '2026-09-29', cashReconstructionAnchor: { source: 'bank-statement' } } };
+  const seed = F.earlyReceiptOpeningSeed(anchorPlan, '2026-10-07', 'active', true, '2026-10-02', 'cutover-walk', null);
+  ok(seed === null, 'a known bank-anchor reconstruction opening gives a null membership seed', JSON.stringify(seed));
+  ok(F.earlyReceiptLegMembership(posted('chequing-a', { pending: true }), seed) === 'outside',
+    'null seed: a pending leg is still outside');
+  ok(F.earlyReceiptLegMembership(posted('savings'), seed) === 'outside', 'null seed: a known Savings leg is still outside');
+  ok(F.earlyReceiptLegMembership(posted('chequing-a'), seed) === 'unproven', 'null seed: an in-scope posted leg is unproven');
+  ok(F.earlyReceiptLegMembership(posted(null), seed) === 'unproven', 'null seed: a leg with no account is unproven');
 }
 
 console.log('11. Bank-anchor production path: a pending leg alone, or a Savings leg alone, leaves the known close known');

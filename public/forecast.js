@@ -10504,7 +10504,9 @@
   //          a leg before base is provably inside it;
   //  posted  a posted balance on asOf, which may or may not hold that day;
   //  stock   current qualified Bills stock on asOf, reconciled through asOf
-  //          (reconciled) or a direct posted balance.
+  //          (reconciled) or a direct posted balance;
+  //  swept   a carry after a positive sweep: only its accounts are known, so
+  //          a leg on another account is outside and an in-scope one unproven.
   // A pending leg is never in posted or frozen cash. A leg with a missing or
   // ambiguous account is not proof of anything.
   function earlyReceiptLegMembership(leg, seed) {
@@ -10515,8 +10517,11 @@
     if (leg.pending === true) return 'outside';
     if (leg.pending !== false || !leg.account) return 'unproven';
     if (!HOUSEHOLD_CHEQUING_IDS.includes(leg.account)) return 'outside';
-    if (!seed || !seed.asOf || !Array.isArray(seed.accounts)) return 'unproven';
+    if (!seed || !Array.isArray(seed.accounts)) return 'unproven';
     if (!seed.accounts.includes(leg.account)) return 'outside';
+    // A swept seed keeps only its account scope: an in-scope leg's date
+    // proof did not survive the cash that left (falls through to unproven).
+    if (!seed.asOf) return 'unproven';
     const d = leg.date;
     if (seed.kind === 'frozen') return d < seed.asOf ? 'inside' : 'outside';
     if (seed.kind === 'posted') return d < seed.asOf ? 'inside' : d === seed.asOf ? 'unproven' : 'outside';
@@ -10530,6 +10535,11 @@
       return 'outside';
     }
     return 'unproven';
+  }
+  // A seed after a positive sweep: the cash that left takes the date proof
+  // with it, not the account scope. An untraced (null) seed stays null.
+  function earlyReceiptSweptSeed(seed) {
+    return seed && Array.isArray(seed.accounts) ? { kind: 'swept', accounts: seed.accounts.slice() } : null;
   }
   // One occurrence row against a seed: the amount its legs already hold in
   // that cash, and whether any leg's membership is unproven.
@@ -17401,7 +17411,7 @@
             else {
               // The boundary credit is this seed's sweep: cash that leaves the
               // carry, so membership is not inherited across a positive one.
-              carriedLegSeed = credit > 0 ? null : stockSeed;
+              carriedLegSeed = credit > 0 ? earlyReceiptSweptSeed(stockSeed) : stockSeed;
               // Seed provenance: qualified Bills stock (calculated), the
               // selected future receipts, remaining bills net of the goal
               // rows the overlap restores exactly, remaining budget and the
@@ -17486,7 +17496,7 @@
           if (paydaySweep == null || earlyReceiptUnproven) openingChainLost = true;
           // A positive sweep moves cash out of the carry: membership is not
           // inherited across it, so a later leg on this carry is unproven.
-          if (previousEnding != null) carriedLegSeed = paydaySweep > 0 ? null : legSeed;
+          if (previousEnding != null) carriedLegSeed = paydaySweep > 0 ? earlyReceiptSweptSeed(legSeed) : legSeed;
           // remainder - max(0, remainder) is sign-sensitive, so every input
           // that can move the remainder stays a dependency, even when the
           // carry is zero. The annual provision is restored exactly (same
@@ -29753,7 +29763,7 @@
     };
   }
 
-  const Forecast = { cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
