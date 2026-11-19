@@ -150,6 +150,31 @@ console.log('3. The claim and gap checks stay cautious: unresolved cases keep th
     'a held pending inside the opening-to-payday gap leaves the gap unproven');
 }
 
+console.log('3b. Rows dated after the observation date (Oct 17) never veto the hold (Atlas blocker on #1400)');
+{
+  const futurePosted = serve([debit('2026-10-16', { pending: true }), debit('2026-10-18')]);
+  const fp = futurePosted.rows.find(r => r.pending);
+  ok(futurePosted.balance === 900 && held(fp) && fp.nearDue.pendingDebit === true && !fp.duplicate,
+    'a posted identity debit dated Oct 18: no veto, the Oct 16 pending is held once (900), not paired', String(futurePosted.balance));
+  const futurePending = serve([debit('2026-10-16', { pending: true }), debit('2026-10-18', { pending: true })]);
+  const cur = futurePending.rows.find(r => r.date === '2026-10-16'), fut = futurePending.rows.find(r => r.date === '2026-10-18');
+  ok(futurePending.balance === 900 && held(cur) && !fut.nearDue,
+    'a second pending dated Oct 18: no veto, the Oct 16 pending is held once (900); the future pending is not held',
+    JSON.stringify([futurePending.balance, fut.nearDue]));
+  const sameDayPosted = serve([debit('2026-10-13', { pending: true }), debit('2026-10-17', { amount: 400 })]);
+  ok(sameDayPosted.rows.every(r => !r.nearDue) && sameDayPosted.balance === 400,
+    'a posted identity debit dated on the observation date (Oct 17) still vetoes: neither held (400)', String(sameDayPosted.balance));
+  const sameDayPending = serve([debit('2026-10-14', { pending: true }), debit('2026-10-17', { pending: true })]);
+  ok(sameDayPending.rows.every(r => !r.nearDue) && sameDayPending.balance === 700,
+    'a second pending dated on the observation date still vetoes: neither held (700)', String(sameDayPending.balance));
+  // The posted settlement and pairing paths are unchanged: a posted payment
+  // on the due date settles PAID, and a future posted row is still never a copy.
+  const settledPaid = serve([debit('2026-10-15')]);
+  ok(settledPaid.balance === 900 && settledPaid.billIn(settledPaid.current, 'hydro')[0].status === 'PAID'
+    && JSON.stringify(settledPaid.paid) === JSON.stringify(['2026-10-15:posted']),
+  'the posted settlement path is unchanged: posted on the due date, PAID once (900)');
+}
+
 console.log('4. Cross-period carry matches the posted twin');
 {
   // Bill due Oct 23 (the next payday): the occurrence is in the next pay

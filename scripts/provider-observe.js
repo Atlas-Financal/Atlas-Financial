@@ -5920,8 +5920,13 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   const pendingCandidates = [];
   // Occurrences any posted identity debit within reach names, whatever the
   // gates below decide: a pending row beside one is never held (#1319's
-  // pairing or the incumbent path owns that pair).
+  // pairing or the incumbent path owns that pair). Like that pairing (Codex
+  // P2 on #1319) and Forecast's actuals, a row dated after the observation
+  // date is not yet evidence, so it never vetoes the hold (Atlas, #1400):
+  // this census, and the pending count below, read rows through observedOn.
   const postedNear = new Set();
+  const futurePosted = new Set();
+  const competingRow = date => !observedOn || date <= observedOn;
   for (const tx of collapsed || []) {
     if (tx && tx.pending === true) {
       if (tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) continue;
@@ -5943,7 +5948,7 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
         if (!near || near.off > near.reach) continue;
         found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays, off: near.off });
       }
-      pendingCandidates.push({ localId, amount, found });
+      pendingCandidates.push({ localId, amount, found, counts: competingRow(date) });
       continue;
     }
     // A posted row paired with its own pending copy (pendingPostedDuplicate)
@@ -5957,12 +5962,13 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
     const amount = lunchMoneyDebitAmount(tx.amount);
     const date = parseIsoDate(tx.date);
     if (!(Number.isFinite(amount) && amount > 0) || !date) continue;
+    if (!competingRow(date)) futurePosted.add(localId);
     const found = [];
     for (const rule of rules) {
       if (!mapping.canonical || mapping.canonical.id !== rule.atlasAccountId) continue;
       if (!ruleMatchesTransactionIdentity(tx, rule) || !ruleCurrencyQualified(tx, rule)) continue;
       const near = nearestBillOccurrence(plan, rule.eventId, date);
-      if (near && near.off <= near.reach) postedNear.add(rule.eventId + '@' + near.date);
+      if (near && near.off <= near.reach && competingRow(date)) postedNear.add(rule.eventId + '@' + near.date);
       // Same-day identity is the matcher's to settle or leave ambiguous.
       if (!near || near.off < 1 || near.off > near.reach) continue;
       found.push({ id: rule.eventId, date: near.date, offsetDays: near.offsetDays });
@@ -6045,13 +6051,17 @@ function nearDueBillCandidateIds(collapsed, opts, linkedLocalIds, existingLocalI
   // it is never read there as a posted payment.
   const pendingPerOccurrence = new Map();
   for (const c of pendingCandidates) {
+    if (!c.counts) continue;
     for (const f of c.found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i)) {
       const key = f.id + '@' + f.date;
       pendingPerOccurrence.set(key, (pendingPerOccurrence.get(key) || 0) + 1);
     }
   }
-  const heldOccurrences = new Set([...out.values()].map(f => f.id + '@' + f.date));
+  const heldOccurrences = new Set([...out].filter(([localId]) => !futurePosted.has(localId))
+    .map(([, f]) => f.id + '@' + f.date));
   for (const c of pendingCandidates) {
+    // A pending dated after the observation date is not yet evidence either.
+    if (!c.counts) continue;
     const unique = c.found.filter((f, i, all) => all.findIndex(g => g.id === f.id && g.date === f.date) === i);
     if (unique.length !== 1) continue;
     const f = unique[0];
