@@ -85,5 +85,17 @@ html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-date,
 html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-value.is-neg { color: inherit; }
 html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-date { opacity: .7; }
 
+/* Block 2's frame: the white block that holds the shell's period header and the waterfall block's own content. */
+html.stack-view .stack-wf-block { background: var(--stack-wf); color: var(--stack-on); padding: 22px 8px 50px; }
+html.stack-view .stack-wf-block:last-child { padding-bottom: 8px; }
+html.stack-view .stack-period-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 14px; }
+html.stack-view .stack-period-range { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -.035em; }
+html.stack-view .stack-period-when {
+  font-size: 12.5px; font-weight: 600; color: #ffffff; background: #121316; border-radius: 999px; padding: 6px 12px; white-space: nowrap;
+}
+/* Cards and credit draw their own coloured blocks; their sections are plain frames in the pile. */
+html.stack-view .stack-bare { box-shadow: none; border-radius: 0; }
+html.stack-view .stack-overlay:empty { display: none; }
+
 @media (max-width: 472px) { html.stack-view .stack-root { padding-left: 16px; padding-right: 16px; } }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-chip { transition: none; } }

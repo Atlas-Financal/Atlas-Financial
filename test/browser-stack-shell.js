@@ -108,6 +108,20 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const dates = views.map(v => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' })
       .format(new Date(v.start + 'T12:00:00Z')));
     ok(view.chips.every((c, i) => c.date === dates[i]), 'each chip shows its period start date');
+    const head = await page.evaluate(() => ({ range: document.querySelector('.stack-period-range').textContent,
+      when: document.querySelector('[data-stack-period-when]').textContent }));
+    const fmt = iso => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso + 'T12:00:00Z'));
+    const range = v => fmt(v.start) + ' \u2013 ' + (v.start.slice(0, 7) === v.end.slice(0, 7) ? String(Number(v.end.slice(8))) : fmt(v.end));
+    ok(head.range === range(active) && head.when === 'This pay period',
+      'the shell heads the selected period with its range and "This pay period"', JSON.stringify(head));
+    const sheets = await page.evaluate(() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => new URL(l.href).pathname)
+      .filter(p => p.startsWith('/stack/')));
+    ok(sheets.join() === ['/stack/stack.css', '/stack/stack-waterfall.css', '/stack/stack-cards.css', '/stack/stack-credit.css',
+      '/stack/stack-sheet.css'].join(), 'the shell and each block stylesheet are loaded under the flag', sheets.join());
+    const frame = await page.evaluate(() => ({ pile: [...document.querySelector('[data-stack-pile]').querySelectorAll('[data-stack-block]')]
+      .map(e => e.dataset.stackBlock), overlay: document.querySelector('[data-stack-block="sheet"]').closest('[data-stack-pile]') === null }));
+    ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,
+      'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
     ok(views.every(v => !(v.stackSummary && v.stackSummary.surplus)) && view.chips.every(c => c.amount === ''),
       'main publishes no surplus yet, so every chip prints nothing: never $0');
 
@@ -152,6 +166,9 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       pressed: [...document.querySelectorAll('[data-stack-period][aria-pressed="true"]')].map(c => c.dataset.stackPeriod),
       block: document.querySelector('[data-stack-block="waterfall"]').textContent }));
     const last = after.calls[after.calls.length - 1];
+    const lastView = views[views.length - 1];
+    const when = await page.evaluate(() => document.querySelector('[data-stack-period-when]').textContent);
+    ok(when === (lastView.role === 'lookback' ? 'Past' : 'Projected'), 'a future period is headed "Projected"', when);
     ok(after.pressed.join() === target && last.key === target && after.block === 'test block ' + target,
       'tapping a chip selects it and the block renders for that period', JSON.stringify(after.pressed));
     ok(last.keys === 'Forecast,data,plan,recommendation,selectedPeriodKey' && last.sameRec && last.plan && last.forecast,

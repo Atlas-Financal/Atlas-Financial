@@ -5,7 +5,8 @@
  *   1. Without ?view=stack, stack-shell.js defines window.StackBlocks and touches nothing else: no element, class,
  *      stylesheet, App hook or listener. The four block placeholders only register a no-op.
  *   2. With ?view=stack it registers exactly one App render hook and adds the two Stack stylesheets.
- *   3. Every rule in public/stack/stack.css is scoped to html.stack-view, so the file cannot restyle the current page.
+ *   3. Every rule in public/stack/stack.css and the four block stylesheets is scoped to html.stack-view, so none can
+ *      restyle the current page.
  *   4. index.html loads the shell and then the four block files, after every current script.
  *   5. L-001: the shell prints money only from stackSummary.surplus.amount; it does no arithmetic on a figure.
  * `node test/test-stack-shell.js`
@@ -30,7 +31,7 @@ function sandbox(search) {
     location: { search }, document: search.includes('view=stack') ? {
       documentElement: { classList: { add: c => touched.push('class:' + c) } },
       head: { appendChild: el => touched.push('link:' + el.href) },
-      createElement: () => ({}), querySelector: () => null, getElementById: () => null, body: null,
+      createElement: () => ({ addEventListener: () => {} }), querySelector: () => null, getElementById: () => null, body: null,
     } : trap('document'),
     App: { register: fn => hooks.push(fn) } };
   ctx.window = ctx;
@@ -55,13 +56,15 @@ console.log('2. ?view=stack');
 {
   const { touched, hooks } = sandbox('?view=stack');
   ok(hooks.length === 1, 'exactly one App render hook is registered');
-  ok(touched.join() === 'class:stack-view,link:/budget-stack-fonts.css,link:/stack/stack.css',
-    'the page is marked and the font and Stack stylesheets are added, nothing more', touched.join());
+  ok(touched.join() === ['class:stack-view', 'link:/budget-stack-fonts.css', 'link:/stack/stack.css',
+    ...BLOCKS.map(n => `link:/stack/stack-${n}.css`)].join(),
+  'the page is marked and the font, shell and four block stylesheets are added, nothing more', touched.join());
 }
 
 console.log('3. the stylesheet is scoped');
 {
-  const css = read('public/stack/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const css = ['stack', ...BLOCKS.map(n => 'stack-' + n)].map(f => read(`public/stack/${f}.css`)).join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
   const selectors = [];
   const walk = text => {
     let depth = 0, start = 0;
@@ -77,7 +80,7 @@ console.log('3. the stylesheet is scoped');
   const matching = (text, open) => { let d = 0; for (let i = open; i < text.length; i++) { if (text[i] === '{') d++; else if (text[i] === '}' && --d === 0) return i; } return text.length; };
   walk(css);
   const loose = selectors.filter(s => s && !s.startsWith('html.stack-view'));
-  ok(selectors.length > 20 && loose.length === 0, `all ${selectors.length} selectors start with html.stack-view`, loose.join(' | '));
+  ok(selectors.length > 20 && loose.length === 0, `all ${selectors.length} selectors in the shell and block stylesheets start with html.stack-view`, loose.join(' | '));
 }
 
 console.log('4. index.html');

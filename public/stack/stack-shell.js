@@ -35,10 +35,12 @@
 
   const root = document.documentElement;
   root.classList.add('stack-view');
-  for (const href of ['/budget-stack-fonts.css', '/stack/stack.css']) {
+  // The shell's stylesheet (tokens, pile, header, timeline), then one stylesheet per block, each owned by its block.
+  for (const href of ['/budget-stack-fonts.css', '/stack/stack.css', ...ORDER.map(name => `/stack/stack-${name}.css`)]) {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = href;
+    if (href === '/stack/stack.css') link.addEventListener('load', () => centreNow());
     document.head.appendChild(link);
   }
 
@@ -90,6 +92,30 @@
       + `<div class="stack-chips" data-stack-chips>${chips}</div>`;
   }
 
+  // The selected period's range and when-label (design: "This pay period", "Last pay period", "Past", "Projected").
+  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  function rangeLabel(view) {
+    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
+    if (!ok(view.start)) return '';
+    const a = new Date(`${view.start}T12:00:00Z`);
+    if (!ok(view.end)) return rangeDate.format(a);
+    const b = new Date(`${view.end}T12:00:00Z`);
+    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
+      ? String(b.getUTCDate()) : rangeDate.format(b));
+  }
+  function whenLabel(view, list) {
+    if (view.role === 'active') return 'This pay period';
+    const at = list.indexOf(view), now = list.findIndex(v => v.role === 'active');
+    if (view.role === 'lookback') return now > 0 && at === now - 1 ? 'Last pay period' : 'Past';
+    return 'Projected';
+  }
+  function periodHeadHtml() {
+    const list = views(), view = list.find(v => keyOf(v) === state.selectedPeriodKey);
+    if (!view) return '';
+    return `<h2 class="stack-period-range">${esc(rangeLabel(view))}</h2>`
+      + `<span class="stack-period-when" data-stack-period-when>${esc(whenLabel(view, list))}</span>`;
+  }
+
   function context() {
     return { data: state.data, plan: state.data && state.data.plan, recommendation: state.recommendation,
       selectedPeriodKey: state.selectedPeriodKey, Forecast: typeof Forecast !== 'undefined' ? Forecast : null };
@@ -104,7 +130,14 @@
     el.innerHTML = '<header class="stack-top"><h1>Budget</h1><p class="stack-updated" data-stack-updated></p></header>'
       + '<div class="stack-pile" data-stack-pile><section class="stack-block stack-tl" data-stack-block="timeline"'
       + ' aria-label="Pay periods"></section>'
-      + ORDER.map(name => `<section class="stack-block" data-stack-block="${name}"></section>`).join('') + '</div>';
+      // The waterfall sits under the shell's period header (range and when-label) in one white block; the block
+      // renders only its own content into the div. Cards and credit render into their own sections.
+      + '<section class="stack-block stack-wf-block"><header class="stack-period-head" data-stack-period-head></header>'
+      + '<div data-stack-block="waterfall"></div></section>'
+      + '<section class="stack-block stack-bare" data-stack-block="cards"></section>'
+      + '<section class="stack-block stack-bare" data-stack-block="credit"></section></div>'
+      // The sheet is an overlay, outside the pile.
+      + '<div class="stack-overlay" data-stack-block="sheet"></div>';
     (document.querySelector('.wrap') || document.body).appendChild(el);
     el.addEventListener('click', event => {
       const chip = event.target.closest('[data-stack-period]');
@@ -122,14 +155,21 @@
   }
 
   // Keep the chip row where it was across renders; centre the selected chip the first time and after a tap.
+  // Layout positions, not figures: the chip's offset in the row. Re-run once the stylesheets have loaded, since a
+  // render before then measures an unstyled row.
   let centre = true;
+  function centreNow() {
+    const row = document.querySelector('#stack-root [data-stack-chips]');
+    const chip = row && row.querySelector('[aria-pressed="true"]');
+    if (row && chip) row.scrollLeft = chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2;
+  }
   function centerSelected(row, scrollLeft) {
     if (!row) return;
     if (scrollLeft != null) row.scrollLeft = scrollLeft;
-    const chip = row.querySelector('[aria-pressed="true"]');
-    if (!centre || !chip) return;
+    if (!centre) return;
     centre = false;
-    row.scrollLeft = chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2;
+    centreNow();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(centreNow);
   }
 
   function renderAll() {
@@ -140,6 +180,7 @@
     const scrollLeft = previous ? previous.scrollLeft : null;
     timeline.innerHTML = timelineHtml();
     centerSelected(timeline.querySelector('[data-stack-chips]'), scrollLeft);
+    el.querySelector('[data-stack-period-head]').innerHTML = periodHeadHtml();
     const ctx = context();
     for (const name of ORDER) {
       const container = el.querySelector(`[data-stack-block="${name}"]`);
