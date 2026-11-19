@@ -32,8 +32,8 @@ const mod = require(file);
 assert.strictEqual(typeof registered.cards, 'function', 'registers as cards');
 const { buildCardsHTML } = mod;
 
-const fmt = n => (n < 0 ? '−' : '') + '$' + Math.abs(n).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const amounts = html => (html.replace(/<[^>]+>/g, ' ').match(/−?\$[\d,]+\.\d\d/g) || []);
+const fmt = n => { const w = Math.round(Math.abs(n) * 100) % 100 === 0; return (n < 0 ? '−' : '') + '$' + Math.abs(n).toLocaleString('en-CA', { minimumFractionDigits: w ? 0 : 2, maximumFractionDigits: w ? 0 : 2 }); };
+const amounts = html => (html.replace(/<[^>]+>/g, ' ').match(/−?\$[\d,]+(?:\.\d\d)?/g) || []);
 
 // 1. every printed amount equals a published value it names; nothing computed
 const html = buildCardsHTML(ctx(view));
@@ -76,7 +76,7 @@ assert.strictEqual(buildCardsHTML(ctx(view, 'zzz')), '', 'unknown period renders
 assert.strictEqual(buildCardsHTML(null), '');
 // a published zero is a real value and prints
 const z = JSON.parse(JSON.stringify(view)); z.stackSummary.bills.other = 0;
-assert(buildCardsHTML(ctx(z)).includes('$0.00'));
+assert(buildCardsHTML(ctx(z)).includes('$0<'));
 
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));

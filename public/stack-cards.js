@@ -30,7 +30,9 @@
   // Formatting only: prints the published number as dollars. No arithmetic.
   function money(v) {
     if (!isNum(v)) return null;
-    var s = Math.abs(v).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // A whole-dollar value prints without cents ($0, $350); any cents still print.
+    var whole = Math.round(Math.abs(v) * 100) % 100 === 0;
+    var s = Math.abs(v).toLocaleString('en-CA', { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2 });
     return (v < 0 ? '−' : '') + '$' + s;
   }
 
