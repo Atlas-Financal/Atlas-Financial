@@ -100,6 +100,10 @@ function observe(input) {
     // Stable identity is consumed once across all owner allocations, not only
     // the occurrence currently selected by the provider lookup window.
     const owned = ownerDebits.has(debitId);
+    // Pending evidence is label-only: it never reaches ownership, allocation or
+    // disagreements. A pending debit the owner already records leaves the owner
+    // result as it is and gets no Payment pending label.
+    if (pendingCandidate && owned) continue;
     if (!owned && alreadyAllocated?.(tx)) continue;
     const rows = (plan.obligations || []).filter(r => r.debtId === debtId
       && r.effect === 'payment' && !r.nonCash && r.payingAccount === map.canonical.id

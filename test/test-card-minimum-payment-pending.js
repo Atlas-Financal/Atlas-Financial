@@ -9,6 +9,7 @@
 //
 // `node test/test-card-minimum-payment-pending.js`
 const assert = require('node:assert/strict');
+const crypto = require('crypto');
 const F = require('../public/forecast');
 const O = require('../scripts/provider-observe');
 const Live = require('../scripts/live-plan');
@@ -20,7 +21,7 @@ let checks = 0;
 const ok = (value, label) => { assert.ok(value, label); checks++; };
 const eq = (a, b, label) => { assert.deepEqual(a, b, label); checks++; };
 
-function fixture(tx) {
+function fixture(tx, edit) {
   const card = 'triangle', id = card;
   const x = source(card, id), name = Object.keys(Category.CATEGORIES).find(k => Category.CATEGORIES[k] === card);
   x.data.meta.asOf = x.data.plan.opening.asOf = '2035-10-01';
@@ -42,10 +43,11 @@ function fixture(tx) {
   x.payload.transactions = tx.map(t => ({ account_id: 3001, date: '2035-10-05', amount: 49.37,
     currency: 'cad', payee: 'CAN TIRE MC', category_id: 9001, status: 'reviewed', ...t }));
   x.asOf = NOW;
+  if (edit) edit(x);
   return x;
 }
-function run(tx) {
-  const x = fixture(tx), live = Live.fromObservation(x);
+function run(tx, edit) {
+  const x = fixture(tx, edit), live = Live.fromObservation(x);
   const advice = F.recommend(live.data.plan, NOW, { debts: live.data.debts,
     currentPeriodActuals: live.report.currentPeriodActuals });
   const row = advice.defaultView.bills.find(b => b.id === x.eventId && b.date === DUE);
@@ -96,5 +98,41 @@ ok(!Object.hasOwn(noted.evidence, 'pendingPayments') && noted.row.status !== 'pe
 const twice = run([{ id: 98001, is_pending: true }, { id: 98002, is_pending: true }]);
 ok(!Object.hasOwn(twice.evidence, 'pendingPayments') && twice.row.status !== 'pending',
   'P5 two pending debits for one occurrence: not listed');
+
+// P6 a pending categorized debit whose hash the owner already records for a
+// different occurrence (Atlas BLOCKERS on 3dc564d3). Pending evidence is
+// label-only: the owner record, the owned debit and every figure stay exactly
+// as in the owner-only world, and no disagreement or pending label appears.
+const PRIOR = '2035-09-07';
+const DEBIT = crypto.createHash('sha256').update(Category.SOURCE + ':98001').digest('hex');
+const ownerRecord = x => {
+  const row = x.data.plan.obligations[0];
+  row.firstDue = PRIOR;
+  row.statementOccurrences.unshift({ scheduledDate: PRIOR, dueDate: PRIOR,
+    minimum: 29.31, currency: 'cad', confidence: 'confirmed' });
+  row.sentPayments = [{ scheduledDate: PRIOR, confirmed: true, intent: 'minimum', debitId: DEBIT,
+    postedOn: '2035-10-05', amount: 49.37, currency: 'cad', fundingAccountId: 'chequing-a',
+    pending: false, cashIncludedAsOf: NOW }];
+  x.data.plan.opening.representedEvents = [{ id: row.id, date: PRIOR, effectiveAsOf: NOW }];
+};
+const ownerOnly = run([], ownerRecord);
+const ownerAndPending = run([{ id: 98001, is_pending: true }], ownerRecord);
+const ownerState = r => F.cardMinimumState(r.live.data.plan, NOW);
+ok(ownerState(ownerOnly).payments.some(p => p.id === 'triangle' && p.scheduledDate === PRIOR),
+  'P6 control: the owner record counts in the owner-only world');
+eq(ownerAndPending.evidence.disagreements, [], 'P6 the pending debit raises no disagreement');
+ok(!Object.hasOwn(ownerAndPending.evidence, 'pendingPayments') && ownerAndPending.evidence.payments.length === 0,
+  'P6 an owner-recorded pending debit gets no pending entry and no payment record');
+eq(ownerState(ownerAndPending), ownerState(ownerOnly), 'P6 the owner state equals the owner-only world');
+eq(F.cardMinimumOwnedDebits(ownerAndPending.live.data.plan, NOW), F.cardMinimumOwnedDebits(ownerOnly.live.data.plan, NOW),
+  'P6 the owned debit equals the owner-only world');
+eq([ownerAndPending.row.status, ownerAndPending.row.paymentPending, ownerAndPending.row.remaining],
+  [ownerOnly.row.status, ownerOnly.row.paymentPending, ownerOnly.row.remaining], 'P6 the bill row equals the owner-only world');
+for (const key of ['balanceAfterDeductions', 'periodBillLoad', 'remainingBills', 'afterBills']) {
+  eq(ownerAndPending.advice.defaultView[key], ownerOnly.advice.defaultView[key], `P6 ${key} equals the owner-only world`);
+}
+eq(ownerAndPending.advice.weekly, ownerOnly.advice.weekly, 'P6 the weekly cap equals the owner-only world');
+eq(F.simulate(ownerAndPending.live.data.plan, NOW, { horizonDays: 5, weeklyVariable: 0 }).ending,
+  F.simulate(ownerOnly.live.data.plan, NOW, { horizonDays: 5, weeklyVariable: 0 }).ending, 'P6 the cash walk equals the owner-only world');
 
 console.log(`All ${checks} card-minimum Payment pending checks passed`);
