@@ -37,6 +37,7 @@ const amounts = html => (html.replace(/<[^>]+>/g, ' ').match(/−?\$[\d,]+\.\d\d
 
 // 1. every printed amount equals a published value it names; nothing computed
 const html = buildCardsHTML(ctx(view));
+const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8');
 const allowed = new Set([888.88, 1234.56, 111.11, 222.22, 333.33, 666.66, 123.45, 400, 10.1, 50.5].map(fmt));
 const printed = amounts(html);
 assert(printed.length > 0);
@@ -78,38 +79,52 @@ const z = JSON.parse(JSON.stringify(view)); z.stackSummary.bills.other = 0;
 assert(buildCardsHTML(ctx(z)).includes('$0.00'));
 
 // card colours: every kind's variable is defined in the CSS file
-const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8');
-['bills', 'budget', 'mortgage'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
+['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
 
-// Savings card (A5 shape assumed): nothing until published, then saved of needed, per-goal rows, no Funded words
+// Savings card (final A5 shape, invented values): nothing until published
 assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
-const sv = JSON.parse(JSON.stringify(view));
-sv.stackSummary.savings = { items: [{ id: 'r', label: 'Rainy day', saved: 20.5, needed: 40 }, { id: 't', label: 'Trip', saved: 0, needed: 90.25 }, { id: 'c', label: 'Car <fund>', saved: 5, needed: 60 }],
-  totals: { saved: 20.5, entitlement: 130.25, needed: 999.99, completeness: 'none', excluded: ['c', 'gone'] } };
-const sh = buildCardsHTML(ctx(sv));
-const sc = sh.split('data-stack-card="savings"')[1].split('</details>')[0];
-assert(sc.includes(fmt(20.5) + '<i> of ' + fmt(130.25)), 'headline is saved of needed');
-assert(sc.includes('excludes Car &lt;fund&gt;'));
-assert(sc.includes('Rainy day') && sc.includes(fmt(40)) && sc.includes('$0.00<i> of ' + fmt(90.25)));
-assert(!/Funded|Not funded/i.test(sh), 'no Funded wording');
-amounts(sc).forEach(a => assert([20.5, 130.25, 40, 0, 90.25, 5, 60].map(fmt).includes(a), 'unpublished savings amount ' + a));
-// pool-level: moved of needed; goals without their own saved read "needs", no bar; one with saved reads "of" with a bar
-const pv = JSON.parse(JSON.stringify(sv));
-pv.stackSummary.savings.totals.completeness = 'pool-level';
-pv.stackSummary.savings.items[0].reasons = ['net-of-period-transfers']; pv.stackSummary.savings.items[0].saved = null; pv.stackSummary.savings.items[1].saved = null;
-const pc = buildCardsHTML(ctx(pv)).split('data-stack-card="savings"')[1].split('</details>')[0];
-assert(pc.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' this period</i>'), 'pool header');
-assert(pc.includes('<i>still to set aside </i>' + fmt(40)) && pc.includes('<i>needs </i>' + fmt(90.25)));
-assert((pc.match(/sc-mini/g) || []).length === 1, 'only the goal with its own saved has a bar');
-assert(pc.includes(fmt(5) + '<i> of ' + fmt(60)));
-assert(!/Funded/i.test(pc) && pc.includes('excludes Car &lt;fund&gt;'));
-sv.stackSummary.savings.totals.excluded = [];
-assert(!buildCardsHTML(ctx(sv)).includes('excludes'));
-sv.stackSummary.savings.totals = { saved: null, needed: null };
-sv.stackSummary.savings.items = [];
-assert(!buildCardsHTML(ctx(sv)).includes('data-stack-card="savings"'));
-assert(css.includes('--sc-savings:'));
+const withSavings = s => { const v = JSON.parse(JSON.stringify(view)); v.stackSummary.savings = s; return v; };
+const savingsOf = v => { const h = buildCardsHTML(ctx(v)); const p = h.split('data-stack-card="savings"')[1]; return p ? p.split('</details>')[0] : null; };
+const txt = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+// current period: moved of entitlement this period; rows still to set aside; no bars, no Funded words
+const cur = savingsOf(withSavings({
+  items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] },
+    { id: 'c', label: 'Car <fund>', saved: null, needed: null, reasons: ['planned-unavailable'] }],
+  totals: { saved: 20.5, needed: null, entitlement: 130.25, completeness: 'pool-level', excluded: ['c'], reasons: ['pool-level', 'planned-incomplete'] } }));
+assert(cur.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' this period</i>'), 'current header');
+assert(cur.includes('<i>still to set aside </i>' + fmt(40)));
+assert(cur.includes('excludes Car &lt;fund&gt;'));
+assert(!cur.includes('sc-mini') && !/Funded/i.test(cur));
+assert(/Car &lt;fund&gt;<\/b><\/span><\/li>/.test(cur), 'withheld needed prints no amount');
+amounts(cur).forEach(a => assert([20.5, 130.25, 40].map(fmt).includes(a), 'unpublished amount ' + a));
+
+// current period, transfer figure withheld: no header figure
+const nt = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers'] }],
+  totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['pool-transfer-unavailable'] } }));
+assert(!nt.includes('sc-f'), 'no header figure when the transfer is withheld');
+
+// future period: planned total in the header, rows "planned this period", never a moved figure or $0
+const fut = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }],
+  totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['future-period'] } }));
+assert(fut.includes(fmt(40) + '</span>') && fut.includes(fmt(40) + '<i> planned this period</i>'));
+assert(!/moved|\$0/.test(txt(fut)));
+
+// past period: everything null, no amounts
+const past = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: null, reasons: ['past-period'] }],
+  totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: ['past-period'] } }));
+assert(amounts(past).length === 0);
+
+// a goal's own published saved value switches on "saved of needed" with a bar
+const own = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: 10, needed: 40, reasons: [] }],
+  totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: [] } }));
+assert(own.includes(fmt(10) + '<i> of ' + fmt(40)) && own.includes('sc-mini'));
+assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
+
+// card colours: every kind's variable is defined in the CSS file
+['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
+assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
 
 // 3. no money arithmetic in the page code
 const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -124,11 +139,3 @@ assert.deepStrictEqual(registered, {});
 console.log('test-stack-cards: ok');
 
 
-// future period: totals.saved null => no header figure; rows say needs
-{
-  const fv = JSON.parse(JSON.stringify(sv));
-  fv.stackSummary.savings.totals = { saved: null, entitlement: null, completeness: 'none', excluded: [] };
-  fv.stackSummary.savings.items = [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }];
-  const fh = buildCardsHTML(ctx(fv)).split('data-stack-card="savings"')[1].split('</details>')[0];
-  assert(!fh.includes('sc-f') && fh.includes('<i>needs </i>' + fmt(40)) && !fh.includes('sc-mini'));
-}

@@ -14,7 +14,7 @@
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
- *     {saved, entitlement, completeness ('pool-level' | 'none'), excluded[] (ids of goals with no needed)}  (A5; plain numbers or null)
+ *     {saved, entitlement, entitlement, completeness ('pool-level' | 'none'), excluded[], reasons[]}  (A5; plain numbers or null)
  */
 (function (root) {
   'use strict';
@@ -127,30 +127,38 @@
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
     var t = sv.totals || {};
     var amt = function (v) { return v; }; // plain numbers or null (A5)
-    var saved = money(amt(t.saved)), needed = money(amt(t.entitlement));
-    if (saved == null && !items.length) return '';
-    if (saved == null) needed = null; // nothing moved published (a future period): no header figure
+    var has = function (list, code) { return Array.isArray(list) && list.indexOf(code) >= 0; };
     var labelOf = {};
     items.forEach(function (i) { if (i.id != null) labelOf[String(i.id)] = i.label; });
     var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
       .filter(function (l) { return l; }); // an id with no listed item has no label to print
     var ex = exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
-    // A pool-level total (savings land in one pool): "moved of needed"; each goal
-    // says what it needs, with no bar. A goal with its own published saved
-    // value reads "saved of needed" with a bar, so that design switches on by itself.
-    var pool = t.completeness === 'pool-level';
+    // Header: current period, the pool's "moved of entitlement this period" (only when both
+    // are published); a next or future period, the planned total with nothing moved; a past
+    // period, no amount. A withheld value prints nothing, never $0.
+    var moved = money(t.saved), entitlement = money(t.entitlement), planned = money(t.needed);
+    var head, headOf = null, sub, tail = null, sep = null, width = 0;
+    if (moved != null && entitlement != null) {
+      head = moved; headOf = entitlement; sep = ' moved of '; tail = ' this period'; sub = 'moved / entitlement';
+      width = drawWidth(t.saved, t.entitlement);
+    } else if (has(t.reasons, 'future-period') && planned != null) {
+      head = planned; sub = 'planned this period';
+    } else { head = null; sub = 'savings'; }
+    if (head == null && !items.length) return '';
+    if (ex) sub = ex;
     var body = '<ul class="sc-list">' + items.map(function (i) {
-      var s = money(amt(i.saved)), n = money(amt(i.needed));
-      var own = s != null;
+      var s = money(i.saved), n = money(i.needed);
+      var own = s != null; // a goal's own published saved value (not published today)
+      var word = has(i.reasons, 'net-of-period-transfers') ? 'still to set aside ' : 'needs ';
       var right = own ? '<span class="sc-a">' + esc(s) + (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>'
-        : n == null ? '' : '<span class="sc-a"><i>' + (Array.isArray(i.reasons) && i.reasons.indexOf('net-of-period-transfers') >= 0
-          ? 'still to set aside ' : 'needs ') + '</i>' + esc(n) + '</span>';
+        : n == null || has(i.reasons, 'past-period') ? ''
+        : has(i.reasons, 'future-period') ? '<span class="sc-a">' + esc(n) + '<i> planned this period</i></span>'
+        : '<span class="sc-a"><i>' + word + '</i>' + esc(n) + '</span>';
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b>' +
-        (own ? '<span class="sc-mini"><i style="width:' + drawWidth(amt(i.saved), amt(i.needed)) + '%"></i></span>' : '') +
+        (own ? '<span class="sc-mini"><i style="width:' + drawWidth(i.saved, i.needed) + '%"></i></span>' : '') +
         '</span>' + right + '</li>';
     }).join('') + '</ul>';
-    return strip('savings', 'Savings', ex || (pool ? 'moved / needed' : 'needed'), saved, needed,
-      drawWidth(amt(t.saved), amt(t.entitlement)), items.length ? body : '', pool ? ' moved of ' : ' of ', pool ? ' this period' : '');
+    return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail);
   }
 
   function buildCardsHTML(ctx) {
