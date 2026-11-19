@@ -32,6 +32,7 @@ const AssistantMcp = require('./scripts/assistant-mcp.js');
 const LunchMoneyAssistant = require('./scripts/assistant-lunchmoney.js');
 const StandingRuntime = require('./scripts/assistant-standing-runtime.js');
 const AssistantOAuth = require('./scripts/assistant-oauth.js');
+const ResponseCompression = require('./scripts/response-compression.js');
 
 const PREACTIVATION_BOOT = Symbol('sealed-preactivation-boot');
 const SESSION_REVOCATION = Symbol('composed-session-revocation');
@@ -504,6 +505,11 @@ app.use((req, res, next) => {
   }
   return res.redirect('/login');
 });
+
+// Response compression for the allowlisted page and data responses only
+// (scripts/response-compression.js). It runs after the gate, so the gate's
+// 401 and redirect, and every route above, are never compressed.
+app.use(ResponseCompression.compressAllowlisted);
 
 // ---------------------------------------------------------------- data
 app.get('/data.json', async (req, res) => {
