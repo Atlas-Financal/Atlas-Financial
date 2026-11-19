@@ -7632,6 +7632,24 @@
   // pending row is unchanged (excluded as before). Returns the held result
   // (marked cardMinimumUnknown when the card-minimum owner cannot say whether
   // it owns this debit), or null.
+  // The one test of a debit's own card-payment evidence, shared by the held
+  // reader (unprovenTransferDebit) and the card ledger's To-confirm listing
+  // (reconcileCardPurchases; lead ruling, ATLAS LEAD 11, 2026-11-19): a Lunch
+  // Money group, the payment's own identity (the observer's payee identities
+  // and its 'card-payment' stamp), or a "card payment: <card>" note naming a
+  // contract card (the fixed table, MBNA and Triangle included). A
+  // card-payment or debt-payment CATEGORY alone is not proof (Grok Bot, Plan
+  // #6; lead, #1388), and neither is an 'unknown' card or a renamed payee with
+  // no note. A noted debit's card minimum stays in the bill load until
+  // confirmed, so holding it too would count it twice (lead blocker on #1388).
+  function cardPaymentOtherSideEvidence(tx) {
+    if (!tx) return false;
+    if (tx.parentId != null || tx.isGroup === true) return true;
+    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx)
+      || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
+    const notedCard = cardPaymentNoteDestination(tx);
+    return !!(notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard));
+  }
   function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
     if (tx.accountRole !== 'household-cash'
@@ -7645,20 +7663,8 @@
     const generic = (cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
       || (cls.kind === 'card-payment' && cls.reason === 'kind-hint' && (hint === 'payment' || hint === 'bill-payment'));
     if (!generic) return null;
-    if (tx.parentId != null || tx.isGroup === true) return null;
+    if (cardPaymentOtherSideEvidence(tx)) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
-    // A card payment by its own identity (the observer's payee identities and
-    // its 'card-payment' stamp). A card-payment or debt-payment CATEGORY alone
-    // is not proof (Grok Bot, Plan #6; lead, #1388): only a pair, a group or an
-    // identity proves the other side, so such a debit is held like any other.
-    if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx) || hint === 'card-payment') return null;
-    // A "card payment: <card>" note naming a contract card (the fixed table,
-    // MBNA and Triangle included) is the payment's own identity: that card's
-    // minimum stays in the bill load until confirmed, so holding the debit
-    // too would count it twice (lead blocker on #1388). An 'unknown' card,
-    // and a renamed payee with no note, prove nothing.
-    const notedCard = cardPaymentNoteDestination(tx);
-    if (notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard)) return null;
     if (tx.cardMinimumOwned === true) return null;
     const nearDue = tx.nearDueBillCandidate;
     const nearDueCycle = nearDue ? spendingCycle(plan, tx.date) : null;
@@ -14632,6 +14638,28 @@
   // One evidence-qualified purchase/payment ledger. The historical API name
   // is retained for #491's consumer; it now covers mapped revolving cards.
   // A provider payment proves movement, never household allocation intent.
+  // Listed once (lead ruling, ATLAS LEAD 11, 2026-11-19). A card-ledger
+  // "which card did this pay?" row remembers its packet transaction privately
+  // (never published), so a pay period can drop the rows its own Budget To
+  // confirm already holds: the period's actual held rows are the one
+  // authority, never a recomputation. The trust and estimate basis still read
+  // every unconfirmed row, so no tag moves; a row the held list does not hold
+  // (Savings, an earlier pay period) keeps its question.
+  const COVERAGE_ROW_TRANSACTION = new WeakMap();
+  function coverageRowFor(row, tx) {
+    if (tx && tx.id != null) COVERAGE_ROW_TRANSACTION.set(row, String(tx.id));
+    return row;
+  }
+  function coverageListedOnce(coverage, heldRows) {
+    if (!coverage || coverage.trust !== 'estimated' || !Array.isArray(coverage.toConfirm)
+      || !Array.isArray(heldRows) || !heldRows.length) return coverage;
+    const held = new Set(heldRows.filter(row => row && row.id != null).map(row => String(row.id)));
+    const listed = coverage.toConfirm.filter(row => row && row.basis === CARD_DESTINATION_ESTIMATE_BASIS
+      && held.has(COVERAGE_ROW_TRANSACTION.get(row)));
+    if (!listed.length) return coverage;
+    return Object.assign({}, coverage, { toConfirmListedUnderHeld: listed.length,
+      toConfirm: coverage.toConfirm.filter(row => !listed.includes(row)) });
+  }
   function reconcileCardPurchases(transactions, opts) {
     opts = opts || {};
     const plan = opts.plan || {};
@@ -15615,10 +15643,10 @@
       // can only understate the money left). Each payment is one To-confirm row.
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
-        toConfirm: [...destinationUnconfirmed.map(leg => ({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
+        toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
           question: 'To confirm: which card did this pay?',
           date: leg.tx.date, amount: leg.cents / 100,
-          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null })),
+          fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null }, leg.tx)),
         ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
           question: 'To confirm: was this card credit a payment or a refund?',
           date: leg.tx.date, amount: leg.cents / 100, onCard: label(leg.account) })),
@@ -17282,8 +17310,10 @@
         // read by no total above.
         bills: planUnavailable ? [] : (section.carriedRows ? bills.concat(section.carriedRows) : bills),
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
+        // Listed once: the period's own held rows (below) are the authority.
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
-          ? { cardPurchaseCoverage: cardCoverageState(plan, asOf, opts) } : {}),
+          ? { cardPurchaseCoverage: coverageListedOnce(cardCoverageState(plan, asOf, opts),
+            !planUnavailable ? budget.heldOutflows : null) } : {}),
         // A completed period's total withholds on the same in-window unknown
         // amount as unconfirmedBills: an unknown bill is never summed as 0.
         // An open period whose bill load is unknown (a scheduled amount with
