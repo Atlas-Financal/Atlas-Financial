@@ -80,7 +80,8 @@ assert(buildCardsHTML(ctx(z)).includes('$0<'));
 
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
-assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
+// both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
+assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
 
 // Savings card (final A5 shape, invented values): nothing until published
 assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
@@ -134,7 +135,8 @@ assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: nu
 
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
-assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
+// both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
+assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
 
 // 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
 const attr = (h, v) => h.includes('data-stack-sheet="' + v + '" role="button" tabindex="0"');
