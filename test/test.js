@@ -79,6 +79,7 @@ const NOT_SUITES = Object.freeze({
   // Manual, argument-driven before/after proofs and optional visual QA.
   'probe-bills-period-end-preservation.js': 'manual comparison against a reviewer-supplied git baseline',
   'profile-refresh-evaluation.js': 'optional timing benchmark, not a correctness check',
+  'profile-forecast-date-memo.js': 'optional base-versus-head timing and advice-equality diagnostic; needs a base checkout',
   'proof-card-date-cache-latency.js': 'manual timing evidence, not a correctness check',
   'proof-card-purchase-posting.js': 'manual exact-base proof; requires a base SHA argument',
   'proof-savings-card-recipient-before-after.js': 'manual exact-release before/after proof',

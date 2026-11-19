@@ -242,6 +242,7 @@
   ["owner aggregate card coverage rule: per card, per pay period, posted pairs only","test-card-coverage-aggregate-rule.js"],
   ["TD PAYMENT - THANK YOU card credit pairs with a TFR-TO C/C debit (Grok Bot ruling)","test-td-payment-thank-you.js"],
   ["a card-payment note may carry a trailing \" - \" or \" (\" comment; the name stays exact and a comment naming another card stays unknown","test-card-payment-note-comment.js"],
+  ["Forecast date-arithmetic memos change no answer: independent reference, malformed input as before, browser load","test-forecast-date-memo.js"],
   ["a card paid from Weekly covers the card once and no longer blanks the plan","test-card-payment-weekly-funded.js"],
   ["a Lunch Money card-payment group proves the payment's destination (U5)","test-card-payment-lm-group.js"],
   ["a \"card payment: <card>\" note alone names the card for a TFR-TO C/C debit","test-card-payment-note-pays.js"],
