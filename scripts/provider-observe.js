@@ -552,6 +552,12 @@ function normalizeLunchMoneyTransaction(raw, categoriesById, tagsById, opts) {
     categoryId,
     categoryLabel: categoryName,
     minimumCategoryDebt,
+    // A pending debit in an exact card-minimum category: a Payment pending
+    // label candidate only (card-minimum-category.js). Present only on such a
+    // row, so every other row keeps its shape; kind and minimumCategoryDebt
+    // stay posted-only.
+    ...(fromIndex && categoryName === fromIndex.name && raw.is_pending === true && MinimumCategory.categoryDebt(fromIndex)
+      ? { pendingMinimumCategoryDebt: MinimumCategory.categoryDebt(fromIndex) } : {}),
     isIncome,
     excludeFromTotals,
     excludeFromBudget,
@@ -4866,10 +4872,20 @@ function observeCore(input, capture) {
     cycleOpensOn: (due, day) => statementCloseDateForDue(due, day) || due,
     isExplicitlyPosted: tx => explicitlyPostedCounts.get(tx.providerTransactionId) === 1,
     coverageReference: cardCoverageReference,
+    // The served row's payee card, by the same derivation and identity flags.
+    payeeCardDestination: tx => payeeCardDestination(tx, mappingFor(mapDoc, tx.providerAccountId),
+      Forecast.classifyCurrentPeriodTransaction.derivedFlags({ payee: tx.payee, displayedPayee: tx.payee,
+        originalName: tx.originalName, original_name: tx.originalName, originalMerchant: tx.originalName || tx.payee,
+        notes: tx.notes, note: tx.notes || tx.note, kind: tx.kind, date: tx.date, amount: tx.amount },
+      planForIdentity)),
     alreadyAllocated: tx => (planForIdentity.cardPurchaseCoverage?.payments || []).some(p =>
       p.confirmed === true && (p.debitRef === cardCoverageReference(tx) || p.creditRef === cardCoverageReference(tx))),
     matchesIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
       && ruleMatchesTransactionIdentity(tx, rule)),
+    // Payment pending only: the same identity fields without the posted-receipt
+    // requirement (as pending-bill disclosure reads them). Never settles.
+    matchesPendingIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
+      && matchesIdentityFields(tx, rule)),
     // Reversal evidence uses the same payment aliases. Exclusions prevent a
     // reversal from confirming a payment, but must not hide its withdrawal.
     matchesReversalIdentity: (tx, row) => identityRules.some(rule => rule.eventId === row.id
@@ -5230,6 +5246,16 @@ function paydayGapCompleteFromEvidence(opts) {
     }
   }
   return true;
+}
+
+// The payee identity's card (MBNA, CAN TIRE MC as Triangle) for a household
+// cash or Savings (reserve) debit, or null: money onto the card counts from
+// either (owner rule). The generic TD "TFR-TO C/C" names no card. The one
+// derivation, read by the served row and by the card-minimum observer.
+function payeeCardDestination(tx, mapping, flags) {
+  if (!tx || !['household-cash', 'household-reserve'].includes(atlasAccountRole(mapping))) return null;
+  if (isMbnaCardPayment(tx)) return 'mbna';
+  return flags && flags.cardPaymentIdentity === true && flags.tdCardPaymentIdentity !== true ? 'triangle' : null;
 }
 
 function atlasAccountRole(mapping) {
@@ -7420,10 +7446,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // (MBNA, CAN TIRE MC) on a household cash or Savings (reserve) debit:
       // money onto the card counts from either (owner rule). The generic TD
       // "TFR-TO C/C" names no card and never sets this.
-      ...(['household-cash', 'household-reserve'].includes(atlasAccountRole(mapping)) && amount > 0
-        ? (isMbnaCardPayment(tx) ? { cardPaymentDestination: 'mbna' }
-          : flags.cardPaymentIdentity === true && flags.tdCardPaymentIdentity !== true
-            ? { cardPaymentDestination: 'triangle' } : {}) : {}),
+      ...(amount > 0 && payeeCardDestination(tx, mapping, flags)
+        ? { cardPaymentDestination: payeeCardDestination(tx, mapping, flags) } : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
       ...(flags.helocFinanceChargeIdentity === true ? { helocFinanceChargeIdentity: true } : {}),
       internalTransferIdentity: flags.internalTransferIdentity,
@@ -7436,6 +7460,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       parentId: localIdFor(tx.parentId),
       pendingPostedDuplicate: tx.pendingPostedDuplicate === true,
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
+      // The posted minimum category's card, present only on such a row, so the
+      // held reader can see a category/note conflict (cardPaymentDestinationConflict).
+      ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
     };
     txs.push(emittedRow);
     const distinctPending = distinctPendingByPosted.get(tx);

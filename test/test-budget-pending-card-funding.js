@@ -290,9 +290,20 @@ const offset = excludedDebit(50, interestFields);
 offset.packet.transactions.push({ ...offset.packet.transactions[1], id: 'synthetic-card-credit', amount: -75 });
 assert.equal(nextFunding(run(offset)).contribution, null, 'a credit cannot back an unsupported positive obligation');
 
+// #1413 (lead, 2026-11-19): a pending generic Transfer out of chequing has left household cash whatever its
+// destination, so it encumbers pendingCash and the period withholds until it posts. It is withheld as household
+// cash, never as this card's exposure. (Before #1413 this line expected 325.)
 const unrelatedCash = excludedDebit(50, { categoryLabel: 'Transfer', kindHint: 'transfer' });
 Object.assign(unrelatedCash.packet.transactions[1], { account: 'chequing-b', accountRole: 'household-cash' });
-assert.equal(nextFunding(run(unrelatedCash)).contribution, 325, 'cash-account transfers are not this card exposure');
+const unrelatedCashFunding = nextFunding(run(unrelatedCash));
+assert.equal(unrelatedCashFunding.contribution, null, 'a pending chequing Transfer encumbers household cash');
+assert.ok(/^Unresolved pending household-cash debits of \$75\.00 still encumber household cash/.test(unrelatedCashFunding.reason || ''),
+  'it is withheld as household cash, not as card exposure: ' + unrelatedCashFunding.reason);
+// The card-exposure point, on a cash row nothing encumbers: a pending excluded (Business) debit on chequing-b is not
+// this card's exposure, so the card's 50 pending still backs its 50 charge: 325.
+const unrelatedExcluded = excludedDebit(50, { categoryLabel: 'Business' });
+Object.assign(unrelatedExcluded.packet.transactions[1], { account: 'chequing-b', accountRole: 'household-cash' });
+assert.equal(nextFunding(run(unrelatedExcluded)).contribution, 325, 'cash-account debits are not this card exposure');
 const isolated = excludedDebit(50, interestFields);
 isolated.packet.transactions[1].account = 'synthetic-other-card';
 isolated.debts.push({ ...isolated.debts[0], id: 'synthetic-other-card', pending: 75 });

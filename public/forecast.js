@@ -346,6 +346,20 @@
     }
     return out;
   }
+  // The walk's calendar: addDays(start, i) for i in [0, days). Every probe of
+  // a search walks the same days from the same start, so the last list is
+  // kept and handed back only for exactly that start and length; any other
+  // start or length builds a new one. The list is frozen, so no caller can
+  // change a kept date. Same answer as calling addDays on every day.
+  let walkDateMemo = null;
+  function walkDateList(start, days) {
+    if (walkDateMemo && walkDateMemo.start === start && walkDateMemo.dates.length === days) return walkDateMemo.dates;
+    const dates = [];
+    for (let i = 0; i < days; i++) dates.push(addDays(start, i));
+    Object.freeze(dates);
+    walkDateMemo = { start, dates };
+    return dates;
+  }
   function diffDays(a, b) { // b - a in days
     return Math.round((toUTC(b) - toUTC(a)) / 86400000);
   }
@@ -849,6 +863,37 @@
     const disagreements = Array.isArray(packet.disagreements)
       ? packet.disagreements.filter(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) : [];
     return { payments, receipts, disagreements };
+  }
+  // A card minimum whose household-categorized payment is still pending
+  // (BACKLOG, card minimum Payment pending; lead ruling C, 2026-11-19). The
+  // observer lists such a debit in the evidence's pendingPayments by card row
+  // and occurrence only (no debit identity, no amount). It is a label: the
+  // minimum stays fully owed and reserved, nothing is sent, satisfied or
+  // allocated, and no issue is raised. A posted or owner-recorded payment for
+  // the same occurrence wins, so a payment is never both pending and sent.
+  // Returns the set of id@due keys the row builder reads.
+  function cardMinimumPendingKeys(plan, asOf) {
+    const keys = new Set();
+    const packet = plan?.cardMinimumCategoryEvidence;
+    const day = value => typeof value === 'string' && ISO_CALENDAR_DATE.test(value)
+      && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+    if (packet?.source !== 'lunchmoney-minimum-category' || !day(packet.asOf) || !day(asOf)
+        || packet.asOf > asOf || !Array.isArray(packet.pendingPayments)) return keys;
+    const posted = minimumCategoryEvidence(plan, asOf);
+    const counts = new Map();
+    for (const p of packet.pendingPayments) counts.set(p?.id + '@' + p?.scheduledDate, (counts.get(p?.id + '@' + p?.scheduledDate) || 0) + 1);
+    for (const p of packet.pendingPayments) {
+      const row = (plan.obligations || []).find(r => r && r.id === p?.id);
+      if (!row || row.effect !== 'payment' || row.nonCash
+          || !['triangle', 'mbna', 'tdcc', 'cashback', 'travelvisa'].includes(row.debtId)
+          || !day(p.scheduledDate) || !day(p.pendingOn) || p.pendingOn > packet.asOf
+          || counts.get(p.id + '@' + p.scheduledDate) !== 1
+          || occurrences(row, p.scheduledDate, p.scheduledDate).length !== 1
+          || (Array.isArray(row.sentPayments) && row.sentPayments.some(o => o && o.scheduledDate === p.scheduledDate))
+          || (posted?.payments || []).some(o => o.id === p.id && o.scheduledDate === p.scheduledDate)) continue;
+      keys.add(p.id + '@' + statementOccurrenceDate(plan, p.id, p.scheduledDate));
+    }
+    return keys;
   }
   function statementOccurrenceDate(plan, id, date) {
     return CardMinimumContract.mappedDate(plan, id, date, occurrences);
@@ -2939,8 +2984,15 @@
   // income overrides and additional income events), but it returns a new
   // object and a new closure each time, which could never match by identity.
   // The hold set itself is still computed from the resolved options.
+  // The weekly cap search (recommendWeekly) hands its probes a holder too.
+  // Its probes differ only in `weeklyVariable`, which the walk spends day by
+  // day in simulateModel and which neither expandEvents nor
+  // calendarIncomeSections reads; its `seq` is one object for the whole
+  // search, so it matches by identity. test/test-weekly-search-held-income.js
+  // varies weeklyVariable alone and checks the expansion and the hold set
+  // are unchanged.
   const HELD_OTHER_INCOME_PROBE_ONLY = new Set(
-    ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse']);
+    ['plannedFlows', 'injections', 'cardCoverageReuse', 'heldOtherIncomeReuse', 'weeklyVariable']);
   function heldOtherIncomeInputsMatch(a, b) {
     if (a === b) return true;
     if (!a || !b) return false;
@@ -4918,8 +4970,9 @@
     const variableByDate = new Map();
     const lowSeedByStart = new Map();
 
+    const walkDates = walkDateList(start, days);
     for (let i = 0; i < days; i++) {
-      const date = addDays(start, i);
+      const date = walkDates[i];
       const measured = date >= measureFrom;
       if (i % 7 === 0) {
         week = {
@@ -7642,13 +7695,43 @@
   // #6; lead, #1388), and neither is an 'unknown' card or a renamed payee with
   // no note. A noted debit's card minimum stays in the bill load until
   // confirmed, so holding it too would count it twice (lead blocker on #1388).
+  // BACKLOG obs 4 (b) (#1298 review; lead ruling, ATLAS LEAD 11, 2026-11-19):
+  // the "card payment: <card>" note is the bank-side identity (operating
+  // contract). A debit whose payee identity names one manual card (the
+  // observer's cardPaymentDestination: MBNA, Triangle) while its note names a
+  // different contract card is contradictory: neither wins silently. It pays no
+  // card, its minimum stays to confirm, and it is held To confirm (counted once
+  // as money out) with the reason 'card-payment-destination-conflict'. An
+  // 'unknown' or two-card note is not a definite other card.
+  // Three definite card identities can name where a debit went: the payee
+  // identity's card, the posted "Minimum payment - <card>" category's card, and
+  // the note's card. Lead rulings (ATLAS LEAD 11, 2026-11-19; Atlas blocker on
+  // #1412): any two that disagree are a conflict, with or without a note, and
+  // pay neither card. No precedence: a payee that agrees with the note never
+  // masks a category that contradicts it.
+  function cardPaymentDestinationConflict(tx) {
+    if (!tx) return false;
+    const cards = [tx.cardPaymentDestination, tx.minimumCategoryDebt, definiteNotedCard(tx)]
+      .filter(card => typeof card === 'string' && card !== '');
+    return new Set(cards).size > 1;
+  }
+  // The one reading of a "card payment: <card>" note as a definite contract
+  // card (the fixed table, MBNA and Triangle included), or null: no note, an
+  // 'unknown' card or a two-card note names no definite card.
+  function definiteNotedCard(tx) {
+    const noted = cardPaymentNoteDestination(tx);
+    return noted && noted !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(noted) ? noted : null;
+  }
   function cardPaymentOtherSideEvidence(tx) {
     if (!tx) return false;
+    // A payee identity and a note that name different cards prove neither card,
+    // grouped or not: the card ledger withholds such a group (Codex P1 on #1407),
+    // so the debit is held To confirm and counted once as money out.
+    if (cardPaymentDestinationConflict(tx)) return false;
     if (tx.parentId != null || tx.isGroup === true) return true;
     if (tx.cardPaymentIdentity === true || isCanadianTireMastercardPayment(tx)
       || normalizeCategoryLabel(tx.kindHint) === 'card-payment') return true;
-    const notedCard = cardPaymentNoteDestination(tx);
-    return !!(notedCard && notedCard !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(notedCard));
+    return !!definiteNotedCard(tx);
   }
   function unprovenTransferDebit(tx, cls, plan, classifyOpts, pairedToCard) {
     if (!tx || !cls || transactionPendingState(tx) !== 'posted') return null;
@@ -7662,7 +7745,9 @@
     // 'card-payment' stamp) is another reason and stays proven.
     const generic = (cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint'))
       || (cls.kind === 'card-payment' && cls.reason === 'kind-hint' && (hint === 'payment' || hint === 'bill-payment'));
-    if (!generic) return null;
+    // A payee identity contradicted by its note proves nothing (obs 4 b).
+    const conflicted = cardPaymentDestinationConflict(tx);
+    if (!generic && !conflicted) return null;
     if (cardPaymentOtherSideEvidence(tx)) return null;
     if (txMatchesRepresentedBill(tx, classifyOpts)) return null;
     if (tx.cardMinimumOwned === true) return null;
@@ -7680,7 +7765,7 @@
     }
     // Grok Bot condition 2: the owner record and the ledger's link disagree
     // (card or occurrence): neither counts it, so it is held and named.
-    return heldOutflowResult('transfer-debit-unproven',
+    return heldOutflowResult(conflicted ? 'card-payment-destination-conflict' : 'transfer-debit-unproven',
       tx.cardMinimumDisagreement === true ? { cardMinimumDisagreement: true } : null);
   }
   // The one reader of held outflows for a packet: the classifier's own held
@@ -8633,6 +8718,50 @@
     return !!identifiedCategoryRefund(tx, cls, plan, opts);
   }
 
+  // The pending card payments that encumber household cash: a pending debit
+  // out of a household chequing account that is either #1388's unproven class
+  // (a generic Transfer / Payment label or kind hint, a card-payment category)
+  // or an identified card payment (classified 'card-payment'). A proven
+  // internal movement and a debit that represents a planned bill (its reserve
+  // already holds it) are never here. Posted rows are never here: #1388 holds
+  // them, or the card ledger pays them (#1394).
+  function pendingCardPaymentEncumbers(tx, cls, classifyOpts, asOf) {
+    if (!tx || !cls || transactionPendingState(tx) !== 'pending') return false;
+    if (tx.accountRole !== 'household-cash' || HOUSEHOLD_CHEQUING_IDS.indexOf(householdCashLocationId(tx)) === -1) return false;
+    const amt = Number(tx.amount);
+    if (!(isFinite(amt) && amt > 0)) return false;
+    const unproven = cls.kind === 'transfer' && (cls.reason === 'transfer-label' || cls.reason === 'kind-hint');
+    if (!unproven && cls.kind !== 'card-payment') return false;
+    if (provenInternalMovementForTx(tx, classifyOpts || {})) return false;
+    // A pending leg of a household internal movement: the same TD reference
+    // pairing as a posted one (pairHouseholdInternalMovements), read with the
+    // pending flag set aside, so an own-account transfer is not a card payment.
+    // Its counterpart must be observable by the consumer's as-of (Atlas, #1413).
+    if (pendingInternalMovementLeg(tx, classifyOpts, asOf)) return false;
+    if (txMatchesRepresentedBill(tx, classifyOpts || {})) return false;
+    return true;
+  }
+  // Cached per packet and per as-of: the pairing reads only rows dated on or
+  // before the consumer's as-of (the same bound sumCategoryActuals applies), so
+  // a counterpart that is not yet observable never exempts a pending debit.
+  const pendingInternalMovementCache = new WeakMap();
+  function pendingInternalMovementLeg(tx, classifyOpts, asOf) {
+    const packet = currentPeriodActualsPacket(classifyOpts) || (classifyOpts && classifyOpts.packet);
+    if (!packet || !Array.isArray(packet.transactions) || tx.id == null) return false;
+    const key = typeof asOf === 'string' && asOf ? asOf : '';
+    let byAsOf = pendingInternalMovementCache.get(packet);
+    if (!byAsOf) { byAsOf = new Map(); pendingInternalMovementCache.set(packet, byAsOf); }
+    let index = byAsOf.get(key);
+    if (!index) {
+      const observable = packet.transactions.filter(row => row && typeof row.date === 'string' && row.date
+        && (!key || row.date <= key));
+      index = pairHouseholdInternalMovements(observable.map(row => (row.pending === true
+        ? Object.assign({}, row, { pending: false }) : row))).byTxId;
+      byAsOf.set(key, index);
+    }
+    return index.has(String(tx.id));
+  }
+
   function sumCategoryActuals(plan, asOf, periodStart, opts) {
     const out = emptyCategoryActuals();
     const packet = currentPeriodActualsPacket(opts);
@@ -8698,6 +8827,13 @@
           pending: state === 'pending',
           account: tx.atlasAccountId || tx.account || null,
         });
+      }
+      // A pending household-chequing card payment has left household cash as
+      // surely as any pending debit, so it encumbers it until it posts (lead
+      // dispatch, ATLAS LEAD 11, 2026-11-19; #1401 finding i). Posted, it is
+      // held (#1388) or paid to its card (#1394) instead; it is never spending.
+      if (state === 'pending' && pendingCardPaymentEncumbers(tx, cls, classifyOpts, asOf)) {
+        out.pendingCash = roundCent(out.pendingCash + amt);
       }
       if (cls.kind === 'transfer' || cls.kind === 'internal-movement') {
         out.excluded.transfers = roundCent(out.excluded.transfers + amt); continue;
@@ -11097,6 +11233,11 @@
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
+    // A card minimum whose own household-categorized payment is still pending
+    // reads Payment pending; the full minimum stays owed (cardMinimumPendingKeys).
+    const pendingMinimum = !paid && !inside && !sent && !pendingLinked
+      && event.kind === 'obligation' && event.effect === 'payment'
+      && cardMinimumPendingKeys(plan, asOf).has(event.id + '@' + due);
     // A minimum the card ledger already covered with a posted payment: that
     // cash left Bills once, in posted cash, so only an uncovered remainder
     // stays due. The planned amount must equal the ledger's due.
@@ -11140,6 +11281,7 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...(pendingLinked ? { paymentPending: true } : {}),
+      ...(pendingMinimum && !minimumCovered ? { status: 'pending', paymentPending: true } : {}),
       ...(partlyPaid && !sent && !minimumCovered && !trustedBasis ? partlyPaid : {}),
       ...occurrenceTrustFields(event),
       // #821 finding 11: paid on an owner trust rule, not seen. Only a
@@ -12330,8 +12472,8 @@
   function isGenuineOtherIncomeTransaction(tx, plan, opts) {
     if (!tx) return false;
     if (tx.accountRole !== 'household-cash' && tx.accountRole !== 'household-reserve') return false;
-    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON)) return false;
+    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     // Account-identity invariant: a TFR-(TO|FR) leg is not new household
     // resources, even when Lunch Money labels it Income.
     if (isInternalHouseholdTransfer(tx)) return false;
@@ -12376,8 +12518,8 @@
   // belongs to that category (G3a) and never settles income.
   function isExpectedIncomeSettlementCredit(tx, plan, opts) {
     if (!tx || tx.accountRole !== 'household-cash' || tx.isIncome === true) return false;
-    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (!(txInflowAmount(tx) > EPSILON) || isInternalHouseholdTransfer(tx)) return false;
+    if (isTennisIncomeAccount(personalAccountText(tx))) return false;
     if (tx.kindHint || tx.excludeFromTotals === true) return false;
     const packet = currentPeriodActualsPacket(opts);
     const classifyOpts = Object.assign({}, opts || {}, { packet, currentPeriodActuals: packet });
@@ -13420,7 +13562,10 @@
 
   // 'links disagree' names both bills; 'category' names the claimed category as it now reads,
   // or, once removed, the last name Dale confirmed for it.
-  const LINKED_BILL_MISFIT_CHECKS = ['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category'];
+  // The one home for these names: the Budget page reads this export, and
+  // test/test-linked-bill-misfit-check-parity.js keeps the observer's
+  // emitted checks (provider-observe linkedBillMisfitIds) equal to it.
+  const LINKED_BILL_MISFIT_CHECKS = Object.freeze(['account', 'currency', 'direction', 'date', 'amount', 'links disagree', 'category']);
   function linkedBillMisfitFrom(tx) {
     const misfit = tx && tx.representedBill !== true && tx.linkedBillMisfit;
     if (!misfit || typeof misfit.id !== 'string' || !misfit.id
@@ -14981,7 +15126,11 @@
       if (!members || members.length !== 2 || spendingGroup(tx.parentId)) return false;
       const accountOf = row => [row.atlasAccountId, row.accountId, row.account].find(id => id != null && id !== '');
       if (accountOf(members[0]) == null || accountOf(members[0]) === accountOf(members[1])) return false;
-      const debit = members.find(row => row.accountRole === 'household-cash' && savingsCents(row.amount, true) > 0);
+      // Owner rule (Dale, via the lead): money onto the card counts from Savings
+      // too, so a grouped Savings debit is a card-payment group exactly as a
+      // grouped Bills debit (lead ruling, ATLAS LEAD 11, 2026-11-19).
+      const debit = members.find(row => ['household-cash', 'household-reserve'].includes(row.accountRole)
+        && savingsCents(row.amount, true) > 0);
       const credit = members.find(row => isRevolvingCardAccount(row) && savingsCents(row.amount, true) < 0);
       return !!debit && !!credit && debit !== credit && debit.pending === false && credit.pending === false
         && savingsCents(debit.amount, true) === -savingsCents(credit.amount, true);
@@ -15101,7 +15250,10 @@
       for (const tx of pool) {
         const card = cardLike(tx), pay = paymentLike(tx);
         const counted = tx.date >= origin;
-        if (!card && payDownOnly.has(tx.cardPaymentDestination)) {
+        // A payee destination its note contradicts pays no card (obs 4 b): it
+        // falls through as an ordinary cash leg, pairs with nothing (matches),
+        // and is listed To confirm with the conflict named.
+        if (!card && payDownOnly.has(tx.cardPaymentDestination) && !cardPaymentDestinationConflict(tx)) {
           const cents = money(tx), cashLoc = householdCashLocationId(tx);
           if (!counted) continue;
           if (typeof tx.pending !== 'boolean') { issue('coverage-pending-status-unconfirmed', tx.coverageRef); continue; }
@@ -15170,12 +15322,24 @@
       // A card leg and a cash leg can pair when they are near, and a TD
       // "PAYMENT - THANK YOU" credit only with a TD "TFR-TO C/C" debit whose
       // note names no card or this card.
+      // BACKLOG obs 4 (a) (lead ruling, 2026-11-19): the note is the bank-side
+      // identity, so no card credit pairs with a debit whose note names a
+      // different contract card, and a debit whose payee and note disagree
+      // pairs with no credit at all (obs 4 b). Such a near leg is contradicting
+      // evidence: the credit withholds, as below.
+      const notedElsewhere = (cash, card) => {
+        const noted = definiteNotedCard(cash.tx);
+        return !!(noted && noted !== card.account);
+      };
       const matches = (card, cash) => near(card, cash)
+        && !notedElsewhere(cash, card) && !cardPaymentDestinationConflict(cash.tx)
         && (!tdPaymentCreditOnly(card.tx) || (cash.tx.tdCardPaymentIdentity === true
           && (cash.tx.cardPaymentNoteDestination == null || cash.tx.cardPaymentNoteDestination === card.account)));
       // The card a posted TD "TFR-TO C/C" debit pays by its note: exactly one
       // card in the fixed name table that the plan maps as a revolving card.
+      // A payee/note conflict pays no card by its note either (obs 4 b; Codex P1 on #1407).
       const notePays = leg => leg.tx.pending === false && leg.tx.tdCardPaymentIdentity === true
+        && !cardPaymentDestinationConflict(leg.tx)
         && CARD_PAYMENT_NOTE_CARD_IDS.has(leg.tx.cardPaymentNoteDestination)
         && debtRows.some(d => d.id === leg.tx.cardPaymentNoteDestination) ? leg.tx.cardPaymentNoteDestination : null;
       // Mutually unique pairing. The card leg fixes the card and the period,
@@ -15248,16 +15412,21 @@
           if (new Set(members.map(accountOf)).size < 2 || spendingGroup(id)) continue;
           for (const tx of members) grouped.add(tx);
           const shaped = members.map(tx => legOf.get(tx));
-          const cash = shaped.filter(m => m && m.kind === 'cashDebit');
+          // A Savings debit is a reserve leg; it counts here as a Bills debit does
+          // (owner rule; lead ruling, ATLAS LEAD 11, 2026-11-19).
+          const cash = shaped.filter(m => m && (m.kind === 'cashDebit' || m.kind === 'reserveDebit'));
           const card = shaped.filter(m => m && m.kind === 'cardCredit');
           // A debit whose note names a card names its destination itself: a group
           // that puts it on another card's credit is contradictory (#1322 pre-review).
           const dest = cash.length === 1 ? cash[0].leg.tx.cardPaymentNoteDestination : null;
           const valid = members.length === 2 && cash.length === 1 && card.length === 1
-            && cash[0].leg.tx.accountRole === 'household-cash'
+            && ['household-cash', 'household-reserve'].includes(cash[0].leg.tx.accountRole)
             && cash[0].leg.tx.pending === false && card[0].leg.tx.pending === false
             && cash[0].leg.cents === card[0].leg.cents
-            && (dest == null || dest === card[0].leg.account);
+            && (dest == null || dest === card[0].leg.account)
+            // A debit whose payee and note name different cards pays no card,
+            // grouped or not (obs 4 b; Codex P1 on #1407): the group withholds.
+            && !cardPaymentDestinationConflict(cash[0].leg.tx);
           const noted = valid ? notePays(cash[0].leg) : null;
           const counted = members.some(tx => savingsDate(tx.date) && tx.date >= origin);
           if (!valid) {
@@ -15845,7 +16014,10 @@
       ...(destinationEstimate ? { trust: 'estimated', estimateBasis,
         estimateReason: CARD_ESTIMATE_REASONS[estimateBasis],
         toConfirm: [...destinationUnconfirmed.map(leg => coverageRowFor({ basis: CARD_DESTINATION_ESTIMATE_BASIS,
-          question: 'To confirm: which card did this pay?',
+          question: cardPaymentDestinationConflict(leg.tx)
+            ? 'To confirm: which card did this pay? Its payee and its note name different cards.'
+            : 'To confirm: which card did this pay?',
+          ...(cardPaymentDestinationConflict(leg.tx) ? { diagnostic: 'card-payment-destination-conflict' } : {}),
           date: leg.tx.date, amount: leg.cents / 100,
           fromAccount: householdCashLocationId(leg.tx) || leg.tx.atlasAccountId || null }, leg.tx)),
         ...purposeUnconfirmed.map(leg => ({ basis: CARD_CREDIT_PURPOSE_ESTIMATE_BASIS,
@@ -20473,8 +20645,11 @@
     });
     if (searchOpts.viewDays == null) searchOpts.viewDays = searchOpts.horizonDays;
     const seq = fundingSequence(plan, asOf, searchOpts);
+    // One held-income holder for this search only (see heldOtherIncomeKeys):
+    // the probes differ only in weeklyVariable, so the hold set is built once.
+    const weeklyHeldReuse = { plan, entries: [] };
     const fits = w => protectedPlanCheck(plan, asOf, Object.assign({}, searchOpts, {
-      weeklyVariable: w, seq,
+      weeklyVariable: w, seq, heldOtherIncomeReuse: weeklyHeldReuse,
     })).feasible;
     if (!fits(0)) return 0; // even zero spending breaches the protected plan
     let lo = 0, hi = 5000;
@@ -29763,7 +29938,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
@@ -29775,7 +29950,7 @@
     startingCashAmount, spendableHouseholdCash, householdChequingRowValue, openingCashState, postedHouseholdChequingCash, resolveFundingSources, resolveActions, EPSILON, STEP,
     billOccurrenceAmount, categorySpendingTrends,
     visaPaymentReconciliation, visaPaymentPublication,
-    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis };
+    CARD_ESTIMATE_REASONS, CARD_ESTIMATE_CAUSE, cardCoverageEstimateBasis, LINKED_BILL_MISFIT_CHECKS };
   if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;
   else root.Forecast = Forecast;
   // The exported recommend opens the packet-facts reuse scope around it

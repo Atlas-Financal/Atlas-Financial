@@ -1,7 +1,7 @@
 'use strict';
 // Lunch Money's own card-payment link (lead dispatch U5). A posted LM
 // transaction group (both rows carry the v2 group_parent_id) that spans two
-// accounts and holds exactly one household-cash debit and one card-payment
+// accounts and holds exactly one household-cash (Bills, Weekly) or Savings debit and one card-payment
 // credit of equal amount proves where the payment went: the two rows pair with
 // each other, whatever their payees or notes. An ungrouped pair behaves as
 // today; a group of any other shape withholds; a same-account group (an LM
@@ -84,8 +84,44 @@ creditToConfirm(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, 
 creditToConfirm(run(world([...grouped, ['bills', 10, null, 'cash', { ...generic, ...group }]])), 'grouped, three members', 105, 210);
 withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...group }],
   ['card', -105, null, 'credit', { ...generic, ...group, is_pending: true }]])), 'grouped, pending credit');
-withheld(run(world([purchase, ['savings', 105, null, 'cash', { ...generic, ...group }], ['card', -105, null, 'credit', { ...generic, ...group }]],
-  { savingsOpening: 1000 })), 'grouped, a Savings (not household-cash) debit', 'coverage-payment-group-unconfirmed');
+// 4b. A grouped Savings debit (lead ruling, ATLAS LEAD 11, 2026-11-19; owner rule: money onto the card counts from
+// Savings) pays the card exactly as a grouped Bills debit: the 25 minimum first, then the 80 purchase, once. Bills is
+// untouched (500), so available now = 500 - 0 - 70 (groceries left) - 0 = 430.
+{
+  const savings = x => ['savings', 105, null, 'cash', { ...generic, ...x }];
+  // paidOnce above is written for a Bills payment (available 325); a Savings payment leaves Bills at 500.
+  const paidOnceFromSavings = (s, why) => {
+    check(s.coverage.status === 'ready' && s.coverage.reservedCash === 0 && s.coverage.payments.length === 1,
+      why + ': ready, reserve 0, one payment ' + JSON.stringify(s.coverage.issues));
+    const p = s.coverage.payments[0] || {};
+    check(p.minimumPayment === 25 && p.backfill === 80 && p.cardPayment === 0, why + ': minimum 25 first, then the 80 purchase');
+  };
+  const credit = x => ['card', -105, null, 'credit', { ...generic, ...x }];
+  const grouped = run(world([purchase, savings(group), credit(group)], { savingsOpening: 1000 }));
+  paidOnceFromSavings(grouped, 'grouped Savings debit');
+  check(grouped.period.fromTodayFunding.availableNow === 430, 'grouped Savings debit: available 430 (Bills untouched)');
+  // The same with Savings mapped as the household reserve (household-reserve role).
+  paidOnceFromSavings(run(world([purchase, savings(group), credit(group)], { savingsOpening: 1000, reserveSavings: true })),
+    'grouped Savings debit, household-reserve role');
+  // Ungrouped, the same rows behave as today: the generic credit's purpose is unconfirmed, the purchase stays
+  // reserved, available 500 - 25 - 70 - 80 = 325.
+  const ungrouped = run(world([purchase, savings({}), credit({})], { savingsOpening: 1000 }));
+  check(ungrouped.coverage.payments.length === 0 && ungrouped.coverage.reservedCash === 80
+    && ungrouped.period.fromTodayFunding.availableNow === 325, 'ungrouped Savings pair: as today (no payment, 80 reserved, 325)');
+  // No double count with the ungrouped Savings pairing: an extra equal, payment-like Savings debit outside the group
+  // pays nothing; it is listed To confirm (which card?), and the group still pays once (available 430).
+  const extra = run(world([purchase, savings(group), credit(group),
+    ['savings', 105, null, 'cash', { payee: 'Invented card payment', original_name: 'Invented card payment', category_name: 'Credit Card Payment' }]],
+  { savingsOpening: 1000 }));
+  paidOnceFromSavings(extra, 'grouped Savings debit plus an outside equal Savings payment');
+  check(extra.period.fromTodayFunding.availableNow === 430
+    && JSON.stringify(extra.coverage.toConfirm.map(r => [r.basis, r.amount])) === '[["card-payment-destination-unconfirmed",105]]',
+  'the outside Savings payment pays nothing and is listed To confirm once');
+  // The #1407 conflict still applies: a grouped Savings debit whose payee and note name different cards pays no card.
+  withheld(run(world([purchase, ['savings', 105, null, 'cash', { payee: 'MBNA PAYMENT', category_name: 'Credit Card Payment',
+    notes: 'card payment: Travel Visa', ...group }], credit(group)], { savingsOpening: 1000, twoCards: true, payDownOnly: ['mbna'] })),
+  'grouped Savings debit whose payee and note disagree', 'coverage-payment-group-unconfirmed');
+}
 // 5. A Weekly household-cash debit in a group is a Weekly-funded payment (#1304):
 // it covers the card once. Weekly is -105 in this world, so pooled cash is
 // 500 - 105 = 395 and available now is 325, as for Bills.

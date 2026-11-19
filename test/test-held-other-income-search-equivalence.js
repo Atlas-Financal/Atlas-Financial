@@ -21,6 +21,10 @@
 //      a world whose held expectation is still ahead of as-of, so the
 //      comparison in 1 can fail.
 // It also pins the saving it exists for: the fresh computations per forecast.
+// The weekly cap search (speed-up 3) hands its probes a holder too. The two
+// kinds of search are counted separately, each with its own check and a
+// degraded holder that fails that check alone, so a rebuild regression in
+// one cannot hide behind the other's saving.
 //
 // Half the worlds carry the 2027 payroll regime, as the household plan does:
 // Forecast.recommend then attaches `dalePayrollWalk` to the walk options and
@@ -67,12 +71,28 @@ function once(needle) {
 }
 for (const anchor of [HOLDER, HIT, COMPUTE, GIVEN, WALK, SEARCH_MEMO, SEARCH_GUESS]) once(anchor);
 once('  function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {');
+// Two kinds of search hand their probes a holder: the payday cent search and
+// the weekly cap search (speed-up 3). Each is counted on its own, so a
+// rebuild regression in one cannot hide behind the other's saving.
+const PAYDAY_HOLDER = '    const heldOtherIncomeReuse = { plan, entries: [] };';
+const WEEKLY_HOLDER = '    const weeklyHeldReuse = { plan, entries: [] };';
+const STORE = 'if (holder && !computed.fromEvents) holder.entries.push(';
+for (const anchor of [PAYDAY_HOLDER, WEEKLY_HOLDER, STORE]) once(anchor);
 // Every copy counts fresh computations and walk resolutions the same way.
-// Each payday search, and each hold-set computation made inside one (the
-// caller handed a holder slot), are counted too.
-const SEARCH_START = '  function maxFeasiblePaydayRemoval(plan, asOf, masterOpts, loBound, hiBound, extraDisabled) {';
-const COUNTED = SOURCE.replace(COMPUTE, count('fresh') + ' if (reuse) ' + count('freshInSearch') + ' ' + COMPUTE)
-  .replace(SEARCH_START, SEARCH_START + ' ' + count('searches'))
+// Each search, and each hold-set computation made inside one (the caller
+// handed a holder slot), is counted by the kind of search that made the
+// holder. A weekly search walks from as-of and, on some worlds, from the pay
+// period's start; its holder keys entries by start, so a weekly build is
+// also counted against the distinct starts that search built for.
+const P = 'globalThis.__atlasHeldProof';
+const kindOf = holder => holder.replace('{ plan, entries: [] }', holder === PAYDAY_HOLDER
+  ? "{ plan, entries: [], __kind: 'payday', __starts: new Set() }" : "{ plan, entries: [], __kind: 'weekly', __starts: new Set() }");
+const COUNTED = SOURCE.replace(COMPUTE, count('fresh')
+    + ` if (reuse && reuse.__kind === 'payday') ${P}.paydayFresh += 1;`
+    + ` if (reuse && reuse.__kind === 'weekly') { ${P}.weeklyFresh += 1;`
+    + ` if (!reuse.__starts.has(start)) { reuse.__starts.add(start); ${P}.weeklyStarts += 1; } } ` + COMPUTE)
+  .replace(PAYDAY_HOLDER, kindOf(PAYDAY_HOLDER) + ' ' + count('paydaySearches'))
+  .replace(WEEKLY_HOLDER, kindOf(WEEKLY_HOLDER) + ' ' + count('weeklySearches'))
   .replace(WALK, '    ' + count('walkResolves') + '\n' + WALK);
 const patched = (needle, replacement) => COUNTED.replace(needle, replacement);
 // 1. Reference: no holder is ever honoured, so every call computes afresh.
@@ -102,10 +122,28 @@ const forgetful = compile(patched(HIT,
 const fullBisection = text => text.replace(SEARCH_MEMO, '      let result;').replace(SEARCH_GUESS, '    if (false) {');
 const perProbe = compile(fullBisection(patched(HOLDER, 'const holder = null;')));
 const holderBisect = compile(fullBisection(COUNTED));
-assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey, perProbe, holderBisect]).size === 7,
-  'seven independent engine copies');
+// Teeth for the split counts: a holder of one kind that stores only every
+// other build. Each must fail its own search's check and leave the other's
+// check passing.
+const degradedOne = kind => compile(patched(STORE,
+  `if (holder && !computed.fromEvents && !(holder.__kind === '${kind}' && ${P}.tick++ % 2 === 0)) holder.entries.push(`));
+const paydayDegraded = degradedOne('payday'), weeklyDegraded = degradedOne('weekly');
+assert.ok(new Set([reference, shipped, checking, forgetful, resolvedKey, perProbe, holderBisect, paydayDegraded, weeklyDegraded]).size === 9,
+  'nine independent engine copies');
 
-const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, freshInSearch: 0, searches: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0, walkResolves: 0 }; };
+const reset = () => { globalThis.__atlasHeldProof = { fresh: 0, paydayFresh: 0, paydaySearches: 0, weeklyFresh: 0, weeklySearches: 0,
+  weeklyStarts: 0, tick: 0, reuses: 0, nonEmptyReuses: 0, mismatches: 0, walkResolves: 0 }; };
+// The shipped search, holder on (after) versus off (before) on the same
+// searches: inside a payday search the hold set is built at most once per
+// search, inside a weekly search at most once per search and walk start,
+// while without the holder this world builds it more often than that. A
+// weekly search can end after one probe (when even zero spending breaches
+// the plan), so the weekly saving is required across the corpus below
+// rather than on every world.
+const paydayWithin = (before, after) => before.paydaySearches === after.paydaySearches && after.paydaySearches > 0
+  && before.paydayFresh > before.paydaySearches && after.paydayFresh <= after.paydaySearches;
+const weeklyWithin = (before, after) => before.weeklySearches === after.weeklySearches && after.weeklySearches > 0
+  && after.weeklyFresh <= after.weeklyStarts;
 function outcome(F, data, asOf, extra) {
   reset();
   const input = structuredClone(data);
@@ -166,6 +204,8 @@ const rebateRow = advice => ((advice && advice.payPeriodViews) || []).flatMap(vi
   .find(row => row && row.id === 'rebate') || null;
 
 let reuses = 0, nonEmptyReuses = 0, heldCases = 0, forgetfulDiffers = 0;
+let splitTeethRun = false;
+const weeklyTotals = { searches: 0, starts: 0, without: 0, with: 0 };
 let walkWorlds = 0, walkReuses = 0, walkNonEmptyReuses = 0, walkHeld = 0, walkForgetfulDiffers = 0;
 for (const [label, world, extra, expectHeld] of CASES) {
   console.log('\n=== ' + label + ' ===');
@@ -196,14 +236,29 @@ for (const [label, world, extra, expectHeld] of CASES) {
     ok(holderOn.proof.fresh * 5 <= everyProbe.proof.fresh,
       'full bisection: at least four in five hold-set rebuilds are gone with the holder',
       `${everyProbe.proof.fresh} -> ${holderOn.proof.fresh}`);
-    // The shipped search (memo and guess on), holder on versus off: inside a
-    // search the hold set is built at most once per search, while without the
-    // holder this world rebuilds it more often than that.
-    ok(before.proof.searches === after.proof.searches && after.proof.searches > 0
-      && before.proof.freshInSearch > before.proof.searches
-      && after.proof.freshInSearch <= after.proof.searches,
-      'shipped search: at most one hold-set rebuild per search with the holder',
-      `${after.proof.searches} searches: ${before.proof.freshInSearch} rebuilds without the holder, ${after.proof.freshInSearch} with`);
+    // The shipped searches (memo and guess on), holder on versus off, each
+    // kind on its own (paydayWithin, weeklyWithin above).
+    ok(paydayWithin(before.proof, after.proof),
+      'payday search: at most one hold-set rebuild per search with the holder',
+      `${after.proof.paydaySearches} searches: ${before.proof.paydayFresh} rebuilds without the holder, ${after.proof.paydayFresh} with`);
+    ok(weeklyWithin(before.proof, after.proof),
+      'weekly search: at most one hold-set rebuild per search and walk start with the holder',
+      `${after.proof.weeklySearches} searches, ${after.proof.weeklyStarts} starts: `
+      + `${before.proof.weeklyFresh} rebuilds without the holder, ${after.proof.weeklyFresh} with`);
+    weeklyTotals.searches += after.proof.weeklySearches; weeklyTotals.starts += after.proof.weeklyStarts;
+    weeklyTotals.without += before.proof.weeklyFresh; weeklyTotals.with += after.proof.weeklyFresh;
+    if (!splitTeethRun) {
+      // Teeth, once: a degraded holder of one kind fails that kind's check
+      // and leaves the other kind's check passing.
+      splitTeethRun = true;
+      const p = outcome(paydayDegraded, data, AS_OF, extra).proof, w = outcome(weeklyDegraded, data, AS_OF, extra).proof;
+      ok(!paydayWithin(before.proof, p) && weeklyWithin(before.proof, p),
+        'teeth: a payday holder that stores every other build fails the payday check alone',
+        `${p.paydayFresh} payday rebuilds over ${p.paydaySearches} searches`);
+      ok(paydayWithin(before.proof, w) && !weeklyWithin(before.proof, w),
+        'teeth: a weekly holder that stores every other build fails the weekly check alone',
+        `${w.weeklyFresh} weekly rebuilds over ${w.weeklyStarts} starts`);
+    }
   }
   reuses += checked.proof.reuses;
   nonEmptyReuses += checked.proof.nonEmptyReuses;
@@ -239,6 +294,10 @@ ok(nonEmptyReuses > 0, 'a non-empty hold set was reused (an expectation held To 
 ok(heldCases > 0 && forgetfulDiffers > 0,
   'teeth: a reuse that forgets the hold set changes the published result on a held world',
   `${forgetfulDiffers} of ${heldCases} held worlds`);
+
+ok(weeklyTotals.searches > 0 && weeklyTotals.with <= weeklyTotals.starts && weeklyTotals.without > 2 * weeklyTotals.starts,
+  'weekly search across the corpus: the holder saves rebuilds the full per-probe search makes',
+  `${weeklyTotals.searches} searches, ${weeklyTotals.starts} starts: ${weeklyTotals.without} rebuilds without the holder, ${weeklyTotals.with} with`);
 
 console.log('\n=== the worlds that carry the 2027 payroll walk reach it too ===');
 ok(walkWorlds >= 4 && walkReuses > 0, 'reuse happened on walk-carrying worlds', `${walkReuses} reuses on ${walkWorlds} worlds`);
