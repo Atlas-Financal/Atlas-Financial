@@ -10489,10 +10489,11 @@
 
   // The held early-credit legs of a scheduled occurrence (see
   // calendarIncomeSections) dated before a payday opening: cash the opening
-  // already holds.
+  // already holds. A pending leg is not in the opening snapshot, so it is
+  // never counted as already there (it stays held, not relied upon).
   function earlyReceiptInOpening(row, openingAsOf) {
     if (!row || !Array.isArray(row.earlyReceiptLegs) || !openingAsOf) return 0;
-    return roundCent(row.earlyReceiptLegs.filter(leg => leg && leg.date < openingAsOf)
+    return roundCent(row.earlyReceiptLegs.filter(leg => leg && leg.pending !== true && leg.date < openingAsOf)
       .reduce((sum, leg) => sum + (Number(leg.amount) || 0), 0));
   }
 
@@ -12332,6 +12333,18 @@
   // the data, one cadence interval back from the date), never only 3 days
   // before. The late side (3 days after) is unchanged. A once income keeps
   // the 3-day window.
+  // How far back any of this plan's salary run-ups can reach: its longest
+  // recurring income cadence (a previous occurrence is never further back),
+  // within the 100-day cap. Bounds the hold's scan to what can matter.
+  const RUN_UP_CADENCE_DAYS = { biweekly: 14, monthly: 31, quarterly: 92 };
+  function scheduledIncomeRunUpReach(plan) {
+    let reach = SCHEDULED_INCOME_HOLD_DAYS;
+    for (const stream of (plan && plan.income) || []) {
+      if (!stream || stream.frequency === 'once') continue;
+      reach = Math.max(reach, RUN_UP_CADENCE_DAYS[stream.frequency] || SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
+    }
+    return Math.min(reach, SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
+  }
   function scheduledIncomeRunUpStart(plan, event) {
     const fallback = addDays(event.date, -SCHEDULED_INCOME_HOLD_DAYS);
     const stream = ((plan && plan.income) || []).find(row => row && row.id === event.id);
@@ -12486,7 +12499,8 @@
     // The same credits, also over one run-up before the span: an early salary
     // credit there is already in this span's opening cash.
     const runUpCandidates = [];
-    const runUpFrom = addDays(span.start, -SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
+    const runUpReach = scheduledIncomeRunUpReach(plan);
+    const runUpFrom = addDays(span.start, -runUpReach);
     const settlementCredits = [];
     const oneOffStreamIds = new Set(((plan && plan.income) || [])
       .filter(stream => stream && stream.id != null && stream.frequency === 'once')
@@ -12656,7 +12670,7 @@
       const held = new Set();
       // An occurrence up to one run-up after the span can claim a credit in it.
       const from = runUpFrom;
-      const to = addDays(span.end, SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
+      const to = addDays(span.end, runUpReach);
       if (!from || !to) return held;
       const credits = runUpCandidates.filter(tx => tx && tx.id != null && tx.date
         && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
@@ -12706,7 +12720,7 @@
           room.set(w, room.get(w) - take);
           left -= take;
           if (!legsOf.has(w)) legsOf.set(w, []);
-          legsOf.get(w).push({ date: tx.date, amount: roundCent(take) });
+          legsOf.get(w).push({ date: tx.date, amount: roundCent(take), pending: tx.pending === true });
         }
       }
       for (const [w, legs] of legsOf) scheduledIncomeHeldLegs.set(w.event.id + '@' + w.event.date, legs);

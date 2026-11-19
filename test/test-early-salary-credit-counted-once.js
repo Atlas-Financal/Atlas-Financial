@@ -28,7 +28,7 @@ const bills = (date, amount, extra = {}) => H.lm({ id: ++nextId, date, amount: -
   account: 'chequing-a', payee: extra.payee || 'Invented Tennis PAY', pending: extra.pending, raw: extra.raw,
   notes: extra.notes, tagIds: extra.tagIds });
 
-function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount = 2200, categories = [], tags = [], shippedPatterns = false, monthEndFirstDue = null }) {
+function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount = 2200, categories = [], tags = [], shippedPatterns = false, monthEndFirstDue = null, snapshot = null }) {
   const w = H.baseWorld(asOf);
   w.categories = w.categories.concat(categories);
   w.tags = tags;
@@ -43,6 +43,8 @@ function serve({ asOf = '2026-10-22', txs = [], monthEndDay = 31, monthEndAmount
     .map(rule => shippedPatterns ? rule : ({ ...rule, salaryReceiptPayeePatterns: ['Invented Tennis PAY'] })));
   w.transactions = [H.lm({ id: 799999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
     payee: 'Invented employer' }), ...txs];
+  // An explicit payday snapshot (the dated opening production reads), when a case needs one.
+  if (snapshot) w.planPatch = plan => { plan.opening = { ...(plan.opening || {}), paydaySnapshot: { ...snapshot } }; };
   H.productionOpening(w);
   const r = Live.fromObservation({ data: H.canonicalOf(w, H.planOf(w)), payload: H.rawPayload(w),
     accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
@@ -155,6 +157,20 @@ console.log('4. Unchanged: an on-time pay, a credit under half, and two incomes 
   ok(s.live && s.income === control.income && s.bad === control.bad && s.close === control.close,
     'Dale\'s Oct 23 and Oct 31 both unproven, one 2200 credit on Oct 20 before the period: neither occurrence adds '
     + 'it again at the close (close = the control\'s; never above it)', JSON.stringify([s.income, s.bad, s.close, control.close]));
+}
+
+{
+  // A PENDING early credit before the opening is not in the opening snapshot: it stays held (counted once, not
+  // relied on), and the close still adds Oct 31 in full (Codex P1 on #1405; lead blocker 2026-11-19).
+  const pendingPay = () => H.lm({ id: ++nextId, date: '2026-10-20', amount: -2200, category: 'Payroll',
+    account: 'chequing-a', payee: 'Invented deposit', pending: true });
+  const snapshot = { periodStart: '2026-10-23', asOf: '2026-10-23', opening: 4500 };
+  const snapControl = serve({ asOf: '2026-10-28', snapshot, txs: [oct15(), dale()] });
+  const s = serve({ asOf: '2026-10-28', snapshot, txs: [oct15(), dale(), pendingPay()] });
+  ok(snapControl.close === 7700, 'control with a 4500 Oct 23 snapshot: close 7700', String(snapControl.close));
+  ok(s.live && s.income === snapControl.income && s.bad === snapControl.bad && s.close === 7700,
+    'a pending 2200 on Oct 20, before the period: income and BAD as the control, and the close stays 7700 (pending '
+    + 'cash is not in the opening, so Oct 31 is not taken out)', JSON.stringify([s.income, s.bad, s.close]));
 }
 
 console.log('5. A first occurrence holds over one cadence interval back');
