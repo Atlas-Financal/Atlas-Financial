@@ -82,6 +82,25 @@ const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.cs
 ['bills', 'budget', 'mortgage'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
 
+// Savings card (A5 shape assumed): nothing until published, then saved of needed, per-goal rows, no Funded words
+assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
+const sv = JSON.parse(JSON.stringify(view));
+sv.stackSummary.savings = { items: [{ label: 'Rainy day', saved: 20.5, needed: 40 }, { label: 'Trip', saved: 0, needed: 90.25 }],
+  totals: { saved: 20.5, needed: 130.25, completeness: 'partial', excludedLabels: ['Car <fund>'] } };
+const sh = buildCardsHTML(ctx(sv));
+const sc = sh.split('data-stack-card="savings"')[1].split('</details>')[0];
+assert(sc.includes(fmt(20.5) + '<i> of ' + fmt(130.25)), 'headline is saved of needed');
+assert(sc.includes('excludes Car &lt;fund&gt;'));
+assert(sc.includes('Rainy day') && sc.includes(fmt(40)) && sc.includes('$0.00<i> of ' + fmt(90.25)));
+assert(!/Funded|Not funded/i.test(sh), 'no Funded wording');
+amounts(sc).forEach(a => assert([20.5, 130.25, 40, 0, 90.25].map(fmt).includes(a), 'unpublished savings amount ' + a));
+sv.stackSummary.savings.totals.completeness = 'complete';
+assert(!buildCardsHTML(ctx(sv)).includes('excludes'));
+sv.stackSummary.savings.totals = { saved: null, needed: null };
+sv.stackSummary.savings.items = [];
+assert(!buildCardsHTML(ctx(sv)).includes('data-stack-card="savings"'));
+assert(css.includes('--sc-savings:'));
+
 // 3. no money arithmetic in the page code
 const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 assert(!/\.reduce\(/.test(src), 'no reduce over money');

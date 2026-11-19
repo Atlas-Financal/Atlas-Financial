@@ -1,6 +1,6 @@
 /* Stack page Bills, Budget and Mortgage cards. Loaded only under ?view=stack. */
 .sc-cards{--sc-ink:#121316;--sc-muted:#6c6d74;--sc-line:rgba(18,19,22,.13);--sc-bar:rgba(18,19,22,.13);
---sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;display:flex;flex-direction:column;gap:12px;font-family:inherit}
+--sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;--sc-savings:#b4ead3;display:flex;flex-direction:column;gap:12px;font-family:inherit}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .sc-cards{--sc-ink:#121316;--sc-muted:#3b3c44}}
 :root[data-theme="dark"] .sc-cards{--sc-ink:#121316;--sc-muted:#3b3c44}
 .sc-card{background:var(--sc-k);color:var(--sc-ink);border-radius:32px;padding:16px 20px;min-width:0}

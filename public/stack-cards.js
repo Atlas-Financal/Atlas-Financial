@@ -13,6 +13,8 @@
  *   bills[].paidState  'paid' | 'not-paid' | 'carried'            (#1429)
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
+ *   stackSummary.savings.items[] {label, saved, needed} and .totals
+ *     {saved, needed, completeness, excludedLabels[]}             (A5; shape assumed until it merges)
  */
 (function (root) {
   'use strict';
@@ -60,9 +62,9 @@
 
   function isMortgageRow(r) { return !!r && (r.debtId === 'mortgage' || r.id === 'mortgage'); }
 
-  function strip(kind, title, sub, figure, figureOf, width, body) {
+  function strip(kind, title, sub, figure, figureOf, width, body, sep) {
     var f = figure == null ? '' : '<span class="sc-f">' + esc(figure) +
-      (figureOf == null ? '' : '<i> / ' + esc(figureOf) + '</i>') + '</span>';
+      (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + '</i>') + '</span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
       '<summary><span class="sc-t">' + esc(title) + '</span><span class="sc-s">' + esc(sub) + '</span>' + f + '</summary>' +
       '<div class="sc-bar"><i style="width:' + width + '%"></i></div>' + body + '</details>';
@@ -116,10 +118,32 @@
     return strip('mortgage', 'Mortgage', sub, total, null, paid ? 100 : 0, body);
   }
 
+  // Savings (owner-approved design): "$saved of $needed" and a bar; open, one
+  // row per goal with its own small bar. No Funded / Not funded wording.
+  // Nothing renders until Forecast publishes stackSummary.savings (F8).
+  function savingsCard(view) {
+    var sv = get(view, ['stackSummary', 'savings']);
+    if (!sv || typeof sv !== 'object') return '';
+    var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
+    var t = sv.totals || {};
+    var saved = money(t.saved), needed = money(t.needed);
+    if (saved == null && needed == null && !items.length) return '';
+    var ex = t.completeness === 'partial' && Array.isArray(t.excludedLabels) && t.excludedLabels.length
+      ? 'excludes ' + t.excludedLabels.join(', ') : null;
+    var body = '<ul class="sc-list">' + items.map(function (i) {
+      var s = money(i.saved), n = money(i.needed);
+      return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b><span class="sc-mini"><i style="width:' +
+        drawWidth(i.saved, i.needed) + '%"></i></span></span>' +
+        (s == null && n == null ? '' : '<span class="sc-a">' + (s == null ? '' : esc(s)) +
+          (n == null ? '' : '<i> of ' + esc(n) + '</i>') + '</span>') + '</li>';
+    }).join('') + '</ul>';
+    return strip('savings', 'Savings', ex || 'saved / needed', saved, needed, drawWidth(t.saved, t.needed), items.length ? body : '', ' of ');
+  }
+
   function buildCardsHTML(ctx) {
     var view = selectView(ctx);
     if (!view) return '';
-    return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + '</div>';
+    return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + savingsCard(view) + '</div>';
   }
 
   function render(container, ctx) {
