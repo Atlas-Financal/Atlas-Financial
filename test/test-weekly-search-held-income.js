@@ -15,7 +15,7 @@
  *      and an identical hold set. Two copies that do read it (one in the hold
  *      set, one in the expansion) are caught by the same comparison;
  *   2. a reference copy with the weekly holder off gives identical advice on
- *      all 60 invented figures evaluations (12 inputs at +0/3/7/14/30 days),
+ *      every invented figures input at +0/3/7/14/30 days,
  *      on held-income worlds (test/fixtures/held-other-income-search-world)
  *      and on a 753-transaction harness world; a holder that forgets the hold
  *      set changes the advice on a held world, so the comparison can fail;
@@ -115,9 +115,14 @@ const reset = (captureOn = false) => {
 };
 
 // The corpus: each case returns the recommend arguments, freshly cloned.
+// The corpus size is derived from the input directory itself (read apart from
+// the loader), so a loader that dropped an input, or a corpus below its 13 inputs, fails here.
+const SHIFTS = [0, 3, 7, 14, 30];
+const INVENTED_INPUTS = fs.readdirSync(path.join(__dirname, 'fixtures', 'figures-inputs')).filter(f => f.endsWith('.json')).length;
+const INVENTED_EVALUATIONS = INVENTED_INPUTS * SHIFTS.length;
 const cases = [];
 for (const input of Snap.loadInventedInputs()) {
-  for (const shift of [0, 3, 7, 14, 30]) {
+  for (const shift of SHIFTS) {
     cases.push({ id: `${input.id} +${shift}`, kind: 'invented', args: F => {
       const data = structuredClone(input.doc.data);
       return [data.plan, F.addDays(data.meta.asOf, shift),
@@ -219,8 +224,8 @@ const results = new Map();
     else ok(false, `${c.id}: advice identical`);
   }
   const invented = cases.filter(c => c.kind === 'invented').length;
-  ok(invented === 60 && same === cases.length,
-    `advice identical on all ${cases.length} cases (60 invented evaluations, 2 held worlds, the 753-transaction world)`, `${same} of ${cases.length}`);
+  ok(invented === INVENTED_EVALUATIONS && INVENTED_INPUTS >= 13 && same === cases.length,
+    `advice identical on all ${cases.length} cases (${INVENTED_EVALUATIONS} invented evaluations, 2 held worlds, the 753-transaction world)`, `${same} of ${cases.length}`);
   let differs = 0;
   for (const c of cases.filter(x => x.kind === 'held')) if (run(copies.forgetful, c).json !== results.get(c.id).off.json) differs++;
   ok(differs > 0, 'teeth: a holder that forgets the hold set changes the advice on a held world', `${differs} of 2`);
