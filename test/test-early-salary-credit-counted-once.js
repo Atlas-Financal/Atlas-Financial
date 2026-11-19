@@ -147,6 +147,16 @@ console.log('4. Unchanged: an on-time pay, a credit under half, and two incomes 
     JSON.stringify([small.income, small.otherIncome]));
 }
 
+{
+  // Dale's Oct 23 also unproven: the Oct 20 2200 is nearest Dale's Oct 23, which takes 1400 of it at the close; the
+  // 800 excess counts against Oct 31 (its run-up holds Oct 20 too), never added again. Close = the control's (7700),
+  // the reading if the credit was Amanda's; if it was Dale's (a 2200 pay on a 1400 plan) this understates by 800.
+  const s = serve({ asOf: '2026-10-28', txs: [oct15(), payroll('2026-10-20', 2200)] });
+  ok(s.live && s.income === control.income && s.bad === control.bad && s.close === control.close,
+    'Dale\'s Oct 23 and Oct 31 both unproven, one 2200 credit on Oct 20 before the period: neither occurrence adds '
+    + 'it again at the close (close = the control\'s; never above it)', JSON.stringify([s.income, s.bad, s.close, control.close]));
+}
+
 console.log('5. A first occurrence holds over one cadence interval back');
 {
   // Oct 31 is the stream's first occurrence (firstDue), so no previous one is in the data: one month back (Oct 1).

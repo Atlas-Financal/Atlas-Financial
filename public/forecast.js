@@ -12664,10 +12664,11 @@
       // Two incomes never take each other's credits: a credit belongs to the
       // one occurrence whose date is nearest it (ties: the earlier date, then
       // the income id), among the windows that contain it.
+      const containing = tx => windowsOf.filter(w => tx.date >= w.start && tx.date <= w.end)
+        .sort((x, y) => Math.abs(diffDays(x.event.date, tx.date)) - Math.abs(diffDays(y.event.date, tx.date))
+          || x.event.date.localeCompare(y.event.date) || String(x.event.id).localeCompare(String(y.event.id)));
       for (const tx of credits) {
-        const owner = windowsOf.filter(w => tx.date >= w.start && tx.date <= w.end)
-          .sort((x, y) => Math.abs(diffDays(x.event.date, tx.date)) - Math.abs(diffDays(y.event.date, tx.date))
-            || x.event.date.localeCompare(y.event.date) || String(x.event.id).localeCompare(String(y.event.id)))[0];
+        const owner = containing(tx)[0];
         if (owner) owner.credits.push(tx);
       }
       for (const w of windowsOf) {
@@ -12677,10 +12678,28 @@
         const total = w.credits.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
         if (total >= w.planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
           for (const tx of w.credits) held.add(String(tx.id));
-          scheduledIncomeHeldLegs.set(w.event.id + '@' + w.event.date,
-            w.credits.map(tx => ({ date: tx.date, amount: roundCent(txInflowAmount(tx)) })));
         }
       }
+      // The close's legs: each held credit counts against its owner up to the
+      // owner's planned amount; any excess counts against the next nearest
+      // unproven occurrence whose run-up contains it, so a credit larger than
+      // the nearer paycheque never leaves its excess counted again.
+      const room = new Map(windowsOf.map(w => [w, w.planned]));
+      const legsOf = new Map();
+      for (const tx of credits.filter(c => held.has(String(c.id)))
+        .sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)))) {
+        let left = txInflowAmount(tx);
+        for (const w of containing(tx)) {
+          if (!(left > EPSILON)) break;
+          const take = Math.min(left, room.get(w));
+          if (!(take > EPSILON)) continue;
+          room.set(w, room.get(w) - take);
+          left -= take;
+          if (!legsOf.has(w)) legsOf.set(w, []);
+          legsOf.get(w).push({ date: tx.date, amount: roundCent(take) });
+        }
+      }
+      for (const [w, legs] of legsOf) scheduledIncomeHeldLegs.set(w.event.id + '@' + w.event.date, legs);
       return held;
     })();
     for (const tx of actualCandidates) {
