@@ -12303,6 +12303,28 @@
   // Unlinked credits near that occurrence are held only when together they
   // reach this share of its planned amount, i.e. could be the paycheque.
   const SCHEDULED_INCOME_HOLD_SHARE = 0.5;
+  // The furthest back a salary occurrence's run-up can reach (a monthly or
+  // quarterly cadence is shorter than this).
+  const SCHEDULED_INCOME_RUN_UP_MAX_DAYS = 100;
+  // LEDGER B (ATLAS LEAD 11, 2026-11-19; BACKLOG "Amanda's early pay can still
+  // count twice"): the first day a credit can be an early receipt of this
+  // salary occurrence. Her pay can arrive anywhere in the run-up, so the hold
+  // starts the day after the income's previous occurrence (or, with none in
+  // the data, one cadence interval back from the date), never only 3 days
+  // before. The late side (3 days after) is unchanged. A once income keeps
+  // the 3-day window.
+  function scheduledIncomeRunUpStart(plan, event) {
+    const fallback = addDays(event.date, -SCHEDULED_INCOME_HOLD_DAYS);
+    const stream = ((plan && plan.income) || []).find(row => row && row.id === event.id);
+    if (!stream || stream.frequency === 'once') return fallback;
+    const from = addDays(event.date, -SCHEDULED_INCOME_RUN_UP_MAX_DAYS), to = addDays(event.date, -1);
+    if (!from || !to) return fallback;
+    const prior = occurrences(stream, from, to);
+    const previous = prior.length ? prior[prior.length - 1]
+      : cadenceOccurrences({ ...stream, firstDue: undefined }, from, to).slice(-1)[0];
+    const start = previous ? addDays(previous, 1) : null;
+    return start && start < fallback ? start : fallback;
+  }
 
   // One recommend() derives calendarIncomeSections' packet facts (the
   // pending/posted twin ids and the count of each transaction id) once per
@@ -12603,23 +12625,39 @@
     };
     const scheduledIncomeHeldIds = (() => {
       const held = new Set();
+      // An occurrence up to one run-up after the span can claim a credit in it.
       const from = addDays(span.start, -SCHEDULED_INCOME_HOLD_DAYS);
-      const to = addDays(span.end, SCHEDULED_INCOME_HOLD_DAYS);
+      const to = addDays(span.end, SCHEDULED_INCOME_RUN_UP_MAX_DAYS);
       if (!from || !to) return held;
       const credits = actualCandidates.filter(tx => tx && tx.id != null && tx.date
         && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
+      // Each unproven salary occurrence's window: its run-up (the day after
+      // the income's previous occurrence) to 3 days after its date.
+      const windowsOf = [];
       for (const event of expandEvents(plan, from, to, Object.assign({}, opts || {}, { keepRepresented: true })) || []) {
         if (!event || event.kind !== 'income' || !event.id || !event.date) continue;
         const planned = Number(event.amount);
         if (!(planned > EPSILON) || incomeClassForEvent(plan, event) === 'other') continue;
         if (scheduledIncomeProven(event)) continue;
-        const near = credits.filter(tx => Math.abs(diffDays(event.date, tx.date)) <= SCHEDULED_INCOME_HOLD_DAYS);
+        windowsOf.push({ event, planned, start: scheduledIncomeRunUpStart(plan, event),
+          end: addDays(event.date, SCHEDULED_INCOME_HOLD_DAYS), credits: [] });
+      }
+      // Two incomes never take each other's credits: a credit belongs to the
+      // one occurrence whose date is nearest it (ties: the earlier date, then
+      // the income id), among the windows that contain it.
+      for (const tx of credits) {
+        const owner = windowsOf.filter(w => tx.date >= w.start && tx.date <= w.end)
+          .sort((x, y) => Math.abs(diffDays(x.event.date, tx.date)) - Math.abs(diffDays(y.event.date, tx.date))
+            || x.event.date.localeCompare(y.event.date) || String(x.event.id).localeCompare(String(y.event.id)))[0];
+        if (owner) owner.credits.push(tx);
+      }
+      for (const w of windowsOf) {
         // Only credits that together could be this paycheque (whole, or in
         // legs) are held; a small gift or rebate near payday is not it and
         // stays ordinary Other income.
-        const total = near.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
-        if (total >= planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
-          for (const tx of near) held.add(String(tx.id));
+        const total = w.credits.reduce((sum, tx) => sum + txInflowAmount(tx), 0);
+        if (total >= w.planned * SCHEDULED_INCOME_HOLD_SHARE - EPSILON) {
+          for (const tx of w.credits) held.add(String(tx.id));
         }
       }
       return held;
