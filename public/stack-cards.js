@@ -14,7 +14,7 @@
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
- *     {saved, needed, completeness ('pool-level' | ...), excluded[] (item ids)}         (A5; saved/needed as a number or {amount})
+ *     {saved, needed, completeness ('pool-level' | 'none'), excluded[] (ids of goals with no needed)}  (A5; plain numbers or null)
  */
 (function (root) {
   'use strict';
@@ -126,14 +126,14 @@
     if (!sv || typeof sv !== 'object') return '';
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
     var t = sv.totals || {};
-    var amt = function (v) { return v && typeof v === 'object' ? v.amount : v; };
+    var amt = function (v) { return v; }; // plain numbers or null (A5)
     var saved = money(amt(t.saved)), needed = money(amt(t.needed));
     if (saved == null && needed == null && !items.length) return '';
     var labelOf = {};
     items.forEach(function (i) { if (i.id != null) labelOf[String(i.id)] = i.label; });
     var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
       .filter(function (l) { return l; }); // an id with no listed item has no label to print
-    var ex = t.completeness === 'partial' && exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
+    var ex = exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
     // A pool-level total (savings land in one pool): "moved of needed"; each goal
     // says what it needs, with no bar. A goal with its own published saved
     // value reads "saved of needed" with a bar, so that design switches on by itself.
@@ -147,7 +147,7 @@
         (own ? '<span class="sc-mini"><i style="width:' + drawWidth(amt(i.saved), amt(i.needed)) + '%"></i></span>' : '') +
         '</span>' + right + '</li>';
     }).join('') + '</ul>';
-    return strip('savings', 'Savings', ex || (pool ? 'moved / needed' : 'saved / needed'), saved, needed,
+    return strip('savings', 'Savings', ex || (pool ? 'moved / needed' : 'needed'), saved, needed,
       drawWidth(amt(t.saved), amt(t.needed)), items.length ? body : '', pool ? ' moved of ' : ' of ', pool ? ' needed' : '');
   }
 

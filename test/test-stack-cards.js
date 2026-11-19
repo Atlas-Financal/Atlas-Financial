@@ -85,8 +85,8 @@ assert(/prefers-color-scheme:dark/.test(css) && /data-theme="dark"/.test(css));
 // Savings card (A5 shape assumed): nothing until published, then saved of needed, per-goal rows, no Funded words
 assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
 const sv = JSON.parse(JSON.stringify(view));
-sv.stackSummary.savings = { items: [{ id: 'r', label: 'Rainy day', saved: 20.5, needed: 40 }, { id: 't', label: 'Trip', saved: 0, needed: 90.25 }, { id: 'c', label: 'Car <fund>', saved: { amount: 5 }, needed: { amount: 60 } }],
-  totals: { saved: 20.5, needed: 130.25, completeness: 'partial', excluded: ['c', 'gone'] } };
+sv.stackSummary.savings = { items: [{ id: 'r', label: 'Rainy day', saved: 20.5, needed: 40 }, { id: 't', label: 'Trip', saved: 0, needed: 90.25 }, { id: 'c', label: 'Car <fund>', saved: 5, needed: 60 }],
+  totals: { saved: 20.5, needed: 130.25, completeness: 'none', excluded: ['c', 'gone'] } };
 const sh = buildCardsHTML(ctx(sv));
 const sc = sh.split('data-stack-card="savings"')[1].split('</details>')[0];
 assert(sc.includes(fmt(20.5) + '<i> of ' + fmt(130.25)), 'headline is saved of needed');
@@ -103,8 +103,8 @@ assert(pc.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' needed</i>'), '
 assert(pc.includes('<i>needs </i>' + fmt(40)) && pc.includes('<i>needs </i>' + fmt(90.25)));
 assert((pc.match(/sc-mini/g) || []).length === 1, 'only the goal with its own saved has a bar');
 assert(pc.includes(fmt(5) + '<i> of ' + fmt(60)));
-assert(!/Funded/i.test(pc) && !pc.includes('excludes'));
-sv.stackSummary.savings.totals.completeness = 'complete';
+assert(!/Funded/i.test(pc) && pc.includes('excludes Car &lt;fund&gt;'));
+sv.stackSummary.savings.totals.excluded = [];
 assert(!buildCardsHTML(ctx(sv)).includes('excludes'));
 sv.stackSummary.savings.totals = { saved: null, needed: null };
 sv.stackSummary.savings.items = [];
