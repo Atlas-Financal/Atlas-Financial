@@ -1209,7 +1209,9 @@ household chequing account that the ledger files as Transfer or Payment
 also a held outflow under the same term. Proof is the ledger's own: a
 Lunch Money group or proven internal movement, a represented bill, a card
 payment by its own identity or a "card payment: <card>" note naming a
-contract card (that card's minimum stays in the bill load), a card-payment cash leg the card
+contract card (a note-only payment's card minimum stays in the bill load until
+confirmed; any part of a payee-identified manual-card payment above its minimum
+is the term below), a card-payment cash leg the card
 reconciler accepted, a near-due bill hold, or a debit the card-minimum owner
 counts (`Forecast.cardMinimumOwnedDebits`, carried by the observer only as the
 boolean `cardMinimumOwned`; debit identities stay server-side). Names and
@@ -1221,6 +1223,23 @@ and names what could not be read, never 0. `heldOutflowReader` in
 `public/forecast.js` is the one reader every held-outflow consumer uses. An
 unlinked Transfer can overlap a scheduled bill not yet confirmed; that is the
 conservative side, and the ledger owns the cure.
+
+**Manual-card payments beyond the minimum** (Grok Bot, Plan #6,
+1795043398.586159; lead, 2026-11-19). On the two manual cards (MBNA,
+Triangle; `cardPurchaseCoverage.payDownOnly`), a posted chequing debit with
+that card's payee identity pays the card's minimum first (the card ledger's
+minimum-first walk). The part above the minimum in that card's pay period, or
+the whole payment when no minimum is due there, also left household cash:
+Balance After Deductions and the planned close deduct it once as their own
+named term (`manualCardPaymentBeyondMinimum`), never as To confirm.
+`reconcileCardPurchases` is its one authority (`payDownBeyondMinimum`, the
+same allocation that settles the minimum). One source per card per period:
+MBNA is not counted in a pay period whose manual account holds a posted
+purchase (by account and posting state, never a merchant); Triangle always.
+No budget row tracks either card. A note-only payment is not a pay-down pair,
+so its excess is not counted (coverage pairing is unchanged). The private
+period-history term set carries the term; an older record without it reads it
+as absent, never 0, and its own terms still close.
 
 ### Budget savings-display amendment — owner direction 2026-09-30
 

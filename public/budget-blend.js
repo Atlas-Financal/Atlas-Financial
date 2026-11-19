@@ -932,11 +932,12 @@
   const EXTRA_TERMS = [
     ['heldOutflowSpending', 'To confirm'],
     ['savingsItemSpending', 'Savings items'],
+    ['manualCardPaymentBeyondMinimum', 'Card payments beyond minimum'],
   ];
-  const EXTRA_SEGMENT = { heldOutflowSpending: 's-held', savingsItemSpending: 's-item' };
+  const EXTRA_SEGMENT = { heldOutflowSpending: 's-held', savingsItemSpending: 's-item', manualCardPaymentBeyondMinimum: 's-held' };
   function paintExtraTermSlots(hero) {
     hero.querySelectorAll('[data-blend-extra-term], .blend-minus.is-extra').forEach(node => node.remove());
-    hero.classList.remove('has-extra-terms-1', 'has-extra-terms-2');
+    hero.classList.remove('has-extra-terms-1', 'has-extra-terms-2', 'has-extra-terms-3');
     const block = badTermsBlock(hero);
     const status = block ? (block.getAttribute('data-bad-terms-status') || 'unavailable') : 'unavailable';
     let anchor = hero.querySelector('[data-operating-question="06"]');

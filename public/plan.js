@@ -3785,13 +3785,15 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const badItemTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'savingsItemSpending');
   // Rank 18: held outflows (To confirm), deducted once as their own term.
   const badHeldTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'heldOutflowSpending');
+  // Grok Bot (Plan #6): manual-card (MBNA, Triangle) payments beyond the minimum, its own term.
+  const badBeyondTermPublished = badTermsKnown && Object.hasOwn(badTerms, 'manualCardPaymentBeyondMinimum');
   const badTermsFace = !dailySavings && fundedBalanceKnown ? 'after-proposed-funding' : 'balance-after-deductions';
   const badTermsHtml = `<div class="operating-lines budget-bad-terms" data-bad-terms data-bad-terms-period="${escape(period.id || period.start || '')}" data-bad-terms-status="${badTermsKnown ? 'published' : 'unavailable'}" data-bad-terms-face="${badTermsFace}">
     ${historicalBadEstimated ? `<p class="operating-note" data-bad-historical-reconstructed>${historicalBadEstimatedNote}</p>` : historicalBadWithheld ? `<p class="operating-note" data-bad-historical-withheld>${historicalBadNote}</p>` : ''}
     ${badTermRow('periodIncome', 'Period income', period.incomeTrust, false)}
     ${badTermRow('assignedBills', 'Assigned bills (incl. required debt minimums)', period.periodBillLoadTrust, false)}
     ${badTermRow('householdBudgetHold', householdTermLabel, period.budgetHoldTrust, true, householdTermFace)}
-    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badHeldTermPublished ? badTermRow('heldOutflowSpending', 'To confirm (not spending)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
+    ${badItemTermPublished ? badTermRow('savingsItemSpending', 'Savings item spending (linked purchases not paid from Savings)', null, true) + '\n    ' : ''}${badHeldTermPublished ? badTermRow('heldOutflowSpending', 'To confirm (not spending)', null, true) + '\n    ' : ''}${badBeyondTermPublished ? badTermRow('manualCardPaymentBeyondMinimum', 'Card payments beyond the minimum (MBNA, Triangle)', null, true) + '\n    ' : ''}${badTermRow('balanceAfterDeductions', 'Balance After Deductions', period.balanceAfterDeductionsTrust, true)}
   </div>`;
   const today = period.fromTodayFunding;
   const todayHtml = calendarFromTodayEvidenceHtml(period, plan);
