@@ -772,7 +772,7 @@ Deleting the six legacy pages (2026-11-16) left Forecast functions with no live 
 
 Provider-observe `firstNumber` turns a blank, `false` or non-numeric raw balance into $0 for any account. This is the root fix (full lane); resume parked #976 on top of it. Source: lead handoff 2026-11-09.
 
-The bill detail still lists a cross-period debit as "Possible payment" while Forecast counts it as Other spending. Source: PR #965.
+~~The bill detail still lists a cross-period debit as "Possible payment" while Forecast counts it as Other spending. Source: PR #965.~~ Done in 72699a57 (bill-detail reads Forecast's nearDueBillCandidateHeld). Evidence: `candidates()` in `public/bill-detail.js` lists a near-due debit Forecast does not hold as Other spending with its ledger category, never as a possible payment.
 
 ~~`test/browser-other-period-target.js` times out (`waitForFunction`, 30 s) on unchanged `main`. Browser suites do not run in hosted CI, so nothing reports it. Find the stale wait and repair the test narrowly, without weakening its checks. Source: PR #1074.~~ Done: it now opens Other spending from the visible ring.
 
