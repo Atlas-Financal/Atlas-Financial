@@ -78,7 +78,7 @@ const EXPORT = "  if (typeof module !== 'undefined' && module.exports) module.ex
 const copies = {
   shipped: require('../public/forecast.js'),
   exposed: compile(replaceOnce(SOURCE, EXPORT, '  Forecast.__stack = { periodAssignedBillParts, stackBills, periodBillLoadPartsByPeriod };\n' + EXPORT, 'expose'), 'exposed'),
-  without: compile(replaceOnce(SOURCE, 'return publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts);', 'return recommend(plan, asOf, opts);', 'pass off'), 'without'),
+  without: compile(replaceOnce(SOURCE, 'publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)', 'recommend(plan, asOf, opts)', 'pass off'), 'without'),
   subtractsHeld: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(';', ' - stackCents((view.heldOutflowsToConfirm && view.heldOutflowsToConfirm.total) || 0);'), 'subtracts held'), 'subtracts-held'),
   noItem: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - stackCents(item);', ';'), 'no item'), 'no-item'),
   noCredit: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - creditCents', ''), 'no credit'), 'no-credit'),
