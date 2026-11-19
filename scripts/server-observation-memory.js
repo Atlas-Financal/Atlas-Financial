@@ -242,7 +242,7 @@ function create() {
     // raised on a complete refresh still shows the last full picture. Same
     // process memory and the same compatibility rule as readDisplay; it is
     // replaced only by a later non-withheld complete publication and is
-    // served only under the "last full picture" banner (live-plan
+    // served only as the retained picture (live-plan
     // withLatestCompleteRefresh). Retirement: ARCHITECTURE.md.
     readClearDisplay(context) {
       if (!slot?.clearDisplay || !isDeepStrictEqual(slot.clearDisplay.context, context)) return null;

@@ -1731,11 +1731,10 @@ function serveCanonicalOrFixture(canonical, env) {
   }
 }
 
-// The closed set of reasons a retained picture's attempt may carry. The
-// Budget page's banner has one plain line for each (public/plan.js
-// RETAINED_PICTURE_REASONS; test/test-last-non-withheld-picture.js checks the
-// two match). 'current-plan-withheld': today's refresh completed but its plan
-// is withheld as a whole (Dale, 2026-11-18).
+// The closed set of reasons a retained picture's attempt may carry (the
+// attempt receipt). The Budget page prints no reason line (OD-025, Dale
+// 2026-11-19: no banner). 'current-plan-withheld': today's refresh completed
+// but its plan is withheld as a whole (Dale, 2026-11-18).
 const RETAINED_ATTEMPT_REASONS = Object.freeze(['stale-live-cash-evidence', 'missing-live-cash-evidence',
   'pending-freshness-unproven', 'posted-window-truncated', 'posted-window-unproven',
   'provider-unavailable', 'provider-request-timeout', 'live-refresh-unavailable',

@@ -3,8 +3,9 @@
 // and "If we have a failure where the whole page goes down we should just keep
 // it at the last full picture." Section 6: when today's refresh fails, the
 // retained last full picture (already served wholesale by the server) shows
-// unchanged under a banner, in a muted state. Sections 1-5: with no picture
-// retained, the fallback.
+// unchanged, in a muted state, with no banner (OD-025, Dale 2026-11-19: the
+// "Last updated" line already says when it is from). Sections 1-5: with no
+// picture retained, the fallback.
 // When the current plan is withheld as a whole (liveOverlay.operatingPlan
 // 'unavailable'), the Budget surface used to drop the whole current pay
 // period. It now keeps it as a shell: the period's dates, each figure
@@ -141,7 +142,7 @@ console.log('5. The reason is escaped');
   check(shell.includes('data-budget-unavailable-shell'), 'and the shell still renders');
 }
 
-console.log('6. A retained last full picture is shown unchanged, under a banner (Dale, 2026-11-18)');
+console.log('6. A retained last full picture is shown unchanged, with no banner (Dale, 2026-11-18; OD-025, 2026-11-19)');
 {
   // The server serves the retained last complete publication wholesale when
   // today's refresh fails (live-plan withLatestCompleteRefresh).
@@ -150,49 +151,39 @@ console.log('6. A retained last full picture is shown unchanged, under a banner 
     { source: 'provider', qualified: false, checkedAt: '2026-09-21T16:30:00Z', attemptedAt: '2026-09-21T16:30:00Z',
       reason: 'provider-unavailable' });
   const plain = render(base).html, shown = render(picture).html;
-  const banner = (shown.match(/<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>([^<]*)<\/p>/) || [])[1];
-  check(banner === 'Showing the last full picture from Sep 20, 2026, 10:00 a.m. PDT (1 day ago). Today\'s update couldn\'t be completed: the bank connection did not answer.',
-    'the banner names the picture\'s time, its age and a one-line reason (got ' + banner + ')');
-  // The age counts household days (Pacific), and is left out on the same day.
-  const bannerOf = (checkedAt, attemptedAt) => (render(Live.withLatestCompleteRefresh({ data: base, checkedAt },
-    { source: 'provider', qualified: false, checkedAt: attemptedAt, attemptedAt, reason: 'provider-unavailable' })).html
-    .match(/data-budget-retained-banner>([^<]*)<\/p>/) || [])[1] || '';
-  check(bannerOf('2026-09-18T17:00:00Z', '2026-09-21T16:30:00Z').includes('PDT (3 days ago).'), 'three household days back reads "3 days ago"');
-  check(/PDT\. Today/.test(bannerOf('2026-09-21T15:00:00Z', '2026-09-21T16:30:00Z')), 'a picture from earlier today shows no age');
-  check(/PDT\. Today/.test(bannerOf('2026-09-21T15:00:00Z', '2026-09-22T05:30:00Z')),
-    'a later UTC date on the same Pacific day shows no age (Sep 21 10:30 p.m. PDT)');
-  check(/PDT \(1 day ago\)\./.test(bannerOf('2026-09-21T06:30:00Z', '2026-09-21T16:30:00Z')),
-    'the same UTC date on the previous Pacific day reads "1 day ago" (Sep 20 11:30 p.m. PDT)');
-  check(/PDT\. Today/.test(bannerOf('2026-09-20T17:00:00Z', null)), 'with no attempt time, no age is guessed');
+  const noBanner = html => !/data-budget-retained-banner|budget-retained-banner|Showing the last full picture|couldn(?:'|&#39;)t be completed/.test(html);
+  check(noBanner(shown), 'no banner and no reason line on the retained picture (OD-025)');
   check(/data-budget-surface="pay-period"/.test(shown) && !shown.includes('data-budget-unavailable-shell'), 'the full page is shown, not the shell');
   check(/<div class="budget-retained-picture" data-budget-retained-picture>/.test(shown), 'the page is in its muted state');
-  check(!/data-latest-complete-refresh/.test(shown), 'the banner replaces the dated-plan note here');
-  // The bank's own last sync stays as the small line beside it, when known.
+  // OD-3: the small "Last updated" line dates the view when the bank's own
+  // last sync is known; then no dated-plan note is printed.
   const synced = structuredClone(picture);
   synced.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = '2026-09-19T18:30:00Z';
   const syncedHtml = render(synced).html;
-  check(/data-budget-retained-banner/.test(syncedHtml) && /data-account-last-updated><small>Last updated Sep 19, 2026/.test(syncedHtml),
-    'the bank\'s own (older) last sync still shows beside the banner');
+  check(/data-account-last-updated><small>Last updated Sep 19, 2026/.test(syncedHtml) && !/data-latest-complete-refresh/.test(syncedHtml)
+    && noBanner(syncedHtml), 'with a known last sync, "Last updated" alone dates the retained picture');
+  // With no last sync to print, the small dated-plan note keeps a freshness
+  // line on the page (a dated view is never shown without one).
+  const note = (shown.match(/<p class="note-box" data-latest-complete-refresh>([^<]*)<\/p>/) || [])[1];
+  check(!/data-account-last-updated/.test(shown)
+    && note === 'Latest complete refresh: Sep 20, 2026, 10:00 a.m. PDT. Dated plan, not current balances. Current refresh incomplete.',
+  'with no last sync, the dated-plan note names the picture\'s time (got ' + note + ')');
   check(/data-budget-evidence-dated="2026-09-20"/.test(shown), 'the period chip still reads as of the picture\'s day');
   const amounts = html => (html.match(/\$[\d,]+\.\d\d/g) || []).sort().join(' ');
-  check(amounts(shown) === amounts(plain) && amounts(shown).length > 0,
+  check(amounts(shown) === amounts(plain) && amounts(shown).length > 0 && amounts(syncedHtml) === amounts(plain),
     'every amount is exactly the publication\'s own: nothing recomputed or mixed in');
-  check(!/data-budget-retained-banner|data-budget-retained-picture/.test(plain), 'a current page has no banner and no muted state');
-  // Reasons come from the closed set; anything else reads the default line.
-  const odd = Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
-    { source: 'provider', checkedAt: null, attemptedAt: null, reason: '<b>x</b>' });
-  check(render(odd).html.includes("Today's update couldn't be completed: the current bank data is unavailable."),
-    'an unknown reason reads the default line');
-  // A complete refresh withheld as a whole shows the last non-withheld picture
-  // (test/test-last-non-withheld-picture.js) with its own line.
-  const withheldToday = Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
-    { source: 'provider', checkedAt: '2026-09-21T16:30:00Z', attemptedAt: '2026-09-21T16:30:00Z', reason: 'current-plan-withheld' });
-  check(render(withheldToday).html.includes("Today's update couldn't be completed: today&#39;s figures are on hold until something is confirmed."),
-    'the withheld-today reason reads its own line');
+  check(!/data-budget-retained-picture|data-latest-complete-refresh/.test(plain) && noBanner(plain), 'a current page has no muted state and no note');
+  // Whatever the attempt's reason, nothing about it is printed.
+  for (const reason of ['<b>x</b>', 'current-plan-withheld', 'live-refresh-timeout']) {
+    const html = render(Live.withLatestCompleteRefresh({ data: base, checkedAt: '2026-09-20T17:00:00Z' },
+      { source: 'provider', checkedAt: '2026-09-21T16:30:00Z', attemptedAt: '2026-09-21T16:30:00Z', reason })).html;
+    check(noBanner(html) && !html.includes('<b>x</b>') && !/on hold until something is confirmed|took too long/.test(html),
+      'reason ' + JSON.stringify(reason) + ' prints no line');
+  }
   const badTime = JSON.parse(JSON.stringify(picture));
   badTime.liveOverlay.retainedRefresh.observedAt = '<img src=x onerror=alert(1)>';
   const badHtml = render(badTime).html;
-  check(badHtml.includes('Showing the last full picture from an earlier refresh (time unavailable).') && !badHtml.includes('<img'),
+  check(badHtml.includes('Latest complete refresh: date/time unavailable.') && !badHtml.includes('<img'),
     'an unreadable time is never printed raw');
   // No retained picture (a cold restart with the provider down): the shell.
   check(render(Live.withoutCompleteRefresh(base)).html.includes('data-budget-unavailable-shell'),

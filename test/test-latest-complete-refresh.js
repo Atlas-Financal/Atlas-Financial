@@ -110,12 +110,12 @@ const oldSyncedDated = Live.withLatestCompleteRefresh({ data: oldSynced, checked
 eq(oldSyncedDated.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt, '2025-08-18T18:30:00.000Z', 'later failed attempt cannot retime the retained sync metadata');
 yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained Budget preserves the same Last updated line');
 // OD-3 (#821, owner 2026-11-11): a dated view carries no dated-plan note when
-// a "Last updated" line can be printed. Since Dale's 2026-11-18 decision a
-// retained view always carries the "last full picture" banner instead of the
-// note, and keeps the Last updated line (the bank's own sync) when known.
-// Byte proof against the same cohort without sync metadata: only the footer
-// differs, and every other byte (trust tags, the dated "Balance at this
-// refresh" heading, approximate markers, Unavailable labels) is identical.
+// a "Last updated" line can be printed, and the note only when it cannot.
+// OD-025 (Dale, 2026-11-19) removes the 2026-11-18 "last full picture"
+// banner: the small line alone dates a retained view. Byte proof against the
+// same cohort without sync metadata: only the footer / note swap differs, and
+// every other byte (trust tags, the dated "Balance at this refresh" heading,
+// approximate markers, Unavailable labels) is identical.
 {
   const footer = /<p class="mutedtext" data-account-last-updated>[\s\S]*?<\/p>/;
   const note = /<p class="note-box" data-latest-complete-refresh>[\s\S]*?<\/p>/;
@@ -125,22 +125,22 @@ yes(page.render(oldSyncedDated).includes('Last updated Aug 18, 2025'), 'retained
     const withSync = Live.withLatestCompleteRefresh({ data: source, checkedAt }, failure);
     const withoutSync = structuredClone(withSync); delete withoutSync.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
     const footerOnly = page.render(withSync), noteOnly = page.render(withoutSync);
-    const banner = /<p class="note-box budget-retained-banner" role="status" data-budget-retained-banner>Showing the last full picture from [^<]+<\/p>/;
-    yes(!footerOnly.includes('data-latest-complete-refresh') && !note.test(noteOnly),
-      label + ': a retained view carries no dated-plan note, with or without Last updated');
-    yes(banner.test(footerOnly) && banner.test(noteOnly), label + ': the last-full-picture banner discloses the view either way');
-    yes(footer.test(footerOnly) && !footer.test(noteOnly), label + ': the small Last updated line (the bank\'s own sync) stays when known');
-    eq(footerOnly.replace(footer, ''), noteOnly, label + ': only the footer differs; every other byte is unchanged');
+    const banner = /data-budget-retained-banner|Showing the last full picture|couldn(?:'|&#39;)t be completed/;
+    yes(!banner.test(footerOnly) && !banner.test(noteOnly), label + ': no banner and no reason line either way (OD-025)');
+    yes(footer.test(footerOnly) && !note.test(footerOnly), label + ': with Last updated known, that small line alone dates the view');
+    yes(note.test(noteOnly) && !footer.test(noteOnly), label + ': without it, the dated-plan note keeps a freshness line');
+    eq(footerOnly.replace(footer, ''), noteOnly.replace(note, ''), label + ': only the footer / note differs; every other byte is unchanged');
     yes(renderer.exports.strip(footerOnly).includes('Balance at this refresh'), label + ': the dated balance heading stays');
   }
 }
 const html = page.render(dated), text = renderer.exports.strip(html);
-// Dale, 2026-11-18: the banner discloses the retained state on the Budget.
-yes(html.includes('data-budget-retained-banner') && html.includes('data-budget-retained-picture'),
-  'actual Budget path discloses retained state (banner, muted page)');
+// Dale, 2026-11-18: the retained state is a muted page; OD-025 (2026-11-19):
+// no banner, the small freshness line dates it.
+yes(!html.includes('data-budget-retained-banner') && html.includes('data-budget-retained-picture'),
+  'actual Budget path shows the retained state as a muted page, with no banner');
 yes(text.includes('Aug 20, 2026') && text.includes('11:00 a.m.') && /PDT|GMT-7|UTC-7/.test(text), 'original household date and time shown');
-yes(text.includes('Showing the last full picture from') && text.includes("Today's update couldn't be completed"),
-  'dated figures not sold as today fresh');
+yes((text.includes('Last updated') || text.includes('Latest complete refresh: Aug 20, 2026')) && !text.includes('Showing the last full picture'),
+  'dated figures not sold as today fresh: the small freshness line dates them');
 yes(text.includes('Balance at this refresh'), 'Budget balance heading dated');
 yes(!text.includes('Available to fund now'), 'retained funding not claimed as now');
 page.context.retainedData = dated;
@@ -526,7 +526,8 @@ async function controllerProof() {
       eq(mock.calls.length, beforeReload, 'reload does not mask failure with a newly minted source check');
       eq(reload.data.liveOverlay.retainedRefresh.attempt, forced.data.liveOverlay.retainedRefresh.attempt, 'reload keeps true attempt receipt');
       const activeHtml = page.render(reload.data);
-      yes(activeHtml.includes('data-budget-retained-banner') && renderer.exports.strip(activeHtml).includes('Aug 20, 2026'), 'served packet reaches actual Budget dated renderer (the last-full-picture banner)');
+      yes(activeHtml.includes('data-budget-retained-picture') && !activeHtml.includes('data-budget-retained-banner')
+        && renderer.exports.strip(activeHtml).includes('Aug 20, 2026'), 'served packet reaches actual Budget dated renderer (muted retained picture, no banner)');
       eq(F.scheduledAmountState(reload.data.plan, Fixture.AS_OF, '2026-11-18').status,
         F.scheduledAmountState(first.data.plan, Fixture.AS_OF, '2026-11-18').status, 'served fallback does not strengthen Unknown gate');
       yes(!JSON.stringify(reload.data).includes('SYNTHETIC-CREDENTIAL-CANARY'), 'served data excludes provider credential');
