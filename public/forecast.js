@@ -850,6 +850,37 @@
       ? packet.disagreements.filter(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) : [];
     return { payments, receipts, disagreements };
   }
+  // A card minimum whose household-categorized payment is still pending
+  // (BACKLOG, card minimum Payment pending; lead ruling C, 2026-11-19). The
+  // observer lists such a debit in the evidence's pendingPayments by card row
+  // and occurrence only (no debit identity, no amount). It is a label: the
+  // minimum stays fully owed and reserved, nothing is sent, satisfied or
+  // allocated, and no issue is raised. A posted or owner-recorded payment for
+  // the same occurrence wins, so a payment is never both pending and sent.
+  // Returns the set of id@due keys the row builder reads.
+  function cardMinimumPendingKeys(plan, asOf) {
+    const keys = new Set();
+    const packet = plan?.cardMinimumCategoryEvidence;
+    const day = value => typeof value === 'string' && ISO_CALENDAR_DATE.test(value)
+      && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
+    if (packet?.source !== 'lunchmoney-minimum-category' || !day(packet.asOf) || !day(asOf)
+        || packet.asOf > asOf || !Array.isArray(packet.pendingPayments)) return keys;
+    const posted = minimumCategoryEvidence(plan, asOf);
+    const counts = new Map();
+    for (const p of packet.pendingPayments) counts.set(p?.id + '@' + p?.scheduledDate, (counts.get(p?.id + '@' + p?.scheduledDate) || 0) + 1);
+    for (const p of packet.pendingPayments) {
+      const row = (plan.obligations || []).find(r => r && r.id === p?.id);
+      if (!row || row.effect !== 'payment' || row.nonCash
+          || !['triangle', 'mbna', 'tdcc', 'cashback', 'travelvisa'].includes(row.debtId)
+          || !day(p.scheduledDate) || !day(p.pendingOn) || p.pendingOn > packet.asOf
+          || counts.get(p.id + '@' + p.scheduledDate) !== 1
+          || occurrences(row, p.scheduledDate, p.scheduledDate).length !== 1
+          || (Array.isArray(row.sentPayments) && row.sentPayments.some(o => o && o.scheduledDate === p.scheduledDate))
+          || (posted?.payments || []).some(o => o.id === p.id && o.scheduledDate === p.scheduledDate)) continue;
+      keys.add(p.id + '@' + statementOccurrenceDate(plan, p.id, p.scheduledDate));
+    }
+    return keys;
+  }
   function statementOccurrenceDate(plan, id, date) {
     return CardMinimumContract.mappedDate(plan, id, date, occurrences);
   }
@@ -10993,6 +11024,11 @@
       : glanceBillStatus(settlement, asOf, due);
     const payingAccount = event.payingAccount || null;
     const sent = minimumPaymentFor(plan, event, asOf, opts);
+    // A card minimum whose own household-categorized payment is still pending
+    // reads Payment pending; the full minimum stays owed (cardMinimumPendingKeys).
+    const pendingMinimum = !paid && !inside && !sent && !pendingLinked
+      && event.kind === 'obligation' && event.effect === 'payment'
+      && cardMinimumPendingKeys(plan, asOf).has(event.id + '@' + due);
     // A minimum the card ledger already covered with a posted payment: that
     // cash left Bills once, in posted cash, so only an uncovered remainder
     // stays due. The planned amount must equal the ledger's due.
@@ -11036,6 +11072,7 @@
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
       ...(trustedBasis ? { settlementBasis: trustedBasis } : {}),
       ...(pendingLinked ? { paymentPending: true } : {}),
+      ...(pendingMinimum && !minimumCovered ? { status: 'pending', paymentPending: true } : {}),
       ...(partlyPaid && !sent && !minimumCovered && !trustedBasis ? partlyPaid : {}),
       ...occurrenceTrustFields(event),
       // #821 finding 11: paid on an owner trust rule, not seen. Only a
