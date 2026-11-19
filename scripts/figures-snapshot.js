@@ -582,7 +582,8 @@ function putPayPeriods(put, putField, advice) {
       putField(p + '.' + key, row, 'amount');
       putField(p + '.' + key + 'Trust', row, 'trust');
     }
-    // Stack Wallet A5: the period's savings totals and each goal's needed, copied as published.
+    // Stack Wallet A5: the period's savings totals and each goal's needed, saved,
+    // period target and trust tags, copied as published.
     const savings = view.stackSummary && view.stackSummary.savings;
     const savingsTotals = savings && savings.totals;
     for (const [field, key] of [['needed', 'stackSavingsNeeded'], ['saved', 'stackSavingsSaved'], ['entitlement', 'stackSavingsEntitlement'],
@@ -590,7 +591,7 @@ function putPayPeriods(put, putField, advice) {
     const goalKeys = new Set();
     for (const item of savings && Array.isArray(savings.items) ? savings.items : []) {
       const g = uniqueKey(goalKeys, p + '.stackSavingsGoal.' + segment(item && item.id));
-      putField(g + '.needed', item, 'needed');
+      for (const field of ['needed', 'saved', 'periodTarget', 'trust', 'savedTrust']) putField(g + '.' + field, item, field);
     }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {

@@ -212,5 +212,23 @@ console.log('4. Mutants are caught');
   ok(audit(copies.noNetReason).netFail > 0, 'a current-period needed not marked net is caught');
 }
 
+console.log('6. The figures snapshot captures every published per-goal figure and tag');
+{
+  // A per-goal attribution change (say, two goals' saved swapped) must move a
+  // captured field even when the plan and the pool totals do not.
+  const inp = input('savings-live-partial');
+  const snap = Snap.buildFiguresSnapshot(structuredClone(inp.doc.data), inp.doc.periods == null ? null : structuredClone(inp.doc.periods));
+  const view = byRole(run(copies.shipped, inp), 'current')[0];
+  const goals = sav(view).items;
+  let missing = 0;
+  for (const g of goals) for (const field of ['needed', 'saved', 'periodTarget', 'trust', 'savedTrust']) {
+    const key = 'period.' + view.start + '.stackSavingsGoal.' + g.id + '.' + field;
+    if (!Object.hasOwn(snap, key) || JSON.stringify(snap[key]) !== JSON.stringify(g[field])) missing++;
+  }
+  ok(goals.length > 1 && missing === 0, 'each goal\'s needed, saved, period target and trust tags are captured as published', String(missing));
+  ok(snap['period.' + view.start + '.stackSavingsGoal.group:club.saved'] === 30
+    && snap['period.' + view.start + '.stackSavingsGoal.group:club.periodTarget'] === 80, 'club saved 30 and target 80 are in the snapshot');
+}
+
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack savings checks passed`);
 process.exit(failures ? 1 : 0);
