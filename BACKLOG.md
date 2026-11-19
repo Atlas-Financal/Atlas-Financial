@@ -319,6 +319,10 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+**A card purchase that Lunch Money labels as a movement counts in neither Budget nor Bills** · *pre-existing; Stack Wallet A2 coverage check (#1426, lead 2026-11-19); ledger-side, rule 17*
+
+A household's card spending reaches Balance After Deductions and the Stack Wallet surplus only through the Household budget hold (budgetHold, including Other Spending) or the bill load. A card debit that Lunch Money files under Transfer or Credit Card Payment is classed as a movement, not spending, so it counts in neither. Issuer interest charges are also outside both, by design (debt-side; the card minimum carries them). Measured on the invented card-coverage aggregate world: a 40 card purchase labelled Transfer or Credit Card Payment moves no figure, while the same purchase uncategorised, in a named category with no budget row, or with no category, moves the hold by 40. Atlas reads the ledger's label and builds no reclassification (rule 17), so the fix is the label: decide with Grok Bot whether such debits need a ledger check. Separately, the comment above the Other Spending row in `calendarHouseholdBudget` (`public/forecast.js`) still says named non-calendar categories "stay omitted"; since Dale's 2026-11-11 rule they join Other Spending (`householdBudgetSupportingRows`), so the comment should be corrected in the next engine PR that touches it.
+
 **U6 blanks the whole plan for an early salary-evidence credit the run-up hold already counts once** · **awaiting owner decision (stop 2)** · *LEDGER B read-only check, 2026-11-19; lead ATLAS LEAD 11 holds it for Dale*
 
 After #1405, an early or off-amount credit with no sign of salary is held To confirm by Forecast's run-up hold: the plan stays live and the payday counts once. The same credit with a sign of salary (a salary-alias payee) still trips U6 (`futureIncomeUncertainty`, provider-observe), which makes the operating plan Unavailable, so income, Balance After Deductions and the planned close read Unavailable. Invented check on the test-amanda-pay-early-plain-credit world (control 3600 / 3200 / 7700): a salary-alias 2190 on Oct 27, or a 2200 on Oct 22, reads all Unavailable; the same 2190 Payroll-filed with no salary sign reads 3600 / 3200 / 7700. Converting those U6 cases to the run-up hold would turn a published Unavailable plan into calculated figures, a tag move toward more certainty, so it is Dale's call under owner-reserved stop 2. If approved: U6 skips a credit the run-up hold covers, reading the same Forecast-exported window, and keeps withholding where the hold cannot answer.
@@ -744,6 +748,11 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 ## After 1.0
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
+
+**The figures page capture should also observe the Stack page's reads** · QUEUED (ATLAS LEAD 11, 2026-11-19): a named limit of option A (`agent/figures-capture-classic-view`), not a blocker. Full lane: figures hard-gate machinery, Atlas reviews.
+- **Why:** `scripts/figures-page-capture.js` now runs the previous Budget page by its explicit route (`?view=classic`), so making the Stack page the default (B7, #1439) does not shift its Savings observations. Once the Stack page is the page the household reads, the capture covers only the fallback page's Savings consumers, not the Stack page's own reads (the shell's `Forecast.recommend`, the Credit card's `cardPeriodMovements` / `stackCreditLines`).
+- **Closure:** at C1, when the previous page retires, retarget the capture at the Stack page (remove `CAPTURE_LOCATION`'s `?view=classic`) and make its observations stable across the Stack page's states, so the page the household reads stays covered. `test/test-figures-capture-classic-view.js` retires with it.
+- Source: lead ruling on #1439's figures report, 2026-11-19.
 
 **Keep `test/suites.json` sorted by file name, with a check that enforces it** · QUEUED (ATLAS LEAD 11, 2026-11-19): not scheduled until the Stack page switch-over (C1) is done. Light lane: it adds a check and changes no figure code.
 - **Why:** every new suite is appended to the end of the manifest, so any two pull requests in flight together conflict on its last lines. The merge queue then dequeues the second, and its builder has to catch up and get a re-review (#1429 after #1431, #1433 after #1429, 2026-11-19). Sorted entries put parallel additions on different lines.

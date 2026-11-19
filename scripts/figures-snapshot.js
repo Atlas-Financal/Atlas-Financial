@@ -612,6 +612,23 @@ function putPayPeriods(put, putField, advice) {
       putField(p + '.' + key, row, 'amount');
       putField(p + '.' + key + 'Trust', row, 'trust');
     }
+    // Stack Wallet "Surplus after deductions" (owner decision, #821 7013976545):
+    // the published amount, its trust and whether the period is projected.
+    const surplus = view.stackSummary && view.stackSummary.surplus;
+    if (surplus) {
+      for (const [field, key] of [['amount', 'stackSurplus'], ['trust', 'stackSurplusTrust'], ['projected', 'stackSurplusProjected']])
+        putField(p + '.' + key, surplus, field);
+    }
+    // Its bills split: the mortgage and the other bills, with the split's
+    // trust, and the Credit line as Forecast publishes it
+    // (stackSummary.surplus.terms.credit), never summed here.
+    const split = view.stackSummary && view.stackSummary.bills;
+    if (split) {
+      const terms = surplus && surplus.terms;
+      const record = { mortgage: split.mortgage, credit: terms ? terms.credit : null, other: split.other, trust: split.trust };
+      for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust']])
+        putField(p + '.' + key, record, field);
+    }
     // Stack Wallet A5: the period's savings totals and each goal's needed, saved,
     // period target and trust tags, copied as published.
     const savings = view.stackSummary && view.stackSummary.savings;
