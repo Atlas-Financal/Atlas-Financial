@@ -26,7 +26,14 @@ const ctx = (v, key) => ({ data: {}, plan: {}, recommendation: { payPeriodViews:
 
 let registered = {};
 global.window = undefined;
-globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; } };
+// B5: the cards read the shell's one trust rule, so the stub carries the real shell's rule and budget reader.
+const shell = (() => {
+  const sandbox = { window: {}, location: { search: '' }, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON, Math, console };
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-shell.js'), 'utf8'), sandbox);
+  return sandbox.window.StackBlocks;
+})();
+globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; }, isEstimated: shell.isEstimated, estClass: shell.estClass,
+  budgetTrust: shell.budgetTrust };
 delete require.cache[require.resolve(file)];
 const mod = require(file);
 assert.strictEqual(typeof registered.cards, 'function', 'registers as cards');
@@ -167,7 +174,8 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   e.stackSummary.bills.trust = 'estimated';
   const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/sc-a stack-est/g) || []).length === 1, 'only the estimated category row is soft');
+  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
+    'only the estimated amount (the first row\'s plan) is soft');
   assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
   assert(!html.includes('stack-est'), 'calculated figures carry no class');

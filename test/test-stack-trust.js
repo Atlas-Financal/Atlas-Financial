@@ -10,6 +10,7 @@
  *   3. Waterfall (a projected period): every printed figure carries it.
  *   4. Credit card and its sheet: exactly the figures read from estimated paid / spent / toGo / minimum / totals.
  *   5. Bill and budget sheets: from displayAmountTrust, spentTrust, plannedTrust and trust.
+ *   5b. Cards (B3): a projected period softens every printed card figure; an actual one only the estimated amounts.
  *   6. No rendered text says "estimated", "projected" or "≈", and no rule underlines (owner).
  *   7. The shell's chips and every block read the one rule (no block decides trust on its own).
  * The expected sets below are written by hand from the invented world, not computed by the code under test.
@@ -34,7 +35,7 @@ function load() {
   const fns = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
   ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
-  for (const f of ['waterfall', 'credit', 'sheet']) vm.runInContext(read(`public/stack-${f}.js`), ctx);
+  for (const f of ['waterfall', 'cards', 'credit', 'sheet']) vm.runInContext(read(`public/stack-${f}.js`), ctx);
   return { win: ctx, fns };
 }
 const container = () => ({ innerHTML: '', addEventListener: () => {}, querySelector: () => null });
@@ -48,6 +49,7 @@ function view(evidenceState) {
   return {
     start: '2031-03-01', end: '2031-03-14', role: 'active', evidenceState,
     budgetHold: 900, budgetHoldTrust: 'estimated',
+    budgetProgress: { household: { actual: fig(635, 'calculated'), planned: fig(1010, 'calculated') } },
     stackSummary: {
       income: { dale: fig(2000, 'calculated'), amanda: fig(1500, 'estimated'), other: fig(100, 'calculated'), total: fig(3600, 'estimated') },
       bills: { mortgage: 1200, cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], other: 300, trust: 'calculated' },
@@ -166,6 +168,23 @@ console.log('5. bill and budget sheets');
   ok(soft('budget:firm') === '', 'a calculated row: nothing soft', soft('budget:firm'));
 }
 
+console.log('5b. cards');
+{
+  const { fns } = load();
+  const cards = v => { const el = container(); fns.cards(el, context(v)); return el.innerHTML; };
+  // Every printed figure in the cards: a headline (sc-f) or a row amount (sc-a, or the spent / plan inside it).
+  const figures = html => [...html.matchAll(/<(span|i|b)([^>]*)>(\$[^<]*|[^<]*\$[\d,.]+[^<]*)</g)];
+  const projected = cards(view('projected'));
+  const printed = figures(projected);
+  const unsoft = printed.filter(m => !/stack-est/.test(m[2]) && !/class="[^"]*sc-a[^"]*"/.test(m[2]));
+  ok(printed.length > 0 && unsoft.length === 0, 'a projected period: every printed card figure is soft',
+    unsoft.map(m => m[0]).join(' | '));
+  const actual = cards(view('actual'));
+  const g = /data-stack-sheet="budget:groceries"[\s\S]*?<\/li>/.exec(actual);
+  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> \/ \$500/.test(g[0]),
+    'an actual period: the Groceries plan (estimated) is soft, its calculated Spent is not', g && g[0]);
+}
+
 console.log('6. no words, no underline');
 {
   const { fns, win } = load();
@@ -175,6 +194,7 @@ console.log('6. no words, no underline');
     all.push(waterfall(fns, ctx));
     const el = container(); fns.credit(el, ctx); all.push(el.innerHTML);
     for (const key of ['card:cashback', 'card:travelvisa', 'bill:water@2031-03-05', 'budget:groceries']) all.push(win.StackSheet.html(ctx, key));
+    const cel = container(); fns.cards(cel, ctx); all.push(cel.innerHTML);
   }
   ok(!/estimated|projected|≈/i.test(text(all.join(' '))), 'the rendered text never says estimated, projected or ≈');
   const css = ['stack', 'stack-waterfall', 'stack-cards', 'stack-credit', 'stack-sheet'].map(f => read(`public/${f}.css`)).join('\n');
@@ -185,7 +205,7 @@ console.log('7. one rule, read by every block');
 {
   const shell = read('public/stack-shell.js');
   ok(/StackBlocks\.estClass\(surplus && surplus\.trust, view\)/.test(shell), "the shell's chips read the surplus's published trust through the rule");
-  for (const f of ['waterfall', 'credit', 'sheet']) {
+  for (const f of ['waterfall', 'cards', 'credit', 'sheet']) {
     const src = read(`public/stack-${f}.js`).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     ok(/estClass|isEstimated/.test(src) && !/=== 'estimated'|evidenceState === 'projected'/.test(src),
       `stack-${f}.js uses the shell's rule and decides no trust itself`);

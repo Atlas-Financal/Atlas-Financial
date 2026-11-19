@@ -46,7 +46,8 @@
     // Budget page documents in plan.js householdBudgetRowHtml): the row's trust (or confidence) marks the row; its plan
     // is estimated when plannedTrust is absent or 'estimated' (an Other spending row's plan only when it is dated); its
     // Spent when plannedTrust is 'calculated' (a possible duplicate) or spentTrust is 'estimated'; Left / Over follow
-    // the row. Returns trust words for estClass, never a figure.
+    // the row. An amount whose own trust field says 'estimated' is always estimated (only ever more cautious than the
+    // page's reading). Returns trust words for estClass, never a figure.
     budgetTrust(row) {
       const r = row && typeof row === 'object' ? row : {};
       const rowEst = r.trust === 'estimated' || r.confidence === 'estimated';
@@ -55,8 +56,8 @@
         && typeof r.planned === 'number' && Number.isFinite(r.planned);
       const word = yes => (yes ? 'estimated' : null);
       return {
-        planned: word(rowEst && (!other || datedPlan) && (r.plannedTrust == null || r.plannedTrust === 'estimated')),
-        spent: word(rowEst && (r.plannedTrust === 'calculated' || r.spentTrust === 'estimated')),
+        planned: word(r.plannedTrust === 'estimated' || (rowEst && (!other || datedPlan) && r.plannedTrust == null)),
+        spent: word(r.spentTrust === 'estimated' || (rowEst && r.plannedTrust === 'calculated')),
         remaining: word(rowEst),
       };
     },
