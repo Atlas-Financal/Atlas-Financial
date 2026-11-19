@@ -33,7 +33,7 @@ const shell = (() => {
   return sandbox.window.StackBlocks;
 })();
 globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; }, isEstimated: shell.isEstimated, estClass: shell.estClass,
-  budgetTrust: shell.budgetTrust };
+  budgetTrust: shell.budgetTrust, barWidth: shell.barWidth };
 delete require.cache[require.resolve(file)];
 const mod = require(file);
 assert.strictEqual(typeof registered.cards, 'function', 'registers as cards');
@@ -193,6 +193,16 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   const hh = buildCardsHTML(ctx(h)), b = hh.split('data-stack-card="budget"')[1].split('</details>')[0];
   assert(!b.includes(fmt(400)) && !b.includes(fmt(50.5)) && !b.includes('sc-mini'), 'withheld plan not printed or drawn');
   assert(b.includes(fmt(123.45)), 'spent still printed');
+}
+
+// 2f. the bar fill comes from the shell's shared StackBlocks.barWidth; no local ratio helper
+assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth removed');
+{
+  const wide = JSON.parse(JSON.stringify(view)); wide.householdBudget[0].spent = 200; wide.householdBudget[0].planned = 400;
+  const b = buildCardsHTML(ctx(wide)).split('data-stack-card="budget"')[1];
+  assert(b.includes('style="width:' + shell.barWidth(200, 400) * 100 + '%"'), 'row bar = barWidth(spent, planned)');
+  const zero = JSON.parse(JSON.stringify(view)); zero.householdBudget[0].planned = 0;
+  assert(buildCardsHTML(ctx(zero)).split('data-stack-card="budget"')[1].includes('width:0%'), 'no whole: empty bar');
 }
 
 // 3. no money arithmetic in the page code
