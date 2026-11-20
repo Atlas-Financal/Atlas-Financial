@@ -144,9 +144,12 @@
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
       + '<span class="stack-credit-hd"><span class="stack-credit-title">Credit</span>'
-      + (shown ? `<span class="stack-credit-figure stack-n${totalEst}" data-stack-credit-total>${esc(money(t.paid))}<i> / ${esc(money(t.spent))}</i></span>` : '')
+      + '<span class="stack-credit-sub">paid back / spent</span>'
+      // A withheld total prints a soft dash and an empty track, never a blank, a $0 or a guessed fill.
+      + (shown ? `<span class="stack-credit-figure stack-n${totalEst}" data-stack-credit-total>${esc(money(t.paid))}<i> / ${esc(money(t.spent))}</i></span>`
+        : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>\u2014</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
-      + (shown ? bar(t.paid, t.spent, 'stack-credit-bar' + totalEst) : '')
+      + (shown ? bar(t.paid, t.spent, 'stack-credit-bar' + totalEst) : '<span class="stack-credit-bar" aria-hidden="true"><i style="width:0%"></i></span>')
       + `<div class="stack-credit-exp"${open ? '' : ' inert'}><div><ul class="stack-credit-list">`
       + reading.lines.map(line => lineHtml(line, reading.view)).join('') + '</ul></div></div></section>';
   }

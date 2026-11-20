@@ -81,7 +81,10 @@
       const updateTheme = () => {
         this.dark = document.documentElement.dataset.theme === 'dark'
           || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
-        this.build(); this.request();
+        // A river with no size (hidden, e.g. under the Stack page) has no geometry to rebuild; its next layout, once it
+        // has a width, rebuilds with this theme. Building now would compute non-finite positions and throw.
+        if (this.W) this.build();
+        this.request();
       };
       this.themeMedia = matchMedia('(prefers-color-scheme: dark)');
       this.listen(this.themeMedia, 'change', updateTheme);

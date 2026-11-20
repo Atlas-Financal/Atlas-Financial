@@ -387,7 +387,7 @@ console.log('5b. cards');
     unsoft.map(m => m[0]).join(' | '));
   const actual = cards(view('actual'));
   const g = /data-stack-sheet="budget:groceries"[\s\S]*?<\/li>/.exec(actual);
-  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> of \$500/.test(g[0]),
+  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> \/ \$500/.test(g[0]),
     'an actual period: the Groceries plan (estimated) is soft, its calculated Spent is not', g && g[0]);
 }
 
@@ -451,10 +451,14 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
   const names = ['Blue Visa', 'Green Card', 'Red Card', 'Gold Card', 'Line of credit', 'Water', 'Power', 'Chequing', 'Groceries',
     'Dining', 'Pharmacy', 'Other spending', 'Fuel', 'Corner Grocer'];
   const PAGE = new Set(['Budget', 'Bills', 'Bill', 'Mortgage', 'Credit', 'Spent', 'Paid', 'Minimum', 'Left', 'Over', 'Transactions',
-    'Dale’s', 'Amanda’s', 'Other', 'Total', 'income', 'Surplus', 'Deficit', 'after', 'deductions', 'of', 'Close']);
+    'Dale’s', 'Amanda’s', 'Other', 'Total', 'income', 'Surplus', 'Deficit', 'after', 'deductions', 'of', 'Close',
+    // The design's income tiles in the waterfall (decoration, aria-hidden): D, A and $.
+    'D', 'A', '$']);
   const leftover = html => {
     let t = text(html).replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’');
     for (const n of names) t = t.split(n).join(' ');
+    // the two head subtitles from the approved design, exactly (no other wording)
+    t = t.split('paid back / spent').join(' ').split('spent / budget').join(' ');
     // the design's Credit wording (Dale, 2026-11-20), exactly: the row lines, the status, the minimum and the sheet rows
     for (const phrase of ['Spent on it this pay period', 'Paid onto it', 'Paid back', 'to go', 'Nothing spent yet', 'nothing spent',
       'covered ✓', 'Covered ✓', 'not yet', 'Not yet']) t = t.split(phrase).join(' ');

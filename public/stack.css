@@ -1,13 +1,13 @@
 /* Stack Wallet page (B1 shell). Loaded only under ?view=stack (stack-shell.js adds it), and every rule is scoped to
  * html.stack-view, so the current page is unaffected even if this file were loaded. Tokens follow the Stack Wallet
- * design (invented-data artifact); the timeline block is light grey in light mode (lead call, 2026-11-19). */
+ * design (invented-data artifact). Owner, Dale, 2026-11-20: "Follow the design" (white timeline block in light mode). */
 html.stack-view {
   --stack-bg: #ecebe7; --stack-panel: #ffffff; --stack-ink: #121316; --stack-muted: #6c6d74;
   --stack-wf: #ffffff; --stack-on: #121316; --stack-on2: rgba(18, 19, 22, .62); --stack-on-line: rgba(18, 19, 22, .13);
   --stack-bills: #c6c9ff; --stack-budget: #dff06e; --stack-cards: #b4ead3; --stack-save: #ffcfb3; --stack-mort: #f5bfe3;
   --stack-slab: #121316; --stack-slab-fg: #ffffff; --stack-slab-good: #dff06e; --stack-slab-bad: #ff9a8c;
-  --stack-t-bg: #dddcd6; --stack-t-fg: #121316; --stack-t-muted: #63646b; --stack-t-chip: #f1f0ec;
-  --stack-t-sel: #121316; --stack-t-selfg: #ffffff; --stack-t-neg: #c8372d; --stack-t-dash: #a3a39c;
+  --stack-t-bg: #ffffff; --stack-t-fg: #121316; --stack-t-muted: #6c6d74; --stack-t-chip: #dad9d3;
+  --stack-t-sel: #121316; --stack-t-selfg: #ffffff; --stack-t-neg: #d93a45; --stack-t-negsel: #b3261e;
   --stack-lift: 0 -16px 30px -20px rgba(18, 19, 22, .35);
   --stack-sans: "Outfit", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
 }
@@ -15,20 +15,22 @@ html.stack-view {
   html.stack-view:not([data-theme="light"]) {
     --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3; --stack-wf: #f4f2ec;
     --stack-t-bg: #17181d; --stack-t-fg: #f4f3ef; --stack-t-muted: #9a9ba3; --stack-t-chip: #33353d;
-    --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477; --stack-t-dash: #4a4d57;
+    --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477; --stack-t-negsel: #ff8477;
     --stack-lift: 0 -18px 34px -18px rgba(0, 0, 0, .7);
   }
 }
 html.stack-view[data-theme="dark"] {
   --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3; --stack-wf: #f4f2ec;
   --stack-t-bg: #17181d; --stack-t-fg: #f4f3ef; --stack-t-muted: #9a9ba3; --stack-t-chip: #33353d;
-  --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477; --stack-t-dash: #4a4d57;
+  --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477; --stack-t-negsel: #ff8477;
   --stack-lift: 0 -18px 34px -18px rgba(0, 0, 0, .7);
 }
 
 /* The Stack page replaces the current page's content; the boot notice (loading, errors) stays visible. */
 html.stack-view body { background: var(--stack-bg); color: var(--stack-ink); font-family: var(--stack-sans); }
 html.stack-view .wrap > :not(#stack-root):not([data-boot-notice]) { display: none !important; }
+/* The current page's background art lives outside .wrap; the design's background is plain. */
+html.stack-view .blend-ambient, html.stack-view .blend-aurora, html.stack-view .blend-sky { display: none !important; }
 /* The site header copies the current page's "Last updated" line; the Stack page prints its own under the title. */
 html.stack-view .site-head [data-blend-updated] { display: none; }
 html.stack-view .stack-root {
@@ -67,24 +69,27 @@ html.stack-view .stack-chips {
   margin: 0 -12px; padding: 2px 12px;
 }
 html.stack-view .stack-chips::-webkit-scrollbar { display: none; }
-html.stack-view .stack-chip {
-  flex: none; min-width: 58px; padding: 9px 6px 6px; scroll-snap-align: center; border-radius: 15px;
+/* Chips are scoped under .stack-root so they outrank the page's button reset above (which otherwise strips their
+ * fill and padding). The design: a 58px grey tile, date over value, a dot under the current period. */
+html.stack-view .stack-root .stack-chip {
+  flex: none; min-width: 58px; padding: 9px 4px 6px; scroll-snap-align: center; border-radius: 15px;
   background: var(--stack-t-chip); display: flex; flex-direction: column; align-items: center; gap: 1px;
   transition: background-color .25s, color .25s;
 }
 html.stack-view .stack-chip::after { content: ""; width: 5px; height: 5px; border-radius: 50%; margin-top: 3px; }
 html.stack-view .stack-chip.is-now::after { background: currentColor; }
-/* A projected period (Forecast's evidenceState 'projected'): dashed outline and softer value, no fill; no word. */
-html.stack-view .stack-chip.is-projected { background: transparent; border: 1.5px dashed var(--stack-t-dash); }
-html.stack-view .stack-chip.is-projected[aria-pressed="true"] { border-color: var(--stack-t-sel); }
 html.stack-view .stack-chip-date { font-size: 11px; font-weight: 600; color: var(--stack-t-muted); white-space: nowrap; }
 html.stack-view .stack-chip-value {
   min-height: 1.3em; font-size: 13px; font-weight: 800; letter-spacing: -.02em;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 html.stack-view .stack-chip-value.is-neg { color: var(--stack-t-neg); }
-html.stack-view .stack-chip[aria-pressed="true"] { background: var(--stack-t-sel); color: var(--stack-t-selfg); }
-html.stack-view .stack-chip.is-neg[aria-pressed="true"] { background: var(--stack-t-neg); }
+html.stack-view .stack-root .stack-chip[aria-pressed="true"] { background: var(--stack-t-sel); color: var(--stack-t-selfg); }
+html.stack-view .stack-root .stack-chip.is-neg[aria-pressed="true"] { background: var(--stack-t-negsel); }
+/* An estimated value on the selected chip keeps the soft treatment (owner: softer estimates), in the chip's own ink
+ * at .78 rather than .58, which on lime turned olive. .78 keeps at least 4.5:1 contrast on every selected fill:
+ * lime 8.2, light-mode black 11.5, dark-mode coral 5.3, light-mode red 4.5 (the darker --stack-t-negsel). */
+html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-value.stack-est { opacity: .78; }
 html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-date,
 html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-value.is-neg { color: inherit; }
 html.stack-view .stack-chip[aria-pressed="true"] .stack-chip-date { opacity: .7; }
@@ -94,7 +99,10 @@ html.stack-view .stack-wf-block { background: var(--stack-wf); color: var(--stac
 html.stack-view .stack-wf-block:last-child { padding-bottom: 8px; }
 html.stack-view .stack-period-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 14px; }
 html.stack-view .stack-period-range { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -.035em; }
-html.stack-view .stack-period-now { flex: none; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+html.stack-view .stack-period-chip {
+  flex: none; font-size: 12.5px; font-weight: 600; color: #ffffff; background: #121316;
+  border-radius: 999px; padding: 6px 12px; white-space: nowrap;
+}
 /* Cards and credit draw their own coloured blocks; their sections are plain frames in the pile. */
 html.stack-view .stack-bare { box-shadow: none; border-radius: 0; }
 html.stack-view .stack-overlay:empty { display: none; }
@@ -102,7 +110,10 @@ html.stack-view .stack-overlay:empty { display: none; }
 @media (max-width: 472px) { html.stack-view .stack-root { padding-left: 16px; padding-right: 16px; } }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-chip, html.stack-view .sc-chev { transition: none; } }
 /* B5, the one visual trust treatment (StackBlocks.estClass): an estimated or projected figure is drawn in softer ink;
- * a bar from estimated figures gets a dashed outline in place of its fill. No word, no underline (owner). */
+ * a bar from estimated figures keeps its track and draws only its fill softer (the design has no dashed outlines).
+ * No word, no underline (owner). */
 html.stack-view .stack-est { opacity: .58; }
+html.stack-view .stack-credit-bar.stack-est, html.stack-view .stack-credit-minibar.stack-est,
+html.stack-view .stack-sheet-bar.stack-est { opacity: 1; }
 html.stack-view .stack-credit-bar.stack-est > i, html.stack-view .stack-credit-minibar.stack-est > i,
-html.stack-view .stack-sheet-bar.stack-est > i { background: transparent; border: 1.5px dashed currentColor; box-sizing: border-box; }
+html.stack-view .stack-sheet-bar.stack-est > i { opacity: .58; }

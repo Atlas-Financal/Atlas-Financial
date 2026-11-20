@@ -87,10 +87,12 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const head = await textOf(page, '[data-stack-credit-toggle]');
     ok(/^Credit/.test(head), 'the card is titled Credit', head);
     if (stub) {
-      ok(head === 'Credit' && !(await page.$('.stack-credit-bar')), 'a partial total prints no figure and no bar', head);
+      ok(head === 'Credit paid back / spent \u2014' && !!(await page.$('.stack-credit-bar')) && !/\$/.test(head),
+        'a partial total prints a soft dash and an empty track, no figure', head);
     } else {
       const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
-      ok(head === 'Credit' || (complete && /^Credit \$[\d,.]+ \/ \$[\d,.]+$/.test(head)), 'the head is "Credit", with paid / spent only', head);
+      ok(head === 'Credit paid back / spent \u2014' || (complete && /^Credit paid back \/ spent \$[\d,.]+ \/ \$[\d,.]+$/.test(head)),
+        'the head is "Credit", its subtitle and the total (a dash when withheld)', head);
     }
     ok(!(await page.$('[data-stack-credit-excludes]')), 'no "excludes" line');
 
@@ -150,7 +152,9 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       seen.push(await textOf(page, '.stack-sheet'));
       await page.keyboard.press('Escape');
     }
-    const hits = seen.filter(t => FORBIDDEN.test(t)).map(t => t.match(FORBIDDEN)[0]);
+    // the Credit head's subtitle from the approved design, exactly, is the one allowed wording
+    const clean = t => t.split('paid back / spent').join(' ');
+    const hits = seen.filter(t => FORBIDDEN.test(clean(t))).map(t => clean(t).match(FORBIDDEN)[0]);
     ok(seen.length > 3 && hits.length === 0, `no explanatory word on the page or in ${seen.length - 1} sheets`, hits.join(', '));
     ok(FORBIDDEN.test('Upcoming $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Paid back $5 to go Minimum $5 covered ✓'),
       'control: the word check catches the removed words and passes the page names');
