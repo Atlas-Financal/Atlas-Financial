@@ -2504,7 +2504,9 @@ const composite = (fg, bg) => {
       });
       if (!placement.tile || !placement.inBoard
         || placement.border !== '0px' || placement.background !== 'rgba(0, 0, 0, 0)'
-        || placement.label !== 'Card movement in selected pay period') {
+        // The strip's region name is 'Credit cards' (0aae08d5, repair of Systems Review 5485851551: semantic heading and
+        // region name); the earlier 'Card movement in selected pay period' wording is retired.
+        || placement.label !== 'Credit cards') {
         errors.push(`card tile ${file} ${JSON.stringify(placement)}`);
       }
       const posted = await page.evaluate(() => {
