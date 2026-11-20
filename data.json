@@ -252,27 +252,32 @@
                 ]
             },
             {
+                "id": "triangle-td3",
+                "debtId": "triangle",
+                "effect": "payment",
+                "label": "Triangle Mastercard — TD recurring payment",
+                "frequency": "monthly",
+                "day": 3,
+                "firstDue": "2026-12-03",
+                "lastDue": "2027-02-03",
+                "amount": 900,
+                "confidence": "confirmed",
+                "note": "Owner fact 2026-11-20 (Dale, #atlas-coordination ts 1795212645.899659): recurring TD payment from Bills to Triangle, monthly on the 3rd, first 2026-12-03, last 2027-02-03 (three payments, a test run). It is the Triangle payment for December, January and February; `triangle-day8` resumes the fixed-interest minimum on 2027-03-08.",
+                "payingAccount": "chequing-a"
+            },
+            {
                 "id": "triangle-day8",
                 "debtId": "triangle",
                 "effect": "payment",
                 "label": "Triangle Mastercard minimum",
                 "frequency": "monthly",
                 "day": 8,
-                "firstDue": "2026-12-08",
+                "firstDue": "2027-03-08",
                 "fixedInterestMinimum": { "balance": 13600.58, "rate": 21.99, "asOf": "2026-11-18" },
                 "amount": 253.57,
                 "confidence": "estimated",
-                "note": "Owner fact 2026-11-20 (Dale): the Triangle Mastercard minimum is due on the 8th of each month (the Nov. 18 statement shows Dec. 8). Successor of `triangle`, which ends at its 2026-11-07 occurrence (lastDue) so its dated history keeps its identity. The Dec. 8 statement minimum is confirmed from that statement; each month plans one month's interest on the Nov. 18 statement balance at the purchase rate, up to the whole dollar, held constant and never below the statement minimum (owner rule 2026-11-20).",
-                "payingAccount": "chequing-a",
-                "statementOccurrences": [
-                    {
-                        "scheduledDate": "2026-12-08",
-                        "dueDate": "2026-12-08",
-                        "minimum": 357.22,
-                        "currency": "cad",
-                        "confidence": "confirmed"
-                    }
-                ]
+                "note": "Owner fact 2026-11-20 (Dale): the Triangle Mastercard minimum is due on the 8th of each month (the Nov. 18 statement shows Dec. 8). Successor of `triangle`, which ends at its 2026-11-07 occurrence (lastDue) so its dated history keeps its identity. The Dec. 8 statement minimum is confirmed from that statement; each month plans one month's interest on the Nov. 18 statement balance at the purchase rate, up to the whole dollar, held constant and never below the statement minimum (owner rule 2026-11-20). Owner fact 2026-11-20 (Dale, #atlas-coordination ts 1795212645.899659): a recurring TD payment from Bills on the 3rd (2026-12-03 to 2027-02-03, row `triangle-td3`) is that month's Triangle payment, paid before the 8th and above the minimum, so this minimum row starts 2027-03-08; the December statement minimum is covered by the Dec. 3 payment.",
+                "payingAccount": "chequing-a"
             },
             {
                 "id": "cashback",
