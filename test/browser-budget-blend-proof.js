@@ -1,7 +1,7 @@
 'use strict';
 // Fixture-only browser proof for the Budget bento skin.
 // No live site, no provider, no new money arithmetic.
-// APPROVED_REFERENCE_DIR=<approved Slack PNGs> PYTHON=<Python> CHROME_PATH=<Chromium> node test/browser-budget-blend-proof.js
+// APPROVED_REFERENCE_DIR=<approved Slack PNGs> PYTHON=<Python> CHROME_PATH=<Chromium> [PROOF_OUTPUT_DIR=<outside checkout>] node test/browser-budget-blend-proof.js
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -14,7 +14,12 @@ const { provePanelRepairs } = require('./browser-budget-panel-repairs');
 const dailyConsumerData = require('./fixtures/savings-daily-consumer-data');
 
 const root = path.join(__dirname, '..');
-const outDir = path.join(root, 'docs/proof');
+// Evidence goes to docs/proof (the committed proof set) by default. PROOF_OUTPUT_DIR, absolute and outside the
+// checkout, sends it elsewhere instead, so a run leaves the checkout clean and the next source-bound proof can start
+// (the same option as browser-river-geometry-proof and browser-budget-signed-cents).
+const outDir = process.env.PROOF_OUTPUT_DIR ? path.resolve(process.env.PROOF_OUTPUT_DIR) : path.join(root, 'docs/proof');
+if (process.env.PROOF_OUTPUT_DIR) assert.ok(path.isAbsolute(process.env.PROOF_OUTPUT_DIR)
+  && !outDir.startsWith(root + path.sep), 'Requested external evidence stays outside the checkout.');
 fs.mkdirSync(outDir, { recursive: true });
 const listedSources = spawnSync('git', ['ls-files', '-z', '--', 'public', 'scripts/*.js', 'test/fixtures',
   'test/proof-source-binding.js', 'test/test-proof-source-binding.js', 'test/test.js',
