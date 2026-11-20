@@ -195,6 +195,13 @@ function selectedPublication(advice, period) {
   for (const bill of Array.isArray(publication.bills) ? publication.bills : []) {
     if (bill && typeof bill === 'object') delete bill.paidState;
   }
+  // Each household budget row's reconMatchesSpent is derived from that row's
+  // own saved Spent and recon rows (Forecast publishReconMatchesSpent), so it
+  // is not saved either: the record keeps exactly the fields it saved before,
+  // every earlier contentKey is unchanged, and a replay re-derives it.
+  for (const row of Array.isArray(publication.householdBudget) ? publication.householdBudget : []) {
+    if (row && typeof row === 'object') delete row.reconMatchesSpent;
+  }
   return publication;
 }
 
