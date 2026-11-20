@@ -286,3 +286,11 @@ console.log('6. L-001: no arithmetic on money');
 }
 
 console.log(`\nPASS Stack credit card and sheet (${checks})`);
+
+console.log('7. row layout rules');
+{
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = /html\.stack-view \.stack-root \.stack-credit-line \{([^}]*)\}/.exec(css);
+  ok(rule && /border-top: 1\.5px solid var\(--stack-on-line\)/.test(rule[1]) && /padding: 14px 0/.test(rule[1]) && /grid-template-columns: 24px minmax\(0, 1fr\) auto 14px/.test(rule[1]),
+    'the row rule sits under .stack-root (above the shell\'s button reset), so its divider and padding apply; the status column is auto beside a flexible middle');
+}

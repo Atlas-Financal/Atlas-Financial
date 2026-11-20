@@ -31,7 +31,8 @@ html.stack-view .stack-credit-exp { display: grid; grid-template-rows: 0fr; tran
 html.stack-view .stack-credit.is-open .stack-credit-exp { grid-template-rows: 1fr; }
 html.stack-view .stack-credit-exp > div { overflow: hidden; min-height: 0; }
 html.stack-view .stack-credit-list { list-style: none; margin: 14px 0 0; padding: 0; }
-html.stack-view .stack-credit-line {
+/* One class deeper than the shell's bare "button" reset, which would otherwise zero this row's border (the divider) and padding. */
+html.stack-view .stack-root .stack-credit-line {
   display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 14px; gap: 12px; align-items: center; width: 100%;
   min-height: 62px; padding: 14px 0; border: 0; border-top: 1.5px solid var(--stack-on-line); background: none;
   font: inherit; text-align: left; color: var(--stack-on2); cursor: pointer;
