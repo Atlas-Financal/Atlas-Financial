@@ -54,11 +54,16 @@ const card = k => html.split('data-stack-card="' + k + '"')[1].split('</details>
 assert(card('bills').includes(fmt(888.88)), 'bills headline = stackSummary.bills.other');
 assert(card('budget').includes(fmt(333.33)) && card('budget').includes(fmt(666.66)));
 assert(card('mortgage').includes(fmt(1234.56)));
+// the go button's text: everything inside <span class="sc-go"> once its tags are removed (the chevron is an svg, so none)
+const goText = h => { const m = /<span class="sc-go"[^>]*>([\s\S]*?)<\/span>/.exec(h); if (!m) throw new Error('no go button'); return m[1].replace(/<[^>]*>/g, '').trim(); };
+assert(goText('<summary><span class="sc-go" aria-hidden="true"><svg></svg></span></summary>') === '', 'control: an svg-only go button has no text');
+assert(goText('<summary><span class="sc-go" aria-hidden="true">Open</span></summary>') === 'Open', 'control: the check reports text put in the go button');
+assert((() => { try { goText('<summary></summary>'); return false; } catch (e) { return true; } })(), 'control: a head with no go button throws, never passes');
 // every head carries the round go button, a chevron with no text, and mirrors its open state in aria-expanded
 ['bills', 'budget', 'mortgage'].forEach(k => {
   const head = card(k).split('</summary>')[0];
   assert(/<summary aria-expanded="false">/.test(head) && /<span class="sc-go" aria-hidden="true"><svg class="sc-chev"/.test(head), k + ' head: aria-expanded and the go button');
-  assert(!/>[^<]*[A-Za-z0-9][^<]*<\/span><\/summary>/.test(head.replace(/<span class="sc-(t|s|f)"[\s\S]*?<\/span>(<\/span>)?/g, '')), k + ' go button has no text');
+  assert(goText(head) === '', k + ' go button has no text', JSON.stringify(goText(head)));
 });
 // the open state reaches the head's aria-expanded
 {
