@@ -84,7 +84,7 @@ assert(!card('bills').includes(fmt(77.77)) && !card('bills').includes(fmt(999.99
 assert(!html.includes(fmt(999.99)) && !html.includes('Hidden'));
 // rows: item, amount, and a green check only when paidState says paid; no status word anywhere (owner direction)
 const CHECK = '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>';
-const rowOf = (h, label) => h.split('<li class="sc-row sc-bill"').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('>' + label + '<'));
+const rowOf = (h, label) => h.split('<li class="sc-row sc-bill').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('>' + label + '<'));
 assert(rowOf(card('bills'), 'Hydro').includes(CHECK), 'a paid row shows the check');
 assert(!rowOf(card('bills'), 'Phone').includes('sc-check') && !rowOf(card('bills'), 'Phone').includes('\u2713'), 'an unpaid row shows no mark');
 assert(!rowOf(card('mortgage'), 'Mortgage').includes('sc-check'), 'an unpaid mortgage shows no mark');
@@ -249,7 +249,8 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   const h = JSON.parse(JSON.stringify(view));
   h.budgetProgress.household.planned = { amount: null, trust: 'unavailable' };
   const hh = buildCardsHTML(ctx(h)), b = hh.split('data-stack-card="budget"')[1].split('</details>')[0];
-  assert(!b.includes(fmt(400)) && !b.includes(fmt(50.5)) && !b.includes('sc-mini'), 'withheld plan not printed or drawn');
+  assert(!b.includes(fmt(400)) && !b.includes(fmt(50.5)) && !/sc-mini"><i style="width:[1-9]/.test(b) && /sc-mini"><i style="width:0%"/.test(b),
+    'withheld plan: not printed, and each row draws an empty track, never a guessed fill');
   assert(b.includes(fmt(123.45)), 'spent still printed');
 }
 
@@ -312,4 +313,21 @@ console.log('test-stack-cards: ok');
   const nb = JSON.parse(JSON.stringify(view)); nb.budgetProgress.household.actual = null; nb.householdBudget = [];
   const b0 = buildCardsHTML(ctx(nb)).split('data-stack-card="budget"')[1].split('</summary>')[0];
   assert(/—/.test(b0) && /<i style="width:0%">/.test(b0) && !/\$0/.test(b0), 'a withheld Budget head: a dash and an empty track');
+}
+
+// B (rows and bars): mini bars show (block), every sheet row has its chevron, Bills and Mortgage bars stay empty until a paid figure is published
+{
+  const css1 = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const cr = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert(/\.sc-mini\{display:block;height:6px;border-radius:3px/.test(css1), 'the category mini bar is a block with its 6px height (an inline span would draw nothing)');
+  const rows = h => (h.match(/<li class="sc-row[^>]*data-stack-sheet[\s\S]*?<\/li>/g) || []);
+  ['bills', 'budget', 'mortgage'].forEach(k => {
+    const rs = rows(card(k));
+    assert(rs.length > 0 && rs.every(r => /<svg class="sc-cv"/.test(r)), k + ': every row that opens a sheet carries its chevron');
+  });
+  assert(/<svg class="sc-cv"/.test(rowOf(card('bills'), 'Hydro')) === true, 'a bill row ends with its chevron');
+  ['bills', 'mortgage'].forEach(k => assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:0%"><\/i><\/span>/.test(card(k).split('</summary>')[0]),
+    k + ': an empty track until Forecast publishes the paid figure (no fill from a row count or the head total)'));
+  assert(/\.sc-f>\[role=img\]\{font-size:\.6em/.test(css1) && /\.stack-credit-figure\[data-unpublished\] \{ font-size: 14\.4px/.test(cr),
+    'a withheld head figure is a small soft dash like the "/ b" part, not a big minus');
 }

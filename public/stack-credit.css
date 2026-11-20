@@ -20,6 +20,8 @@ html.stack-view .stack-credit.is-open .stack-credit-sub { margin-top: 2px; }
 html.stack-view .stack-credit-title { grid-area: t; font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
 html.stack-view .stack-credit-figure { grid-area: f; font-size: 24px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
 html.stack-view .stack-credit.is-open .stack-credit-figure { font-size: 52px; margin-top: 6px; }
+html.stack-view .stack-credit-figure[data-unpublished] { font-size: 14.4px; font-weight: 600; color: var(--stack-on2); }
+html.stack-view .stack-credit.is-open .stack-credit-figure[data-unpublished] { font-size: 26px; }
 html.stack-view .stack-credit-figure i { font-style: normal; font-size: .6em; font-weight: 600; color: var(--stack-on2); }
 html.stack-view .stack-credit-go {
   width: 42px; height: 42px; border-radius: 50%; background: var(--stack-on); color: var(--stack-cards); display: grid; place-items: center;
