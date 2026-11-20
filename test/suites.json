@@ -1,4 +1,5 @@
 [
+  ["Stack page: a budget category sheet lists the transactions Forecast counted into its Spent (recon less the pending copy of a posted row), newest first; no list for a saved close, an unpublished or withheld Spent or a projected period; every listed set reconciles to the published Spent to the cent","test-stack-budget-transactions.js"],
   ["Stack page Bills, Budget, Mortgage and Savings cards print only published values, nothing for an unpublished one, rows carry the sheet attribute, and nothing loads without ?view=stack (B3)","test-stack-cards.js"],
   ["Stack Wallet A1: each pay period publishes its income split (Dale, Amanda, Other) summing to incomeTotal","test-income-split.js"],
   ["A card minimum filed for one card with a note naming another pays neither minimum and is held To confirm once","test-card-minimum-category-note-conflict.js"],

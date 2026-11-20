@@ -4,7 +4,7 @@
  * item's published fields from the selected pay period. Blocks never call each other.
  *   bill:<id>@<date>   a row of the selected view's bills (mortgage:<id>@<date> reads the same way); its amounts come
  *                      from Forecast's billHistory (#1446), the one source for an occurrence's amount and trust
- *   budget:<id>        a row of the selected view's householdBudget
+ *   budget:<id>        a row of the selected view's householdBudget, with the transactions Forecast counted into its Spent
  *   card:<id>          a credit line (window.StackCredit.line(ctx, id), the credit block's one Forecast reading)
  * Escape, the close button or the scrim closes it; focus returns to the row.
  *
@@ -107,7 +107,28 @@
       + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
       + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
       + '<dl>' + row('Spent', money(item.spent), spent) + row('Budget', money(item.planned), planned)
-      + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>';
+      + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
+      + budgetTransactionsHtml(item, v);
+  }
+
+  // The transactions Forecast counted into a category's Spent: the row's recon[], less the pending copy of a posted
+  // transaction (the same exclusion Spent makes). Listed only when Forecast says the rows reconcile to the published
+  // Spent (reconMatchesSpent === true; absent or false: nothing, so a rounding case that cannot reconcile never
+  // shows a list that disagrees with the figure) and Spent is proven for this exact period: not a saved close (its
+  // recon is borrowed from today's recomputed row), nothing withheld, not a projected period. Otherwise nothing, with
+  // no explanation. Newest first (display order of rows Forecast already assigned, not categorisation); name, date
+  // and amount as published (Lunch Money's own name); no category logic and no arithmetic here.
+  function budgetTransactionsHtml(item, v) {
+    if (!v || v.capturedClose || item.reconMatchesSpent !== true || item.withheldReason || item.projected === true) return '';
+    const rows = (Array.isArray(item.recon) ? item.recon : [])
+      .filter(r => r && typeof r === 'object' && num(r.amount)
+        && !(r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true))
+      .map((r, i) => ({ r, i, d: typeof r.date === 'string' ? r.date : '' }))
+      .sort((a, b) => (a.d < b.d ? 1 : a.d > b.d ? -1 : a.i - b.i));
+    return rows.length ? '<ul class="stack-sheet-tx">' + rows.map(({ r }) => '<li>'
+      + `<span class="stack-sheet-txd">${esc(date(r.date))}</span>`
+      + `<span class="stack-sheet-txl">${esc(r.displayedPayee || r.originalMerchant || '')}</span>`
+      + `<span class="stack-sheet-txa stack-n">${esc(money(r.amount))}</span></li>`).join('') + '</ul>' : '';
   }
 
   // A credit line, from the credit block's reading of Forecast.stackCreditLines.
