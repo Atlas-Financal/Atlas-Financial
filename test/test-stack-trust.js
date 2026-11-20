@@ -180,20 +180,19 @@ console.log('5. bill and budget sheets');
   ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(ctx, 'bill:water@2031-03-05')), 'an estimated bill amount is soft');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'bill:power@2031-03-06')), 'a calculated bill amount is not');
   const g = win.StackSheet.html(ctx, 'budget:groceries');
-  ok(/stack-sheet-big stack-n">/.test(g) && /<i class="stack-est"> \//.test(g) && /Spent<\/dt><dd class="stack-n">/.test(g)
-    && /Budget<\/dt><dd class="stack-n stack-est"/.test(g) && /Left<\/dt><dd class="stack-n stack-est"/.test(g),
-  'budget: calculated spent plain; estimated planned and left soft');
+  ok(/stack-sheet-big stack-n">/.test(g) && /<i class="stack-est"> \//.test(g) && !/Spent<\/dt>|Budget<\/dt>/.test(g)
+    && /Left<\/dt><dd class="stack-n stack-est"/.test(g),
+  'budget: calculated spent plain; estimated planned and left soft; no Spent or Budget row');
   ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(context(view('projected')), 'bill:power@2031-03-06')), 'a projected period: a bill is soft');
-  // Which of Spent, the plan and Left are soft, read from each budget sheet's own printed values.
+  // Which of Spent, the plan and Left are soft, read from each budget sheet's headline and Left row.
   const soft = key => {
     const h = win.StackSheet.html(ctx, key);
     const big = /<div class="stack-sheet-big stack-n"><span( class="stack-est")?>[^<]*<\/span>(?:<i( class="stack-est")?>)?/.exec(h);
     const dd = name => new RegExp(`${name}</dt><dd class="stack-n( stack-est)?"`).exec(h);
-    return [big && big[1] ? 'spent' : '', big && big[2] ? 'plan' : '', dd('Spent')[1] ? 'Spent' : '', dd('Budget')[1] ? 'Budget' : '',
-      dd('Left')[1] ? 'Left' : ''].filter(Boolean).join(',');
+    return [big && big[1] ? 'spent' : '', big && big[2] ? 'plan' : '', dd('Left')[1] ? 'Left' : ''].filter(Boolean).join(',');
   };
-  ok(soft('budget:carried') === 'plan,Budget,Left', 'a carried budget (row trust only): the plan and Left are soft, Spent is not', soft('budget:carried'));
-  ok(soft('budget:dup') === 'spent,Spent,Left', 'a possible duplicate (calculated plan): Spent and Left are soft, the plan is not', soft('budget:dup'));
+  ok(soft('budget:carried') === 'plan,Left', 'a carried budget (row trust only): the plan and Left are soft, Spent is not', soft('budget:carried'));
+  ok(soft('budget:dup') === 'spent,Left', 'a possible duplicate (calculated plan): Spent and Left are soft, the plan is not', soft('budget:dup'));
   ok(soft('budget:other') === 'Left', 'Other spending: its undated plan is never soft; Left follows the row', soft('budget:other'));
   ok(soft('budget:firm') === '', 'a calculated row: nothing soft', soft('budget:firm'));
 }

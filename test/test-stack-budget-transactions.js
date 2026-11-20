@@ -65,6 +65,11 @@ console.log('1. The list');
   ok(!/Transactions|Pending|pending/.test(text(html)), 'no heading and no status word');
   ok(rows.filter(r => r.name === 'Cafe').length === 1, 'the posted copy is listed once');
   ok(html.indexOf('<ul class="stack-sheet-tx">') > html.indexOf('</dl>'), 'the list sits under the figures');
+  const dts = [...html.matchAll(/<dt>([^<]*)<\/dt>/g)].map(m => m[1]);
+  ok(JSON.stringify(dts) === JSON.stringify(['Left']), 'the sheet has one row, Left (no Spent or Budget row)', JSON.stringify(dts));
+  ok(/stack-sheet-big[^>]*>.*\$76.*\$500/.test(html.replace(/<[^>]*>/g, m => /stack-sheet-big/.test(m) ? m : '')) || /\$76/.test(text(html)), 'the headline still shows spent and budget');
+  const overHtml = sheet(view({ householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 600, planned: 500, remaining: 0, overspend: 100, recon: [] }] }), 'groceries');
+  ok(JSON.stringify([...overHtml.matchAll(/<dt>([^<]*)<\/dt>/g)].map(m => m[1])) === JSON.stringify(['Over']), 'an overspent category shows one row, Over');
 }
 
 console.log('2. No list');
