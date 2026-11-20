@@ -178,6 +178,17 @@ function served(opts = {}) {
       tx(92102, 1002, '2026-08-05', 19.50, 'Synthetic historical fuel', 12));
     if (opts.fundingHistory === 'paid') observed.transactions.push(tx(92103, 1001, '2026-08-07', 105, 'Synthetic historical service', 16));
   }
+  if (opts.mortgageObligation) {
+    // Stack Wallet: the mortgage as the plan models a real one, a payment
+    // obligation on the mortgage debt (planHasMortgagePayment), so the bills
+    // split files it under mortgage. Same id, label, day, amount and account;
+    // the invented secured balance only names the debt.
+    const index = data.plan.bills.findIndex(row => row.id === 'mortgage');
+    const [bill] = data.plan.bills.splice(index, 1);
+    data.plan.obligations.push(Object.assign({}, bill, { debtId: 'mortgage', effect: 'payment' }));
+    data.debts.push({ id: 'mortgage', label: 'Synthetic mortgage', structure: 'Amortizing',
+      secured: true, balance: 300000, pending: 0, limit: null, rate: 4.5 });
+  }
   if (opts.withUndatedCost) data.plan.commitments.push({ id: 'fixture-undated', label: 'Synthetic undated cost',
     amount: 275, confidence: 'confirmed' });
   if (typeof opts.periodInternet === 'number') {

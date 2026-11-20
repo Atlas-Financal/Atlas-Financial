@@ -35,7 +35,7 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
 function served() {
-  const d = fx.served();
+  const d = fx.served({ mortgageObligation: true });
   d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = SYNC_AT;
   return d;
 }

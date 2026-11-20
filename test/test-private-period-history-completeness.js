@@ -6,6 +6,8 @@ const withoutBillPaidState = row => {
   const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
   if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
   for (const b of bills) delete b.paidState;
+  // and the Stack bill cards' split marks (stackBillPart, stackBillAmount, stackBillDebtId, stackBillPaymentEvidence, stackBillAmountTrust), likewise never saved.
+  for (const b of bills) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust']) delete b[k];
   return copy;
 };
 // History H1: declared source completeness, closing state and household-day

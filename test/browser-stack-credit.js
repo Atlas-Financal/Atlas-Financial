@@ -61,7 +61,7 @@ async function open(browser, { width = 390, theme = 'light', force = false } = {
   await page.route('**/*', route => {
     const u = new URL(route.request().url());
     if (u.origin !== 'http://stack.test') return route.abort();
-    if (u.pathname === '/data.json') return route.fulfill({ json: fx.served() });
+    if (u.pathname === '/data.json') return route.fulfill({ json: fx.served({ mortgageObligation: true }) });
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });

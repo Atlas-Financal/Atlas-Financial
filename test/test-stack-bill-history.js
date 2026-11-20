@@ -2,7 +2,7 @@
 /* Stack Wallet bill sheet: Forecast publishes each bill's past occurrences once, as billHistory (owner ask, Dale,
  * 2026-11-20; lead ruling: one authority, the page does no cross-period join).
  *
- *   billHistory[id] = [{ date, amount, amountBasis, trust, paidState, occurrence }], newest first, for every occurrence in the
+ *   billHistory[id] = [{ date, amount, amountBasis, trust, paidState, occurrence, paidConfirmed }], newest first, for every occurrence in the
  *   published pay periods (past, current and future). amount follows the row's own displayAmountBasis: a posted or
  *   unconfirmed linked payment is |actual| (the Lunch Money ledger's own link, read and never matched here, rule 17);
  *   otherwise the scheduled amount, basis 'schedule', with its own trust. Never a scheduled amount called paid.
@@ -79,11 +79,11 @@ console.log('1. Hand-derived worlds (as of 2026-10-14)');
 // not-yet-due one at its schedule.
 const PAID = [pay('2026-09-12', 90), pay('2026-10-12', 40)];
 const HAND = [
-  { date: '2026-12-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid', occurrence: 'hydro@2026-12-12' },
-  { date: '2026-11-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid', occurrence: 'hydro@2026-11-12' },
-  { date: '2026-10-12', amount: 40, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'hydro@2026-10-12' },
-  { date: '2026-09-12', amount: 90, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'hydro@2026-09-12' },
-  { date: '2026-08-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid', occurrence: 'hydro@2026-08-12' },
+  { date: '2026-12-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid', occurrence: 'hydro@2026-12-12', paidConfirmed: false },
+  { date: '2026-11-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid', occurrence: 'hydro@2026-11-12', paidConfirmed: false },
+  { date: '2026-10-12', amount: 40, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'hydro@2026-10-12', paidConfirmed: false },
+  { date: '2026-09-12', amount: 90, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'hydro@2026-09-12', paidConfirmed: true },
+  { date: '2026-08-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid', occurrence: 'hydro@2026-08-12', paidConfirmed: false },
 ];
 {
   const { w, rec } = world(HYDRO, PAID);
@@ -97,7 +97,7 @@ const HAND = [
   // basis 'schedule' (the schedule's own trust), never a paid amount.
   const { rec } = world(HYDRO, [pay('2026-09-12', 90), pay('2026-10-12', 90, { pending: true })]);
   const oct = rec.billHistory.hydro.find(e => e.date === '2026-10-12');
-  ok(same(oct, { date: '2026-10-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid', occurrence: 'hydro@2026-10-12' }),
+  ok(same(oct, { date: '2026-10-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid', occurrence: 'hydro@2026-10-12', paidConfirmed: false }),
     'a pending payment: Paid, at the scheduled 90, labelled schedule', JSON.stringify(oct));
 }
 {
@@ -147,12 +147,12 @@ console.log('1b. A statement that moves the due date, beside a saved close (Atla
     JSON.stringify([saved && saved.date, moved && moved.date, moved && moved.occurrenceKey]));
   const near = after.billHistory.triangle.filter(e => e.date < '2026-11-01');
   ok(same(near, [{ date: '2026-10-10', amount: 47.39, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid',
-    occurrence: 'triangle@2026-10-07' }]),
+    occurrence: 'triangle@2026-10-07', paidConfirmed: false }]),
     'one obligation, one entry: the statement\'s Oct 10 at 47.39, not also the saved Oct 7; its identity stays the scheduled Oct 7',
     JSON.stringify(near));
   ok(after.billHistory.triangle.find(e => e.date === '2026-11-07')?.occurrence === 'triangle@2026-11-07',
     'the November occurrence has its own identity');
-  const occByDate = compile(replaceOnce(SOURCE, '      occurrence: billOccurrenceIdentity(row) };', "      occurrence: row.id + '@' + row.date };", 'occurrence by date'), 'occurrence-by-date');
+  const occByDate = compile(replaceOnce(SOURCE, '      occurrence: billOccurrenceIdentity(row), paidConfirmed };', "      occurrence: row.id + '@' + row.date, paidConfirmed };", 'occurrence by date'), 'occurrence-by-date');
   ok(runWith(true, [close], occByDate).billHistory.triangle.find(e => e.date === '2026-10-10')?.occurrence === 'triangle@2026-10-10',
     'publishing the moved date as the identity is caught (the shipped copy says triangle@2026-10-07)');
   ok(after.billHistory.triangle.some(e => e.date === '2026-11-07'), 'the November occurrence, a different one, is still listed');
@@ -209,7 +209,7 @@ console.log('2. The publisher on hand-built results');
     view('past', [row('2026-09-05', { alsoCarriedToCurrent: true })]),
     view('current', [row('2026-09-05', { displayAmountBasis: 'posted-actual', actual: 50, paidState: 'paid' })]),
   ] }, '2026-09-15');
-  ok(same(twice.billHistory.b, [{ date: '2026-09-05', amount: 50, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'b@2026-09-05' }]),
+  ok(same(twice.billHistory.b, [{ date: '2026-09-05', amount: 50, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'b@2026-09-05', paidConfirmed: true }]),
     'an occurrence a saved close kept and the current period carries is listed once, as the current period has it', JSON.stringify(twice.billHistory.b));
 }
 
