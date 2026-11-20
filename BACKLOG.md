@@ -767,6 +767,28 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Proof needed:** a test that a one-line machinery edit still fails the guard, and that two non-adjacent edits merge cleanly and re-pin to the same manifest as one combined edit.
 - Source: LEDGER B finding during the #1441 catch-ups, routed by ATLAS LEAD 11, 2026-11-20.
 
+**One Forecast-owned contract for which recon rows a budget row counts** · READY (ATLAS LEAD 11, 2026-11-20): finding only, no fix in this entry. Owner: engine (the lead assigns). Full lane: it touches how Spent is calculated.
+- **Why:** the rule "do not count the pending twin of a posted transaction" (`pendingPostedDuplicate && pending && !pendingAmountEstimated`) is decided in several places in `public/forecast.js`:
+  - `spentFromRecon`, inside the household budget builder, which sums a category row's Spent;
+  - `confirmedHouseholdAmount`, which counts Other spending from the raw transaction through `isPossibleReplacementPending` and the duplicate-id set;
+  - `reconRowCounted`, used by `reconMatchesSpent` (#1452), which says whether a row's listed transactions reconcile to its Spent.
+
+  Nearby checks in the same builder test the same pair of fields again. Today they agree on every published recon row: Atlas found no arithmetic difference on #1452 (7031371702). But a change to one site that misses the others would let a page list rows that Spent does not count, or the reverse, with nothing failing.
+- **End state (Atlas, #1452):** one Forecast-owned row-selection contract. Spent, the reconciliation flag and any page that lists a row's transactions all read one published decision of which rows count. No membership rule is repeated in a renderer.
+- **Fix direction:** replace or derive (CLAUDE.md "Defect classification"), never a permanent reconciliation between copies. Make one predicate, or a published per-row "counted" mark, the single owner, and derive the other sites from it.
+- **Proof needed:**
+  - a test that the sites cannot disagree, built on invented inputs that include a suppressed twin and a retained estimated pending amount;
+  - the figures review unchanged: 0 fields moved;
+  - CARDS' #1450 page test still listing exactly Forecast's counted rows.
+- Source: ENGINE finding while building #1452; end state named by Atlas in 7031371702; routed by ATLAS LEAD 11, 2026-11-20.
+
+**A field class added on main fails "Which published figures moved" on every open pull request until it catches up** · READY (ATLAS LEAD 11, 2026-11-20): finding only, no fix in this entry. Owner: figures machinery (the lead assigns). Full lane: it is hard-gate machinery.
+- **What happens:** for `pull_request` events, the "Post the figures comment" step's constant class list comes from the workflow file on the merge ref, which is the head merged with current main. The snapshot and the public summary are built by each revision's own `scripts/figures-snapshot.js` and `scripts/figures-comment.js`, which run from the PR's base and head. When main gains a field class after a PR's base, that PR's summary declares fewer classes than the step expects. The step's byte-equality check then throws `invalid-public-summary`, and the job fails closed with "Published figures summary failed; raw diagnostics withheld".
+- **Seen on #1452:** head 3c4a887d, base 2be7ee0a, after main gained #1441's three Savings projected top-up classes. Jobs 136279654731 and its rerun 136282074283 both failed. Run locally on the same snapshots, the step passed with the head's workflow and threw with main's. A clean update of the branch to main fixed it (a17c828d).
+- **Effect:** the failure is fail-closed, so it never lets a wrong figure through. But it blocks every open figures-affecting PR whenever main adds a class, and its message hides the cause.
+- **Fix direction:** not chosen here. The choice is the desk's or the lead's.
+- Source: ENGINE diagnosis on #1452 (7039383654), accepted by ATLAS LEAD 11, 2026-11-20.
+
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
 - **Why:** on the 753-purchase invented harness world (main `311c6c7b`), building the hold set (`computeHeldOtherIncomeKeys` → `calendarIncomeSections`, which scans every packet transaction in its span) is 292 of 1,035 ms inside `recommend`. One `recommend` builds it 36 times. The payday and weekly searches already share it within a search (#980 follow-up, #1406); the other callers do not.
 - **Measured (scratch prototype, not a proof):** sharing one holder per outermost `recommend`, matched with the 16 keys below ignored, cuts builds from 36 to 7 on that world (634 to 154 on the 60 invented figures evaluations). Advice was identical on 63 invented cases with 1,020 shared hits. One `recommend` on that world went 101.6 → 79.8 ms (about 21% lower). There was no measurable gain on the invented figures inputs, where the matching overhead eats it. Exact-match sharing alone removes only 7 of 36 builds.
