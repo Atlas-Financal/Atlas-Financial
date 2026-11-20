@@ -122,6 +122,24 @@
   // An unpublished amount the row still names: a dash, never $0, read by a screen reader as "not available".
   const DASH = '<span class="wf-dash" role="img" aria-label="not available">\u2014</span>';
 
+  // A paid minimum's check (owner, Dale, 2026-11-20: "once that minimum is paid I want a check mark"). Read only
+  // from Forecast's published coverage for that card, the Credit block's one reading (StackCredit.line, joined by
+  // debt id, never by name): a check exactly when minimumCovered.value is true, drawn soft when its trust is
+  // estimated. None for false or 'unknown', none in a projected or future period, none when no coverage is published
+  // (the HELOC's cash minimum included), never guessed.
+  function minimumCheck(ctx, view, debtId) {
+    if (!view || view.timelineRole === 'future' || view.evidenceState === 'projected') return '';
+    const credit = typeof globalThis !== 'undefined' ? globalThis.StackCredit : null;
+    const line = credit && typeof credit.line === 'function' && debtId != null ? credit.line(ctx, debtId) : null;
+    const covered = line && line.minimumCovered;
+    if (!covered || covered.value !== true) return '';
+    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
+    const soft = blocks && typeof blocks.estClass === 'function' ? blocks.estClass(covered.trust, view) : '';
+    return `<span class="wf-check${soft}" role="img" aria-label="Minimum paid">\u2713</span>`;
+  }
+
+  // The minimums due in the selected pay period, exactly Forecast's cardMinimums: a card with no minimum due in the
+  // period has no row (owner, Dale, 2026-11-20).
   function creditRows(ctx, view) {
     const cards = view.stackSummary && view.stackSummary.bills ? view.stackSummary.bills.cardMinimums : null;
     if (!Array.isArray(cards)) return '';
@@ -130,7 +148,8 @@
       const cell = card && isAmount(card.amount)
         ? `<span class="n${est(view, 'stackSummary.bills.trust')}" data-source="${source}">${escape(money(card.amount))}</span>`
         : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
-      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>${cell}</li>`;
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>`
+        + `<span class="wf-amt">${cell}${minimumCheck(ctx, view, card && card.debtId)}</span></li>`;
     }).join('');
   }
 
