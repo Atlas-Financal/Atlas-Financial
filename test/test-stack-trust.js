@@ -117,38 +117,36 @@ console.log('3. waterfall, a projected period');
   ok(estSources(html) === allSources(html) && allSources(html).split(',').length === 10, 'every printed figure is soft', estSources(html));
 }
 
-console.log('4. credit card and its sheet');
+console.log('4. credit card and its sheet (the design\'s "X / minimum", soft per field)');
 {
   const { fns, win } = load();
   const el = container();
   fns.credit(el, context(view('actual')));
   const rows = el.innerHTML.split('<li>').slice(1);
   const softIn = h => classed(h).filter(e => e.cls.includes('stack-est')).map(e => e.cls.find(c => /^stack-credit-/.test(c))).sort().join(',');
-  ok(!/stack-est/.test(el.innerHTML.split('<li>')[0]), 'calculated totals: the total and its bar are not soft');
+  ok(!/stack-est/.test(el.innerHTML.split('<li>')[0]), 'calculated totals: the paid total, the minimums due and the bar are not soft');
   ok(softIn(rows[0]) === '', 'Blue Visa (all calculated): nothing soft', softIn(rows[0]));
-  ok(softIn(rows[1]) === 'stack-credit-min,stack-credit-minibar,stack-credit-status,stack-credit-sub-line',
-    'Green Card (spent, toGo and minimum estimated): its paid-of-spent, bar, status and minimum are soft', softIn(rows[1]));
+  ok(softIn(rows[1]) === 'stack-credit-of,stack-credit-x',
+    'Green Card (spent, toGo and minimum estimated): the figure X and the "/ min" are soft', softIn(rows[1]));
   const el2 = container();
   fns.credit(el2, context(view('actual'), 'estimated'));
-  ok(/stack-credit-figure stack-n stack-est/.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML), 'estimated totals: the total and its bar are soft');
+  ok(/data-stack-credit-total><span class="stack-est">\$500</.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML), 'estimated totals: the paid total and its bar are soft');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
-  ok(/stack-sheet-big stack-n stack-est/.test(green) && /Spent on it this pay period<\/dt><dd class="stack-n stack-est"/.test(green)
-    && /Paid onto it<\/dt><dd class="stack-n">/.test(green) && /stack-credit-pill is-togo stack-n stack-est/.test(green),
+  ok(/stack-credit-x is-bad stack-est">\$160</.test(green) && /<dt>Spent on it<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
+    && /<dt>Paid onto it<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="stack-est">\$30<\/span><\/dd>/.test(green),
   'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
-  ok(/<dt class="stack-est">Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(green), 'the estimated minimum amount and its coverage word are both soft');
-  ok(/<dt>Minimum \$25<\/dt><dd class="stack-n">Covered ✓<\/dd>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum is not');
   const projected = context(view('projected'));
   const pEl = container();
   fns.credit(pEl, projected);
-  ok(/stack-credit-figure stack-n stack-est/.test(pEl.innerHTML) && pEl.innerHTML.split('<li>').slice(1).every(r => /stack-credit-sub-line stack-est/.test(r)),
+  ok(/data-stack-credit-total><span class="stack-est">/.test(pEl.innerHTML) && pEl.innerHTML.split('<li>').slice(1).every(r => /stack-credit-x[^"]* stack-est"/.test(r) || /stack-credit-dash/.test(r)),
     'a projected period: the total and every line are soft');
 }
 
-console.log('4b. the paid-back mark always shows when paid back, soft on estimated evidence (Atlas on #1444)');
+console.log('4b. the covered ✓ always shows when covered, soft on estimated evidence (Atlas on #1444)');
 {
-  // The same paid-back line, its paid and spent published calculated, then with paid estimated (an unconfirmed payment
+  // The same covered line, its paid and spent published calculated, then with paid estimated (an unconfirmed payment
   // allocation), then in a projected period.
   const { fns, win } = load();
   const line = (paidTrust, spentTrust) => [{ id: 'travelvisa', label: 'Blue Visa', paid: fig(400, paidTrust), spent: fig(400, spentTrust),
@@ -160,33 +158,33 @@ console.log('4b. the paid-back mark always shows when paid back, soft on estimat
     return { row: el.innerHTML.split('<li>')[1], sheet: win.StackSheet.html(ctx, 'card:travelvisa') };
   };
   const firm = render(view('actual'), line('calculated', 'calculated'));
-  ok(/stack-credit-tick is-on" role="img" aria-label="Paid back"/.test(firm.row) && /<span class="stack-credit-pill is-ok">Paid back<\/span>/.test(firm.sheet),
-    'calculated paid and spent: the row tick is filled and the sheet shows the "Paid back" pill, plain');
+  ok(/stack-credit-tick is-on" role="img" aria-label="Minimum covered"/.test(firm.row) && /<dd class="stack-n"><span class="">\$25<\/span> <span class="">✓<\/span><\/dd>/.test(firm.sheet),
+    'calculated paid and spent: the row tick is filled and the sheet\'s Minimum row has its ✓, plain');
   for (const [label, r] of [['estimated paid', render(view('actual'), line('estimated', 'calculated'))],
-    ['estimated spent', render(view('actual'), line('calculated', 'estimated'))],
-    ['estimated toGo', render(view('actual'), line('calculated', 'calculated').map(l => ({ ...l, toGo: fig(0, 'estimated') })))], ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
-    ok(/stack-credit-tick is-on stack-est" role="img" aria-label="Paid back, estimated"/.test(r.row)
-      && /<span class="stack-credit-pill is-ok stack-est">Paid back<\/span>/.test(r.sheet)
-      && (label === 'estimated toGo' || (/stack-credit-sub-line stack-est/.test(r.row) && /stack-sheet-big stack-n stack-est/.test(r.sheet))),
-      `${label}: the tick and the pill still show (paid back), soft, read as "Paid back, estimated"`);
+    ['estimated spent', render(view('actual'), line('calculated', 'estimated'))], ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
+    ok(/stack-credit-tick is-on stack-est" role="img" aria-label="Minimum covered, estimated"/.test(r.row)
+      && /<span class="stack-est">✓<\/span>/.test(r.sheet) && /stack-credit-x is-good stack-est">\$400</.test(r.row),
+      `${label}: the tick and the ✓ still show (covered), soft, read as "Minimum covered, estimated"`);
     ok(!/estimated/i.test(r.row.replace(/<[^>]*>/g, ' ') + r.sheet.replace(/<[^>]*>/g, ' ')), `${label}: no word "estimated" is added`);
   }
 }
 
-console.log('4c. the minimum amount and its coverage word each carry their own treatment (Codex on #1475)');
+console.log('4c. the sheet\'s minimum amount and its ✓ carry their own treatment (Codex on #1475)');
 {
   const { win } = load();
   const sheet = (v, minTrust, covTrust) => {
     const ctx = context(v);
-    const line = [{ id: 'travelvisa', label: 'Blue Visa', paid: fig(100, 'calculated'), spent: fig(260, 'calculated'), minimum: fig(30, minTrust),
-      toGo: fig(160, 'calculated'), status: 'to-go', minimumCovered: { value: false, trust: covTrust }, transactions: [] }];
-    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: line, totals: { paid: 100, spent: 260, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
+    const line = [{ id: 'travelvisa', label: 'Blue Visa', paid: fig(100, 'calculated'), spent: fig(100, 'calculated'), minimum: fig(30, minTrust),
+      toGo: fig(0, 'calculated'), status: 'paid-back', minimumCovered: { value: true, trust: covTrust }, transactions: [] }];
+    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: line, totals: { paid: 100, spent: 100, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
     return win.StackSheet.html(ctx, 'card:travelvisa');
   };
-  ok(/<dt class="stack-est">Minimum \$30<\/dt><dd class="stack-n">Not yet<\/dd>/.test(sheet(view('actual'), 'estimated', 'calculated')), 'an estimated minimum amount alone: the amount is soft, the coverage word is not');
-  ok(/<dt>Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(sheet(view('actual'), 'calculated', 'estimated')), 'estimated coverage alone: the word is soft, the amount is not');
-  ok(/<dt class="stack-est">Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(sheet(view('projected'), 'calculated', 'calculated')), 'a projected period: both are soft');
-  ok(/<dt>Minimum \$30<\/dt><dd class="stack-n">Not yet<\/dd>/.test(sheet(view('actual'), 'calculated', 'calculated')), 'calculated minimum and coverage: neither is soft');
+  const minRow = h => (/<dt>Minimum<\/dt><dd class="stack-n">([\s\S]*?)<\/dd>/.exec(h) || [])[1];
+  ok(minRow(sheet(view('actual'), 'estimated', 'calculated')) === '<span class="stack-est">$30</span> <span class="stack-est">✓</span>',
+    'an estimated minimum amount: the amount is soft and so is the ✓ (the covered claim is read from it)');
+  ok(minRow(sheet(view('actual'), 'calculated', 'estimated')) === '<span class="">$30</span> <span class="stack-est">✓</span>', 'estimated coverage alone: the ✓ is soft, the amount is not');
+  ok(minRow(sheet(view('projected'), 'calculated', 'calculated')) === '<span class="stack-est">$30</span> <span class="stack-est">✓</span>', 'a projected period: both are soft');
+  ok(minRow(sheet(view('actual'), 'calculated', 'calculated')) === '<span class="">$30</span> <span class="">✓</span>', 'calculated minimum and coverage: neither is soft');
 }
 
 console.log('5. bill and budget sheets');
@@ -474,10 +472,9 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     let t = text(html).replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’');
     for (const n of names) t = t.split(n).join(' ');
     // the two head subtitles from the approved design, exactly (no other wording)
-    t = t.split('paid back / spent').join(' ').split('spent / budget').join(' ');
-    // the design's Credit wording (Dale, 2026-11-20), exactly: the row lines, the status, the minimum and the sheet rows
-    for (const phrase of ['Spent on it this pay period', 'Paid onto it', 'Paid back', 'to go', 'Nothing spent yet', 'nothing spent',
-      'covered ✓', 'Covered ✓', 'not yet', 'Not yet']) t = t.split(phrase).join(' ');
+    t = t.split('paid / minimums due').join(' ').split('spent / budget').join(' ');
+    // the design's Credit wording (Dale, 2026-11-20, the Credit Minimum mock-up), exactly: the row lines and the sheet rows
+    for (const phrase of ['Spent on it', 'Paid onto it', 'Not due this period']) t = t.split(phrase).join(' ');
     t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( \u2013 ((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?\d{1,2})?\b/g, ' ')
       .replace(/[✓=−+\/—·]/g, ' ');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));
@@ -486,9 +483,10 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
   ok(texts.every(t => text(t) !== ''), 'every one of the renders printed something (the word check is not vacuous)',
     String(texts.filter(t => text(t) === '').length));
   ok(texts.length === 156 && words.length === 0, 'the rendered Stack blocks and sheets hold only names, numbers and ✓', words.join(' | '));
-  const control = leftover('<p>Paid back $5 to go Upcoming excludes Red Card Covered ✓ Not yet unavailable Due Mar 5 Comes out of Chequing Paid in full Minimum met</p>');
-  ok(['Upcoming', 'excludes', 'unavailable', 'Due', 'Comes', 'out', 'full', 'met'].every(w => control.includes(w)) && !control.includes('back') && !control.includes('yet'),
-    'control: other status, reason and label words are caught as leftovers; only the design\'s exact Credit phrases pass', control.join(' '));
+  const control = leftover('<p>Paid back $5 to go Upcoming excludes Red Card Covered ✓ Not yet unavailable Due Mar 5 Comes out of Chequing Paid in full Minimum met Not due this period Paid onto it</p>');
+  ok(['Upcoming', 'excludes', 'unavailable', 'Due', 'Comes', 'out', 'full', 'met', 'back', 'to', 'go', 'Covered', 'yet'].every(w => control.includes(w))
+    && !control.includes('onto') && !control.includes('Not due') && !control.includes('period'),
+    'control: other status, reason and label words (including the old "Paid back", "to go", "Covered" and "Not yet") are caught as leftovers; only the design\'s exact Credit phrases pass', control.join(' '));
 }
 
 console.log(`\nPASS Stack trust treatment (${checks})`);

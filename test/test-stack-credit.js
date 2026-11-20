@@ -23,7 +23,7 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
-function load() {
+function load(creditSrc) {
   const ctx = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
     location: { search: '' }, document: { addEventListener: () => {}, getElementById: () => null } };
   ctx.window = ctx;
@@ -32,7 +32,7 @@ function load() {
   const fns = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
   ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
-  vm.runInContext(read('public/stack-credit.js'), ctx);
+  vm.runInContext(creditSrc || read('public/stack-credit.js'), ctx);
   vm.runInContext(read('public/stack-sheet.js'), ctx);
   return { win: ctx, fns };
 }
@@ -55,7 +55,9 @@ const LINES = [
     state: 'not-a-spend-card', status: null, minimumCovered: { value: true, trust: 'calculated', reasons: [] }, transactions: [] },
 ];
 const VIEW = {
-  start: '2031-03-01', end: '2031-03-14', stackSummary: { bills: { amount: 1 } },
+  start: '2031-03-01', end: '2031-03-14',
+  // surplus.terms.credit is the waterfall Credit line's published sum of the card minimums (Forecast's, not added up on the page).
+  stackSummary: { bills: { amount: 1, trust: 'calculated' }, surplus: { amount: 10, terms: { credit: 345 }, trust: 'calculated' } },
   // A paid bill whose payment posted on another day, from another account, than planned (invented extra fields the
   // sheet must not read: Forecast publishes neither on the row).
   bills: [{ id: 'water', date: '2031-03-05', postedOn: '2031-03-07', paidFromLabel: 'Savings', label: 'Water', amount: 64, paidState: 'paid', payerLabel: 'Chequing' },
@@ -106,21 +108,28 @@ console.log('1. StackBlocks.barWidth');
   ok(bw(1, 4) === 0.25 && bw(9, 4) === 1 && bw(-3, 4) === 0 && bw(0, 4) === 0, 'a ratio clamped to 0–1');
 }
 
-console.log('2. closed card totals');
+console.log('2. closed card: "paid / minimums due"');
 {
   const complete = card(TOTALS.complete);
-  ok(/data-stack-credit-total/.test(complete.html) && text(complete.html).startsWith('Credit paid back / spent $500 / $660 Blue Visa'),
-    'complete: the head reads "Credit", its subtitle and "$500 / $660"', text(complete.html).slice(0, 60));
+  ok(/data-stack-credit-total/.test(complete.html) && text(complete.html).startsWith('Credit paid / minimums due $500 / $345 Blue Visa'),
+    'complete: the head reads "Credit", its subtitle and the published total paid over the waterfall\'s Credit minimums', text(complete.html).slice(0, 60));
   ok(/stack-credit-bar/.test(complete.html), 'complete: the total bar is drawn');
-  // Partial (owner, 2026-11-20): no total, the same as none, whether or not it names the cards it leaves out. The head prints a
-  // soft dash and an empty track (never blank, $0 or a guessed fill).
-  const partial = card(TOTALS.partial), partialNone = card(TOTALS.partialNone), none = card(TOTALS.none);
-  for (const [label, c] of [['partial', partial], ['partial naming none', partialNone], ["'none'", none]]) {
-    ok(/data-stack-credit-total data-unpublished/.test(c.html) && /stack-credit-bar" aria-hidden="true"><i style="width:0%">/.test(c.html)
-      && !/excludes|\$660/.test(c.html) && text(c.html).startsWith('Credit paid back / spent \u2014 Blue Visa Paid back $400 of $400'),
-      `${label}: a soft dash and an empty track, no total and no excludes line; the per-card lines still show`, text(c.html).slice(0, 70));
+  // A withheld paid total prints a soft dash and the published minimums ("— / $345"); with the minimums also withheld, a
+  // soft dash alone. Never a blank, a $0 or a guessed fill.
+  const partial = card(TOTALS.partial), none = card(TOTALS.none);
+  for (const [label, c] of [['partial', partial], ["'none'", none]]) {
+    ok(/data-stack-credit-total>/.test(c.html) && /stack-credit-bar" aria-hidden="true"><i style="width:0%">/.test(c.html) && !/\$500|\$660/.test(c.html)
+      && text(c.html).startsWith('Credit paid / minimums due — / $345 Blue Visa'), `${label}: a soft dash over the published minimums, an empty track`, text(c.html).slice(0, 70));
   }
-  ok(!/Line of credit/.test(text(partial.html).split('Blue Visa')[0]), 'HELOC is not named in the closed totals line');
+  {
+    const { fns } = load();
+    const el = container();
+    const ctx = context(TOTALS.none);
+    ctx.recommendation = { payPeriodViews: [{ ...VIEW, stackSummary: { bills: { trust: 'unavailable' } } }] };
+    fns.credit(el, ctx);
+    ok(/data-stack-credit-total data-unpublished>—</.test(el.innerHTML) && text(el.innerHTML).startsWith('Credit paid / minimums due — Blue Visa'),
+      'paid and minimums both withheld: one soft dash, no figure');
+  }
   {
     const { fns } = load();
     const el = container();
@@ -132,20 +141,97 @@ console.log('2. closed card totals');
     'reads the selected period, the applied overlay (none here) and view.stackSummary.bills');
 }
 
-console.log('3. open rows');
+// The six states of a row's "X / minimum", as one function so the mutants below can run it against altered source.
+// Invented lines: paid, spent, minimum and the published to-go and coverage; the page only picks and prints.
+const fig6 = (id, label, paid, spent, min, toGo, status, cv, trusts = {}) => ({ id, label,
+  paid: paid == null ? null : fig(paid, trusts.paid), spent: spent == null ? null : fig(spent, trusts.spent), net: fig(0),
+  minimum: min == null ? fig(null, 'unknown') : fig(min, trusts.min), toGo: fig(toGo, trusts.toGo), state: 'x', status,
+  minimumCovered: { value: cv, trust: cv === 'unknown' ? 'unknown' : (trusts.cv || 'calculated'), reasons: [] }, transactions: [] });
+const STATES = [
+  fig6('over', 'Overpaid Card', 250, 90, 50, 0, 'paid-back', true),                  // 1 paid the minimum or more: green, ✓
+  fig6('short', 'Short Card', 100, 100, 170, 0, 'paid-back', false),                  // 2 paid, below the minimum: plain
+  fig6('red', 'Red Card', 100, 260, 25, 175, 'to-go', false),                        // 3 to-go: the published toGo (175, not spent − paid), red
+  fig6('nothing', 'Quiet Card', 0, 0, 100, 0, 'paid-back', true),                      // 4 nothing spent or paid: $0 / $min, plain, no ✓
+  fig6('nomin', 'Free Card', 5, 5, null, 0, 'paid-back', 'unknown'),                  // 5 no minimum due: X alone, no ✓
+  fig6('nopub', 'Dark Card', null, null, 50, null, null, true),                       // 6 paid / spent unpublished: "— / $min"
+  fig6('unk', 'Unknown Card', 100, 100, 50, 0, 'paid-back', 'unknown'),               // unknown coverage: no green, no ✓
+  fig6('soonest', 'Upcoming Card', 20, 20, 40, 0, 'upcoming', true),                  // a future period: no colour, no ✓
+];
+function states(creditSrc) {
+  const { fns, win } = load(creditSrc);
+  const ctx = context(TOTALS.complete);
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: STATES, totals: TOTALS.complete }) };
+  const el = container();
+  fns.credit(el, ctx);
+  const rows = el.innerHTML.split('<li>').slice(1);
+  const fig = r => (/<span class="stack-credit-fig stack-n">([\s\S]*?)<\/span><svg/.exec(r) || [])[1] || '';
+  const out = {};
+  out.over = text(rows[0]) === 'Overpaid Card $250 / $50' && /stack-credit-x is-good">\$250</.test(rows[0]) && /stack-credit-tick is-on"/.test(rows[0]);
+  out.short = text(rows[1]) === 'Short Card $100 / $170' && !/is-good|is-bad|is-on/.test(rows[1]);
+  out.red = text(rows[2]) === 'Red Card $175 / $25' && /stack-credit-x is-bad">\$175</.test(rows[2]) && !/is-on/.test(rows[2]);
+  out.nothing = text(rows[3]) === 'Quiet Card $0 / $100' && !/is-good|is-bad|is-on/.test(rows[3]);
+  out.nomin = text(rows[4]) === 'Free Card $5' && !/ \/ |is-good|is-on/.test(fig(rows[4]));
+  out.nopub = text(rows[5]) === 'Dark Card — / $50' && !/is-good|is-bad|is-on/.test(rows[5]);
+  out.unk = text(rows[6]) === 'Unknown Card $100 / $50' && !/is-good|is-on/.test(rows[6]);
+  out.soonest = text(rows[7]) === 'Upcoming Card $20 / $40' && !/is-good|is-bad|is-on/.test(rows[7]);
+  out.sheetOver = /<div class="stack-sheet-big stack-credit-big stack-n"><span class="stack-credit-x is-good">\$250<\/span><i class="stack-credit-of"> \/ \$50<\/i><\/div>/.test(win.StackSheet.html(ctx, 'card:over'));
+  out.sheetRed = /stack-credit-x is-bad">\$175</.test(win.StackSheet.html(ctx, 'card:red'));
+  return out;
+}
+
+console.log('3. the six row states (Dale, 2026-11-20: "X / minimum", green when covered, red when behind)');
 {
+  const r = states();
+  const names = {
+    over: 'paid the minimum or more: green "$250 / $50" with the filled ✓',
+    short: 'paid below the minimum: "$100 / $170" in plain ink, no ✓',
+    red: 'spending above payments: the published toGo (not spent − paid) in red, "$175 / $25", no ✓',
+    nothing: 'nothing spent or paid: "$0 / $100" in plain ink, no ✓ even though the check is published true',
+    nomin: 'no minimum due: the amount alone, no "/ min", no ✓',
+    nopub: 'paid and spent unpublished (the HELOC): "— / $50", plain ink, no ✓',
+    unk: "an unknown coverage check: plain ink, no ✓",
+    soonest: "an upcoming line: no colour and no ✓",
+    sheetOver: 'the sheet\'s big figure is the same "X / min" with the same colour',
+    sheetRed: 'the sheet\'s big figure is red from the published toGo',
+  };
+  for (const key of Object.keys(names)) ok(r[key] === true, names[key], key);
   const html = card(TOTALS.complete).html;
   const rows = html.split('<li>').slice(1).map(text);
   ok(rows.length === 4, 'one row per published line', String(rows.length));
-  ok(rows[0] === 'Blue Visa Paid back $400 of $400 Minimum $25 covered ✓ Paid back', 'paid-back row: "Paid back" on the right, the design\'s second line and the covered minimum; the tick is filled', rows[0]);
-  ok(rows[1] === 'Green Card Paid back $100 of $260 Minimum $30 not yet $160 to go', 'to-go row: the coral "$160 to go", the second line, and "not yet" when the minimum is not covered', rows[1]);
-  ok(/stack-credit-status stack-n is-togo stack-est">\$160 to go<|stack-credit-status stack-n is-togo">\$160 to go</.test(html), 'the remaining amount carries the coral class');
-  ok(rows[2] === 'Red Card Nothing spent yet Minimum $15', "upcoming row: 'Nothing spent yet'; a published minimum prints even when its check is 'unknown', with no coverage word", rows[2]);
-  ok(rows[3] === 'Line of credit Minimum $210 covered ✓', 'HELOC: its minimum only', rows[3]);
+  ok(rows[0] === 'Blue Visa $400 / $25' && rows[1] === 'Green Card $160 / $30'
+    && rows[2] === 'Red Card $0 / $15' && rows[3] === 'Line of credit — / $210', 'the four invented lines read as designed', rows.join(' | '));
   ok(/data-stack-sheet="card:cashback"/.test(html) && (html.match(/data-stack-sheet="card:/g) || []).length === 4, 'every row opens the sheet');
-  ok(/stack-credit-tick is-on/.test(html.split('<li>')[1]) && !/is-on/.test(html.split('<li>')[2]), 'the tick is filled only for a paid-back line');
-  ok(/<span class="stack-credit-tick is-on" role="img" aria-label="Paid back">/.test(html.split('<li>')[1])
-    && !/aria-label/.test(html.split('<li>')[2].split('stack-credit-name')[0]), 'a filled tick is read as "Paid back"; an empty one is not named');
+  ok(/<span class="stack-credit-tick is-on" role="img" aria-label="Minimum covered">/.test(html.split('<li>')[1]) && !/is-on|aria-label="Minimum/.test(html.split('<li>')[2].split('stack-credit-name')[0]),
+    'a filled tick is read as "Minimum covered"; an empty one is not named');
+  ok(!/Paid back|to go|not yet|covered ✓|Minimum \$/.test(text(html)), 'the old "Paid back", "$X to go" and "Minimum $X covered ✓ / not yet" wording is gone');
+  ok(!/stack-credit-status|stack-credit-pill/.test(html), 'the old status column and pill are gone');
+}
+
+console.log('3b. per-field soft treatment (the shell\'s one, from each field\'s own published trust)');
+{
+  const { fns } = load();
+  const MORE = [
+    fig6('softx', 'Soft Paid', 100, 100, 50, 0, 'paid-back', true, { paid: 'estimated' }),
+    fig6('softmin', 'Soft Minimum', 100, 100, 50, 0, 'paid-back', true, { min: 'estimated' }),
+    fig6('softcv', 'Soft Check', 100, 100, 50, 0, 'paid-back', true, { cv: 'estimated' }),
+    fig6('softred', 'Soft Owed', 100, 260, 25, 160, 'to-go', false, { toGo: 'estimated' }),
+  ];
+  const ctx = context(TOTALS.complete);
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals: TOTALS.complete }) };
+  const el = container();
+  fns.credit(el, ctx);
+  const rows = el.innerHTML.split('<li>').slice(1);
+  ok(/stack-credit-x is-good stack-est">\$100</.test(rows[0]) && /<i class="stack-credit-of"> \/ \$50<\/i>/.test(rows[0]), 'an estimated paid softens X alone');
+  ok(/stack-credit-x is-good">\$100</.test(rows[1]) && /<i class="stack-credit-of stack-est"> \/ \$50<\/i>/.test(rows[1]), 'an estimated minimum softens "/ min" alone');
+  ok(/stack-credit-tick is-on stack-est"/.test(rows[2]) && /stack-credit-x is-good">\$100</.test(rows[2]), 'an estimated coverage check softens the ✓ alone');
+  ok(/stack-credit-x is-bad stack-est">\$160</.test(rows[3]), 'an estimated toGo softens the red figure');
+  const { win } = load();
+  const sheet = win.StackSheet.html(ctx, 'card:softmin');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n"><span class="stack-est">\$50<\/span> <span class="stack-est">✓<\/span><\/dd>/.test(sheet),
+    'the sheet\'s Minimum row: an estimated minimum softens the amount and, as an input of the covered claim, the ✓', sheet.match(/<dt>Minimum[\s\S]*?<\/dd>/)[0]);
+  const sheetCv = win.StackSheet.html(ctx, 'card:softcv');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n"><span class="">\$50<\/span> <span class="stack-est">✓<\/span><\/dd>/.test(sheetCv),
+    'an estimated coverage check softens the ✓ alone; the amount stays plain', sheetCv.match(/<dt>Minimum[\s\S]*?<\/dd>/)[0]);
 }
 
 console.log('4. no ratio text');
@@ -153,7 +239,7 @@ console.log('4. no ratio text');
   const html = card(TOTALS.complete).html;
   ok(!/%|\b0\.\d|ratio/i.test(text(html)), 'no percent, decimal ratio or ratio word in the text');
   const widths = [...html.matchAll(/width:([\d.]+)%/g)].map(m => m[1]);
-  ok(widths.join() === '75.8,100.0,38.5', 'bar widths appear only as style widths (totals, Blue Visa, Green Card; none for $0 of $0 or HELOC)', widths.join());
+  ok(widths.join() === '100.0', 'bar widths appear only as style widths (the head bar: paid over the minimums due, clamped)', widths.join());
   ok((html.match(/%/g) || []).length === widths.length, 'every % in the markup is a bar width');
 }
 
@@ -162,23 +248,23 @@ console.log('5. the sheet');
   const { win } = load();
   const ctx = context(TOTALS.complete);
   const visa = text(win.StackSheet.html(ctx, 'card:travelvisa'));
-  ok(visa === 'Credit · Mar 1 – 14 Blue Visa $400 of $400 Paid back Spent on it this pay period $400 Paid onto it $400 Minimum $25 Covered ✓'
+  ok(visa === 'Credit · Mar 1 – 14 Blue Visa $400 / $25 Paid onto it $400 Spent on it $400 Minimum $25 ✓'
     + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you +$400 Mar 10 Pending Cafe $12.50', 'card sheet', visa);
   const tx = win.StackSheet.html(ctx, 'card:travelvisa');
   ok(/class="is-pay"><span class="stack-sheet-txd">Mar 9/.test(tx) && /class=" is-pending"/.test(tx), 'a payment row is marked bold and a pending row dimmed');
-  ok(!/estimated|calculated|verified|≈/i.test(visa), 'no tag printed');
+  ok(!/estimated|calculated|verified|≈|stack-sheet-bar|stack-credit-pill/.test(visa + tx.replace(/class="[^"]*"/g, '')), 'no tag printed, no bar or pill in the sheet');
   const heloc = text(win.StackSheet.html(ctx, 'card:heloc'));
-  ok(heloc === 'Credit · Mar 1 – 14 Line of credit Minimum $210 Covered ✓', 'HELOC sheet: its minimum only', heloc);
+  ok(heloc === 'Credit · Mar 1 – 14 Line of credit — / $210 Minimum $210', 'HELOC sheet: "— / $210" and its minimum, no ✓', heloc);
   const green = text(win.StackSheet.html(ctx, 'card:cashback'));
-  ok(green === 'Credit · Mar 1 – 14 Green Card $100 of $260 $160 to go Spent on it this pay period $260 Paid onto it $100 Minimum $30 Not yet Transactions', 'to-go sheet with an empty list', green);
+  ok(green === 'Credit · Mar 1 – 14 Green Card $160 / $30 Paid onto it $100 Spent on it $260 Minimum $30 Transactions', 'to-go sheet with an empty list, no ✓', green);
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
-  ok(red === 'Credit · Mar 1 – 14 Red Card $0 of $0 Spent on it this pay period $0 Paid onto it $0 Minimum $15 Transactions', "'unknown' minimum check: the minimum alone, no coverage word", red);
+  ok(red === 'Credit · Mar 1 – 14 Red Card $0 / $15 Paid onto it $0 Spent on it $0 Minimum $15 Transactions', "an upcoming card: '$0 / $15' and its minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
   ok(water === 'Bill · Mar 1 – 14 Water $64 ✓ Feb 5 $61.50 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
     'paid bill sheet: the amount and the check, then its earlier occurrences (date, amount or a dash, ✓ when paid); no planned or observed date and account, no future occurrence', water);
   const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
-  ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>') && !/Paid|Not paid/.test(text(waterHtml)),
+  ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">✓</span>') && !/Paid|Not paid/.test(text(waterHtml)),
     'a paid bill sheet shows the check (accessible name Paid) and no status word');
   ok(!mortHtml.includes('stack-sheet-check') && !mortHtml.includes('stack-sheet-togo') && !/Paid/.test(text(mortHtml)), 'an unpaid bill sheet shows no mark and no word');
   ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage · Mar 1 – 14 Mortgage $1,850 Mar 12 Joint', 'mortgage sheet');
@@ -187,41 +273,32 @@ console.log('5. the sheet');
   ok(win.StackSheet.html(ctx, 'bill:water@2031-03-06') === null && win.StackSheet.html(ctx, 'card:nope') === null, 'an unknown key opens nothing');
   const bare = { ...ctx, Forecast: { cardPeriodMovements: () => ({}) } };
   ok(win.StackSheet.html(bare, 'card:travelvisa') === null, 'without Forecast.stackCreditLines nothing is read');
+  const { win: w2 } = load();
+  const states2 = context(TOTALS.complete);
+  states2.Forecast = { ...states2.Forecast, stackCreditLines: () => ({ lines: STATES, totals: TOTALS.complete }) };
+  ok(text(w2.StackSheet.html(states2, 'card:nomin')) === 'Credit · Mar 1 – 14 Free Card $5 Paid onto it $5 Spent on it $5 Minimum Not due this period Transactions',
+    'a card with no minimum due: "$5" alone and "Minimum Not due this period"', text(w2.StackSheet.html(states2, 'card:nomin')));
+  ok(/Minimum \$50$|Minimum \$50 Transactions/.test(text(w2.StackSheet.html(states2, 'card:unk'))) && !/✓/.test(text(w2.StackSheet.html(states2, 'card:unk'))),
+    "an unknown coverage check: the minimum, no ✓");
 }
 
-console.log('5b. a published minimum shows whatever its coverage check says (Atlas on #1443)');
+console.log('5b. mutants: the checks above must catch each of these (a failing mutant proves the check is not vacuous)');
 {
-  // As #1443's Forecast.stackCreditLines publishes them (invented amounts): a HELOC and a future card with coverage
-  // 'unknown', and a card whose minimum amount is not published at all.
-  const MORE = [
-    { id: 'heloc', label: 'Line of credit', paid: null, spent: null, net: null, minimum: fig(50), toGo: fig(null, 'unknown'),
-      state: 'not-a-spend-card', status: null, minimumCovered: { value: 'unknown', trust: 'unknown', reasons: ['no-feed'] }, transactions: [] },
-    { id: 'future', label: 'Silver Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(20, 'estimated'), toGo: fig(null, 'unknown'),
-      state: 'x', status: 'upcoming', minimumCovered: { value: 'unknown', trust: 'unknown', reasons: ['future'] }, transactions: [] },
-    { id: 'nomin', label: 'Plain Card', paid: fig(5), spent: fig(5), net: fig(0), minimum: fig(null, 'unknown'), toGo: fig(0),
-      state: 'x', status: 'paid-back', minimumCovered: { value: 'unknown', trust: 'unknown', reasons: ['x'] }, transactions: [] },
-    { id: 'zero', label: 'Zero Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(0), toGo: fig(0),
-      state: 'x', status: 'upcoming', minimumCovered: { value: true, trust: 'calculated', reasons: [] }, transactions: [] },
-  ];
-  const { fns, win } = load();
-  const ctx = context(TOTALS.complete);
-  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals: TOTALS.complete }) };
-  const el = container();
-  fns.credit(el, ctx);
-  const rows = el.innerHTML.split('<li>').slice(1);
-  ok(text(rows[0]) === 'Line of credit Minimum $50', "HELOC, coverage 'unknown': the line prints its minimum, no ✓", text(rows[0]));
-  ok(text(win.StackSheet.html(ctx, 'card:heloc')) === 'Credit · Mar 1 – 14 Line of credit Minimum $50', "HELOC, coverage 'unknown': the sheet prints its minimum, no ✓");
-  ok(/Minimum \$20$/.test(text(rows[1])) && /<small class="stack-credit-min stack-est">Minimum \$20<\/small>/.test(rows[1]),
-    "future card, coverage 'unknown': the line prints the minimum with the minimum's own (estimated) treatment", text(rows[1]));
-  const future = win.StackSheet.html(ctx, 'card:future');
-  ok(/<dt>Minimum<\/dt><dd class="stack-n stack-est">\$20<\/dd>/.test(future) && !/✓/.test(text(future)),
-    "future card, coverage 'unknown': the sheet prints the minimum, soft, no ✓", text(future));
-  ok(!/Minimum/.test(text(rows[2])) && !/Minimum/.test(text(win.StackSheet.html(ctx, 'card:nomin'))) && !/\$0 ✓|Minimum \$0/.test(text(rows[2])),
-    'an unpublished minimum amount prints nothing on either surface, never $0');
-  ok(/Minimum \$0 covered ✓$/.test(text(rows[3])), 'a published $0 minimum is a figure and prints (absence is not zero)', text(rows[3]));
-  // Coverage wording follows the published check only: 'unknown' lines print none (the 'zero' line is published as covered).
-  const unknownText = [rows[0], rows[1], rows[2]].map(text).join(' ') + ' ' + ['heloc', 'future', 'nomin'].map(id => text(win.StackSheet.html(ctx, 'card:' + id) || '')).join(' ');
-  ok(!/covered|not yet|unpaid/i.test(unknownText), "no coverage word is printed or inferred for an 'unknown' check");
+  const src = read('public/stack-credit.js');
+  const run = mutant => { try { return Object.values(states(mutant)).every(Boolean); } catch (e) { return false; } };
+  ok(run(src) === true, 'control: the real source passes every state check');
+  const greenAlways = src.replace('min != null && cv === true', 'min != null');
+  ok(greenAlways !== src && run(greenAlways) === false, 'MUTANT: green without a published covered check (a false or unknown check turns green) is caught');
+  const greenOnUnknown = src.replace('min != null && cv === true', 'min != null && cv !== false');
+  ok(greenOnUnknown !== src && run(greenOnUnknown) === false, 'MUTANT: an unknown coverage check read as covered is caught');
+  const arith = src.replace('out.x = amountOf(line.toGo);', 'out.x = out.spent - out.paid;');
+  ok(arith !== src && run(arith) === false, 'MUTANT: red from page arithmetic (spent − paid, not the published toGo) prints $160, not the published $175, and is caught');
+  const redAlways = src.replace("out.tone = out.x != null ? 'bad' : '';", "out.tone = 'bad';");
+  ok(redAlways !== src && run(redAlways) === true, 'control: red whenever the status is to-go and toGo is published is the same reading (an unpublished toGo is a dash in plain ink)');
+  // The static L-001 pattern (section 6) flags that arithmetic too.
+  const ARITH = /\.reduce\(|Math\.(round|floor|ceil)\(|\b(amount|paid|spent|net|minimum|planned|remaining|overspend)\s*[+\-*/]\s|[\s(][+\-*/]\s*(paid|spent|t\.amount|\w+\.amount)\b/;
+  const strip = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/'[^'\n]*'/g, "''");
+  ok(!ARITH.test(strip(src)) && ARITH.test(strip(arith)), 'the L-001 pattern passes the real source and flags the arithmetic mutant');
 }
 
 console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale, 2026-11-20; lead ruling)');
@@ -250,25 +327,24 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
   const el = container();
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
-  ok(text(rows[0]) === 'Both Card Paid back $100 of $260 Minimum $30 not yet $160 to go' && !/1,234|data-stack-credit-balance/.test(rows[0]),
-    'paid and spent published: "Paid back $A of $B", and no balance');
-  ok(text(rows[1]) === 'Fresh Card $812.40 Minimum $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40</.test(rows[1]),
+  ok(text(rows[0]) === 'Both Card $160 / $30' && !/1,234|data-stack-credit-balance/.test(rows[0]),
+    'paid and spent published: the design\'s row, and no balance');
+  ok(text(rows[1]) === 'Fresh Card $812.40 \u2014 / $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40</.test(rows[1]),
     'no paid / spent: the last balance, plain when calculated', text(rows[1]));
   ok(/<small class="stack-credit-bal stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305</.test(rows[2]),
     'an estimated balance is soft, and named "Last balance, estimated" for a screen reader');
-  ok(text(rows[3]) === 'Half Card $77', 'only one of paid / spent published: the balance (no half "of")', text(rows[3]));
-  ok(text(rows[4]) === 'Blank Card' && !/\$0|data-stack-credit-balance/.test(rows[4]), 'no balance published: nothing, never $0');
-  ok(text(rows[5]) === 'Line of credit Minimum $210 covered ✓' && !/9,000/.test(rows[5]), 'HELOC: its minimum only, never its balance');
-  ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total>\$500</.test(el.innerHTML),
-    "the head stays the paid / spent total; totals.balance is not shown");
+  ok(text(rows[3]) === 'Half Card $77 \u2014', 'only one of paid / spent published: the balance (no half "of")', text(rows[3]));
+  ok(text(rows[4]) === 'Blank Card \u2014' && !/\$0|data-stack-credit-balance/.test(rows[4]), 'no balance published: nothing, never $0');
+  ok(text(rows[5]) === 'Line of credit \u2014 / $210' && !/9,000/.test(rows[5]), 'HELOC: its minimum only, never its balance');
+  ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total><span class="">\$500</.test(el.innerHTML),
+    "the head stays the paid total over the minimums due; totals.balance is not shown");
   const fresh = win.StackSheet.html(ctx, 'card:fresh'), stale = win.StackSheet.html(ctx, 'card:stale');
-  ok(/<div class="stack-sheet-big stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40<\/div>/.test(fresh)
+  ok(/stack-credit-big/.test(fresh) && !/data-stack-credit-balance/.test(fresh)
     && /<div class="stack-sheet-big stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305<\/div>/.test(stale),
-    'the sheet shows the same balance as its big figure, soft when estimated, with the same screen-reader name');
+    'the sheet: a card with a minimum or a figure to print shows its "X / min"; only a card with nothing else to print shows the balance as its big figure, soft when estimated, with the same screen-reader name');
   // Announced once: the role="img" element's name replaces its text, and no other element repeats the amount.
   const named = html => (html.match(/aria-label="Last balance[^"]*"/g) || []).length;
-  ok(named(rows[1]) === 1 && named(rows[2]) === 1 && named(fresh) === 1 && named(stale) === 1
-    && (rows[1].match(/812\.40/g) || []).length === 2 && (fresh.match(/812\.40/g) || []).length === 2,
+  ok(named(rows[1]) === 1 && named(rows[2]) === 1 && named(stale) === 1 && (rows[1].match(/812\.40/g) || []).length === 2,
     'each surface names its balance once (the label and the visible number, nothing else)');
   ok(!/data-stack-credit-balance/.test(win.StackSheet.html(ctx, 'card:both')) && !/data-stack-credit-balance|\$0/.test(win.StackSheet.html(ctx, 'card:blank'))
     && !/9,000/.test(win.StackSheet.html(ctx, 'card:heloc')), 'the sheet: no balance beside paid / spent, none when unpublished, none for the HELOC');
