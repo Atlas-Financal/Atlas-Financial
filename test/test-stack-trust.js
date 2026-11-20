@@ -314,10 +314,65 @@ console.log('5d. the bill sheet matches its entry by occurrence identity (#1455)
   ok(/stack-sheet-big stack-n">\$55\.25</.test(bySched), 'no occurrenceKey: the identity is id@scheduledDate');
   const foreignKey = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', occurrenceKey: 'other@2031-03-10', paidState: 'paid' })], HIST), 'bill:tri@2031-03-10');
   ok(/stack-sheet-big stack-n">\$55\.25</.test(foreignKey), "an occurrenceKey for another bill is ignored (the scheduled date decides)");
-  // The row's own entry dated before the row (its effective date earlier than the row's date) is the headline, never also history.
+  // The row's own occurrence, published on another date (another copy): a dash headline, and never listed as its history.
   const self = win.StackSheet.html(mk([row({ date: '2031-03-12', occurrenceKey: 'tri@2031-03-07', paidState: 'paid' })], HIST), 'bill:tri@2031-03-12');
-  ok(/stack-sheet-big stack-n">\$55\.25</.test(self) && (self.match(/55\.25/g) || []).length === 1 && (self.match(/<li>/g) || []).length === 1,
-    'the occurrence shown as the headline is never repeated in its own history');
+  ok(/aria-label="not available">—/.test(self.split('stack-sheet-big')[1].split('</div>')[0]) && !/55\.25/.test(self) && (self.match(/<li>/g) || []).length === 1,
+    "the row's own occurrence on another date is neither its headline nor its history");
+  // Same paid state, different date (Atlas on #1456): a saved copy never shows the later copy's amount beside its own date.
+  const sameState = win.StackSheet.html(mk([row({ date: '2031-03-07', paidState: 'paid' })], HIST), 'bill:tri@2031-03-07');
+  ok(/aria-label="not available">—/.test(sameState.split('stack-sheet-big')[1].split('</div>')[0]) && !/55\.25/.test(sameState),
+    'a saved copy in the same paid state, on its old date, gets a dash (never the later copy\'s amount)');
+  // Same date, different paid state: a saved unpaid copy of an occurrence the current period has since paid.
+  const PAIDNOW = { tri: [{ date: '2031-03-07', amount: 52.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-03-07' }] };
+  const unpaidCopy = win.StackSheet.html(mk([row({ date: '2031-03-07', paidState: 'not-paid' })], PAIDNOW), 'bill:tri@2031-03-07');
+  ok(/aria-label="not available">—/.test(unpaidCopy.split('stack-sheet-big')[1].split('</div>')[0]) && !/52\.10/.test(unpaidCopy),
+    'a saved unpaid copy on the same date never shows the paid copy\'s amount');
+}
+
+console.log('5e. producer to sheet: a statement-moved occurrence beside a saved close (#1455\'s world, Atlas on #1456)');
+{
+  // #1455's invented world (test-stack-bill-history 1b): an Oct 7 card minimum (43.21) saved unpaid in the Sep 25 to
+  // Oct 8 close; the issuer statement moves it to Oct 10 at 47.39. Real Forecast.recommend publishes both rows; the sheet
+  // renders each from the published billHistory.
+  const F = require('../public/forecast.js');
+  const source = require('./fixtures/card-backfill-data');
+  const LATER = '2026-10-12', OCT = { start: '2026-09-25', end: '2026-10-08' };
+  const KEYS = ['id', 'label', 'kind', 'date', 'planned', 'amount', 'actual', 'remaining', 'settlement', 'status', 'cardPaid', 'confidence'];
+  const fixture = statement => {
+    const x = source('triangle', 'triangle');
+    x.data.meta.asOf = x.asOf = LATER;
+    const p = x.data.plan;
+    p.opening = { asOf: LATER, priorAsOf: '2026-08-19', representedEvents: [] };
+    p.income[0].anchor = '2026-09-25';
+    p.startingCash.breakdown[0].value = 785.17;
+    p.budget.categories = [];
+    p.obligations = [{ id: 'triangle', label: 'Invented card minimum', debtId: 'triangle', effect: 'payment', frequency: 'monthly',
+      day: 7, firstDue: '2026-10-07', amount: 43.21, confidence: 'estimated', payingAccount: 'chequing-a',
+      ...(statement ? { statementOccurrences: [{ scheduledDate: '2026-10-07', dueDate: '2026-10-10', minimum: 47.39, currency: 'cad', confidence: 'confirmed' }] } : {}) }];
+    return x;
+  };
+  const runWith = (statement, periodHistory) => { const x = fixture(statement);
+    return F.recommend(x.data.plan, LATER, { debts: x.data.debts, ...(periodHistory ? { periodHistory } : {}) }); };
+  const before = runWith(false);
+  const oct = before.payPeriodViews.find(v => v.start === OCT.start && v.end === OCT.end);
+  const close = { schema: 'atlas-private-period-history-projection/v1', capturedAt: '2026-10-09T19:00:00.000Z',
+    content: { period: { ...OCT, timezone: 'America/Vancouver' }, kind: 'closing', asOf: OCT.end, closingState: 'provisional',
+      planBasis: 'see-baseline-revision', provenance: { policyFingerprint: null },
+      publication: { start: OCT.start, end: OCT.end, bills: (oct.bills || []).map(r => Object.fromEntries(KEYS.filter(k => Object.hasOwn(r, k)).map(k => [k, r[k]]))) } } };
+  const rec = runWith(true, [close]);
+  const savedView = rec.payPeriodViews.find(v => v.start === OCT.start);
+  const currentView = rec.payPeriodViews.find(v => v.timelineRole === 'current');
+  const savedRow = savedView.bills.find(b => b.id === 'triangle'), currentRow = currentView.bills.find(b => b.id === 'triangle');
+  ok(savedRow && savedRow.date === '2026-10-07' && savedRow.paidState === currentRow.paidState && currentRow.date === '2026-10-10',
+    'the world: the saved copy (Oct 7) and the current copy (Oct 10) share a paid state', JSON.stringify([savedRow && savedRow.date, currentRow && currentRow.date]));
+  const { win } = load();
+  const sheet = (v, key) => win.StackSheet.html({ data: { meta: { asOf: LATER } }, plan: {}, recommendation: rec, selectedPeriodKey: v.start,
+    Forecast: { cardPeriodMovements: () => ({}) } }, key);
+  const saved = sheet(savedView, 'bill:triangle@2026-10-07'), current = sheet(currentView, 'bill:triangle@2026-10-10');
+  const headline = h => h.split('stack-sheet-big')[1].split('</div>')[0];
+  ok(/aria-label="not available">—/.test(headline(saved)) && !/47\.39|43\.21/.test(saved) && /Oct 7/.test(saved),
+    "the saved Oct 7 copy: a dash, never the statement's 47.39 beside Oct 7 (a pair neither period publishes)", headline(saved));
+  ok(/\$47\.39/.test(headline(current)) && /Oct 10/.test(current), 'control: the current Oct 10 copy shows its own 47.39', headline(current));
 }
 
 console.log('5b. cards');
