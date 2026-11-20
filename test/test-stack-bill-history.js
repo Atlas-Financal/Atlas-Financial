@@ -72,7 +72,8 @@ function world(bill, txs, Fx = F) {
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 console.log('1. Hand-derived worlds (as of 2026-10-14)');
-// A 90 monthly hydro bill due on the 12th. September's 90 posted; October's 40 posted (Partly paid); nothing seen for
+// A 90 monthly hydro bill due on the 12th. September's 90 posted; October's 40 posted (a partial payment, which the
+// paid word counts as paid: payment evidence was seen); nothing seen for
 // August. The history lists Oct, Sep, Aug, newest first; November and December are still to come and are not listed.
 const PAID = [pay('2026-09-12', 90), pay('2026-10-12', 40)];
 const HAND = [

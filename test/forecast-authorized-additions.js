@@ -164,7 +164,7 @@ function proveBillHistory(advice) {
   for (const view of Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : []) {
     if (!view || (view.timelineRole !== 'past' && view.timelineRole !== 'current')) continue;
     for (const row of Array.isArray(view.bills) ? view.bills : []) {
-      if (!row || typeof row.id !== 'string' || typeof row.date !== 'string' || row.paidState === 'carried') continue;
+      if (!row || typeof row.id !== 'string' || !row.id || typeof row.date !== 'string' || row.paidState === 'carried') continue;
       const key = row.id + '@' + row.date;
       if (!rows.has(key)) rows.set(key, []);
       rows.get(key).push(row);
@@ -187,6 +187,9 @@ function proveBillHistory(advice) {
       const expected = typeof raw === 'number' && Number.isFinite(raw) ? Math.round(Math.abs(raw) * 100) / 100 : null;
       assert.equal(entry.amount, expected, `authorized addition: billHistory.${id}@${entry.date} amount is the basis amount`);
       assert.ok(BILL_HISTORY_TRUST_WORDS.has(entry.trust), `authorized addition: billHistory.${id}@${entry.date} trust is a trust word`);
+      const carriedTrust = ['calculated', 'estimated'].includes(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
+      assert.equal(entry.trust, expected === null ? 'unavailable' : carriedTrust,
+        `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
       listed.add(id + '@' + entry.date);
     }
