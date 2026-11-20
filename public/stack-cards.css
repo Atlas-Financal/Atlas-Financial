@@ -13,6 +13,7 @@ html.stack-view .sc-card[open]>summary{grid-template-columns:minmax(0,1fr) 42px;
 html.stack-view .sc-card>summary::-webkit-details-marker{display:none}
 html.stack-view .sc-card>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:12px}
 html.stack-view .sc-t{grid-area:t;font-size:18px;font-weight:800;letter-spacing:-.02em}
+html.stack-view .sc-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 html.stack-view .sc-s{grid-area:s;font-size:13.5px;font-weight:500;opacity:.68}
 html.stack-view .sc-f{grid-area:f;font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
 html.stack-view .sc-f i{font-style:normal;font-size:.6em;font-weight:600;opacity:.68}
