@@ -281,4 +281,34 @@ console.log('11. Trust is judged on the published snapshot date, never a separat
     'a snapshot with no Forecast verdict reads estimated, never calculated', JSON.stringify(n));
 }
 
+console.log('7. minimums due: over the spend cards the paid total is over (the HELOC is out), and covered over due');
+{
+  const x = fx.fixture();
+  const t = totals(x);
+  // Travel 25 (covered) and Cash Back 300 (not covered) have a minimum due; Emerald, Triangle and Amazon Mastercard have none
+  // in the split (no-minimum-due-in-period); the HELOC's 50 is in the waterfall's Credit line, not here.
+  ok(t.minimumsDue.amount === 325 && t.minimumsDue.trust === 'calculated' && same(t.minimumsDue.reasons, []),
+    'minimumsDue is 325 (25 + 300): the spend cards\' published minimums, the HELOC\'s 50 left out', JSON.stringify(t.minimumsDue));
+  ok(t.minimumsDueCount === 2 && t.minimumsCoveredCount === 1 && t.minimumsCoveredTrust === 'estimated',
+    'two minimums are due and one is covered (Travel), so a covered / due bar is not full', JSON.stringify([t.minimumsDueCount, t.minimumsCoveredCount]));
+  const allCovered = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: 'calculated' });
+  ok(allCovered.minimumsDue.amount === 25 && allCovered.minimumsDueCount === 1 && allCovered.minimumsCoveredCount === 1,
+    'one due minimum, covered: covered equals due (the only case a bar is full)');
+  const untracked = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'mbna', amount: 400 }], trust: 'calculated' });
+  ok(untracked.minimumsDue.amount === 425 && untracked.minimumsDueCount === 2 && untracked.minimumsCoveredCount === 1,
+    'a card with a minimum due but no paid / spent evidence (unknown coverage) counts as due and not covered');
+  const none = totals(x, { cardMinimums: [{ debtId: 'heloc', amount: 50 }], trust: 'calculated' });
+  ok(none.minimumsDue.amount === 0 && none.minimumsDueCount === 0 && none.minimumsCoveredCount === 0,
+    'only the HELOC has a minimum: none due on the spend cards (a published 0, 0 of 0)');
+  for (const [label, bills] of [['a withheld bills split', null], ['an unqualified minimum amount', { cardMinimums: [{ debtId: 'travelvisa', amount: 'x' }], trust: 'calculated' }]]) {
+    const w = totals(x, bills);
+    ok(w.minimumsDue.amount === null && w.minimumsDue.trust === 'unavailable' && w.minimumsDue.reasons.length > 0
+      && w.minimumsDueCount === null && w.minimumsCoveredCount === null, label + ': minimumsDue and both counts are withheld, never a partial sum', JSON.stringify(w.minimumsDue));
+  }
+  const soft = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }], trust: 'estimated' });
+  ok(soft.minimumsDue.trust === 'estimated' && soft.minimumsCoveredTrust === 'estimated', 'the weakest input\'s trust carries through');
+  // membership: the paid total and the minimums due are over the same cards (the spend cards), never the HELOC
+  ok(!JSON.stringify(t.excluded).includes('heloc') && t.minimumsDue.amount !== 375, 'the HELOC is in neither total');
+}
+
 console.log(`\nAll stack credit line checks passed (${checks}).`);

@@ -84,7 +84,8 @@ function context(v, totalsTrust = 'calculated') {
       water: [{ date: '2031-03-05', amount: 64, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
       power: [{ date: '2031-03-06', amount: 80, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }] } },
     Forecast: { cardPeriodMovements: () => ({}), stackCreditLines: () => ({ lines: LINES,
-      totals: { paid: 500, spent: 660, trust: totalsTrust, completeness: 'complete', excluded: [], reasons: [] } }) },
+      totals: { paid: 500, spent: 660, trust: totalsTrust, completeness: 'complete', excluded: [], reasons: [],
+        minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 1, minimumsCoveredTrust: totalsTrust } }) },
   };
 }
 const waterfall = (fns, ctx) => { const el = container(); fns.waterfall(el, ctx); return el.innerHTML; };
@@ -133,7 +134,7 @@ console.log('4. credit card and its sheet (the design\'s "X / minimum", soft per
   ok(/data-stack-credit-total><span class="stack-est">\$500</.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML), 'estimated totals: the paid total and its bar are soft');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
-  ok(/stack-credit-x is-bad stack-est">\$160</.test(green) && /<dt>Spent on it<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
+  ok(/stack-credit-x is-bad stack-est"[^>]*>\$160</.test(green) && /<dt>Spent on it<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
     && /<dt>Paid onto it<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="stack-est">\$30<\/span><\/dd>/.test(green),
   'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
@@ -163,7 +164,7 @@ console.log('4b. the covered ✓ always shows when covered, soft on estimated ev
   for (const [label, r] of [['estimated paid', render(view('actual'), line('estimated', 'calculated'))],
     ['estimated spent', render(view('actual'), line('calculated', 'estimated'))], ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
     ok(/stack-credit-tick is-on stack-est" role="img" aria-label="Minimum covered, estimated"/.test(r.row)
-      && /<span class="stack-est">✓<\/span>/.test(r.sheet) && /stack-credit-x is-good stack-est">\$400</.test(r.row),
+      && /<span class="stack-est">✓<\/span>/.test(r.sheet) && /stack-credit-x is-good stack-est"[^>]*>\$400</.test(r.row),
       `${label}: the tick and the ✓ still show (covered), soft, read as "Minimum covered, estimated"`);
     ok(!/estimated/i.test(r.row.replace(/<[^>]*>/g, ' ') + r.sheet.replace(/<[^>]*>/g, ' ')), `${label}: no word "estimated" is added`);
   }

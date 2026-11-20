@@ -108,7 +108,10 @@
     return out;
   }
   // The figure: "X / min" (the minimum muted), the colour on X alone.
-  const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}">${r.x == null ? dash : esc(money(r.x))}</span>`
+  // X is named for a screen reader so colour is never the only signal: "Owes $20 more than paid back" when red, "Paid $20"
+  // otherwise (", estimated" when soft). The visible text stays the number; role="img" makes the name the announcement.
+  const xName = r => (r.x == null ? '' : `${r.tone === 'bad' ? 'Owes ' + money(r.x) + ' more than paid back' : 'Paid ' + money(r.x)}${r.xSoft ? ', estimated' : ''}`);
+  const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(money(r.x))}</span>`
     + (r.min != null ? `<i class="stack-credit-of${r.minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
@@ -135,13 +138,15 @@
   let open = false;
   function cardHtml(reading) {
     const t = reading.totals, view = reading.view;
-    // Paid is the published total, only when complete (a partial or missing total prints a soft dash rather than look
-    // whole); the minimums due is the waterfall Credit line's own published figure (stackSummary.surplus.terms.credit,
-    // Forecast's sum of the per-card minimums), never added up here.
+    // Paid is the published total over the spend cards, only when complete (a partial or missing total prints a soft dash
+    // rather than look whole). The minimums due is Forecast's published total over exactly those cards (totals.minimumsDue,
+    // the HELOC left out; a dash when any card's minimum is withheld), never added up here. The bar is covered over due,
+    // from Forecast's two published counts, so it is full only when every due minimum is covered.
     const paidShown = num(t.paid) && t.completeness === 'complete';
-    const surplus = view && view.stackSummary && view.stackSummary.surplus;
-    const due = surplus && surplus.terms && num(surplus.terms.credit) ? surplus.terms.credit : null;
-    const dueEst = est(view, view && view.stackSummary && view.stackSummary.bills ? view.stackSummary.bills.trust : null);
+    const md = t.minimumsDue && typeof t.minimumsDue === 'object' ? t.minimumsDue : null;
+    const due = md && num(md.amount) ? md.amount : null;
+    const dueEst = est(view, md ? md.trust : null);
+    const countsShown = num(t.minimumsDueCount) && num(t.minimumsCoveredCount);
     const totalEst = est(view, t.trust);
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
@@ -150,10 +155,12 @@
       // "paid / minimums due"; a withheld part prints a soft dash, never a blank, a $0 or a guessed fill.
       + (paidShown || due != null
         ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span class="${totalEst.trim()}">${esc(money(t.paid))}</span>` : dash}`
-          + (due != null ? `<i class="${dueEst.trim()}"> / ${esc(money(due))}</i>` : '') + '</span>'
+          + (due != null ? `<i class="${dueEst.trim()}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
         : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>—</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
-      + (paidShown && due != null ? bar(t.paid, due, 'stack-credit-bar' + totalEst) : '<span class="stack-credit-bar" aria-hidden="true"><i style="width:0%"></i></span>')
+      // A bar with no ratio to draw (counts withheld, or nothing due) is an empty track, never a guessed fill.
+      + ((countsShown && bar(t.minimumsCoveredCount, t.minimumsDueCount, 'stack-credit-bar' + est(view, t.minimumsCoveredTrust)))
+        || '<span class="stack-credit-bar" aria-hidden="true"><i style="width:0%"></i></span>')
       + `<div class="stack-credit-exp"${open ? '' : ' inert'}><div><ul class="stack-credit-list">`
       + reading.lines.map(line => lineHtml(line, view)).join('') + '</ul></div></div></section>';
   }

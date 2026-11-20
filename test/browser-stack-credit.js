@@ -48,7 +48,8 @@ const STUB = `;(function (F) {
       { id: 'heloc', label: 'Line of credit', paid: null, spent: null, net: null, minimum: fig(210), toGo: fig(null),
         state: 'not-a-spend-card', status: null, minimumCovered: covered(true), transactions: [] },
     ],
-    totals: { paid: 500, spent: 660, trust: 'calculated', completeness: 'partial', excluded: ['tdcc'], reasons: [] },
+    totals: { paid: 500, spent: 660, trust: 'calculated', completeness: 'partial', excluded: ['tdcc'], reasons: [],
+      minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated' },
   });
 })(window.Forecast);\n`;
 
@@ -91,7 +92,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
         'a partial paid total prints a soft dash over the published minimums due, with an empty track', head);
     } else {
       const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
-      ok(/^Credit paid \/ minimums due (\u2014|\$[\d,.]+)( \/ \$[\d,.]+)?$/.test(head),
+      ok(/^Credit paid \/ minimums due (\u2014|\$[\d,.]+)( \/ (\$[\d,.]+|\u2014))?$/.test(head),
         'the head is "Credit", its subtitle and the total paid over the minimums due (a dash when withheld)', head);
     }
     ok(!(await page.$('[data-stack-credit-excludes]')), 'no "excludes" line');

@@ -430,6 +430,30 @@
         trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
         completeness: excluded.length ? 'partial' : 'complete', excluded,
         reasons: excluded.length ? ['some-cards-unavailable'] : [] };
+    // The minimums due, over exactly the spend cards the paid total is over (HELOC excluded: its minimum is part of the
+    // period's Credit line in the waterfall, a different figure by membership). minimumsDue is the sum of those cards'
+    // published minimum amounts, withheld (amount null) when any card's minimum is withheld for a reason other than
+    // no-minimum-due-in-period, never a partial sum. The counts say how many cards have a minimum due and how many of those
+    // are published covered (minimumCovered.value === true), so a bar of covered over due is full only when every due
+    // minimum is covered; they are null when the minimums are withheld. Trust is the weakest input, as for the other totals.
+    const minimumOff = line => line.minimum.amount === null && !line.minimum.reasons.includes('no-minimum-due-in-period');
+    const withheldMins = spendLines.filter(minimumOff);
+    const dueLines = spendLines.filter(line => line.minimum.amount !== null);
+    if (withheldMins.length) {
+      totals.minimumsDue = { amount: null, trust: 'unavailable',
+        reasons: [...new Set(withheldMins.flatMap(line => line.minimum.reasons))] };
+      totals.minimumsDueCount = null;
+      totals.minimumsCoveredCount = null;
+      totals.minimumsCoveredTrust = 'unavailable';
+    } else {
+      totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
+        trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
+      totals.minimumsDueCount = dueLines.length;
+      totals.minimumsCoveredCount = dueLines.filter(line => line.minimumCovered.value === true).length;
+      totals.minimumsCoveredTrust = dueLines.length
+        ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
+        : splitTrust;
+    }
     // The balance total is over the spend cards' snapshots (HELOC excluded, as
     // above), with the weakest trust: a stale snapshot is counted and keeps the
     // total estimated; only a card with no snapshot at all is excluded.
