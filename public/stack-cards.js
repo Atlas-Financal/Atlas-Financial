@@ -183,7 +183,10 @@
     } else if (has(t.reasons, 'future-period') && planned != null) {
       head = planned; sub = '';
     } else { head = null; sub = ''; }
-    if (head == null && !items.length) return '';
+    // Nothing to print (no header figure and no goal row that would show a number): no card, not a list of
+    // names and dashes.
+    var printable = items.some(function (i) { return isNum(i.saved) || (has(i.reasons, 'future-period') && isNum(i.needed)); });
+    if (head == null && !printable) return '';
     var headEst = head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null);
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);

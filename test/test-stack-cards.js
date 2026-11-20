@@ -130,7 +130,7 @@ amounts(cur).forEach(a => assert([20.5, 130.25].map(fmt).includes(a), 'unpublish
 // current period, transfer figure withheld: no header figure
 const nt = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers'] }],
   totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['pool-transfer-unavailable'] } }));
-assert(!nt.includes('sc-f'), 'no header figure when the transfer is withheld');
+assert(nt === null, 'transfer withheld and no goal row with a number to print: no card');
 
 // future period: planned total in the header, rows "planned this period", never a moved figure or $0
 const fut = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }],
@@ -141,7 +141,7 @@ assert(!/moved|\$0/.test(txt(fut)));
 // past period: everything null, no amounts
 const past = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: null, reasons: ['past-period'] }],
   totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: ['past-period'] } }));
-assert(amounts(past).length === 0);
+assert(past === null, 'a period with nothing published shows no Savings card, not names and dashes');
 
 // current period with per-goal saved (nearest due first): "$saved of $periodTarget", full-width bar, $0 with an empty bar
 const per = savingsOf(withSavings({ items: [
