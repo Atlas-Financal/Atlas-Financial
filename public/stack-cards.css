@@ -1,6 +1,6 @@
 /* Stack page Bills, Budget, Mortgage and Savings cards. Loaded only under ?view=stack; every selector is scoped to html.stack-view. The cards keep their own pastel fills and dark ink in both themes, as in the design. */
 html.stack-view .sc-cards{--sc-ink:#121316;--sc-muted:#6c6d74;--sc-line:rgba(18,19,22,.13);--sc-bar:rgba(18,19,22,.13);
---sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;--sc-savings:#b4ead3;display:flex;flex-direction:column;font-family:inherit}
+--sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;--sc-savings:#ffcfb3;display:flex;flex-direction:column;font-family:inherit}
 /* The pile, as in the design: each card overlaps the one above by 38px and casts the lift shadow upward. The bottom padding
  * keeps the card's own head clear of the card that covers its foot; the last card needs it only while Credit follows. */
 html.stack-view .sc-card{position:relative;background:var(--sc-k);color:var(--sc-ink);border-radius:38px;margin-top:-38px;
@@ -8,26 +8,30 @@ box-shadow:var(--stack-lift);padding:20px 22px 56px;min-width:0}
 html.stack-view .sc-card:first-child{margin-top:0}
 html.stack-view .stack-block:has(+ .stack-block:empty) .sc-card:last-child,html.stack-view .stack-block:last-child .sc-card:last-child{padding-bottom:22px}
 html.stack-view .sc-card>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:minmax(0,1fr) auto 42px;
-grid-template-areas:"t f g" "s f g";align-items:center;column-gap:12px}
+grid-template-areas:"t f g" "s f g" "b b b";align-items:center;column-gap:12px}
+html.stack-view .sc-card[open]>summary{grid-template-columns:minmax(0,1fr) 42px;grid-template-areas:"t g" "f g" "s g" "b b";align-items:start}
 html.stack-view .sc-card>summary::-webkit-details-marker{display:none}
 html.stack-view .sc-card>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:12px}
 html.stack-view .sc-t{grid-area:t;font-size:18px;font-weight:800;letter-spacing:-.02em}
 html.stack-view .sc-s{grid-area:s;font-size:13.5px;font-weight:500;opacity:.68}
 html.stack-view .sc-f{grid-area:f;font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
 html.stack-view .sc-f i{font-style:normal;font-size:.6em;font-weight:600;opacity:.68}
+html.stack-view .sc-card[open] .sc-f{font-size:52px;line-height:1.05;margin-top:6px}
+html.stack-view .sc-card[open] .sc-f i{font-size:.5em}
+html.stack-view .sc-card[open] .sc-s{margin-top:2px}
 html.stack-view .sc-go{grid-area:g;width:42px;height:42px;border-radius:50%;background:var(--sc-ink);color:var(--sc-k);display:grid;place-items:center}
 html.stack-view .sc-chev{flex:none;width:14px;height:14px;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
 html.stack-view .sc-card[open] .sc-chev{transform:rotate(90deg)}
-html.stack-view .sc-bar{height:8px;border-radius:4px;background:var(--sc-bar);margin-top:12px;overflow:hidden}
-html.stack-view .sc-bar i{display:block;height:100%;border-radius:4px;background:var(--sc-ink)}
-html.stack-view .sc-card[open] .sc-bar{height:12px}
+html.stack-view .sc-bar{grid-area:b;display:block;height:8px;border-radius:6px;background:var(--sc-bar);margin-top:12px;overflow:hidden}
+html.stack-view .sc-bar i{display:block;height:100%;border-radius:6px;background:var(--sc-ink)}
+html.stack-view .sc-card[open] .sc-bar{height:12px;margin-top:14px}
 html.stack-view .sc-list{list-style:none;margin:14px 0 0;padding:0}
 html.stack-view .sc-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;min-height:54px;
 padding:8px 0;border-top:1.5px solid var(--sc-line)}
 html.stack-view .sc-n{font-size:17px;font-weight:600;display:block}
 html.stack-view .sc-a{font-size:18px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap}
 html.stack-view .sc-a i{font-style:normal;font-weight:500;opacity:.68}
-html.stack-view .sc-mini{height:6px;border-radius:3px;background:var(--sc-bar);margin-top:8px;overflow:hidden}
+html.stack-view .sc-mini{display:block;height:6px;border-radius:3px;background:var(--sc-bar);margin-top:8px;overflow:hidden}
 html.stack-view .sc-mini i{display:block;height:100%;border-radius:3px;background:var(--sc-ink)}
 html.stack-view [data-stack-sheet]{cursor:pointer}
 html.stack-view [data-stack-sheet]:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:10px}
@@ -35,7 +39,12 @@ html.stack-view .sc-own{grid-template-columns:minmax(0,1fr) auto;row-gap:8px}
 html.stack-view .sc-own>.sc-n{font-weight:500}
 html.stack-view .sc-own .sc-a{font-weight:700}
 html.stack-view .sc-full{grid-column:1/-1;margin-top:0;height:8px}
-html.stack-view .sc-bar.stack-est,html.stack-view .sc-mini.stack-est{background:transparent;border:1.5px dashed var(--sc-line)}
+html.stack-view .sc-bar.stack-est,html.stack-view .sc-mini.stack-est{opacity:1}
+html.stack-view .sc-bar.stack-est>i,html.stack-view .sc-mini.stack-est>i{opacity:.58}
 html.stack-view .sc-bill{grid-template-columns:minmax(0,1fr) auto 22px}
+html.stack-view .sc-go-row{grid-template-columns:minmax(0,1fr) auto 14px}
+html.stack-view .sc-bill.sc-go-row{grid-template-columns:minmax(0,1fr) auto 22px 14px}
+html.stack-view .sc-cv{flex:none;width:14px;height:14px;opacity:.68}
+html.stack-view .sc-f>[role=img]{font-size:.6em;font-weight:600;opacity:.68}
 html.stack-view .sc-ck{display:flex;justify-content:flex-end}
 html.stack-view .sc-check{color:#0f7a43;font-size:20px;font-weight:800;line-height:1}
