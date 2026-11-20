@@ -154,7 +154,7 @@
       var tgt = c.id != null ? 'budget:' + c.id : null;
       // The mini bar is always drawn under the name; with no published plan it is an empty track, never a guessed fill.
       return '<li class="sc-row' + (tgt ? ' sc-go-row' : '') + '"' + sheetAttrs(tgt) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
-        '<span class="sc-mini"><i style="width:' + (p == null ? 0 : fill(c.spent, c.planned)) + '%"></i></span></span>' +
+        '<span class="sc-mini' + estCls(est.spent || est.planned) + '"><i style="width:' + (p == null ? 0 : fill(c.spent, c.planned)) + '%"></i></span></span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
           + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + (tgt ? RCV : '') + '</li>';
     }).join('') + '</ul>';

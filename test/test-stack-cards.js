@@ -236,6 +236,15 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
     'only the estimated amount (the first row\'s plan) is soft');
   assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
+  // the category mini bar is soft with its row's figures: an estimated amount, and a projected period (Codex on #1467)
+  const rowsOf = h => (h.match(/<li class="sc-row[^>]*data-stack-sheet="budget:[\s\S]*?<\/li>/g) || []);
+  const er = rowsOf(cardOf('budget'));
+  assert(er.length === 2 && /class="sc-mini stack-est"/.test(er[0]) && /class="sc-mini"/.test(er[1]), 'a category with an estimated plan draws a soft bar; a calculated one does not');
+  const pv = JSON.parse(JSON.stringify(view)); pv.evidenceState = 'projected';
+  const pr = rowsOf(buildCardsHTML(ctx(pv)).split('data-stack-card="budget"')[1].split('</details>')[0]);
+  assert(pr.length === 2 && pr.every(r => /class="sc-mini stack-est"/.test(r)), 'a projected period: every category bar is soft');
+  const ar = rowsOf(card('budget'));
+  assert(ar.length === 2 && ar.every(r => !/sc-mini stack-est/.test(r)), 'an actual period with calculated figures: no bar is soft');
   assert(!html.includes('stack-est'), 'calculated figures carry no class');
   const se = withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 5, needed: 3, periodTarget: 8, savedTrust: 'estimated', reasons: [] }],
     totals: { saved: 5, entitlement: 8, trust: 'calculated', entitlementTrust: 'estimated', reasons: [] } });
