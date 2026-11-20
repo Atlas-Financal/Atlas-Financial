@@ -357,7 +357,7 @@ console.log('4. Every existing field is byte-equal');
 {
   // stackSummary, and the per-row split marks publishStackSummary sets beside it (publishStackBillParts).
   const strip = advice => { for (const v of advice.payPeriodViews || []) { delete v.stackSummary;
-    for (const b of v.bills || []) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillAmountEstimated']) delete b[k]; }
+    for (const b of v.bills || []) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust']) delete b[k]; }
   return JSON.stringify(advice); };
   let same = 0, total = 0;
   const all = corpus.concat([harnessArgs({}), harnessArgs({ held: true }), harnessArgs({ item: true }), harnessArgs({ bills: true, hydro: null }),

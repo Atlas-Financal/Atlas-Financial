@@ -18,7 +18,7 @@ const withoutBillPaidState = row => {
   if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
   for (const b of bills) delete b.paidState;
   // and the Stack bill cards' split marks (stackBillPart, stackBillAmount, stackBillDebtId), likewise never saved.
-  for (const b of bills) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillAmountEstimated']) delete b[k];
+  for (const b of bills) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust']) delete b[k];
   return copy;
 };
 // The live period less the derived Stack Wallet stackSummary, which is built
@@ -96,7 +96,7 @@ try {
     // Atlas blocker on #1452: a household budget row's reconMatchesSpent is display-only, derived at publication from
     // the row's own Spent and recon, so neither value of it is ever written into a saved close; live rows keep it.
     // The Stack bill cards' split marks are derived from the same period's split, so they are never saved.
-    const MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillAmountEstimated'];
+    const MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
     assert.ok((native.bills || []).every(b => !MARKS.some(k => Object.hasOwn(b, k)) || typeof b.stackBillPart === 'string'),
       'live bill rows carry well-formed split marks');
     assert.ok((candidate.content.publication.bills || []).every(b => !MARKS.some(k => Object.hasOwn(b, k))),

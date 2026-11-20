@@ -55,8 +55,9 @@ function proveStackBills(view, bills) {
     'authorized addition: a published bills split lists its parts');
   assert.ok(['calculated', 'estimated'].includes(bills.trust), 'authorized addition: a published bills split is calculated or estimated');
 }
-const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillAmountEstimated'];
+const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
 const STACK_BILL_PARTS = new Set(['mortgage', 'cardMinimum', 'other']);
+const STACK_BILL_EVIDENCE = new Set(['posted-equal', 'posted-differs', 'pending', 'none']);
 function proveStackBillParts(view, bills) {
   const rows = Array.isArray(view.bills) ? view.bills : [];
   const marked = rows.filter(row => row && STACK_BILL_MARKS.some(key => Object.hasOwn(row, key)));
@@ -64,9 +65,13 @@ function proveStackBillParts(view, bills) {
   for (const row of marked) {
     assert.ok(STACK_BILL_PARTS.has(row.stackBillPart) && finite(row.stackBillAmount), 'authorized addition: a marked bill row names its part and amount');
     assert.equal(Object.hasOwn(row, 'stackBillDebtId'), row.stackBillPart === 'cardMinimum', 'authorized addition: only a card minimum names its line');
-    const differs = row.status === 'PAID' && row.settlement === 'represented' && finite(row.actual) && cents(Math.abs(row.actual)) !== cents(row.stackBillAmount);
-    assert.equal(row.stackBillAmountEstimated === true, differs, 'authorized addition: the estimate mark is set exactly where a linked payment differs from the counted amount');
-    if (Object.hasOwn(row, 'stackBillAmountEstimated')) assert.equal(row.stackBillAmountEstimated, true, 'authorized addition: the estimate mark is only ever true');
+    assert.ok(STACK_BILL_EVIDENCE.has(row.stackBillPaymentEvidence), 'authorized addition: a marked row names its payment evidence');
+    if (row.stackBillPaymentEvidence === 'posted-equal' || row.stackBillPaymentEvidence === 'posted-differs') {
+      assert.equal(row.displayAmountBasis, 'posted-actual', 'authorized addition: posted evidence only on a posted payment');
+      assert.equal(cents(Math.abs(row.actual)) === cents(row.stackBillAmount), row.stackBillPaymentEvidence === 'posted-equal',
+        'authorized addition: posted-equal exactly where the posted payment is the counted amount');
+    }
+    assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount carries a trust word');
   }
   if (marked.length) {
     const sum = list => list.reduce((total, row) => total + cents(row.stackBillAmount), 0);

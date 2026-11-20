@@ -13,7 +13,7 @@
  *   bills[].stackBillPart / .stackBillAmount  Forecast's own place for each row in that split and the amount it
  *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
  *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
- *   bills[].paidState  'paid' | 'not-paid' | 'carried'            (#1429); a green check only for 'paid'
+ *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the paid check only for 'posted-equal' (#1465)
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
@@ -112,28 +112,30 @@
     return r && r.id != null && r.date != null ? kind + ':' + r.id + '@' + r.date : null;
   }
 
-  // A bill-like row reads: the item, its amount, and a green check only when Forecast's paidState says paid
-  // (owner direction): no status word, no mark when unpaid or unknown. The check's accessible name is "Paid",
-  // for screen readers only. An unpublished amount is a dash, never a zero.
   var DASH = '\u2014';
   // The round go button on every card head: a chevron that turns when the card is open.
   var CHEV = '<svg class="sc-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  // est: Forecast's stackBillAmountEstimated (a linked payment differs from the counted plan, not yet verified):
-  // the amount is drawn softer, and the check's accessible name says the paid amount shown is an estimate.
-  function stateRow(label, amountText, paid, target, est) {
-    var checkName = est && amountText != null ? 'Paid, estimated ' + amountText : 'Paid';
+  // A bill row: the item, the amount Forecast counted, and the paid check only when Forecast's
+  // stackBillPaymentEvidence says a posted payment of exactly that amount ('posted-equal'; lead ruling on #1465).
+  // Otherwise the amount is the plan, drawn at its own trust, with no check. No status word is visible; the accessible
+  // name says which the number is ("Paid $X" or "Planned $X"). An unpublished amount is a dash, never a zero.
+  function stateRow(label, r, target) {
+    var amountText = money(r.stackBillAmount);
+    var paid = r.stackBillPaymentEvidence === 'posted-equal';
+    var soft = r.stackBillAmountTrust === 'estimated' || r.stackBillAmountTrust === 'unknown';
+    var name = amountText == null ? null : (paid ? 'Paid ' : 'Planned ') + amountText;
     return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
-      '<span class="sc-a' + estCls(est) + '">' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
-      '<span class="sc-ck">' + (paid ? '<span class="sc-check" role="img" aria-label="' + esc(checkName) + '">\u2713</span>' : '') + '</span></li>';
+      '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
+      '<span class="sc-ck">' + (paid ? '<span class="sc-check" aria-hidden="true">\u2713</span>' : '') + '</span></li>';
   }
 
   function billsCard(view) {
     var split = get(view, ['stackSummary', 'bills']) || {};
     var rows = partRows(view, 'other');
-    var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
+    var paid = rows.filter(function (r) { return r.stackBillPaymentEvidence === 'posted-equal'; }).length; // a count of rows, not money
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Bill', money(r.stackBillAmount), r.paidState === 'paid', billTarget('bill', r), r.stackBillAmountEstimated === true);
+      return stateRow(r.label || r.name || 'Bill', r, billTarget('bill', r));
     }).join('') + '</ul>';
     return strip('bills', 'Bills', '', total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust), true);
   }
@@ -163,9 +165,9 @@
   function mortgageCard(view) {
     var total = money(get(view, ['stackSummary', 'bills', 'mortgage']));
     var rows = partRows(view, 'mortgage');
-    var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
+    var paid = rows.filter(function (r) { return r.stackBillPaymentEvidence === 'posted-equal'; }).length; // a count of rows, not money
     var body = rows.length ? '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Mortgage', money(r.stackBillAmount), r.paidState === 'paid', billTarget('mortgage', r), r.stackBillAmountEstimated === true);
+      return stateRow(r.label || r.name || 'Mortgage', r, billTarget('mortgage', r));
     }).join('') + '</ul>' : '';
     return strip('mortgage', 'Mortgage', '', total, null, fill(paid, rows.length), body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
   }
