@@ -37,14 +37,9 @@
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const isAmount = v => typeof v === 'number' && Number.isFinite(v);
-  // Display only: the published number, to the cent, with a true minus sign.
-  // Formatting, not arithmetic: the digits are the published value's own.
-  const money = v => {
-    const text = v.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-      minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return text.replace('-', '−');
-  };
-  const signed = v => (v > 0 ? '+' : '') + money(v);
+  // Display only: the page's one money format (StackBlocks.money, whole dollars). Formatting, not arithmetic.
+  const money = v => globalThis.StackBlocks.money(v);
+  const signed = v => globalThis.StackBlocks.money(v, { signed: true });
 
   // The one place each printed row names its published source.
   const LINE_SOURCES = Object.freeze({
@@ -90,9 +85,12 @@
     if (key != null && key !== '') return views.find(v => v.start === key) || null;
     return views.find(v => v.role === 'active') || views.find(v => v.timelineRole === 'current') || null;
   }
+  // The Lunch Money name first (StackBlocks.cardName), else the plan's debt label, else the id.
   const cardLabel = (ctx, debtId) => {
     const debt = ctx && ctx.data && Array.isArray(ctx.data.debts) ? ctx.data.debts.find(d => d && d.id === debtId) : null;
-    return debt && typeof debt.label === 'string' && debt.label.trim() ? debt.label.trim() : String(debtId);
+    const own = debt && typeof debt.label === 'string' && debt.label.trim() ? debt.label.trim() : String(debtId);
+    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
+    return blocks && typeof blocks.cardName === 'function' ? blocks.cardName(ctx && ctx.data, debtId, own) : own;
   };
 
   // One amount cell: the published value, or nothing (F8).
@@ -119,6 +117,30 @@
   // An unpublished amount the row still names: a dash, never $0, read by a screen reader as "not available".
   const DASH = '<span class="wf-dash" role="img" aria-label="not available">\u2014</span>';
 
+  // A paid minimum's check (owner, Dale, 2026-11-20: "once that minimum is paid I want a check mark"). Read only
+  // from Forecast's published coverage for that card, the Credit block's one reading (StackCredit.line, joined by
+  // debt id, never by name): a check exactly when minimumCovered.value is true, drawn soft when its trust is
+  // estimated. None for false or 'unknown', none in a projected or future period, none when no coverage is published
+  // (the HELOC's cash minimum included), never guessed.
+  const CHECK_TRUST = new Set(['calculated', 'verified', 'estimated']);
+  function minimumCheck(ctx, view, debtId) {
+    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
+    // A projected period is read through the shell's one rule (isEstimated with no trust word: projected only).
+    const projected = !blocks || typeof blocks.isEstimated !== 'function' || blocks.isEstimated(null, view);
+    if (!view || view.timelineRole === 'future' || projected) return '';
+    const credit = typeof globalThis !== 'undefined' ? globalThis.StackCredit : null;
+    const line = credit && typeof credit.line === 'function' && debtId != null ? credit.line(ctx, debtId) : null;
+    const covered = line && line.minimumCovered;
+    // Only a coverage Forecast vouches for (lead ruling, 2026-11-20, on REVIEWER 2's 7047727410): calculated or verified
+    // draws a plain check, estimated a soft one; an unavailable, unknown or missing trust draws none.
+    if (!covered || covered.value !== true || !CHECK_TRUST.has(covered.trust)) return '';
+    const soft = typeof blocks.estClass === 'function' ? blocks.estClass(covered.trust, view) : '';
+    // The estimate is named too, as the Credit card's paidBackName does: a soft check is never an unqualified claim.
+    return `<span class="wf-check${soft}" role="img" aria-label="Minimum paid${soft ? ', estimated' : ''}">\u2713</span>`;
+  }
+
+  // The minimums due in the selected pay period, exactly Forecast's cardMinimums: a card with no minimum due in the
+  // period has no row (owner, Dale, 2026-11-20).
   function creditRows(ctx, view) {
     const cards = view.stackSummary && view.stackSummary.bills ? view.stackSummary.bills.cardMinimums : null;
     if (!Array.isArray(cards)) return '';
@@ -127,7 +149,8 @@
       const cell = card && isAmount(card.amount)
         ? `<span class="n${est(view, 'stackSummary.bills.trust')}" data-source="${source}">${escape(money(card.amount))}</span>`
         : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
-      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>${cell}</li>`;
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>`
+        + `<span class="wf-amt">${cell}${minimumCheck(ctx, view, card && card.debtId)}</span></li>`;
     }).join('');
   }
 

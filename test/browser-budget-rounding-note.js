@@ -30,7 +30,7 @@ const root = process.env.ATLAS_ROUNDING_NOTE_ROOT || path.join(__dirname, '..');
         return route.fulfill({ body: fs.readFileSync(file),
           contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('[data-blend-rings]').waitFor();
       const face = await page.evaluate(() => {
         const section = document.querySelector('[data-budget-browse="spending"]');

@@ -42,7 +42,7 @@ fs.mkdirSync(output, { recursive: true });
           return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css'
             : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
         });
-        await page.goto('http://savings-pending.test/');
+        await page.goto('http://savings-pending.test/?view=classic');
         const summary = page.locator('[data-operating-question="savings"] > details > summary');
         await summary.waitFor();
         if (selection === 'future') {
@@ -110,7 +110,7 @@ fs.mkdirSync(output, { recursive: true });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css'
           : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
-      await page.goto('http://savings-pending.test/');
+      await page.goto('http://savings-pending.test/?view=classic');
       const summary = page.locator('[data-operating-question="savings"] > details > summary');
       await summary.waitFor();
       const label = mode + ' ' + width + 'px';

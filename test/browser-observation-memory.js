@@ -46,7 +46,7 @@ fs.mkdirSync(output, { recursive: true });
     const ready = () => page.waitForFunction(() => window.__syntheticRenderCycles.length > 0 && !document.querySelector('[data-boot-notice]'));
     for (const phase of ['first', 'warm']) {
       const before = mock.calls.length;
-      await page.goto(app.base + '/', { waitUntil: 'domcontentloaded' }); await ready();
+      await page.goto(app.base + '/?view=classic', { waitUntil: 'domcontentloaded' }); await ready();
       const timing = await page.evaluate(() => window.__syntheticRenderCycles.at(-1));
       assert.equal(mock.calls.length - before, phase === 'first' ? 11 : 0);
       assert.ok(Number.isFinite(timing.responseMs) && Number.isFinite(timing.renderAfterResponseMs));

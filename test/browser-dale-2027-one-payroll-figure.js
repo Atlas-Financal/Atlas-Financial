@@ -92,7 +92,7 @@ const cents = text => {
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => pageErrors.push(error.message));
-    await page.goto(origin + '/');
+    await page.goto(origin + '/?view=classic');
     await page.locator('[data-pay-period-swipe]').waitFor();
     // Capture the page's own recommend() result, then repaint through it.
     await page.evaluate(() => {

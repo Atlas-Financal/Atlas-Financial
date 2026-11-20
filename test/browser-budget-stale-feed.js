@@ -35,7 +35,7 @@ const OBSERVATION_DAY = '2026-10-04'; // fx.asOf, the invented feed's observatio
         return route.fulfill({ body: fs.readFileSync(file),
           contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       await page.locator('[data-blend-rings]').waitFor();
       return page;

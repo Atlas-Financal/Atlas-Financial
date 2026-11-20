@@ -662,7 +662,7 @@ function rendererReversalEvidence(withReversal) {
         await route.fulfill({ response, body: 'App.once(() => { window.__settlementOnce = (window.__settlementOnce || 0) + 1; });\n' + await response.text() });
       });
       try {
-        const navigation = second.goto(w.origin + '/');
+        const navigation = second.goto(w.origin + '/?view=classic');
         assert.deepEqual(await bootRead, { operationId, phase: 'preview', generation });
         await page.route('**/settlement/confirm', async route => { await route.fetch(); return route.abort(); });
         await dialog.getByRole('button', { name: 'Confirm assignment', exact: true }).click();
@@ -711,7 +711,7 @@ function rendererReversalEvidence(withReversal) {
         await route.fulfill({ response });
       });
       try {
-        await second.goto(w.origin + '/');
+        await second.goto(w.origin + '/?view=classic');
         await second.waitForFunction(() => typeof App !== 'undefined' && App.data !== null);
         const otherDialog = await sheet(second);
         await otherDialog.getByRole('button', { name: 'Assign a recorded payment', exact: true }).click();
@@ -1183,7 +1183,7 @@ function rendererReversalEvidence(withReversal) {
             await page.close(); release();
             const second = await context.newPage(); second.setDefaultTimeout(15000);
             second.on('pageerror', error => fixture.errors.push(error.message));
-            await second.goto(w.origin + '/'); await reconciliationBoot(second);
+            await second.goto(w.origin + '/?view=classic'); await reconciliationBoot(second);
             assert.deepEqual(await second.evaluate(KEY => JSON.parse(localStorage.getItem(KEY)), KEY), marker);
             await second.close(); return;
           }
@@ -1235,7 +1235,7 @@ function rendererReversalEvidence(withReversal) {
           'try { marker = parsePending(raw); await window.__pauseGenerationBoot(); } catch') });
       });
       try {
-        const navigation = second.goto(w.origin + '/'); await seen;
+        const navigation = second.goto(w.origin + '/?view=classic'); await seen;
         // Deliberate shared-storage replacement, under the real marker lock.
         const replacement = { ...first, generation: 'generation-' + 'f'.repeat(32) };
         await page.evaluate(async ({ KEY, replacement }) => navigator.locks.request(KEY, { mode: 'exclusive' },

@@ -190,7 +190,7 @@ const rows = { A3: [], A4: [], A9: [] };
         served[path.relative(root, file).replaceAll('\\', '/')] = crypto.createHash('sha256').update(body).digest('hex');
         return route.fulfill({ body, contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto(ORIGIN + '/');
+      await page.goto(ORIGIN + '/?view=classic');
       const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
       const before = await page.evaluate(() => JSON.stringify(App.data));
       const keys = await tile.locator('[data-budget-savings-goal]').evaluateAll(rows =>
@@ -382,7 +382,7 @@ const rows = { A3: [], A4: [], A9: [] };
         if (!file.startsWith(assets + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto(ORIGIN + '/');
+      await page.goto(ORIGIN + '/?view=classic');
       const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
       const source = tile.locator('[data-budget-savings-goal]').first();
       assert.equal(await source.locator('[data-budget-goal-paid-progress]').count(), 0, `no-facts ${width}: the invented goal carries no payment block`);

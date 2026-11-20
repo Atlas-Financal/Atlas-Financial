@@ -55,7 +55,7 @@ const measure = els => els.evaluateAll(nodes => nodes.map(node => {
         if (!file.startsWith(assets + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html' });
       });
-      await page.goto('http://members.test/');
+      await page.goto('http://members.test/?view=classic');
       await page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme);
 
       // ---- Budget tile ----

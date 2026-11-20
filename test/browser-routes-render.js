@@ -44,7 +44,7 @@ const routes = [
           : 'text/html';
         return intercepted.fulfill({ body: fs.readFileSync(file), contentType: type });
       });
-      await page.goto('http://budget.test' + route.path);
+      await page.goto('http://budget.test' + route.path + '?view=classic');
       await page.waitForFunction(() => {
         const budget = document.querySelector('#operating-surface');
         const heading = document.querySelector('h1, [data-page-shell]');

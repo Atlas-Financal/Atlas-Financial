@@ -27,7 +27,7 @@ fs.mkdirSync(out, { recursive: true, mode: 0o700 }); fs.chmodSync(out, 0o700);
       await page.getByRole('button', { name: 'Manual Refresh', exact: true }).click(); await loaded;
       await page.getByRole('button', { name: 'Manual Refresh', exact: true }).click({ trial: true });
     };
-    await page.goto(site.base + '/');
+    await page.goto(site.base + '/?view=classic');
     await page.waitForSelector('[data-budget-cash-hero]');
     assert.match(await page.locator('[data-budget-cash-hero]').innerText(), /1,215\.00/);
     const before = await page.locator('[data-budget-cash-hero]').innerText();

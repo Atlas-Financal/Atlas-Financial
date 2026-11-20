@@ -36,17 +36,25 @@ const ok = (cond, label, detail = '') => {
 const FILE = path.join(__dirname, '..', 'public', 'stack-waterfall.js');
 // 6. Registration: a shell registry present before the file loads receives it.
 const registered = [];
-globalThis.StackBlocks = { register: (name, fn) => registered.push([name, fn]) };
+// The block prints through the shell's one money format, so the stub carries the real shell's StackBlocks.money.
+const shellMoney = (() => {
+  const sandbox = { window: {}, location: { search: '' }, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON, Math, console };
+  require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-shell.js'), 'utf8'), sandbox);
+  return sandbox.window.StackBlocks.money;
+})();
+globalThis.StackBlocks = { register: (name, fn) => registered.push([name, fn]), money: shellMoney };
 const W = require(FILE);
-delete globalThis.StackBlocks;
 
-// Independent of the block: $1,234.50 with U+2212 for a negative.
-const fmt = v => (v < 0 ? '−' : '') + '$' + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// Independent of the block and the shell: whole dollars, half away from zero ($1,234.50 prints $1,235), U+2212 for a
+// negative, no sign on an amount that prints as $0.
+const dollars = v => Math.floor(Math.abs(v) + 0.5);
+const fmt = v => (v < 0 && dollars(v) ? '−' : '') + '$' + String(dollars(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const fmtSigned = v => (v > 0 && dollars(v) ? '+' : '') + fmt(v);
 const readPath = (obj, p) => p.split('.').reduce((n, k) => (n && typeof n === 'object' ? n[k] : undefined), obj);
 const unescape = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 const cells = html => [...html.matchAll(/<span class="n" data-source="([^"]+)"( data-unpublished="true")?>([^<]*)<\/span>/g)]
   .map(m => ({ source: m[1], unpublished: !!m[2], text: unescape(m[3]) }));
-const MONEY = /[−+]?\$[\d,]+\.\d\d/g;
+const MONEY = /[−+]?\$[\d,]+(?:\.\d+)?/g;
 
 function fakeContainer() {
   const c = { innerHTML: '', handlers: [] };
@@ -75,7 +83,7 @@ function proveSourced(html, view, label) {
   const published = cs.filter(c => !c.unpublished);
   const wrong = published.filter(c => {
     const v = readPath(view, c.source);
-    const expect = c.source === W.LINE_SOURCES.surplus ? (v > 0 ? '+' : '') + fmt(v) : fmt(v);
+    const expect = c.source === W.LINE_SOURCES.surplus ? fmtSigned(v) : fmt(v);
     return typeof v !== 'number' || c.text !== expect;
   });
   ok(wrong.length === 0, `${label}: every printed amount is its named published value`, JSON.stringify(wrong));
@@ -95,20 +103,20 @@ console.log('1–2. Every amount is a named published value');
   ok(closed.length === 11 && closed.every(x => !x.unpublished) && closed.filter(x => /cardMinimums/.test(x.source)).length === 2,
     'nine lines plus the two (hidden) card rows, all published: three income lines, total, bills, budget, mortgage, credit, surplus',
     closed.map(x => x.source).join(', '));
-  ok(/data-source="stackSummary.income.total.amount">\$3,000\.50</.test(c.innerHTML)
-    && /data-source="stackSummary.surplus.terms.credit">\$35\.25</.test(c.innerHTML)
-    && /data-source="stackSummary.surplus.amount">\+\$865\.25</.test(c.innerHTML),
-    'the Total, the Credit line and the Surplus are read from their published values (3,000.50; 35.25; +865.25)');
+  ok(/data-source="stackSummary.income.total.amount">\$3,001</.test(c.innerHTML)
+    && /data-source="stackSummary.surplus.terms.credit">\$35</.test(c.innerHTML)
+    && /data-source="stackSummary.surplus.amount">\+\$865</.test(c.innerHTML),
+    'the Total, the Credit line and the Surplus are read from their published values (3,000.50; 35.25; +865.25, printed in whole dollars, half away from zero: $3,001, $35, +$865)');
   ok(/<ul class="wf-cards" hidden>/.test(c.innerHTML), 'Credit starts closed');
   c.clickCredit();
   const open = proveSourced(c.innerHTML, view, 'Credit open');
   const cardCells = open.filter(x => /cardMinimums/.test(x.source));
-  ok(cardCells.length === 2 && cardCells[0].text === '$25.00' && cardCells[1].text === '$10.25',
+  ok(cardCells.length === 2 && cardCells[0].text === '$25' && cardCells[1].text === '$10',
     'opened, Credit lists one row per card with its published minimum', JSON.stringify(cardCells));
   ok(/<b>Invented card A<\/b>/.test(c.innerHTML) && /<b>triangle<\/b>/.test(c.innerHTML),
     'each card row is named by its debt label, else its id');
   const cardRows = [...c.innerHTML.matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)].map(m => m[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
-  ok(cardRows.join('|') === 'Invented card A $25.00|triangle $10.25' && !/<small/.test(c.innerHTML),
+  ok(cardRows.join('|') === 'Invented card A $25|triangle $10' && !/<small/.test(c.innerHTML),
     'each card row is its name and its minimum, no descriptor word (owner, 2026-11-20)', cardRows.join('|'));
   ok(/aria-expanded="true"/.test(c.innerHTML) && !/<ul class="wf-cards" hidden>/.test(c.innerHTML), 'the toggle reports itself open');
   c.clickCredit();
@@ -130,10 +138,10 @@ console.log('3. Unpublished values print nothing (F8)');
   W.render(c, ctxOf([fullView(), saved], '2026-09-25'));
   const cs = proveSourced(c.innerHTML, saved, 'saved close');
   const blank = cs.filter(x => x.unpublished).map(x => x.source);
-  ok(blank.length === 7 && cs.find(x => x.source === W.LINE_SOURCES.total).text === '$2,900.00'
-    && cs.find(x => x.source === W.LINE_SOURCES.budget).text === '$750.00',
+  ok(blank.length === 7 && cs.find(x => x.source === W.LINE_SOURCES.total).text === '$2,900'
+    && cs.find(x => x.source === W.LINE_SOURCES.budget).text === '$750',
     'its withheld lines are blank; its published total and budget still print', blank.join(', '));
-  ok(!/\$0\.00/.test(c.innerHTML), 'nothing reads $0');
+  ok(!/\$0(?![\d.,])/.test(c.innerHTML), 'nothing reads $0');
   ok(/disabled/.test(c.innerHTML) && /<ul class="wf-cards" hidden><\/ul>/.test(c.innerHTML), 'with no published minimums, Credit has no rows to open');
   const slab = /<div class="wf-slab[^"]*" data-row="surplus">([\s\S]*?)<\/div>\s*<\/section>/.exec(c.innerHTML);
   ok(slab && !/is unavailable|wf-reason/.test(c.innerHTML) && /<span class="wf-dash" role="img" aria-label="not available">\u2014<\/span>$/.test(slab[1])
@@ -149,8 +157,8 @@ console.log('3. Unpublished values print nothing (F8)');
   W.render(g, ctxOf([gap]));
   proveSourced(g.innerHTML, gap, 'unpublished card minimum');
   const gapRows = [...g.innerHTML.matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)].map(m => m[1]);
-  ok(gapRows.length === 2 && /data-unpublished="true"><\/span><span class="wf-dash" role="img" aria-label="not available">\u2014<\/span>$/.test(gapRows[1])
-    && !/wf-dash/.test(gapRows[0]) && !/\$0\.00/.test(gapRows[1]),
+  ok(gapRows.length === 2 && /data-unpublished="true"><\/span><span class="wf-dash" role="img" aria-label="not available">—<\/span><\/span>$/.test(gapRows[1])
+    && !/wf-dash/.test(gapRows[0]) && !/\$0(?![\d.,])/.test(gapRows[1]),
     'an unpublished card minimum: a dash in its row, never $0; a published one has no dash', gapRows[1]);
   const none = fakeContainer();
   W.render(none, ctxOf([{ id: 'x', start: '2026-10-09', timelineRole: 'current' }]));
@@ -166,11 +174,11 @@ console.log('4. Surplus or Deficit, from the published sign');
   neg.stackSummary.surplus.amount = -120.4;
   const html = W.html(ctxOf([neg]), {});
   ok(/Deficit after deductions/.test(html) && /class="wf-slab neg"/.test(html)
-    && /data-source="stackSummary.surplus.amount">−\$120\.40</.test(html), 'a negative surplus reads Deficit after deductions, −$120.40');
+    && /data-source="stackSummary.surplus.amount">−\$120</.test(html), 'a negative surplus reads Deficit after deductions, −$120');
   const zero = fullView();
   zero.stackSummary.surplus.amount = 0;
-  ok(/Surplus after deductions/.test(W.html(ctxOf([zero]), {})) && /data-source="stackSummary.surplus.amount">\$0\.00</.test(W.html(ctxOf([zero]), {})),
-    'a published zero is a Surplus of $0.00 (it is published, so it prints)');
+  ok(/Surplus after deductions/.test(W.html(ctxOf([zero]), {})) && /data-source="stackSummary.surplus.amount">\$0</.test(W.html(ctxOf([zero]), {})),
+    'a published zero is a Surplus of $0 (it is published, so it prints)');
 }
 
 console.log('5. Period selection');
@@ -207,7 +215,7 @@ console.log('7. A real Forecast recommendation (invented harness world)');
     c.clickCredit();
     const cs = cells(c.innerHTML);
     const bad = cs.filter(x => !x.unpublished && x.text !== (x.source === W.LINE_SOURCES.surplus
-      ? (readPath(view, x.source) > 0 ? '+' : '') + fmt(readPath(view, x.source)) : fmt(readPath(view, x.source))));
+      ? fmtSigned(readPath(view, x.source)) : fmt(readPath(view, x.source))));
     const leaked = (c.innerHTML.match(MONEY) || []).length !== cs.filter(x => !x.unpublished).length;
     if (!bad.length && !leaked) periods++;
   }
@@ -252,6 +260,22 @@ console.log('10. The Mortgage line opens the mortgage sheet (owner, Dale, 2026-1
   ok(/data-source="stackSummary\.bills\.mortgage"/.test(lineOf([row()])) && /data-source="stackSummary\.bills\.mortgage"/.test(lineOf([])),
     'tappable or plain, the line prints the same published amount (stackSummary.bills.mortgage)');
   ok(keyOf([row({ id: 'a"b' })]) === 'mortgage:a&quot;b@2026-10-15', 'the key is escaped in the attribute');
+  // A published mortgage obligation (the invented fixture's mortgageObligation, #1465) through the real Forecast: the
+  // current period's line is a button keyed to its own mortgage row, and it prints the published amount, which is that
+  // row's amount (the browser proof checks that the sheet it opens heads with the same printed value).
+  const F = require('../public/forecast.js');
+  const data = require('./fixtures/budget-surface-data').served({ mortgageObligation: true });
+  const rec = F.recommend(data.plan, data.meta && data.meta.asOf, F.budgetRecommendInputs(data, { periods: null, settlementEvidence: null }));
+  const view = (rec.payPeriodViews || []).find(v => v.role === 'active');
+  const mort = view && (view.bills || []).find(r => r && (r.debtId === 'mortgage' || r.id === 'mortgage'));
+  const out = W.html({ data, plan: data.plan, recommendation: rec, selectedPeriodKey: view && view.start, Forecast: F }, {});
+  const line = (/<li class="wf-line[^"]*" data-row="mortgage">([\s\S]*?)<\/li>/.exec(out) || [])[1] || '';
+  ok(!!mort && typeof view.stackSummary.bills.mortgage === 'number' && view.stackSummary.bills.mortgage > 0
+    && view.stackSummary.bills.mortgage === mort.amount
+    && line.includes(`data-stack-sheet="mortgage:${mort.id}@${mort.date}"`)
+    && line.includes(`data-source="stackSummary.bills.mortgage">${fmt(mort.amount)}<`),
+  'the fixture\'s real mortgage obligation: the current period\'s line opens its own row and prints that row\'s published amount',
+  JSON.stringify({ published: view && view.stackSummary.bills.mortgage, row: mort && [mort.id, mort.date, mort.amount] }));
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack waterfall checks passed`);

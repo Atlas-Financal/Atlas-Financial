@@ -115,7 +115,7 @@ function dataFor(state) {
         bind(file);
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://card-diagnostics.test/');
+      await page.goto('http://card-diagnostics.test/?view=classic');
       const travel = page.locator('[data-budget-card-toggle="travelvisa"]');
       await travel.waitFor();
       await travel.click();

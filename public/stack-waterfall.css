@@ -44,6 +44,8 @@ html.stack-view .stack-waterfall .wf-card {
 html.stack-view .stack-waterfall .wf-card b { display: block; font-weight: 600; color: var(--stack-on); }
 html.stack-view .stack-waterfall .wf-card small { display: block; font-size: 13px; line-height: 1.3; }
 html.stack-view .stack-waterfall .wf-card .n { font-size: 16px; font-weight: 600; color: var(--stack-on); }
+html.stack-view .stack-waterfall .wf-card .wf-amt { display: inline-flex; align-items: center; gap: 6px; }
+html.stack-view .stack-waterfall .wf-check { font-size: 16px; font-weight: 800; line-height: 1; color: var(--stack-on); }
 /* The result slab. */
 html.stack-view .stack-waterfall .wf-slab {
   container-type: inline-size;

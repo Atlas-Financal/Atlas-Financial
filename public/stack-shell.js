@@ -1,9 +1,12 @@
 /* Stack Wallet page shell (B1, lead dispatch 2026-11-19; design: the Stack Wallet artifact, invented data).
  *
- * Behind ?view=stack only. Without the flag this file defines window.StackBlocks (so the block files can register)
- * and does nothing else: no stylesheet, no element, no render hook, no listener. The current page is unchanged.
+ * The default Budget page (B7, switch-over; lead dispatch 2026-11-19). ?view=classic keeps the previous page as a
+ * fallback until C1 retires it: with it, this file defines window.StackBlocks (so the block files can register) and does
+ * nothing else: no stylesheet, no element, no render hook, no listener. ?view=stack is an alias of the default.
+ * Fail-safe: if the shell itself throws while drawing, it removes itself and the previous page shows (never a blank
+ * page). A failing block only empties its own container.
  *
- * With the flag it owns:
+ * Otherwise it owns:
  *   - flag routing: <html class="stack-view">, the Stack stylesheets, and #stack-root in place of the current page;
  *   - the one Forecast call for the page, made with the same input builder the current page uses
  *     (Forecast.budgetRecommendInputs, default knobs, the same ATLAS-080 settlement outcome);
@@ -15,10 +18,22 @@
  * L-001: this file prints what Forecast publishes and does no arithmetic on money. A chip prints its period's
  * published stackSummary.surplus amount, or nothing when Forecast has not published one (F8: never $0).
  */
+// B7 fail-safe, start-up: a throw anywhere in the shell's set-up is caught here, so the previous page shows (never
+// blank) and no uncaught error escapes; the class and stylesheets are applied only after set-up (applyChrome).
+(function () {
+// B7 fail-safe: one durable fail state for the whole shell. Every failure path (start-up, after the App hook, while
+// drawing) sets it, and a registered render never draws again once it is set.
+let failed = false;
+try {
 (function () {
   'use strict';
   const ORDER = ['waterfall', 'cards', 'credit', 'sheet'];
   const renderers = new Map();
+  const WHOLE = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 0, maximumFractionDigits: 0, roundingMode: 'halfExpand', signDisplay: 'never' });
+  const CENTS = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 2, maximumFractionDigits: 2, roundingMode: 'halfExpand', signDisplay: 'never' });
+  const ZERO = WHOLE.format(0), ZERO_CENTS = CENTS.format(0);
   const StackBlocks = {
     register(name, renderFn) {
       if (typeof name !== 'string' || typeof renderFn !== 'function') return;
@@ -42,6 +57,29 @@
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // The one way the Stack page prints a published amount (design: whole dollars). Display only: the published value
+    // is rounded to the dollar for printing (half away from zero, so $2.50 prints $3 and −$2.50 prints −$3) and is
+    // never used again; no sum, status or decision reads the printed text. A true minus sign; with signed, a plus on a
+    // positive amount. An amount that prints as $0 carries no sign. '' for anything that is not a published number.
+    // With cents, as before: cents when the published amount has them ($12.50, but $150), only for a transaction line in
+    // a sheet, the ledger's own entry, which the household matches against the bank (the design shows no transaction
+    // list).
+    money(value, { signed = false, cents = false } = {}) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+      const fmt = cents && !Number.isInteger(value) ? CENTS : WHOLE;
+      const text = fmt.format(value);
+      if (text === (fmt === CENTS ? ZERO_CENTS : ZERO)) return text;
+      return (value < 0 ? '\u2212' : signed ? '+' : '') + text;
+    },
+    // A credit line's name (owner decision, Dale, 2026-11-20; Grok Bot, rule 17: the ledger is the one home for
+    // names): the name its Lunch Money account shows (debt.ledgerName, which the live overlay attaches by provider
+    // account id, never by name), else the block's own label. A label only: nothing is matched or derived from it.
+    cardName(data, debtId, fallback) {
+      const debts = data && Array.isArray(data.debts) ? data.debts : [];
+      const debt = debtId == null ? null : debts.find(d => d && d.id === debtId);
+      const name = debt && typeof debt.ledgerName === 'string' ? debt.ledgerName.trim() : '';
+      return name || fallback;
+    },
     // A household budget row's published trust, per printed amount, as Forecast publishes it (the reading the current
     // Budget page documents in plan.js householdBudgetRowHtml): the row's trust (or confidence) marks the row; its plan
     // is estimated when plannedTrust is absent or 'estimated' (an Other spending row's plan only when it is dated); its
@@ -62,31 +100,33 @@
       };
     },
   };
+  // The selected period's range (the header and the sheets' kicker read the same label).
+  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  function rangeLabel(view) {
+    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
+    if (!ok(view.start)) return '';
+    const a = new Date(`${view.start}T12:00:00Z`);
+    if (!ok(view.end)) return rangeDate.format(a);
+    const b = new Date(`${view.end}T12:00:00Z`);
+    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
+      ? String(b.getUTCDate()) : rangeDate.format(b));
+  }
+  StackBlocks.rangeLabel = rangeLabel; // the sheets' kicker reads the same range
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
 
-  const on = typeof location !== 'undefined' && new URLSearchParams(location.search).get('view') === 'stack';
+  // Every view but ?view=classic is the Stack page (B7); a missing location (a test harness) is the classic page.
+  const on = typeof location !== 'undefined' && new URLSearchParams(location.search).get('view') !== 'classic';
   if (!on || typeof document === 'undefined') return;
 
   const root = document.documentElement;
-  root.classList.add('stack-view');
-  // The shell's stylesheet (tokens, pile, header, timeline), then one stylesheet per block, each owned by its block.
-  for (const href of ['/budget-stack-fonts.css', '/stack.css', ...ORDER.map(name => `/stack-${name}.css`)]) {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = href;
-    if (href === '/stack.css') link.addEventListener('load', () => centreNow());
-    document.head.appendChild(link);
-  }
+  // B7 fail-safe, start-up: the class and the stylesheets are applied only after every formatter and helper below is
+  // set up (applyChrome, just before the App hook), so a throw during set-up leaves the previous page showing.
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  // Presentation of a published amount: sign, dollars, cents only when the published figure has them. No arithmetic.
-  const signed = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    signDisplay: 'always', maximumFractionDigits: 0 });
-  const signedCents = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    signDisplay: 'always', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const money = n => (Number.isInteger(n) ? signed : signedCents).format(n).replace('-', '−');
+  // A chip's surplus, signed, in the page's one money format.
+  const money = n => StackBlocks.money(n, { signed: true });
   const shortDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const dayLabel = iso => (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso)
     ? shortDate.format(new Date(iso + 'T12:00:00Z')) : '');
@@ -99,15 +139,22 @@
     return s && typeof s.amount === 'number' && Number.isFinite(s.amount) ? s.amount : null;
   };
 
-  // The quiet "Last updated" line: the same evidence and rule as the current Budget footer (OD-3, OD-025):
-  // the overlay's last successful sync instant, formatted by app.js formatCompleteRefreshTime. No banner.
-  function lastUpdated(d) {
+  // The quiet "Last updated" line: the same evidence and rule as the current Budget footer and glance (OD-3, OD-025;
+  // plan.js glanceUpdatedNote): the overlay's last successful sync instant; for a retained refresh with no sync instant,
+  // that refresh's own complete-observation instant (retainedRefresh.observedAt), never a failed attempt's time.
+  // Formatted by app.js formatCompleteRefreshTime. Dates only: no banner (owner, 2026-11-20).
+  const instant = value => (typeof value === 'string' && value.includes('T') && Number.isFinite(Date.parse(value))
+    && typeof Forecast !== 'undefined' && Forecast.financialDate(value) ? value : null);
+  function updatedInstant(d) {
     const overlay = d && d.liveOverlay;
     const syncAt = overlay && overlay.applied === true && overlay.currentPeriodActuals
-      ? overlay.currentPeriodActuals.lastSuccessfulSyncAt : null;
-    const known = typeof syncAt === 'string' && syncAt.includes('T') && typeof Forecast !== 'undefined'
-      && Forecast.financialDate(syncAt) && typeof formatCompleteRefreshTime === 'function';
-    return known ? 'Last updated ' + formatCompleteRefreshTime(syncAt) : '';
+      ? instant(overlay.currentPeriodActuals.lastSuccessfulSyncAt) : null;
+    if (syncAt) return syncAt;
+    return overlay && overlay.retainedRefresh ? instant(overlay.retainedRefresh.observedAt) : null;
+  }
+  function lastUpdated(d) {
+    const at = updatedInstant(d);
+    return at && typeof formatCompleteRefreshTime === 'function' ? 'Last updated ' + formatCompleteRefreshTime(at) : '';
   }
 
   function timelineHtml() {
@@ -133,17 +180,6 @@
       + `<div class="stack-chips" data-stack-chips>${chips}</div>`;
   }
 
-  // The selected period's range, plus the design's period chip.
-  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  function rangeLabel(view) {
-    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
-    if (!ok(view.start)) return '';
-    const a = new Date(`${view.start}T12:00:00Z`);
-    if (!ok(view.end)) return rangeDate.format(a);
-    const b = new Date(`${view.end}T12:00:00Z`);
-    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
-      ? String(b.getUTCDate()) : rangeDate.format(b));
-  }
   // The design's period chip (owner, Dale, 2026-11-20: "Follow the design"): "This pay period" on the current period,
   // "Last pay period" on the one before it, "Past" on earlier ones. A future period shows no chip (owner: no
   // "Projected" word). The order is Forecast's own list of periods; nothing is inferred from dates here.
@@ -217,7 +253,19 @@
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(centreNow);
   }
 
+  // B7 fail-safe: a throw in the shell's own drawing hands the page back to the previous page, never a blank one.
+  function fallBack(error) {
+    failed = true;
+    root.classList.remove('stack-view');
+    const el = document.getElementById('stack-root');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    if (typeof console !== 'undefined') console.error('stack page failed; showing the classic page', error);
+  }
   function renderAll() {
+    if (failed) return;
+    try { drawAll(); } catch (error) { fallBack(error); }
+  }
+  function drawAll() {
     const el = mount();
     el.querySelector('[data-stack-updated]').textContent = lastUpdated(state.data);
     const timeline = el.querySelector('[data-stack-block="timeline"]');
@@ -239,6 +287,14 @@
   }
 
   function render(d, periods) {
+    if (failed) return;
+    try { prepare(d, periods); } catch (error) { fallBack(error); return; }
+    renderAll();
+  }
+  function prepare(d, periods) {
+    // A retained (dated) refresh must always show its freshness: when no date can be printed, the previous page, which
+    // says so, stays (Atlas, #1439).
+    if (d && d.liveOverlay && d.liveOverlay.retainedRefresh && !updatedInstant(d)) throw new Error('retained refresh without a printable date');
     state.data = d;
     state.periods = periods;
     // The same settlement gate the current page applies first (plan.js planSettlementOutcome, ATLAS-080):
@@ -254,8 +310,20 @@
       state.selectedPeriodKey = active ? keyOf(active) : list.length ? keyOf(list[0]) : null;
     }
     state.ready = true;
-    renderAll();
   }
+
+  function applyChrome() {
+    root.classList.add('stack-view');
+    // The shell's stylesheet (tokens, pile, header, timeline), then one stylesheet per block, each owned by its block.
+    for (const href of ['/budget-stack-fonts.css', '/stack.css', ...ORDER.map(name => `/stack-${name}.css`)]) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      if (href === '/stack.css') link.addEventListener('load', () => centreNow());
+      document.head.appendChild(link);
+    }
+  }
+  try { applyChrome(); } catch (error) { fallBack(error); return; }
 
   if (typeof App !== 'undefined' && App.register) {
     App.register(render);
@@ -263,4 +331,14 @@
     // happened: when the data has already arrived, draw now from what App holds.
     if (App.data) render(App.data, App.periods, App.history);
   }
+})();
+} catch (error) {
+  failed = true;
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.classList.remove('stack-view');
+    const el = document.getElementById('stack-root');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  if (typeof console !== 'undefined') console.error('stack page failed to start; showing the classic page', error);
+}
 })();

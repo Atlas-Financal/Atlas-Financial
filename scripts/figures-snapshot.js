@@ -572,9 +572,9 @@ function uniqueKey(used, key) {
 
 /* ---- Stack Wallet bill sheet: Forecast billHistory ------------------------ */
 // Each bill's occurrences as published (date, amount, its basis and trust,
-// the paid word, the occurrence identity), one key per bill id and date.
-// Copied, never summed.
-const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState', 'occurrence'];
+// the paid word, the occurrence identity, whether the payment is confirmed),
+// one key per bill id and date. Copied, never summed.
+const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState', 'occurrence', 'paidConfirmed'];
 function putBillHistory(put, putField, advice) {
   const history = advice.billHistory && typeof advice.billHistory === 'object' ? advice.billHistory : {};
   const keys = new Set();
@@ -642,6 +642,12 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
       put(t + '.balance', credit.totals.balance.amount);
       put(t + '.balanceTrust', credit.totals.balance.trust);
       put(t + '.balanceCompleteness', credit.totals.balance.completeness);
+      // The minimums due over the same spend cards as paid (the HELOC out), how many are due and how many are covered.
+      put(t + '.minimumsDue', credit.totals.minimumsDue.amount);
+      put(t + '.minimumsDueTrust', credit.totals.minimumsDue.trust);
+      put(t + '.minimumsDueCount', credit.totals.minimumsDueCount);
+      put(t + '.minimumsCoveredCount', credit.totals.minimumsCoveredCount);
+      put(t + '.minimumsCoveredTrust', credit.totals.minimumsCoveredTrust);
     }
   }
 }

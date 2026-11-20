@@ -194,7 +194,7 @@ const inventedData = () => require('./fixtures/budget-surface-data').served();
 async function refreshScreen(browser, periods, contextOpts = {}, now = '2026-11-14T12:00:00') {
   const opened = await open(browser, contextOpts, { data: inventedData(), periods });
   await opened.context.clock.setFixedTime(new Date(now));
-  await opened.page.goto('http://boot.test/', { waitUntil: 'commit' });
+  await opened.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
   await opened.page.waitForSelector('[data-boot-notice]', { state: 'detached', timeout: 30000 });
   await opened.page.click('[data-manual-refresh]');
   await waitLoading(opened.page);
@@ -208,7 +208,7 @@ async function refreshScreen(browser, periods, contextOpts = {}, now = '2026-11-
     {
       const { context, page, order } = await open(browser);
       await context.clock.install();
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await waitLoading(page);
       const s = await state(page);
       ok(s.card && s.insideNotice && s.hidden === 'true', 'the tips card is inside the loading notice and aria-hidden', JSON.stringify(s));
@@ -240,7 +240,7 @@ async function refreshScreen(browser, periods, contextOpts = {}, now = '2026-11-
       const money = [...all].filter(x => MONEY.test(x));
       ok(money.length === 0, 'no tip carries a digit or currency sign (no figures)', money.join(' | '));
       const again = await open(browser);
-      await again.page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await again.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await waitLoading(again.page);
       const s2 = await state(again.page);
       ok(s2.dots === s.dots && all.has(s2.text), 'the tip list is the same fixed copy on every load', s2.text);
@@ -262,7 +262,7 @@ async function refreshScreen(browser, periods, contextOpts = {}, now = '2026-11-
     {
       const { context, page } = await open(browser, { reducedMotion: 'reduce' });
       await context.clock.install();
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await waitLoading(page);
       const s = await state(page);
       ok(s.tipAnim === 'none' && s.driftAnim === 'none', 'nothing animates under reduced motion', `${s.tipAnim} / ${s.driftAnim}`);

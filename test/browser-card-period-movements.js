@@ -62,7 +62,7 @@ const states = [], errors = [], writes = [], external = [];
       const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
       return fs.existsSync(file) ? route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' }) : route.fulfill({ status: 404, body: '' });
     });
-    await page.goto('http://cards.test/');
+    await page.goto('http://cards.test/?view=classic');
     return page;
   };
   const capture = async (locator, name, meta) => {

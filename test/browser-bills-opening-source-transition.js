@@ -189,7 +189,7 @@ async function stepPeriod(page, key, before) {
       page.setDefaultTimeout(15000);
       page.on('pageerror', error => receipt.pageErrors.push(error.message));
       await page.addInitScript(applyPlanKnobsAfterWiring, { weeklyVariable: 40 });
-      await page.goto(origin + '/');
+      await page.goto(origin + '/?view=classic');
       await page.locator('[data-budget-cash-hero]').waitFor();
       await settle(page);
       const currentId = await page.locator('[data-pay-period-swipe]').getAttribute('data-selected-pay-period');

@@ -95,7 +95,7 @@ function fixture() {
         const bytes = fs.readFileSync(path.join(output, file));
         screenshotHashes[file] = { sha256: sha(bytes), bytes: bytes.length };
       };
-      await page.goto('http://bills.test'); await page.locator('[data-blend-bill-list]').waitFor(); await settle();
+      await page.goto('http://bills.test/?view=classic'); await page.locator('[data-blend-bill-list]').waitFor(); await settle();
       const originalData = await page.evaluate(() => JSON.stringify(App.data));
       const period = () => page.locator('[data-budget-window-progress]').getAttribute('data-start');
       const originalPeriod = await period();

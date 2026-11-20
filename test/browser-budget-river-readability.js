@@ -9,7 +9,8 @@ const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 let chromium;
-try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('playwright-core')); }
+let playwrightPackage = 'playwright/package.json'; // the receipt names the version of the module that actually loaded
+try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require('playwright-core')); playwrightPackage = 'playwright-core/package.json'; }
 const { captureSourceBinding, verifySourceBinding } = require('./proof-source-binding');
 const { proveRiverPort, riverHarnessHtml } = require('./browser-budget-river-port');
 const fixture = require('./fixtures/budget-surface-data');
@@ -99,7 +100,7 @@ const COMPONENT = [
       assert.equal(hash(bytes), binding.files[key]?.sha256, 'Served bytes equal bound source: ' + key);
       return route.fulfill({ body: bytes, contentType: ({ '.css': 'text/css', '.js': 'application/javascript', '.woff2': 'font/woff2' })[path.extname(file)] || 'text/html' });
     });
-    await page.goto('http://budget.test/'); await page.evaluate(() => document.fonts.ready);
+    await page.goto('http://budget.test/?view=classic'); await page.evaluate(() => document.fonts.ready);
     if (!options.riverHarness) await page.waitForSelector('#operating-surface');
     return page;
   };
@@ -226,7 +227,7 @@ const COMPONENT = [
     check(errors.length === 0 && external.length === 0, 'No page errors or external requests');
     verifySourceBinding(root, binding);
     const receipt = { binding, frozen, status: failures.length ? 'FAIL' : 'PASS', failures, records, hatchCases, incumbentPort,
-      screenshots, errors, external, runtime: { node: process.version, browser: await browser.version(), playwright: require('playwright-core/package.json').version, scale: 1, renderer: 'headless Edge; --disable-accelerated-2d-canvas' },
+      screenshots, errors, external, runtime: { node: process.version, browser: await browser.version(), playwright: require(playwrightPackage).version, scale: 1, renderer: 'headless Edge; --disable-accelerated-2d-canvas' },
       measurementPrecision: 'Diagnostic numbers stored at six decimal places; assertions use unrounded measurements. Monetary strings, bindings and PNG bytes stay exact.',
       limits: 'Native synthetic local App/Forecast plus declared component publication controls; no authenticated production tab or physical-device acceptance. No hatch repair claimed when no native hatch paint is reproduced.' };
     fs.writeFileSync(path.join(out, 'receipt.json'), JSON.stringify(receipt, diagnosticNumber, 2) + '\n');

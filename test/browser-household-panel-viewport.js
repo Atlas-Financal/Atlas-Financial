@@ -6,7 +6,7 @@
 // NODE_PATH=<Playwright packages> CHROME_PATH=<Chromium> node test/browser-household-panel-viewport.js
 //
 // Harness: the same pattern as test/browser-budget-attention-order.js and
-// test/browser-household-total-delta.js — real public/ assets served from this
+// the retired test/browser-household-total-delta.js — real public/ assets served from this
 // checkout, data.json fulfilled from the synthetic fixtures/budget-surface-data
 // packet, every non-GET and every non-fixture origin aborted and counted. No
 // live site, provider, credential or household evidence is touched.
@@ -120,7 +120,7 @@ async function scenario(browser, vp, motion, trigger, closer, position) {
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
     page.on('pageerror', e => errors.push(tag + ': ' + e.message));
-    await page.goto(ORIGIN + '/');
+    await page.goto(ORIGIN + '/?view=classic');
     await page.locator('[data-budget-surface]').waitFor();
     assert.equal(await page.evaluate(() => App.data.meta.title), 'Synthetic Budget surface');
     assert.equal(await page.evaluate(() => document.documentElement.clientWidth), vp.width, 'true CSS-pixel width');

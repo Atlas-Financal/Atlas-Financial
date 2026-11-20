@@ -37,7 +37,7 @@ fs.mkdirSync(output, { recursive: true });
         if (!file.startsWith(assets + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html' });
       });
-      await page.goto('http://savings-links.test/');
+      await page.goto('http://savings-links.test/?view=classic');
       const button = page.locator('[data-budget-goal-open="' + (mode === 'anchor-unconfirmed' ? 'commitment:near' : 'group:club') + '"]').first();
       await button.waitFor({ state: 'visible' }); await button.focus(); await page.keyboard.press('Enter');
       const dialog = page.locator('[data-budget-detail-sheet]'), body = dialog.locator('[data-budget-detail-body]');
