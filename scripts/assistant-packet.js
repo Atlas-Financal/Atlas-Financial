@@ -1493,23 +1493,37 @@ const RECURRING_REFUSALS = Object.freeze({
 });
 const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
 const RECURRING_REFUSALS_MAX = 50;
-// Closed fields only, copied one by one (never the entry object itself), so nothing the block might carry beyond the
-// listed fields can reach the packet. Ordered by numeric id; an entry that is not closed-shaped is counted, not listed.
-const UNNAMED_READ_FIELDS = Object.freeze(['granularity', 'quantity', 'anchorDate', 'startDate', 'endDate', 'accountRole']);
+// Closed fields only, copied one by one (never the entry object itself), and each value checked against its closed domain
+// again here (the observation-time sanitizer is the first line, this is the second): an enumerated cadence word, a positive
+// safe integer, real calendar days, an enumerated account role, strictly increasing found dates. An entry that fails is shown
+// as unavailable (its id only), never copied. Ordered by numeric id; a row whose id is not all digits is skipped.
+const UNNAMED_GRANULARITIES = Object.freeze(['day', 'week', 'month', 'year']);
+const UNNAMED_ROLES = Object.freeze(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage',
+  'household-external', 'unmapped']);
 function unnamedRecurringProjection(rows) {
   if (!Array.isArray(rows)) return unavailable('unnamed-list-unavailable');
-  const date = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const day = v => {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+    const d = new Date(v + 'T00:00:00Z');
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  };
+  const closed = row => row.status === 'read'
+    && UNNAMED_GRANULARITIES.includes(row.granularity)
+    && Number.isSafeInteger(row.quantity) && row.quantity >= 1
+    && day(row.anchorDate)
+    && (row.startDate === null || day(row.startDate)) && (row.endDate === null || day(row.endDate))
+    && (row.accountRole === null || UNNAMED_ROLES.includes(row.accountRole))
+    && Array.isArray(row.foundDates) && row.foundDates.every(day)
+    && row.foundDates.every((d, i) => i === 0 || row.foundDates[i - 1] < d);
   const entries = [];
   for (const row of rows) {
     if (!row || typeof row.recurringId !== 'string' || !/^\d+$/.test(row.recurringId)) continue;
-    if (row.status === 'unavailable') { entries.push({ recurringId: row.recurringId, status: 'unavailable', reason: 'schedule-unreadable' }); continue; }
-    if (row.status !== 'read' || !Array.isArray(row.foundDates) || !row.foundDates.every(date)) {
+    if (!closed(row)) {
       entries.push({ recurringId: row.recurringId, status: 'unavailable', reason: 'schedule-unreadable' }); continue;
     }
-    const entry = { recurringId: row.recurringId, status: 'read' };
-    for (const field of UNNAMED_READ_FIELDS) entry[field] = row[field] === undefined ? null : row[field];
-    entry.foundDates = row.foundDates.slice();
-    entries.push(entry);
+    entries.push({ recurringId: row.recurringId, status: 'read', granularity: row.granularity, quantity: row.quantity,
+      anchorDate: row.anchorDate, startDate: row.startDate, endDate: row.endDate, accountRole: row.accountRole,
+      foundDates: row.foundDates.slice() });
   }
   entries.sort((a, b) => (BigInt(a.recurringId) < BigInt(b.recurringId) ? -1 : BigInt(a.recurringId) > BigInt(b.recurringId) ? 1 : 0));
   const items = entries.slice(0, RECURRING_REFUSALS_MAX);
@@ -1732,6 +1746,8 @@ function tokenConfigured(env) {
 }
 
 module.exports = {
+  UNNAMED_GRANULARITIES,
+  UNNAMED_ROLES,
   recurringRefusalsProjection,
   RECURRING_REFUSALS,
   SCHEMA,

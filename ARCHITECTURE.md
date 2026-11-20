@@ -2056,6 +2056,13 @@ source-account labels and pending/split/group status may be returned through
 these OAuth tools; raw provider IDs and credentials may not be returned.
 The static assistant packet grant is unchanged.
 
+One narrow exception to that line is owner-decided (Dale, 2026-11-20, answering a direct question; relayed on PR #1495,
+comment 7053045943): the assistant packet's `uncertainty.recurringScheduleRefusals.unnamed` list may carry the Lunch Money
+recurring item ids, their cadence fields (granularity, quantity, anchor, start and end dates, the Atlas role of the item's
+account) and the dates of the transactions Lunch Money found for them, for reviewed items no identity rule names, so a
+`lunchMoneyRecurringIds` link can be written in `docs/connectivity/transaction-identity.json`. Nothing else: no payee,
+description, amount, notes, category, currency, provider account id, transaction id or credential.
+
 Every direct tool requires the verified OAuth subject. Catalog and query
 require the separately authorized `atlas.transactions.read` scope; preview
 and apply require `atlas.transactions.write`. `atlas.current.read` remains

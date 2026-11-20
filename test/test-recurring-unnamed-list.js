@@ -139,6 +139,47 @@ console.log('4. Counts and neighbours: the old drop counts and the refusals are 
   ok(failed.status === 'unavailable', 'a failed recurring read is unavailable as before, with no list');
 }
 
+console.log('4b. The packet checks the values it copies, a second line behind the sanitizer (the in-house reviewer, N1)');
+{
+  const MARK = 'INVENTED-MARKER-9f3a';
+  // A stored block as a bug or a replay might hand it over: free text, an object, an amount-like string and an unsorted list in the
+  // fields the sanitizer would have closed. The real path cannot build it; the projection must not publish it either.
+  const polluted = JSON.parse(JSON.stringify(data));
+  const block = polluted.liveOverlay.currentPeriodActuals.lunchMoneyRecurring;
+  const good = block.unnamed.find(e => e.status === 'read');
+  const bad = patch => ({ ...good, recurringId: '7999' + (bad.n = (bad.n || 0) + 1), ...patch });
+  block.unnamed = [
+    bad({ granularity: MARK }), bad({ quantity: { amount: MARK } }), bad({ anchorDate: '2026-01-20 ' + MARK }), bad({ startDate: '2026-02-30' }),
+    bad({ endDate: { x: MARK } }), bad({ accountRole: MARK }), bad({ foundDates: ['2026-09-20', '2026-08-20'] }), bad({ foundDates: ['2026-09-20\n' + MARK] }),
+    bad({ quantity: 1.5 }), bad({ quantity: 0 }), good,
+  ];
+  const projected = listOf(polluted);
+  ok(!JSON.stringify(projected).includes(MARK) && projected.items.length === 11 && projected.items.filter(i => i.status === 'read').length === 1
+    && projected.items.filter(i => i.status === 'unavailable').every(i => same(Object.keys(i).sort(), ['reason', 'recurringId', 'status'])),
+  'a stored block with free text, an object, a bad day, a bad role and unsorted found dates: each such entry is shown unavailable (its id only), the marker is nowhere in the packet', JSON.stringify(projected.items.map(i => i.recurringId + ':' + i.status)));
+  ok(same(Assistant.UNNAMED_ROLES.slice().sort(), O.RECURRING_UNNAMED_ROLES.slice().sort()),
+    'the packet\'s closed list of account roles is the sanitizer\'s (one domain, two lines of defence)');
+  ok(same(Assistant.UNNAMED_GRANULARITIES.slice(), ['day', 'week', 'month', 'year']), 'the packet\'s cadence words are the closed four');
+  // MUTANT: the packet's value check removed: the polluted block's text reaches the packet, which the check above rejects.
+  const pfile = require.resolve('../scripts/assistant-packet.js');
+  const psrc = fs.readFileSync(pfile, 'utf8');
+  const guard = "const closed = row => row.status === 'read'";
+  ok(psrc.includes(guard), 'the packet mutant targets the value check');
+  const pm = new Module(pfile, null); pm.filename = pfile; pm.paths = Module._nodeModulePaths(path.dirname(pfile));
+  pm._compile(psrc.replace(guard, "const closed = row => row.status === 'read' || true"), pfile);
+  const leaked = pm.exports.buildPacket({ data: polluted, periods: { periods: {} }, questionsMarkdown: '', env: {}, now: '2026-10-14T19:00:00Z' })
+    .uncertainty.recurringScheduleRefusals.unnamed;
+  ok(JSON.stringify(leaked).includes(MARK), 'MUTANT: without the packet\'s own value check the marker text is published (the real check keeps it out)');
+}
+
+console.log('4c. The one home for the boundary records this exception');
+{
+  const arch = fs.readFileSync(path.join(__dirname, '..', 'ARCHITECTURE.md'), 'utf8');
+  ok(/One narrow exception to that line is owner-decided \(Dale, 2026-11-20[^)]*comment 7053045943\)/.test(arch.replace(/\s+/g, ' '))
+    && /recurringScheduleRefusals\.unnamed/.test(arch) && /no payee,\s+description,\s+amount,\s+notes,\s+category,\s+currency,\s+provider account id,\s+transaction id or credential/.test(arch),
+  'ARCHITECTURE.md records exactly this exception under the assistant packet grant, citing the owner answer, and nothing else');
+}
+
 console.log('5. MUTANTS: the sanitizer and the projection each keep a leaked field out');
 {
   const file = require.resolve('../scripts/provider-observe.js');
