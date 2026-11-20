@@ -12,15 +12,13 @@ html.stack-view .stack-credit-head {
 }
 html.stack-view .stack-credit.is-open .stack-credit-head { align-items: start; }
 html.stack-view .stack-credit-hd {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f" "s s" "x x"; align-items: center; column-gap: 10px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f"; align-items: center; column-gap: 10px;
 }
-html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f" "s" "x"; }
+html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f"; }
 html.stack-view .stack-credit-title { grid-area: t; font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
 html.stack-view .stack-credit-figure { grid-area: f; font-size: 24px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
 html.stack-view .stack-credit.is-open .stack-credit-figure { font-size: 52px; margin-top: 6px; }
 html.stack-view .stack-credit-figure i { font-style: normal; font-size: .6em; font-weight: 600; color: var(--stack-on2); }
-html.stack-view .stack-credit-sub { grid-area: s; font-size: 13.5px; font-weight: 500; color: var(--stack-on2); }
-html.stack-view .stack-credit-excludes { grid-area: x; margin-top: 4px; font-size: 13px; font-weight: 600; color: var(--stack-on2); }
 html.stack-view .stack-credit-go {
   width: 42px; height: 42px; border-radius: 50%; background: var(--stack-on); color: var(--stack-cards); display: grid; place-items: center;
 }
@@ -54,7 +52,6 @@ html.stack-view .stack-credit-minibar { display: block; height: 6px; margin-top:
 html.stack-view .stack-credit-minibar i { display: block; height: 100%; border-radius: 3px; background: var(--stack-on); }
 html.stack-view .stack-credit-status { font-size: 16px; font-weight: 700; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
 html.stack-view .stack-credit-status.is-togo { color: var(--stack-togo); }
-html.stack-view .stack-credit-status.is-up { color: var(--stack-on2); }
 html.stack-view .stack-n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   html.stack-view .stack-credit-exp, html.stack-view .stack-chev { transition: none; }
