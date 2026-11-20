@@ -53,7 +53,7 @@ const cardHtml = (view, kind) => cards.buildCardsHTML({ data: {}, plan: {}, reco
 const text = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 // Each listed bill row's visible text (label and amount; a paid check shows as a check mark).
 const rowLabels = h => h.split('<li class="sc-row sc-bill"').slice(1).map(x => { const li = x.split('</li>')[0]; return text(li.slice(li.indexOf('>') + 1)); });
-const headOf = h => text(h.split('</summary>')[0].slice(h.indexOf('<summary>') + '<summary>'.length));
+const headOf = h => { const sum = h.slice(h.indexOf('<summary'), h.indexOf('</summary>')); return text(sum.slice(sum.indexOf('>') + 1)); };
 const CHECK = '\u2713';
 
 const current = (Forecast, opts) => {
@@ -146,25 +146,39 @@ function handPeriod(Forecast) {
   'a scheduled fee is marked at its periodCost and an overpaid bill at what it counts (8 + 47.50 = other 55.50)', JSON.stringify(view.bills.map(r => r.stackBillAmount)));
 }
 
-console.log('3b. Known limit (lead ruling, option a): a card row is what the split counts, its sheet what was paid');
-{
-  // A 90 monthly hydro, paid 120 in August (unconfirmed), 90 in September and 40 in October (partly paid).
-  // The split counts billAssignedAmount (the plan, or a larger observed payment), so every month adds 90 to
-  // its period's bills and the card row prints 90; the bill's sheet (billHistory) shows the payment the ledger
-  // has, 120 and 40. Pinned so a change to either side is deliberate; whether a partly paid bill should count
-  // 90 or 40 is an owner question, not this code's.
-  const H = require('./acceptance/harness.js');
+console.log('3b. A linked payment that differs from the plan, not verified: the plan, drawn as an estimate');
+// Owner (Dale, 2026-11-20, on #1465): bills are never paid partially; a payment that differs from the plan is the
+// bill amount only once Grok Bot verifies it, which Atlas does not infer. Until then the period counts the plan,
+// the card row prints it with the check, drawn softer (stack-est) and named "Paid, estimated", and the bill's sheet
+// keeps the payment as the ledger has it.
+const H = require('./acceptance/harness.js');
+function hydroWorld(Forecast) {
   const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
   const pay = (date, amount) => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' });
   const w = H.baseWorld(); w.bills = [HYDRO];
   w.transactions = [pay('2026-08-12', 120), pay('2026-09-12', 90), pay('2026-10-12', 40)];
   const o = H.observe(w); if (o.error) throw o.error;
-  const rec = F.recommend(o.plan, w.asOf, { currentPeriodActuals: o.packet });
-  const card = new Map(), sheet = new Map((rec.billHistory.hydro || []).map(e => [e.date, e.amount]));
-  for (const v of rec.payPeriodViews) for (const b of v.bills || []) if (b.id === 'hydro' && b.stackBillPart) card.set(b.date, b.stackBillAmount);
-  const pairs = ['2026-08-12', '2026-09-12', '2026-10-12'].map(d => [d, card.get(d), sheet.get(d)]);
-  ok(JSON.stringify(pairs) === JSON.stringify([['2026-08-12', 90, 120], ['2026-09-12', 90, 90], ['2026-10-12', 90, 40]]),
-    'card row 90 / sheet 120 (unconfirmed overpayment), 90 / 90, 90 / 40 (partly paid)', JSON.stringify(pairs));
+  return Forecast.recommend(o.plan, w.asOf, { currentPeriodActuals: o.packet });
+}
+function hydroCards(rec) {
+  const out = {};
+  for (const v of rec.payPeriodViews) {
+    const b = (v.bills || []).find(r => r.id === 'hydro' && r.stackBillPart);
+    if (!b) continue;
+    const li = cardHtml(v, 'bills').split('<li class="sc-row sc-bill"').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('Invented hydro'));
+    out[b.date] = { amount: b.stackBillAmount, est: /class="sc-a stack-est"/.test(li || ''), name: ((li || '').match(/aria-label="([^"]*)"/) || [])[1] || null };
+  }
+  return out;
+}
+{
+  const rec = hydroWorld(F);
+  const cards = hydroCards(rec), sheet = new Map((rec.billHistory.hydro || []).map(e => [e.date, e.amount]));
+  const got = ['2026-08-12', '2026-09-12', '2026-10-12'].map(d => [d, cards[d], sheet.get(d)]);
+  ok(JSON.stringify(got) === JSON.stringify([
+    ['2026-08-12', { amount: 90, est: true, name: 'Paid, estimated $90' }, 120],
+    ['2026-09-12', { amount: 90, est: false, name: 'Paid' }, 90],
+    ['2026-10-12', { amount: 90, est: true, name: 'Paid, estimated $90' }, 40]]),
+  'card 90 soft "Paid, estimated" / sheet 120; 90 plain "Paid" / 90; 90 soft / sheet 40', JSON.stringify(got));
 }
 
 console.log('4. Mutants are caught');
@@ -189,6 +203,13 @@ console.log('4. Mutants are caught');
   stale.__marks(b, { other: null, trust: 'unavailable' });
   ok(!Object.hasOwn(a.bills[0], 'stackBillPart') && Object.hasOwn(b.bills[0], 'stackBillPart'),
     'a stale mark under a withheld split is cleared, and keeping it is caught');
+}
+
+{
+  // The marker never marks a differing payment: the unverified rows lose their estimate drawing.
+  const noEst = compile(replaceOnce(SOURCE, '      if (stackBillPaymentDiffers(mark.row, mark.cents)) mark.row.stackBillAmountEstimated = true;\n', '', 'no estimate'), 'no-estimate');
+  const c = hydroCards(hydroWorld(noEst));
+  ok(c['2026-08-12'] && c['2026-08-12'].est === false && c['2026-10-12'].est === false, 'dropping the estimate mark is caught (the differing rows draw plain)');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack bill part checks passed`);

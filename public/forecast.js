@@ -12857,7 +12857,16 @@
   //   stackBillAmount  the amount that row adds to its part (billAssignedAmount,
   //                    or a scheduled fee's periodCost), to the cent
   //   stackBillDebtId  a card minimum's credit line (stackSummary.bills.cardMinimums[].debtId)
-  const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId'];
+  //   stackBillAmountEstimated  true when the ledger links a payment whose amount
+  //                    is not the amount counted (owner, Dale 2026-11-20: a
+  //                    differing payment is the bill amount only once verified,
+  //                    which Atlas does not infer), so the counted amount is
+  //                    the plan, not yet confirmed
+  const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillAmountEstimated'];
+  function stackBillPaymentDiffers(row, cents) {
+    return !!(row && row.status === 'PAID' && row.settlement === 'represented'
+      && typeof row.actual === 'number' && Number.isFinite(row.actual) && Math.round(Math.abs(row.actual) * 100) !== cents);
+  }
   function publishStackBillParts(view, bills) {
     const rows = Array.isArray(view.bills) ? view.bills : [];
     for (const row of rows) if (row && typeof row === 'object') for (const key of STACK_BILL_MARKS) delete row[key];
@@ -12869,6 +12878,7 @@
       mark.row.stackBillPart = mark.part;
       mark.row.stackBillAmount = mark.cents / 100;
       if (mark.part === 'cardMinimum') mark.row.stackBillDebtId = mark.debtId;
+      if (stackBillPaymentDiffers(mark.row, mark.cents)) mark.row.stackBillAmountEstimated = true;
     }
   }
   function stackBills(view) {

@@ -118,10 +118,13 @@
   var DASH = '\u2014';
   // The round go button on every card head: a chevron that turns when the card is open.
   var CHEV = '<svg class="sc-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  function stateRow(label, amountText, paid, target) {
+  // est: Forecast's stackBillAmountEstimated (a linked payment differs from the counted plan, not yet verified):
+  // the amount is drawn softer, and the check's accessible name says the paid amount shown is an estimate.
+  function stateRow(label, amountText, paid, target, est) {
+    var checkName = est && amountText != null ? 'Paid, estimated ' + amountText : 'Paid';
     return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
-      '<span class="sc-a">' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
-      '<span class="sc-ck">' + (paid ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span></li>';
+      '<span class="sc-a' + estCls(est) + '">' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
+      '<span class="sc-ck">' + (paid ? '<span class="sc-check" role="img" aria-label="' + esc(checkName) + '">\u2713</span>' : '') + '</span></li>';
   }
 
   function billsCard(view) {
@@ -130,7 +133,7 @@
     var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Bill', money(r.stackBillAmount), r.paidState === 'paid', billTarget('bill', r));
+      return stateRow(r.label || r.name || 'Bill', money(r.stackBillAmount), r.paidState === 'paid', billTarget('bill', r), r.stackBillAmountEstimated === true);
     }).join('') + '</ul>';
     return strip('bills', 'Bills', '', total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust), true);
   }
@@ -162,7 +165,7 @@
     var rows = partRows(view, 'mortgage');
     var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
     var body = rows.length ? '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Mortgage', money(r.stackBillAmount), r.paidState === 'paid', billTarget('mortgage', r));
+      return stateRow(r.label || r.name || 'Mortgage', money(r.stackBillAmount), r.paidState === 'paid', billTarget('mortgage', r), r.stackBillAmountEstimated === true);
     }).join('') + '</ul>' : '';
     return strip('mortgage', 'Mortgage', '', total, null, fill(paid, rows.length), body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
   }

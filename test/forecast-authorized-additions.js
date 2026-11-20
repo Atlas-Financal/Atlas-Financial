@@ -55,7 +55,7 @@ function proveStackBills(view, bills) {
     'authorized addition: a published bills split lists its parts');
   assert.ok(['calculated', 'estimated'].includes(bills.trust), 'authorized addition: a published bills split is calculated or estimated');
 }
-const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId'];
+const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillAmountEstimated'];
 const STACK_BILL_PARTS = new Set(['mortgage', 'cardMinimum', 'other']);
 function proveStackBillParts(view, bills) {
   const rows = Array.isArray(view.bills) ? view.bills : [];
@@ -64,6 +64,9 @@ function proveStackBillParts(view, bills) {
   for (const row of marked) {
     assert.ok(STACK_BILL_PARTS.has(row.stackBillPart) && finite(row.stackBillAmount), 'authorized addition: a marked bill row names its part and amount');
     assert.equal(Object.hasOwn(row, 'stackBillDebtId'), row.stackBillPart === 'cardMinimum', 'authorized addition: only a card minimum names its line');
+    const differs = row.status === 'PAID' && row.settlement === 'represented' && finite(row.actual) && cents(Math.abs(row.actual)) !== cents(row.stackBillAmount);
+    assert.equal(row.stackBillAmountEstimated === true, differs, 'authorized addition: the estimate mark is set exactly where a linked payment differs from the counted amount');
+    if (Object.hasOwn(row, 'stackBillAmountEstimated')) assert.equal(row.stackBillAmountEstimated, true, 'authorized addition: the estimate mark is only ever true');
   }
   if (marked.length) {
     const sum = list => list.reduce((total, row) => total + cents(row.stackBillAmount), 0);
