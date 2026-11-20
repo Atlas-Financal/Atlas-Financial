@@ -97,9 +97,9 @@ const text = html => html.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replac
   fns.waterfall(el, { data: { debts: [{ id: 'cardA', label: 'Plan A', ledgerName: 'Blue' }, { id: 'cardB', label: 'Plan B' }] }, plan: {},
     recommendation: { payPeriodViews: [view] }, selectedPeriodKey: view.start, Forecast: null });
   const t = text(el.innerHTML);
-  ok(/Blue \$25\.00/.test(t) && !/Plan A/.test(t), 'waterfall: a credit row shows its ledger name', t);
-  ok(/Plan B \$10\.00/.test(t), 'waterfall: no ledger name, the plan label');
-  ok(/cardZ \$5\.00/.test(t), 'waterfall: no debt at all, the id (unchanged)');
+  ok(/Blue \$25(?![\d.,])/.test(t) && !/Plan A/.test(t), 'waterfall: a credit row shows its ledger name', t);
+  ok(/Plan B \$10(?![\d.,])/.test(t), 'waterfall: no ledger name, the plan label');
+  ok(/cardZ \$5(?![\d.,])/.test(t), 'waterfall: no debt at all, the id (unchanged)');
 }
 {
   const { fns } = load();
