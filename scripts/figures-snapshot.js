@@ -615,7 +615,8 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
     // Stack Wallet A6b: Forecast.stackCreditLines on the same publication and
     // the period's published bills split. Per line: the minimum, status, the
     // amount to go and whether the minimum is covered, each with its trust;
-    // and the credit totals with their completeness.
+    // and the credit totals with their completeness. The last balance snapshot
+    // (current period only) with its trust and date, and its total.
     const credit = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
     if (credit) {
       const lineKeys = new Set();
@@ -628,12 +629,18 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         putField(c + '.status', line, 'status');
         put(c + '.minimumCovered', String(line.minimumCovered.value));
         put(c + '.minimumCoveredTrust', line.minimumCovered.trust);
+        put(c + '.balance', line.balance.amount);
+        put(c + '.balanceTrust', line.balance.trust);
+        put(c + '.balanceAsOf', line.balance.asOf);
       }
       const t = p + '.stackCardTotals';
       put(t + '.paid', credit.totals.paid);
       put(t + '.spent', credit.totals.spent);
       put(t + '.trust', credit.totals.trust);
       put(t + '.completeness', credit.totals.completeness);
+      put(t + '.balance', credit.totals.balance.amount);
+      put(t + '.balanceTrust', credit.totals.balance.trust);
+      put(t + '.balanceCompleteness', credit.totals.balance.completeness);
     }
   }
 }
