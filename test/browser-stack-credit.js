@@ -99,9 +99,9 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     ok(expanded === 'true' && !(await page.$eval('.stack-credit-exp', el => el.hasAttribute('inert'))), 'the list opens');
     const rows = await page.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
     if (stub) {
-      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa Paid back Paid back $400 of $400 Minimum $25 covered ✓',
-        'Green Card $160 to go Paid back $100 of $260 Minimum $30 not yet', 'Red Card', 'Gold Card Upcoming Paid back $0 of $0',
-        'Line of credit Minimum $210 covered ✓']), 'one row per published line, unpublished prints nothing', JSON.stringify(rows));
+      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa Paid back Paid back $400 of $400 Minimum $25 ✓',
+        'Green Card $160 to go Paid back $100 of $260 Minimum $30', 'Red Card Minimum $15', 'Gold Card Upcoming Paid back $0 of $0 Minimum $10',
+        'Line of credit Minimum $210 ✓']), 'one row per published line, unpublished prints nothing', JSON.stringify(rows));
       const coral = await page.$eval('.stack-credit-status.is-togo', el => getComputedStyle(el).color);
       ok(coral === 'rgb(200, 55, 45)', '"to go" is coral', coral);
     } else ok(rows.length === 6, 'six lines', String(rows.length));
