@@ -163,6 +163,47 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, a dash when absent',
     JSON.stringify(printed.slice(0, 5)));
 
+    // The selected chip keeps the soft treatment on an estimate, readable on its fill: the value's ink, blended at its
+    // own opacity over the chip's fill, clears 4.5:1 contrast, positive and negative, in light and dark. Each scheme
+    // is its own page load, so no theme switch happens mid-page.
+    const ratios = [];
+    for (const theme of ['light', 'dark']) {
+      const t = await open(browser, { query: '?view=stack', theme });
+      await t.page.waitForSelector('#stack-root [data-stack-period]');
+      await t.page.evaluate(() => {
+        const original = Forecast.recommend;
+        Forecast.recommend = function () {
+          const r = original.apply(this, arguments);
+          (r.payPeriodViews || []).forEach((v, i) => {
+            v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: { amount: i % 2 ? -250.5 : 1000, trust: 'estimated' } });
+          });
+          return r;
+        };
+        App.rerender();
+      });
+      for (const i of [0, 1]) {
+        await t.page.click(`[data-stack-period="${views[i].start}"]`);
+        await settle(t.page);
+        ratios.push({ theme, errors: t.errors.length, ...(await t.page.evaluate(() => {
+          const rgb = s => (s.match(/[\d.]+/g) || []).map(Number);
+          const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+          const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+          const chip = document.querySelector('[data-stack-period][aria-pressed="true"]');
+          const v = chip.querySelector('[data-stack-chip-amount]');
+          const fg = rgb(getComputedStyle(v).color), bg = rgb(getComputedStyle(chip).backgroundColor);
+          const a = Number(getComputedStyle(v).opacity) * (fg.length > 3 ? fg[3] : 1);
+          const ink = [0, 1, 2].map(k => a * fg[k] + (1 - a) * bg[k]);
+          const [hi, lo] = [lum(ink), lum(bg.slice(0, 3))].sort((x, y) => y - x);
+          return { ratio: (hi + 0.05) / (lo + 0.05), soft: v.classList.contains('stack-est'), opacity: a, neg: chip.classList.contains('is-neg') };
+        })) });
+      }
+      await t.page.close();
+    }
+    ok(ratios.length === 4 && ratios.every(r => r.soft && r.opacity < 1 && r.ratio >= 4.5 && r.errors === 0)
+      && ratios.filter(r => r.neg).length === 2,
+      'the selected chip keeps the soft treatment on an estimate and still clears 4.5:1 contrast (light and dark, + and −)',
+      JSON.stringify(ratios.map(r => [r.theme, r.neg, r.opacity, Math.round(r.ratio * 100) / 100])));
+
     console.log('4. selection drives every block');
     await page.evaluate(() => {
       window.__stackCalls = [];
@@ -200,11 +241,6 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     ok(pastHeads.length === 2 && pastHeads[0] === 'Last pay period' && pastHeads[1] === 'Past',
       'the period before the current one reads "Last pay period"; an earlier one reads "Past" (the design)', JSON.stringify(pastHeads));
     await page.click('[data-stack-now]');
-    const sel = await page.evaluate(() => {
-      const v = document.querySelector('[data-stack-period][aria-pressed="true"] [data-stack-chip-amount]');
-      return v ? getComputedStyle(v).opacity : null;
-    });
-    ok(sel === '1', 'the selected chip\'s value is drawn at full strength, dark on the selected fill (the design)', String(sel));
     ok(errors.length === 0, 'no page errors under the flag', errors.join('; '));
     await page.close();
 
