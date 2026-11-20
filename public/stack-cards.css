@@ -1,6 +1,6 @@
-/* Stack page Bills, Budget, Mortgage and Savings cards. Loaded only under ?view=stack; every selector is scoped to html.stack-view. The cards keep their own pastel fills and dark ink in both themes, as in the design. */
+/* Stack page Bills, Budget and Savings cards. Loaded only under ?view=stack; every selector is scoped to html.stack-view. The cards keep their own pastel fills and dark ink in both themes, as in the design. */
 html.stack-view .sc-cards{--sc-ink:#121316;--sc-muted:#6c6d74;--sc-line:rgba(18,19,22,.13);--sc-bar:rgba(18,19,22,.13);
---sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;--sc-savings:#ffcfb3;display:flex;flex-direction:column;font-family:inherit}
+--sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-savings:#ffcfb3;display:flex;flex-direction:column;font-family:inherit}
 /* The pile, as in the design: each card overlaps the one above by 38px and casts the lift shadow upward. The bottom padding
  * keeps the card's own head clear of the card that covers its foot; the last card needs it only while Credit follows. */
 html.stack-view .sc-card{position:relative;background:var(--sc-k);color:var(--sc-ink);border-radius:38px;margin-top:-38px;

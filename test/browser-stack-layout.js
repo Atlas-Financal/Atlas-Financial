@@ -4,7 +4,7 @@
  *
  *   1. The surplus fits its slab: at 320 and 390 wide (and 1440), the printed surplus and a long value such as
  *      −$12,345.67 end inside the slab's padding, with no overflow or clipping.
- *   2. Every card's strip is fully visible and tappable: each card's summary (Bills, Budget, Mortgage) and the Credit
+ *   2. Every card's strip is fully visible and tappable: each card's summary (Bills, Budget) and the Credit
  *      head lie wholly inside the page, no later block covers them (the element at each strip's corners and centre is
  *      the strip itself), and they do not overlap one another. Closed and with Credit open.
  *   3. The waterfall rows at 320 wide: each label on one line, at least 8px from its amount (a long invented amount in
@@ -165,7 +165,7 @@ const slabInk = (page, amount) => page.evaluate(value => {
         if (state === 'Credit open') await openCreditCard(page);
         const s = await strips(page);
         const names = s.map(x => x.name).join(',');
-        ok(names === 'bills,budget,mortgage,credit', `${state}: the Bills, Budget, Mortgage and Credit strips are found`, names);
+        ok(names === 'bills,budget,credit', `${state}: the Bills, Budget and Credit strips are found`, names);
         const hidden = s.filter(x => x.covered > 0 || x.height < 40 || x.left < 0 || x.right > x.viewport);
         ok(hidden.length === 0, `${state}: every strip is wholly visible and is what a tap on it reaches`, JSON.stringify(hidden));
         const overlaps = s.slice(1).filter((x, i) => x.top < s[i].bottom - 0.5);
@@ -222,7 +222,7 @@ const slabInk = (page, amount) => page.evaluate(value => {
       await page.addStyleTag({ content: 'html.stack-view .stack-bare + .stack-bare { margin-top: -120px; }' });
       await page.waitForTimeout(50);
       const s = await strips(page);
-      ok(s.some(x => x.covered > 0), 'with the Credit block overlapping again, the Mortgage strip is reported covered',
+      ok(s.some(x => x.covered > 0), 'with the Credit block overlapping again, the last card strip is reported covered',
         JSON.stringify(s.map(x => [x.name, x.covered])));
       await page.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-slab .n { font-size: 66px; }' });
       const fit = await slabFit(page, ['−$12,345.67']);
