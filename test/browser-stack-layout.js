@@ -4,11 +4,13 @@
  *
  *   1. The surplus fits its slab: at 320 and 390 wide (and 1440), the printed surplus and a long value such as
  *      −$12,345.67 end inside the slab's padding, with no overflow or clipping.
- *   3. The waterfall rows at 320 wide: each label on one line, at least 8px from its amount (a long invented amount in
- *      every row), nothing past the row's edge, no horizontal page scroll.
  *   2. Every card's strip is fully visible and tappable: each card's summary (Bills, Budget, Mortgage) and the Credit
  *      head lie wholly inside the page, no later block covers them (the element at each strip's corners and centre is
  *      the strip itself), and they do not overlap one another. Closed and with Credit open.
+ *   3. The waterfall rows at 320 wide: each label on one line, at least 8px from its amount (a long invented amount in
+ *      every row), nothing past the row's edge, no horizontal page scroll.
+ *   4. Controls: each check fails on the defect it names, and no check passes without measuring what it names (a
+ *      missing toggle throws; a row with no measurable text is reported, never skipped).
  *
  * Local (hosted CI has no browser); the static rules behind both are pinned in test-stack-shell (section 7).
  * `node test/browser-stack-layout.js`
@@ -44,6 +46,35 @@ async function open(browser, width) {
   return { page, errors };
 }
 
+// Opens a disclosure and proves it opened: a missing toggle, or one that does not open, throws (never a silent pass).
+async function openToggle(page, toggle, opened) {
+  if (!(await page.$(toggle))) throw new Error(`toggle not found: ${toggle}`);
+  await page.click(toggle);
+  await page.waitForTimeout(100);
+  if (!(await page.evaluate(sel => !!document.querySelector(sel), opened))) throw new Error(`did not open: ${opened}`);
+}
+const openCreditCard = page => openToggle(page, '[data-stack-credit-toggle]', '[data-stack-credit-toggle][aria-expanded="true"]');
+const openWaterfallCredit = page => openToggle(page, '[data-wf-toggle="credit"]', '[data-wf-toggle="credit"][aria-expanded="true"]');
+
+// Each waterfall row (the main lines and the open Credit row's cards), with a long invented amount written into every
+// published figure. A row is reported 'measured' only when its label and its amount both drew text, so a row that
+// cannot be measured fails instead of vanishing from the check.
+const measureWaterfall = page => page.evaluate(() => {
+  const ink = el => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()].filter(x => x.width > 0); };
+  const wf = document.querySelector('#stack-root [data-block="waterfall"]');
+  for (const n of wf.querySelectorAll('.wf-line .n:not([data-unpublished]), .wf-card .n:not([data-unpublished])')) n.textContent = '$12,345.67';
+  return [...wf.querySelectorAll('.wf-line, .wf-card')].map(li => {
+    const lab = li.querySelector('.lab, b'), n = li.querySelector('.n:not([data-unpublished])');
+    if (!lab || !n) return null; // a row with no published amount has nothing to fit
+    const l = ink(lab), a = ink(n), box = li.getBoundingClientRect();
+    const measured = l.length > 0 && a.length > 0;
+    return { label: lab.textContent.trim(), card: li.classList.contains('wf-card'), measured,
+      lines: measured ? new Set(l.map(x => Math.round(x.top))).size : 0,
+      gap: measured ? Math.min(...a.map(x => x.left)) - Math.max(...l.map(x => x.right)) : null,
+      over: measured ? Math.max(...a.map(x => x.right)) - box.right : null };
+  }).filter(Boolean);
+});
+
 // Where the printed text ends against the slab's inner edge (its right padding), for the current text and for others.
 const slabFit = (page, texts) => page.evaluate(values => {
   const n = document.querySelector('#stack-root .wf-slab .n');
@@ -56,7 +87,9 @@ const slabFit = (page, texts) => page.evaluate(values => {
     range.selectNodeContents(n);
     const ink = range.getBoundingClientRect();
     const box = slab.getBoundingClientRect();
-    return { text, inkRight: ink.right, inner: box.right - pad, overflow: n.scrollWidth > n.clientWidth + 1 || slab.scrollWidth > slab.clientWidth + 1 };
+    // measured: the text drew something (an empty or hidden amount must not pass as "fits").
+    return { text, measured: ink.width > 0 && ink.height > 0, inkRight: ink.right, inner: box.right - pad,
+      overflow: n.scrollWidth > n.clientWidth + 1 || slab.scrollWidth > slab.clientWidth + 1 };
   });
   n.textContent = original;
   return rows;
@@ -89,15 +122,12 @@ const strips = page => page.evaluate(() => {
       const { page, errors } = await open(browser, width);
 
       const fit = await slabFit(page, ['−$12,345.67', '+$9,999.99']);
-      const bad = fit.filter(r => r.overflow || r.inkRight > r.inner + 0.5);
+      const bad = fit.filter(r => !r.measured || r.overflow || r.inkRight > r.inner + 0.5);
       ok(fit.length === 3 && bad.length === 0, `the surplus and long values end inside the slab (${fit.map(r => r.text).join(', ')})`,
         JSON.stringify(bad));
 
       for (const state of ['closed', 'Credit open']) {
-        if (state === 'Credit open') {
-          await page.click('[data-stack-credit-toggle]');
-          await page.waitForTimeout(100);
-        }
+        if (state === 'Credit open') await openCreditCard(page);
         const s = await strips(page);
         const names = s.map(x => x.name).join(',');
         ok(names === 'bills,budget,mortgage,credit', `${state}: the Bills, Budget, Mortgage and Credit strips are found`, names);
@@ -113,27 +143,42 @@ const strips = page => page.evaluate(() => {
     console.log('the waterfall rows at 320 wide: one line each, a gap before every amount, even for a long one');
     {
       const { page, errors } = await open(browser, 320);
-      await page.click('[data-wf-toggle="credit"]').catch(() => {});
-      await page.waitForTimeout(100);
-      const rows = await page.evaluate(() => {
-        const ink = el => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()]; };
-        const wf = document.querySelector('#stack-root [data-block="waterfall"]');
-        // A long invented amount in every published row, to prove the fit is not luck of today's figures.
-        for (const n of wf.querySelectorAll('.wf-line .n:not([data-unpublished]), .wf-card .n:not([data-unpublished])')) n.textContent = '$12,345.67';
-        return [...wf.querySelectorAll('.wf-line, .wf-card')].map(li => {
-          const lab = li.querySelector('.lab, b'), n = li.querySelector('.n:not([data-unpublished])');
-          if (!lab || !n) return null;
-          const l = ink(lab), a = ink(n), box = li.getBoundingClientRect();
-          return { label: lab.textContent.trim(), lines: new Set(l.map(x => Math.round(x.top))).size,
-            gap: Math.min(...a.map(x => x.left)) - Math.max(...l.map(x => x.right)), over: Math.max(...a.map(x => x.right)) - box.right };
-        }).filter(Boolean);
-      });
-      const bad = rows.filter(r => r.lines !== 1 || r.gap < 8 || r.over > 0.5);
-      ok(rows.length >= 8 && bad.length === 0, `every waterfall label is one line, 8px or more from its amount, nothing past the edge (${rows.length} rows)`,
+      await openWaterfallCredit(page);
+      const rows = await measureWaterfall(page);
+      const bad = rows.filter(r => !r.measured || r.lines !== 1 || r.gap < 8 || r.over > 0.5);
+      const cards = rows.filter(r => r.card).length;
+      ok(rows.length >= 9 && cards >= 1 && bad.length === 0,
+        `every waterfall label is one line, 8px or more from its amount, nothing past the edge (${rows.length} rows, ${cards} card)`,
         JSON.stringify(bad));
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'no horizontal page scroll at 320');
       ok(errors.length === 0, 'no page errors', errors.join('; '));
       await page.close();
+    }
+
+    console.log('control: no check passes without measuring what it names');
+    {
+      const { page } = await open(browser, 320);
+      await page.evaluate(() => document.querySelector('[data-wf-toggle="credit"]').remove());
+      let threw = null;
+      try { await openWaterfallCredit(page); } catch (e) { threw = e.message; }
+      ok(threw && /toggle not found/.test(threw), 'a missing waterfall Credit toggle throws instead of passing silently', threw || 'no throw');
+      // A toggle that no longer opens: its clicks are swallowed before the card's own handler sees them.
+      await page.evaluate(() => document.addEventListener('click', e => {
+        if (e.target.closest && e.target.closest('[data-stack-credit-toggle]')) { e.stopPropagation(); e.preventDefault(); }
+      }, true));
+      threw = null;
+      try { await openCreditCard(page); } catch (e) { threw = e.message; }
+      ok(threw && /did not open/.test(threw), 'a Credit toggle that does not open throws', threw || 'no throw');
+      await page.close();
+      const p2 = (await open(browser, 320)).page;
+      await openWaterfallCredit(p2);
+      await p2.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-line .lab { visibility: hidden; display: none; }' });
+      const rows = await measureWaterfall(p2);
+      ok(rows.some(r => !r.measured), 'a row whose label draws nothing is reported unmeasured, never skipped', JSON.stringify(rows.map(r => r.measured)));
+      await p2.evaluate(() => { document.querySelector('#stack-root .wf-slab .n').style.display = 'none'; });
+      const fit = await slabFit(p2, []);
+      ok(fit.some(r => !r.measured), 'a slab amount that draws nothing is reported unmeasured');
+      await p2.close();
     }
 
     console.log('control: the overlap check catches the old pile rule');
