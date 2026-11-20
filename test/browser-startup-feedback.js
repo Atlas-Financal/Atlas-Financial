@@ -5,6 +5,8 @@
 // STARTUP_ROOT=<pristine checkout> supports the before control.
 // STARTUP_STATIC_ONLY=1 runs the pre-script accessibility regression alone.
 // Receipts/screenshots default outside git; STARTUP_OUT selects their directory.
+// Runs on both Budget pages: ?view=classic (the previous page) and ?view=stack (the Stack page, the default route once
+// B7 lands). STARTUP_VIEW=classic|stack runs one.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -12,6 +14,18 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { chromium } = require('playwright');
+const { spawnSync } = require('node:child_process');
+// Both Budget pages, one child run each (identical scenarios); the parent exits non-zero if either fails.
+if (!process.env.STARTUP_VIEW) {
+  const failed = ['classic', 'stack'].filter(view => {
+    console.log('\n=== ?view=' + view + ' ===');
+    return spawnSync(process.execPath, [__filename], { stdio: 'inherit', env: { ...process.env, STARTUP_VIEW: view } }).status !== 0;
+  });
+  if (failed.length) console.error('FAIL startup feedback on: ' + failed.join(', '));
+  process.exit(failed.length ? 1 : 0);
+}
+if (!['classic', 'stack'].includes(process.env.STARTUP_VIEW)) throw new Error('STARTUP_VIEW must be classic or stack');
+const VIEW = '?view=' + process.env.STARTUP_VIEW;
 const root = process.env.STARTUP_ROOT || path.join(__dirname, '..');
 const out = process.env.STARTUP_OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-startup-proof-'));
 fs.mkdirSync(out, { recursive: true });
@@ -48,7 +62,7 @@ async function pageFor(routePath, plan, options = {}) {
     try { return await route.fulfill({ body, contentType }); } catch { return; }
   });
   const start = Date.now();
-  await page.goto('http://startup.test' + routePath, { waitUntil: 'commit' });
+  await page.goto('http://startup.test' + routePath + VIEW, { waitUntil: 'commit' });
   return { page, context, start, calls: () => calls };
 }
 async function shot(page, name) {
@@ -83,6 +97,11 @@ async function ready(page) {
   assert.equal(await page.locator('[data-boot-static], [data-boot-inert]').count(), 0);
   assert.equal(await page.locator('.site-head').getAttribute('inert'), null);
   assert.deepEqual(await page.evaluate(() => App.data), data, 'successful boot preserves the entire synthetic packet');
+  // The Stack run proves the Stack page is what the household then reads, never the previous page beneath it.
+  if (process.env.STARTUP_VIEW === 'stack') {
+    await page.waitForSelector('#stack-root [data-stack-block="waterfall"] .wf-math', { timeout: 15000 });
+    assert.equal(await page.evaluate(() => document.documentElement.classList.contains('stack-view')), true, 'the Stack page is drawn');
+  }
 }
 async function staticFeedback() {
   const scripts = gate();

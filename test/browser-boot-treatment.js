@@ -45,6 +45,9 @@
 // that explicitly instead of claiming recorded measurements.
 //
 //   CHROME_PATH=<Chromium> node test/browser-boot-treatment.js
+//   Runs every scenario on both Budget pages: ?view=classic (the previous page) and ?view=stack (the Stack page, the
+//   default route once B7 lands). BOOT_VIEW=classic|stack runs one. The Stack run writes its screenshots and receipt
+//   outside the checkout (os.tmpdir()), so the committed proof images stay the previous page's.
 //   BOOT_BASE_ROOT=<pristine base checkout> — also measure the base tree
 //   under identical delays and record the comparison in the receipt.
 const fs = require('node:fs');
@@ -52,11 +55,26 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { chromium } = require('playwright');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
+
+// Both Budget pages, one child run each (identical scenarios); the parent exits non-zero if either fails.
+if (!process.env.BOOT_VIEW) {
+  const failed = ['classic', 'stack'].filter(view => {
+    console.log('\n=== ?view=' + view + ' ===');
+    return spawnSync(process.execPath, [__filename], { stdio: 'inherit', env: { ...process.env, BOOT_VIEW: view } }).status !== 0;
+  });
+  if (failed.length) console.error('FAIL boot treatment proof on: ' + failed.join(', '));
+  process.exit(failed.length ? 1 : 0);
+}
+if (!['classic', 'stack'].includes(process.env.BOOT_VIEW)) throw new Error('BOOT_VIEW must be classic or stack');
+const VIEW = '?view=' + process.env.BOOT_VIEW;
 
 const root = path.join(__dirname, '..');
 const serveRoot = process.env.BOOT_ROOT || root;
 const baseRoot = process.env.BOOT_BASE_ROOT || null;
-const outDir = path.join(root, 'docs', 'proof');
+const outDir = process.env.BOOT_VIEW === 'stack'
+  ? fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-boot-stack-')) : path.join(root, 'docs', 'proof');
 fs.mkdirSync(outDir, { recursive: true });
 const fx = require('./fixtures/budget-surface-data');
 const data = fx.served();
@@ -79,7 +97,9 @@ const visFn = () => {
         && Number(cs.opacity) > 0 && r.width > 0 && r.height > 0,
     };
   };
-  const content = document.querySelector('#operating-surface, [data-page-shell], main, h1');
+  // The page the household reads: the Stack page's own root under html.stack-view, else the previous page's content.
+  const content = document.documentElement.classList.contains('stack-view') ? document.getElementById('stack-root')
+    : document.querySelector('#operating-surface, [data-page-shell], main, h1');
   return {
     staticLayer: probe('[data-boot-static]'),
     liveLayer: probe('[data-boot-treatment]'),
@@ -260,7 +280,7 @@ async function openPage(browser, serveDir, contextOpts, dataPlan, extra = {}) {
 // treatment's first-visible time and any in-interval gap.
 async function sampleLoad(page, routePath, timeoutMs = 30000) {
   const t0 = Date.now();
-  const nav = page.goto('http://boot.test' + routePath, { waitUntil: 'commit' });
+  const nav = page.goto('http://boot.test' + routePath + VIEW, { waitUntil: 'commit' });
   const samples = [];
   let firstVisibleMs = null;
   let contentMs = null;
@@ -284,9 +304,15 @@ async function sampleLoad(page, routePath, timeoutMs = 30000) {
 
 async function waitContent(page, timeoutMs = 30000) {
   await page.waitForFunction(() => {
-    const c = document.querySelector('#operating-surface, [data-page-shell], main, h1');
+    const c = document.documentElement.classList.contains('stack-view') ? document.getElementById('stack-root')
+      : document.querySelector('#operating-surface, [data-page-shell], main, h1');
     return c && (c.innerText || '').trim().length > 20;
   }, { timeout: timeoutMs });
+  // The Stack run proves the Stack page arrived, never the previous page drawn underneath it.
+  if (process.env.BOOT_VIEW === 'stack') {
+    assert.ok(await page.evaluate(() => document.documentElement.classList.contains('stack-view')
+      && !!document.querySelector('#stack-root [data-stack-block="waterfall"]')), 'the Stack page is the content that arrived');
+  }
 }
 
 (async () => {
@@ -323,7 +349,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const again = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 9000, status: 200 }));
-      const nav = again.page.goto('http://boot.test/', { waitUntil: 'commit' });
+      const nav = again.page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(again.page);
       await shot(again.page, 'boot-treatment-light.png');
       const noticeRect = await rectOf(again.page, '[data-boot-notice]');
@@ -355,7 +381,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'dark' },
         () => ({ delayMs: 1500, status: 200 }));
-      const nav = page.goto('http://boot.test/', { waitUntil: 'commit' });
+      const nav = page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const tVis = Date.now();
       const noticeRect = await rectOf(page, '[data-boot-notice]');
@@ -375,7 +401,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 320, height: 700 }, colorScheme: 'light', reducedMotion: 'reduce' },
         () => ({ delayMs: 2500, status: 200 }));
-      const nav = page.goto('http://boot.test/', { waitUntil: 'commit' });
+      const nav = page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const noticeRect = await rectOf(page, '[data-boot-notice]');
       assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 320');
@@ -413,7 +439,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light', hasTouch: true },
         () => { call++; if (call === 1) return { delayMs: 1500, status: 503 }; if (call === 2) return { delayMs: 1200, status: 503 }; return { delayMs: 2000, status: 200 }; });
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'failure run, first pending');
@@ -465,7 +491,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light', hasTouch: true },
         () => (++calls <= 2 ? { delayMs: 5000, status: 200 } : { delayMs: 1500, status: 200 }));
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'cancel run, first pending');
@@ -524,7 +550,7 @@ async function waitContent(page, timeoutMs = 30000) {
         const { context, page } = await openPage(browser, serveRoot,
           { viewport: cfg.viewport, colorScheme: cfg.colorScheme, reducedMotion: cfg.reducedMotion || 'no-preference', javaScriptEnabled: false },
           () => ({ delayMs: 0, status: 200 }));
-        await page.goto('http://boot.test/', { waitUntil: 'load' });
+        await page.goto('http://boot.test/' + VIEW, { waitUntil: 'load' });
         const st = await page.evaluate(visFn);
         assert.ok(st.staticLayer.visible, 'static layer computed-visible without JavaScript (' + cfg.name + ')');
         assert.ok(!st.liveLayer.present, 'no live layer without JavaScript (' + cfg.name + ')');
@@ -582,7 +608,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 6000, status: 200 }));
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'inertness run, held load');
@@ -640,7 +666,7 @@ async function waitContent(page, timeoutMs = 30000) {
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 300, status: 200 }),
         { holdScripts: () => gate });
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await page.waitForSelector('[data-boot-static]', { state: 'attached' });
       await page.waitForTimeout(400); // scripts are held; the static phase persists
       const held = await page.evaluate(() => {
@@ -732,7 +758,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 5000, status: 200 }));
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await page.waitForSelector('[data-boot-notice]', { state: 'attached', timeout: 20000 });
       await page.waitForTimeout(500); // held load: boot has covered the shell
       const held = await page.evaluate(() => {
@@ -826,7 +852,7 @@ async function waitContent(page, timeoutMs = 30000) {
                 '<section id="road-ahead" hidden inert aria-hidden="true">')
             : body,
         });
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await waitContent(page);
       await shot(page, 'boot-treatment-ready.png');
       // This run resolves too fast to stash the probe during the
@@ -908,7 +934,7 @@ async function waitContent(page, timeoutMs = 30000) {
           { viewport: { width: 1280, height: 900 }, colorScheme: 'light' },
           () => ({ delayMs, status: 200 }));
         const t0 = Date.now();
-        const nav = b.page.goto('http://boot.test/', { waitUntil: 'commit' });
+        const nav = b.page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
         let treatmentsSeen = 0;
         await b.page.waitForFunction(() => {
           const c = document.querySelector('#operating-surface');
@@ -937,7 +963,7 @@ async function waitContent(page, timeoutMs = 30000) {
           { viewport: { width: 1280, height: 900 }, colorScheme: 'light' },
           () => ({ delayMs: 5000, status: 200 }));
         const t0 = Date.now();
-        const nav = s.page.goto('http://boot.test/', { waitUntil: 'commit' });
+        const nav = s.page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
         await s.page.waitForFunction(() => {
           const c = document.querySelector('#operating-surface');
           return c && (c.innerText || '').trim().length > 20;
