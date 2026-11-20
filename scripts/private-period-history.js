@@ -197,11 +197,11 @@ function selectedPublication(advice, period) {
   }
   // Each bill row's Stack Wallet split mark (Forecast publishStackBillParts:
   // stackBillPart, stackBillAmount, stackBillDebtId, stackBillPaymentEvidence,
-  // stackBillAmountTrust) is derived from the same
+  // stackBillAmountTrust, stackBillPaid) is derived from the same
   // period's split, which a saved close does not keep, so it is not saved
   // either; every earlier contentKey is unchanged.
   for (const bill of Array.isArray(publication.bills) ? publication.bills : []) {
-    if (bill && typeof bill === 'object') for (const key of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust']) delete bill[key];
+    if (bill && typeof bill === 'object') for (const key of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust', 'stackBillPaid']) delete bill[key];
   }
   // Each household budget row's reconMatchesSpent is derived from that row's
   // own saved Spent and recon rows (Forecast publishReconMatchesSpent), so it

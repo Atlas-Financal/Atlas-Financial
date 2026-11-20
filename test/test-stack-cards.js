@@ -7,14 +7,14 @@ const file = path.join(__dirname, '..', 'public', 'stack-cards.js');
 // --- invented published view (shapes from #1426 stackSummary, #1429 paidState, existing budgetProgress) ---
 const view = {
   start: '2026-01-01',
-  stackSummary: { bills: { mortgage: 1234.56, cardMinimums: [{ debtId: 'card-a', amount: 77.77 }], other: 888.88, trust: 'calculated' } },
+  stackSummary: { bills: { mortgage: 1234.56, cardMinimums: [{ debtId: 'card-a', amount: 77.77 }], other: 888.88, trust: 'calculated', paid: 111.11, paidTrust: 'calculated' } },
   bills: [
     // Each counted row carries Forecast's place for it in the split (stackBillPart) and the amount it counts
     // there (stackBillAmount); the page groups by that alone. The carried row is not counted, so it has no mark.
-    { id: 'hydro', date: '2026-01-05', label: 'Hydro', amount: 111.11, paidState: 'paid', stackBillPart: 'other', stackBillAmount: 111.11, stackBillPaymentEvidence: 'posted-equal', stackBillAmountTrust: 'calculated' },
-    { id: 'phone', date: '2026-01-07', label: 'Phone', amount: 222.22, paidState: 'not-paid', stackBillPart: 'other', stackBillAmount: 222.22, stackBillPaymentEvidence: 'none', stackBillAmountTrust: 'calculated' },
+    { id: 'hydro', date: '2026-01-05', label: 'Hydro', amount: 111.11, paidState: 'paid', stackBillPart: 'other', stackBillAmount: 111.11, stackBillPaymentEvidence: 'posted-equal', stackBillAmountTrust: 'calculated', stackBillPaid: true },
+    { id: 'phone', date: '2026-01-07', label: 'Phone', amount: 222.22, paidState: 'not-paid', stackBillPart: 'other', stackBillAmount: 222.22, stackBillPaymentEvidence: 'none', stackBillAmountTrust: 'calculated', stackBillPaid: false },
     { id: 'old', label: 'Carried one', amount: 999.99, paidState: 'carried' },
-    { id: 'mortgage', date: '2026-01-02', label: 'Mortgage', amount: 1234.56, paidState: 'not-paid', stackBillPart: 'mortgage', stackBillAmount: 1234.56, stackBillPaymentEvidence: 'none', stackBillAmountTrust: 'calculated' },
+    { id: 'mortgage', date: '2026-01-02', label: 'Mortgage', amount: 1234.56, paidState: 'not-paid', stackBillPart: 'mortgage', stackBillAmount: 1234.56, stackBillPaymentEvidence: 'none', stackBillAmountTrust: 'calculated', stackBillPaid: false },
     { id: 'cardmin', label: 'Card A minimum', amount: 77.77, paidState: 'paid', stackBillPart: 'cardMinimum', stackBillAmount: 77.77, stackBillDebtId: 'card-a' },
   ],
   budgetProgress: { household: { actual: { amount: 333.33 }, planned: { amount: 666.66 } } },
@@ -54,7 +54,8 @@ assert(printed.length > 0);
 printed.forEach(a => assert(allowed.has(a), 'unpublished amount printed: ' + a));
 // each card's headline is exactly its published value
 const card = k => html.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
-assert(card('bills').includes(fmt(888.88)), 'bills headline = stackSummary.bills.other');
+// Dale (2026-11-20, "bills needs the paid/owed"): Forecast's paid over the Bills total, as Budget prints spent / budget.
+assert(card('bills').includes('<span class="sc-f">' + fmt(111.11) + '<i> / ' + fmt(888.88) + '</i></span>'), 'bills headline = stackSummary.bills.paid / .other');
 assert(card('budget').includes(fmt(333.33)) && card('budget').includes(fmt(666.66)));
 assert(!html.includes('data-stack-card="mortgage"') && !html.includes(fmt(1234.56)) && !html.includes('--sc-mortgage'), 'there is no Mortgage card and its amount is on no card');
 // the go button's text: everything inside <span class="sc-go"> once its tags are removed (the chevron is an svg, so none)
@@ -97,10 +98,12 @@ for (const k of ['bills', 'budget']) {
 assert(!/ of \d+ paid|paid \/ total/.test(html), 'no paid count or descriptor on the strips');
 assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'), 'Phone').includes(fmt(222.22)), 'the amount stays');
 {
-  const mp = JSON.parse(JSON.stringify(view)); mp.bills[3].stackBillPaymentEvidence = 'posted-equal';
+  const mp = JSON.parse(JSON.stringify(view)); mp.bills[3].stackBillPaymentEvidence = 'posted-equal'; mp.bills[3].stackBillPaid = true;
   const mh = buildCardsHTML(ctx(mp));
   assert(!/mortgage/i.test(mh), 'a paid mortgage row prints nothing on the cards (its sheet opens from the waterfall)');
   const unk = JSON.parse(JSON.stringify(view)); unk.bills[0].stackBillPaymentEvidence = 'maybe'; unk.bills[3].stackBillPaymentEvidence = 'maybe';
+  // The check is Forecast's flag alone (stackBillPaid true): an absent or non-boolean flag renders none.
+  unk.bills[0].stackBillPaid = 'maybe'; delete unk.bills[3].stackBillPaid;
   const u = buildCardsHTML(ctx(unk));
   assert(!u.includes('sc-check') && !u.includes('\u2713'), 'an unknown evidence word renders no check');
   const nul = JSON.parse(JSON.stringify(view)); nul.bills[0].stackBillAmount = null;
@@ -302,7 +305,7 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
     { id: 'x', label: 'Extra', saved: null, needed: 15, reasons: ['future-period'] }],
     totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
   all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
-  all.bills[0].stackBillPaymentEvidence = 'posted-equal'; all.bills[3].stackBillPaymentEvidence = 'posted-equal';
+  all.bills[0].stackBillPaymentEvidence = 'posted-equal'; all.bills[3].stackBillPaymentEvidence = 'posted-equal'; all.bills[0].stackBillPaid = all.bills[3].stackBillPaid = true;
   // the one allowed exception: the design's Budget subtitle, exactly
   const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ').replace('spent / budget', ' ');
   assert(!/needs|set aside|planned|spent|estimated|projected|confirm|excludes|moved|entitlement|paid|period/i.test(visible), 'a word label is visible: ' + visible);
@@ -359,8 +362,13 @@ console.log('test-stack-cards: ok');
     assert(rs.length > 0 && rs.every(r => /<svg class="sc-cv"/.test(r)), k + ': every row that opens a sheet carries its chevron');
   });
   assert(/<svg class="sc-cv"/.test(rowOf(card('bills'), 'Hydro')) === true, 'a bill row ends with its chevron');
-  ['bills'].forEach(k => assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:0%"><\/i><\/span>/.test(card(k).split('</summary>')[0]),
-    k + ': an empty track until Forecast publishes the paid figure (no fill from a row count or the head total)'));
+  // The Bills bar fills paid / owed through the shell's one drawing ratio, as Budget's: 111.11 / 888.88 = 12.5%.
+  assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:12.5%"><\/i><\/span>/.test(card('bills').split('</summary>')[0]),
+    'bills: the bar fills paid / owed (12.5%)');
+  const np = JSON.parse(JSON.stringify(view)); np.stackSummary.bills.paid = null; np.stackSummary.bills.paidTrust = 'unavailable';
+  const nh = buildCardsHTML(ctx(np)).split('data-stack-card="bills"')[1].split('</details>')[0].split('</summary>')[0];
+  assert(/<span class="sc-bar" aria-hidden="true"><i style="width:0%"><\/i><\/span>/.test(nh) && !/[$]0</.test(nh),
+    'bills: an unpublished paid is a dash and an empty track, never $0 or a fill from the total');
   assert(/\.sc-f>\[role=img\]\{font-size:\.6em/.test(css1) && /\.stack-credit-figure\[data-unpublished\] \{ font-size: 14\.4px/.test(cr),
     'a withheld head figure is a small soft dash like the "/ b" part, not a big minus');
 }

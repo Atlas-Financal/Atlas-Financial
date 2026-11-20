@@ -12692,6 +12692,7 @@
       if (!view || typeof view !== 'object') continue;
       const bills = stackBills(view);
       publishStackBillParts(view, bills);
+      stackBillsPaid(view, bills);
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result) });
     }
@@ -12864,10 +12865,13 @@
   //                    it, owner Dale 2026-11-20), 'pending' (seen paid, its
   //                    amount not posted) or 'none'. A page shows the paid check
   //                    only for 'posted-equal' (owner, Dale, on #1465 7046237901).
+  //   stackBillPaid    true where the payment evidence confirms it paid
+  //                    (stackBillPaidEvidence): the page's paid check, and
+  //                    the rows stackSummary.bills.paid sums
   //   stackBillAmountTrust  the counted amount's own trust: the posted payment's
   //                    for 'posted-equal', otherwise the plan's (billScheduleDisplayTrust);
   //                    absent when that has no word (never defaulted to calculated)
-  const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
+  const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust', 'stackBillPaid'];
   // The planned amount, to the cent (the plan billAssignedAmount starts from), or null.
   function stackBillPlannedCents(row) {
     const plan = row.planned != null && isFinite(Number(row.planned)) ? row.planned
@@ -12883,6 +12887,12 @@
     }
     return billPaidState(row) === 'paid' ? 'pending' : 'none';
   }
+  // The one rule for "confirmed paid" (owner, Dale, on #1465 7046237901): the
+  // page's paid check (stackBillPaid) and stackSummary.bills.paid both read it,
+  // so paid is the sum of the checked rows by construction.
+  function stackBillPaidEvidence(evidence) {
+    return evidence === 'posted-equal';
+  }
   function publishStackBillParts(view, bills) {
     const rows = Array.isArray(view.bills) ? view.bills : [];
     for (const row of rows) if (row && typeof row === 'object') for (const key of STACK_BILL_MARKS) delete row[key];
@@ -12896,10 +12906,37 @@
       if (mark.part === 'cardMinimum') mark.row.stackBillDebtId = mark.debtId;
       const evidence = stackBillPaymentEvidence(mark.row, mark.cents);
       mark.row.stackBillPaymentEvidence = evidence;
+      mark.row.stackBillPaid = stackBillPaidEvidence(evidence);
       const trust = evidence === 'posted-equal' ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
       // Never more certain than the row's own word: no word stays no word.
       if (trust != null) mark.row.stackBillAmountTrust = trust;
     }
+  }
+  // Dale, 2026-11-20: "bills needs the paid/owed". stackSummary.bills.paid is
+  // the Bills part ('other': no mortgage, no card minimums) that the payment
+  // evidence confirms paid: the sum of the counted amounts of exactly the rows
+  // the page checks (stackBillPaid), in cents. Trust (lead ruling, 2026-11-20):
+  //   - the split unpublished, or its rows unmarked: paid null, 'unavailable';
+  //   - no Bills row confirmed paid: 0, 'calculated' (every marked row carries
+  //     a known evidence word, so nothing paid is a known zero);
+  //   - otherwise the weakest of the paid rows' own amount trust; a paid row
+  //     with no trust word withholds paid, never defaulted to calculated.
+  // Pending, differing and unmatched payments count 0 and do not enter its trust.
+  const STACK_BILLS_PAID_UNAVAILABLE = 'The Bills paid figure is unavailable: this period\'s bills split, or a paid row\'s trust, is not published.';
+  function stackBillsPaid(view, bills) {
+    if (!bills || typeof bills !== 'object') return;
+    const withhold = () => Object.assign(bills, { paid: null, paidTrust: 'unavailable', paidReason: STACK_BILLS_PAID_UNAVAILABLE });
+    const rows = (Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.stackBillPart === 'other');
+    if (bills.trust === 'unavailable' || !isStackFigure(bills.other)
+        || rows.some(row => !isStackFigure(row.stackBillAmount) || typeof row.stackBillPaid !== 'boolean')
+        // The marked rows must be the whole Bills part: unmarked rows are unknown, never paid 0.
+        || rows.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0) !== stackCents(bills.other)) return withhold();
+    const paid = rows.filter(row => row.stackBillPaid);
+    if (paid.some(row => !Object.hasOwn(STACK_TRUST_RANK, row.stackBillAmountTrust))) return withhold();
+    const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);
+    const trust = paid.reduce((worst, row) => STACK_TRUST_RANK[row.stackBillAmountTrust] > STACK_TRUST_RANK[worst]
+      ? row.stackBillAmountTrust : worst, 'calculated');
+    Object.assign(bills, { paid: cents / 100, paidTrust: trust });
   }
   function stackBills(view) {
     const parts = periodBillLoadPartsByPeriod.get(view);

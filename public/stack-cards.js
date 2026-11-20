@@ -13,7 +13,9 @@
  *   bills[].stackBillPart / .stackBillAmount  Forecast's own place for each row in that split and the amount it
  *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
  *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
- *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the paid check only for 'posted-equal' (#1465)
+ *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the payment evidence and the counted amount's trust
+ *   bills[].stackBillPaid  Forecast's paid check (stackBillPaidEvidence, #1465), the rows stackSummary.bills.paid sums
+ *   stackSummary.bills.paid / .paidTrust  the Bills head's paid figure (Dale 2026-11-20 "bills needs the paid/owed")
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
@@ -122,7 +124,8 @@
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
     var evidence = r.stackBillPaymentEvidence;
-    var exact = evidence === 'posted-equal';
+    // Forecast's one paid rule (stackBillPaidEvidence): the same rows stackSummary.bills.paid sums.
+    var exact = r.stackBillPaid === true;
     var soft = isEst(r.stackBillAmountTrust);
     // A pending or unmatched payment counts the plan; a differing posted payment may count above it (the Bills total
     // rule), so it is named from what it is, never "Planned".
@@ -136,13 +139,15 @@
   function billsCard(view) {
     var split = get(view, ['stackSummary', 'bills']) || {};
     var rows = partRows(view, 'other');
-    // The Bills bar stays an empty track until Forecast publishes a paid figure to fill them (the head's
-    // total is not a paid amount, and a count of paid rows is not a share of money).
-    var total = money(split.other);
+    // Dale (2026-11-20): "bills needs the paid/owed". The head is Forecast's paid (stackSummary.bills.paid, the
+    // checked Bills rows) over the Bills total, as Budget prints spent / budget, and the bar is the shell's one
+    // shared drawing ratio of the two, as Budget's. An unpublished paid is a dash and an empty bar, never $0.
+    var paid = money(split.paid), total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
       return stateRow(r.label || r.name || 'Bill', r, billTarget('bill', r));
     }).join('') + '</ul>';
-    return strip('bills', 'Bills', '', total, null, 0, rows.length ? body : '', null, null, isEst(split.trust), true);
+    return strip('bills', 'Bills', '', paid, total, paid == null ? 0 : fill(split.paid, split.other), rows.length ? body : '', ' / ', null,
+      isEst(split.paidTrust, split.trust), true);
   }
 
   function budgetCard(view) {
