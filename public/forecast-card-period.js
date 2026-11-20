@@ -100,12 +100,13 @@
         amount: debt.balance, date: date(observed?.evidenceDate) ? observed.evidenceDate
           : date(debt.evidenceDate) ? debt.evidenceDate : null,
         status: date(observed?.evidenceDate) || date(debt.evidenceDate) ? 'dated' : 'date-unavailable' };
-      // Forecast's stale-balance verdict rides with the balance it judges; a
-      // balance in its current statement cycle (or not assessed) carries none.
-      const stale = card.reportedBalance && typeof primitives.balanceFreshness === 'function'
+      // Forecast's stale-balance verdict rides with the balance it judges:
+      // 'stale', 'current' or 'not-assessed' (never decided here).
+      const verdict = card.reportedBalance && typeof primitives.balanceFreshness === 'function'
         ? primitives.balanceFreshness(debt) : null;
-      if (stale && stale.trust === 'estimated') card.reportedBalance.freshness = { status: 'stale',
-        balanceAsOf: date(stale.balanceAsOf) ? stale.balanceAsOf : null, cycleStart: stale.cycleStart || null };
+      if (verdict && ['stale', 'current', 'not-assessed'].includes(verdict.status)) card.reportedBalance.freshness =
+        verdict.status === 'stale' ? { status: 'stale', balanceAsOf: date(verdict.balanceAsOf) ? verdict.balanceAsOf : null,
+          cycleStart: verdict.cycleStart || null } : { status: verdict.status };
       if (!windowKnown) { issues.push('selected-period-unavailable'); return card; }
       if (role === 'future') { issues.push('future-not-observed'); return card; }
       if (!packetCurrent) issues.push('observation-unavailable');
@@ -338,7 +339,11 @@
   //            date. It is a stock, never a paid / spent movement. It reads
   //            'estimated' when Forecast's verdict says it predates the card's
   //            statement cycle, when it has no date, or when a manual card's
-  //            balance predates the as-of day; else FRESH_BALANCE_TRUST.
+  //            balance predates the as-of day, or when the card's cycle was
+  //            never assessed and the balance predates the as-of day; else
+  //            FRESH_BALANCE_TRUST ('calculated', lead ruling 2026-11-20: the
+  //            word the Stack gives a fully evidenced movement from the same
+  //            feed; never 'verified').
   //            Null with 'not-current-period' outside the current period.
   const LINE_LABELS = { heloc: 'HELOC' };
   const FRESH_BALANCE_TRUST = 'calculated';
@@ -349,10 +354,14 @@
     if (amount === null) return { amount: null, asOf: null, trust: 'unavailable', reasons: ['balance-unavailable'] };
     const asOf = typeof reported.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(reported.date) ? reported.date : null;
     const reasons = [];
-    if (reported.freshness && reported.freshness.status === 'stale') reasons.push('balance-before-statement-cycle');
+    const assessment = reported.freshness && reported.freshness.status;
+    const beforeAsOf = asOf && typeof publication.asOf === 'string' && asOf < publication.asOf;
+    if (assessment === 'stale') reasons.push('balance-before-statement-cycle');
     if (!asOf) reasons.push('balance-date-unavailable');
-    else if (card.manualStatement === true && typeof publication.asOf === 'string' && asOf < publication.asOf)
-      reasons.push('manual-balance-before-as-of');
+    else if (card.manualStatement === true && beforeAsOf) reasons.push('manual-balance-before-as-of');
+    // Lead ruling (2026-11-20): a card whose cycle was never assessed is fresh
+    // only when its balance is dated on or after the as-of day.
+    else if (assessment !== 'current' && assessment !== 'stale' && beforeAsOf) reasons.push('balance-cycle-unassessed-before-as-of');
     return { amount, asOf, trust: reasons.length ? 'estimated' : FRESH_BALANCE_TRUST, reasons };
   }
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;

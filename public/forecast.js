@@ -41,7 +41,7 @@
       date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
       // Stack credit balance snapshot: Forecast's one stale-balance verdict
       // (a balance older than the card's statement cycle), never re-derived.
-      balanceFreshness: debt => cardBalanceFreshness(debt, plan, asOf),
+      balanceFreshness: debt => cardBalanceAssessment(debt, plan, asOf),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
@@ -26036,6 +26036,17 @@
         ? `estimate — balance dated ${balanceAsOf}, before this statement cycle (from ${cycleStart}).`
         : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
     };
+  }
+  // The Stack credit lines' reading of the same verdict: 'stale' (the verdict
+  // above), 'current' (assessed and inside this statement cycle) or
+  // 'not-assessed' (no statement close day, secured, or no cycle), so a
+  // balance that was never assessed is not mistaken for a current one.
+  function cardBalanceAssessment(debt, plan, asOf) {
+    const stale = cardBalanceFreshness(debt, plan, asOf);
+    if (stale) return stale;
+    const assessed = debt && !debt.secured && debt.statementCloseDay != null
+      && cardStatementCycleStart(asOf, debt.statementCloseDay);
+    return { status: assessed ? 'current' : 'not-assessed' };
   }
   function staleCardBalanceList(debts) {
     return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)

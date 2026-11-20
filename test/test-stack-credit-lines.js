@@ -209,4 +209,31 @@ console.log('9. The balance snapshot (Dale, 2026-11-20): last balance, its date,
     && totals(future).balance.completeness === 'none', 'outside the current period: null with not-current-period');
 }
 
+console.log('10. Only a fresh balance reads calculated (lead ruling, 2026-11-20); never verified');
+{
+  const set = (x, id, fields) => Object.assign(x.debts.find(d => d.id === id), fields);
+  const evidence = (x, id, day) => { x.overlay.overlays.find(o => o.locator === 'debts:' + id).evidenceDate = day; };
+  const cases = [];
+  // Fresh (assessed): close day 18, balance stamped 2026-08-19, inside the cycle from 2026-08-18, even if dated before as-of.
+  const assessed = fx.fixture(); set(assessed, 'travelvisa', { statementCloseDay: 18, balanceAsOf: '2026-08-19' }); evidence(assessed, 'travelvisa', '2026-08-19');
+  cases.push(['assessed, inside the statement cycle', line(assessed, 'travelvisa').balance, 'calculated', []]);
+  // Fresh (not assessed): no close day, dated on as-of.
+  cases.push(['not assessed, dated on as-of', line(fx.fixture(), 'cashback').balance, 'calculated', []]);
+  // Stale: assessed and before the cycle.
+  const old = fx.fixture(); set(old, 'travelvisa', { statementCloseDay: 18, balanceAsOf: '2026-08-10' });
+  cases.push(['before the statement cycle', line(old, 'travelvisa').balance, 'estimated', ['balance-before-statement-cycle']]);
+  // Stale: not assessed and dated before as-of.
+  const unassessed = fx.fixture(); evidence(unassessed, 'tdcc', '2026-08-15');
+  cases.push(['cycle never assessed, dated before as-of', line(unassessed, 'tdcc').balance, 'estimated', ['balance-cycle-unassessed-before-as-of']]);
+  // Stale: undated.
+  const undated = fx.fixture(); undated.overlay.overlays = undated.overlay.overlays.filter(o => o.locator !== 'debts:tdcc');
+  cases.push(['undated', line(undated, 'tdcc').balance, 'estimated', ['balance-date-unavailable']]);
+  // Stale: manual, dated before as-of.
+  cases.push(['manual, dated before as-of', line(fx.fixture(), 'mbna').balance, 'estimated', ['manual-balance-before-as-of']]);
+  for (const [label, b, trust, reasons] of cases)
+    ok(b.amount !== null && b.trust === trust && same(b.reasons, reasons), label + ': ' + trust, JSON.stringify(b));
+  ok(cases.every(([, b]) => (b.trust === 'calculated') === (b.reasons.length === 0) && b.trust !== 'verified'),
+    'calculated exactly when no staleness reason applies; never verified');
+}
+
 console.log(`\nAll stack credit line checks passed (${checks}).`);
