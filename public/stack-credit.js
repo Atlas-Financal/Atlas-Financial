@@ -9,7 +9,7 @@
  *
  * Closed: "Credit", paid back / spent from totals, and when the total is partial "excludes <card names>".
  * Open: one row per line: "Paid back $A of $B", the published status word ("Paid back", "$X to go" in coral,
- * "Upcoming"), and "Minimum $X covered ✓" / "not yet". HELOC shows its minimum only. Each row opens the sheet
+ * "Upcoming"), and "Minimum $X", with a ✓ only when the minimum is published as covered. HELOC shows its minimum only. Each row opens the sheet
  * (data-stack-sheet="card:<id>"), which reads the same line through window.StackCredit.
  *
  * L-001: prints only what Forecast publishes. No arithmetic on money: a bar's width comes from the shell's one
@@ -69,12 +69,16 @@
     if (line.status === 'upcoming') return { cls: 'is-up', text: 'Upcoming' };
     return null;
   }
-  // "Minimum $X covered ✓" / "Minimum $X not yet"; nothing when the minimum or its check is not published.
+  // "Minimum $X" whenever the minimum amount is published, whatever its coverage check says (#1443's HELOC and a future
+  // card publish coverage 'unknown'); a ✓ only when coverage is published as true. Never a word for coverage (owner,
+  // 2026-11-20), never "covered" or "unpaid" inferred, and nothing (never $0) when the amount is not published.
+  const covered = line => !!(line.minimumCovered && line.minimumCovered.value === true);
   function minimumText(line) {
-    const min = amountOf(line.minimum), covered = line.minimumCovered && line.minimumCovered.value;
-    if (min == null || (covered !== true && covered !== false)) return '';
-    return `Minimum ${money(min)} ${covered ? 'covered ✓' : 'not yet'}`;
+    const min = amountOf(line.minimum);
+    return min == null ? '' : `Minimum ${money(min)}${covered(line) ? ' ✓' : ''}`;
   }
+  // The minimum's own trust; the coverage check's trust only when its ✓ is printed.
+  const minimumEst = (view, line) => est(view, trustOf(line.minimum), covered(line) ? line.minimumCovered.trust : null);
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `Paid back ${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
 
@@ -87,7 +91,7 @@
     // A status is read from the line's paid and spent (and toGo when it prints an amount): soft when any is estimated.
     const figs = est(view, trustOf(line.paid), trustOf(line.spent));
     const stat = est(view, trustOf(line.paid), trustOf(line.spent), status && status.cls === 'is-togo' ? trustOf(line.toGo) : null);
-    const minEst = est(view, trustOf(line.minimum), line.minimumCovered && line.minimumCovered.trust);
+    const minEst = minimumEst(view, line);
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${ok ? ' is-on' : ''}">${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
@@ -124,10 +128,9 @@
   function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
     const figs = est(view, trustOf(line.paid), trustOf(line.spent));
-    const minEst = est(view, trustOf(line.minimum), line.minimumCovered && line.minimumCovered.trust);
+    const minEst = minimumEst(view, line);
     const status = heloc ? null : statusOf(line);
     const paid = amountOf(line.paid), spent = amountOf(line.spent), min = amountOf(line.minimum);
-    const covered = line.minimumCovered && line.minimumCovered.value;
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return h.head('Credit', line.label || '')
       + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n${figs}">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>` : '')
@@ -135,7 +138,7 @@
       + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar' + figs))
       + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent), est(view, trustOf(line.spent)))
         + h.row('Paid onto it', h.money(paid), est(view, trustOf(line.paid))))
-      + (min != null && (covered === true || covered === false) ? h.row(`Minimum ${h.money(min)}`, covered ? 'Covered ✓' : 'Not yet', minEst, minEst) : '')
+      + (min != null ? h.row('Minimum', h.money(min) + (covered(line) ? ' ✓' : ''), minEst) : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {

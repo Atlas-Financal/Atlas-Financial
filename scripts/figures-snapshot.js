@@ -653,6 +653,17 @@ function putPayPeriods(put, putField, advice) {
       for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust']])
         putField(p + '.' + key, record, field);
     }
+    // Stack Wallet A5: the period's savings totals and each goal's needed, saved,
+    // period target and trust tags, copied as published.
+    const savings = view.stackSummary && view.stackSummary.savings;
+    const savingsTotals = savings && savings.totals;
+    for (const [field, key] of [['needed', 'stackSavingsNeeded'], ['saved', 'stackSavingsSaved'], ['entitlement', 'stackSavingsEntitlement'],
+      ['trust', 'stackSavingsTrust'], ['entitlementTrust', 'stackSavingsEntitlementTrust'], ['completeness', 'stackSavingsCompleteness']]) putField(p + '.' + key, savingsTotals, field);
+    const goalKeys = new Set();
+    for (const item of savings && Array.isArray(savings.items) ? savings.items : []) {
+      const g = uniqueKey(goalKeys, p + '.stackSavingsGoal.' + segment(item && item.id));
+      for (const field of ['needed', 'saved', 'periodTarget', 'trust', 'savedTrust']) putField(g + '.' + field, item, field);
+    }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {
       const b = uniqueKey(billKeys, p + '.bill.' + segment(bill && bill.id) + '@' + segment(bill && bill.date));
