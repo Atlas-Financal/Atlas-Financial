@@ -15,12 +15,10 @@
   if (typeof window === 'undefined' || !window.StackBlocks) return;
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const whole = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
-  const cents = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const num = v => typeof v === 'number' && Number.isFinite(v);
-  // A published amount as printed: dollars, cents only when the figure has them. Nothing for an unpublished amount.
-  const money = v => (num(v) ? (Number.isInteger(v) ? whole : cents).format(v).replace('-', '−') : '');
+  // The page's one money format (StackBlocks.money, whole dollars). Nothing for an unpublished amount.
+  const money = v => window.StackBlocks.money(v);
+  const txMoney = v => window.StackBlocks.money(v, { cents: true }); // a transaction line, to the cent
   const day = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const date = iso => (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? day.format(new Date(`${iso}T12:00:00Z`)) : '');
 
@@ -131,14 +129,14 @@
     return rows.length ? '<ul class="stack-sheet-tx">' + rows.map(({ r }) => '<li>'
       + `<span class="stack-sheet-txd">${esc(date(r.date))}</span>`
       + `<span class="stack-sheet-txl">${esc(r.displayedPayee || r.originalMerchant || '')}</span>`
-      + `<span class="stack-sheet-txa stack-n">${esc(money(r.amount))}</span></li>`).join('') + '</ul>' : '';
+      + `<span class="stack-sheet-txa stack-n">${esc(txMoney(r.amount))}</span></li>`).join('') + '</ul>' : '';
   }
 
   // A credit line, from the credit block's reading of Forecast.stackCreditLines.
   function cardHtml(line) {
     const credit = window.StackCredit;
     return credit && typeof credit.sheetHtml === 'function'
-      ? credit.sheetHtml(line, { head, row, money, date, esc }, typeof credit.view === 'function' ? credit.view(ctx) : null) : '';
+      ? credit.sheetHtml(line, { head, row, money, txMoney, date, esc }, typeof credit.view === 'function' ? credit.view(ctx) : null) : '';
   }
 
   function find(key) {
@@ -161,10 +159,31 @@
     return null;
   }
 
+  // While a sheet is open the page behind it must not scroll (iOS Safari scrolls the body through overflow:hidden). The
+  // lock is position:fixed on the body at top:-scrollY (stack-sheet.css, html.stack-sheet-open), and the position is
+  // restored on close. Every way a sheet goes away (close, Escape, a re-render) goes through unlock().
+  let lockY = null;
+  function lock() {
+    if (lockY !== null) return;
+    const root = document.documentElement;
+    lockY = window.pageYOffset || root.scrollTop || 0;
+    root.style.setProperty('--stack-lock-top', '-' + lockY + 'px');
+    root.classList.add('stack-sheet-open');
+  }
+  function unlock() {
+    if (lockY === null) return;
+    const root = document.documentElement, y = lockY;
+    lockY = null;
+    root.classList.remove('stack-sheet-open');
+    root.style.removeProperty('--stack-lock-top');
+    try { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); } catch (e) { window.scrollTo(0, y); }
+  }
+
   function open(key, from) {
     const item = container && find(key);
     if (!item || !item.html) return;
     lastRow = from || null;
+    lock();
     container.innerHTML = `<div class="stack-sheet-scrim" data-stack-sheet-scrim><div class="stack-sheet" data-kind="${esc(item.kind)}"`
       + ` role="dialog" aria-modal="true" aria-labelledby="stack-sheet-title">${item.html}</div></div>`;
     const button = container.querySelector('[data-stack-sheet-close]');
@@ -173,6 +192,7 @@
   function close() {
     if (!container || !container.firstChild) return;
     container.innerHTML = '';
+    unlock();
     if (lastRow && lastRow.isConnected) lastRow.focus({ preventScroll: true });
     lastRow = null;
   }
@@ -201,6 +221,7 @@
     ctx = context;
     // A re-render (a new period or new data) closes an open sheet: its item may no longer be the selected one.
     container.innerHTML = '';
+    unlock();
     wire();
   });
 })();

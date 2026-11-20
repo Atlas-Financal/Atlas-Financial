@@ -20,11 +20,9 @@
   if (typeof window === 'undefined' || !window.StackBlocks) return;
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const whole = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
-  const cents = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const num = v => typeof v === 'number' && Number.isFinite(v);
-  const money = v => (num(v) ? (Number.isInteger(v) ? whole : cents).format(v).replace('-', '−') : '');
+  // The page's one money format (StackBlocks.money, whole dollars); '' for an unpublished amount.
+  const money = v => window.StackBlocks.money(v);
   const amountOf = figure => (figure && num(figure.amount) ? figure.amount : null);
   const TICK = '<svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.6 6.3 5 8.6l4.5-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const CHEV = '<svg class="stack-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -185,7 +183,7 @@
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
           // A payment onto the card is published negative with payment: true; its printed value's minus sign becomes "+".
-          const printed = h.money(t.amount);
+          const printed = h.txMoney(t.amount);
           const shown = t.payment ? printed.replace(/^−/, '+') : printed;
           return `<li class="${t.payment ? 'is-pay' : ''}${t.pending ? ' is-pending' : ''}">`
             + `<span class="stack-sheet-txd">${h.esc(h.date(t.date))}</span><span class="stack-sheet-txl">${h.esc(t.name || '')}</span>`

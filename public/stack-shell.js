@@ -29,6 +29,11 @@ try {
   'use strict';
   const ORDER = ['waterfall', 'cards', 'credit', 'sheet'];
   const renderers = new Map();
+  const WHOLE = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 0, maximumFractionDigits: 0, roundingMode: 'halfExpand', signDisplay: 'never' });
+  const CENTS = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: 2, maximumFractionDigits: 2, roundingMode: 'halfExpand', signDisplay: 'never' });
+  const ZERO = WHOLE.format(0), ZERO_CENTS = CENTS.format(0);
   const StackBlocks = {
     register(name, renderFn) {
       if (typeof name !== 'string' || typeof renderFn !== 'function') return;
@@ -52,6 +57,20 @@ try {
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // The one way the Stack page prints a published amount (design: whole dollars). Display only: the published value
+    // is rounded to the dollar for printing (half away from zero, so $2.50 prints $3 and −$2.50 prints −$3) and is
+    // never used again; no sum, status or decision reads the printed text. A true minus sign; with signed, a plus on a
+    // positive amount. An amount that prints as $0 carries no sign. '' for anything that is not a published number.
+    // With cents, as before: cents when the published amount has them ($12.50, but $150), only for a transaction line in
+    // a sheet, the ledger's own entry, which the household matches against the bank (the design shows no transaction
+    // list).
+    money(value, { signed = false, cents = false } = {}) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+      const fmt = cents && !Number.isInteger(value) ? CENTS : WHOLE;
+      const text = fmt.format(value);
+      if (text === (fmt === CENTS ? ZERO_CENTS : ZERO)) return text;
+      return (value < 0 ? '\u2212' : signed ? '+' : '') + text;
+    },
     // A credit line's name (owner decision, Dale, 2026-11-20; Grok Bot, rule 17: the ledger is the one home for
     // names): the name its Lunch Money account shows (debt.ledgerName, which the live overlay attaches by provider
     // account id, never by name), else the block's own label. A label only: nothing is matched or derived from it.
@@ -106,12 +125,8 @@ try {
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  // Presentation of a published amount: sign, dollars, cents only when the published figure has them. No arithmetic.
-  const signed = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    signDisplay: 'always', maximumFractionDigits: 0 });
-  const signedCents = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    signDisplay: 'always', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const money = n => (Number.isInteger(n) ? signed : signedCents).format(n).replace('-', '−');
+  // A chip's surplus, signed, in the page's one money format.
+  const money = n => StackBlocks.money(n, { signed: true });
   const shortDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const dayLabel = iso => (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso)
     ? shortDate.format(new Date(iso + 'T12:00:00Z')) : '');
