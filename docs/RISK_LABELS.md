@@ -402,8 +402,8 @@ page-rendered snapshot over the same inputs supersedes it.
 ### Atlas Contract / Systems Review — trigger-based required governance
 
 This review is required governance when a high-risk trigger in `CLAUDE.md`
-fires, and it is not required otherwise. A non-builder reviewer — Atlas
-(ChatGPT) by default — performs it on the current exact PR head and records
+fires, and it is not required otherwise. A non-builder reviewer — the
+in-house reviewer (a separate Claude reviewer session; OD-026) by default — performs it on the current exact PR head and records
 factual findings: `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, or `INCOMPLETE`. The
 findings are not merge authorization; a non-builder merger other than Atlas
 decides. The active builder cannot satisfy it.
@@ -427,9 +427,9 @@ blocker-after-blocker churn stops and returns to the decision desk.
 The paid OpenAI first-review and re-review workflows are retired. Their parked
 versions exited successfully without performing a review, so their green runs
 could be mistaken for progress. Required Atlas Contract / Systems Review is
-requested directly in the active ChatGPT decision-desk session with the pull
+routed through the lead to the in-house reviewer session with the pull
 request number and exact head SHA. GitHub handoff artifacts are evidence only;
-they do not wake ChatGPT, satisfy the review, or add API spend.
+they do not wake ChatGPT, satisfy the review, or add API spend (nor do they wake the in-house reviewer).
 
 ### Repair of failed tests
 
@@ -454,7 +454,7 @@ or marked ready, without an `@codex review` comment. Under `CLAUDE.md`
 are not an advisory pass: their findings are dispositioned as usual, and any
 advisory pass is a separate, requested audit. That lane is operational: PR #63 received a real
 `chatgpt-codex-connector[bot]` review that found implementation defects. Codex
-remains advisory. It is not Atlas review authority. The `codex-review-request.yml`
+remains advisory. It is not review authority. The `codex-review-request.yml`
 comment dispatcher remains retired: it never successfully posted `@codex review`,
 and it is not replaced by another token or dispatcher. A justified second pass
 remains a human `@codex review` comment. Atlas Contract / Systems Review, Merge

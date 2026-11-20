@@ -55,7 +55,8 @@ const pageHtml = view => cards.buildCardsHTML({ data: {}, plan: {}, recommendati
 const text = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 // Each listed bill row's visible text (label and amount; a paid check shows as a check mark).
 const rowLabels = h => h.split('<li class="sc-row sc-bill').slice(1).map(x => { const li = x.split('</li>')[0]; return text(li.slice(li.indexOf('>') + 1)); });
-const headOf = h => { const sum = h.slice(h.indexOf('<summary'), h.indexOf('</summary>')); return text(sum.slice(sum.indexOf('>') + 1)); };
+// The head's visible text (screen-reader-only words, sc-sr, are not shown).
+const headOf = h => { const sum = h.slice(h.indexOf('<summary'), h.indexOf('</summary>')).replace(/<span class="sc-sr">[^<]*<\/span>/g, ''); return text(sum.slice(sum.indexOf('>') + 1)); };
 const CHECK = '\u2713';
 
 const current = (Forecast, opts) => {

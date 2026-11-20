@@ -15,8 +15,8 @@ html.stack-view .stack-credit-hd {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f" "s f"; align-items: center; column-gap: 10px;
 }
 html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f" "s"; }
-html.stack-view .stack-credit-sub { grid-area: s; font-size: 13.5px; font-weight: 500; color: var(--stack-on2); }
-html.stack-view .stack-credit.is-open .stack-credit-sub { margin-top: 2px; }
+/* No visible descriptor under the name (Dale, 2026-11-20); the words stay for a screen reader only. */
+html.stack-view .stack-credit-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 html.stack-view .stack-credit-title { grid-area: t; font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
 html.stack-view .stack-credit-figure { grid-area: f; font-size: 24px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
 html.stack-view .stack-credit.is-open .stack-credit-figure { font-size: 52px; margin-top: 6px; }

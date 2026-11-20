@@ -62,6 +62,14 @@ async function open(browser, { query = '', blockStack = false, width = 390, them
   if (js) await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
   return { page, errors };
 }
+// "as of" in the household's zone, written out here independently of the shell (owner, Dale, 2026-11-20: "as of Nov 20
+// 3am"): the short month and day, then the hour, with minutes only when they are not on the hour.
+const asOf = iso => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Vancouver', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(iso)).map(p => [p.type, p.value]));
+  const period = parts.dayPeriod.toLowerCase() === 'am' ? 'a.m.' : 'p.m.';
+  return `as of ${parts.month} ${parts.day}, ${parts.hour}${parts.minute === '00' ? '' : ':' + parts.minute} ${period}`;
+};
 const settle = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
 
 (async () => {
@@ -121,9 +129,7 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const d = served();
     const views = F.recommend(d.plan, d.meta.asOf, F.budgetRecommendInputs(d, {})).payPeriodViews;
     ok(view.title === 'Budget' && view.current === true, 'title "Budget"; every part of the current page is hidden and the Stack root is shown', JSON.stringify([view.title, view.current]));
-    const expectedUpdated = 'Last updated ' + new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Vancouver', year: 'numeric',
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(SYNC_AT));
-    ok(view.updated === expectedUpdated, 'the Last updated line reads the overlay sync instant, as the current footer does', view.updated);
+    ok(view.updated === asOf(SYNC_AT), 'the "as of" time reads the overlay sync instant, as the previous page\'s footer does', view.updated);
     ok(view.chips.length === views.length && view.chips.every((c, i) => c.key === views[i].start),
       `one chip per published pay period, in order (${views.length})`);
     const active = views.find(v => v.role === 'active');
@@ -425,21 +431,21 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
         await settle(x.page);
         const r = await x.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
           text: document.querySelector('[data-stack-updated]')?.textContent ?? null }));
-        r.fmt = await x.page.evaluate(([a, b, c]) => [a, b, c].map(v => formatCompleteRefreshTime(v)), [SYNC_AT, RETAINED, ATTEMPT]);
+        r.fmt = [SYNC_AT, RETAINED, ATTEMPT].map(asOf);
         r.errors = x.errors;
         await x.page.close();
         return r;
       };
       const live = await line({});
-      ok(live.cls && live.text === 'Last updated ' + live.fmt[0], 'live: the line is the sync instant', live.text);
+      ok(live.cls && live.text === live.fmt[0], 'live: the line is the sync instant', live.text);
       const retainedSync = await line({ mutate: d => { d.liveOverlay.retainedRefresh = { observedAt: RETAINED, attempt: { checkedAt: ATTEMPT } }; } });
-      ok(retainedSync.cls && retainedSync.text === 'Last updated ' + retainedSync.fmt[0],
+      ok(retainedSync.cls && retainedSync.text === retainedSync.fmt[0],
         'a retained refresh with a bank sync instant: the line is the sync instant (as the previous page)', retainedSync.text);
       const retainedNoSync = await line({ mutate: d => {
         d.liveOverlay.retainedRefresh = { observedAt: RETAINED, attempt: { checkedAt: ATTEMPT } };
         delete d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
       } });
-      ok(retainedNoSync.cls && retainedNoSync.text === 'Last updated ' + retainedNoSync.fmt[1] && !retainedNoSync.text.includes(retainedNoSync.fmt[2]),
+      ok(retainedNoSync.cls && retainedNoSync.text === retainedNoSync.fmt[1] && !retainedNoSync.text.includes(retainedNoSync.fmt[2]),
         "a retained refresh with no bank sync instant: the line is the retained refresh's own time; the failed attempt does not advance it",
         retainedNoSync.text);
       const retainedNoDate = await line({ mutate: d => {

@@ -58,10 +58,14 @@ const scheme = async (page, colorScheme) => { await page.emulateMedia({ colorSch
       ok(before.width === 0, 'the current page\'s river is present and hidden (zero width) under the Stack page', JSON.stringify(before));
       await scheme(page, 'dark');
       await scheme(page, 'light');
-      const button = await page.$('[data-blend-theme]');
-      ok(!!button, 'the page\'s theme button is there');
-      await button.click(); await page.waitForTimeout(300);
-      await button.click(); await page.waitForTimeout(300);
+      // The Stack page has no theme switch (owner, Dale, 2026-11-20: dark always; the site header is hidden). The
+      // previous page's theme control can still change the document's theme underneath (a stored choice, another tab):
+      // switch it programmatically, as the control does, and the hidden river must not throw.
+      ok(await page.$eval('[data-blend-theme]', b => b.getClientRects().length === 0), 'the theme button is not shown on the Stack page');
+      for (const theme of ['dark', 'light', 'dark']) {
+        await page.evaluate(t => { document.documentElement.dataset.theme = t; }, theme);
+        await page.waitForTimeout(300);
+      }
       ok(errors.length === 0, 'switching the colour scheme and the theme throws no page error', errors.join('; '));
       // A data refresh while hidden (the page re-renders, and the river is handed its periods again).
       await page.evaluate(() => App.rerender()); await page.waitForTimeout(300);
