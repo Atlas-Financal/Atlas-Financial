@@ -1,6 +1,11 @@
 'use strict';
 // Browser proof for the full-screen boot (loading) treatment — the
-// follow-on to PR #581. The whole page IS the loading screen: two
+// follow-on to PR #581. Since 2026-11-20 (owner, Dale: "just the pixel
+// art video") the loading screen draws only the household's campfire
+// scene: the brand mark, wordmark and tips stay in the markup but are
+// not drawn, the scene animates while loading, and reduced motion and
+// the crit surface show its still frame. The history below describes
+// the layers, which are unchanged. The whole page IS the loading screen: two
 // layers, one composition (large brand mark, ATLAS wordmark, status
 // line, restrained brand glow on --plane). The static layer
 // (.boot-static, index.html markup) covers the pre-script interval on
@@ -45,6 +50,9 @@
 // that explicitly instead of claiming recorded measurements.
 //
 //   CHROME_PATH=<Chromium> node test/browser-boot-treatment.js
+//   Runs every scenario on both Budget pages: ?view=classic (the previous page) and ?view=stack (the Stack page, the
+//   default route since B7, #1439). BOOT_VIEW=classic|stack runs one. The Stack run writes its screenshots and receipt
+//   outside the checkout (os.tmpdir()), so the committed proof images stay the previous page's.
 //   BOOT_BASE_ROOT=<pristine base checkout> — also measure the base tree
 //   under identical delays and record the comparison in the receipt.
 const fs = require('node:fs');
@@ -52,11 +60,26 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { chromium } = require('playwright');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
+
+// Both Budget pages, one child run each (identical scenarios); the parent exits non-zero if either fails.
+if (!process.env.BOOT_VIEW) {
+  const failed = ['classic', 'stack'].filter(view => {
+    console.log('\n=== ?view=' + view + ' ===');
+    return spawnSync(process.execPath, [__filename], { stdio: 'inherit', env: { ...process.env, BOOT_VIEW: view } }).status !== 0;
+  });
+  if (failed.length) console.error('FAIL boot treatment proof on: ' + failed.join(', '));
+  process.exit(failed.length ? 1 : 0);
+}
+if (!['classic', 'stack'].includes(process.env.BOOT_VIEW)) throw new Error('BOOT_VIEW must be classic or stack');
+const VIEW = '?view=' + process.env.BOOT_VIEW;
 
 const root = path.join(__dirname, '..');
 const serveRoot = process.env.BOOT_ROOT || root;
 const baseRoot = process.env.BOOT_BASE_ROOT || null;
-const outDir = path.join(root, 'docs', 'proof');
+const outDir = process.env.BOOT_VIEW === 'stack'
+  ? fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-boot-stack-')) : path.join(root, 'docs', 'proof');
 fs.mkdirSync(outDir, { recursive: true });
 const fx = require('./fixtures/budget-surface-data');
 const data = fx.served();
@@ -79,10 +102,12 @@ const visFn = () => {
         && Number(cs.opacity) > 0 && r.width > 0 && r.height > 0,
     };
   };
-  const content = document.querySelector('#operating-surface, [data-page-shell], main, h1');
+  // The page the household reads: the Stack page's own root under html.stack-view, else the previous page's content.
+  const content = document.documentElement.classList.contains('stack-view') ? document.getElementById('stack-root')
+    : document.querySelector('#operating-surface, [data-page-shell], main, h1');
   return {
     staticLayer: probe('[data-boot-static]'),
-    liveLayer: probe('[data-boot-treatment]'),
+    liveLayer: probe('[data-boot-notice]'),
     contentChars: content ? (content.innerText || '').trim().length : 0,
     noticeText: (document.querySelector('.note-box')?.innerText || '').trim(),
   };
@@ -98,55 +123,31 @@ const coversViewport = r => !!r && Math.abs(r.x) <= 1 && Math.abs(r.y) <= 1
   && Math.abs(r.width - r.vw) <= 1 && Math.abs(r.height - r.vh) <= 1;
 
 const treatmentVisible = page => page.waitForFunction(() => {
-  const el = document.querySelector('[data-boot-treatment]');
+  const el = document.querySelector('[data-boot-notice]');
   if (!el) return false;
   const cs = getComputedStyle(el); const r = el.getBoundingClientRect();
   return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
 }, { timeout: 10000 });
 
-// Computed animation name of the first animated brand block inside a
-// layer root ('[data-boot-treatment]' live, '[data-boot-static]'
-// static); null when the layer or its mark is absent.
-const markAnimName = (page, rootSel) => page.evaluate(s => {
-  const el = document.querySelector(s + ' .boot-blocks-mark rect.boot-mark-a');
-  return el ? getComputedStyle(el).animationName : null;
-}, rootSel);
-
-// Sample the four blocks' bounding-box centres across the animation
-// loop and report, per block, the range of its distance from the
-// mark's centre point — geometry, not animation-name bookkeeping:
-// a phased separate -> bump -> settle loop must move the blocks
-// measurably apart and together. The sampling loop lives on the Node
-// side (repeated synchronous evaluates) because an async evaluate
-// never resolves on the JavaScript-disabled static-layer page.
-const markGeometry = async (page, rootSel, frames = 24, intervalMs = 160) => {
-  const seen = [];
-  for (let i = 0; i < frames; i++) {
-    const centres = await markCentres(page, rootSel);
-    if (!centres) return null;
-    if (centres.length !== 4) return { blocks: centres.length, ranges: [] };
-    seen.push(centres);
-    await sleep(intervalMs);
-  }
-  const ranges = [0, 1, 2, 3].map(k => {
-    const ds = seen.map(f => {
-      const mx = f.reduce((a, p) => a + p.cx, 0) / f.length;
-      const my = f.reduce((a, p) => a + p.cy, 0) / f.length;
-      return Math.hypot(f[k].cx - mx, f[k].cy - my);
-    });
-    return Math.round((Math.max(...ds) - Math.min(...ds)) * 100) / 100;
-  });
-  return { blocks: 4, frames: seen.length, ranges };
-};
-
-const markCentres = (page, rootSel) => page.evaluate(s => {
+// The campfire scene (owner, Dale, 2026-11-20: "just the pixel art
+// video"): a layer's computed background names the scene file, and no
+// part of the brand mark, wordmark or tips card is drawn (every one has
+// an empty box, or is absent).
+const sceneState = (page, rootSel) => page.evaluate(s => {
   const rootEl = document.querySelector(s);
   if (!rootEl) return null;
-  return [...rootEl.querySelectorAll('.boot-blocks-mark rect:not(.boot-mark-bg)')].map(r => {
-    const b = r.getBoundingClientRect();
-    return { cx: b.x + b.width / 2, cy: b.y + b.height / 2 };
-  });
+  const bg = getComputedStyle(rootEl).backgroundImage;
+  const drawn = [...rootEl.querySelectorAll('.boot-blocks-mark, .boot-wordmark')]
+    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
+  return { scene: /boot-campfire\.avif/.test(bg) ? 'animation' : /boot-campfire\.jpg/.test(bg) ? 'still' : 'none', brandingDrawn: drawn };
 }, rootSel);
+const assertScene = async (page, rootSel, want, why) => {
+  const st = await sceneState(page, rootSel);
+  assert.ok(st, why + ': the layer is present');
+  assert.equal(st.scene, want, why + ': the layer shows the campfire ' + want);
+  assert.equal(st.brandingDrawn, 0, why + ': no logo or wordmark is drawn');
+  return st;
+};
 
 // Count elements in the boot notice subtree (notice included) whose
 // computed animation is anything but none — the crit surface must be
@@ -173,9 +174,7 @@ const noticeBranding = page => page.evaluate(() => {
 });
 const assertBrandingStatic = async (page, why) => {
   const b = await noticeBranding(page);
-  assert.ok(b && b.treatmentPresent, why + ': the brand treatment is present on the terminated surface');
-  assert.equal(b.wordmark, 'ATLAS', why + ': the ATLAS wordmark is present on the terminated surface');
-  assert.equal(b.markRects, 5, why + ': the four-block brand mark is present on the terminated surface');
+  await assertScene(page, '[data-boot-notice]', 'still', why);
   assert.equal(await noticeAnimations(page), 0, why + ': no running animation anywhere in the notice');
   return b;
 };
@@ -250,6 +249,8 @@ async function openPage(browser, serveDir, contextOpts, dataPlan, extra = {}) {
       : file.endsWith('.js') ? 'application/javascript'
       : file.endsWith('.woff2') ? 'font/woff2'
       : file.endsWith('.png') ? 'image/png'
+      : file.endsWith('.avif') ? 'image/avif'
+      : file.endsWith('.jpg') ? 'image/jpeg'
       : 'text/html';
     return intercepted.fulfill({ body, contentType: type });
   });
@@ -260,7 +261,7 @@ async function openPage(browser, serveDir, contextOpts, dataPlan, extra = {}) {
 // treatment's first-visible time and any in-interval gap.
 async function sampleLoad(page, routePath, timeoutMs = 30000) {
   const t0 = Date.now();
-  const nav = page.goto('http://boot.test' + routePath + '?view=classic', { waitUntil: 'commit' });
+  const nav = page.goto('http://boot.test' + routePath + VIEW, { waitUntil: 'commit' });
   const samples = [];
   let firstVisibleMs = null;
   let contentMs = null;
@@ -284,9 +285,15 @@ async function sampleLoad(page, routePath, timeoutMs = 30000) {
 
 async function waitContent(page, timeoutMs = 30000) {
   await page.waitForFunction(() => {
-    const c = document.querySelector('#operating-surface, [data-page-shell], main, h1');
+    const c = document.documentElement.classList.contains('stack-view') ? document.getElementById('stack-root')
+      : document.querySelector('#operating-surface, [data-page-shell], main, h1');
     return c && (c.innerText || '').trim().length > 20;
   }, { timeout: timeoutMs });
+  // The Stack run proves the Stack page arrived, never the previous page drawn underneath it.
+  if (process.env.BOOT_VIEW === 'stack') {
+    assert.ok(await page.evaluate(() => document.documentElement.classList.contains('stack-view')
+      && !!document.querySelector('#stack-root [data-stack-block="waterfall"]')), 'the Stack page is the content that arrived');
+  }
 }
 
 (async () => {
@@ -323,7 +330,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const again = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 9000, status: 200 }));
-      const nav = again.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      const nav = again.page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(again.page);
       await shot(again.page, 'boot-treatment-light.png');
       const noticeRect = await rectOf(again.page, '[data-boot-notice]');
@@ -335,16 +342,10 @@ async function waitContent(page, timeoutMs = 30000) {
         return el ? (el.closest('[data-boot-notice]') ? 'notice' : 'other:' + el.tagName) : null;
       });
       assert.equal(headerHit, 'notice', 'the header region is covered by the boot overlay (hit test)');
-      const animName = await markAnimName(again.page, '[data-boot-treatment]');
-      assert.equal(animName, 'boot-blocks', 'brand blocks animate with the phased boot-blocks loop while loading');
-      const geo = await markGeometry(again.page, '[data-boot-treatment]');
-      assert.ok(geo && geo.blocks === 4, 'four animated blocks in the live mark');
-      assert.ok(geo.ranges.every(r => r >= 0.8),
-        'block geometry changes across the loop (separate/bump/settle), per-block centre-distance ranges ' + JSON.stringify(geo.ranges));
-      results.lightLong.markAnimationName = animName;
+      const scene = await assertScene(again.page, '[data-boot-notice]', 'animation', 'loading at 1440 light');
+      results.lightLong.scene = scene.scene;
       results.lightLong.overlayCoversViewport1440 = true;
       results.lightLong.headerCoveredByHitTest = true;
-      results.lightLong.blockSeparationRangesPx = geo.ranges;
       results.lightLong.geometryRunDelayMs = 9000;
       await nav; await waitContent(again.page);
       await shot(again.page, 'boot-treatment-after.png');
@@ -355,18 +356,17 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'dark' },
         () => ({ delayMs: 1500, status: 200 }));
-      const nav = page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      const nav = page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const tVis = Date.now();
       const noticeRect = await rectOf(page, '[data-boot-notice]');
       assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 1440 dark');
-      const animName = await markAnimName(page, '[data-boot-treatment]');
-      assert.equal(animName, 'boot-blocks', 'dark: blocks animate while loading');
+      const scene = await assertScene(page, '[data-boot-notice]', 'animation', 'loading at 1440 dark');
       await shot(page, 'boot-treatment-dark.png');
       await nav; await waitContent(page);
       const end = await page.evaluate(visFn);
       assert.ok(!end.staticLayer.present && !end.liveLayer.present, 'dark: layers gone after arrival');
-      results.dark = { delayMs: 1500, treatmentVisibleObserved: true, overlayCoversViewport1440: true, markAnimationName: animName, screenshotAtMs: tVis };
+      results.dark = { delayMs: 1500, treatmentVisibleObserved: true, overlayCoversViewport1440: true, scene: scene.scene, screenshotAtMs: tVis };
       await context.close();
     }
     // 3 — Reduced motion, narrow width: overlay covers 320px, the mark
@@ -375,29 +375,25 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 320, height: 700 }, colorScheme: 'light', reducedMotion: 'reduce' },
         () => ({ delayMs: 2500, status: 200 }));
-      const nav = page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      const nav = page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const noticeRect = await rectOf(page, '[data-boot-notice]');
       assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 320');
-      const animName = await markAnimName(page, '[data-boot-treatment]');
-      assert.equal(animName, 'none', 'reduced motion: block animation is none');
-      const centres1 = await markCentres(page, '[data-boot-treatment]');
+      const scene = await assertScene(page, '[data-boot-notice]', 'still', 'reduced motion');
+      assert.equal(await noticeAnimations(page), 0, 'reduced motion: no running animation anywhere in the notice');
       const box = await page.evaluate(() => {
-        const el = document.querySelector('[data-boot-treatment]');
+        const el = document.querySelector('[data-boot-notice]');
         const r = el.getBoundingClientRect();
         return { x: r.x, y: r.y, width: r.width, height: r.height };
       });
       const clip = { x: box.x, y: box.y, width: box.width, height: box.height };
       const first = await page.screenshot({ clip });
       await sleep(700);
-      const centres2 = await markCentres(page, '[data-boot-treatment]');
-      const drift = Math.max(...centres1.map((c, i) => Math.hypot(c.cx - centres2[i].cx, c.cy - centres2[i].cy)));
-      assert.ok(drift <= 0.6, 'reduced motion: block centres stable across 700ms (drift ' + drift + 'px)');
       const second = await page.screenshot({ clip });
       assert.ok(first.equals(second), 'reduced motion: treatment frame is byte-stable across 700ms');
       await shot(page, 'boot-treatment-reduced-motion.png');
       await nav; await waitContent(page);
-      results.reducedMotion = { delayMs: 2500, animationName: animName, blockCentreDriftPx: drift, frameStable: true, overlayCoversViewport320: true };
+      results.reducedMotion = { delayMs: 2500, scene: scene.scene, frameStable: true, overlayCoversViewport320: true };
       await context.close();
     }
     // 5 — Failure, then Retry: the crit surface is the full-screen
@@ -413,7 +409,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light', hasTouch: true },
         () => { call++; if (call === 1) return { delayMs: 1500, status: 503 }; if (call === 2) return { delayMs: 1200, status: 503 }; return { delayMs: 2000, status: 200 }; });
-      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'failure run, first pending');
@@ -465,7 +461,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light', hasTouch: true },
         () => (++calls <= 2 ? { delayMs: 5000, status: 200 } : { delayMs: 1500, status: 200 }));
-      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'cancel run, first pending');
@@ -488,10 +484,21 @@ async function waitContent(page, timeoutMs = 30000) {
       assert.ok(coversViewport(cancelRect), 'cancelled overlay covers the full viewport');
       await assertShellInert(page, 'cancel run, cancelled surface');
       await shot(page, 'boot-treatment-cancel.png');
-      // Second cycle: touch Retry, mouse Cancel, mouse Retry.
+      // Second cycle: touch Retry, keyboard Cancel (focus + Enter), mouse Retry.
+      // While loading, Cancel is invisible and takes no pointer or touch
+      // (owner, Dale, 2026-11-20: the loading screen is only the scene), so
+      // a stray tap on the scene must not cancel; the keyboard still can.
       await page.locator('.note-box button', { hasText: 'Retry' }).tap();
       await treatmentVisible(page);
-      await page.locator('.note-box button', { hasText: 'Cancel' }).click();
+      const strayTap = await page.evaluate(() => {
+        const b = [...document.querySelectorAll('.note-box button')].find(x => x.textContent.trim() === 'Cancel');
+        const r = b.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return hit === b;
+      });
+      assert.equal(strayTap, false, 'a tap where the hidden Cancel sits lands on the scene, not on Cancel');
+      await page.locator('.note-box button', { hasText: 'Cancel' }).focus();
+      await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelector('.note-box')
         && document.querySelector('.note-box').innerText.includes('Loading cancelled.'), { timeout: 10000 });
       await assertShellInert(page, 'cancel run, second cancelled surface');
@@ -524,7 +531,7 @@ async function waitContent(page, timeoutMs = 30000) {
         const { context, page } = await openPage(browser, serveRoot,
           { viewport: cfg.viewport, colorScheme: cfg.colorScheme, reducedMotion: cfg.reducedMotion || 'no-preference', javaScriptEnabled: false },
           () => ({ delayMs: 0, status: 200 }));
-        await page.goto('http://boot.test/?view=classic', { waitUntil: 'load' });
+        await page.goto('http://boot.test/' + VIEW, { waitUntil: 'load' });
         const st = await page.evaluate(visFn);
         assert.ok(st.staticLayer.visible, 'static layer computed-visible without JavaScript (' + cfg.name + ')');
         assert.ok(!st.liveLayer.present, 'no live layer without JavaScript (' + cfg.name + ')');
@@ -547,26 +554,14 @@ async function waitContent(page, timeoutMs = 30000) {
             'static phase: the header and every .wrap child carry the baked pre-script isolation (inert + aria-hidden + data-boot-inert), ' + baked.count + ' elements');
           entry.bakedPreScriptIsolation = true;
           entry.bakedElements = baked.count;
-          const animName = await markAnimName(page, '[data-boot-static]');
-          assert.equal(animName, 'boot-blocks', 'static layer blocks animate with the same phased loop');
-          const geo = await markGeometry(page, '[data-boot-static]');
-          assert.ok(geo && geo.blocks === 4 && geo.ranges.every(x => x >= 0.8),
-            'static layer block geometry changes across the loop ' + JSON.stringify(geo && geo.ranges));
+          const scene = await assertScene(page, '[data-boot-static]', 'animation', 'static layer');
           entry.pointerEvents = pe;
-          entry.markAnimationName = animName;
-          entry.blockSeparationRangesPx = geo.ranges;
+          entry.scene = scene.scene;
           await shot(page, 'boot-treatment-static.png');
         }
         if (cfg.reducedMotion) {
-          const animName = await markAnimName(page, '[data-boot-static]');
-          assert.equal(animName, 'none', 'static layer reduced motion: block animation is none');
-          const c1 = await markCentres(page, '[data-boot-static]');
-          await sleep(700);
-          const c2 = await markCentres(page, '[data-boot-static]');
-          const drift = Math.max(...c1.map((c, i) => Math.hypot(c.cx - c2[i].cx, c.cy - c2[i].cy)));
-          assert.ok(drift <= 0.6, 'static layer reduced motion: block centres stable (drift ' + drift + 'px)');
-          entry.markAnimationName = animName;
-          entry.blockCentreDriftPx = drift;
+          const scene = await assertScene(page, '[data-boot-static]', 'still', 'static layer reduced motion');
+          entry.scene = scene.scene;
         }
         matrix[cfg.name] = entry;
         await context.close();
@@ -582,7 +577,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 6000, status: 200 }));
-      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'inertness run, held load');
@@ -640,7 +635,7 @@ async function waitContent(page, timeoutMs = 30000) {
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 300, status: 200 }),
         { holdScripts: () => gate });
-      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await page.waitForSelector('[data-boot-static]', { state: 'attached' });
       await page.waitForTimeout(400); // scripts are held; the static phase persists
       const held = await page.evaluate(() => {
@@ -732,7 +727,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 5000, status: 200 }));
-      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await page.waitForSelector('[data-boot-notice]', { state: 'attached', timeout: 20000 });
       await page.waitForTimeout(500); // held load: boot has covered the shell
       const held = await page.evaluate(() => {
@@ -826,7 +821,7 @@ async function waitContent(page, timeoutMs = 30000) {
                 '<section id="road-ahead" hidden inert aria-hidden="true">')
             : body,
         });
-      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
       await waitContent(page);
       await shot(page, 'boot-treatment-ready.png');
       // This run resolves too fast to stash the probe during the
@@ -908,7 +903,7 @@ async function waitContent(page, timeoutMs = 30000) {
           { viewport: { width: 1280, height: 900 }, colorScheme: 'light' },
           () => ({ delayMs, status: 200 }));
         const t0 = Date.now();
-        const nav = b.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+        const nav = b.page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
         let treatmentsSeen = 0;
         await b.page.waitForFunction(() => {
           const c = document.querySelector('#operating-surface');
@@ -937,7 +932,7 @@ async function waitContent(page, timeoutMs = 30000) {
           { viewport: { width: 1280, height: 900 }, colorScheme: 'light' },
           () => ({ delayMs: 5000, status: 200 }));
         const t0 = Date.now();
-        const nav = s.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
+        const nav = s.page.goto('http://boot.test/' + VIEW, { waitUntil: 'commit' });
         await s.page.waitForFunction(() => {
           const c = document.querySelector('#operating-surface');
           return c && (c.innerText || '').trim().length > 20;

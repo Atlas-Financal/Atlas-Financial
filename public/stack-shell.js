@@ -152,9 +152,20 @@ try {
     if (syncAt) return syncAt;
     return overlay && overlay.retainedRefresh ? instant(overlay.retainedRefresh.observedAt) : null;
   }
+  // The same instant, said simply (owner, Dale, 2026-11-20: "as of Nov 20 3am"): the date and the hour in the
+  // household's time zone, the same zone as app.js formatCompleteRefreshTime, with minutes only when they are not on the
+  // hour. Nothing when no instant is published.
+  const AS_OF_ZONE = 'America/Vancouver';
+  const asOfDay = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, month: 'short', day: 'numeric' });
+  const asOfHour = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, hour: 'numeric' });
+  const asOfTime = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, hour: 'numeric', minute: '2-digit' });
+  const asOfMinute = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, minute: 'numeric' });
   function lastUpdated(d) {
     const at = updatedInstant(d);
-    return at && typeof formatCompleteRefreshTime === 'function' ? 'Last updated ' + formatCompleteRefreshTime(at) : '';
+    if (!at) return '';
+    const when = new Date(at);
+    const onTheHour = Number(asOfMinute.format(when)) === 0;
+    return 'as of ' + asOfDay.format(when) + ', ' + (onTheHour ? asOfHour : asOfTime).format(when);
   }
 
   function timelineHtml() {
@@ -208,7 +219,12 @@ try {
     el = document.createElement('main');
     el.id = 'stack-root';
     el.className = 'stack-root';
-    el.innerHTML = '<header class="stack-top"><h1>Budget</h1><p class="stack-updated" data-stack-updated></p></header>'
+    // The top (owner, Dale, 2026-11-20: "declutter the top"): the title, and on its row a small "as of" time with a
+    // refresh icon. The site's own header bar is hidden on the Stack page (stack.css).
+    el.innerHTML = '<header class="stack-top"><h1>Budget</h1><p class="stack-asof"><span class="stack-updated" data-stack-updated></span>'
+      + '<button type="button" class="stack-refresh" data-stack-refresh aria-label="Refresh">'
+      + '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M19 9a7 7 0 1 0 0 6M19 4v5h-5"'
+      + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></p></header>'
       + '<div class="stack-pile" data-stack-pile><section class="stack-block stack-tl" data-stack-block="timeline"'
       + ' aria-label="Pay periods"></section>'
       // The waterfall sits under the shell's period header (range and when-label) in one white block; the block
@@ -221,6 +237,13 @@ try {
       + '<div class="stack-overlay" data-stack-block="sheet"></div>';
     (document.querySelector('.wrap') || document.body).appendChild(el);
     el.addEventListener('click', event => {
+      // Refresh: the page's one refresh control (app.js, single-flight, the same load as before), pressed on the
+      // household's behalf; the Stack page adds no refresh of its own.
+      if (event.target.closest('[data-stack-refresh]')) {
+        const manual = document.querySelector('[data-manual-refresh]');
+        if (manual && !manual.disabled) manual.click();
+        return;
+      }
       const chip = event.target.closest('[data-stack-period]');
       const now = event.target.closest('[data-stack-now]');
       const active = views().find(v => v.role === 'active');
@@ -235,22 +258,45 @@ try {
     return el;
   }
 
-  // Keep the chip row where it was across renders; centre the selected chip the first time and after a tap.
-  // Layout positions, not figures: the chip's offset in the row. Re-run once the stylesheets have loaded, since a
-  // render before then measures an unstyled row.
-  let centre = true;
+  // Where the chip row sits (owner, Dale, 2026-11-20: the current period was off-screen). Until the household scrolls
+  // the row themselves, every render centres the selected chip, so periods that arrive later (older history, a
+  // refresh) cannot push it out of view; so do a tap on a chip and "Now". Once they have scrolled, a re-render keeps
+  // the same chip at the same place, never the same raw offset (an offset shows other periods once the list grows).
+  // Layout positions, not figures. Measured from the rendered boxes, so it holds before and after the fonts and
+  // stylesheets arrive; each of those re-centres too while the row is still the page's to place.
+  let centre = true, userScrolled = false;
+  function chipRow() { return document.querySelector('#stack-root [data-stack-chips]'); }
   function centreNow() {
-    const row = document.querySelector('#stack-root [data-stack-chips]');
+    const row = chipRow();
     const chip = row && row.querySelector('[aria-pressed="true"]');
-    if (row && chip) row.scrollLeft = chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2;
+    if (!row || !chip) return;
+    const r = row.getBoundingClientRect(), c = chip.getBoundingClientRect();
+    if (!r.width) return;
+    row.scrollLeft += (c.left + c.width / 2) - (r.left + r.width / 2);
   }
-  function centerSelected(row, scrollLeft) {
-    if (!row) return;
-    if (scrollLeft != null) row.scrollLeft = scrollLeft;
-    if (!centre) return;
-    centre = false;
+  function settleCentre() {
     centreNow();
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(centreNow);
+  }
+  function autoCentre() { if (!userScrolled) settleCentre(); }
+  // The first chip whose box starts inside the row, and where it starts: the anchor a re-render keeps in place.
+  function anchorOf(row) {
+    if (!row) return null;
+    const left = row.getBoundingClientRect().left;
+    const chip = [...row.querySelectorAll('[data-stack-period]')].find(c => c.getBoundingClientRect().right > left);
+    return chip ? { key: chip.getAttribute('data-stack-period'), at: chip.getBoundingClientRect().left - left } : null;
+  }
+  function placeRow(row, anchor) {
+    if (!row) return;
+    if (!row.dataset.stackWatched) {
+      row.dataset.stackWatched = '1';
+      for (const type of ['pointerdown', 'touchstart', 'wheel', 'keydown']) {
+        row.addEventListener(type, () => { userScrolled = true; }, { passive: true });
+      }
+    }
+    if (centre || !userScrolled) { centre = false; settleCentre(); return; }
+    const chip = anchor && row.querySelector(`[data-stack-period="${CSS.escape(anchor.key)}"]`);
+    if (chip) row.scrollLeft += (chip.getBoundingClientRect().left - row.getBoundingClientRect().left) - anchor.at;
   }
 
   // B7 fail-safe: a throw in the shell's own drawing hands the page back to the previous page, never a blank one.
@@ -269,10 +315,9 @@ try {
     const el = mount();
     el.querySelector('[data-stack-updated]').textContent = lastUpdated(state.data);
     const timeline = el.querySelector('[data-stack-block="timeline"]');
-    const previous = timeline.querySelector('[data-stack-chips]');
-    const scrollLeft = previous ? previous.scrollLeft : null;
+    const anchor = anchorOf(timeline.querySelector('[data-stack-chips]'));
     timeline.innerHTML = timelineHtml();
-    centerSelected(timeline.querySelector('[data-stack-chips]'), scrollLeft);
+    placeRow(timeline.querySelector('[data-stack-chips]'), anchor);
     el.querySelector('[data-stack-period-head]').innerHTML = periodHeadHtml();
     const ctx = context();
     for (const name of ORDER) {
@@ -319,11 +364,31 @@ try {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = href;
-      if (href === '/stack.css') link.addEventListener('load', () => centreNow());
+      if (href === '/stack.css' || href === '/budget-stack-fonts.css') link.addEventListener('load', autoCentre);
+      // A Stack stylesheet that fails to load would leave both pages showing together: hand back to the previous page
+      // (reviewer, #1439). The font stylesheet is exempt: without it the page still reads, in the fallback fonts.
+      if (href !== '/budget-stack-fonts.css') {
+        link.addEventListener('error', () => fallBack(new Error('stack stylesheet failed to load: ' + href)));
+      }
       document.head.appendChild(link);
     }
   }
   try { applyChrome(); } catch (error) { fallBack(error); return; }
+  // Web fonts widen the chips when they arrive (and a cold iOS Safari load lays out late): re-centre then too, while the
+  // row is still the page's to place.
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') document.fonts.ready.then(autoCentre);
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('load', autoCentre);
+
+  // A block script that fails to load would leave the Stack page without its waterfall, cards, Credit or sheets:
+  // once the document has parsed (every block script has run or failed), any block that never registered hands back
+  // to the previous page (reviewer, #1439). Checked only when the shell runs during parsing, as it does from
+  // index.html; a harness that loads it otherwise draws what registered.
+  if (document.readyState === 'loading' && typeof document.addEventListener === 'function') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const missing = ORDER.filter(name => !renderers.has(name));
+      if (missing.length) fallBack(new Error('stack block script failed to load: ' + missing.join(', ')));
+    }, { once: true });
+  }
 
   if (typeof App !== 'undefined' && App.register) {
     App.register(render);

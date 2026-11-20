@@ -1,29 +1,18 @@
 /* Stack Wallet page (B1 shell). Loaded only under ?view=stack (stack-shell.js adds it), and every rule is scoped to
  * html.stack-view, so the current page is unaffected even if this file were loaded. Tokens follow the Stack Wallet
  * design (invented-data artifact). Owner, Dale, 2026-11-20: "Follow the design" (white timeline block in light mode). */
+/* Dark always (owner, Dale, 2026-11-20: "lets just go dark mode all the time"): one palette, the design's dark one,
+ * whatever the device's setting or a stored theme choice. */
 html.stack-view {
-  --stack-bg: #ecebe7; --stack-panel: #ffffff; --stack-ink: #121316; --stack-muted: #6c6d74;
-  --stack-wf: #ffffff; --stack-on: #121316; --stack-on2: rgba(18, 19, 22, .62); --stack-on-line: rgba(18, 19, 22, .13);
+  color-scheme: dark;
+  --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3;
+  --stack-wf: #f4f2ec; --stack-on: #121316; --stack-on2: rgba(18, 19, 22, .62); --stack-on-line: rgba(18, 19, 22, .13);
   --stack-bills: #c6c9ff; --stack-budget: #dff06e; --stack-cards: #b4ead3; --stack-save: #ffcfb3; --stack-mort: #f5bfe3;
   --stack-slab: #121316; --stack-slab-fg: #ffffff; --stack-slab-good: #dff06e; --stack-slab-bad: #ff9a8c;
-  --stack-t-bg: #ffffff; --stack-t-fg: #121316; --stack-t-muted: #6c6d74; --stack-t-chip: #dad9d3;
-  --stack-t-sel: #121316; --stack-t-selfg: #ffffff; --stack-t-neg: #d93a45; --stack-t-negsel: #b3261e;
-  --stack-lift: 0 -16px 30px -20px rgba(18, 19, 22, .35);
-  --stack-sans: "Outfit", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  html.stack-view:not([data-theme="light"]) {
-    --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3; --stack-wf: #f4f2ec;
-    --stack-t-bg: #17181d; --stack-t-fg: #f4f3ef; --stack-t-muted: #9a9ba3; --stack-t-chip: #33353d;
-    --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477; --stack-t-negsel: #ff8477;
-    --stack-lift: 0 -18px 34px -18px rgba(0, 0, 0, .7);
-  }
-}
-html.stack-view[data-theme="dark"] {
-  --stack-bg: #0c0d10; --stack-panel: #17181d; --stack-ink: #f4f3ef; --stack-muted: #9a9ba3; --stack-wf: #f4f2ec;
   --stack-t-bg: #17181d; --stack-t-fg: #f4f3ef; --stack-t-muted: #9a9ba3; --stack-t-chip: #33353d;
   --stack-t-sel: #dff06e; --stack-t-selfg: #121316; --stack-t-neg: #ff8477; --stack-t-negsel: #ff8477;
   --stack-lift: 0 -18px 34px -18px rgba(0, 0, 0, .7);
+  --stack-sans: "Outfit", ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
 }
 
 /* The Stack page replaces the current page's content; the boot notice (loading, errors) stays visible. */
@@ -34,10 +23,11 @@ html.stack-view .wrap > .running-build { display: block; order: 40; align-self: 
   text-align: center; font-size: 12px; color: var(--stack-muted); }
 /* The current page's background art lives outside .wrap; the design's background is plain. */
 html.stack-view .blend-ambient, html.stack-view .blend-aurora, html.stack-view .blend-sky { display: none !important; }
-/* The site header copies the current page's "Last updated" line; the Stack page prints its own under the title. */
-html.stack-view .site-head [data-blend-updated] { display: none; }
+/* No site header bar on the Stack page (owner, Dale, 2026-11-20): no logo, theme switch or refresh bar. The page's
+ * refresh control stays in the document, hidden, and the Stack page's own refresh icon presses it. */
+html.stack-view .site-head { display: none !important; }
 html.stack-view .stack-root {
-  box-sizing: border-box; max-width: 440px; margin: 0 auto; padding: 18px 0 48px;
+  box-sizing: border-box; max-width: 440px; margin: 0 auto; padding: calc(18px + env(safe-area-inset-top, 0px)) 0 48px;
   display: flex; flex-direction: column; gap: 14px; -webkit-font-smoothing: antialiased; width: 100%; min-width: 0;
 }
 html.stack-view .stack-root *, html.stack-view .stack-root *::before, html.stack-view .stack-root *::after { box-sizing: border-box; }
@@ -46,10 +36,17 @@ html.stack-view .stack-root button {
 }
 html.stack-view .stack-root button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 12px; }
 
-html.stack-view .stack-top { padding-top: 4px; }
+/* The title, and on its row, small and to the right, "as of" with a refresh icon (a 44px tap target). */
+html.stack-view .stack-top { padding-top: 4px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 html.stack-view .stack-top h1 { margin: 0; font-size: 46px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
-html.stack-view .stack-updated { margin: 8px 0 0; font-size: 13.5px; color: var(--stack-muted); }
-html.stack-view .stack-updated:empty { display: none; }
+html.stack-view .stack-asof { margin: 0 -10px 0 0; display: flex; align-items: center; gap: 0; font-size: 12.5px; color: var(--stack-muted); white-space: nowrap; }
+html.stack-view .stack-root .stack-refresh {
+  display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 22px;
+  color: var(--stack-muted);
+}
+html.stack-view .stack-root .stack-refresh:disabled { opacity: .45; cursor: default; }
+/* A small icon (owner: "a small refresh icon"): 16px, not stretched by the page's global svg rule. */
+html.stack-view .stack-root .stack-refresh svg { width: 16px; height: 16px; flex: none; }
 
 /* The pile: each block overlaps the one above it. An empty block (a placeholder) takes no space. */
 html.stack-view .stack-pile { display: flex; flex-direction: column; min-width: 0; }
@@ -67,9 +64,14 @@ html.stack-view .stack-root .stack-now {
   font-size: 12px; font-weight: 700; color: var(--stack-t-fg); border-radius: 999px; padding: 4px 11px;
   box-shadow: inset 0 0 0 1.5px var(--stack-t-chip);
 }
+/* Clean edges (owner, Dale, 2026-11-20: chips at the edges looked cut off): the row fades out over its last 24px at
+ * each end, chips settle on whole snap positions, and 24px of padding lets the first and last chip sit clear of the
+ * fade. */
 html.stack-view .stack-chips {
-  display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity;
-  margin: 0 -12px; padding: 2px 12px;
+  display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory;
+  margin: 0 -12px; padding: 2px 24px; scroll-padding-inline: 24px;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
 }
 html.stack-view .stack-chips::-webkit-scrollbar { display: none; }
 /* Chips are scoped under .stack-root so they outrank the page's button reset above (which otherwise strips their

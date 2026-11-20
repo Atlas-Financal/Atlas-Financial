@@ -4,7 +4,7 @@
  *
  *   1. The surplus fits its slab: at 320 and 390 wide (and 1440), the printed surplus and a long value such as
  *      −$12,345.67 end inside the slab's padding, with no overflow or clipping.
- *   2. Every card's strip is fully visible and tappable: each card's summary (Bills, Budget, Mortgage) and the Credit
+ *   2. Every card's strip is fully visible and tappable: each card's summary (Bills, Budget) and the Credit
  *      head lie wholly inside the page, no later block covers them (the element at each strip's corners and centre is
  *      the strip itself), and they do not overlap one another. Closed and with Credit open.
  *   3. The waterfall rows at 320 wide: each label on one line, at least 8px from its amount (a long invented amount in
@@ -26,7 +26,7 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, width, theme = 'light') {
+async function open(browser, width, theme = 'light', { fontDelayMs = 0 } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce', colorScheme: theme });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -37,7 +37,11 @@ async function open(browser, width, theme = 'light') {
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
-    return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
+    const send = () => route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' })
+      .catch(() => {});
+    // A slow font (a cold phone load): the chips are laid out, then widen when the font arrives.
+    if (fontDelayMs && u.pathname.endsWith('.woff2')) return new Promise(r => setTimeout(r, fontDelayMs)).then(send);
+    return send();
   });
   await page.goto('http://stack.test/?view=stack');
   await page.waitForSelector('#stack-root .wf-slab .n');
@@ -161,7 +165,7 @@ const slabInk = (page, amount) => page.evaluate(value => {
         if (state === 'Credit open') await openCreditCard(page);
         const s = await strips(page);
         const names = s.map(x => x.name).join(',');
-        ok(names === 'bills,budget,mortgage,credit', `${state}: the Bills, Budget, Mortgage and Credit strips are found`, names);
+        ok(names === 'bills,budget,credit', `${state}: the Bills, Budget and Credit strips are found`, names);
         const hidden = s.filter(x => x.covered > 0 || x.height < 40 || x.left < 0 || x.right > x.viewport);
         ok(hidden.length === 0, `${state}: every strip is wholly visible and is what a tap on it reaches`, JSON.stringify(hidden));
         const overlaps = s.slice(1).filter((x, i) => x.top < s[i].bottom - 0.5);
@@ -218,7 +222,7 @@ const slabInk = (page, amount) => page.evaluate(value => {
       await page.addStyleTag({ content: 'html.stack-view .stack-bare + .stack-bare { margin-top: -120px; }' });
       await page.waitForTimeout(50);
       const s = await strips(page);
-      ok(s.some(x => x.covered > 0), 'with the Credit block overlapping again, the Mortgage strip is reported covered',
+      ok(s.some(x => x.covered > 0), 'with the Credit block overlapping again, the last card strip is reported covered',
         JSON.stringify(s.map(x => [x.name, x.covered])));
       await page.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-slab .n { font-size: 66px; }' });
       const fit = await slabFit(page, ['−$12,345.67']);
@@ -238,6 +242,162 @@ const slabInk = (page, amount) => page.evaluate(value => {
         const faded = await slabInk(page, -250.5);
         ok(faded.measured && faded.ratio < 4.5, 'with the .58 fade, the deficit is reported under 4.5:1', JSON.stringify(faded));
       }
+      await page.close();
+    }
+    console.log('the top: no header bar, "as of" and a refresh icon beside the title, dark always (owner, Dale, 2026-11-20)');
+    {
+      // Its own page: counts the data requests, and can start from a light device and a stored light theme.
+      const top = async ({ scheme = 'light', storedTheme = null, query = '' } = {}) => {
+        const page = await browser.newPage({ viewport: { width: 390, height: 900 }, reducedMotion: 'reduce', colorScheme: scheme });
+        const errors = [], loads = [];
+        page.on('pageerror', error => errors.push(error.message));
+        if (storedTheme) await page.addInitScript(t => { try { localStorage.setItem('hfd-theme', t); } catch (e) { /* none */ } }, storedTheme);
+        await page.route('**/*', route => {
+          const u = new URL(route.request().url());
+          if (u.origin !== 'http://stack.test') return route.abort();
+          if (u.pathname === '/data.json') {
+            loads.push(u.search);
+            const d = fx.served({ mortgageObligation: true });
+            d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = '2026-08-20T11:00:00.000Z'; // invented: Aug 20, 4 a.m. in Vancouver
+            return route.fulfill({ json: d });
+          }
+          if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
+          const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
+          if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
+          return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
+        });
+        await page.goto('http://stack.test/' + query);
+        await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+        await page.waitForTimeout(300);
+        return { page, errors, loads };
+      };
+      const { page, errors, loads } = await top({ scheme: 'light', storedTheme: 'light' });
+      const t = await page.evaluate(() => {
+        const head = document.querySelector('.site-head');
+        const h1 = document.querySelector('#stack-root .stack-top h1').getBoundingClientRect();
+        const asof = document.querySelector('#stack-root .stack-asof').getBoundingClientRect();
+        const btn = document.querySelector('#stack-root [data-stack-refresh]');
+        const b = btn.getBoundingClientRect();
+        return { headShown: !!head && head.getClientRects().length > 0, h1Top: Math.round(h1.top),
+          sameRow: asof.top < h1.bottom && asof.bottom > h1.top, asofRight: Math.round(innerWidth - asof.right), asofLeft: Math.round(asof.left),
+          h1Right: Math.round(h1.right), text: document.querySelector('[data-stack-updated]').textContent,
+          name: btn.getAttribute('aria-label'), w: Math.round(b.width), h: Math.round(b.height),
+          icon: Math.round(btn.querySelector('svg').getBoundingClientRect().width),
+          bg: getComputedStyle(document.body).backgroundColor, scheme: getComputedStyle(document.documentElement).colorScheme,
+          theme: document.documentElement.dataset.theme || null };
+      });
+      ok(!t.headShown && t.h1Top < 60, 'no header bar: the page starts with the "Budget" title', JSON.stringify(t));
+      ok(t.sameRow && t.asofLeft > t.h1Right && t.asofRight <= 16 && t.text === 'as of Aug 20, 4 a.m.',
+        '"as of" sits on the title\'s row, at the right, in the short form', JSON.stringify(t));
+      ok(t.name === 'Refresh' && t.w >= 44 && t.h >= 44 && t.icon <= 18, 'the refresh icon is small (16px) on a button named "Refresh" with a 44px tap target', JSON.stringify(t));
+      ok(t.bg === 'rgb(12, 13, 16)' && t.scheme === 'dark',
+        'dark always: a light device with a stored light theme still gets the dark page', JSON.stringify(t));
+      // Refresh: a tap, then the keyboard, each runs the page's one refresh (a forced data load), once.
+      const before = loads.filter(q => /refresh=force/.test(q)).length;
+      await page.click('#stack-root [data-stack-refresh]');
+      await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+      await page.waitForSelector('#stack-root [data-stack-refresh]');
+      const afterTap = loads.filter(q => /refresh=force/.test(q)).length;
+      await page.focus('#stack-root [data-stack-refresh]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+      const afterKey = loads.filter(q => /refresh=force/.test(q)).length;
+      ok(before === 0 && afterTap === 1 && afterKey === 2, 'a tap and the keyboard each run the page\'s refresh once', JSON.stringify({ before, afterTap, afterKey }));
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      await page.close();
+      // Control: the previous page keeps its header bar and its theme.
+      const classic = await top({ scheme: 'light', query: '?view=classic' });
+      const c = await classic.page.evaluate(() => ({ head: document.querySelector('.site-head').getClientRects().length > 0,
+        toggle: !!document.querySelector('[data-blend-theme]') && document.querySelector('[data-blend-theme]').getClientRects().length > 0,
+        stack: document.documentElement.classList.contains('stack-view') }));
+      ok(c.head && c.toggle && !c.stack, 'control: ?view=classic keeps its header bar and theme switch', JSON.stringify(c));
+      await classic.page.close();
+    }
+
+    console.log('the timeline: clean edges, and the selected period centred (owner, Dale, 2026-11-20)');
+    {
+      const place = page => page.evaluate(() => {
+        const row = document.querySelector('#stack-root [data-stack-chips]');
+        const chip = row.querySelector('[aria-pressed="true"]');
+        const r = row.getBoundingClientRect(), c = chip.getBoundingClientRect(), cs = getComputedStyle(row);
+        return { key: chip.getAttribute('data-stack-period'), chips: row.children.length,
+          inside: c.left >= r.left + 20 && c.right <= r.right - 20, offCentre: Math.round((c.left + c.width / 2) - (r.left + r.width / 2)),
+          mask: cs.maskImage || cs.webkitMaskImage || '', snap: cs.scrollSnapType, padStart: parseFloat(cs.paddingLeft) };
+      });
+      // Older periods arriving after the first draw (late history): the same views, ten earlier pay periods in front.
+      const lateHistory = page => page.evaluate(() => {
+        const original = Forecast.recommend;
+        Forecast.recommend = function () {
+          const rec = original.apply(this, arguments);
+          const views = rec.payPeriodViews || [], first = views[0];
+          const earlier = [];
+          for (let i = 10; i >= 1; i--) {
+            const start = new Date(first.start + 'T12:00:00Z'); start.setUTCDate(start.getUTCDate() - 14 * i);
+            const end = new Date(start); end.setUTCDate(end.getUTCDate() + 13);
+            earlier.push(Object.assign({}, first, { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), role: 'closed' }));
+          }
+          rec.payPeriodViews = earlier.concat(views);
+          return rec;
+        };
+        App.rerender();
+      });
+      const settle = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+      for (const [label, opts] of [['load', {}], ['slow font', { fontDelayMs: 1500 }]]) {
+        const { page, errors } = await open(browser, 390, 'light', opts);
+        await settle(page);
+        const at = await place(page);
+        ok(at.inside && Math.abs(at.offCentre) <= 4, `${label}: the selected chip is fully in view and centred at 390`, JSON.stringify(at));
+        if (label === 'load') {
+          ok(/linear-gradient\(to right, (transparent|rgba\(0, 0, 0, 0\)), (rgb\(0, 0, 0\)|#000) 24px/.test(at.mask) && at.snap === 'x mandatory' && at.padStart >= 24,
+            'the strip fades over 24px at each end, snaps chips to whole positions, and pads its ends past the fade', JSON.stringify(at));
+          await lateHistory(page); await settle(page);
+          const later = await place(page);
+          ok(later.chips > at.chips && later.key === at.key && later.inside && Math.abs(later.offCentre) <= 4,
+            'older periods arriving later keep the selected chip in view and centred', JSON.stringify(later));
+          // The household scrolls the row themselves: a later re-render keeps the same chip where they left it.
+          await page.mouse.move(200, (await page.$eval('#stack-root [data-stack-chips]', r => r.getBoundingClientRect().top + 20)));
+          await page.mouse.wheel(0, 0);
+          await page.$eval('#stack-root [data-stack-chips]', r => { r.dispatchEvent(new Event('pointerdown')); r.scrollLeft = 0; });
+          await settle(page);
+          const before = await page.evaluate(() => { const row = document.querySelector('#stack-root [data-stack-chips]');
+            const c = row.children[2]; return { key: c.getAttribute('data-stack-period'), x: Math.round(c.getBoundingClientRect().left) }; });
+          await page.evaluate(() => App.rerender()); await settle(page);
+          const after = await page.evaluate(k => { const c = document.querySelector(`#stack-root [data-stack-period="${k}"]`);
+            return Math.round(c.getBoundingClientRect().left); }, before.key);
+          ok(Math.abs(after - before.x) <= 1, 'after the household scrolls, a re-render leaves the same chip where they left it', JSON.stringify({ before, after }));
+          await page.click('#stack-root [data-stack-now]'); await settle(page);
+          const now = await place(page);
+          ok(now.inside && Math.abs(now.offCentre) <= 4, '"Now" brings the current period back to the centre', JSON.stringify(now));
+        }
+        ok(errors.length === 0, 'no page errors', errors.join('; '));
+        await page.close();
+      }
+    }
+
+    console.log('the waterfall\'s Mortgage line opens the mortgage sheet (no Mortgage card; owner, 2026-11-20)');
+    {
+      const { page, errors } = await open(browser, 390);
+      const line = '#stack-root [data-block="waterfall"] [data-row="mortgage"] button[data-stack-sheet^="mortgage:"]';
+      const key = await page.$eval(line, b => b.getAttribute('data-stack-sheet')).catch(() => null);
+      ok(!!key, 'the Mortgage line is a button carrying the mortgage row\'s sheet key', String(key));
+      // The fixture publishes a real mortgage obligation (#1465's mortgageObligation), so the line prints an amount, and
+      // the sheet it opens must head with that same amount: one published figure, one printed value.
+      const lineAmount = await page.$eval('#stack-root [data-block="waterfall"] [data-row="mortgage"] .n', n => n.textContent.trim());
+      for (const how of ['tap', 'Enter']) {
+        if (how === 'tap') await page.click(line);
+        else { await page.focus(line); await page.keyboard.press('Enter'); }
+        await page.waitForSelector('.stack-sheet', { timeout: 3000 }).catch(() => {});
+        const sheet = await page.evaluate(() => { const el = document.querySelector('.stack-sheet');
+          return el ? el.innerText.replace(/\s+/g, ' ').trim().slice(0, 40) : null; });
+        ok(!!sheet && /^Mortgage\b/.test(sheet), `a ${how} on the line opens the mortgage sheet`, String(sheet));
+        if (how === 'tap') {
+          const big = await page.$eval('.stack-sheet .stack-sheet-big', n => n.textContent.trim()).catch(() => null);
+          ok(/^\$[\d,]+$/.test(lineAmount) && lineAmount !== '$0' && big === lineAmount,
+            'the line and the sheet it opens print the same published mortgage amount (not $0)', JSON.stringify({ lineAmount, big }));
+        }
+        await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+      }
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
       await page.close();
     }
     console.log('the side gutter is the design\'s 16px at phone width (Wallet mock), and the current page is unchanged');

@@ -18,8 +18,12 @@ ChatGPT is Atlas Financial's:
 - **decision desk**
 - **orchestration layer**
 - **planning / work-selection partner**
-- **required systems reviewer** when current repository governance calls
-  for it
+- second builder, one item at a time, when the lead asks
+
+ChatGPT no longer performs the Atlas Contract / Systems Review: since OD-026
+([`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)) a separate in-house
+Claude reviewer session is the reviewer of record, under the same review
+rules and findings format. Historical Atlas review records stay valid.
 
 ChatGPT is **not**:
 
@@ -116,13 +120,14 @@ Reminders only. The governing documents remain the owners.
 ## Required review handoff
 
 When the current merge candidate is stable and `CLAUDE.md` says Atlas Contract
-/ Systems Review is required, send the request directly to the active ChatGPT
-decision-desk session. Include the pull request number, current full head SHA,
+/ Systems Review is required, route the request to the lead, who hands it to
+the in-house reviewer session (OD-026). Include the pull request number, current full head SHA,
 deterministic gate state, and any prior blocking finding that bounds a
 re-review. Do not treat a GitHub review, comment, label, or successful workflow
-as a request to ChatGPT; those artifacts cannot wake this session.
+as a request to ChatGPT or to the reviewer; those artifacts cannot wake this session or a
+reviewer session.
 
-ChatGPT reviews that exact head independently of the active builder and posts
+The in-house reviewer reviews that exact head independently of the active builder and posts
 factual findings as a PR comment in the `CLAUDE.md` form (`Reviewed head:` /
 `Findings: BLOCKERS FOUND | NO BLOCKERS FOUND | INCOMPLETE`), never a PASS,
 GitHub APPROVE, or merge permission; it does not make merge decisions. The Merge

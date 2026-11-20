@@ -1,6 +1,6 @@
-/* Stack page Bills, Budget, Mortgage and Savings cards. Loaded only under ?view=stack; every selector is scoped to html.stack-view. The cards keep their own pastel fills and dark ink in both themes, as in the design. */
+/* Stack page Bills, Budget and Savings cards. Loaded only under ?view=stack; every selector is scoped to html.stack-view. The cards keep their own pastel fills and dark ink in both themes, as in the design. */
 html.stack-view .sc-cards{--sc-ink:#121316;--sc-muted:#6c6d74;--sc-line:rgba(18,19,22,.13);--sc-bar:rgba(18,19,22,.13);
---sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-mortgage:#f5bfe3;--sc-savings:#ffcfb3;display:flex;flex-direction:column;font-family:inherit}
+--sc-bills:#c6c9ff;--sc-budget:#dff06e;--sc-savings:#ffcfb3;display:flex;flex-direction:column;font-family:inherit}
 /* The pile, as in the design: each card overlaps the one above by 38px and casts the lift shadow upward. The bottom padding
  * keeps the card's own head clear of the card that covers its foot; the last card needs it only while Credit follows. */
 html.stack-view .sc-card{position:relative;background:var(--sc-k);color:var(--sc-ink);border-radius:38px;margin-top:-38px;
@@ -13,6 +13,7 @@ html.stack-view .sc-card[open]>summary{grid-template-columns:minmax(0,1fr) 42px;
 html.stack-view .sc-card>summary::-webkit-details-marker{display:none}
 html.stack-view .sc-card>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px;border-radius:12px}
 html.stack-view .sc-t{grid-area:t;font-size:18px;font-weight:800;letter-spacing:-.02em}
+html.stack-view .sc-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 html.stack-view .sc-s{grid-area:s;font-size:13.5px;font-weight:500;opacity:.68}
 html.stack-view .sc-f{grid-area:f;font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
 html.stack-view .sc-f i{font-style:normal;font-size:.6em;font-weight:600;opacity:.68}
