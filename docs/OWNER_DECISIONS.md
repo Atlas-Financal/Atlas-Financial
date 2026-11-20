@@ -75,3 +75,9 @@ Each is the lead's record of Dale's decision.
 | ID | Date | Decision | Rule lives in | Source | Status |
 |---|---|---|---|---|---|
 | OD-025 | 2026-11-19 | The Budget page shows no banner for a retained last full picture ("Showing the last full picture from … Today's update couldn't be completed: …"); the small "Last updated" line already says when the picture is from. It reverses the 2026-11-18 banner and matches OD-3: a dated or retained view is signalled by the small "Last updated" line only, and the dated-plan note shows only when that line cannot be printed. | `public/plan.js` (`budgetSurfaceHtml`); `ARCHITECTURE.md`, "Last non-withheld picture shown under a whole-plan hold" | [#821 7008553005](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-7008553005) | settled |
+
+## Plan #6 thread (Slack), 2026-11-20
+
+| ID | Date | Decision | Rule lives in | Source | Status |
+|---|---|---|---|---|---|
+| OD-026 | 2026-11-20 | Reviews move in-house: a separate Claude reviewer session (not a builder, not the lead, at a high model or reasoning level) replaces ChatGPT (Atlas) as reviewer of record, including for figures-moved changes. Same review rules and findings format; ChatGPT stands down from reviews. Historical Atlas records stay valid. | `CLAUDE.md` (Roles; Review routing and claims; The two review lanes; Atlas Contract / Systems Review) | Plan #6 thread (Slack), posted by Dale 2026-11-20 17:32 UTC; no public link (the Slack workspace address stays out of the repository); the lead holds the message link | settled |

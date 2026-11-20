@@ -34,9 +34,15 @@ scaffolding. The rule numbers are kept so existing references (for example
   tell him.
 - **Claude Code (lead):** owns the post-1.0 order, builds, coordinates, and picks
   models per task.
-- **ChatGPT (Atlas):** reviewer of record for figure-moving changes, with one
-  bounded review; also the second builder, one item at a time. Desk rulings
-  only when the lead asks.
+- **In-house reviewer:** a separate Claude Code session (never a builder of
+  the PR, never the lead; a high model or reasoning level) is the reviewer of
+  record, including for figures-moved changes, with one bounded review
+  (Dale, 2026-11-20; OD-026 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
+  It replaces ChatGPT (Atlas) in that role; the review contract, findings
+  format and merge gate are unchanged.
+- **ChatGPT (Atlas):** stands down from reviews (OD-026). Still the second
+  builder, one item at a time, and gives desk rulings when the lead asks.
+  Historical Atlas review records stay valid.
 - **Muse:** merger under the merge gate, plus routine monitoring. Planning and
   dispatch move to the lead.
 - **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
@@ -192,16 +198,17 @@ what the site is for, and which tier of `ARCHITECTURE.md` is entered next.
 Dale may merge anything, or withdraw any of the authority below. Routine work
 does not wait for him to click merge — see **Merge policy**.
 
-### The decision desk, and the Atlas Contract / Systems Review — ChatGPT
+### The decision desk (ChatGPT), and the Atlas Contract / Systems Review
 
-ChatGPT does two separate things, and they should not be confused.
+Two separate things, and they should not be confused.
 
 1. **The decision desk** helps Dale resolve genuinely non-derivable product,
    scope and trust forks. It never answers a household fact — those are
    questions for the household and live in `docs/01_OPEN_QUESTIONS.md` — and it
    never holds work items, which live in `BACKLOG.md`.
-2. **The Atlas Contract / Systems Review** — as Atlas, ChatGPT is the default
-   reviewer of record. It reads a pull request's exact head and publishes
+2. **The Atlas Contract / Systems Review** — the in-house reviewer (a separate
+   Claude Code session; Roles, OD-026) is the reviewer of record. ChatGPT no
+   longer performs it; historical Atlas records stay valid. It reads a pull request's exact head and publishes
    factual findings, never a PASS, an approval, or merge permission. It reviews
    every figures-moved pull request it did not build. It does not make merge
    decisions. The review contract is defined below.
@@ -244,12 +251,11 @@ their own build:** the builder hands back and a merger decides.
 
 ### Independent agent review — any agent that is not the active builder
 
-Any agent that is not the pull request's builder may review. Atlas is the
-default reviewer and reviews every figures-moved pull request, so money logic
-meets one consistent standard. Lower-risk pull requests, and Atlas-built pull
-requests, may be reviewed by Claude Code or Muse; an Atlas-built figures-moved
-pull request is reviewed by Muse (or Claude Code if Muse built part of it). When
-Muse reviewed a pull request, it does not also merge it; the backup merger does.
+Any agent that is not the pull request's builder may review. The in-house
+reviewer is the default reviewer and reviews every figures-moved pull request,
+so money logic meets one consistent standard. Other pull requests may also be
+reviewed by Muse or another non-builder Claude Code session. When Muse reviewed
+a pull request, it does not also merge it; the backup merger does.
 Every reviewer uses the same
 factual findings record (below).
 
@@ -274,10 +280,9 @@ Routine review and merge run by rule; the dispatcher steps in only on
 exceptions. Extended 2026-10-30 (owner).
 
 - **Default reviewer, named by the builder in its REVIEW READY post:**
-  a figures-moved pull request not built by Atlas → Atlas; an Atlas-built pull
-  request → Muse (Claude Code if Muse built part of it); a lower-risk
-  pull request built by Claude Code → Atlas, or Muse if Atlas is unavailable; a
-  Muse-built pull request → Atlas.
+  the in-house reviewer for every pull request (figures-moved or not), unless
+  it built or authored findings on that PR, then Muse or another non-builder
+  Claude Code session.
 - **Claim before reviewing:** the reviewer posts `Reviewing #<n> at <full head
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
@@ -303,7 +308,7 @@ errored, timed out, cancelled or failed **is a failure**, not an absence of one.
 
 |  | Atlas Contract / Systems Review | Independent improvement audit |
 |---|---|---|
-| Performed by | Atlas (ChatGPT) by default; another non-builder where allowed below | An agent that is not the active builder |
+| Performed by | The in-house reviewer by default (OD-026); another non-builder where allowed below | An agent that is not the active builder |
 | Status | **Required only when a high-risk trigger fires** | Optional |
 | Question | Is this exact head unsafe or architecturally wrong to merge? | What could be improved? |
 | Result | Factual findings: `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, or `INCOMPLETE` | Findings with dispositions |
@@ -321,11 +326,11 @@ defect remains a blocker because the defect is real.
 > may review; Atlas reviews figures-moved PRs. Historical PASS records remain as
 > history.
 
-**Atlas (ChatGPT) performs this review by default**, and always for a
-figures-moved pull request it did not build; that is the only case where Atlas
-is the required reviewer (owner scope, 2026-10-30). Any other pull request,
-including one with a non-figures high-risk trigger, or an Atlas-built pull
-request may instead be reviewed by Claude Code or Muse. When a high-risk trigger
+**The in-house reviewer performs this review by default**, and always for a
+figures-moved pull request it did not build (Dale, 2026-11-20; OD-026, which
+replaced ChatGPT / Atlas in this role; historical Atlas records stay valid).
+Any other pull request, including one with a non-figures high-risk trigger, may
+instead be reviewed by Muse or another non-builder Claude Code session. When a high-risk trigger
 fires, the review is required governance before merge. When no high-risk
 trigger fires, it is not required. The active implementation agent cannot
 satisfy its own architecture gate. The review is not a GitHub status check. It
@@ -425,10 +430,10 @@ attempt. Optional advisory suggestions need not all be fixed.
 Correct-but-improvable work may proceed to systems review.
 
 The builder must deliver the review request directly to the named reviewer —
-for Atlas, the active ChatGPT decision-desk session — with the pull request
-number and current full head SHA.
+normally by routing REVIEW READY to the lead, who hands it to the in-house
+reviewer session — with the pull request number and current full head SHA.
 A GitHub review, comment, label, or workflow run is evidence only: it cannot
-wake ChatGPT and does not start or satisfy this review. Paid OpenAI reviewer
+wake a reviewer session and does not start or satisfy this review. Paid OpenAI reviewer
 workflows are retired. Do not wait for them.
 
 #### Bounded review protocol
@@ -499,7 +504,7 @@ The review block records five fields:
 
 - **Required** — opens `REQUIRED` or `NOT REQUIRED`;
 - **Exact reviewed head** — the current full SHA when required, else `N/A`;
-- **Reviewer** — the non-builder reviewer (for example `Atlas`) when required,
+- **Reviewer** — the non-builder reviewer (for example `In-house reviewer`; historical records name `Atlas`) when required,
   else `N/A`;
 - **Review outcome** — `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, `INCOMPLETE`, or
   `PENDING` when required, else `N/A`; and
@@ -638,7 +643,7 @@ primary label is a projection of that row, not a second judgement.
   systems-review trigger fired. No approval click. A high-risk trigger still
   waits for Atlas Contract / Systems Review `NO BLOCKERS FOUND` on the current
   head.
-- **`figures-moved`** — Atlas reviews it, so money logic meets one standard.
+- **`figures-moved`** — the in-house reviewer reviews it, so money logic meets one standard.
   The owner sees the figures diff before the merge. That
   is a *look*, not a sign-off ritual: reconcile the bot's list against the card,
   and if they disagree, one of them is wrong.
