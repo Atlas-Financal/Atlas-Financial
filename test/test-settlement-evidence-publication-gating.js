@@ -166,7 +166,7 @@ test('packet: configured-unavailable withholds the forecast block with the reaso
     assert.equal(packet.forecast.reason, reason);
     for (const key of ['recommendation', 'horizon', 'upcomingModeledCommitments',
       'facilityCrossings', 'majorPlanFunding', 'currentPeriodAction', 'budgetCap',
-      'paydayAllocation', 'predictedEndingBalance']) {
+      'paydayAllocation', 'predictedEndingBalance', 'savingsStatus']) {
       assert.deepEqual(packet.forecast[key], { status: 'unavailable', reason },
         `${key} withheld with the settlement reason (${reason})`);
     }
