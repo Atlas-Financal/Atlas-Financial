@@ -135,7 +135,8 @@
     if (!covered || covered.value !== true) return '';
     const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
     const soft = blocks && typeof blocks.estClass === 'function' ? blocks.estClass(covered.trust, view) : '';
-    return `<span class="wf-check${soft}" role="img" aria-label="Minimum paid">\u2713</span>`;
+    // The estimate is named too, as the Credit card's paidBackName does: a soft check is never an unqualified claim.
+    return `<span class="wf-check${soft}" role="img" aria-label="Minimum paid${soft ? ', estimated' : ''}">\u2713</span>`;
   }
 
   // The minimums due in the selected pay period, exactly Forecast's cardMinimums: a card with no minimum due in the

@@ -62,7 +62,7 @@ function render(v, { lines = LINES, source } = {}) {
     .map(m => [m[1], m[2]]));
   return { html: el.innerHTML, rows };
 }
-const CHECK = /<span class="wf-check( stack-est)?" role="img" aria-label="Minimum paid">✓<\/span>/;
+const CHECK = /<span class="wf-check( stack-est)?" role="img" aria-label="Minimum paid(, estimated)?">✓<\/span>/;
 
 console.log('1. Only the minimums due this pay period');
 {
@@ -79,6 +79,8 @@ console.log('2. A check once the minimum is paid');
   ok(!CHECK.test(rows.cardB), 'due but not covered: no check');
   ok(!CHECK.test(rows.cardD), 'coverage unknown: no check');
   ok(CHECK.test(rows.cardE) && /stack-est/.test(rows.cardE.match(CHECK)[0]), 'covered on an estimated check: a soft check');
+  ok(/aria-label="Minimum paid">/.test(rows.cardA) && /aria-label="Minimum paid, estimated">/.test(rows.cardE),
+    'the accessible name says "estimated" exactly for the soft check');
   ok(!CHECK.test(rows.heloc), 'the HELOC with no published coverage: no check');
   ok(/\$25\.00/.test(rows.cardA) && /\$30\.00/.test(rows.cardB) && /\$210\.00/.test(rows.heloc), 'each row keeps its published amount');
   ok((html.match(/✓/g) || []).length === 2, 'exactly two checks in the dropdown');
