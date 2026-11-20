@@ -48,7 +48,7 @@ const RECON = [
   { date: '2031-03-11', amount: 8, displayedPayee: '<b>Bad</b>', pending: true, pendingAmountEstimated: true, pendingPostedDuplicate: true }, // estimated pending: counted
 ];
 const view = (over = {}) => Object.assign({ start: '2031-03-01', householdBudget: [
-  { id: 'groceries', label: 'Groceries', spent: 75.75, planned: 500, remaining: 424.25, overspend: 0, recon: RECON }] }, over);
+  { id: 'groceries', label: 'Groceries', spent: 75.75, reconMatchesSpent: true, planned: 500, remaining: 424.25, overspend: 0, recon: RECON }] }, over);
 
 console.log('1. The list');
 {
@@ -71,13 +71,15 @@ console.log('2. No list');
 {
   const none = html => !/stack-sheet-tx/.test(html) && /Groceries/.test(html);
   ok(none(sheet(view({ capturedClose: { source: 'period-history' } }), 'groceries')), 'a saved close borrows recon: no list');
-  const mut = patch => view({ householdBudget: [Object.assign({ id: 'groceries', label: 'Groceries', planned: 500, recon: RECON, spent: 75.75 }, patch)] });
-  ok(none(sheet(mut({ spent: null }), 'groceries')), 'Spent unpublished: no list');
+  const mut = patch => view({ householdBudget: [Object.assign({ id: 'groceries', label: 'Groceries', planned: 500, recon: RECON, spent: 75.75, reconMatchesSpent: true }, patch)] });
+  ok(none(sheet(mut({ spent: null, reconMatchesSpent: undefined }), 'groceries')), 'Spent unpublished: no list');
+  ok(none(sheet(mut({ reconMatchesSpent: false }), 'groceries')), 'Forecast says the rows do not reconcile to Spent: no list');
+  ok(none(sheet(mut({ reconMatchesSpent: undefined }), 'groceries')), 'flag absent: fails closed, no list');
   ok(none(sheet(mut({ withheldReason: 'coverage lost' }), 'groceries')), 'a withheld category (a lower bound only): no list');
   ok(none(sheet(mut({ projected: true }), 'groceries')), 'a projected period: no list');
   ok(none(sheet(mut({ recon: [] }), 'groceries')) && none(sheet(mut({ recon: undefined }), 'groceries')), 'no rows, or no recon: no list');
-  ok(!/stack-sheet-txh|Transactions/.test(sheet(mut({ spent: null }), 'groceries')), 'and no explanation');
-  const other = view({ householdBudget: [{ id: 'other-spending', label: 'Other spending', otherSpending: true, spent: 22.99, planned: 0, withheldReason: null,
+  ok(!/stack-sheet-txh|Transactions/.test(sheet(mut({ spent: null, reconMatchesSpent: undefined }), 'groceries')), 'and no explanation');
+  const other = view({ householdBudget: [{ id: 'other-spending', label: 'Other spending', otherSpending: true, spent: 22.99, reconMatchesSpent: true, planned: 0, withheldReason: null,
     recon: [{ date: '2031-03-04', amount: 22.99, displayedPayee: 'Hardware', pending: false }] }] });
   ok(rowsOf(sheet(other, 'other-spending')).length === 1, 'the Other spending row lists its own recon');
 }
@@ -96,7 +98,7 @@ console.log('3. Reconciliation on the invented figures inputs');
         if (!item || item.id == null) continue;
         const html = win.StackSheet.html({ recommendation: { payPeriodViews: [JSON.parse(JSON.stringify(v))] }, selectedPeriodKey: v.start }, 'budget:' + item.id);
         if (html == null) continue;
-        const proven = !v.capturedClose && typeof item.spent === 'number' && !item.withheldReason && item.projected !== true;
+        const proven = !v.capturedClose && item.reconMatchesSpent === true && !item.withheldReason && item.projected !== true;
         const rows = rowsOf(html);
         if (!proven) { ok(rows.length === 0, 'not proven: no list for ' + item.id + '@' + v.start); hidden++; continue; }
         const counted = (Array.isArray(item.recon) ? item.recon : []).filter(r => r && !(r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true));
@@ -110,6 +112,33 @@ console.log('3. Reconciliation on the invented figures inputs');
   }
   ok(listed > 0, 'at least one list reconciles to the published Spent, to the cent (' + listed + ' lists, ' + hidden + ' correctly hidden)');
   console.log('        corpus pending twins excluded: ' + twinsSeen + ' (the hand case in section 1 covers the pair)');
+}
+
+console.log('3b. End to end: Forecast publishes the flag, the page obeys it');
+{
+  const F = require('../public/forecast.js');
+  const Snap = require('../scripts/figures-snapshot.js');
+  const fx = require('./fixtures/budget-surface-data.js');
+  const otherRow = (a, b) => {
+    const data = fx.served(); const packet = data.liveOverlay.currentPeriodActuals;
+    const t = packet.transactions.find(x => x.id === 'tx-7');
+    t.amount = a; packet.transactions.push({ ...t, id: 'tx-8', amount: b, displayedPayee: 'Synthetic second store' });
+    const rec = F.recommend(data.plan, fx.AS_OF, Snap.pageOptions(data, null));
+    const v = rec.payPeriodViews.find(x => x.timelineRole === 'current');
+    const row = (v.householdBudget || []).find(r => r.otherSpending);
+    return { v: JSON.parse(JSON.stringify(v)), row };
+  };
+  const show = ({ v, row }) => rowsOf(win.StackSheet.html({ recommendation: { payPeriodViews: [v] }, selectedPeriodKey: v.start }, 'budget:' + row.id));
+  const bad = otherRow(10, 1.005);
+  ok(bad.row.reconMatchesSpent === false, 'sub-cent amounts that cannot reconcile: Forecast publishes false', String(bad.row.reconMatchesSpent));
+  ok(show(bad).length === 0, 'and the page shows no list');
+  const good = otherRow(10, 1.01);
+  ok(good.row.reconMatchesSpent === true, 'whole-cent amounts: Forecast publishes true');
+  const rows = show(good);
+  const base = otherRow(10, 0);
+  ok(rows.length > 0, 'and the page lists the rows');
+  ok(rows.reduce((s, r) => s + centsOf(r.amount), 0) === Math.round(good.row.spent * 100), 'the listed cents equal the published Spent (independent sum)');
+  ok(base.row.reconMatchesSpent === true, 'a plain whole-cent case also reconciles');
 }
 
 console.log('4. The page adds nothing');

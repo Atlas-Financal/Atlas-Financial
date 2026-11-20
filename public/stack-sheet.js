@@ -112,12 +112,14 @@
   }
 
   // The transactions Forecast counted into a category's Spent: the row's recon[], less the pending copy of a posted
-  // transaction (the same exclusion Spent makes, so the list equals the published Spent). Listed only when Spent is
-  // proven for this exact period: not a saved close (its recon is borrowed from today's recomputed row), Spent
-  // published, nothing withheld, not a projected period. Otherwise nothing, with no explanation. Newest first; name,
-  // date and amount as published (Lunch Money's own name); no category logic and no arithmetic here.
+  // transaction (the same exclusion Spent makes). Listed only when Forecast says the rows reconcile to the published
+  // Spent (reconMatchesSpent === true; absent or false: nothing, so a rounding case that cannot reconcile never
+  // shows a list that disagrees with the figure) and Spent is proven for this exact period: not a saved close (its
+  // recon is borrowed from today's recomputed row), nothing withheld, not a projected period. Otherwise nothing, with
+  // no explanation. Newest first (display order of rows Forecast already assigned, not categorisation); name, date
+  // and amount as published (Lunch Money's own name); no category logic and no arithmetic here.
   function budgetTransactionsHtml(item, v) {
-    if (!v || v.capturedClose || !num(item.spent) || item.withheldReason || item.projected === true) return '';
+    if (!v || v.capturedClose || item.reconMatchesSpent !== true || item.withheldReason || item.projected === true) return '';
     const rows = (Array.isArray(item.recon) ? item.recon : [])
       .filter(r => r && typeof r === 'object' && num(r.amount)
         && !(r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true))
