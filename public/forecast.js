@@ -23321,12 +23321,20 @@
         }
         savingsFunding.allocationMode = historicalSavings ? 'historical-pools' : 'combined';
         savingsFunding.manualInventory = historicalSavings ? savingsInventoryWithCommitmentCost(plan, asOf, paydayOpts) : null;
-        savingsFunding.schedule = savingsSchedule;
         const todayReady = savingsFunding.status === 'ready' && savingsFunding.period?.status === 'ready';
         // The payday lens reprints the next period's Budget funding (one authority).
         const nextPeriod = payPeriodTimelinePack.views.find(period => period.timelineRole === 'next');
         const nextTopUp = savingsProjectedTopUp(nextPeriod
           ? { start: nextPeriod.start, end: nextPeriod.end, funding: nextPeriod.plannedCostFunding } : null);
+        // The published payday schedule is the detail behind the payday lens
+        // ("Complete exact payday funding plan"). It is the cash-walk schedule,
+        // so it is published only where its first payday reprints that same
+        // Budget top-up (same payday, same total, same named amounts, in
+        // cents); otherwise its detail is withheld, never shown beside a
+        // different proposal. The internal schedule still feeds the timeline.
+        savingsFunding.schedule = savingsScheduleAgreesWithTopUp(savingsSchedule, nextTopUp, nextPeriod)
+          ? savingsSchedule : savingsScheduleWithheld(savingsSchedule,
+            'The payday schedule does not reprint the Budget\'s period funding for this payday, so its detail is withheld.');
         const lensItems = (allocations, ready, byOccurrence) => savingsFunding.backing.items.map(item => ({
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
           // Savings audit (PR 3): the backing's own Saved tag; never upgraded.
@@ -27988,6 +27996,27 @@
   // payday lens) are read from it, never from a second cash-walk schedule. A
   // funding-gap period still publishes its capped contribution, so it is read
   // as the waterfall reads it. Anything else is withheld: no zero, no re-walk.
+  // Whether a published payday schedule's first payday reprints the payday
+  // lens's Budget top-up exactly: the same payday date, the same contribution
+  // and the same named allocations, compared in cents.
+  function savingsScheduleAgreesWithTopUp(schedule, topUp, period) {
+    if (!schedule || schedule.status === 'unavailable') return true;
+    const first = Array.isArray(schedule.paydays) ? schedule.paydays[0] : null;
+    if (!topUp || !topUp.ready || !first || !period || first.payday !== period.start) return false;
+    if (savingsCents(first.contribution) !== savingsCents(topUp.contribution)) return false;
+    const parts = list => new Map((Array.isArray(list) ? list : [])
+      .filter(part => part && savingsCents(part.amount) > 0).map(part => [part.id, savingsCents(part.amount)]));
+    const a = parts(first.allocations), b = parts(topUp.allocations);
+    return a.size === b.size && [...a].every(([id, cents]) => b.get(id) === cents);
+  }
+  // A payday schedule whose payday detail is withheld: its payday rows and its
+  // gap are removed, so nothing prints a payday figure the Budget did not
+  // publish. Its costs, groups, status and as-of stay: the current backing
+  // they carry (Protected now) is not the payday top-up, and the publication
+  // validator still checks the schedule.
+  function savingsScheduleWithheld(schedule, reason) {
+    return { ...schedule, paydays: [], gap: null, paydayReason: reason };
+  }
   function savingsProjectedTopUp(view) {
     const funding = view && view.funding;
     const withheld = reason => ({ ready: false, contribution: null, allocations: [], remaining: null,

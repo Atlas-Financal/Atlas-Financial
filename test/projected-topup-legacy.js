@@ -50,6 +50,27 @@ function budgetFundingTopUps(advice) {
     for (const item of lens.items || []) item.contribution = published
       ? (cents(byId.get(item.requirementId)?.contribution) > 0 ? byId.get(item.requirementId).contribution : 0) : null;
   }
+  // The published payday schedule (the payday panel's linked detail) keeps
+  // its payday rows only where its first payday reprints that same Budget
+  // top-up: the same payday, total and named amounts, in cents. Otherwise its
+  // payday rows and gap are withheld with the engine's reason; costs, groups,
+  // status and as-of are compared unchanged.
+  const schedule = advice?.savingsFunding?.schedule;
+  if (schedule && schedule.status !== 'unavailable' && next) {
+    const published = f && (f.status === 'ready' || f.status === 'funding-gap')
+      && f.start === next.start && f.end === next.end && Array.isArray(f.items);
+    const first = Array.isArray(schedule.paydays) ? schedule.paydays[0] : null;
+    const parts = list => new Map((list || []).filter(part => part && cents(part.amount) > 0)
+      .map(part => [part.id, cents(part.amount)]));
+    const budget = published ? new Map(f.items.filter(item => cents(item.contribution) > 0)
+      .map(item => [item.id, cents(item.contribution)])) : null;
+    const mine = first ? parts(first.allocations) : null;
+    const agrees = published && first && first.payday === next.start
+      && cents(first.contribution) === cents(f.contribution)
+      && mine.size === budget.size && [...mine].every(([id, value]) => budget.get(id) === value);
+    if (!agrees) advice.savingsFunding.schedule = { ...schedule, paydays: [], gap: null,
+      paydayReason: 'The payday schedule does not reprint the Budget\'s period funding for this payday, so its detail is withheld.' };
+  }
   return advice;
 }
 

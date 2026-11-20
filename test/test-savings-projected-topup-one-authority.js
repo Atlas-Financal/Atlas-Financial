@@ -27,6 +27,10 @@
  *      the same period. ("Added this period" on a projected card prints the
  *      closing projection's contribution, plan.js budgetDailySavingsHtml; that
  *      second schedule is the recorded NEXT PR and is not asserted here.)
+ *   6. the payday panel's linked detail ("Complete exact payday funding plan")
+ *      prints the panel's proposal or is withheld, for a capped amount, a
+ *      legitimate zero and withheld funding; a Budget shortfall marks and
+ *      names the row it affects (requirement id, not occurrence key).
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -194,6 +198,55 @@ for (const input of inputs) {
     `${input.id}: page "Proposed this payday" = the waterfall's proposed total for ${next.start}`, `${lensPrinted} / ${total}`);
 }
 ok(pagesChecked >= 6, 'page corpus reached the payday lens', `${pagesChecked} pages`);
+
+// 6. The payday panel's linked detail and its shortfall row (Atlas findings
+// 7026261645 / 7033675700). "Complete exact payday funding plan" opens
+// [data-payday-breakdown="planned-cost-funding"] (wireBudgetFunding). That
+// detail must print the panel's own proposal or be withheld, never a second
+// figure; and a Budget shortfall names and marks the row it affects.
+const blockOf = html => {
+  const start = html.indexOf('data-payday-breakdown="planned-cost-funding"');
+  return start < 0 ? null : html.slice(start, html.indexOf('</details>', start));
+};
+let linkCapped = 0, linkZero = 0, linkWithheld = 0, gapNamed = 0;
+for (const input of inputs) {
+  const { data, opts, advice } = run(SHIPPED, input);
+  if (!advice.savingsFunding?.periodViews) continue;
+  ctx.src = { plan: data.plan, debts: [], asOf: data.meta.asOf, advice, liveOverlay: opts, weekly: 40, weeklyOverride: 40 };
+  const upcoming = vm.runInContext('budgetUpcomingFundingHtml(src)', ctx);
+  const panel = (upcoming.split('data-budget-funding-panel="payday"')[1] || '').split('data-budget-funding-panel=')[0];
+  ok(/data-budget-funding-evidence="payday"/.test(panel), `${input.id}: the payday panel links its detail`);
+  const lensPrinted = amountIn((panel.split('data-budget-funding-proposal>')[1] || '').split('</strong>')[0]);
+  const block = blockOf(vm.runInContext('budgetTodayCashCardHtml(src)', ctx));
+  ok(block != null, `${input.id}: the linked target [data-payday-breakdown="planned-cost-funding"] renders`);
+  if (block == null) continue;
+  const detailAmount = amountIn((block.split('class="instruction-amount">')[1] || '').split('</p>')[0]);
+  ok(detailAmount == null || detailAmount === lensPrinted,
+    `${input.id}: the linked detail prints the panel's proposal or nothing`, `${detailAmount} / ${lensPrinted}`);
+  const lens = advice.savingsFunding.lenses.find(l => l.key === 'payday');
+  if (lens.ready && cents(lens.proposal) > 0 && lens.gap) linkCapped++;
+  else if (lens.ready && cents(lens.proposal) === 0) linkZero++;
+  else if (!lens.ready) linkWithheld++;
+  if (CLUB.includes(input.id)) {
+    ok(detailAmount == null || detailAmount === 8000, `${input.id}: capped: the linked detail never prints the cash walk`, `${detailAmount}`);
+    // The Budget's shortfall affects requirement 'far'; the lens row is keyed
+    // by occurrence (far@...) and carries requirementId 'far'.
+    const far = lens.items.find(item => item.requirementId === 'far');
+    ok(far && lens.gap.affected.includes('far'), `${input.id}: the Budget shortfall names requirement far`);
+    const row = far && panel.split('data-budget-funding-cost="' + far.id + '"')[0].split('<div class="budget-funding-cost').pop();
+    ok(row != null && / has-gap/.test(row), `${input.id}: the shortfall row is marked`);
+    const affected = (panel.split('<p>Affected: ')[1] || '').split('.</p>')[0];
+    ok(far && affected === far.label, `${input.id}: the shortfall names the affected cost by its label`, affected);
+    if (far && affected === far.label) gapNamed++;
+  }
+  if (input.id === 'savings-deficit-cover') {
+    ok(lensPrinted === 0 && (detailAmount == null || detailAmount === 0),
+      `${input.id}: legitimate zero: the linked detail never prints the cash walk's 100`, `${detailAmount}`);
+  }
+}
+ok(linkCapped >= 3 && linkZero >= 1 && linkWithheld >= 1 && gapNamed === 3,
+  'the linked detail was checked for a capped amount, a legitimate zero and withheld funding',
+  `${linkCapped} capped, ${linkZero} zero, ${linkWithheld} withheld, ${gapNamed} shortfalls named`);
 
 console.log(failures ? `${failures} of ${checks} FAILED` : `All ${checks} projected top-up checks passed`);
 process.exit(failures ? 1 : 0);
