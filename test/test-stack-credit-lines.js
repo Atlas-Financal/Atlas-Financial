@@ -326,9 +326,10 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
 
 console.log('12. minimums paid: the paid side of the Credit head, over exactly the cards whose minimums are due (Dale, 2026-11-20)');
 {
-  // Owner decision (Dale, 2026-11-20: "I don't need a distinction with estimated. Just normal font"): a due card Forecast cannot see
-  // (a manual / no-ledger card) counts $0 in the current and upcoming periods, with the trust word kept honest (estimated). A PAST
-  // period with incomplete posted coverage keeps the dash: a $0 there could hide a real payment (ARCHITECTURE.md, card-figure rule).
+  // Owner decision (Dale, 2026-11-20: "I don't need a distinction with estimated. Just normal font"): a due MANUAL / no-ledger card
+  // (Triangle, Amazon) that Forecast cannot see counts $0 in the current period, and every card counts $0 in an upcoming one, with the
+  // trust word kept honest (estimated). Missing HISTORY keeps the dash: a PAST period with incomplete posted coverage, and a card with a
+  // feed whose paid is withheld (a failed sync): a $0 there could hide a real payment (ARCHITECTURE.md, card-figure rule).
   const x = fx.fixture();
   const mp = (bills, world = x) => totals(world, bills).minimumsPaid;
   const due = cm => ({ cardMinimums: cm, trust: 'calculated' });
@@ -361,7 +362,15 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   const future = fx.fixture(); future.window = F.spendingCycle(future.plan, '2026-08-28');
   const futureMp = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }]), future);
   ok(F.stackCreditLines(publish(future), split).lines.every(l => l.status === 'upcoming') && futureMp.amount === 0 && futureMp.trust === 'estimated',
-    'an upcoming period: $0 over the minimums due, estimated in the data', JSON.stringify(futureMp));
+    'an upcoming period (nothing observed yet): $0 over the minimums due, estimated in the data', JSON.stringify(futureMp));
+  // A card with a feed whose paid is withheld is missing history, not an unseen manual card: a failed sync keeps the dash.
+  const failed = fx.fixture(); failed.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
+  const failedTravel = mp(due([{ debtId: 'travelvisa', amount: 25 }]), failed);
+  ok(failedTravel.amount === null && failedTravel.trust === 'unavailable' && failedTravel.reasons[0] === 'paid-unavailable',
+    'a failed sync on a card with a feed (Travel): withheld, never $0 (missing history, not an unseen manual card)', JSON.stringify(failedTravel));
+  ok(mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 40 }]), failed).amount === null,
+    'a failed sync with a manual card also due: still withheld (the Travel history is missing)');
+  ok(mp(due([{ debtId: 'triangle', amount: 40 }]), failed).amount === 0, 'a failed sync with only the manual card due: $0 (it is unseen by nature)');
   // A past period with incomplete posted coverage keeps the dash.
   const past = fx.fixture(); past.window = F.spendingCycle(past.plan, '2026-07-20');
   const pastMp = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }]), past);
@@ -383,12 +392,17 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
   const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
-  const guard = "totals.minimumsPaid = unseen.length && publication.role === 'past'";
-  ok(src.includes(guard), 'the mutants target the past-period guard');
-  const everywhere = load(src.replace(guard, "totals.minimumsPaid = unseen.length && false"));
-  ok(everywhere.stackCreditLines(publish(past), due([{ debtId: 'travelvisa', amount: 25 }])).totals.minimumsPaid.amount === 0,
-    'MUTANT: counting an unseen card as $0 in a past period too reads $0, which the past-period check above rejects');
-  const dashEverywhere = load(src.replace(guard, 'totals.minimumsPaid = unseen.length'));
+  const guard = "const missingHistory = unseen.some(line => publication.role === 'past' || (publication.role !== 'future' && !unseenManual(line)));";
+  ok(src.includes(guard), 'the mutants target the missing-history guard');
+  const pastManual = mp(due([{ debtId: 'triangle', amount: 40 }]), past);
+  ok(pastManual.amount === null && pastManual.reasons[0] === 'paid-unavailable', 'a manual card in a PAST period is missing history too: withheld', JSON.stringify(pastManual));
+  const noPast = load(src.replace(guard, "const missingHistory = unseen.some(line => publication.role !== 'future' && !unseenManual(line));"));
+  ok(noPast.stackCreditLines(publish(past), due([{ debtId: 'triangle', amount: 40 }])).totals.minimumsPaid.amount === 0,
+    'MUTANT: counting an unseen manual card as $0 in a past period too reads $0, which the past-period check above rejects');
+  const feedAsZero = load(src.replace(guard, "const missingHistory = unseen.some(line => publication.role === 'past');"));
+  ok(feedAsZero.stackCreditLines(publish(failed), due([{ debtId: 'travelvisa', amount: 25 }])).totals.minimumsPaid.amount === 0,
+    'MUTANT: treating every unseen card as a manual one reads $0 for a failed sync, which the failed-sync check above rejects');
+  const dashEverywhere = load(src.replace(guard, 'const missingHistory = unseen.length > 0;'));
   ok(dashEverywhere.stackCreditLines(publish(x), due([{ debtId: 'triangle', amount: 400 }])).totals.minimumsPaid.amount === null,
     'MUTANT: withholding for any unseen card reads a dash for the manual card, which the owner-decision check above rejects');
   const lies = load(src.replace("trust: dueLines.length ? weakest(...dueLines.map(line => line.paid.amount === null ? 'estimated' : line.paid.trust)) : splitTrust,", "trust: 'calculated',"));

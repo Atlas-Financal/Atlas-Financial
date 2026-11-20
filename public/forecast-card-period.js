@@ -457,15 +457,17 @@
         trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
       // The paid side of the Credit head, over exactly the cards in minimumsDue (Dale, 2026-11-20: "$0 / owed if nothing has been
       // paid"). Each due card's published paid, uncapped (an overpaid card counts its full paid, like its own row); $0 when
-      // nothing was paid. A due card Forecast cannot see (a manual or no-ledger card such as Triangle or Amazon) counts $0 in the
-      // current and upcoming periods by owner decision (Dale, 2026-11-20: "I don't need a distinction with estimated"): the one
-      // exception to the never-0 rule, with the trust word kept honest (estimated) in the data. A PAST period whose posted
-      // coverage is incomplete keeps the gap: the figure is withheld (null, unavailable, with its reasons), since a $0 there could
-      // hide a real payment and the instruction was about cards Atlas cannot see, not missing history. A payment still to
-      // confirm on an observed card is that card's estimated paid, number shown. HELOC is not a spend card and is not here.
+      // nothing was paid. Owner decision (Dale, 2026-11-20: "I don't need a distinction with estimated"): a due MANUAL / no-ledger
+      // card (Triangle, Amazon: manualStatement in the publication) that Forecast cannot see counts $0 in the current period, and
+      // every card counts $0 in an upcoming one (nothing is observed yet), the one exception to the never-0 rule, with the trust word kept honest (estimated) in the data. Missing HISTORY is
+      // not an unseen card: a card with a feed whose paid is withheld (a failed sync, incomplete posted coverage) or any unseen card
+      // in a PAST period withholds the whole figure (null, unavailable, with its reasons), since a $0 there could hide a real
+      // payment. A payment still to confirm on an observed card is that card's estimated paid, number shown. HELOC is not here.
       const unseen = dueLines.filter(line => line.paid.amount === null);
+      const unseenManual = line => !!(published(line.id) && published(line.id).manualStatement === true);
+      const missingHistory = unseen.some(line => publication.role === 'past' || (publication.role !== 'future' && !unseenManual(line)));
       const unseenReasons = [...new Set(unseen.flatMap(line => line.paid.reasons))];
-      totals.minimumsPaid = unseen.length && publication.role === 'past'
+      totals.minimumsPaid = missingHistory
         ? { amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(unseenReasons.filter(r => r !== 'paid-unavailable')) }
         : { amount: dueLines.reduce((sum, line) => sum + (line.paid.amount === null ? 0 : cents(line.paid.amount)), 0) / 100,
           trust: dueLines.length ? weakest(...dueLines.map(line => line.paid.amount === null ? 'estimated' : line.paid.trust)) : splitTrust,
