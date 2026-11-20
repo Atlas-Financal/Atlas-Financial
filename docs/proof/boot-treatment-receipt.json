@@ -5,51 +5,59 @@
   "scenarios": {
     "lightLong": {
       "delayMs": 5000,
-      "treatmentFirstVisibleMs": 2182,
-      "contentRenderedMs": 11099,
-      "samples": 45,
+      "treatmentFirstVisibleMs": 199,
+      "contentRenderedMs": 5767,
+      "samples": 50,
       "visibilityGapsObserved": 0,
       "noFlashAtRemoval": true,
       "servedSha": {
-        "public/index.html": "817c7918b8b52251eb5c85e0cc9385996af53eac861aeab7ebb6a31be4947dd5",
+        "public/index.html": "2fbd0d1e7c25fc295d7a8be379ad96d66cb53569d525b39725e3e4e68cdc5df6",
         "public/fonts/Geist.woff2": "128029d9e728df45126de37ca05de2a174b9b76baf307090783b324935521a47",
         "public/fonts.css": "a74ab755df6ea08a17e3114b270b38870b3d6b84e1b821c9d4a1fd0988562368",
-        "public/styles.css": "ca789bfd31ab1f4dc38980e6052cb479e26dfb545f2e626ad66204c7028c174e",
-        "public/household-view.css": "e5cb08cfe7d5663fab76da2eb51f68d4890b1c4b550cf80eb1f61930a749620e",
-        "public/budget-polish.css": "29be9b313c3c7b4d402ff730abe76dfd09e07f38df4dfd04a26a12fa479d16fe",
+        "public/styles.css": "196b4734d07cca2063cc8b9f31b43a47b84aeb5f804d85b21bf6d406616e1ce7",
+        "public/household-view.css": "23c722ee72b7bc784be461a61f09a9777a5b0e9e701a680f035c7b1b976074d7",
+        "public/budget-polish.css": "cefa67c03c96239edf5f62e04b1c0deefb6f0c4ea7990a54cd973c5fc102fdd3",
         "public/bill-detail.css": "df5e707892d09bded4516822edd1c8a056b472e092c353062a645d7a79ef69c0",
         "public/savings-inventory.css": "39591b0f8fbb0c8109f5f2fe71dd707067dbaf54e85d467989ed96342e4e1a58",
-        "public/running-build.css": "1121433390812139a1c0fc810a882a7b97903e17a6d42f19dcc93fa05a5327d5",
-        "public/budget-surface.css": "69611d57c8ec3b692af7e18e775137d2a6823561eef3faa5ee31fead07bfdc73",
-        "public/budget-blend.css": "43ab6315177f95042f16b8f3239d9f9d85d49117cf9bcc3dd81483a3b74b1133",
-        "public/budget-gface.css": "88d1d1aba917bd267150862839a1e09e2b66598b058e686fbdd62a7834562a9a",
-        "public/budget-sheet-motion.css": "31fbea5e07e133925d3f357c62ddf6d7f38d84e7bc0b654d8473070e5d1ed2c4",
-        "public/app.js": "93244321102856d589ec5a0f2787a705e4c2f70cbe4351ee13b7b98bc143cb27",
-        "public/forecast-card-period.js": "a0e1c461354da0a6e8c73ee55a2ba76510d6a9c8e840e4f729df3b627df9fb3b",
-        "public/forecast.js": "5dcdf6106722b552b390a5f9be906a4ba43209000c37a256edbb7cd407e9b00c",
-        "public/forecast-chequing.js": "487c2251b09b3b20ee66065f7d780e7d16cde23bb38ef6ea40010fb233c0ad7c",
-        "public/balance-history.js": "71c4e83244427bf68e178391bb65220ffa9d2bb3b35605d1049b4a6c05f750af",
-        "public/bill-detail.js": "ac3ee6a88454fdee8a16df8744cdb3d12255b1dc3e67c1165c6cf81542001c62",
-        "public/savings-inventory.js": "49a38dd1b246456ba057f1861891020337d650b474b209d0c8a332539d007ea3",
-        "public/budget-surface.js": "af32d9e29d1487496365a1025a0bfb65d2dc062f2534392b8095675857f9552b",
-        "public/budget-card-movements.js": "8c471fa191d26a051162cf1911235f07530be8535da13e6e1e9189c333687333",
+        "public/running-build.css": "67e3b3487a50f3f9e2a778b4d9f56262291393e8874a0fde11c5f2fffff88423",
+        "public/budget-surface.css": "684750c06d27d5ffac61c5dca890de7da9e95a13ad708cc4f760ab00c2aa2c30",
+        "public/budget-blend.css": "2b95674482cc1463d2db673dd3cf1061d0c3dcbc41c92ecfea5e3f01f27fae9c",
+        "public/budget-gface.css": "f7fc45e7ad78efc3f9efe2acbe4fcc638d797a7af4b4784c83b0c8ab1d335bc7",
+        "public/budget-sheet-motion.css": "fa3675c7db82e8b110f409100e6c25950569996c927f884fab9318e6972b5433",
+        "public/atlas-toolbar.css": "f662fc35b4f5b4b17d2559b89d814aa98b07824d2b1880c331415d5ddf7be7c5",
+        "public/app.js": "a2740560181f47043ccbfb4bf40bfc9aeab27a3f58a350cf0e5ecdd02ebe1bc5",
+        "public/display-name.js": "8027e32b1418b1e7e975b3d56c7b6004120f6880fcf65b7304076411e9e7f0b2",
+        "public/forecast-card-period.js": "4947752e38f2b81ea2ec245cc73157de63e209f3fc97eec79bdf150036bcd651",
+        "public/forecast.js": "84728f5885d4f7df50baea76dc2378efe1227368be510806b39a8deeb4f95ca9",
+        "public/forecast-chequing.js": "7c93f1f50180cb9168ea41ee9b0f2daef4bf3b657e21281d6c206e3ae69e93de",
+        "public/balance-history.js": "b3504d775d12db8f1b1eb22ab4d7de2810364b020d481b04b4080a6e32e8fc5c",
+        "public/bill-detail.js": "435cff5202ae8ddb33b423362bc9bfc5b18b3738ef6ea4406beb3d5b81421325",
+        "public/savings-inventory.js": "8bf2eb9b8d2506b6b1f342ff7eea6081480cb93379950ecba48ed956d1fdc402",
+        "public/budget-surface.js": "580bf9897be59cfbbf3a89f801899b8288127db297fdf54cb19245d078409ba1",
+        "public/budget-card-movements.js": "7cbb6115bc7e016384e6ca3c52f0b07f4d861f1a9bc0c22964462b5f677b3bda",
         "public/budget-sheet-motion.js": "c6867eb29ccbd8cc315c43b9408ec19ed9cba51999e055a1fe99bac1a349e620",
-        "public/plan.js": "f5eb8916abe6dc71553536fa952bfcdfb88d167e0570e6a9a8a2195819af46a7",
-        "public/household-view.js": "b7ac364577c32bf56360fc535b2ba480f63748e3d03b5565e544bd696ba71780",
-        "public/budget-polish.js": "e0cf517ccbf2fca1588cac62b78346142ed500773e07ab52d7dc35d9fde83814",
+        "public/plan.js": "9cf2283bce12b7bfbab8fd6da601518241e50275d03257f49ac08a883b563fb8",
+        "public/household-view.js": "4e55ce4e7903c824cd0560557767570a14909f7e9451785751d8a85b0974d4ac",
+        "public/budget-polish.js": "e9a4cb40e8d8ba25ff0ed488d28aca3b4cf688b613737242a70daecf7820aeec",
         "public/aurora.js": "92c985c4a6da2a22f30b45e3f449bf79648f8f32984f65357ce83c56c81d963d",
-        "public/budget-river.js": "dbff4d71770e510d65a1f79f8a3eaf489a42885dc286e66630b375b661818418",
-        "public/budget-blend.js": "cae08ceec2adb0ff81c786ff73cd6bb5100514e1b07f6a156f7c9860142700cf",
-        "public/nav-glass.css": "55512b577c076777dcca7c2851e0a5e6bf85d1cb12387c26167dc869ebdc7010"
+        "public/budget-river.js": "0b5697ff09b4a59b4c63e96ed7de51573cdb30f5178200c361db83b7ec439daf",
+        "public/budget-blend.js": "4ca113e926442ac38f641850c6dd5b3f10b5da2d0d71e8a79225ee1d00f48b41",
+        "public/stack-shell.js": "d339914170d9da086ba48bffa60c2bada3d1292e315ca81ceb3ec3c818569e1e",
+        "public/stack-waterfall.js": "7fe1e27e6757b4ed92094ec614b4625e4f081e2c5898f8df9f8fe2c7511f888d",
+        "public/stack-cards.js": "ca4da827b0c0ffc0f17b12f656aa1aef9c62a1ff42a23a8e6f77d1a7cb2e8d1a",
+        "public/stack-credit.js": "a47dbb944d6fea0bb42d9dcf97f67328c5650b69e5dd2231d2a7791a1e33a1c1",
+        "public/stack-sheet.js": "831f2f79a2b6de3e5ca18d07ccc1d5676284fd1ad4b9fc87578189e40e9fbae9",
+        "public/nav-glass.css": "55512b577c076777dcca7c2851e0a5e6bf85d1cb12387c26167dc869ebdc7010",
+        "public/boot-campfire.avif": "a1da36ba003bf02ffad58c18ff550e86e1c390e25080d363503489fda0f32418"
       },
       "markAnimationName": "boot-blocks",
       "overlayCoversViewport1440": true,
       "headerCoveredByHitTest": true,
       "blockSeparationRangesPx": [
-        3.01,
-        4.19,
-        3.4,
-        2.92
+        2.76,
+        3.68,
+        4.07,
+        2.77
       ],
       "geometryRunDelayMs": 9000
     },
@@ -58,7 +66,7 @@
       "treatmentVisibleObserved": true,
       "overlayCoversViewport1440": true,
       "markAnimationName": "boot-blocks",
-      "screenshotAtMs": 1791787355610
+      "screenshotAtMs": 1795211078660
     },
     "reducedMotion": {
       "delayMs": 2500,
@@ -66,20 +74,6 @@
       "blockCentreDriftPx": 0,
       "frameStable": true,
       "overlayCoversViewport320": true
-    },
-    "billsDirectEntry": {
-      "delayMs": 1500,
-      "liveLayerVisible": true,
-      "overlayCoversViewport390": true,
-      "inContentNoteBoxesSeen": 0,
-      "servedSha": {
-        "public/bills.html": "4553fb11243604a1c2075c8b1a00644cedbf968115c84c3b919d8090971f0784",
-        "public/styles.css": "ca789bfd31ab1f4dc38980e6052cb479e26dfb545f2e626ad66204c7028c174e",
-        "public/nav-glass.css": "55512b577c076777dcca7c2851e0a5e6bf85d1cb12387c26167dc869ebdc7010",
-        "public/app.js": "93244321102856d589ec5a0f2787a705e4c2f70cbe4351ee13b7b98bc143cb27",
-        "public/forecast.js": "5dcdf6106722b552b390a5f9be906a4ba43209000c37a256edbb7cd407e9b00c",
-        "public/bills.js": "e90da373b69868785a58b4d8d5d267f18b0e7a54d8cadcb9a2ca4139d259b764"
-      }
     },
     "failureRetry": {
       "critBrandingPresentStatic": true,
@@ -92,7 +86,7 @@
       "retryTreatmentVisible": true,
       "removedAfterRetrySuccess": true,
       "shellRestoredAfterSuccess": true,
-      "shellElementsProbed": 10
+      "shellElementsProbed": 9
     },
     "cancelRetry": {
       "cancelledBrandingPresentStatic": true,
@@ -105,21 +99,21 @@
       "shellInertThroughCycles": true,
       "removedAfterRetrySuccess": true,
       "shellRestoredAfterSuccess": true,
-      "shellElementsProbed": 10
+      "shellElementsProbed": 9
     },
     "staticStandalone": {
       "w1440-light": {
         "computedVisible": true,
         "coversViewport": true,
         "bakedPreScriptIsolation": true,
-        "bakedElements": 9,
+        "bakedElements": 8,
         "pointerEvents": "auto",
         "markAnimationName": "boot-blocks",
         "blockSeparationRangesPx": [
-          2.87,
-          4.15,
-          3.41,
-          2.77
+          3.06,
+          4.21,
+          3.97,
+          2.83
         ]
       },
       "w1440-dark": {
@@ -142,7 +136,7 @@
       }
     },
     "inertFocus": {
-      "shellElementsProbed": 10,
+      "shellElementsProbed": 9,
       "tabZonesSeen": [
         "notice",
         "body",
@@ -181,24 +175,7 @@
       "wrappersRemovedAfterArrival": true,
       "disclosureRestoredToWrap": true,
       "operatingSurfaceRestoredToWrap": true,
-      "footerEndedInFiguresBody": true
-    },
-    "talkLifecycle": {
-      "composerInCoveredSet": true,
-      "composerInertDuringHeldLoad": true,
-      "composerFocusDeniedDuringLoad": true,
-      "composerInertBehindCancelled": true,
-      "composerInertBehindCrit": true,
-      "brandingStaticOnCancelled": true,
-      "brandingStaticOnCrit": true,
-      "composerRestoredAfterArrival": true,
-      "composerAcceptsInputAfterArrival": true,
-      "shellElementsProbed": 5
-    },
-    "preBootFocusRestore": {
-      "focusedBeforeBoot": true,
-      "restoredToSameControl": true,
-      "controlStillConnected": true
+      "footerRemoved": true
     },
     "earlyReady": {
       "delayMs": 0,
@@ -216,37 +193,25 @@
       "method": "computed-style probe: a .note-box.crit element without the attribute, plus every rendered in-content note-box on the arrived page"
     },
     "directRoutes": {
-      "htmlDocumentsInPublic": 10,
+      "htmlDocumentsInPublic": 1,
       "documents": [
-        "bills.html",
-        "credit.html",
-        "deepdive.html",
-        "index.html",
-        "modellers.html",
-        "plan-spend.html",
-        "planning.html",
-        "records.html",
-        "subscriptions.html",
-        "talk.html"
+        "index.html"
       ],
       "countedFrom": "public/ listing of the served tree at proof time"
     }
   },
   "baseComparison": null,
   "screenshots": {
-    "boot-treatment-light.png": "2c5193d54af37427c9342aa9d2eaa46ad2eb86430be60ca5db99226c2c87ce21",
-    "boot-treatment-after.png": "3802b98266e6940bb3886250a0a77c9b1a1838b802d50eed51496abc5a7ca5db",
-    "boot-treatment-dark.png": "8dcf164904b35226902efa9bc4a47c0e88c3a8d945e97dc03c618c4f8658287c",
-    "boot-treatment-reduced-motion.png": "646d9449f7104b5be241a957b5fcad76b033a4e2e22bbadd53e64f87e2e3c8ea",
-    "boot-treatment-bills.png": "3410c4b7885bcbdaf52c821d7351fd492c325863e0ca2469330249b4e6e62eb4",
-    "boot-treatment-crit.png": "17991763028e653baeb9ee0ada402ca93e5e3d72f0f9bc327d083fc269962f15",
-    "boot-treatment-retry.png": "6a2b49b2cb174a46cb0330de45380f3779a7b241e5a2d2f2a1ab64cbd05fca5d",
-    "boot-treatment-cancel.png": "3ff5579bb7821327ed0bd13eedbbc807ac3ec659e4ac0b0fcffa9015928493c1",
-    "boot-treatment-static.png": "9be2588c9d0957ac8eba80ec8e9a46c1def22a77d001f715a31b81fa2cce0907",
-    "boot-treatment-static-held.png": "d2f29dfd924446e755ef9d5a803eefecba66fa0030deef0317b509f399e85716",
-    "boot-treatment-talk-cancel.png": "bd9dbec6aab20e6f82e488ea6b702429a42b514919b1fde74cd7072bd5b8d5dd",
-    "boot-treatment-talk-crit.png": "7a54682c33592fe7b1eb29189c1e2895b8b8a796a0114708f498c2e18e82647a",
-    "boot-treatment-ready.png": "709fe19bac8025c606b29b12d587b717b45bd0cfbd7de7817a750ee6a001166a"
+    "boot-treatment-light.png": "bc3263ccdbdbdc2f0e4b298710b18edb799bcd8ec44a150a3c3f59457c37916d",
+    "boot-treatment-after.png": "96255ea4d7777181295d119d1132d9352a91229494e87ce8600c74f3f8c8ab06",
+    "boot-treatment-dark.png": "327b5aa5d74ad219b9f8e4c0fe373ddc94bfa6794e7787d881a11baf285c61d0",
+    "boot-treatment-reduced-motion.png": "d01a5e1ecd26670942db7ae5a81350645a5f94535fd5a68c2a7cb2bddbf1fa6f",
+    "boot-treatment-crit.png": "ea09e9aeed81d1c5493417e6cb0d984dd49b175ac95829a0b3105af71e9b6a22",
+    "boot-treatment-retry.png": "34c489da9993571dbd5b8d6b94ede99dbe3de676229ea52bde9ed7acbc125a92",
+    "boot-treatment-cancel.png": "019ad7c980632d8d0eeb93941738bad6feef4aad25f1399028bb967f6cc953b7",
+    "boot-treatment-static.png": "1623147cb7ca6b3bb2855ff6f6197aec5f1d897c7cee04601311e99b870e8e40",
+    "boot-treatment-static-held.png": "120bca386dd9fc47d773f89b13309cccdf74fb29ac76b42eca4a13e3adfdf1eb",
+    "boot-treatment-ready.png": "d92c81b34bb4645c3fad6a14611afd1bbece6edb94e4828b644d83d3638869fe"
   },
   "repeatedTimingMeasures": null
 }

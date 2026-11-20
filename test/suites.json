@@ -101,6 +101,7 @@
   ["Lunch Money budgets as plan targets: containing-start period, payday and cadence conversion, carry-forward estimated, plan target fallback (PR B2)","test-lunchmoney-budget-targets.js"],
   ["every Budget attention item has a visible flag on the face, the Other ring included","test-budget-attention-face-flags.js"],
   ["loading screen tips: render, rotate, reduced motion, no figures (Dale, 2026-11-18)","test-boot-tips.js"],
+  ["loading screen campfire scene: an image the existing policy allows, small, boot layers only, still under reduced motion and on failure (Dale, 2026-11-20)","test-boot-campfire.js"],
   ["stale bank feed marks on derived Budget spending","test-budget-stale-derived-marks.js"],
   ["owner-confirmed paid goal presentation preserves planned cost","test-owner-paid-goal-display.js"],
   ["stale manual-statement card balance shows an as-of note, fresh rows unchanged","test-card-manual-balance-as-of.js"],

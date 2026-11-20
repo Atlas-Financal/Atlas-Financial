@@ -250,6 +250,8 @@ async function openPage(browser, serveDir, contextOpts, dataPlan, extra = {}) {
       : file.endsWith('.js') ? 'application/javascript'
       : file.endsWith('.woff2') ? 'font/woff2'
       : file.endsWith('.png') ? 'image/png'
+      : file.endsWith('.avif') ? 'image/avif'
+      : file.endsWith('.jpg') ? 'image/jpeg'
       : 'text/html';
     return intercepted.fulfill({ body, contentType: type });
   });

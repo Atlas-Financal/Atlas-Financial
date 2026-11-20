@@ -515,6 +515,51 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
   .boot-static, [data-boot-notice] { padding:20px 16px; }
   .boot-static-mark, .boot-treatment-mark { width:76px; height:76px; }
 }
+/* The campfire scene (owner, Dale, 2026-11-20: "Make this video the
+   loading screen"). The household's own animation fills both boot layers
+   behind the brand mark: an animated AVIF (an image, so the existing
+   img-src 'self' policy covers it; no video, no new policy), 12 frames a
+   second, about 220 KB. The mark, wordmark and status sit in the night sky
+   at the top; the tips card sits on the ground at the bottom, so the
+   family and the fire stay in view. A soft dark scrim keeps the text
+   legible in either theme. Reduced motion and the crit surface show one
+   still frame, so nothing moves there (the existing rules above still
+   stop every CSS animation). Scoped to [data-boot-static] and
+   [data-boot-notice], so in-content .note-box boxes never get it. */
+.boot-static, [data-boot-notice] {
+  justify-content:flex-start;
+  padding-top:calc(env(safe-area-inset-top, 0px) + max(36px, 7vh));
+  padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 24px);
+  color:rgba(244,243,239,.86);
+  background:linear-gradient(180deg, rgba(6,8,18,.55) 0%, rgba(6,8,18,0) 34%, rgba(6,8,18,0) 70%, rgba(6,8,18,.6) 100%),
+    url('/boot-campfire.avif') center 62% / cover no-repeat, #070a17;
+}
+[data-boot-notice].crit { background:linear-gradient(180deg, rgba(6,8,18,.7), rgba(6,8,18,.45)),
+  url('/boot-campfire.jpg') center 62% / cover no-repeat, #070a17; }
+.boot-static .boot-mark-bg, [data-boot-notice] .boot-mark-bg { fill:#f4f5f7; }
+.boot-static .boot-wordmark, .boot-static .boot-static-text,
+[data-boot-notice] .boot-wordmark { color:#f4f3ef; }
+[data-boot-notice].is-loading::before { content:none; }
+[data-boot-notice] .boot-tips { margin-top:auto; background:rgba(12,14,24,.72);
+  border-color:rgba(244,243,239,.14); box-shadow:none;
+  -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); }
+[data-boot-notice] .boot-tip { color:#f4f3ef; }
+[data-boot-notice] > button { font:inherit; font-size:.9rem; font-weight:600; color:#f4f3ef; cursor:pointer;
+  min-height:36px; padding:6px 18px; border-radius:999px; border:1px solid rgba(244,243,239,.32);
+  background:rgba(12,14,24,.55); }
+/* A wide screen shows the whole portrait scene, full height and centred,
+   on the night colour, instead of cropping it to a band. */
+@media (min-aspect-ratio: 3/4) {
+  .boot-static, [data-boot-notice] { background-size:auto, auto 100%, auto; }
+  [data-boot-notice].crit { background-size:auto, auto 100%, auto; }
+}
+[data-boot-notice] .boot-tips-label { color:#c6c4ff; }
+@media (prefers-reduced-motion: reduce) {
+  .boot-static, [data-boot-notice] {
+    background-image:linear-gradient(180deg, rgba(6,8,18,.55) 0%, rgba(6,8,18,0) 34%, rgba(6,8,18,0) 70%, rgba(6,8,18,.6) 100%),
+      url('/boot-campfire.jpg');
+  }
+}
 
 /* ---------------------------------------------------------------- modeller */
 .model { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
