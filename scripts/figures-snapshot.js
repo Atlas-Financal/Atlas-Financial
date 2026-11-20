@@ -571,8 +571,9 @@ function uniqueKey(used, key) {
 
 /* ---- Stack Wallet A6: Forecast.stackCardSummary per pay period --------- */
 // The page calls Forecast.cardPeriodMovements for a selected period with the
-// applied live overlay (public/plan.js budgetCardMovementsHtml) and reads
-// Forecast.stackCardSummary of that publication. The same call per published
+// applied live overlay (public/plan.js budgetCardMovementsHtml); the Stack
+// page's Credit card (DISPLAY B4, the intended consumer) reads
+// Forecast.stackCardSummary and Forecast.stackCreditLines of that publication. The same call per published
 // pay period, copied as published: paid, spent and net with each figure's
 // trust word, and the card's state. Transaction rows are display only.
 const STACK_FIGURES = ['paid', 'spent', 'net'];
@@ -594,6 +595,29 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         put(c + '.' + field + 'Trust', card[field].trust);
       }
       putField(c + '.state', card, 'state');
+    }
+    // Stack Wallet A6b: Forecast.stackCreditLines on the same publication and
+    // the period's published bills split. Per line: the minimum, status, the
+    // amount to go and whether the minimum is covered, each with its trust;
+    // and the credit totals with their completeness.
+    const credit = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
+    if (credit) {
+      const lineKeys = new Set();
+      for (const line of credit.lines) {
+        const c = uniqueKey(lineKeys, p + '.stackLine.' + segment(line.id));
+        put(c + '.minimum', line.minimum.amount);
+        put(c + '.minimumTrust', line.minimum.trust);
+        put(c + '.toGo', line.toGo.amount);
+        put(c + '.toGoTrust', line.toGo.trust);
+        putField(c + '.status', line, 'status');
+        put(c + '.minimumCovered', String(line.minimumCovered.value));
+        put(c + '.minimumCoveredTrust', line.minimumCovered.trust);
+      }
+      const t = p + '.stackCardTotals';
+      put(t + '.paid', credit.totals.paid);
+      put(t + '.spent', credit.totals.spent);
+      put(t + '.trust', credit.totals.trust);
+      put(t + '.completeness', credit.totals.completeness);
     }
   }
 }
