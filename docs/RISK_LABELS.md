@@ -352,14 +352,17 @@ What one comparison observes:
   census and state matrix) plus one small file per guard entry under `guard/`:
   each pin, each machinery file, each page and each module's header is its own
   file, and each residual is stored as its ordered list of line hashes (the
-  joined lines are the normalised residual exactly). Changes that pin different
-  consumers, or edit different module-scope lines, therefore touch different
-  files or lines and merge in git without a textual conflict; the merged
+  joined lines are the normalised residual exactly). Each machinery file is
+  stored the same way, as the ordered list of its raw line hashes (byte for
+  byte, nothing normalised), so an edited, added, deleted, reordered or
+  duplicated line is still a difference. Changes that pin different
+  consumers, or edit different module-scope or machinery lines, therefore touch
+  different files or lines and merge in git without a textual conflict; the merged
   manifest still has to equal the merged source, which the contract test checks
   on the merge ref. The loader (`loadManifest` in
   `test/lib/savings-consumer-contract.js`) fails closed on any file it does not
   recognise, and a missing, stale or stray file is a difference. A conflict
-  that does occur (the same pin, or the same residual line) is resolved by
+  that does occur (the same pin, or the same residual or machinery line) is resolved by
   re-running `--write` on the merged source and reviewing its printed diff,
   never by hand-editing hashes. A branch that still carries the old single
   `savings-consumer-manifest.json` resolves the rename once with
