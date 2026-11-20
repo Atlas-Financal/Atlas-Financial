@@ -48,7 +48,12 @@
         liveOverlay: overlay,
       });
       const result = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
-      out = result && Array.isArray(result.lines) && result.totals ? { lines: result.lines, totals: result.totals, view } : null;
+      // Each line's name: its Lunch Money account's (StackBlocks.cardName), else Forecast's label.
+      const name = line => window.StackBlocks && typeof window.StackBlocks.cardName === 'function'
+        ? window.StackBlocks.cardName(d, line.id, line.label) : line.label;
+      out = result && Array.isArray(result.lines) && result.totals
+        ? { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line) } : line)), totals: result.totals, view }
+        : null;
     }
     readings.set(ctx, out);
     return out;

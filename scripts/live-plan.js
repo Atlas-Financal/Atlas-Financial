@@ -1407,6 +1407,28 @@ function applyDerivedAmountFixed(plan, report) {
   }
 }
 
+// The Lunch Money name of each mapped debt account (owner decision, Dale,
+// 2026-11-20; Grok Bot, rule 17: the ledger is the one home for names). It is
+// matched by the account map's provider account id only, never by a name, and
+// served as debt.ledgerName for the page's labels. It is a label: no figure
+// reads it. A debt with no mapped account, or two mapped accounts with
+// different names, gets none, and the page keeps its own label.
+function applyLedgerNames(debts, report) {
+  const names = new Map();
+  for (const entry of (report && Array.isArray(report.mapped) ? report.mapped : [])) {
+    if (!entry || entry.collection !== 'debts' || typeof entry.atlasId !== 'string' || !entry.atlasId) continue;
+    const name = typeof entry.ledgerName === 'string' && entry.ledgerName.trim() ? entry.ledgerName.trim() : null;
+    if (!names.has(entry.atlasId)) names.set(entry.atlasId, name);
+    else if (names.get(entry.atlasId) !== name) names.set(entry.atlasId, null);
+  }
+  for (const debt of debts || []) {
+    if (!debt || typeof debt !== 'object') continue;
+    delete debt.ledgerName;
+    const name = names.get(debt.id);
+    if (name) debt.ledgerName = name;
+  }
+}
+
 function overlayLiveState(input) {
   const data = input && input.data;
   if (!data || !data.plan || !Array.isArray(data.debts)) fail('Canonical data is missing plan or debts.');
@@ -1423,6 +1445,7 @@ function overlayLiveState(input) {
     assertFreshLivePacket(data, report, liveAsOf);
   }
   const next = clone(data);
+  applyLedgerNames(next.debts, report);
   // Replace, never accumulate, provider-category confirmation on each refresh.
   // It is independent of durable owner-confirmed opening receipts/policy.
   next.plan.cardMinimumCategoryEvidence = clone(report.cardMinimumCategoryEvidence
@@ -2133,6 +2156,7 @@ const api = {
   sanitizeLiveFailureReason,
   proposeOverlay,
   overlayLiveState,
+  applyLedgerNames,
   assertOwnerPolicyUntouched,
   paydayGapCashFromReport,
   collectObservedCash,
