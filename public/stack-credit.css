@@ -1,7 +1,7 @@
 /* Stack Wallet block credit (B4): the Credit card. Loaded only under ?view=stack; every rule is scoped to
  * html.stack-view. Tokens come from stack.css, plus the two below (the cards are pastel in both themes, so the
  * coral and scrim are the same in light and dark). */
-html.stack-view { --stack-togo: #c8372d; --stack-scrim: rgba(12, 13, 16, .45); }
+html.stack-view { --stack-togo: #c8372d; --stack-good: #0f7a43; --stack-scrim: rgba(12, 13, 16, .45); }
 html.stack-view .stack-credit {
   position: relative; border-radius: 38px; box-shadow: var(--stack-lift);
   background: var(--stack-cards); color: var(--stack-on); padding: 20px 22px 22px;
@@ -56,13 +56,15 @@ html.stack-view .stack-credit-name .stack-credit-min { margin-top: 6px; }
 /* A card's last balance (#1447), shown where its paid and spent are not published: in italics (Dale, 2026-11-20), so it
  * reads as a balance rather than a movement; soft as well when estimated (the shell's one treatment). */
 html.stack-view .stack-credit-name .stack-credit-bal { margin-top: 2px; font-style: italic; font-weight: 600; color: var(--stack-on); }
-html.stack-view .stack-credit-minibar { display: block; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--stack-on-line); overflow: hidden; }
-html.stack-view .stack-credit-minibar i { display: block; height: 100%; border-radius: 3px; background: var(--stack-on); }
-html.stack-view .stack-credit-status { font-size: 18px; font-weight: 700; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
-html.stack-view .stack-credit-status.is-togo { color: var(--stack-togo); }
-html.stack-view .stack-credit-pill { display: inline-block; margin-top: 4px; font-size: 14.5px; font-weight: 700; border-radius: 999px; padding: 7px 14px; }
-html.stack-view .stack-credit-pill.is-ok { background: var(--stack-on); color: var(--stack-cards); }
-html.stack-view .stack-credit-pill.is-togo { color: var(--stack-togo); box-shadow: inset 0 0 0 2px var(--stack-togo); }
+/* The row's right-hand figure "X / minimum" (Dale, 2026-11-20): X in green when the minimum is covered, in red when
+ * spending is above payments, plain otherwise; the "/ min" is always muted. The soft treatment is per field. */
+html.stack-view .stack-credit-fig { font-size: 19px; font-weight: 800; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
+html.stack-view .stack-credit-x.is-good, html.stack-view .stack-sheet .stack-credit-x.is-good { color: var(--stack-good); }
+html.stack-view .stack-credit-x.is-bad, html.stack-view .stack-sheet .stack-credit-x.is-bad { color: var(--stack-togo); }
+html.stack-view .stack-credit-of { font-style: normal; font-weight: 500; color: var(--stack-on2); }
+html.stack-view .stack-credit-dash { font-weight: 600; color: var(--stack-on2); }
+html.stack-view .stack-credit-figure .stack-credit-dash { font-size: .6em; }
+html.stack-view .stack-sheet .stack-credit-big .stack-credit-of { font-size: .45em; font-weight: 600; }
 html.stack-view .stack-n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   html.stack-view .stack-credit-exp, html.stack-view .stack-chev { transition: none; }

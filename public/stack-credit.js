@@ -65,48 +65,64 @@
   const est = (view, ...trusts) => (window.StackBlocks.estClass && trusts.some(t => window.StackBlocks.isEstimated(t, view))
     ? ' stack-est' : '');
 
-  // The published status, without words (owner, 2026-11-20: names, numbers, bars and the ✓ only): paid back is the
-  // tick; "to go" is the coral remaining amount alone; upcoming and an unpublished status print nothing.
-  // The design's wording (Dale, 2026-11-20: follow the design): "Paid back" with its tick, or the coral "$X to go" from the
-  // published toGo; upcoming and an unpublished status print nothing.
-  function statusOf(line) {
-    if (line.status === 'paid-back') return { cls: 'is-ok', text: 'Paid back' };
-    if (line.status === 'to-go') return amountOf(line.toGo) == null ? null : { cls: 'is-togo', text: `${money(amountOf(line.toGo))} to go` };
-    return null;
-  }
-  // The paid-back mark (the row's filled tick, the sheet's ✓) is a claim of its own: the card's spending this pay period
-  // is paid back, not that its balance or any bill is paid. It shows whenever the published status is paid-back (a
-  // missing mark would read as not paid), and carries the shell's one soft treatment when paid, spent or toGo is
-  // estimated or the period is projected (owner: estimates are slightly softer). Its screen-reader name is "Paid back",
-  // or "Paid back, estimated" when soft; nothing visible is added. (Atlas on #1444; the lead's ruling.)
-  const paidBackEst = (line, view) => est(view, trustOf(line.paid), trustOf(line.spent), trustOf(line.toGo));
-  const paidBackName = soft => `role="img" aria-label="Paid back${soft ? ', estimated' : ''}"`;
-
-  // "Minimum $X" whenever the minimum amount is published, whatever its coverage check says (#1443's HELOC and a future
-  // card publish coverage 'unknown'); a ✓ only when coverage is published as true. Never a word for coverage (owner,
-  // 2026-11-20), never "covered" or "unpaid" inferred, and nothing (never $0) when the amount is not published.
-  // Coverage is read only from the published check: true prints "covered ✓", false "not yet", 'unknown' prints no coverage
-  // wording at all (an unknown must not read as covered or as short).
+  // Coverage is read only from the published check (minimumCovered.value): true, false, or null for 'unknown' or absent.
+  // An unknown must read as neither covered nor short, so it prints no ✓ and no colour.
+  // A published check counts only on trust the page may show: calculated or verified (plain) or estimated (soft). A check
+  // whose trust is unavailable, unknown or any other word is no check: no green, no ✓, and it is not counted as covered.
+  const COVERAGE_TRUST = ['calculated', 'verified', 'estimated'];
   const coverage = line => (line.minimumCovered && (line.minimumCovered.value === true || line.minimumCovered.value === false)
-    ? line.minimumCovered.value : null);
-  const covered = line => coverage(line) === true;
-  function minimumText(line) {
-    const min = amountOf(line.minimum);
-    const cv = coverage(line);
-    return min == null ? '' : `Minimum ${money(min)}${cv === true ? ' covered ✓' : cv === false ? ' not yet' : ''}`;
+    && COVERAGE_TRUST.includes(line.minimumCovered.trust) ? line.minimumCovered.value : null);
+  const dash = '<span class="stack-credit-dash stack-est" role="img" aria-label="not available">—</span>';
+
+  // One line, read for the design's right-hand figure "X / minimum" (Dale, 2026-11-20: he approved the Credit Minimum
+  // mock-up). Only published values are compared or printed; nothing is added or subtracted here:
+  //   * paid or spent unpublished (the HELOC): X is a dash, plain ink, no tick;
+  //   * status 'to-go' (Forecast says spending is above payments): X is the published toGo, in red;
+  //   * otherwise X is the published paid, in green with the filled ✓ only when minimumCovered is published true, a
+  //     minimum is due, something was spent or paid and the period is not upcoming; plain ink when it is false or unknown;
+  //   * nothing spent and nothing paid: "$0 / $min" in plain ink, no tick;
+  //   * no minimum due (null): X alone, no "/ min", no tick.
+  // Each field carries the shell's one soft treatment from its own published trust (X: the figures it is read from; the
+  // minimum: its own; the tick: the coverage check's, with the minimum's and paid's).
+  function readLine(line, view) {
+    const paid = amountOf(line.paid), spent = amountOf(line.spent), cv = coverage(line);
+    // A published $0 minimum is nothing owed: it reads as "not due" (X alone), like Forecast's explicit
+    // no-minimum-due-in-period. Any other null minimum (the bills split withheld, an unqualified amount, an absent field) is an
+    // unavailable minimum, which prints a dash, never reassurance.
+    const published = amountOf(line.minimum);
+    const min = published === 0 ? null : published;
+    const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
+    const notDue = published === 0 || (published == null && minReasons.includes('no-minimum-due-in-period'));
+    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, x: null, tone: '', ok: false, xSoft: ' stack-est', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
+    // The ✓ circle means "minimum covered" and nothing else (Dale: "once that minimum is paid I want a check mark"): a
+    // published true on trust the page may show, with a minimum due. The colour then shows over or under, so a red row can
+    // carry the ✓ too. It agrees with the head bar and the waterfall, which count the same check.
+    if (min != null && cv === true) {
+      out.ok = true;
+      out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid));
+    }
+    if (paid != null && spent != null) {
+      if (line.status === 'to-go') {
+        out.x = amountOf(line.toGo);
+        out.tone = out.x != null ? 'bad' : '';
+        out.xSoft = est(view, trustOf(line.paid), trustOf(line.spent), trustOf(line.toGo));
+      } else {
+        out.x = paid;
+        out.xSoft = est(view, trustOf(line.paid), trustOf(line.spent));
+        // Green: the minimum is covered, the row is not red, something was spent or paid, and the period is not upcoming.
+        if (out.ok && !(paid === 0 && spent === 0) && line.status !== 'upcoming') out.tone = 'good';
+      }
+    }
+    return out;
   }
-  // The minimum's own trust; the coverage check's trust only when its wording is printed.
-  const minimumEst = (view, line) => est(view, trustOf(line.minimum), coverage(line) !== null ? line.minimumCovered.trust : null);
+  // The figure: "X / min" (the minimum muted), the colour on X alone.
+  // X is named for a screen reader so colour is never the only signal: "Owes $20 more than paid back" when red, "Paid $20"
+  // otherwise (", estimated" when soft). The visible text stays the number; role="img" makes the name the announcement.
+  const xName = r => (r.x == null ? '' : `${r.tone === 'bad' ? 'Owes ' + money(r.x) + ' more than paid back' : 'Paid ' + money(r.x)}${r.xSoft ? ', estimated' : ''}`);
+  const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(money(r.x))}</span>`
+    + (r.min != null ? `<i class="stack-credit-of${r.minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
-  // The row's second line, in the design's words from the published paid and spent only: "Paid back $P of $S", or
-  // "Paid $P · nothing spent" when spent is published as nothing.
-  function subText(line) {
-    const p = amountOf(line.paid), s = amountOf(line.spent);
-    if (p == null || s == null) return '';
-    if (s === 0) return p === 0 ? 'Nothing spent yet' : `Paid ${money(p)} · nothing spent`;
-    return `Paid back ${money(p)} of ${money(s)}`;
-  }
   // The card's last balance snapshot (#1447's line.balance, a stock, never a movement): printed only where the line's
   // paid and spent are not both published, with its own trust (soft when estimated). Nothing when unpublished, never $0.
   const balanceShown = line => line.id !== 'heloc' && !paidOfSpent(line) && amountOf(line.balance) != null;
@@ -115,70 +131,66 @@
   const balanceAttrs = (line, soft) => `role="img" aria-label="Last balance${soft ? ', estimated,' : ''} ${esc(money(amountOf(line.balance)))}"`;
 
   function lineHtml(line, view) {
-    const heloc = line.id === 'heloc';
-    const status = heloc ? null : statusOf(line);
-    const sub = heloc ? '' : subText(line);
-    const min = minimumText(line);
-    const ok = !heloc && line.status === 'paid-back';
-    const okEst = ok ? paidBackEst(line, view) : '';
-    // A status is read from the line's paid and spent (and toGo when it prints an amount): soft when any is estimated.
-    const figs = est(view, trustOf(line.paid), trustOf(line.spent));
-    const stat = est(view, trustOf(line.paid), trustOf(line.spent), status && status.cls === 'is-togo' ? trustOf(line.toGo) : null);
-    const minEst = minimumEst(view, line);
+    const r = readLine(line, view);
+    const tick = r.ok ? ` is-on${r.tickSoft}" role="img" aria-label="Minimum covered${r.tickSoft ? ', estimated' : ''}"` : '"';
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
-      + `<span class="stack-credit-tick${ok ? ` is-on${okEst}" ${paidBackName(okEst)}` : '"'}>${TICK}</span>`
+      + `<span class="stack-credit-tick${tick}>${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b></span>`
-      + (sub ? `<small class="stack-credit-sub-line${figs}">${esc(sub)}</small>` : '')
       + (balanceShown(line) ? `<small class="stack-credit-bal stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${esc(money(amountOf(line.balance)))}</small>` : '')
-      + (heloc ? '' : bar(amountOf(line.paid), amountOf(line.spent), 'stack-credit-minibar' + figs))
-      + (min ? `<small class="stack-credit-min${minEst}">${esc(min)}</small>` : '') + '</span>'
-      // The status sits on the right, centred on the row, as in the design.
-      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status && status.text ? stat : ''}">${status ? esc(status.text) : ''}</span>`
+      + '</span>'
+      // The figure sits on the right, centred on the row, as in the design.
+      + `<span class="stack-credit-fig stack-n">${figureHtml(r)}</span>`
       + `${CHEV}</button></li>`;
   }
 
   let open = false;
   function cardHtml(reading) {
-    const t = reading.totals;
-    // Only a complete total prints (owner, 2026-11-20: no explanatory text, so a partial total cannot name what it leaves
-    // out; it prints nothing rather than look whole, until LEDGER A's snapshot totals). The per-card lines still show.
-    const shown = num(t.paid) && num(t.spent) && t.completeness === 'complete';
-    const totalEst = est(reading.view, t.trust);
+    const t = reading.totals, view = reading.view;
+    // Paid is the published total over the spend cards, only when complete (a partial or missing total prints a soft dash
+    // rather than look whole). The minimums due is Forecast's published total over exactly those cards (totals.minimumsDue,
+    // the HELOC left out; a dash when any card's minimum is withheld), never added up here. The bar is covered over due,
+    // from Forecast's two published counts, so it is full only when every due minimum is covered.
+    const paidShown = num(t.paid) && t.completeness === 'complete';
+    const md = t.minimumsDue && typeof t.minimumsDue === 'object' ? t.minimumsDue : null;
+    const due = md && num(md.amount) ? md.amount : null;
+    const dueEst = est(view, md ? md.trust : null);
+    const countsShown = num(t.minimumsDueCount) && num(t.minimumsCoveredCount);
+    const totalEst = est(view, t.trust);
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
       + '<span class="stack-credit-hd"><span class="stack-credit-title">Credit</span>'
-      + '<span class="stack-credit-sub">paid back / spent</span>'
-      // A withheld total prints a soft dash and an empty track, never a blank, a $0 or a guessed fill.
-      + (shown ? `<span class="stack-credit-figure stack-n${totalEst}" data-stack-credit-total>${esc(money(t.paid))}<i> / ${esc(money(t.spent))}</i></span>`
-        : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>\u2014</span>')
+      + '<span class="stack-credit-sub">paid / card minimums due</span>'
+      // "paid / card minimums due"; a withheld part prints a soft dash, never a blank, a $0 or a guessed fill.
+      + (paidShown || due != null
+        ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span class="${totalEst.trim()}">${esc(money(t.paid))}</span>` : dash}`
+          + (due != null ? `<i class="${dueEst.trim()}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
+        : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>—</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
-      + (shown ? bar(t.paid, t.spent, 'stack-credit-bar' + totalEst) : '<span class="stack-credit-bar" aria-hidden="true"><i style="width:0%"></i></span>')
+      // A bar with no ratio to draw (counts withheld, or nothing due) is an empty track, never a guessed fill.
+      + ((countsShown && bar(t.minimumsCoveredCount, t.minimumsDueCount, 'stack-credit-bar' + est(view, t.minimumsCoveredTrust)))
+        || '<span class="stack-credit-bar" aria-hidden="true"><i style="width:0%"></i></span>')
       + `<div class="stack-credit-exp"${open ? '' : ' inert'}><div><ul class="stack-credit-list">`
-      + reading.lines.map(line => lineHtml(line, reading.view)).join('') + '</ul></div></div></section>';
+      + reading.lines.map(line => lineHtml(line, view)).join('') + '</ul></div></div></section>';
   }
 
-  // The sheet's view of one line (stack-sheet.js asks for it with its own helpers).
+  // The sheet's view of one line (stack-sheet.js asks for it with its own helpers): the same "X / minimum" figure as the
+  // row, in the same colour, then "Paid onto it", "Spent on it" and "Minimum" (with its ✓ when covered, "Not due this
+  // period" when no minimum is due), then the dated transactions.
   function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
-    const figs = est(view, trustOf(line.paid), trustOf(line.spent));
-    const minEst = minimumEst(view, line);
-    const status = heloc ? null : statusOf(line);
-    const paid = amountOf(line.paid), spent = amountOf(line.spent), min = amountOf(line.minimum);
+    const r = readLine(line, view);
+    const rowHtml = (label, valueHtml) => `<div><dt>${h.esc(label)}</dt><dd class="stack-n">${valueHtml}</dd></div>`;
+    const soft = (text, cls) => `<span class="${cls.trim()}">${h.esc(text)}</span>`;
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return h.head('Credit', line.label || '')
-      + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n${figs}">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>`
-        : balanceShown(line) ? `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${h.esc(h.money(amountOf(line.balance)))}</div>` : '')
-      // The status pill under the figure, as in the design: "Paid back" (dark) or the coral "$X to go".
-      + (!heloc && line.status === 'paid-back'
-        ? `<span class="stack-credit-pill is-ok${paidBackEst(line, view)}">Paid back</span>` : '')
-      + (status && status.cls === 'is-togo' ? `<span class="stack-credit-pill is-togo stack-n${est(view, trustOf(line.toGo))}">${h.esc(status.text)}</span>` : '')
-      + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar' + figs))
-      + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent), est(view, trustOf(line.spent)))
-        + h.row('Paid onto it', h.money(paid), est(view, trustOf(line.paid))))
-      + (min != null ? (coverage(line) === null ? h.row('Minimum', h.money(min), minEst)
-        // The amount sits in the label, so its own treatment goes on the label; the coverage word carries the check's.
-        : h.row('Minimum ' + h.money(min), covered(line) ? 'Covered ✓' : 'Not yet', est(view, line.minimumCovered.trust),
-          est(view, trustOf(line.minimum)))) : '')
+      + (r.x != null || r.min != null || !balanceShown(line)
+        ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
+        : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${h.esc(h.money(amountOf(line.balance)))}</div>`)
+      + '<dl>' + (heloc ? '' : (r.paid != null ? rowHtml('Paid onto it', soft(h.money(r.paid), est(view, trustOf(line.paid)))) : '')
+        + (r.spent != null ? rowHtml('Spent on it', soft(h.money(r.spent), est(view, trustOf(line.spent)))) : ''))
+      + (r.min != null
+        ? rowHtml('Minimum', soft(h.money(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
+        : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
