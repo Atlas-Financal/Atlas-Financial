@@ -107,7 +107,7 @@
 
   // A bill-like row reads: the item, its amount, and a green check only when Forecast's paidState says paid
   // (owner direction): no status word, no mark when unpaid or unknown. The check's accessible name is "Paid",
-  // for screen readers only. An unpublished amount is a dash, never $0.
+  // for screen readers only. An unpublished amount is a dash, never a zero.
   var DASH = '\u2014';
   function stateRow(label, amountText, paid, target) {
     return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +

@@ -79,7 +79,7 @@ assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'
   assert(!u.includes('sc-check') && !u.includes('\u2713'), 'an unknown paidState renders no check');
   const nul = JSON.parse(JSON.stringify(view)); nul.bills[0].amount = null;
   const n = buildCardsHTML(ctx(nul)).split('data-stack-card="bills"')[1].split('</details>')[0];
-  assert(rowOf(n, 'Hydro').includes('<span class="sc-a">\u2014</span>') && !/\$0/.test(n), 'an unpublished amount is a dash, never $0');
+  assert(rowOf(n, 'Hydro').includes('<span class="sc-a">\u2014</span>') && !/[$]0/.test(n), 'an unpublished amount is a dash, never a zero');
 }
 // category rows read spent / planned; markup is escaped
 assert(card('budget').includes(fmt(123.45)) && card('budget').includes(fmt(400)));
@@ -95,7 +95,7 @@ bare.bills.forEach(b => delete b.paidState);
 bare.householdBudget = [{ label: 'X', spent: null }];
 const h2 = buildCardsHTML(ctx(bare));
 assert(!/\$0(\.00)?\b/.test(h2) && amounts(h2).length === 0, 'unpublished figure printed');
-assert(/class="sc-f">\u2014</.test(h2), 'an unpublished headline is a dash'); assert(!/\$0(\.00)?\b/.test(h2));
+assert(/class="sc-f">\u2014</.test(h2), 'an unpublished headline is a dash'); assert(!/[$]0(\.00)?\b/.test(h2));
 assert(!h2.includes('sc-check') && !h2.includes('\u2713'), 'no check without paidState');
 const none = { start: '2026-01-01' }; // no stackSummary at all (#1426 not merged)
 assert.strictEqual(amounts(buildCardsHTML(ctx(none))).length, 0);
