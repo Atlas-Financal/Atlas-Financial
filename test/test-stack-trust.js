@@ -451,7 +451,9 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
   const names = ['Blue Visa', 'Green Card', 'Red Card', 'Gold Card', 'Line of credit', 'Water', 'Power', 'Chequing', 'Groceries',
     'Dining', 'Pharmacy', 'Other spending', 'Fuel', 'Corner Grocer'];
   const PAGE = new Set(['Budget', 'Bills', 'Bill', 'Mortgage', 'Credit', 'Spent', 'Paid', 'Minimum', 'Left', 'Over', 'Transactions',
-    'Dale’s', 'Amanda’s', 'Other', 'Total', 'income', 'Surplus', 'Deficit', 'after', 'deductions', 'of', 'Close']);
+    'Dale’s', 'Amanda’s', 'Other', 'Total', 'income', 'Surplus', 'Deficit', 'after', 'deductions', 'of', 'Close',
+    // The design's income tiles in the waterfall (decoration, aria-hidden): D, A and $.
+    'D', 'A', '$']);
   const leftover = html => {
     let t = text(html).replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’');
     for (const n of names) t = t.split(n).join(' ');

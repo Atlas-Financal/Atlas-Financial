@@ -102,8 +102,19 @@
       ? `<span class="n${est(view, TRUST_SOURCES[key])}" data-source="${LINE_SOURCES[key]}">${escape(sign ? signed(value) : money(value))}</span>`
       : `<span class="n" data-source="${LINE_SOURCES[key]}" data-unpublished="true"></span>`;
   }
+  // The design's marks before a label: a letter tile for each income line, a colour swatch for each deduction that
+  // has its own card. Decoration only (aria-hidden); the label text is unchanged.
+  const MARKS = Object.freeze({
+    dale: '<span class="wf-av" aria-hidden="true">D</span>',
+    amanda: '<span class="wf-av" aria-hidden="true">A</span>',
+    other: '<span class="wf-av" aria-hidden="true">$</span>',
+    bills: '<span class="wf-av wf-sw" style="--wf-k:var(--stack-bills)" aria-hidden="true"></span>',
+    budget: '<span class="wf-av wf-sw" style="--wf-k:var(--stack-budget)" aria-hidden="true"></span>',
+    mortgage: '<span class="wf-av wf-sw" style="--wf-k:var(--stack-mort)" aria-hidden="true"></span>',
+    credit: '<span class="wf-av wf-sw" style="--wf-k:var(--stack-cards)" aria-hidden="true"></span>',
+  });
   const line = (op, label, cell, cls = '', row = '') =>
-    `<li class="wf-line ${cls}" data-row="${row}"><span class="op" aria-hidden="true">${op}</span><span class="lab">${escape(label)}</span>${cell}</li>`;
+    `<li class="wf-line ${cls}" data-row="${row}"><span class="op" aria-hidden="true">${op}</span><span class="lab">${MARKS[row] || ''}${escape(label)}</span>${cell}</li>`;
 
   // An unpublished amount the row still names: a dash, never $0, read by a screen reader as "not available".
   const DASH = '<span class="wf-dash" role="img" aria-label="not available">\u2014</span>';
@@ -132,7 +143,7 @@
     const cards = creditRows(ctx, view);
     const credit = `<li class="wf-line wf-credit ${open ? 'open' : ''}" data-row="credit">
       <button type="button" class="wf-toggle" data-wf-toggle="credit" aria-expanded="${open}"${cards ? '' : ' disabled'}>
-        <span class="op" aria-hidden="true">−</span><span class="lab">Credit</span>${amountCell(view, 'credit')}</button>
+        <span class="op" aria-hidden="true">−</span><span class="lab">${MARKS.credit}Credit</span>${amountCell(view, 'credit')}</button>
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
     // A withheld surplus shows its name and a dash, no sentence (owner, 2026-11-20: no explanatory text on the page).
     const dash = amount === null ? DASH : '';
