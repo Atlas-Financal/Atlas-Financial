@@ -1,12 +1,16 @@
 /* Stack Wallet block sheet (B4): the bottom sheet for a tapped line item. Loaded only under ?view=stack; every
  * rule is scoped to html.stack-view. Tokens come from stack.css (--stack-togo and --stack-scrim from stack-credit.css). */
+/* While a sheet is open the page behind it is fixed in place (set by stack-sheet.js; top is -scrollY), so a swipe on
+ * the sheet cannot scroll the page: overflow:hidden alone is not enough on iOS Safari. */
+html.stack-view.stack-sheet-open body { position: fixed; left: 0; right: 0; width: 100%; top: var(--stack-lock-top, 0); overflow: hidden; }
 html.stack-view .stack-sheet-scrim {
-  position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-end; justify-content: center;
+  position: fixed; inset: 0; z-index: 30; display: flex; align-items: flex-end; justify-content: center; overscroll-behavior: contain;
   background: var(--stack-scrim, rgba(12, 13, 16, .45)); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
 html.stack-view .stack-sheet {
   --k: var(--stack-wf);
-  width: 100%; max-width: 440px; max-height: 88%; overflow-y: auto; border-radius: 32px 32px 0 0;
+  width: 100%; max-width: 440px; max-height: 90vh; max-height: 90dvh; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; border-radius: 32px 32px 0 0;
   background: var(--k); color: var(--stack-on); font-family: var(--stack-sans);
   padding: 10px 22px calc(28px + env(safe-area-inset-bottom, 0px));
 }
