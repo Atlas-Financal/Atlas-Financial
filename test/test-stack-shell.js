@@ -114,8 +114,12 @@ console.log('6. no text labels (owner decision, 2026-11-19)');
 console.log('7. phone layout rules (the browser proof is test/browser-stack-layout.js, local)');
 {
   const pile = read('public/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
-  const gap = /html\.stack-view \.stack-bare \+ \.stack-bare \{ margin-top: (\d+)px; \}/.exec(pile);
-  ok(gap && Number(gap[1]) > 0, 'a bare block after a bare block (Credit after the cards) stands apart instead of overlapping the last card');
+  ok(!/\.stack-bare \+ \.stack-bare/.test(pile), 'Credit overlaps the cards like every block in the pile (no stand-apart override)');
+  const cards = read('public/stack-cards.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const pad = /html\.stack-view \.sc-card\{[^}]*padding:\d+px \d+px (\d+)px/.exec(cards);
+  ok(pad && Number(pad[1]) >= 38 + 16 && /\.sc-card\{[^}]*margin-top:-38px/.test(cards) && /\.sc-card\{[^}]*border-radius:38px/.test(cards),
+    'each card overlaps the one above by 38px with at least 54px of bottom padding, so the next card covers only padding, never the head', pad && pad[1]);
+  ok(/:has\(\+ \.stack-block:empty\) \.sc-card:last-child[^{]*\{padding-bottom:22px\}/.test(cards), 'the last card drops to 22px of bottom padding when no block follows it');
   const wf = read('public/stack-waterfall.css').replace(/\/\*[\s\S]*?\*\//g, '');
   const slab = /\.wf-slab \{[^}]*container-type: inline-size;/.test(wf);
   const size = /\.wf-slab \.n, html\.stack-view \.stack-waterfall \.wf-slab \.wf-dash \{ font-size: min\(66px, (\d+(?:\.\d+)?)cqi\); white-space: nowrap; \}/.exec(wf);
