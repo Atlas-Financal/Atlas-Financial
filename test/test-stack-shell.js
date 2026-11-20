@@ -111,4 +111,16 @@ console.log('6. no text labels (owner decision, 2026-11-19)');
     'the shell prints no period label; a projected chip is marked from the published evidenceState');
 }
 
+console.log('7. phone layout rules (the browser proof is test/browser-stack-layout.js, local)');
+{
+  const pile = read('public/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const gap = /html\.stack-view \.stack-bare \+ \.stack-bare \{ margin-top: (\d+)px; \}/.exec(pile);
+  ok(gap && Number(gap[1]) > 0, 'a bare block after a bare block (Credit after the cards) stands apart instead of overlapping the last card');
+  const wf = read('public/stack-waterfall.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const slab = /\.wf-slab \{[^}]*container-type: inline-size;/.test(wf);
+  const size = /\.wf-slab \.n, html\.stack-view \.stack-waterfall \.wf-slab \.wf-dash \{ font-size: min\(66px, (\d+(?:\.\d+)?)cqi\); white-space: nowrap; \}/.exec(wf);
+  ok(slab && size && Number(size[1]) <= 16 && !/\.wf-slab \.n[^{]*\{[^}]*font-size: \d+px/.test(wf),
+    'the surplus is sized to its slab (at most 16cqi, never a fixed px size that can spill past the edge)');
+}
+
 console.log(`\nPASS Stack shell static checks (${checks})`);
