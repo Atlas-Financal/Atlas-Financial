@@ -12664,7 +12664,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts));
+      return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)), asOf);
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12979,6 +12979,46 @@
         if (row && typeof row === 'object') row.paidState = billPaidState(row);
       }
     }
+    return result;
+  }
+  // Stack Wallet bill history (owner ask, Dale, 2026-11-20; lead ruling: one
+  // authority, the page does no cross-period join). For each bill id, its
+  // occurrences on or before asOf, newest first, copied from the published
+  // bill rows of the past and current pay periods:
+  //   { date, amount, amountBasis, trust, paidState }
+  // amount and trust follow the row's own displayAmountBasis exactly
+  // (publishBudgetBillDisplayTrust, or a saved close's capped rule): a posted
+  // or unconfirmed actual is the linked payment |actual| from the Lunch Money
+  // ledger (rule 17: read, never matched here); 'schedule' is the scheduled
+  // amount with its own trust, never presented as a paid amount. An amount
+  // that is not a number is null with trust 'unavailable'; a trust word
+  // outside calculated / estimated is 'unknown'. A 'carried' copy is skipped:
+  // the occurrence is listed in the period that holds it. Reach: only as far
+  // back as the published timeline (computed lookbacks within the ledger
+  // fetch window, then saved closes); nothing older is invented.
+  const BILL_HISTORY_TRUST = new Set(['calculated', 'estimated']);
+  function billHistoryEntry(row) {
+    const basis = row.displayAmountBasis;
+    const actual = basis === 'posted-actual' || basis === 'unconfirmed-actual';
+    const raw = actual ? row.actual : row.amount;
+    const amount = typeof raw === 'number' && Number.isFinite(raw) ? roundCent(Math.abs(raw)) : null;
+    const trust = amount === null ? 'unavailable'
+      : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
+    return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState };
+  }
+  function publishBillHistory(result, asOf) {
+    if (!result || typeof result !== 'object') return result;
+    const history = {};
+    for (const view of (Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
+      if (!view || (view.timelineRole !== 'past' && view.timelineRole !== 'current')) continue;
+      for (const row of (Array.isArray(view.bills) ? view.bills : [])) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;
+        if (typeof row.date !== 'string' || !(row.date <= asOf) || row.paidState === 'carried') continue;
+        (history[row.id] || (history[row.id] = [])).push(billHistoryEntry(row));
+      }
+    }
+    for (const id of Object.keys(history)) history[id].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    result.billHistory = history;
     return result;
   }
   function calendarIncomeTxFacts(packet) {
