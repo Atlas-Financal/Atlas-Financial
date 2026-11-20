@@ -162,28 +162,28 @@ console.log('5. the sheet');
   const { win } = load();
   const ctx = context(TOTALS.complete);
   const visa = text(win.StackSheet.html(ctx, 'card:travelvisa'));
-  ok(visa === 'Credit Blue Visa $400 of $400 ✓ Spent $400 Paid $400 Minimum $25 ✓'
+  ok(visa === 'Credit · Mar 1 – 14 Blue Visa $400 of $400 ✓ Spent $400 Paid $400 Minimum $25 ✓'
     + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you +$400 Mar 10 Pending Cafe $12.50', 'card sheet', visa);
   const tx = win.StackSheet.html(ctx, 'card:travelvisa');
   ok(/class="is-pay"><span class="stack-sheet-txd">Mar 9/.test(tx) && /class=" is-pending"/.test(tx), 'a payment row is marked bold and a pending row dimmed');
   ok(!/estimated|calculated|verified|≈/i.test(visa), 'no tag printed');
   const heloc = text(win.StackSheet.html(ctx, 'card:heloc'));
-  ok(heloc === 'Credit Line of credit Minimum $210 ✓', 'HELOC sheet: its minimum only', heloc);
+  ok(heloc === 'Credit · Mar 1 – 14 Line of credit Minimum $210 ✓', 'HELOC sheet: its minimum only', heloc);
   const green = text(win.StackSheet.html(ctx, 'card:cashback'));
-  ok(green === 'Credit Green Card $100 of $260 $160 Spent $260 Paid $100 Minimum $30 Transactions', 'to-go sheet with an empty list', green);
+  ok(green === 'Credit · Mar 1 – 14 Green Card $100 of $260 $160 Spent $260 Paid $100 Minimum $30 Transactions', 'to-go sheet with an empty list', green);
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
-  ok(red === 'Credit Red Card $0 of $0 Spent $0 Paid $0 Minimum $15 Transactions', "'unknown' minimum check: the minimum, no ✓", red);
+  ok(red === 'Credit · Mar 1 – 14 Red Card $0 of $0 Spent $0 Paid $0 Minimum $15 Transactions', "'unknown' minimum check: the minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
-  ok(water === 'Bill Water $64 ✓ Feb 5 $61.50 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
+  ok(water === 'Bill · Mar 1 – 14 Water $64 ✓ Feb 5 $61.50 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
     'paid bill sheet: the amount and the check, then its earlier occurrences (date, amount or a dash, ✓ when paid); no planned or observed date and account, no future occurrence', water);
   const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
   ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>') && !/Paid|Not paid/.test(text(waterHtml)),
     'a paid bill sheet shows the check (accessible name Paid) and no status word');
   ok(!mortHtml.includes('stack-sheet-check') && !mortHtml.includes('stack-sheet-togo') && !/Paid/.test(text(mortHtml)), 'an unpaid bill sheet shows no mark and no word');
-  ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage Mortgage $1,850 Mar 12 Joint', 'mortgage sheet');
-  ok(text(win.StackSheet.html(ctx, 'budget:groceries')) === 'Budget Groceries $310 / $500 Left $190', 'budget sheet');
-  ok(text(win.StackSheet.html(ctx, 'budget:fun')) === 'Budget Fun $130 / $100 Over $30', 'overspent budget sheet');
+  ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage · Mar 1 – 14 Mortgage $1,850 Mar 12 Joint', 'mortgage sheet');
+  ok(text(win.StackSheet.html(ctx, 'budget:groceries')) === 'Budget · Mar 1 – 14 Groceries $310 / $500 Left $190', 'budget sheet');
+  ok(text(win.StackSheet.html(ctx, 'budget:fun')) === 'Budget · Mar 1 – 14 Fun $130 / $100 Over $30', 'overspent budget sheet');
   ok(win.StackSheet.html(ctx, 'bill:water@2031-03-06') === null && win.StackSheet.html(ctx, 'card:nope') === null, 'an unknown key opens nothing');
   const bare = { ...ctx, Forecast: { cardPeriodMovements: () => ({}) } };
   ok(win.StackSheet.html(bare, 'card:travelvisa') === null, 'without Forecast.stackCreditLines nothing is read');
@@ -210,7 +210,7 @@ console.log('5b. a published minimum shows whatever its coverage check says (Atl
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
   ok(text(rows[0]) === 'Line of credit Minimum $50', "HELOC, coverage 'unknown': the line prints its minimum, no ✓", text(rows[0]));
-  ok(text(win.StackSheet.html(ctx, 'card:heloc')) === 'Credit Line of credit Minimum $50', "HELOC, coverage 'unknown': the sheet prints its minimum, no ✓");
+  ok(text(win.StackSheet.html(ctx, 'card:heloc')) === 'Credit · Mar 1 – 14 Line of credit Minimum $50', "HELOC, coverage 'unknown': the sheet prints its minimum, no ✓");
   ok(/Minimum \$20$/.test(text(rows[1])) && /<small class="stack-credit-min stack-est">Minimum \$20<\/small>/.test(rows[1]),
     "future card, coverage 'unknown': the line prints the minimum with the minimum's own (estimated) treatment", text(rows[1]));
   const future = win.StackSheet.html(ctx, 'card:future');
@@ -287,3 +287,19 @@ console.log('6. L-001: no arithmetic on money');
 }
 
 console.log(`\nPASS Stack credit card and sheet (${checks})`);
+
+console.log('8. sheet head: the date range in the kicker, the 64px figure, the small close mark');
+{
+  const { win } = load();
+  const ctx = context(TOTALS.complete);
+  const kicker = key => (/class="stack-sheet-kicker">([^<]*)</.exec(win.StackSheet.html(ctx, key)) || [])[1];
+  ok(kicker('card:travelvisa') === 'Credit · Mar 1 – 14' && kicker('bill:water@2031-03-05') === 'Bill · Mar 1 – 14'
+    && kicker('mortgage:mort@2031-03-12') === 'Mortgage · Mar 1 – 14' && kicker('budget:groceries') === 'Budget · Mar 1 – 14',
+    'every sheet kicker names its kind and the selected pay period\'s range, as the waterfall header prints it', [kicker('card:travelvisa'), kicker('bill:water@2031-03-05')].join(' | '));
+  ok(win.StackBlocks.rangeLabel({ start: '2031-03-01', end: '2031-03-14' }) === 'Mar 1 – 14' && win.StackBlocks.rangeLabel({ start: '2031-03-28', end: '2031-04-10' }) === 'Mar 28 – Apr 10',
+    'the range is the shell\'s one label (the day alone within a month, both months across one)');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-sheet.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok(/\.stack-sheet-big \{[^}]*font-size: 64px/.test(css), 'the sheet figure is 64px');
+  ok(/\.stack-sheet \.stack-sheet-close svg \{ width: 14px; height: 14px; \}/.test(css) && /\.stack-sheet \.stack-sheet-close \{[^}]*width: 36px; height: 36px/.test(css),
+    'the close mark is a 14px × in a 36px dark circle (not stretched by the global svg rule)');
+}

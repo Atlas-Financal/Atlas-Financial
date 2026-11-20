@@ -459,7 +459,7 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     for (const n of names) t = t.split(n).join(' ');
     // the two head subtitles from the approved design, exactly (no other wording)
     t = t.split('paid back / spent').join(' ').split('spent / budget').join(' ');
-    t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b/g, ' ')
+    t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( \u2013 ((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?\d{1,2})?\b/g, ' ')
       .replace(/[✓=−+\/—·]/g, ' ');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));
   };
