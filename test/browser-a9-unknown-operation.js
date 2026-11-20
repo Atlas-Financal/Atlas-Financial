@@ -531,6 +531,9 @@ async function openPage(browser, w, { marker } = {}) {
   await page.getByLabel('Password', { exact: true }).fill(appEnv.SITE_PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.waitForFunction(() => typeof App !== 'undefined' && App.data !== null);
+  // B7: the login lands on the Stack page; this proof reads the previous page, kept at ?view=classic.
+  await page.goto(w.url + '/?view=classic');
+  await page.waitForFunction(() => typeof App !== 'undefined' && App.data !== null);
   if (marker) {
     await page.evaluate(({ KEY, marker }) => localStorage.setItem(KEY, JSON.stringify(marker)), { KEY, marker });
     await page.reload();

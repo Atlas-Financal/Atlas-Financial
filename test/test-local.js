@@ -90,6 +90,8 @@ async function main() {
   });
   const setCookie = r.headers.get('set-cookie') || '';
   ok(r.status === 302, 'redirects after login', `status ${r.status}`);
+  // B7: the login lands on the default route, which is the Stack page (no ?view= needed; ?view=classic is the fallback).
+  ok(r.headers.get('location') === '/', 'login lands on / (the default Budget page, the Stack page since B7)', r.headers.get('location'));
   ok(setCookie.includes('hfd_session='), 'session cookie issued');
   ok(setCookie.includes('HttpOnly'), 'cookie is HttpOnly');
   ok(setCookie.includes('SameSite=Lax'), 'cookie is SameSite=Lax');
