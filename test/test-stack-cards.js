@@ -222,7 +222,10 @@ assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.
 {
   const b = card('budget');
   assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> / ' + fmt(666.66) + '</i></span>'), 'Budget strip: X / Y');
-  assert(b.includes('<span class="sc-s">spent / budget</span>'), 'Budget head: the design\'s subtitle');
+  assert(!/<span class="sc-s">/.test(b) && b.includes('<span class="sc-sr">spent / budget</span>'),
+    'Budget head: no visible grey subtitle (Dale, 2026-11-20); the words stay as screen-reader-only text');
+  assert(/\.sc-sr\{position:absolute;width:1px;height:1px;[^}]*clip:rect\(0 0 0 0\)/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8')),
+    'the screen-reader-only class really hides the words');
   assert(!/<span class="sc-s">/.test(card('bills')), 'no subtitle on Bills until Forecast publishes their paid and total');
 }
 
@@ -303,7 +306,7 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
     totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
   all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
   all.bills[0].stackBillPaymentEvidence = 'posted-equal'; all.bills[3].stackBillPaymentEvidence = 'posted-equal';
-  // the one allowed exception: the design's Budget subtitle, exactly
+  // the screen-reader-only Budget words are not visible text; they are removed before the visible-word check
   const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ').replace('spent / budget', ' ');
   assert(!/needs|set aside|planned|spent|estimated|projected|confirm|excludes|moved|entitlement|paid|period/i.test(visible), 'a word label is visible: ' + visible);
 }

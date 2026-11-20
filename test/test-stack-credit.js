@@ -208,6 +208,9 @@ console.log('2b. the head: paid / card minimums due from Forecast\'s totals, a b
   const html = headOf(undefined, probe);
   ok(text(html).startsWith('Credit paid / card minimums due $500 / $470 Blue Visa') && /stack-credit-bar" aria-hidden="true"><i style="width:33\.3%">/.test(html),
     'paid $500 over minimums $470 with 1 of 3 covered: the bar is a third, not full', text(html).slice(0, 50) + ' ' + (html.match(/width:[\d.]+%/) || [])[0]);
+  ok(!/stack-credit-sub/.test(html) && /<span class="stack-credit-sr">paid \/ card minimums due<\/span>/.test(html)
+    && /\.stack-credit-sr \{ position: absolute; width: 1px; height: 1px;[^}]*clip: rect\(0 0 0 0\)/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8')),
+    'no visible grey subtitle under Credit (Dale, 2026-11-20); the words stay as screen-reader-only text, really hidden');
   ok(!/999/.test(html), 'the head never reads the waterfall\'s Credit line (surplus.terms.credit, a different figure that includes the HELOC)');
   const full = headOf(undefined, { ...probe, minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 2 });
   ok(/stack-credit-bar" aria-hidden="true"><i style="width:100\.0%">/.test(full), 'every due minimum covered: the bar is full');

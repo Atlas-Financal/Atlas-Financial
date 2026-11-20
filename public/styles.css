@@ -471,49 +471,55 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
   .boot-static .boot-blocks-mark rect:not(.boot-mark-bg),
   [data-boot-notice].is-loading .boot-blocks-mark rect:not(.boot-mark-bg) { animation:none; transform:none; }
 }
-/* Loading tips (Dale, 2026-11-18): one rotating how-to tip under the
-   status line, plus a slow brand-colour drift behind the whole loading
-   screen. Both are scoped to the live loading state only, so the crit
-   surface stays fully static; both are CSS only and stop under reduced
-   motion (the tip text still changes). */
-[data-boot-notice].is-loading { isolation:isolate; overflow:hidden; }
-[data-boot-notice].is-loading::before { content:''; position:absolute; inset:-20%; z-index:-1;
-  pointer-events:none;
-  background:radial-gradient(260px 260px at 30% 35%, rgba(12,154,106,.13), rgba(12,154,106,0) 70%),
-    radial-gradient(300px 300px at 72% 62%, rgba(210,63,138,.11), rgba(210,63,138,0) 70%);
-  animation:boot-drift 16s ease-in-out infinite alternate; }
-@keyframes boot-drift {
-  0% { transform:translate(-4%, -3%) rotate(0deg); }
-  100% { transform:translate(4%, 3%) rotate(8deg); }
-}
-.boot-tips { order:2; box-sizing:border-box; width:min(360px, 100%); margin-top:10px;
-  padding:14px 16px 12px; border-radius:14px; cursor:pointer;
-  background:var(--raised); border:1px solid var(--grid);
-  box-shadow:0 6px 24px rgba(11,12,16,.08); text-align:left;
-  -webkit-tap-highlight-color:transparent; user-select:none; }
-.boot-tips-label { display:block; font-size:.72rem; font-weight:700; letter-spacing:.14em;
-  text-transform:uppercase; color:#5650e0; margin-bottom:6px; }
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .boot-tips-label { color:#a7a3ff; }
-}
-:root[data-theme="dark"] .boot-tips-label { color:#a7a3ff; }
-.boot-tip { margin:0; min-height:3.9em; font-size:.92rem; line-height:1.4; color:var(--text-primary); }
-.boot-tip.is-in { animation:boot-tip-in .45s ease-out both; }
-@keyframes boot-tip-in {
-  from { opacity:0; transform:translateY(6px); }
-  to { opacity:1; transform:none; }
-}
-.boot-tip-dots { display:flex; gap:6px; margin-top:10px; }
-.boot-tip-dots i { width:6px; height:6px; border-radius:50%; background:var(--grid);
-  transition:width .3s ease, background-color .3s ease; }
-.boot-tip-dots i.is-on { width:16px; border-radius:3px; background:#5650e0; }
-@media (prefers-reduced-motion: reduce) {
-  [data-boot-notice].is-loading::before, .boot-tip.is-in { animation:none; }
-  .boot-tip-dots i { transition:none; }
-}
 @media (max-width:480px) {
   .boot-static, [data-boot-notice] { padding:20px 16px; }
   .boot-static-mark, .boot-treatment-mark { width:76px; height:76px; }
+}
+/* The campfire scene (owner, Dale, 2026-11-20: "Make this video the
+   loading screen", then "get rid of the atlas logo and tips from the
+   loading screen just the pixel art video"). While loading, both boot
+   layers show only the household's animation, full screen: an animated
+   AVIF (an image, so the existing img-src 'self' policy covers it; no
+   video, no new policy), 12 frames a second, about 220 KB. The brand mark and
+   wordmark are not shown, and the tips card is gone. The status line stays for screen
+   readers only (role="status" is unchanged), and Cancel stays reachable
+   by keyboard, appearing only when focused; while invisible it takes no
+   taps, so a touch on the scene never cancels the load. The crit surface (failure or
+   Cancel) shows one still frame behind its message and Retry, without the
+   mark; reduced motion shows the still frame too, so nothing moves there
+   (the existing rules above still stop every CSS animation). Scoped to
+   [data-boot-static] and [data-boot-notice], so in-content .note-box
+   boxes never get it. */
+.boot-static, [data-boot-notice] {
+  justify-content:center;
+  padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 24px);
+  color:#f4f3ef;
+  background:url('/boot-campfire.avif') center 62% / cover no-repeat, #070a17;
+}
+[data-boot-notice].crit { background:linear-gradient(180deg, rgba(6,8,18,.72), rgba(6,8,18,.55)),
+  url('/boot-campfire.jpg') center 62% / cover no-repeat, #070a17; }
+[data-boot-notice].is-loading::before { content:none; }
+.boot-static .boot-static-mark, .boot-static .boot-wordmark,
+[data-boot-notice] .boot-treatment { display:none; }
+/* Loading: the words are for screen readers only; Cancel shows only on keyboard focus. */
+.boot-static .boot-static-text { position:absolute; width:1px; height:1px; overflow:hidden;
+  clip-path:inset(50%); white-space:nowrap; }
+[data-boot-notice].is-loading { font-size:0; color:transparent; }
+[data-boot-notice] > button { font:inherit; font-size:.9rem; font-weight:600; color:#f4f3ef; cursor:pointer;
+  min-height:36px; padding:6px 18px; border-radius:999px; border:1px solid rgba(244,243,239,.32);
+  background:rgba(12,14,24,.55); }
+[data-boot-notice].is-loading > button { position:absolute; bottom:calc(env(safe-area-inset-bottom, 0px) + 24px);
+  font-size:.9rem; opacity:0; pointer-events:none; }
+[data-boot-notice].is-loading > button:focus-visible { opacity:1; pointer-events:auto; }
+/* A wide screen shows the whole portrait scene, full height and centred,
+   on the night colour, instead of cropping it to a band. */
+@media (min-aspect-ratio: 3/4) {
+  .boot-static, [data-boot-notice] { background-size:auto 100%, auto; }
+  [data-boot-notice].crit { background-size:auto, auto 100%, auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-static, [data-boot-notice] { background-image:url('/boot-campfire.jpg'); }
+  [data-boot-notice].crit { background-image:linear-gradient(180deg, rgba(6,8,18,.72), rgba(6,8,18,.55)), url('/boot-campfire.jpg'); }
 }
 
 /* ---------------------------------------------------------------- modeller */

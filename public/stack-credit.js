@@ -164,7 +164,7 @@
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
       + '<span class="stack-credit-hd"><span class="stack-credit-title">Credit</span>'
-      + '<span class="stack-credit-sub">paid / card minimums due</span>'
+      + '<span class="stack-credit-sr">paid / card minimums due</span>'
       // "paid / card minimums due": paid toward them is a published $0 when nothing has been paid; a withheld part is a soft
       // dash, never a blank or a guessed fill.
       + (paidShown || due != null
