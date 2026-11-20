@@ -39,18 +39,21 @@ html.stack-view .stack-waterfall .wf-card small { display: block; font-size: 13p
 html.stack-view .stack-waterfall .wf-card .n { font-size: 16px; font-weight: 600; color: var(--stack-on); }
 /* The result slab. */
 html.stack-view .stack-waterfall .wf-slab {
+  container-type: inline-size;
   margin-top: 10px; border-radius: 26px; padding: 18px 20px 20px;
   background: var(--stack-slab); color: var(--stack-slab-fg);
 }
 html.stack-view .stack-waterfall .wf-slab .sl { display: flex; gap: 10px; font-size: 15px; font-weight: 600; opacity: .8; }
 html.stack-view .stack-waterfall .wf-slab .n {
-  display: inline-block; font-size: 66px; font-weight: 800; letter-spacing: -.035em; line-height: 1.02;
+  display: inline-block; font-weight: 800; letter-spacing: -.035em; line-height: 1.02;
   margin-top: 2px; color: var(--stack-slab-good);
 }
 html.stack-view .stack-waterfall .wf-slab.neg .n { color: var(--stack-slab-bad); }
 html.stack-view .stack-waterfall .wf-slab .n[data-unpublished] { display: none; }
 html.stack-view .stack-waterfall .wf-card .n[data-unpublished] { display: none; }
 html.stack-view .stack-waterfall .wf-card .wf-dash { font-size: 16px; font-weight: 600; opacity: .5; }
-html.stack-view .stack-waterfall .wf-slab .wf-dash { display: block; font-size: 66px; font-weight: 800; line-height: 1.02; margin-top: 2px; opacity: .5; }
-@media (max-width: 380px) { html.stack-view .stack-waterfall .wf-slab .n, html.stack-view .stack-waterfall .wf-slab .wf-dash { font-size: 52px; } }
+html.stack-view .stack-waterfall .wf-slab .wf-dash { display: block; font-weight: 800; line-height: 1.02; margin-top: 2px; opacity: .5; }
+/* The surplus scales with the slab's own width, so a long value such as −$12,345.67 fits inside it at any phone
+ * width (never clipped or spilling past the edge); 66px is the ceiling on a wide slab. */
+html.stack-view .stack-waterfall .wf-slab .n, html.stack-view .stack-waterfall .wf-slab .wf-dash { font-size: min(66px, 16cqi); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-waterfall .wf-toggle .lab::after { transition: none; } }
