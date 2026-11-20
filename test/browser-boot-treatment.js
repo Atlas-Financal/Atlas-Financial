@@ -458,10 +458,21 @@ async function waitContent(page, timeoutMs = 30000) {
       assert.ok(coversViewport(cancelRect), 'cancelled overlay covers the full viewport');
       await assertShellInert(page, 'cancel run, cancelled surface');
       await shot(page, 'boot-treatment-cancel.png');
-      // Second cycle: touch Retry, mouse Cancel, mouse Retry.
+      // Second cycle: touch Retry, keyboard Cancel (focus + Enter), mouse Retry.
+      // While loading, Cancel is invisible and takes no pointer or touch
+      // (owner, Dale, 2026-11-20: the loading screen is only the scene), so
+      // a stray tap on the scene must not cancel; the keyboard still can.
       await page.locator('.note-box button', { hasText: 'Retry' }).tap();
       await treatmentVisible(page);
-      await page.locator('.note-box button', { hasText: 'Cancel' }).click();
+      const strayTap = await page.evaluate(() => {
+        const b = [...document.querySelectorAll('.note-box button')].find(x => x.textContent.trim() === 'Cancel');
+        const r = b.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return hit === b;
+      });
+      assert.equal(strayTap, false, 'a tap where the hidden Cancel sits lands on the scene, not on Cancel');
+      await page.locator('.note-box button', { hasText: 'Cancel' }).focus();
+      await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelector('.note-box')
         && document.querySelector('.note-box').innerText.includes('Loading cancelled.'), { timeout: 10000 });
       await assertShellInert(page, 'cancel run, second cancelled surface');

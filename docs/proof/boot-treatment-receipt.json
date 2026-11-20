@@ -5,8 +5,8 @@
   "scenarios": {
     "lightLong": {
       "delayMs": 5000,
-      "treatmentFirstVisibleMs": 216,
-      "contentRenderedMs": 5600,
+      "treatmentFirstVisibleMs": 189,
+      "contentRenderedMs": 5623,
       "samples": 50,
       "visibilityGapsObserved": 0,
       "noFlashAtRemoval": true,
@@ -14,7 +14,7 @@
         "public/index.html": "2fbd0d1e7c25fc295d7a8be379ad96d66cb53569d525b39725e3e4e68cdc5df6",
         "public/fonts/Geist.woff2": "128029d9e728df45126de37ca05de2a174b9b76baf307090783b324935521a47",
         "public/fonts.css": "a74ab755df6ea08a17e3114b270b38870b3d6b84e1b821c9d4a1fd0988562368",
-        "public/styles.css": "7d294fdb4ee3420002eefa4875a1864afb60637d55e6a23d97efdf1e32f75488",
+        "public/styles.css": "d5c39bfb5c33ea96c6ed266ba30a115abf0bb5351e015b7405597c200430c878",
         "public/household-view.css": "23c722ee72b7bc784be461a61f09a9777a5b0e9e701a680f035c7b1b976074d7",
         "public/budget-polish.css": "cefa67c03c96239edf5f62e04b1c0deefb6f0c4ea7990a54cd973c5fc102fdd3",
         "public/bill-detail.css": "df5e707892d09bded4516822edd1c8a056b472e092c353062a645d7a79ef69c0",
@@ -60,7 +60,7 @@
       "treatmentVisibleObserved": true,
       "overlayCoversViewport1440": true,
       "scene": "animation",
-      "screenshotAtMs": 1795212624758
+      "screenshotAtMs": 1795213344959
     },
     "reducedMotion": {
       "delayMs": 2500,
@@ -189,15 +189,15 @@
   "baseComparison": null,
   "screenshots": {
     "boot-treatment-light.png": "e4c67a5e04a892800285390e726a784764ce2cce635ed9da41bc906783b7bc1d",
-    "boot-treatment-after.png": "31158f9de10049b25d088c3ca41cc83dd83c71bb18a1037748938921fc9547dd",
+    "boot-treatment-after.png": "32bd60ce1954e441b36d2b069db3039cd626653d92a53324f0f0f0948f898a0c",
     "boot-treatment-dark.png": "e4c67a5e04a892800285390e726a784764ce2cce635ed9da41bc906783b7bc1d",
     "boot-treatment-reduced-motion.png": "dfcd9f6bafbf9db7bd92f13ecbae234bca02191eb6cff9e46836f2b074a672e0",
     "boot-treatment-crit.png": "9176f78d20f9dc6cda3fda7c835bcbf1587b3839cc4652528575fabf8691e99c",
-    "boot-treatment-retry.png": "e10e99cf69bf592c7ddb85e8093eaf1983042793a7e37522282af5a0e51ae7e8",
+    "boot-treatment-retry.png": "db8a2526a5e334e79d9da686758d4a1d4f4604cb2b8c7698cbc5b75cb5cc0afb",
     "boot-treatment-cancel.png": "189c838f5234e39978454f1e001c86051c4795001dfb58e50364c2a2a0625a09",
     "boot-treatment-static.png": "e4c67a5e04a892800285390e726a784764ce2cce635ed9da41bc906783b7bc1d",
-    "boot-treatment-static-held.png": "0c95aac0ad881e5d2ae9a140cb2ceca18e13b831326f9885775f031dacfec153",
-    "boot-treatment-ready.png": "a9b87e7f41f0b5c7fb588a4ced1eec0c326d5bef3b63e7893aa6fc9a51d0af23"
+    "boot-treatment-static-held.png": "9e89c366fd12f84e29aa9ada402785ecc03fa4c8f655ec470c3190e12c8bf8c6",
+    "boot-treatment-ready.png": "32bd60ce1954e441b36d2b069db3039cd626653d92a53324f0f0f0948f898a0c"
   },
   "repeatedTimingMeasures": null
 }

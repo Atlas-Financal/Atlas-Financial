@@ -483,7 +483,8 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
    video, no new policy), 12 frames a second, about 220 KB. The brand mark and
    wordmark are not shown, and the tips card is gone. The status line stays for screen
    readers only (role="status" is unchanged), and Cancel stays reachable
-   by keyboard, appearing only when focused. The crit surface (failure or
+   by keyboard, appearing only when focused; while invisible it takes no
+   taps, so a touch on the scene never cancels the load. The crit surface (failure or
    Cancel) shows one still frame behind its message and Retry, without the
    mark; reduced motion shows the still frame too, so nothing moves there
    (the existing rules above still stop every CSS animation). Scoped to
@@ -508,8 +509,8 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
   min-height:36px; padding:6px 18px; border-radius:999px; border:1px solid rgba(244,243,239,.32);
   background:rgba(12,14,24,.55); }
 [data-boot-notice].is-loading > button { position:absolute; bottom:calc(env(safe-area-inset-bottom, 0px) + 24px);
-  font-size:.9rem; opacity:0; }
-[data-boot-notice].is-loading > button:focus-visible { opacity:1; }
+  font-size:.9rem; opacity:0; pointer-events:none; }
+[data-boot-notice].is-loading > button:focus-visible { opacity:1; pointer-events:auto; }
 /* A wide screen shows the whole portrait scene, full height and centred,
    on the night colour, instead of cropping it to a band. */
 @media (min-aspect-ratio: 3/4) {

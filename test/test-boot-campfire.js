@@ -42,6 +42,13 @@ ok(uses.some(([sel, kind]) => /\[data-boot-notice\]\.crit/.test(sel) && kind ===
 const reduced = (/@media \(prefers-reduced-motion: reduce\) \{\s*\.boot-static, \[data-boot-notice\] \{[^}]*\}/.exec(css.slice(css.lastIndexOf('boot-campfire') - 2000)) || [''])[0];
 ok(/boot-campfire\.jpg/.test(reduced) && !/boot-campfire\.avif/.test(reduced), 'reduced motion shows the still, not the animation');
 
+// The stylesheet names only files that exist (a typo or a missing file would leave a flat dark screen).
+const named = [...new Set([...css.matchAll(/url\('\/(boot-campfire\.[a-z]+)'\)/g)].map(m => m[1]))];
+ok(named.length === 2 && named.every(f => fs.existsSync(path.join(root, 'public', f))),
+  'every scene file the stylesheet names exists in public/ (' + named.join(', ') + ')');
+ok(/\[data-boot-notice\]\.is-loading > button \{[^}]*opacity:0; pointer-events:none;/.test(css),
+  'the hidden Cancel takes no taps while invisible (a touch on the scene never cancels the load)');
+
 // 4  only the scene (owner, Dale, 2026-11-20: "get rid of the atlas logo and tips"): the mark and wordmark are not
 //    drawn on either layer, and the tips card is gone from the page code (the browser proof checks what is drawn).
 const app = read('public/app.js').toString('utf8');
