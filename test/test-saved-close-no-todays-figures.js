@@ -114,7 +114,7 @@ const IDENTITY = new Set(['id', 'label', 'rangeLabel', 'start', 'end', 'role', '
 const WITHDRAWN = new Set(['unconfirmedBills', 'unconfirmedBillsTrust', 'leftover', 'extraDebt', 'firstCard', 'otherCards', 'bigPurchases']);
 const SET_BY_REPLAY = new Set(['budgetProgress', 'capturedClose']);
 const KEPT_FROM_TODAY = {
-  stackSummary: 'derived at publication, never saved; for a saved close its income split is re-derived from the saved income rows and total (checked below), never from today\'s',
+  stackSummary: 'derived at publication, never saved; for a saved close its income lines, bills split and surplus are withheld (only the saved income total is kept), never taken from today\'s rows or balance',
   spendingCycle: 'the cycle window dates, not a figure',
   spendingCycleLabel: 'the cycle window label, not a figure',
   operatingPlanNote: 'a null note on a completed period (only a current plan can be unavailable)',
@@ -162,6 +162,45 @@ ok(past.paydayCarryoverKnown === true && past.paydayCarryover === 777, 'the kept
     'control: re-classing today\'s stream as Other really moves an uncaptured period\'s split', JSON.stringify(againPlain.stackSummary.income));
   ok(again.capturedClose && JSON.stringify(again.stackSummary.income) === JSON.stringify(split),
     'but the saved close\'s split is unchanged by today\'s re-classing', JSON.stringify(again.stackSummary.income));
+  // A saved close keeps its bill total, not the Stack Wallet bills split, so
+  // the split and the surplus it feeds are withheld with a reason, never
+  // re-derived from today's rows; its saved figures themselves are unchanged.
+  const s = past.stackSummary && past.stackSummary.surplus, b = past.stackSummary && past.stackSummary.bills;
+  ok(b && b.mortgage === null && b.cardMinimums === null && b.other === null && b.trust === 'unavailable'
+    && /saved close keeps its total, not the split/.test(b.reason || ''),
+    'a saved close publishes no Stack Wallet bills split (unavailable, saved total only)', JSON.stringify(b));
+  ok(s && s.amount === null && s.terms === null && s.trust === 'unavailable' && typeof s.reason === 'string'
+    && past.periodBillLoad === saved.periodBillLoad && past.incomeTotal === saved.incomeTotal,
+    'so its surplus is withheld too, beside its saved income and bill total', JSON.stringify({ s, bills: past.periodBillLoad }));
+}
+
+// S5 the bill-row audit (Stack Wallet A3): every key on a saved close's bill row is the capture's own, a display key
+// borrowed by id (CAPTURED_ROW_DISPLAY_KEYS: wording only), or a word derived at publication from the row's own saved
+// fields and listed here. A new derived word on a bill row fails this until it is classified, and a derived word never
+// enters the stored record (so no contentKey moves).
+const BILL_ROW_DISPLAY = new Set(['informational', 'note']);
+const BILL_ROW_DERIVED = {
+  paidState: 'Paid / Not paid, derived last by Forecast.billPaidState from the saved row\'s own status and settlement',
+};
+// Pre-existing (main): the display amount and its tag, which savedBillDisplay derives from the saved row on replay.
+const BILL_ROW_FROM_SAVED = {
+  movement: 'the display amount, from the saved actual or planned amount (savedBillDisplay)',
+  displayAmountBasis: 'which saved amount is shown (savedBillDisplay)',
+  displayAmountTrust: 'that amount\'s tag, never more certain than the saved confidence (savedBillDisplay)',
+};
+for (const [i, row] of past.bills.entries()) {
+  const own = new Set(Object.keys(saved.bills[i] || {}));
+  const extra = Object.keys(row).filter(k => !own.has(k) && !BILL_ROW_DISPLAY.has(k));
+  const unclassified = extra.filter(k => !Object.hasOwn(BILL_ROW_DERIVED, k) && !Object.hasOwn(BILL_ROW_FROM_SAVED, k));
+  ok(unclassified.length === 0, `saved bill row ${row.id}: every key is the capture's own, a display key or a classified derived word: ` + unclassified.join(', '));
+  ok([...Object.keys(BILL_ROW_DERIVED), ...Object.keys(BILL_ROW_FROM_SAVED)].every(k => extra.includes(k)),
+    `saved bill row ${row.id}: every classified key is really present (no dead entries)`);
+  ok(row.paidState === F.billPaidState(saved.bills[i]), `saved bill row ${row.id}: its word is re-derived from the saved row (${row.paidState})`);
+}
+for (const stored of [closing.content.publication, saved]) {
+  for (const row of stored.bills || []) {
+    ok(Object.keys(BILL_ROW_DERIVED).every(k => !Object.hasOwn(row, k)), `the stored record's bill row ${row.id} carries no derived word`);
+  }
 }
 
 console.log('PASS saved close never shows today\'s figures: ' + checks + ' checks');

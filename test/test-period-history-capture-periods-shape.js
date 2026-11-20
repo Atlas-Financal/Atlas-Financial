@@ -1,4 +1,13 @@
 'use strict';
+// The live period less each bill row's derived Stack Wallet paidState, which
+// is set at publication from the row's own fields and never saved.
+const withoutBillPaidState = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
+  if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
+  for (const b of bills) delete b.paidState;
+  return copy;
+};
 // Capture-on-refresh input shape (#818). Invented finances only.
 // Production's inputFor() reads public/periods.json, an OBJECT
 // ({ asOf, thisMonth, lastMonth, source, periods, monthly }), and the served
@@ -79,7 +88,7 @@ test('S2 page equivalence: the stored closing equals Forecast on the same period
   assert.ok(view, 'the served Forecast has the closed period');
   // The served period less the derived Stack Wallet stackSummary, which is
   // built at publication from the period's own figures and never saved.
-  const servedPeriod = JSON.parse(JSON.stringify(view));
+  const servedPeriod = withoutBillPaidState(view);
   assert.ok(Object.hasOwn(servedPeriod, 'stackSummary'), 'the served period publishes stackSummary');
   delete servedPeriod.stackSummary;
   assert.deepEqual(closing.content.publication, servedPeriod, 'stored close equals the served publication');
