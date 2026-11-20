@@ -69,12 +69,16 @@
     if (line.status === 'to-go') return amountOf(line.toGo) == null ? null : { cls: 'is-togo', text: money(amountOf(line.toGo)) };
     return null;
   }
-  // "Minimum $X" whenever the minimum is published, with the ✓ only when it is published as covered.
+  // "Minimum $X" whenever the minimum amount is published, whatever its coverage check says (#1443's HELOC and a future
+  // card publish coverage 'unknown'); a ✓ only when coverage is published as true. Never a word for coverage (owner,
+  // 2026-11-20), never "covered" or "unpaid" inferred, and nothing (never $0) when the amount is not published.
   const covered = line => !!(line.minimumCovered && line.minimumCovered.value === true);
   function minimumText(line) {
     const min = amountOf(line.minimum);
     return min == null ? '' : `Minimum ${money(min)}${covered(line) ? ' ✓' : ''}`;
   }
+  // The minimum's own trust; the coverage check's trust only when its ✓ is printed.
+  const minimumEst = (view, line) => est(view, trustOf(line.minimum), covered(line) ? line.minimumCovered.trust : null);
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
 
@@ -87,7 +91,7 @@
     // A status is read from the line's paid and spent (and toGo when it prints an amount): soft when any is estimated.
     const figs = est(view, trustOf(line.paid), trustOf(line.spent));
     const stat = est(view, trustOf(line.paid), trustOf(line.spent), status && status.cls === 'is-togo' ? trustOf(line.toGo) : null);
-    const minEst = est(view, trustOf(line.minimum), line.minimumCovered && line.minimumCovered.trust);
+    const minEst = minimumEst(view, line);
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${ok ? ' is-on' : ''}">${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
@@ -119,7 +123,7 @@
   function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
     const figs = est(view, trustOf(line.paid), trustOf(line.spent));
-    const minEst = est(view, trustOf(line.minimum), line.minimumCovered && line.minimumCovered.trust);
+    const minEst = minimumEst(view, line);
     const status = heloc ? null : statusOf(line);
     const paid = amountOf(line.paid), spent = amountOf(line.spent), min = amountOf(line.minimum);
     const tx = Array.isArray(line.transactions) ? line.transactions : [];

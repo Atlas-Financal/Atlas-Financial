@@ -7,7 +7,7 @@
  *   2. Closed card: "paid back / spent" from totals; a partial total always prints "excludes <card names>", a partial
  *      total naming no card prints no figure, and 'none' prints no figure. HELOC never appears in the totals line.
  *   3. Open rows: "Paid back $A of $B", the status word from the published status ("Paid back", "$X to go" in coral,
- *      "Upcoming"), "Minimum $X covered ✓ / not yet" from minimumCovered, nothing for 'unknown'. HELOC: minimum only.
+ *      "Upcoming"), "Minimum $X" whenever the amount is published, ✓ only when covered is true. HELOC: minimum only.
  *   4. No ratio or percent text reaches the page: a bar's width appears only inside a style attribute.
  *   5. The sheet, for a card line, a bill, a mortgage row and a budget row: published fields only.
  *   6. L-001: the two block files do no arithmetic on money (a payment's "+" replaces the printed minus sign).
@@ -172,6 +172,40 @@ console.log('5. the sheet');
   ok(win.StackSheet.html(ctx, 'bill:water@2031-03-06') === null && win.StackSheet.html(ctx, 'card:nope') === null, 'an unknown key opens nothing');
   const bare = { ...ctx, Forecast: { cardPeriodMovements: () => ({}) } };
   ok(win.StackSheet.html(bare, 'card:travelvisa') === null, 'without Forecast.stackCreditLines nothing is read');
+}
+
+console.log('5b. a published minimum shows whatever its coverage check says (Atlas on #1443)');
+{
+  // As #1443's Forecast.stackCreditLines publishes them (invented amounts): a HELOC and a future card with coverage
+  // 'unknown', and a card whose minimum amount is not published at all.
+  const MORE = [
+    { id: 'heloc', label: 'Line of credit', paid: null, spent: null, net: null, minimum: fig(50), toGo: fig(null, 'unknown'),
+      state: 'not-a-spend-card', status: null, minimumCovered: { value: 'unknown', trust: 'unknown', reasons: ['no-feed'] }, transactions: [] },
+    { id: 'future', label: 'Silver Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(20, 'estimated'), toGo: fig(null, 'unknown'),
+      state: 'x', status: 'upcoming', minimumCovered: { value: 'unknown', trust: 'unknown', reasons: ['future'] }, transactions: [] },
+    { id: 'nomin', label: 'Plain Card', paid: fig(5), spent: fig(5), net: fig(0), minimum: fig(null, 'unknown'), toGo: fig(0),
+      state: 'x', status: 'paid-back', minimumCovered: { value: 'unknown', trust: 'unknown', reasons: ['x'] }, transactions: [] },
+    { id: 'zero', label: 'Zero Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(0), toGo: fig(0),
+      state: 'x', status: 'upcoming', minimumCovered: { value: true, trust: 'calculated', reasons: [] }, transactions: [] },
+  ];
+  const { fns, win } = load();
+  const ctx = context(TOTALS.complete);
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals: TOTALS.complete }) };
+  const el = container();
+  fns.credit(el, ctx);
+  const rows = el.innerHTML.split('<li>').slice(1);
+  ok(text(rows[0]) === 'Line of credit Minimum $50', "HELOC, coverage 'unknown': the line prints its minimum, no ✓", text(rows[0]));
+  ok(text(win.StackSheet.html(ctx, 'card:heloc')) === 'Credit Line of credit Minimum $50', "HELOC, coverage 'unknown': the sheet prints its minimum, no ✓");
+  ok(/Minimum \$20$/.test(text(rows[1])) && /<small class="stack-credit-min stack-est">Minimum \$20<\/small>/.test(rows[1]),
+    "future card, coverage 'unknown': the line prints the minimum with the minimum's own (estimated) treatment", text(rows[1]));
+  const future = win.StackSheet.html(ctx, 'card:future');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n stack-est">\$20<\/dd>/.test(future) && !/✓/.test(text(future)),
+    "future card, coverage 'unknown': the sheet prints the minimum, soft, no ✓", text(future));
+  ok(!/Minimum/.test(text(rows[2])) && !/Minimum/.test(text(win.StackSheet.html(ctx, 'card:nomin'))) && !/\$0 ✓|Minimum \$0/.test(text(rows[2])),
+    'an unpublished minimum amount prints nothing on either surface, never $0');
+  ok(/Minimum \$0 ✓$/.test(text(rows[3])), 'a published $0 minimum is a figure and prints (absence is not zero)', text(rows[3]));
+  ok(!/covered|not yet|unpaid/i.test(text(el.innerHTML) + MORE.map(l => text(win.StackSheet.html(ctx, 'card:' + l.id) || '')).join(' ')),
+    'no coverage word is printed or inferred');
 }
 
 console.log('6. L-001: no arithmetic on money');
