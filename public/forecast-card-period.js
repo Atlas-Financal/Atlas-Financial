@@ -443,7 +443,8 @@
     // minimum is covered; they are null when the minimums are withheld. Trust is the weakest input, as for the other totals.
     const minimumOff = line => line.minimum.amount === null && !line.minimum.reasons.includes('no-minimum-due-in-period');
     const withheldMins = spendLines.filter(minimumOff);
-    const dueLines = spendLines.filter(line => line.minimum.amount !== null);
+    // A published $0 minimum is nothing owed: it is not due, so it is out of the sum and both counts.
+    const dueLines = spendLines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
     if (withheldMins.length) {
       totals.minimumsDue = { amount: null, trust: 'unavailable',
         reasons: [...new Set(withheldMins.flatMap(line => line.minimum.reasons))] };

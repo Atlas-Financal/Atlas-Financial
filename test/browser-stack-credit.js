@@ -46,7 +46,7 @@ const STUB = `;(function (F) {
       { id: 'mbna', label: 'Gold Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(10), toGo: fig(null),
         status: 'upcoming', minimumCovered: covered('unknown'), transactions: [] },
       { id: 'heloc', label: 'Line of credit', paid: null, spent: null, net: null, minimum: fig(210), toGo: fig(null),
-        state: 'not-a-spend-card', status: null, minimumCovered: covered(true), transactions: [] },
+        state: 'not-a-spend-card', status: null, minimumCovered: covered('unknown'), transactions: [] },
     ],
     totals: { paid: 500, spent: 660, trust: 'calculated', completeness: 'partial', excluded: ['tdcc'], reasons: [],
       minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated' },

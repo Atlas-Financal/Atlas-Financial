@@ -162,12 +162,17 @@ console.log('4b. the covered ✓ always shows when covered, soft on estimated ev
   ok(/stack-credit-tick is-on" role="img" aria-label="Minimum covered"/.test(firm.row) && /<dd class="stack-n"><span class="">\$25<\/span> <span class="">✓<\/span><\/dd>/.test(firm.sheet),
     'calculated paid and spent: the row tick is filled and the sheet\'s Minimum row has its ✓, plain');
   for (const [label, r] of [['estimated paid', render(view('actual'), line('estimated', 'calculated'))],
-    ['estimated spent', render(view('actual'), line('calculated', 'estimated'))], ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
+    ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
     ok(/stack-credit-tick is-on stack-est" role="img" aria-label="Minimum covered, estimated"/.test(r.row)
       && /<span class="stack-est">✓<\/span>/.test(r.sheet) && /stack-credit-x is-good stack-est"[^>]*>\$400</.test(r.row),
       `${label}: the tick and the ✓ still show (covered), soft, read as "Minimum covered, estimated"`);
     ok(!/estimated/i.test(r.row.replace(/<[^>]*>/g, ' ') + r.sheet.replace(/<[^>]*>/g, ' ')), `${label}: no word "estimated" is added`);
   }
+  // The ✓ is the covered claim alone (the coverage check, the minimum and paid): an estimated spent softens X (the colour reads
+  // it) but not the ✓.
+  const spentSoft = render(view('actual'), line('calculated', 'estimated'));
+  ok(/stack-credit-tick is-on" role="img" aria-label="Minimum covered"/.test(spentSoft.row) && /stack-credit-x is-good stack-est"[^>]*>\$400</.test(spentSoft.row)
+    && /<span class="">✓<\/span>/.test(spentSoft.sheet), 'estimated spent: the figure is soft, the ✓ (a coverage claim) is not');
 }
 
 console.log('4c. the sheet\'s minimum amount and its ✓ carry their own treatment (Codex on #1475)');

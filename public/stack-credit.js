@@ -87,12 +87,22 @@
   // Each field carries the shell's one soft treatment from its own published trust (X: the figures it is read from; the
   // minimum: its own; the tick: the coverage check's, with the minimum's and paid's).
   function readLine(line, view) {
-    const paid = amountOf(line.paid), spent = amountOf(line.spent), min = amountOf(line.minimum), cv = coverage(line);
-    // A null minimum is "not due" only when Forecast says so (no-minimum-due-in-period); any other null (the bills split
-    // withheld, an unqualified amount, an absent field) is an unavailable minimum, which prints a dash, never reassurance.
+    const paid = amountOf(line.paid), spent = amountOf(line.spent), cv = coverage(line);
+    // A published $0 minimum is nothing owed: it reads as "not due" (X alone), like Forecast's explicit
+    // no-minimum-due-in-period. Any other null minimum (the bills split withheld, an unqualified amount, an absent field) is an
+    // unavailable minimum, which prints a dash, never reassurance.
+    const published = amountOf(line.minimum);
+    const min = published === 0 ? null : published;
     const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
-    const notDue = min == null && minReasons.includes('no-minimum-due-in-period');
-    const out = { paid, spent, min, notDue, minOff: min == null && !notDue, x: null, tone: '', ok: false, xSoft: ' stack-est', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
+    const notDue = published === 0 || (published == null && minReasons.includes('no-minimum-due-in-period'));
+    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, x: null, tone: '', ok: false, xSoft: ' stack-est', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
+    // The ✓ circle means "minimum covered" and nothing else (Dale: "once that minimum is paid I want a check mark"): a
+    // published true on trust the page may show, with a minimum due. The colour then shows over or under, so a red row can
+    // carry the ✓ too. It agrees with the head bar and the waterfall, which count the same check.
+    if (min != null && cv === true) {
+      out.ok = true;
+      out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid));
+    }
     if (paid != null && spent != null) {
       if (line.status === 'to-go') {
         out.x = amountOf(line.toGo);
@@ -101,11 +111,8 @@
       } else {
         out.x = paid;
         out.xSoft = est(view, trustOf(line.paid), trustOf(line.spent));
-        if (!(paid === 0 && spent === 0) && line.status !== 'upcoming' && min != null && cv === true) {
-          out.tone = 'good';
-          out.ok = true;
-          out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid), trustOf(line.spent));
-        }
+        // Green: the minimum is covered, the row is not red, something was spent or paid, and the period is not upcoming.
+        if (out.ok && !(paid === 0 && spent === 0) && line.status !== 'upcoming') out.tone = 'good';
       }
     }
     return out;

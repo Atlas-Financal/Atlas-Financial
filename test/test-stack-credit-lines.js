@@ -307,6 +307,10 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
   }
   const soft = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }], trust: 'estimated' });
   ok(soft.minimumsDue.trust === 'estimated' && soft.minimumsCoveredTrust === 'estimated', 'the weakest input\'s trust carries through');
+  // A published $0 minimum is nothing owed: out of the sum and both counts (Travel's is 0, Cash Back's is 300).
+  const zero = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 0 }, { debtId: 'cashback', amount: 300 }], trust: 'calculated' });
+  ok(zero.minimumsDue.amount === 300 && zero.minimumsDueCount === 1 && zero.minimumsCoveredCount === 0,
+    'a $0 minimum is not due: it is left out of minimumsDue and both counts', JSON.stringify([zero.minimumsDue.amount, zero.minimumsDueCount, zero.minimumsCoveredCount]));
   // A covered check counts only on trust Forecast stands behind. A split trust of 'unavailable', or any unrecognised word, makes
   // every covered check's trust 'unavailable' (never silently dropped), so none counts as covered.
   for (const word of ['unavailable', 'unknown']) {
