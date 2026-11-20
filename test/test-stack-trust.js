@@ -13,6 +13,7 @@
  *   5b. Cards (B3): a projected period softens every printed card figure; an actual one only the estimated amounts.
  *   6. No rendered text says "estimated", "projected" or "≈", and no rule underlines (owner).
  *   7. The shell's chips and every block read the one rule (no block decides trust on its own).
+ *   8. No explanatory text: every block and sheet prints only the page's names, the invented names, figures and ✓.
  * The expected sets below are written by hand from the invented world, not computed by the code under test.
  * `node test/test-stack-trust.js`
  */
@@ -130,12 +131,12 @@ console.log('4. credit card and its sheet');
   ok(/stack-credit-figure stack-n stack-est/.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML), 'estimated totals: the total and its bar are soft');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
-  ok(/stack-sheet-big stack-n stack-est/.test(green) && /Spent on it this pay period<\/dt><dd class="stack-n stack-est"/.test(green)
-    && /Paid onto it<\/dt><dd class="stack-n">/.test(green) && /stack-sheet-pill is-togo stack-est/.test(green),
-  'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
+  ok(/stack-sheet-big stack-n stack-est/.test(green) && /Spent<\/dt><dd class="stack-n stack-est"/.test(green)
+    && /Paid<\/dt><dd class="stack-n">/.test(green) && /stack-sheet-togo stack-n stack-est/.test(green),
+  'Green Card sheet: the estimated figures are soft, the calculated "Paid" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
-  ok(/<dt class="stack-est">Minimum \$30<\/dt>/.test(green), 'the estimated minimum amount itself (in its label) is soft, not only "Not yet"');
-  ok(/<dt>Minimum \$25<\/dt>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum label is not');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n stack-est">\$30<\/dd>/.test(green), 'the estimated minimum amount is soft');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n">\$25 ✓<\/dd>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum is not');
   const projected = context(view('projected'));
   const pEl = container();
   fns.credit(pEl, projected);
@@ -210,6 +211,54 @@ console.log('7. one rule, read by every block');
     ok(/estClass|isEstimated/.test(src) && !/=== 'estimated'|evidenceState === 'projected'/.test(src),
       `stack-${f}.js uses the shell's rule and decides no trust itself`);
   }
+}
+
+console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
+{
+  // Every block and every sheet, in an actual and a projected period, with every credit status, a partial total and a
+  // withheld surplus. The rendered text, once the invented names and the printed figures and dates are removed, may hold
+  // only the page's own names. Any other word (a status, a reason, a hint) fails.
+  const { fns, win } = load();
+  const more = [...LINES,
+    { id: 'tdcc', label: 'Red Card', paid: fig(0, 'calculated'), spent: fig(0, 'calculated'), minimum: fig(15, 'calculated'), toGo: fig(null, 'unknown'),
+      status: 'upcoming', minimumCovered: { value: 'unknown', trust: 'unknown' }, transactions: [] },
+    { id: 'gold', label: 'Gold Card', paid: fig(5, 'calculated'), spent: fig(9, 'calculated'), minimum: null, toGo: fig(null, 'unknown'),
+      status: null, minimumCovered: { value: 'unknown', trust: 'unknown' }, transactions: [
+        { date: '2031-03-04', name: 'Corner Grocer', amount: 9, payment: false, pending: true }] },
+    { id: 'heloc', label: 'Line of credit', paid: null, spent: null, minimum: fig(210, 'calculated'), toGo: fig(null, 'unknown'),
+      status: null, minimumCovered: { value: 'unknown', trust: 'unknown' }, transactions: [] }];
+  const withheld = v => ({ ...v, stackSummary: { ...v.stackSummary,
+    surplus: { amount: null, terms: null, trust: 'unavailable', projected: false, reason: 'Surplus after deductions is unavailable.' } } });
+  const negative = v => ({ ...v, stackSummary: { ...v.stackSummary, surplus: { ...v.stackSummary.surplus, amount: -40 } } });
+  const texts = [];
+  for (const v of [view('actual'), view('projected'), withheld(view('actual')), negative(view('actual'))]) {
+    for (const completeness of ['complete', 'partial', 'none']) {
+      const ctx = context(v);
+      ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: more, totals: { paid: 500, spent: 660, trust: 'calculated',
+        completeness, excluded: completeness === 'complete' ? [] : ['tdcc'], reasons: ['x'] } }) };
+      const wf = container(); fns.waterfall(wf, ctx); texts.push(wf.innerHTML);
+      const cr = container(); fns.credit(cr, ctx); texts.push(cr.innerHTML);
+      const cd = container(); fns.cards(cd, ctx); texts.push(cd.innerHTML);
+      for (const key of ['card:travelvisa', 'card:cashback', 'card:tdcc', 'card:gold', 'card:heloc', 'bill:water@2031-03-05',
+        'bill:power@2031-03-06', 'budget:groceries', 'budget:carried', 'budget:other']) texts.push(win.StackSheet.html(ctx, key) || '');
+    }
+  }
+  const names = ['Blue Visa', 'Green Card', 'Red Card', 'Gold Card', 'Line of credit', 'Water', 'Power', 'Chequing', 'Groceries',
+    'Dining', 'Pharmacy', 'Other spending', 'Fuel', 'Corner Grocer'];
+  const PAGE = new Set(['Budget', 'Bills', 'Bill', 'Mortgage', 'Credit', 'Spent', 'Paid', 'Minimum', 'Left', 'Over', 'Transactions',
+    'Dale’s', 'Amanda’s', 'Other', 'Total', 'income', 'Surplus', 'Deficit', 'after', 'deductions', 'of', 'Close']);
+  const leftover = html => {
+    let t = text(html).replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’');
+    for (const n of names) t = t.split(n).join(' ');
+    t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b/g, ' ')
+      .replace(/[✓=−+\/—·]/g, ' ');
+    return t.split(/\s+/).filter(w => w && !PAGE.has(w));
+  };
+  const words = [...new Set(texts.flatMap(leftover))];
+  ok(texts.length === 156 && words.length === 0, 'the rendered Stack blocks and sheets hold only names, numbers and ✓', words.join(' | '));
+  const control = leftover('<p>Paid back $5 to go Upcoming excludes Red Card Covered ✓ Not yet unavailable Due Mar 5 Comes out of Chequing</p>');
+  ok(['back', 'to', 'go', 'Upcoming', 'excludes', 'Covered', 'Not', 'yet', 'unavailable', 'Due', 'Comes', 'out'].every(w => control.includes(w)),
+    'control: status, reason and label words are caught as leftovers', control.join(' '));
 }
 
 console.log(`\nPASS Stack trust treatment (${checks})`);

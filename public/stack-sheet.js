@@ -27,9 +27,8 @@
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
   // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
-  // labelCls: the same, for a label that itself holds a figure (a card's "Minimum $X").
-  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
-    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  const row = (label, value, cls = '') => (value === '' || value == null ? ''
+    : `<div><dt>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
   function head(kicker, title) {
@@ -42,14 +41,14 @@
 
   // A bill: its published amount, a green check only when it is paid (#1429's paidState; owner direction: no Paid or
   // Not paid word, nothing when unpaid), its due date and the paying account.
-  // bill.date is the scheduled date, never when a payment posted, so it is labelled "Due" in every state; payerLabel
-  // is the planned paying account, not an observed source, so it reads "Comes out of" in every state.
+  // bill.date is the scheduled date and payerLabel the planned paying account (never observed evidence); each prints
+  // alone, with no label word (owner, 2026-11-20: no explanatory text on the Stack page).
+  const plain = (value, cls = '') => (value ? `<p class="stack-sheet-plain${cls}">${esc(value)}</p>` : '');
   function billHtml(bill, kicker, v) {
     return head(kicker, bill.label || '')
       + `<div class="stack-sheet-big stack-n${est(bill.displayAmountTrust, v)}">${esc(money(bill.amount))}</div>`
       + (bill.paidState === 'paid' ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>' : '')
-      + '<dl>' + row('Due', date(bill.date))
-      + row('Comes out of', bill.payerLabel || '') + '</dl>';
+      + plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || '');
   }
 
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.

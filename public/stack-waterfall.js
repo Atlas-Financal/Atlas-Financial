@@ -113,7 +113,7 @@
       const cell = card && isAmount(card.amount)
         ? `<span class="n${est(view, 'stackSummary.bills.trust')}" data-source="${source}">${escape(money(card.amount))}</span>`
         : `<span class="n" data-source="${source}" data-unpublished="true"></span>`;
-      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b><small>Minimum</small></span>${cell}</li>`;
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>${cell}</li>`;
     }).join('');
   }
 
@@ -131,8 +131,8 @@
       <button type="button" class="wf-toggle" data-wf-toggle="credit" aria-expanded="${open}"${cards ? '' : ' disabled'}>
         <span class="op" aria-hidden="true">−</span><span class="lab">Credit</span>${amountCell(view, 'credit')}</button>
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
-    const reason = amount === null && surplus && typeof surplus.reason === 'string'
-      ? `<p class="wf-reason">${escape(surplus.reason)}</p>` : '';
+    // A withheld surplus shows its name and a dash, no sentence (owner, 2026-11-20: no explanatory text on the page).
+    const dash = amount === null ? '<span class="wf-dash" aria-hidden="true">\u2014</span>' : '';
     return `<section class="stack-waterfall" data-block="waterfall" data-period="${escape(view.start || '')}"${surplus && surplus.projected ? ' data-projected="true"' : ''}>
   <ul class="wf-math">
     ${line('', 'Dale’s income', amountCell(view, 'dale'), '', 'dale')}
@@ -144,7 +144,7 @@
     ${line('−', 'Mortgage', amountCell(view, 'mortgage'), '', 'mortgage')}
     ${credit}
   </ul>
-  <div class="wf-slab${deficit ? ' neg' : ''}" data-row="surplus"><div class="sl"><span aria-hidden="true">=</span> ${word}</div>${amountCell(view, 'surplus', { sign: true })}${reason}</div>
+  <div class="wf-slab${deficit ? ' neg' : ''}" data-row="surplus"><div class="sl"><span aria-hidden="true">=</span> ${word}</div>${amountCell(view, 'surplus', { sign: true })}${dash}</div>
 </section>`;
   }
 

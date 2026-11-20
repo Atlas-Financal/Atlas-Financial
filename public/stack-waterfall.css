@@ -48,6 +48,7 @@ html.stack-view .stack-waterfall .wf-slab .n {
   margin-top: 2px; color: var(--stack-slab-good);
 }
 html.stack-view .stack-waterfall .wf-slab.neg .n { color: var(--stack-slab-bad); }
-html.stack-view .stack-waterfall .wf-reason { margin: 8px 0 0; font-size: 14px; opacity: .8; }
-@media (max-width: 380px) { html.stack-view .stack-waterfall .wf-slab .n { font-size: 52px; } }
+html.stack-view .stack-waterfall .wf-slab .n[data-unpublished] { display: none; }
+html.stack-view .stack-waterfall .wf-dash { display: block; font-size: 66px; font-weight: 800; line-height: 1.02; margin-top: 2px; opacity: .5; }
+@media (max-width: 380px) { html.stack-view .stack-waterfall .wf-slab .n, html.stack-view .stack-waterfall .wf-dash { font-size: 52px; } }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-waterfall .wf-toggle .lab::after { transition: none; } }

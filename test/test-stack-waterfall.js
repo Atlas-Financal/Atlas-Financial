@@ -107,6 +107,9 @@ console.log('1–2. Every amount is a named published value');
     'opened, Credit lists one row per card with its published minimum', JSON.stringify(cardCells));
   ok(/<b>Invented card A<\/b>/.test(c.innerHTML) && /<b>triangle<\/b>/.test(c.innerHTML),
     'each card row is named by its debt label, else its id');
+  const cardRows = [...c.innerHTML.matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)].map(m => m[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  ok(cardRows.join('|') === 'Invented card A $25.00|triangle $10.25' && !/<small/.test(c.innerHTML),
+    'each card row is its name and its minimum, no descriptor word (owner, 2026-11-20)', cardRows.join('|'));
   ok(/aria-expanded="true"/.test(c.innerHTML) && !/<ul class="wf-cards" hidden>/.test(c.innerHTML), 'the toggle reports itself open');
   c.clickCredit();
   ok(/<ul class="wf-cards" hidden>/.test(c.innerHTML), 'a second click closes it');
@@ -132,7 +135,13 @@ console.log('3. Unpublished values print nothing (F8)');
     'its withheld lines are blank; its published total and budget still print', blank.join(', '));
   ok(!/\$0\.00/.test(c.innerHTML), 'nothing reads $0');
   ok(/disabled/.test(c.innerHTML) && /<ul class="wf-cards" hidden><\/ul>/.test(c.innerHTML), 'with no published minimums, Credit has no rows to open');
-  ok(/Surplus after deductions is unavailable\./.test(c.innerHTML), 'the slab carries the published reason, and no amount');
+  const slab = /<div class="wf-slab[^"]*" data-row="surplus">([\s\S]*?)<\/div>\s*<\/section>/.exec(c.innerHTML);
+  ok(slab && !/is unavailable|wf-reason/.test(c.innerHTML) && /<span class="wf-dash" aria-hidden="true">\u2014<\/span>$/.test(slab[1])
+    && slab[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() === '= Surplus after deductions \u2014',
+    'a withheld surplus shows its name and a dash: no reason sentence, no amount', slab && slab[1]);
+  const shown = fakeContainer();
+  W.render(shown, ctxOf([fullView()]));
+  ok(!/wf-dash/.test(shown.innerHTML), 'a published surplus has no dash');
   const none = fakeContainer();
   W.render(none, ctxOf([{ id: 'x', start: '2026-10-09', timelineRole: 'current' }]));
   ok(cells(none.innerHTML).every(x => x.unpublished) && !MONEY.test(none.innerHTML), 'a period with no stackSummary prints no amount at all');

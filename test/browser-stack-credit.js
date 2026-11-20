@@ -5,10 +5,11 @@
  * Until A6b (Forecast.stackCreditLines) is on main, the served forecast.js gains an invented stackCreditLines that
  * returns a hand-written publication; once A6b lands, the real function is used and only the shape checks apply.
  *
- *   1. ?view=stack: the Credit card prints "Credit", the published paid / spent and "excludes <names>" for a partial.
+ *   1. ?view=stack: the Credit card prints "Credit" and the published paid / spent only for a complete total (a partial
+ *      or missing total prints no figure and no bar; owner, 2026-11-20).
  *   2. Tapping the card opens the list: one row per line, HELOC minimum only.
  *   3. Tapping a row opens the sheet with that line; Escape closes it and focus returns to the row.
- *   4. No ratio or percent text in the page; no page errors.
+ *   4. No ratio or percent text and no explanatory word in the page or any sheet; no page errors.
  *
  * Optional: STACK_CREDIT_SHOTS=<dir> writes screenshots (390 and 1440, light and dark: closed, open, sheet).
  * `node test/browser-stack-credit.js`
@@ -86,11 +87,12 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const head = await textOf(page, '[data-stack-credit-toggle]');
     ok(/^Credit/.test(head), 'the card is titled Credit', head);
     if (stub) {
-      ok(head === 'Credit $500 / $660 paid back / spent excludes Red Card', 'published totals and the excluded card', head);
+      ok(head === 'Credit' && !(await page.$('.stack-credit-bar')), 'a partial total prints no figure and no bar', head);
     } else {
-      const ex = await page.$('[data-stack-credit-excludes]');
-      ok(!ex || /^excludes /.test(await textOf(page, '[data-stack-credit-excludes]')), 'a partial total names what it excludes');
+      const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
+      ok(head === 'Credit' || (complete && /^Credit \$[\d,.]+ \/ \$[\d,.]+$/.test(head)), 'the head is "Credit", with paid / spent only', head);
     }
+    ok(!(await page.$('[data-stack-credit-excludes]')), 'no "excludes" line');
 
     console.log('2. open list');
     await page.click('[data-stack-credit-toggle]');
@@ -99,25 +101,44 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     ok(expanded === 'true' && !(await page.$eval('.stack-credit-exp', el => el.hasAttribute('inert'))), 'the list opens');
     const rows = await page.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
     if (stub) {
-      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa Paid back Paid back $400 of $400 Minimum $25 covered ✓',
-        'Green Card $160 to go Paid back $100 of $260 Minimum $30 not yet', 'Red Card', 'Gold Card Upcoming Paid back $0 of $0',
-        'Line of credit Minimum $210 covered ✓']), 'one row per published line, unpublished prints nothing', JSON.stringify(rows));
+      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa $400 of $400 Minimum $25 ✓',
+        'Green Card $160 $100 of $260 Minimum $30', 'Red Card Minimum $15', 'Gold Card $0 of $0 Minimum $10',
+        'Line of credit Minimum $210 ✓']), 'one row per published line: names, numbers and ✓ only', JSON.stringify(rows));
       const coral = await page.$eval('.stack-credit-status.is-togo', el => getComputedStyle(el).color);
-      ok(coral === 'rgb(200, 55, 45)', '"to go" is coral', coral);
+      ok(coral === 'rgb(200, 55, 45)', 'the remaining amount is coral', coral);
     } else ok(rows.length === 6, 'six lines', String(rows.length));
 
     console.log('3. sheet');
     await page.click('[data-stack-sheet="card:travelvisa"]');
     await page.waitForSelector('.stack-sheet');
     const sheet = await textOf(page, '.stack-sheet');
-    if (stub) ok(/Blue Visa \$400 of \$400 Paid back/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
+    if (stub) ok(/Blue Visa \$400 of \$400 ✓ Spent \$400 Paid \$400/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
       'the sheet prints the line, payments with +, no tag', sheet);
     await page.keyboard.press('Escape');
     ok(!(await page.$('.stack-sheet')), 'Escape closes the sheet');
     ok(await page.evaluate(() => document.activeElement && document.activeElement.getAttribute('data-stack-sheet') === 'card:travelvisa'),
       'focus returns to the row');
 
-    console.log('4. no ratio text, no errors');
+    console.log('4. no ratio text, no explanatory words, no errors');
+    // The whole Stack page with the waterfall's Credit row, the Credit card and every sheet opened in turn (owner,
+    // 2026-11-20: names, numbers, bars and the ✓ only).
+    const FORBIDDEN = /Paid back|Upcoming|to go|excludes|covered|Not yet|\bDue\b|Comes out|Spent on it|Paid onto|unavailable|withheld|estimated|projected|≈/i;
+    const seen = [];
+    const wfToggle = await page.$('[data-wf-toggle="credit"]:not([disabled])');
+    if (wfToggle) await wfToggle.click();
+    seen.push(await page.$eval('#stack-root', el => el.innerText));
+    for (const key of await page.$$eval('[data-stack-sheet]', els => [...new Set(els.map(el => el.getAttribute('data-stack-sheet')))])) {
+      const target = await page.$(`[data-stack-sheet="${key}"]`);
+      if (!target || !(await target.isVisible())) continue;
+      await target.click();
+      await page.waitForSelector('.stack-sheet');
+      seen.push(await textOf(page, '.stack-sheet'));
+      await page.keyboard.press('Escape');
+    }
+    const hits = seen.filter(t => FORBIDDEN.test(t)).map(t => t.match(FORBIDDEN)[0]);
+    ok(seen.length > 3 && hits.length === 0, `no explanatory word on the page or in ${seen.length - 1} sheets`, hits.join(', '));
+    ok(FORBIDDEN.test('Paid back $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Spent $5 Paid $5 Minimum $5 ✓'),
+      'control: the word check catches the removed words and passes the page names');
     const all = await page.$eval('#stack-root', el => el.innerText);
     ok(!/%/.test(all), 'no percent text on the page');
     ok(errors.length === 0, 'no page errors', errors.join('; '));
