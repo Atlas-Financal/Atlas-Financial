@@ -159,6 +159,8 @@ const STATES = [
   fig6('nopub', 'Dark Card', null, null, 50, null, null, true),                       // 6 paid / spent unpublished: "— / $min"
   fig6('unk', 'Unknown Card', 100, 100, 50, 0, 'paid-back', 'unknown'),               // unknown coverage: no green, no ✓
   fig6('soonest', 'Upcoming Card', 20, 20, 40, 0, 'upcoming', true),                  // a future period: no colour, no ✓
+  fig6('weak1', 'Weak Card', 100, 100, 50, 0, 'paid-back', true, { cv: 'unavailable' }),  // covered true on trust 'unavailable': no green, no ✓
+  fig6('weak2', 'Odd Card', 100, 100, 50, 0, 'paid-back', true, { cv: 'unknown' }),       // covered true on an unrecognised trust word: no green, no ✓
   fig6('minoff', 'Hidden Card', 100, 100, null, 0, 'paid-back', 'unknown', { minReason: 'bills-split-unavailable' }), // the minimum is withheld, not "not due": "$100 / —", never reassurance
 ];
 function states(creditSrc) {
@@ -178,7 +180,8 @@ function states(creditSrc) {
   out.nopub = text(rows[5]) === 'Dark Card — / $50' && !/is-good|is-bad|is-on/.test(rows[5]);
   out.unk = text(rows[6]) === 'Unknown Card $100 / $50' && !/is-good|is-on/.test(rows[6]);
   out.soonest = text(rows[7]) === 'Upcoming Card $20 / $40' && !/is-good|is-bad|is-on/.test(rows[7]);
-  out.minoff = text(rows[8]) === 'Hidden Card $100 / \u2014' && !/is-good|is-on/.test(rows[8]) && /<i class="stack-credit-of"> \/ <span class="stack-credit-dash stack-est"/.test(rows[8]);
+  out.weak = text(rows[8]) === 'Weak Card $100 / $50' && text(rows[9]) === 'Odd Card $100 / $50' && !/is-good|is-on/.test(rows[8] + rows[9]);
+  out.minoff = text(rows[10]) === 'Hidden Card $100 / \u2014' && !/is-good|is-on/.test(rows[10]) && /<i class="stack-credit-of"> \/ <span class="stack-credit-dash stack-est"/.test(rows[10]);
   out.sheetMinoff = /<dt>Minimum<\/dt><dd class="stack-n"><span class="stack-credit-dash stack-est"[^>]*>\u2014<\/span><\/dd>/.test(win.StackSheet.html(ctx, 'card:minoff')) && !/Not due this period/.test(win.StackSheet.html(ctx, 'card:minoff'));
   out.sheetOver = /<div class="stack-sheet-big stack-credit-big stack-n"><span class="stack-credit-x is-good"[^>]*>\$250<\/span><i class="stack-credit-of"> \/ \$50<\/i><\/div>/.test(win.StackSheet.html(ctx, 'card:over'));
   out.sheetRed = /stack-credit-x is-bad"[^>]*>\$175</.test(win.StackSheet.html(ctx, 'card:red'));
@@ -229,7 +232,7 @@ console.log('3a. X has an accessible name, so colour is not the only signal (in-
   const name = r => (/stack-credit-x[^"]*"( role="img" aria-label="([^"]*)")?/.exec(r) || [])[2];
   ok(name(rows[0]) === 'Paid $250' && name(rows[1]) === 'Paid $100' && name(rows[3]) === 'Paid $0', 'a plain or green X is named "Paid $X"', [rows[0], rows[1], rows[3]].map(name).join(' | '));
   ok(name(rows[2]) === 'Owes $175 more than paid back', 'a red X is named "Owes $X more than paid back"', name(rows[2]));
-  ok(name(rows[9]) === 'Owes $160 more than paid back, estimated', 'a soft X adds ", estimated" to its name');
+  ok(name(rows[11]) === 'Owes $160 more than paid back, estimated', 'a soft X adds ", estimated" to its name');
   ok(name(rows[5]) === undefined && /aria-label="not available"/.test(rows[5]), 'an unpublished X has no amount name; its dash is named "not available"');
   const sheet = win.StackSheet.html(ctx, 'card:red');
   ok(/stack-credit-x is-bad" role="img" aria-label="Owes \$175 more than paid back">\$175</.test(sheet), 'the sheet\'s big figure carries the same name');
@@ -247,6 +250,7 @@ console.log('3. the six row states (Dale, 2026-11-20: "X / minimum", green when 
     nopub: 'paid and spent unpublished (the HELOC): "— / $50", plain ink, no ✓',
     unk: "an unknown coverage check: plain ink, no ✓",
     soonest: "an upcoming line: no colour and no ✓",
+    weak: 'a covered check on trust unavailable or an unrecognised word shows no green and no ✓ (the in-house reviewer\'s cross-check)',
     minoff: 'a withheld minimum (bills split unavailable) reads "$100 / —", not "not due" (Codex on #1481)',
     sheetMinoff: 'the sheet\'s Minimum row is a dash for a withheld minimum, "Not due this period" only for the explicit no-minimum-due reason',
     sheetOver: 'the sheet\'s big figure is the same "X / min" with the same colour',
@@ -351,6 +355,8 @@ console.log('5b. mutants: the checks above must catch each of these (a failing m
   ok(greenOnUnknown !== src && run(greenOnUnknown) === false, 'MUTANT: an unknown coverage check read as covered is caught');
   const notDueAlways = src.replace("min == null && minReasons.includes('no-minimum-due-in-period')", 'min == null');
   ok(notDueAlways !== src && run(notDueAlways) === false, 'MUTANT: any null minimum read as "not due" (the withheld bills split reads as reassurance) is caught');
+  const trustBlind = src.replace("&& COVERAGE_TRUST.includes(line.minimumCovered.trust) ? line.minimumCovered.value : null);", '? line.minimumCovered.value : null);');
+  ok(trustBlind !== src && run(trustBlind) === false, 'MUTANT: a covered check read without its trust (green on trust unavailable) is caught');
   const arith = src.replace('out.x = amountOf(line.toGo);', 'out.x = out.spent - out.paid;');
   ok(arith !== src && run(arith) === false, 'MUTANT: red from page arithmetic (spent − paid, not the published toGo) prints $160, not the published $175, and is caught');
   const redAlways = src.replace("out.tone = out.x != null ? 'bad' : '';", "out.tone = 'bad';");

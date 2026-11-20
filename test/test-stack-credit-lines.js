@@ -307,6 +307,15 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
   }
   const soft = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }], trust: 'estimated' });
   ok(soft.minimumsDue.trust === 'estimated' && soft.minimumsCoveredTrust === 'estimated', 'the weakest input\'s trust carries through');
+  // A covered check counts only on trust Forecast stands behind. A split trust of 'unavailable', or any unrecognised word, makes
+  // every covered check's trust 'unavailable' (never silently dropped), so none counts as covered.
+  for (const word of ['unavailable', 'unknown']) {
+    const weak = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }], trust: word });
+    ok(weak.minimumsDueCount === 2 && weak.minimumsCoveredCount === 0 && weak.minimumsCoveredTrust === 'unavailable',
+      'a bills split trusted as \'' + word + '\': both minimums are due and none counts as covered, though Travel\'s published check reads true', JSON.stringify([weak.minimumsDueCount, weak.minimumsCoveredCount, weak.minimumsCoveredTrust]));
+    ok(line(x, 'travelvisa', { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: word }).minimumCovered.trust === 'unavailable',
+      'the covered check\'s trust is \'unavailable\' for a split trusted as \'' + word + '\' (an unrecognised word is the weakest, not dropped)');
+  }
   // membership: the paid total and the minimums due are over the same cards (the spend cards), never the HELOC
   ok(!JSON.stringify(t.excluded).includes('heloc') && t.minimumsDue.amount !== 375, 'the HELOC is in neither total');
 }

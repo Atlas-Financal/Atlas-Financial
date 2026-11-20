@@ -69,8 +69,11 @@
 
   // Coverage is read only from the published check (minimumCovered.value): true, false, or null for 'unknown' or absent.
   // An unknown must read as neither covered nor short, so it prints no ✓ and no colour.
+  // A published check counts only on trust the page may show: calculated or verified (plain) or estimated (soft). A check
+  // whose trust is unavailable, unknown or any other word is no check: no green, no ✓, and it is not counted as covered.
+  const COVERAGE_TRUST = ['calculated', 'verified', 'estimated'];
   const coverage = line => (line.minimumCovered && (line.minimumCovered.value === true || line.minimumCovered.value === false)
-    ? line.minimumCovered.value : null);
+    && COVERAGE_TRUST.includes(line.minimumCovered.trust) ? line.minimumCovered.value : null);
   const dash = '<span class="stack-credit-dash stack-est" role="img" aria-label="not available">—</span>';
 
   // One line, read for the design's right-hand figure "X / minimum" (Dale, 2026-11-20: he approved the Credit Minimum

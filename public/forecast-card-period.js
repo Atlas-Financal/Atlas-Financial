@@ -271,7 +271,12 @@
   // Each figure carries a trust word: 'calculated', 'estimated' (a payment
   // whose source the card ledger has not reconciled), or 'unavailable'.
   const STACK_TRUST_ORDER = ['calculated', 'estimated', 'unavailable'];
-  const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => STACK_TRUST_ORDER.indexOf(w)))];
+  // An unrecognised trust word is the weakest there is ('unavailable'), never silently dropped from the comparison.
+  const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => (STACK_TRUST_ORDER.includes(w) ? STACK_TRUST_ORDER.indexOf(w) : STACK_TRUST_ORDER.length - 1)))];
+  // A covered check counts as covered only on evidence Forecast stands behind: a published true whose trust is calculated or
+  // estimated. 'unavailable' (or any other word) is not covered.
+  const COVERED_TRUST = ['calculated', 'verified', 'estimated'];
+  const coveredOn = line => line.minimumCovered.value === true && COVERED_TRUST.includes(line.minimumCovered.trust);
   function stackCards(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
       && publication.currency === 'CAD' && Array.isArray(publication.cards) ? publication : null;
@@ -449,7 +454,7 @@
       totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
         trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
       totals.minimumsDueCount = dueLines.length;
-      totals.minimumsCoveredCount = dueLines.filter(line => line.minimumCovered.value === true).length;
+      totals.minimumsCoveredCount = dueLines.filter(coveredOn).length;
       totals.minimumsCoveredTrust = dueLines.length
         ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
         : splitTrust;
