@@ -109,14 +109,16 @@ console.log('1. StackBlocks.barWidth');
 console.log('2. closed card totals');
 {
   const complete = card(TOTALS.complete);
-  ok(/data-stack-credit-total/.test(complete.html) && text(complete.html).startsWith('Credit $500 / $660 Blue Visa'),
-    'complete: "Credit $500 / $660" and nothing more', text(complete.html).slice(0, 60));
+  ok(/data-stack-credit-total/.test(complete.html) && text(complete.html).startsWith('Credit paid back / spent $500 / $660 Blue Visa'),
+    'complete: the head reads "Credit", its subtitle and "$500 / $660"', text(complete.html).slice(0, 60));
   ok(/stack-credit-bar/.test(complete.html), 'complete: the total bar is drawn');
-  // Partial (owner, 2026-11-20): no total and no bar, the same as none, whether or not it names the cards it leaves out.
+  // Partial (owner, 2026-11-20): no total, the same as none, whether or not it names the cards it leaves out. The head prints a
+  // soft dash and an empty track (never blank, $0 or a guessed fill).
   const partial = card(TOTALS.partial), partialNone = card(TOTALS.partialNone), none = card(TOTALS.none);
   for (const [label, c] of [['partial', partial], ['partial naming none', partialNone], ["'none'", none]]) {
-    ok(!/data-stack-credit-total|stack-credit-bar|excludes|\$660/.test(c.html) && text(c.html).startsWith('Credit Blue Visa $400 of $400'),
-      `${label}: no total, no bar and no excludes line; the per-card lines still show`, text(c.html).slice(0, 60));
+    ok(/data-stack-credit-total data-unpublished/.test(c.html) && /stack-credit-bar" aria-hidden="true"><i style="width:0%">/.test(c.html)
+      && !/excludes|\$660/.test(c.html) && text(c.html).startsWith('Credit paid back / spent \u2014 Blue Visa $400 of $400'),
+      `${label}: a soft dash and an empty track, no total and no excludes line; the per-card lines still show`, text(c.html).slice(0, 70));
   }
   ok(!/Line of credit/.test(text(partial.html).split('Blue Visa')[0]), 'HELOC is not named in the closed totals line');
   {
