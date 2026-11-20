@@ -49,8 +49,12 @@
   // Its amounts come from Forecast's billHistory (#1446; lead ruling, 2026-11-20): every published occurrence of the bill,
   // newest first, each { date, amount, amountBasis, trust, paidState } with its amount and trust together. The headline is
   // this occurrence's entry (same date); with no entry, or an unpublished amount, it is a dash, never bill.amount and never
-  // $0. Below it, the bill's earlier occurrences: date, amount (soft when estimated, a dash when unpublished) and a check
-  // when paid, no words. The page joins nothing across periods and decides no basis.
+  // $0. Below it, the bill's past occurrences: those dated before this one and on or before Forecast's observation date
+  // (data.meta.asOf, the date recommend ran with), so a future schedule is never listed as past. Each shows its date,
+  // amount (soft when estimated, a dash when unpublished) and a check when paid, no words. A paid occurrence whose
+  // amount is still the schedule (amountBasis 'schedule': a pending payment, no actual posted) shows the check with a
+  // dash, never the scheduled amount, which beside the check would read as the amount paid (Atlas on #1453). The page
+  // joins nothing across periods and reads the basis only to withhold.
   const plain = (value, cls = '') => (value ? `<p class="stack-sheet-plain${cls}">${esc(value)}</p>` : '');
   const DASH = '<span role="img" aria-label="not available">\u2014</span>';
   const CHECK = '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>';
@@ -59,19 +63,26 @@
     const list = all && typeof all === 'object' && Object.prototype.hasOwnProperty.call(all, id) ? all[id] : null;
     return Array.isArray(list) ? list.filter(e => e && typeof e === 'object' && typeof e.date === 'string') : [];
   }
-  const amountHtml = (entry, v) => (entry && num(entry.amount) ? esc(money(entry.amount)) : DASH);
+  // An entry's amount as printed beside its paid state: nothing to show when unpublished, or when it is a schedule on a
+  // paid occurrence.
+  const shownAmount = (entry, paid) => (entry && num(entry.amount) && !(paid && entry.amountBasis === 'schedule') ? entry.amount : null);
+  const amountHtml = amount => (amount === null ? DASH : esc(money(amount)));
   function billHtml(bill, kicker, v) {
     const paid = bill.paidState === 'paid';
     const list = occurrences(bill.id);
     const entry = list.find(e => e.date === bill.date) || null;
-    const earlier = list.filter(e => e.date < bill.date);
+    const asOf = ctx && ctx.data && ctx.data.meta && typeof ctx.data.meta.asOf === 'string' ? ctx.data.meta.asOf : null;
+    const earlier = asOf ? list.filter(e => e.date < bill.date && e.date <= asOf) : [];
+    const headAmount = shownAmount(entry, paid);
     return head(kicker, bill.label || '')
-      + `<div class="stack-sheet-big stack-n${entry && num(entry.amount) ? est(entry.trust, v) : ''}">${amountHtml(entry, v)}</div>`
+      + `<div class="stack-sheet-big stack-n${headAmount === null ? '' : est(entry.trust, v)}">${amountHtml(headAmount)}</div>`
       + (paid ? CHECK : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
-      + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => '<li>'
-        + `<span class="stack-sheet-txd">${esc(date(e.date))}</span>`
-        + `<span class="stack-sheet-txa stack-n${num(e.amount) ? est(e.trust, v) : ''}">${amountHtml(e, v)}</span>`
-        + `<span class="stack-sheet-histck">${e.paidState === 'paid' ? CHECK : ''}</span></li>`).join('') + '</ul>' : '');
+      + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => {
+        const ePaid = e.paidState === 'paid', amount = shownAmount(e, ePaid);
+        return '<li>' + `<span class="stack-sheet-txd">${esc(date(e.date))}</span>`
+          + `<span class="stack-sheet-txa stack-n${amount === null ? '' : est(e.trust, v)}">${amountHtml(amount)}</span>`
+          + `<span class="stack-sheet-histck">${ePaid ? CHECK : ''}</span></li>`;
+      }).join('') + '</ul>' : '');
   }
 
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.
