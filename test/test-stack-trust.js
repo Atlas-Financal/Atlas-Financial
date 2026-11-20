@@ -134,8 +134,8 @@ console.log('4. credit card and its sheet');
     && /Paid onto it<\/dt><dd class="stack-n">/.test(green) && /stack-sheet-pill is-togo stack-est/.test(green),
   'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
-  ok(/<dt class="stack-est">Minimum \$30<\/dt>/.test(green), 'the estimated minimum amount itself (in its label) is soft, not only "Not yet"');
-  ok(/<dt>Minimum \$25<\/dt>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum label is not');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n stack-est">\$30<\/dd>/.test(green), 'the estimated minimum amount is soft');
+  ok(/<dt>Minimum<\/dt><dd class="stack-n">\$25 ✓<\/dd>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum is not');
   const projected = context(view('projected'));
   const pEl = container();
   fns.credit(pEl, projected);
