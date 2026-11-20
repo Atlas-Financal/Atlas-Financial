@@ -50,7 +50,12 @@ test('strict canonical policy cannot be replaced or laundered by caller options'
 });
 test('current derived backing never publishes confirmed assignment/actual fulfillment',()=>{
  const d=data(),advice=F.recommend(d.plan,d.meta.asOf,{weeklyVariable:40,...d.liveOverlay}),p=advice.savingsFunding;
- assert.equal(p.schedule,advice.planSpendPaydayFunding);
+ // One authority (#1441): the published schedule is the advice schedule, or,
+ // where its first payday does not reprint the Budget's payday top-up, the same
+ // schedule with only its payday rows and gap withheld (and the reason given).
+ if(p.schedule.paydayReason==null)assert.equal(p.schedule,advice.planSpendPaydayFunding);
+ else{const{paydays,gap,paydayReason,...rest}=p.schedule,{paydays:p0,gap:g0,...base}=advice.planSpendPaydayFunding;
+  assert.deepEqual(paydays,[]);assert.equal(gap,null);assert.match(paydayReason,/Budget/);assert.deepEqual(rest,base);}
  assert.ok(p.schedule.costs.every(r=>r.actualSaved===null));
  assert.equal(p.backing.actualTransferred,null);assert.equal(p.period.actualSaved,null);
  assert.deepEqual(p.backing.items.map(r=>[r.id,r.saved]),[['near',60],['home-cost',24],['far',35],['trip',0]]);

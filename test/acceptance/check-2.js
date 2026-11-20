@@ -149,13 +149,26 @@ const scenarios = [
     // Audit C6: payday funding trust is estimated; the cost itself is
     // confirmed. "Next scheduled contribution" and "Projected funded by" must
     // carry the funding trust (estimated), not the cost's confirmed tag.
+    // One authority (#1441): the exact-payday detail is published only where
+    // its first payday reprints the Budget's payday top-up. With savings 1,200
+    // both costs are backed and both authorities propose 0 for Oct 23, so the
+    // detail and its lines render (positive control). With savings 1,000 the
+    // cash walk would print 200 beside the Budget's 0, so the detail is
+    // withheld and neither line renders (pinned below, not routed around).
     async run(H) {
-      await H.withBudget(savingsWorld(H), async p => {
+      await H.withBudget(savingsWorld(H, 1200), async p => {
         const s = await H.snap(p);
         H.expectMatch(s.all, /Next scheduled contribution/, 'the contribution line is shown');
         H.expectNoMatch(s.all, /Next scheduled contribution[^.]{0,40}confirmed/, 'contribution is not tagged confirmed');
         H.expectMatch(s.all, /Projected funded by/, 'positive control: the funded-by line is shown');
         H.expectNoMatch(s.all, /Projected funded by[^.]{0,40}confirmed/, 'funded-by date is not tagged confirmed');
+        H.expectMatch(s.all, /Projected funded by[^.|]{0,40}(estimate|calculated)/, 'the funded-by date carries the funding trust tag');
+      });
+      await H.withBudget(savingsWorld(H), async p => {
+        const s = await H.snap(p);
+        H.expectMatch(s.all, /Nest Money funding plan: unavailable/, 'disagreeing schedule: the exact-payday detail is withheld');
+        H.expectNoMatch(s.all, /Next scheduled contribution/, 'disagreeing schedule: no contribution line from the second schedule');
+        H.expectNoMatch(s.all, /Projected funded by/, 'disagreeing schedule: no funded-by line from the second schedule');
       });
     },
   },
