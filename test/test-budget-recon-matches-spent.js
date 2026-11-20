@@ -49,8 +49,8 @@ const exposeWith = (text, name) => {
   return fn;
 };
 const publish = exposeWith(SOURCE, 'exposed');
-const WRAP = 'return publishReconMatchesSpent(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));';
-const without = compile(replaceOnce(SOURCE, WRAP, 'return publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts));', 'pass off'), 'without');
+const WRAP = 'return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))));';
+const without = compile(replaceOnce(SOURCE, WRAP, 'return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));', 'pass off'), 'without');
 
 const tx = (amount, extra = {}) => ({ id: 't' + amount, date: '2026-10-12', amount, pending: false, pendingPostedDuplicate: false, ...extra });
 const flag = (spent, recon, extra = {}) => {

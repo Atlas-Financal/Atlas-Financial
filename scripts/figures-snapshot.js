@@ -542,6 +542,7 @@ if (trajectory.status === 'ready') {
 
 putPayPeriods(put, putField, advice);
 putStackCards(put, putField, advice, data, plan, asOf);
+putBillHistory(put, putField, advice);
 putSavingsPublication(put, putField, advice, selectPublications(advice, asOf));
 
 return out;
@@ -567,6 +568,21 @@ function uniqueKey(used, key) {
   for (let n = 2; used.has(candidate); n++) candidate = key + '#' + n;
   used.add(candidate);
   return candidate;
+}
+
+/* ---- Stack Wallet bill sheet: Forecast billHistory ------------------------ */
+// Each bill's occurrences as published (date, amount, its basis and trust,
+// the paid word), one key per bill id and date. Copied, never summed.
+const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState'];
+function putBillHistory(put, putField, advice) {
+  const history = advice.billHistory && typeof advice.billHistory === 'object' ? advice.billHistory : {};
+  const keys = new Set();
+  for (const id of Object.keys(history).sort()) {
+    for (const entry of Array.isArray(history[id]) ? history[id] : []) {
+      const k = uniqueKey(keys, 'billHistory.' + segment(id) + '@' + segment(entry && entry.date));
+      for (const field of BILL_HISTORY_FIELDS) putField(k + '.' + field, entry, field);
+    }
+  }
 }
 
 /* ---- Stack Wallet A6: Forecast.stackCardSummary per pay period --------- */
