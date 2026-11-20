@@ -21,7 +21,7 @@ html.stack-view .stack-waterfall .wf-line .n { font-weight: 700; font-size: 19px
 html.stack-view .stack-waterfall .wf-line.tot { font-weight: 800; border-top: 2.5px solid var(--stack-on); margin-top: 6px; padding-top: 13px; }
 html.stack-view .stack-waterfall .wf-line.tot .n { font-weight: 800; }
 /* Credit: the whole line is the toggle; its card minimums open beneath it. */
-html.stack-view .stack-waterfall .wf-credit { display: block; padding: 0; }
+html.stack-view .stack-waterfall .wf-credit, html.stack-view .stack-waterfall .wf-tap { display: block; padding: 0; }
 html.stack-view .stack-waterfall .wf-toggle {
   display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; width: 100%;
   padding: 9px 0; font: inherit; font-size: 18px; font-weight: 500; color: inherit;
