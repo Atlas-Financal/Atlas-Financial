@@ -105,6 +105,9 @@
   const line = (op, label, cell, cls = '', row = '') =>
     `<li class="wf-line ${cls}" data-row="${row}"><span class="op" aria-hidden="true">${op}</span><span class="lab">${escape(label)}</span>${cell}</li>`;
 
+  // An unpublished amount the row still names: a dash, never $0, read by a screen reader as "not available".
+  const DASH = '<span class="wf-dash" role="img" aria-label="not available">\u2014</span>';
+
   function creditRows(ctx, view) {
     const cards = view.stackSummary && view.stackSummary.bills ? view.stackSummary.bills.cardMinimums : null;
     if (!Array.isArray(cards)) return '';
@@ -112,8 +115,8 @@
       const source = `stackSummary.bills.cardMinimums.${i}.amount`;
       const cell = card && isAmount(card.amount)
         ? `<span class="n${est(view, 'stackSummary.bills.trust')}" data-source="${source}">${escape(money(card.amount))}</span>`
-        : `<span class="n" data-source="${source}" data-unpublished="true"></span>`;
-      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b><small>Minimum</small></span>${cell}</li>`;
+        : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>${cell}</li>`;
     }).join('');
   }
 
@@ -131,8 +134,8 @@
       <button type="button" class="wf-toggle" data-wf-toggle="credit" aria-expanded="${open}"${cards ? '' : ' disabled'}>
         <span class="op" aria-hidden="true">−</span><span class="lab">Credit</span>${amountCell(view, 'credit')}</button>
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
-    const reason = amount === null && surplus && typeof surplus.reason === 'string'
-      ? `<p class="wf-reason">${escape(surplus.reason)}</p>` : '';
+    // A withheld surplus shows its name and a dash, no sentence (owner, 2026-11-20: no explanatory text on the page).
+    const dash = amount === null ? DASH : '';
     return `<section class="stack-waterfall" data-block="waterfall" data-period="${escape(view.start || '')}"${surplus && surplus.projected ? ' data-projected="true"' : ''}>
   <ul class="wf-math">
     ${line('', 'Dale’s income', amountCell(view, 'dale'), '', 'dale')}
@@ -144,7 +147,7 @@
     ${line('−', 'Mortgage', amountCell(view, 'mortgage'), '', 'mortgage')}
     ${credit}
   </ul>
-  <div class="wf-slab${deficit ? ' neg' : ''}" data-row="surplus"><div class="sl"><span aria-hidden="true">=</span> ${word}</div>${amountCell(view, 'surplus', { sign: true })}${reason}</div>
+  <div class="wf-slab${deficit ? ' neg' : ''}" data-row="surplus"><div class="sl"><span aria-hidden="true">=</span> ${word}</div>${amountCell(view, 'surplus', { sign: true })}${dash}</div>
 </section>`;
   }
 

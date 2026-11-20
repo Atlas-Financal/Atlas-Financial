@@ -130,7 +130,7 @@ amounts(cur).forEach(a => assert([20.5, 130.25].map(fmt).includes(a), 'unpublish
 // current period, transfer figure withheld: no header figure
 const nt = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers'] }],
   totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['pool-transfer-unavailable'] } }));
-assert(!nt.includes('sc-f'), 'no header figure when the transfer is withheld');
+assert(nt && /class="sc-f">\u2014</.test(nt) && /<span class="sc-a">\u2014<\/span>/.test(nt), 'current period, transfer withheld: the card stays, a dash header and dash rows (an unknown is not "nothing due")');
 
 // future period: planned total in the header, rows "planned this period", never a moved figure or $0
 const fut = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }],
@@ -139,9 +139,16 @@ assert(fut.includes(fmt(40) + '</span>') && fut.includes('<span class="sc-a">' +
 assert(!/moved|\$0/.test(txt(fut)));
 
 // past period: everything null, no amounts
-const past = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: null, reasons: ['past-period'] }],
-  totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: ['past-period'] } }));
-assert(amounts(past).length === 0);
+const pastView = withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: null, reasons: ['past-period'] }],
+  totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: ['past-period'] } });
+pastView.timelineRole = 'past';
+const past = savingsOf(pastView);
+assert(past === null, 'a past period with nothing to print shows no Savings card, not names and dashes');
+{
+  const same = role => { const v = JSON.parse(JSON.stringify(pastView)); v.timelineRole = role; return savingsOf(v); };
+  ['current', 'next', 'future'].forEach(role => assert(same(role) !== null && /class="sc-f">\u2014</.test(same(role)), 'a ' + role + ' period with nothing published keeps its card, with a dash header'));
+  assert(same(undefined) !== null, 'an unknown role is not treated as past');
+}
 
 // current period with per-goal saved (nearest due first): "$saved of $periodTarget", full-width bar, $0 with an empty bar
 const per = savingsOf(withSavings({ items: [

@@ -287,8 +287,11 @@
         if (value == null) { paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified'); continue; }
         if (row.kind === 'payment') {
           paidCents += -value;
-          if (row.paymentAllocation && row.paymentAllocation.status !== 'reconciled') paidTrust = 'estimated';
-          if (row.paymentAllocation && row.paymentAllocation.status !== 'reconciled') paidReasons.push('card-payment-unconfirmed');
+          // A payment the card ledger has not reconciled (or carries no
+          // allocation at all) is estimated; only a reconciled one is calculated.
+          if (!row.paymentAllocation || row.paymentAllocation.status !== 'reconciled') {
+            paidTrust = 'estimated'; paidReasons.push('card-payment-unconfirmed');
+          }
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
         else if (row.kind === 'credit-unconfirmed') {
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
@@ -309,5 +312,79 @@
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
     });
   }
-  return { publish, stackCards };
+  // Stack Wallet A6b (lead dispatch, 2026-11-19): the Credit lines, per card
+  // and pay period, from the card's paid / spent (stackCards) and the card's
+  // minimum. The minimum is derived, never recomputed: the card's row of the
+  // period's published bills split (stackSummary.bills.cardMinimums, the rows
+  // the waterfall's Credit line sums), so the card and the waterfall cannot
+  // disagree. Owner rule: "simple, has more money been put on the card than
+  // came off it"; no per-transaction matching.
+  //   status   'upcoming' for a future period; else 'paid-back' when paid >=
+  //            spent; else 'to-go', with toGo = spent - paid. Null with
+  //            reasons when paid or spent is null.
+  //   minimumCovered  true when paid >= minimum, false when paid < minimum,
+  //            'unknown' when either is null.
+  // Each figure is { amount, trust, reasons }; trust is the weakest input.
+  // HELOC is one of the credit lines: its minimum only, since the card ledger
+  // publishes no paid / spent for it.
+  const LINE_LABELS = { heloc: 'HELOC' };
+  const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
+  function stackCreditLines(publication, bills) {
+    const cards = stackCards(publication);
+    if (!cards) return null;
+    const future = publication.role === 'future';
+    const split = bills && Array.isArray(bills.cardMinimums) ? bills : null;
+    const splitTrust = split && typeof split.trust === 'string' && split.trust ? split.trust : 'unavailable';
+    const minimumOf = id => {
+      if (!split) return { amount: null, trust: 'unavailable', reasons: ['bills-split-unavailable'] };
+      const rows = split.cardMinimums.filter(row => row && String(row.debtId) === id);
+      if (!rows.length) return { amount: null, trust: 'unavailable', reasons: ['no-minimum-due-in-period'] };
+      const total = rows.reduce((sum, row) => sum === null || cents(row.amount) === null ? null : sum + cents(row.amount), 0);
+      return total === null ? { amount: null, trust: 'unavailable', reasons: ['minimum-amount-unqualified'] }
+        : { amount: total / 100, trust: splitTrust, reasons: [] };
+    };
+    const unavailable = reason => ({ amount: null, trust: 'unavailable', reasons: [reason] });
+    const heloc = { id: 'heloc', label: LINE_LABELS.heloc,
+      paid: unavailable('not-a-spend-card'), spent: unavailable('not-a-spend-card'),
+      net: unavailable('not-a-spend-card'), state: null, stateReasons: ['not-a-spend-card'],
+      transactions: [] };
+    const lines = cards.concat([heloc]).map(card => {
+      const minimum = minimumOf(card.id);
+      const paid = card.paid, spent = card.spent;
+      const known = paid.amount !== null && spent.amount !== null;
+      const inputsTrust = weakest(paid.trust, spent.trust);
+      let status = null, toGo;
+      const reasons = [...new Set(paid.reasons.concat(spent.reasons))];
+      if (future) { status = 'upcoming'; toGo = { amount: null, trust: 'unavailable', reasons: ['future-period'] }; }
+      else if (!known) toGo = { amount: null, trust: 'unavailable', reasons };
+      else {
+        const gap = cents(spent.amount) - cents(paid.amount);
+        status = gap > 0 ? 'to-go' : 'paid-back';
+        toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
+      }
+      const covered = paid.amount === null || minimum.amount === null ? 'unknown'
+        : cents(paid.amount) >= cents(minimum.amount);
+      return { ...card, minimum, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+        minimumCovered: { value: covered,
+          trust: covered === 'unknown' ? 'unavailable' : weakest(paid.trust, minimum.trust),
+          reasons: covered === 'unknown' ? [...new Set(paid.reasons.concat(minimum.reasons))] : [] } };
+    });
+    // Totals over the stated cards only (lead ruling, 2026-11-19): a partial
+    // sum is incomplete, not an estimate, so its completeness is explicit and
+    // its trust is the stated lines' own. HELOC is never in the totals and is
+    // not listed as excluded: it is not a spend card.
+    const spendLines = lines.filter(line => line.id !== 'heloc');
+    const stated = spendLines.filter(line => line.paid.amount !== null && line.spent.amount !== null);
+    const excluded = spendLines.filter(line => !stated.includes(line)).map(line => line.id);
+    const totals = !stated.length
+      ? { paid: null, spent: null, trust: 'unavailable', completeness: 'none', excluded,
+        reasons: [...new Set(spendLines.flatMap(line => line.paid.reasons.concat(line.spent.reasons)))] }
+      : { paid: stated.reduce((sum, line) => sum + cents(line.paid.amount), 0) / 100,
+        spent: stated.reduce((sum, line) => sum + cents(line.spent.amount), 0) / 100,
+        trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
+        completeness: excluded.length ? 'partial' : 'complete', excluded,
+        reasons: excluded.length ? ['some-cards-unavailable'] : [] };
+    return { lines, totals };
+  }
+  return { publish, stackCards, stackCreditLines };
 });
