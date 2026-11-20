@@ -12672,7 +12672,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));
+      return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))));
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12980,6 +12980,45 @@
     if (row.settlement === 'unverified' || row.settlement === 'unknown' || row.status === 'unknown') return 'not-paid';
     if (row.settlementBasis === 'schedule-trust-on-due') return 'not-paid';
     return row.status === 'PAID' || row.settlement === 'represented' ? 'paid' : 'not-paid';
+  }
+  // Budget category transactions (owner ask, Dale, 2026-11-20; lead ruling on
+  // CARDS' #1450): a page may list a household budget row's recon only when
+  // that list is exactly what its published Spent counts, and it must not do
+  // money arithmetic to find out (L-001). Each recon row is rounded to the
+  // cent on its own, while a Spent can sum the unrounded amounts (Other
+  // spending's confirmedHouseholdAmount) and round once: transactions of 10
+  // and 1.005 list as 10.00 and 1.00 beside a Spent of 11.01. One boolean,
+  // set last on the published row: reconMatchesSpent is true when the cents of
+  // its recon rows, less the pending twin of a posted transaction
+  // (pendingPostedDuplicate && pending && !pendingAmountEstimated, the rows
+  // spentFromRecon and confirmedHouseholdAmount do not count), equal
+  // round(Spent x 100); false otherwise; absent when Spent is not a number.
+  // Presentation only: no figure reads it.
+  function reconRowCounted(row) {
+    return !(row && row.pendingPostedDuplicate === true && row.pending === true && row.pendingAmountEstimated !== true);
+  }
+  function reconMatchesSpent(row) {
+    if (!row || typeof row.spent !== 'number' || !Number.isFinite(row.spent)) return undefined;
+    const recon = Array.isArray(row.recon) ? row.recon : [];
+    let cents = 0;
+    for (const r of recon) {
+      if (!reconRowCounted(r)) continue;
+      const amount = r && r.amount;
+      if (typeof amount !== 'number' || !Number.isFinite(amount)) return false;
+      cents += Math.round(amount * 100);
+    }
+    return cents === Math.round(row.spent * 100);
+  }
+  function publishReconMatchesSpent(result) {
+    for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
+      for (const row of (view && Array.isArray(view.householdBudget) ? view.householdBudget : [])) {
+        if (!row || typeof row !== 'object') continue;
+        const match = reconMatchesSpent(row);
+        if (match === undefined) delete row.reconMatchesSpent;
+        else row.reconMatchesSpent = match;
+      }
+    }
+    return result;
   }
   function publishBillPaidStates(result) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {

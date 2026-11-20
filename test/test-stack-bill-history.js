@@ -49,8 +49,8 @@ function compile(text, name) {
 }
 const EXPOSE = '  function publishBillHistory(result) {';
 const copies = {
-  without: compile(replaceOnce(SOURCE, 'return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));',
-    'return publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts));', 'pass off'), 'without'),
+  without: compile(replaceOnce(SOURCE, 'publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)))',
+    'publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))', 'pass off'), 'without'),
   exposed: compile(replaceOnce(SOURCE, EXPOSE, '  globalThis.__publishBillHistory = publishBillHistory;\n' + EXPOSE, 'expose'), 'exposed'),
   scheduleAlways: compile(replaceOnce(SOURCE, '    const raw = actual ? row.actual : row.amount;', '    const raw = row.amount;', 'schedule always'), 'schedule-always'),
   oldestFirst: compile(replaceOnce(SOURCE, '(a.date < b.date ? 1 : a.date > b.date ? -1 : 0)', '(a.date < b.date ? -1 : a.date > b.date ? 1 : 0)', 'oldest first'), 'oldest-first'),
