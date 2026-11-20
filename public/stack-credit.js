@@ -85,7 +85,11 @@
   // minimum: its own; the tick: the coverage check's, with the minimum's and paid's).
   function readLine(line, view) {
     const paid = amountOf(line.paid), spent = amountOf(line.spent), min = amountOf(line.minimum), cv = coverage(line);
-    const out = { paid, spent, min, x: null, tone: '', ok: false, xSoft: ' stack-est', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
+    // A null minimum is "not due" only when Forecast says so (no-minimum-due-in-period); any other null (the bills split
+    // withheld, an unqualified amount, an absent field) is an unavailable minimum, which prints a dash, never reassurance.
+    const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
+    const notDue = min == null && minReasons.includes('no-minimum-due-in-period');
+    const out = { paid, spent, min, notDue, minOff: min == null && !notDue, x: null, tone: '', ok: false, xSoft: ' stack-est', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
     if (paid != null && spent != null) {
       if (line.status === 'to-go') {
         out.x = amountOf(line.toGo);
@@ -105,7 +109,7 @@
   }
   // The figure: "X / min" (the minimum muted), the colour on X alone.
   const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}">${r.x == null ? dash : esc(money(r.x))}</span>`
-    + (r.min != null ? `<i class="stack-credit-of${r.minSoft}"> / ${esc(money(r.min))}</i>` : '');
+    + (r.min != null ? `<i class="stack-credit-of${r.minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
   // The card's last balance snapshot (#1447's line.balance, a stock, never a movement): printed only where the line's
@@ -171,7 +175,7 @@
         + (r.spent != null ? rowHtml('Spent on it', soft(h.money(r.spent), est(view, trustOf(line.spent)))) : ''))
       + (r.min != null
         ? rowHtml('Minimum', soft(h.money(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
-        : rowHtml('Minimum', 'Not due this period'))
+        : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
