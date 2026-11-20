@@ -181,7 +181,7 @@ console.log('5b. cards');
     unsoft.map(m => m[0]).join(' | '));
   const actual = cards(view('actual'));
   const g = /data-stack-sheet="budget:groceries"[\s\S]*?<\/li>/.exec(actual);
-  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> \/ \$500/.test(g[0]),
+  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> of \$500/.test(g[0]),
     'an actual period: the Groceries plan (estimated) is soft, its calculated Spent is not', g && g[0]);
 }
 

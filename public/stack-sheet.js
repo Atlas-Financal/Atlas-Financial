@@ -40,14 +40,14 @@
       + '</button></div>';
   }
 
-  // A bill: its published amount, its Paid / Not paid word (#1429's paidState), its due date and the paying account.
+  // A bill: its published amount, a green check only when it is paid (#1429's paidState; owner direction: no Paid or
+  // Not paid word, nothing when unpaid), its due date and the paying account.
   // bill.date is the scheduled date, never when a payment posted, so it is labelled "Due" in every state; payerLabel
   // is the planned paying account, not an observed source, so it reads "Comes out of" in every state.
   function billHtml(bill, kicker, v) {
-    const word = bill.paidState === 'paid' ? 'Paid' : bill.paidState === 'not-paid' ? 'Not paid' : '';
     return head(kicker, bill.label || '')
       + `<div class="stack-sheet-big stack-n${est(bill.displayAmountTrust, v)}">${esc(money(bill.amount))}</div>`
-      + (word ? `<span class="stack-sheet-pill${bill.paidState === 'paid' ? ' is-on' : ''}">${word}</span>` : '')
+      + (bill.paidState === 'paid' ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>' : '')
       + '<dl>' + row('Due', date(bill.date))
       + row('Comes out of', bill.payerLabel || '') + '</dl>';
   }

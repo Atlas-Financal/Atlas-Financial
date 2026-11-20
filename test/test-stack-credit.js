@@ -163,9 +163,13 @@ console.log('5. the sheet');
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
   ok(!/Minimum/.test(red), "'unknown' minimum check prints nothing in the sheet", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
-  ok(water === 'Bill Water $64 Paid Due Mar 5 Comes out of Chequing' && !/Paid on|Paid from|Mar 7|Savings/.test(water),
+  ok(water === 'Bill Water $64 ✓ Due Mar 5 Comes out of Chequing' && !/Paid on|Paid from|Mar 7|Savings/.test(water),
     'paid bill sheet: the scheduled date reads Due and the planned account Comes out of, never as observed evidence', water);
-  ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage Mortgage $1,850 Not paid Due Mar 12 Comes out of Joint', 'mortgage sheet');
+  const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
+  ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>') && !/Paid|Not paid/.test(text(waterHtml)),
+    'a paid bill sheet shows the check (accessible name Paid) and no status word');
+  ok(!mortHtml.includes('stack-sheet-check') && !mortHtml.includes('stack-sheet-pill') && !/Paid/.test(text(mortHtml)), 'an unpaid bill sheet shows no mark and no word');
+  ok(text(win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12')) === 'Mortgage Mortgage $1,850 Due Mar 12 Comes out of Joint', 'mortgage sheet');
   ok(text(win.StackSheet.html(ctx, 'budget:groceries')) === 'Budget Groceries $310 / $500 Spent $310 Budget $500 Left $190', 'budget sheet');
   ok(text(win.StackSheet.html(ctx, 'budget:fun')) === 'Budget Fun $130 / $100 Spent $130 Budget $100 Over $30', 'overspent budget sheet');
   ok(win.StackSheet.html(ctx, 'bill:water@2031-03-06') === null && win.StackSheet.html(ctx, 'card:nope') === null, 'an unknown key opens nothing');
