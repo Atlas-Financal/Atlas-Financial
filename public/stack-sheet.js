@@ -103,11 +103,11 @@
     const t = window.StackBlocks.budgetTrust ? window.StackBlocks.budgetTrust(item) : {};
     const spent = est(t.spent, v), planned = est(t.planned, v), rest = est(t.remaining, v);
     // Spent and planned each carry their own treatment, side by side (never nested, so neither inherits the other's).
+    // The headline carries Spent and the budget; the list below carries one row, Left (Over when over budget).
     return head('Budget', item.label || '')
       + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
       + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
-      + '<dl>' + row('Spent', money(item.spent), spent) + row('Budget', money(item.planned), planned)
-      + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
+      + '<dl>' + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
       + budgetTransactionsHtml(item, v);
   }
 
