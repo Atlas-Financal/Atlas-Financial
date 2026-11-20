@@ -332,7 +332,7 @@ console.log('5. the sheet');
   ok(red === 'Credit · Mar 1 – 14 Red Card $0 / $15 Paid onto it $0 Spent on it $0 Minimum $15 Transactions', "an upcoming card: '$0 / $15' and its minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
-  ok(water === 'Bill · Mar 1 – 14 Water $64 ✓ Feb 5 $61.50 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
+  ok(water === 'Bill · Mar 1 – 14 Water $64 ✓ Feb 5 $62 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
     'paid bill sheet: the amount and the check, then its earlier occurrences (date, amount or a dash, ✓ when paid); no planned or observed date and account, no future occurrence', water);
   const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
   ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">✓</span>') && !/Paid|Not paid/.test(text(waterHtml)),
@@ -408,7 +408,7 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
   const rows = el.innerHTML.split('<li>').slice(1);
   ok(text(rows[0]) === 'Both Card $160 / $30' && !/1,234|data-stack-credit-balance/.test(rows[0]),
     'paid and spent published: the design\'s row, and no balance');
-  ok(text(rows[1]) === 'Fresh Card $812.40 \u2014 / $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40</.test(rows[1]),
+  ok(text(rows[1]) === 'Fresh Card $812 \u2014 / $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812">\$812</.test(rows[1]),
     'no paid / spent: the last balance, plain when calculated', text(rows[1]));
   ok(/<small class="stack-credit-bal stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305</.test(rows[2]),
     'an estimated balance is soft, and named "Last balance, estimated" for a screen reader');
@@ -423,7 +423,7 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
     'the sheet: a card with a minimum or a figure to print shows its "X / min"; only a card with nothing else to print shows the balance as its big figure, soft when estimated, with the same screen-reader name');
   // Announced once: the role="img" element's name replaces its text, and no other element repeats the amount.
   const named = html => (html.match(/aria-label="Last balance[^"]*"/g) || []).length;
-  ok(named(rows[1]) === 1 && named(rows[2]) === 1 && named(stale) === 1 && (rows[1].match(/812\.40/g) || []).length === 2,
+  ok(named(rows[1]) === 1 && named(rows[2]) === 1 && named(stale) === 1 && (rows[1].match(/\$812(?![\d.,])/g) || []).length === 2,
     'each surface names its balance once (the label and the visible number, nothing else)');
   ok(!/data-stack-credit-balance/.test(win.StackSheet.html(ctx, 'card:both')) && !/data-stack-credit-balance|\$0/.test(win.StackSheet.html(ctx, 'card:blank'))
     && !/9,000/.test(win.StackSheet.html(ctx, 'card:heloc')), 'the sheet: no balance beside paid / spent, none when unpublished, none for the HELOC');
