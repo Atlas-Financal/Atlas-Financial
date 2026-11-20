@@ -81,7 +81,7 @@ assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'
   const n = buildCardsHTML(ctx(nul)).split('data-stack-card="bills"')[1].split('</details>')[0];
   assert(rowOf(n, 'Hydro').includes('<span class="sc-a">\u2014</span>') && !/[$]0/.test(n), 'an unpublished amount is a dash, never a zero');
 }
-// category rows read spent / planned; markup is escaped
+// category rows read spent of planned; markup is escaped
 assert(card('budget').includes(fmt(123.45)) && card('budget').includes(fmt(400)));
 assert(card('budget').includes('Fun &lt;money&gt;'));
 // closed strips: native <details>, no `open` attribute
@@ -123,11 +123,9 @@ const cur = savingsOf(withSavings({
   totals: { saved: 20.5, needed: null, entitlement: 130.25, completeness: 'pool-level', excluded: ['c'], reasons: ['pool-level', 'planned-incomplete'] } }));
 assert(cur.includes(fmt(20.5) + '<i> of ' + fmt(130.25) + '</i>'), 'current header: numbers only');
 assert(!/moved|this period|entitlement/.test(cur.replace(/<[^>]+>/g, ' ')), 'no word labels around the Savings strip figures');
-assert(cur.includes('<i>still to set aside </i>' + fmt(40)));
-assert(cur.includes('excludes Car &lt;fund&gt;'));
-assert(!cur.includes('sc-mini') && !/Funded/i.test(cur));
-assert(/Car &lt;fund&gt;<\/b><\/span><\/li>/.test(cur), 'withheld needed prints no amount');
-amounts(cur).forEach(a => assert([20.5, 130.25, 40].map(fmt).includes(a), 'unpublished amount ' + a));
+assert(!cur.includes('sc-mini') && !/Funded|excludes|still to set aside|needs/i.test(cur.replace(/<[^>]+>/g, ' ')));
+assert((cur.match(/<span class="sc-a">\u2014<\/span>/g) || []).length === 2, 'no published saved figure: a dash, the net amount is not printed');
+amounts(cur).forEach(a => assert([20.5, 130.25].map(fmt).includes(a), 'unpublished amount ' + a));
 
 // current period, transfer figure withheld: no header figure
 const nt = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers'] }],
@@ -137,7 +135,7 @@ assert(!nt.includes('sc-f'), 'no header figure when the transfer is withheld');
 // future period: planned total in the header, rows "planned this period", never a moved figure or $0
 const fut = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }],
   totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['future-period'] } }));
-assert(fut.includes(fmt(40) + '</span>') && fut.includes(fmt(40) + '<i> planned this period</i>'));
+assert(fut.includes(fmt(40) + '</span>') && fut.includes('<span class="sc-a">' + fmt(40) + '</span>') && !/planned/.test(txt(fut)), 'a future period shows only its planned amount');
 assert(!/moved|\$0/.test(txt(fut)));
 
 // past period: everything null, no amounts
@@ -156,9 +154,9 @@ assert(per.includes('<span class="sc-a">' + fmt(30) + '<i> of ' + fmt(80) + '</i
 assert(per.includes('<span class="sc-a">$0<i> of ' + fmt(20) + '</i></span>') && per.includes('<i style="width:0%">'));
 assert(per.includes(fmt(90) + '<i> of ' + fmt(90)) && per.includes('width:100%'), 'a topped-up goal reads full, not capped differently');
 assert((per.match(/sc-full/g) || []).length === 3, 'bar only on goals with saved');
-assert(per.includes('<i>still to set aside </i>' + fmt(15)), 'no attribution falls back to still to set aside');
+assert(per.includes('<span class="sc-a">\u2014</span>') && !per.includes(fmt(15)), 'no attribution: a dash');
 assert(!per.includes(fmt(50)), 'needed is not printed on a row with its own saved');
-amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 15, 120, 190].map(fmt).includes(a), 'unpublished amount ' + a));
+amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 120, 190].map(fmt).includes(a), 'unpublished amount ' + a));
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
 
 // card colours: every kind's variable is defined in the CSS file
@@ -203,7 +201,7 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   e.stackSummary.bills.trust = 'estimated';
   const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
+  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> of /.test(cardOf('budget')),
     'only the estimated amount (the first row\'s plan) is soft');
   assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
@@ -232,6 +230,17 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
   assert(b.includes('style="width:' + shell.barWidth(200, 400) * 100 + '%"'), 'row bar = barWidth(spent, planned)');
   const zero = JSON.parse(JSON.stringify(view)); zero.householdBudget[0].planned = 0;
   assert(buildCardsHTML(ctx(zero)).split('data-stack-card="budget"')[1].includes('width:0%'), 'no whole: empty bar');
+}
+
+// 2g. no explanatory words anywhere on the cards (owner rule): names, numbers, bars and the check only
+{
+  const all = withSavings({ items: [{ id: 'club', label: 'Club', saved: 30, needed: 50, periodTarget: 80, reasons: ['net-of-period-transfers'] },
+    { id: 'x', label: 'Extra', saved: null, needed: 15, reasons: ['future-period'] }],
+    totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
+  all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
+  all.bills[0].paidState = 'paid'; all.bills[3].paidState = 'paid';
+  const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ');
+  assert(!/needs|set aside|planned|spent|estimated|projected|confirm|excludes|moved|entitlement|paid|period/i.test(visible), 'a word label is visible: ' + visible);
 }
 
 // 3. no money arithmetic in the page code

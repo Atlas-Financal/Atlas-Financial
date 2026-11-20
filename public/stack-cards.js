@@ -146,7 +146,7 @@
       return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
         (p == null ? '' : '<span class="sc-mini"><i style="width:' + fill(c.spent, c.planned) + '%"></i></span>') + '</span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
-          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
+          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> of ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
     return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' of ', null, hhEst, true);
@@ -172,11 +172,6 @@
     var t = sv.totals || {};
     var amt = function (v) { return v; }; // plain numbers or null (A5)
     var has = function (list, code) { return Array.isArray(list) && list.indexOf(code) >= 0; };
-    var labelOf = {};
-    items.forEach(function (i) { if (i.id != null) labelOf[String(i.id)] = i.label; });
-    var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
-      .filter(function (l) { return l; }); // an id with no listed item has no label to print
-    var ex = exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
     // Header: current period, the pool's "moved of entitlement this period" (only when both
     // are published); a next or future period, the planned total with nothing moved; a past
     // period, no amount. A withheld value prints nothing, never $0.
@@ -190,7 +185,6 @@
     } else { head = null; sub = ''; }
     if (head == null && !items.length) return '';
     var headEst = head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null);
-    if (ex) sub = ex;
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);
       var own = s != null; // this goal's own published saved value (current period, nearest due first)
@@ -200,10 +194,11 @@
           '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
           '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + fill(i.saved, i.periodTarget) + '%"></i></span></li>';
       }
-      var word = has(i.reasons, 'net-of-period-transfers') ? 'still to set aside ' : 'needs ';
-      var right = n == null || has(i.reasons, 'past-period') ? ''
-        : has(i.reasons, 'future-period') ? '<span class="sc-a' + estCls(isEst(i.trust)) + '">' + esc(n) + '<i> planned this period</i></span>'
-        : '<span class="sc-a' + estCls(isEst(i.trust)) + '"><i>' + word + '</i>' + esc(n) + '</span>';
+      // No words (owner rule): a future period shows only its planned amount; any other row with no published
+      // saved figure shows a dash (the net still-to-set-aside figure is not printed, so it never reads as the target).
+      var right = has(i.reasons, 'future-period') && n != null
+        ? '<span class="sc-a' + estCls(isEst(i.trust)) + '">' + esc(n) + '</span>'
+        : '<span class="sc-a">' + DASH + '</span>';
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b></span>' + right + '</li>';
     }).join('') + '</ul>';
     return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail, headEst);
