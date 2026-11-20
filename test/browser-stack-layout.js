@@ -293,14 +293,23 @@ const slabInk = (page, amount) => page.evaluate(value => {
       ok(t.bg === 'rgb(12, 13, 16)' && t.scheme === 'dark',
         'dark always: a light device with a stored light theme still gets the dark page', JSON.stringify(t));
       // Refresh: a tap, then the keyboard, each runs the page's one refresh (a forced data load), once.
+      // Each action waits for the forced data request itself (armed before the action), so the count cannot be read
+      // before the refresh has started; it then waits for the page to settle and a beat more, so a second forced
+      // load from the same action would be counted.
+      const forced = () => page.waitForRequest(r => { const u = new URL(r.url()); return u.pathname === '/data.json' && /refresh=force/.test(u.search); },
+        { timeout: 30000 });
+      const settle = async () => {
+        await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+        await page.waitForSelector('#stack-root [data-stack-refresh]');
+        await page.waitForTimeout(300);
+      };
       const before = loads.filter(q => /refresh=force/.test(q)).length;
-      await page.click('#stack-root [data-stack-refresh]');
-      await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
-      await page.waitForSelector('#stack-root [data-stack-refresh]');
+      await Promise.all([forced(), page.click('#stack-root [data-stack-refresh]')]);
+      await settle();
       const afterTap = loads.filter(q => /refresh=force/.test(q)).length;
       await page.focus('#stack-root [data-stack-refresh]');
-      await page.keyboard.press('Enter');
-      await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+      await Promise.all([forced(), page.keyboard.press('Enter')]);
+      await settle();
       const afterKey = loads.filter(q => /refresh=force/.test(q)).length;
       ok(before === 0 && afterTap === 1 && afterKey === 2, 'a tap and the keyboard each run the page\'s refresh once', JSON.stringify({ before, afterTap, afterKey }));
       ok(errors.length === 0, 'no page errors', errors.join('; '));
