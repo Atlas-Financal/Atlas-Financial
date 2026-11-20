@@ -26,7 +26,7 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, width, theme = 'light') {
+async function open(browser, width, theme = 'light', { fontDelayMs = 0 } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce', colorScheme: theme });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -37,7 +37,11 @@ async function open(browser, width, theme = 'light') {
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
-    return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
+    const send = () => route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' })
+      .catch(() => {});
+    // A slow font (a cold phone load): the chips are laid out, then widen when the font arrives.
+    if (fontDelayMs && u.pathname.endsWith('.woff2')) return new Promise(r => setTimeout(r, fontDelayMs)).then(send);
+    return send();
   });
   await page.goto('http://stack.test/?view=stack');
   await page.waitForSelector('#stack-root .wf-slab .n');
@@ -240,6 +244,66 @@ const slabInk = (page, amount) => page.evaluate(value => {
       }
       await page.close();
     }
+    console.log('the timeline: clean edges, and the selected period centred (owner, Dale, 2026-11-20)');
+    {
+      const place = page => page.evaluate(() => {
+        const row = document.querySelector('#stack-root [data-stack-chips]');
+        const chip = row.querySelector('[aria-pressed="true"]');
+        const r = row.getBoundingClientRect(), c = chip.getBoundingClientRect(), cs = getComputedStyle(row);
+        return { key: chip.getAttribute('data-stack-period'), chips: row.children.length,
+          inside: c.left >= r.left + 20 && c.right <= r.right - 20, offCentre: Math.round((c.left + c.width / 2) - (r.left + r.width / 2)),
+          mask: cs.maskImage || cs.webkitMaskImage || '', snap: cs.scrollSnapType, padStart: parseFloat(cs.paddingLeft) };
+      });
+      // Older periods arriving after the first draw (late history): the same views, ten earlier pay periods in front.
+      const lateHistory = page => page.evaluate(() => {
+        const original = Forecast.recommend;
+        Forecast.recommend = function () {
+          const rec = original.apply(this, arguments);
+          const views = rec.payPeriodViews || [], first = views[0];
+          const earlier = [];
+          for (let i = 10; i >= 1; i--) {
+            const start = new Date(first.start + 'T12:00:00Z'); start.setUTCDate(start.getUTCDate() - 14 * i);
+            const end = new Date(start); end.setUTCDate(end.getUTCDate() + 13);
+            earlier.push(Object.assign({}, first, { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), role: 'closed' }));
+          }
+          rec.payPeriodViews = earlier.concat(views);
+          return rec;
+        };
+        App.rerender();
+      });
+      const settle = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+      for (const [label, opts] of [['load', {}], ['slow font', { fontDelayMs: 1500 }]]) {
+        const { page, errors } = await open(browser, 390, 'light', opts);
+        await settle(page);
+        const at = await place(page);
+        ok(at.inside && Math.abs(at.offCentre) <= 4, `${label}: the selected chip is fully in view and centred at 390`, JSON.stringify(at));
+        if (label === 'load') {
+          ok(/linear-gradient\(to right, (transparent|rgba\(0, 0, 0, 0\)), (rgb\(0, 0, 0\)|#000) 24px/.test(at.mask) && at.snap === 'x mandatory' && at.padStart >= 24,
+            'the strip fades over 24px at each end, snaps chips to whole positions, and pads its ends past the fade', JSON.stringify(at));
+          await lateHistory(page); await settle(page);
+          const later = await place(page);
+          ok(later.chips > at.chips && later.key === at.key && later.inside && Math.abs(later.offCentre) <= 4,
+            'older periods arriving later keep the selected chip in view and centred', JSON.stringify(later));
+          // The household scrolls the row themselves: a later re-render keeps the same chip where they left it.
+          await page.mouse.move(200, (await page.$eval('#stack-root [data-stack-chips]', r => r.getBoundingClientRect().top + 20)));
+          await page.mouse.wheel(0, 0);
+          await page.$eval('#stack-root [data-stack-chips]', r => { r.dispatchEvent(new Event('pointerdown')); r.scrollLeft = 0; });
+          await settle(page);
+          const before = await page.evaluate(() => { const row = document.querySelector('#stack-root [data-stack-chips]');
+            const c = row.children[2]; return { key: c.getAttribute('data-stack-period'), x: Math.round(c.getBoundingClientRect().left) }; });
+          await page.evaluate(() => App.rerender()); await settle(page);
+          const after = await page.evaluate(k => { const c = document.querySelector(`#stack-root [data-stack-period="${k}"]`);
+            return Math.round(c.getBoundingClientRect().left); }, before.key);
+          ok(Math.abs(after - before.x) <= 1, 'after the household scrolls, a re-render leaves the same chip where they left it', JSON.stringify({ before, after }));
+          await page.click('#stack-root [data-stack-now]'); await settle(page);
+          const now = await place(page);
+          ok(now.inside && Math.abs(now.offCentre) <= 4, '"Now" brings the current period back to the centre', JSON.stringify(now));
+        }
+        ok(errors.length === 0, 'no page errors', errors.join('; '));
+        await page.close();
+      }
+    }
+
     console.log('the side gutter is the design\'s 16px at phone width (Wallet mock), and the current page is unchanged');
     for (const width of [320, 390, 430, 440]) { // the design's column is 440px wide: wider screens centre it
       const { page, errors } = await open(browser, width);
