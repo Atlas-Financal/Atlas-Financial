@@ -151,8 +151,10 @@
   function cardHtml(reading) {
     const t = reading.totals, view = reading.view;
     // Both sides are Forecast's published totals over exactly the cards whose minimums are due (the HELOC left out), never
-    // added up here: totals.minimumsPaid (paid toward them: $0 when nothing has been paid, soft when a payment is to confirm
-    // or a card has no payment evidence) over totals.minimumsDue. Both are a dash only when the minimums due are withheld.
+    // added up here: totals.minimumsPaid (paid toward them: a published $0 when every due card is observed and none was paid,
+    // soft when a payment is still to confirm) over totals.minimumsDue. A due card Forecast cannot see (a manual card, posted
+    // coverage incomplete, a past period) withholds minimumsPaid, so the paid side is a dash there, never a $0; the minimums
+    // due is a dash when it is withheld.
     // The bar is covered over due, from Forecast's two published counts, so it is full only when every due minimum is covered.
     const mp = t.minimumsPaid && typeof t.minimumsPaid === 'object' ? t.minimumsPaid : null;
     const paidShown = !!mp && num(mp.amount);

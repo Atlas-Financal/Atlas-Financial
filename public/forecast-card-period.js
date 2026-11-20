@@ -455,15 +455,18 @@
     } else {
       totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
         trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
-      // The paid side of the Credit head, over exactly the cards in minimumsDue (Dale, 2026-11-20: "$0 / owed if nothing has
-      // been paid"): each due card's published paid, uncapped (an overpaid card counts its full paid, like its own row), $0 when
-      // nothing has been paid. A card whose paid is withheld (a manual card, no ledger, an unconfirmed credit) has no payment
-      // evidence either way: it counts $0 and the figure reads estimated, so it is soft, never a dash. A payment still to
-      // confirm is that card's estimated paid, so it softens the figure too. HELOC is not a spend card and is not here.
-      const paidReasons = [...new Set(dueLines.filter(line => line.paid.amount === null).flatMap(line => ['paid-unavailable-counted-as-zero'].concat(line.paid.reasons)))];
-      totals.minimumsPaid = { amount: dueLines.reduce((sum, line) => sum + (line.paid.amount === null ? 0 : cents(line.paid.amount)), 0) / 100,
-        trust: dueLines.length ? weakest(...dueLines.map(line => line.paid.amount === null ? 'estimated' : line.paid.trust)) : splitTrust,
-        reasons: paidReasons };
+      // The paid side of the Credit head, over exactly the cards in minimumsDue (Dale, 2026-11-20: "$0 / owed if nothing has been
+      // paid"). Each due card's published paid, uncapped (an overpaid card counts its full paid, like its own row). It is a
+      // published $0 only when every due card has observable payment evidence for the period and none was paid ("nothing paid").
+      // A due card whose paid is withheld (a manual card, posted coverage incomplete, a past period with no coverage) is "cannot
+      // see", never $0: the figure is withheld (null, unavailable) with its reasons, so the page shows the dash (the card-figure
+      // rule: a gap makes the figure null with its reasons, never 0). A payment still to confirm on an observed card is that
+      // card's estimated paid: the number shows and the figure reads estimated. HELOC is not a spend card and is not here.
+      const unseen = dueLines.filter(line => line.paid.amount === null);
+      totals.minimumsPaid = unseen.length
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set(['paid-unavailable'].concat(unseen.flatMap(line => line.paid.reasons)))] }
+        : { amount: dueLines.reduce((sum, line) => sum + cents(line.paid.amount), 0) / 100,
+          trust: dueLines.length ? weakest(...dueLines.map(line => line.paid.trust)) : splitTrust, reasons: [] };
       totals.minimumsDueCount = dueLines.length;
       totals.minimumsCoveredCount = dueLines.filter(coveredOn).length;
       totals.minimumsCoveredTrust = dueLines.length

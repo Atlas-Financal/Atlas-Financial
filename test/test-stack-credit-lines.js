@@ -326,35 +326,66 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
 
 console.log('12. minimums paid: the paid side of the Credit head, over exactly the cards whose minimums are due (Dale, 2026-11-20)');
 {
+  // "Nothing paid" is not "cannot see" (the in-house reviewer on #1492; ARCHITECTURE.md's card-figure rule: a gap makes the figure
+  // null with its reasons, never 0). minimumsPaid is a published number only when EVERY due card's paid is published.
   const x = fx.fixture();
-  const mp = bills => totals(x, bills).minimumsPaid;
+  const mp = (bills, world = x) => totals(world, bills).minimumsPaid;
   const due = cm => ({ cardMinimums: cm, trust: 'calculated' });
-  // By hand, on the invented card week: Travel paid 100, Cash Back paid 250 (both payments unreconciled, so estimated), the
-  // Emerald card (id tdcc) paid 0 with a calculated, empty week, Triangle and Amazon: paid unavailable (no ledger).
+  // By hand, on the invented card week: Travel paid 100 and Cash Back paid 250 (both payments unreconciled, so estimated), the Emerald
+  // card (id tdcc) paid 0 on a calculated, empty week; Triangle and Amazon are manual cards with no card ledger (paid unavailable).
   const both = mp(split);
   ok(both.amount === 350 && both.trust === 'estimated' && same(both.reasons, []),
-    'Travel (25 due) and Cash Back (300 due): 100 + 250 = 350 paid toward them, soft because the payments are unreconciled', JSON.stringify(both));
+    'Travel (25 due) and Cash Back (300 due), both observed: 100 + 250 = 350 paid toward them, soft because the payments are unreconciled (the number shows)', JSON.stringify(both));
   ok(mp(due([{ debtId: 'travelvisa', amount: 25 }])).amount === 100,
     'an overpaid card counts its full paid, uncapped: Travel paid 100 against a 25 minimum reads 100, like its own row');
   const nothing = mp(due([{ debtId: 'tdcc', amount: 40 }]));
   ok(nothing.amount === 0 && nothing.trust === 'calculated' && same(nothing.reasons, []) && totals(x, due([{ debtId: 'tdcc', amount: 40 }])).minimumsDue.amount === 40,
-    'nothing paid toward a due card: $0 over its 40, a published zero (never a dash), calculated', JSON.stringify(nothing));
-  const noEvidence = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }]));
-  ok(noEvidence.amount === 100 && noEvidence.trust === 'estimated' && noEvidence.reasons.includes('paid-unavailable-counted-as-zero'),
-    'a due card with no payment evidence (Triangle) counts $0 and keeps the figure soft: 100 + 0 over 425', JSON.stringify(noEvidence));
-  const onlyNoEvidence = mp(due([{ debtId: 'triangle', amount: 400 }]));
-  ok(onlyNoEvidence.amount === 0 && onlyNoEvidence.trust === 'estimated',
-    'only a no-evidence card is due: $0 in the soft (estimated) style, not a dash', JSON.stringify(onlyNoEvidence));
+    'nothing paid on an observed due card: a published $0 over its 40, calculated', JSON.stringify(nothing));
+  // Every card observed (sync proven): Triangle and Amazon have a calculated week with no payment: nothing paid, observably.
+  const seen = fx.fixture(); seen.packet.syncEvidence.forEach(r => { r.syncEvidence = 'proven'; r.fields.last_fetch = true; });
+  const seenNothing = mp(due([{ debtId: 'triangle', amount: 40 }, { debtId: 'mbna', amount: 10 }]), seen);
+  ok(seenNothing.amount === 0 && seenNothing.trust === 'calculated' && same(seenNothing.reasons, []),
+    'every due card observed and none paid (Triangle 40, Amazon 10, sync proven): $0 over 50, calculated', JSON.stringify(seenNothing));
+  const seenMixed = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 40 }]), seen);
+  ok(seenMixed.amount === 100 && seenMixed.trust === 'estimated' && same(seenMixed.reasons, []),
+    'a payment still to confirm on an observed card stays soft with the number shown: Travel 100 + Triangle 0, estimated', JSON.stringify(seenMixed));
+  // Cannot see: a manual card (no ledger), coverage incomplete, a past period, a failed sync. Never $0.
+  const manual = mp(due([{ debtId: 'triangle', amount: 400 }]));
+  ok(manual.amount === null && manual.trust === 'unavailable' && manual.reasons.includes('paid-unavailable')
+    && manual.reasons.includes('account-transaction-evidence-unavailable'),
+  'a manual card alone (Triangle, no card ledger): withheld with its reasons, never $0', JSON.stringify(manual));
+  const withUnseen = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }]));
+  ok(withUnseen.amount === null && withUnseen.trust === 'unavailable' && withUnseen.reasons.includes('paid-unavailable'),
+    'one due card cannot be seen (Triangle) while another is (Travel paid 100): the whole figure is withheld, not 100', JSON.stringify(withUnseen));
+  const past = fx.fixture(); past.window = F.spendingCycle(past.plan, '2026-07-20');
+  const pastMp = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }]), past);
+  ok(F.stackCreditLines(publish(past), split).lines.every(l => l.status !== 'upcoming') && pastMp.amount === null && pastMp.trust === 'unavailable'
+    && pastMp.reasons.includes('posted-coverage-incomplete'),
+  'a past period with no posted coverage: withheld with posted-coverage-incomplete, never $0', JSON.stringify(pastMp));
+  const failed = fx.fixture(); failed.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
+  ok(mp(due([{ debtId: 'travelvisa', amount: 25 }]), failed).amount === null, 'a failed sync: withheld, never $0');
   const helocOnly = mp(due([{ debtId: 'heloc', amount: 50 }]));
   ok(helocOnly.amount === 0 && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 0,
-    'the HELOC is in neither side: only its minimum is due, so 0 over 0');
-  const paidNotDue = mp(due([{ debtId: 'tdcc', amount: 40 }, { debtId: 'travelvisa', amount: 0 }]));
-  ok(paidNotDue.amount === 0, 'a card with a $0 minimum is not due, so what it was paid is not counted (Travel\'s 100 is out)', JSON.stringify(paidNotDue));
+    'the HELOC is in neither side: only its minimum is due, so nothing is due and nothing is unseen: 0 over 0');
+  const zeroMin = mp(due([{ debtId: 'tdcc', amount: 40 }, { debtId: 'triangle', amount: 0 }]));
+  ok(zeroMin.amount === 0 && zeroMin.trust === 'calculated', 'a card with a $0 minimum is not due, so an unseen $0-minimum card does not withhold the figure', JSON.stringify(zeroMin));
   const off = mp(null);
   ok(off.amount === null && off.trust === 'unavailable' && off.reasons.length > 0,
-    'the minimums due withheld: the paid side is withheld with them (the only dash)', JSON.stringify(off));
+    'the minimums due withheld: the paid side is withheld with them', JSON.stringify(off));
   ok(totals(x, due([{ debtId: 'travelvisa', amount: 25 }])).paid === 350 && mp(due([{ debtId: 'travelvisa', amount: 25 }])).amount === 100,
     'minimumsPaid is not totals.paid: with only Travel due, all payments to the stated cards are 350 and the paid toward the due card is 100');
+  // MUTANTS: the earlier version counted an unseen card as $0 (soft). That must be caught by the cases above.
+  const Module = require('module'), fs = require('node:fs'), pathMod = require('node:path');
+  const file = require.resolve('../public/forecast-card-period.js');
+  const src = fs.readFileSync(file, 'utf8');
+  const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
+  const unseenLine = "const unseen = dueLines.filter(line => line.paid.amount === null);";
+  ok(src.includes(unseenLine), 'the mutant targets the unseen-card guard');
+  const asZero = load(src.replace(unseenLine, 'const unseen = [];'));
+  const mutated = asZero.stackCreditLines(publish(x), due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }])).totals.minimumsPaid;
+  ok(mutated.amount === 100, 'MUTANT: counting an unseen card as $0 reads 100 for the Travel + Triangle case, which the withheld check above rejects');
+  const mutatedPast = asZero.stackCreditLines(publish(past), due([{ debtId: 'travelvisa', amount: 25 }])).totals.minimumsPaid;
+  ok(mutatedPast.amount === 0, 'MUTANT: counting an unseen card as $0 turns a past period with no coverage into a $0, which the past-period check above rejects');
 }
 
 console.log(`\nAll stack credit line checks passed (${checks}).`);

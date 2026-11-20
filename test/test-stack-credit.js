@@ -225,9 +225,12 @@ console.log('2b. the head: paid / card minimums due from Forecast\'s totals, a b
   const zero = headOf(undefined, { ...probe, minimumsPaid: { amount: 0, trust: 'calculated', reasons: [] } });
   ok(text(zero).startsWith('Credit paid / card minimums due $0 / $470 Blue Visa') && !/\u2014 \//.test(text(zero).slice(0, 50)),
     'nothing paid toward the due minimums: "$0 / $470", never a dash');
-  const soft0 = headOf(undefined, { ...probe, minimumsPaid: { amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'] } });
-  ok(text(soft0).startsWith('Credit paid / card minimums due $0 / $470') && /<span class="[^"]*stack-est[^"]*">\$0<\/span>/.test(soft0),
-    'a due card with no payment evidence: "$0 / $470" with the $0 drawn soft, not a dash');
+  const soft120 = headOf(undefined, { ...probe, minimumsPaid: { amount: 120, trust: 'estimated', reasons: [] } });
+  ok(text(soft120).startsWith('Credit paid / card minimums due $120 / $470') && /<span class="[^"]*stack-est[^"]*">\$120<\/span>/.test(soft120),
+    'a payment still to confirm on an observed card: the number shows ("$120 / $470"), drawn soft');
+  const cannotSee = headOf(undefined, { ...probe, minimumsPaid: { amount: null, trust: 'unavailable', reasons: ['paid-unavailable', 'account-transaction-evidence-unavailable'] } });
+  ok(text(cannotSee).startsWith('Credit paid / card minimums due — / $470 Blue Visa') && !/\$0/.test(text(cannotSee).slice(0, 50)),
+    'a due card Forecast cannot see (manual card, incomplete coverage, past period): a dash over the published minimums, never a $0');
   const overpaid = headOf(undefined, { ...probe, minimumsPaid: { amount: 900, trust: 'calculated', reasons: [] } });
   ok(text(overpaid).startsWith('Credit paid / card minimums due $900 / $470'), 'an overpaid total prints its full published paid (uncapped)');
   const legacy = headOf(undefined, (({ minimumsPaid, ...rest }) => rest)(probe));
