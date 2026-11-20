@@ -124,12 +124,13 @@
     const minEst = minimumEst(view, line);
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${ok ? ` is-on${okEst}" ${paidBackName(okEst)}` : '"'}>${TICK}</span>`
-      + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
-      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status && status.text ? stat : ''}">${status ? esc(status.text) : ''}</span></span>`
+      + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b></span>`
       + (sub ? `<small class="stack-credit-sub-line${figs}">${esc(sub)}</small>` : '')
       + (balanceShown(line) ? `<small class="stack-credit-bal stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${esc(money(amountOf(line.balance)))}</small>` : '')
       + (heloc ? '' : bar(amountOf(line.paid), amountOf(line.spent), 'stack-credit-minibar' + figs))
       + (min ? `<small class="stack-credit-min${minEst}">${esc(min)}</small>` : '') + '</span>'
+      // The status sits on the right, centred on the row, as in the design.
+      + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status && status.text ? stat : ''}">${status ? esc(status.text) : ''}</span>`
       + `${CHEV}</button></li>`;
   }
 

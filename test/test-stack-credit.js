@@ -115,7 +115,7 @@ console.log('2. closed card totals');
   // Partial (owner, 2026-11-20): no total and no bar, the same as none, whether or not it names the cards it leaves out.
   const partial = card(TOTALS.partial), partialNone = card(TOTALS.partialNone), none = card(TOTALS.none);
   for (const [label, c] of [['partial', partial], ['partial naming none', partialNone], ["'none'", none]]) {
-    ok(!/data-stack-credit-total|stack-credit-bar|excludes|\$660/.test(c.html) && text(c.html).startsWith('Credit Blue Visa Paid back Paid back $400 of $400'),
+    ok(!/data-stack-credit-total|stack-credit-bar|excludes|\$660/.test(c.html) && text(c.html).startsWith('Credit Blue Visa Paid back $400 of $400'),
       `${label}: no total, no bar and no excludes line; the per-card lines still show`, text(c.html).slice(0, 60));
   }
   ok(!/Line of credit/.test(text(partial.html).split('Blue Visa')[0]), 'HELOC is not named in the closed totals line');
@@ -135,8 +135,8 @@ console.log('3. open rows');
   const html = card(TOTALS.complete).html;
   const rows = html.split('<li>').slice(1).map(text);
   ok(rows.length === 4, 'one row per published line', String(rows.length));
-  ok(rows[0] === 'Blue Visa Paid back Paid back $400 of $400 Minimum $25 covered ✓', 'paid-back row: "Paid back" on the right, the design\'s second line and the covered minimum; the tick is filled', rows[0]);
-  ok(rows[1] === 'Green Card $160 to go Paid back $100 of $260 Minimum $30 not yet', 'to-go row: the coral "$160 to go", the second line, and "not yet" when the minimum is not covered', rows[1]);
+  ok(rows[0] === 'Blue Visa Paid back $400 of $400 Minimum $25 covered ✓ Paid back', 'paid-back row: "Paid back" on the right, the design\'s second line and the covered minimum; the tick is filled', rows[0]);
+  ok(rows[1] === 'Green Card Paid back $100 of $260 Minimum $30 not yet $160 to go', 'to-go row: the coral "$160 to go", the second line, and "not yet" when the minimum is not covered', rows[1]);
   ok(/stack-credit-status stack-n is-togo stack-est">\$160 to go<|stack-credit-status stack-n is-togo">\$160 to go</.test(html), 'the remaining amount carries the coral class');
   ok(rows[2] === 'Red Card Nothing spent yet Minimum $15', "upcoming row: 'Nothing spent yet'; a published minimum prints even when its check is 'unknown', with no coverage word", rows[2]);
   ok(rows[3] === 'Line of credit Minimum $210 covered ✓', 'HELOC: its minimum only', rows[3]);
@@ -248,7 +248,7 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
   const el = container();
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
-  ok(text(rows[0]) === 'Both Card $160 to go Paid back $100 of $260 Minimum $30 not yet' && !/1,234|data-stack-credit-balance/.test(rows[0]),
+  ok(text(rows[0]) === 'Both Card Paid back $100 of $260 Minimum $30 not yet $160 to go' && !/1,234|data-stack-credit-balance/.test(rows[0]),
     'paid and spent published: "Paid back $A of $B", and no balance');
   ok(text(rows[1]) === 'Fresh Card $812.40 Minimum $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40</.test(rows[1]),
     'no paid / spent: the last balance, plain when calculated', text(rows[1]));
