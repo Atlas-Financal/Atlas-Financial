@@ -12865,7 +12865,8 @@
   //                    amount not posted) or 'none'. A page shows the paid check
   //                    only for 'posted-equal' (lead ruling on #1465).
   //   stackBillAmountTrust  the counted amount's own trust: the posted payment's
-  //                    for 'posted-equal', otherwise the plan's (billScheduleDisplayTrust)
+  //                    for 'posted-equal', otherwise the plan's (billScheduleDisplayTrust);
+  //                    absent when that has no word (never defaulted to calculated)
   const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
   function stackBillPaymentEvidence(row, cents) {
     if (row.displayAmountBasis === 'posted-actual' && typeof row.actual === 'number' && Number.isFinite(row.actual)) {
@@ -12887,7 +12888,8 @@
       const evidence = stackBillPaymentEvidence(mark.row, mark.cents);
       mark.row.stackBillPaymentEvidence = evidence;
       const trust = evidence === 'posted-equal' ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
-      mark.row.stackBillAmountTrust = trust == null ? 'calculated' : trust;
+      // Never more certain than the row's own word: no word stays no word.
+      if (trust != null) mark.row.stackBillAmountTrust = trust;
     }
   }
   function stackBills(view) {

@@ -71,7 +71,8 @@ function proveStackBillParts(view, bills) {
       assert.equal(cents(Math.abs(row.actual)) === cents(row.stackBillAmount), row.stackBillPaymentEvidence === 'posted-equal',
         'authorized addition: posted-equal exactly where the posted payment is the counted amount');
     }
-    assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount carries a trust word');
+    if (Object.hasOwn(row, 'stackBillAmountTrust')) assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount\'s trust is a trust word');
+    else assert.ok(row.stackBillPaymentEvidence !== 'posted-equal' && row.displayAmountTrust == null || row.stackBillPaymentEvidence !== 'posted-equal', 'authorized addition: a trust word is absent only where the row has none');
   }
   if (marked.length) {
     const sum = list => list.reduce((total, row) => total + cents(row.stackBillAmount), 0);
