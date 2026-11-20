@@ -240,6 +240,34 @@ const slabInk = (page, amount) => page.evaluate(value => {
       }
       await page.close();
     }
+    console.log('the side gutter is the design\'s 16px at phone width (Wallet mock), and the current page is unchanged');
+    for (const width of [320, 390, 430, 440]) { // the design's column is 440px wide: wider screens centre it
+      const { page, errors } = await open(browser, width);
+      const edges = await page.evaluate(() => ['[data-stack-block="timeline"]', '.stack-wf-block', '[data-stack-card="bills"]', '[data-stack-credit]']
+        .map(sel => { const el = document.querySelector('#stack-root ' + sel); if (!el) return { sel, missing: true };
+          const r = el.getBoundingClientRect(); return { sel, left: Math.round(r.left), right: Math.round(innerWidth - r.right) }; }));
+      ok(edges.every(e => !e.missing && e.left === 16 && e.right === 16), `${width}: every block sits 16px from each edge`, JSON.stringify(edges));
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      await page.close();
+    }
+    {
+      const page = await browser.newPage({ viewport: { width: 390, height: 900 }, reducedMotion: 'reduce' });
+      await page.route('**/*', route => {
+        const u = new URL(route.request().url());
+        if (u.origin !== 'http://stack.test') return route.abort();
+        if (u.pathname === '/data.json') return route.fulfill({ json: fx.served() });
+        if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
+        const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
+        if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
+        return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
+      });
+      await page.goto('http://stack.test/?view=classic');
+      await page.waitForSelector('.wrap');
+      await page.waitForTimeout(500);
+      const pad = await page.evaluate(() => [getComputedStyle(document.querySelector('.wrap')).paddingLeft, document.documentElement.classList.contains('stack-view')]);
+      ok(pad[1] === false && pad[0] !== '0px', 'the current page (?view=classic) keeps its own .wrap padding', JSON.stringify(pad));
+      await page.close();
+    }
   } finally {
     await browser.close();
   }
