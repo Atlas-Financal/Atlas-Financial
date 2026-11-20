@@ -12859,18 +12859,27 @@
   //   stackBillDebtId  a card minimum's credit line (stackSummary.bills.cardMinimums[].debtId)
   //   stackBillPaymentEvidence  what the ledger shows for this occurrence's
   //                    payment: 'posted-equal' (a posted payment of exactly the
-  //                    counted amount), 'posted-differs' (a posted payment of
+  //                    planned and counted amount), 'posted-differs' (a posted payment of
   //                    another amount: the plan stands until Grok Bot verifies
   //                    it, owner Dale 2026-11-20), 'pending' (seen paid, its
   //                    amount not posted) or 'none'. A page shows the paid check
-  //                    only for 'posted-equal' (lead ruling on #1465).
+  //                    only for 'posted-equal' (owner, Dale, on #1465 7046237901).
   //   stackBillAmountTrust  the counted amount's own trust: the posted payment's
   //                    for 'posted-equal', otherwise the plan's (billScheduleDisplayTrust);
   //                    absent when that has no word (never defaulted to calculated)
   const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
+  // The planned amount, to the cent (the plan billAssignedAmount starts from), or null.
+  function stackBillPlannedCents(row) {
+    const plan = row.planned != null && isFinite(Number(row.planned)) ? row.planned
+      : row.amount != null && isFinite(Number(row.amount)) ? row.amount : null;
+    return plan == null ? null : Math.round(Math.abs(Number(plan)) * 100);
+  }
+  // 'posted-equal' needs the posted payment to equal the PLANNED amount and the counted one (owner, Dale
+  // 2026-11-20 on #1465, 7046237901): an overpayment the count already took up is still 'posted-differs'.
   function stackBillPaymentEvidence(row, cents) {
     if (row.displayAmountBasis === 'posted-actual' && typeof row.actual === 'number' && Number.isFinite(row.actual)) {
-      return Math.round(Math.abs(row.actual) * 100) === cents ? 'posted-equal' : 'posted-differs';
+      const posted = Math.round(Math.abs(row.actual) * 100);
+      return posted === cents && posted === stackBillPlannedCents(row) ? 'posted-equal' : 'posted-differs';
     }
     return billPaidState(row) === 'paid' ? 'pending' : 'none';
   }

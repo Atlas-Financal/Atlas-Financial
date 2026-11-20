@@ -152,11 +152,11 @@ console.log('3b. The check is a confirmed payment only; otherwise no check and t
 // need an in between"; a pending payment is up to Grok Bot, who verifies posted rows only. So only a posted payment exactly
 // the counted amount gets the check ("Paid $X"); pending, differing or unmatched show no check and "Planned $X".
 const H = require('./acceptance/harness.js');
-function hydroWorld(Forecast, octoberPending) {
+function hydroWorld(Forecast, octoberPending, octoberOverpaid) {
   const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
   const pay = (date, amount, extra = {}) => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro', ...extra });
   const w = H.baseWorld(); w.bills = [HYDRO];
-  w.transactions = [pay('2026-08-12', 120), pay('2026-09-12', 90), octoberPending ? pay('2026-10-12', 90, { pending: true }) : pay('2026-10-12', 40)];
+  w.transactions = [pay('2026-08-12', 120), pay('2026-09-12', 90), octoberPending ? pay('2026-10-12', 90, { pending: true }) : pay('2026-10-12', octoberOverpaid ? 120 : 40)];
   const o = H.observe(w); if (o.error) throw o.error;
   return Forecast.recommend(o.plan, w.asOf, { currentPeriodActuals: o.packet });
 }
@@ -191,6 +191,11 @@ function hydroCards(rec, render = cardHtml) {
   const p = hydroCards(hydroWorld(F, true))['2026-10-12'];
   ok(p && p.evidence === 'pending' && p.paidState === 'paid' && p.check === false && p.name === 'Planned $90',
     'a pending matched payment: no check, the planned amount', JSON.stringify(p));
+  // Owner (7046237901): a posted overpayment is compared with the PLAN, not the count that already took it up:
+  // plan 90, posted 120, counted 120 is 'posted-differs', no check, until Grok Bot verifies it.
+  const over = hydroCards(hydroWorld(F, false, true))['2026-10-12'];
+  ok(over && over.evidence === 'posted-differs' && over.check === false,
+    'a posted overpayment (plan 90, posted 120): no check, though the count took the 120 up', JSON.stringify(over && { e: over.evidence, shown: over.shown, check: over.check }));
   // No matched payment: no check.
   const n = hydroCards(hydroWorld(F, false))['2026-11-12'] || hydroCards(hydroWorld(F, false))[Object.keys(hydroCards(hydroWorld(F, false))).pop()];
   ok(n && n.evidence === 'none' && n.check === false && n.name === 'Planned $90', 'no matched payment: the plan, no check', JSON.stringify(n));
@@ -222,8 +227,11 @@ console.log('4. Mutants are caught');
 
 {
   // The marker calls a differing posted payment equal: the plan would be named as the payment.
-  const allEqual = compile(replaceOnce(SOURCE, "      return Math.round(Math.abs(row.actual) * 100) === cents ? 'posted-equal' : 'posted-differs';", "      return 'posted-equal';", 'all equal'), 'all-equal');
+  const allEqual = compile(replaceOnce(SOURCE, "      return posted === cents && posted === stackBillPlannedCents(row) ? 'posted-equal' : 'posted-differs';", "      return 'posted-equal';", 'all equal'), 'all-equal');
   ok(hydroCards(hydroWorld(allEqual, false))['2026-10-12'].check === true, 'calling a differing payment equal is caught (the plan gets a check)');
+  // The marker compares with the counted amount only: an overpayment the count took up gets the check.
+  const countedOnly = compile(replaceOnce(SOURCE, "posted === cents && posted === stackBillPlannedCents(row) ?", "posted === cents ?", 'counted only'), 'counted-only');
+  ok(hydroCards(hydroWorld(countedOnly, false, true))['2026-10-12'].check === true, 'comparing with the counted amount only is caught (an overpayment gets the check)');
   // The page checks every matched payment: the pending and differing rows gain a check.
   const file = path.join(__dirname, '..', 'public', 'stack-cards.js');
   const allCheck = replaceOnce(fs.readFileSync(file, 'utf8'), "'<span class=\"sc-ck\">' + (exact ?", "'<span class=\"sc-ck\">' + (r.stackBillPaymentEvidence !== 'none' ?", 'all check');

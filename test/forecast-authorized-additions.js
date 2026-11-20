@@ -68,8 +68,10 @@ function proveStackBillParts(view, bills) {
     assert.ok(STACK_BILL_EVIDENCE.has(row.stackBillPaymentEvidence), 'authorized addition: a marked row names its payment evidence');
     if (row.stackBillPaymentEvidence === 'posted-equal' || row.stackBillPaymentEvidence === 'posted-differs') {
       assert.equal(row.displayAmountBasis, 'posted-actual', 'authorized addition: posted evidence only on a posted payment');
-      assert.equal(cents(Math.abs(row.actual)) === cents(row.stackBillAmount), row.stackBillPaymentEvidence === 'posted-equal',
-        'authorized addition: posted-equal exactly where the posted payment is the counted amount');
+      const plan = row.planned != null && Number.isFinite(Number(row.planned)) ? Number(row.planned) : Number(row.amount);
+      const posted = cents(Math.abs(row.actual));
+      assert.equal(posted === cents(row.stackBillAmount) && posted === cents(Math.abs(plan)), row.stackBillPaymentEvidence === 'posted-equal',
+        'authorized addition: posted-equal exactly where the posted payment is both the planned and the counted amount');
     }
     if (Object.hasOwn(row, 'stackBillAmountTrust')) assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount\'s trust is a trust word');
   }
