@@ -159,10 +159,31 @@
     return null;
   }
 
+  // While a sheet is open the page behind it must not scroll (iOS Safari scrolls the body through overflow:hidden). The
+  // lock is position:fixed on the body at top:-scrollY (stack-sheet.css, html.stack-sheet-open), and the position is
+  // restored on close. Every way a sheet goes away (close, Escape, a re-render) goes through unlock().
+  let lockY = null;
+  function lock() {
+    if (lockY !== null) return;
+    const root = document.documentElement;
+    lockY = window.pageYOffset || root.scrollTop || 0;
+    root.style.setProperty('--stack-lock-top', '-' + lockY + 'px');
+    root.classList.add('stack-sheet-open');
+  }
+  function unlock() {
+    if (lockY === null) return;
+    const root = document.documentElement, y = lockY;
+    lockY = null;
+    root.classList.remove('stack-sheet-open');
+    root.style.removeProperty('--stack-lock-top');
+    try { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); } catch (e) { window.scrollTo(0, y); }
+  }
+
   function open(key, from) {
     const item = container && find(key);
     if (!item || !item.html) return;
     lastRow = from || null;
+    lock();
     container.innerHTML = `<div class="stack-sheet-scrim" data-stack-sheet-scrim><div class="stack-sheet" data-kind="${esc(item.kind)}"`
       + ` role="dialog" aria-modal="true" aria-labelledby="stack-sheet-title">${item.html}</div></div>`;
     const button = container.querySelector('[data-stack-sheet-close]');
@@ -171,6 +192,7 @@
   function close() {
     if (!container || !container.firstChild) return;
     container.innerHTML = '';
+    unlock();
     if (lastRow && lastRow.isConnected) lastRow.focus({ preventScroll: true });
     lastRow = null;
   }
@@ -199,6 +221,7 @@
     ctx = context;
     // A re-render (a new period or new data) closes an open sheet: its item may no longer be the selected one.
     container.innerHTML = '';
+    unlock();
     wire();
   });
 })();

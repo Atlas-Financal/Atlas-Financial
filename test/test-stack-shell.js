@@ -175,4 +175,19 @@ console.log('7. The one money format: whole dollars, printed by StackBlocks.mone
   ok(JSON.stringify(cuts) === JSON.stringify(['sheet']), 'only the sheet asks for cents, once (its transaction lines)', cuts.join(', '));
 }
 
+console.log('8. a sheet holds the page still (the browser proof is test/browser-stack-sheet-scroll.js, local; iOS Safari bug, owner phone, 2026-11-20)');
+{
+  const css = read('public/stack-sheet.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const js = read('public/stack-sheet.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok(/html\.stack-view\.stack-sheet-open body \{[^}]*position: fixed[^}]*top: var\(--stack-lock-top, 0\)/.test(css),
+    'while a sheet is open the body is position:fixed at top:-scrollY (overflow:hidden alone does not hold the page on iOS Safari)');
+  ok(/\.stack-sheet \{[^}]*max-height: 90vh; max-height: 90dvh; overflow-y: auto; overscroll-behavior: contain;[^}]*-webkit-overflow-scrolling: touch/.test(css),
+    'the sheet is capped at 90dvh (90vh where dvh is unknown) and scrolls inside itself, contained, with momentum');
+  ok(/lockY = window\.pageYOffset/.test(js) && /classList\.add\('stack-sheet-open'\)/.test(js) && /classList\.remove\('stack-sheet-open'\)/.test(js)
+    && /window\.scrollTo\(/.test(js), 'the sheet locks on open, and unlock restores the scroll position');
+  const unlocks = js.split('unlock();').length - 1;
+  ok(unlocks >= 2 && /function close\(\) \{[^}]*unlock\(\);/.test(js) && /container\.innerHTML = '';\s*unlock\(\);\s*wire\(\);/.test(js),
+    'every way a sheet goes away unlocks the page: close() (button, scrim, Escape) and a re-render');
+}
+
 console.log(`\nPASS Stack shell static checks (${checks})`);
