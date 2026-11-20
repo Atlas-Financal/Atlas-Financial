@@ -62,6 +62,18 @@
       };
     },
   };
+  // The selected period's range (the header and the sheets' kicker read the same label).
+  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  function rangeLabel(view) {
+    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
+    if (!ok(view.start)) return '';
+    const a = new Date(`${view.start}T12:00:00Z`);
+    if (!ok(view.end)) return rangeDate.format(a);
+    const b = new Date(`${view.end}T12:00:00Z`);
+    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
+      ? String(b.getUTCDate()) : rangeDate.format(b));
+  }
+  StackBlocks.rangeLabel = rangeLabel; // the sheets' kicker reads the same range
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
 
@@ -133,17 +145,6 @@
       + `<div class="stack-chips" data-stack-chips>${chips}</div>`;
   }
 
-  // The selected period's range, plus the design's period chip.
-  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  function rangeLabel(view) {
-    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
-    if (!ok(view.start)) return '';
-    const a = new Date(`${view.start}T12:00:00Z`);
-    if (!ok(view.end)) return rangeDate.format(a);
-    const b = new Date(`${view.end}T12:00:00Z`);
-    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
-      ? String(b.getUTCDate()) : rangeDate.format(b));
-  }
   // The design's period chip (owner, Dale, 2026-11-20: "Follow the design"): "This pay period" on the current period,
   // "Last pay period" on the one before it, "Past" on earlier ones. A future period shows no chip (owner: no
   // "Projected" word). The order is Forecast's own list of periods; nothing is inferred from dates here.

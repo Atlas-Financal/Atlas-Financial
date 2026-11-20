@@ -22,7 +22,9 @@ html.stack-view .stack-sheet .stack-sheet-close {
   width: 36px; height: 36px; flex: none; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
   background: var(--stack-on); color: var(--k);
 }
-html.stack-view .stack-sheet-big { margin: 14px 0 10px; font-size: 56px; font-weight: 800; letter-spacing: -.035em; line-height: 1.05; }
+html.stack-view .stack-sheet-big { margin: 14px 0 10px; font-size: 64px; font-weight: 800; letter-spacing: -.035em; line-height: 1.05; }
+/* The global `svg { width: 100% }` would stretch the close mark to the circle's width. */
+html.stack-view .stack-sheet .stack-sheet-close svg { width: 14px; height: 14px; }
 html.stack-view .stack-sheet-big[data-stack-credit-balance] { font-style: italic; }
 html.stack-view .stack-sheet-big i { font-style: normal; font-size: .45em; font-weight: 600; color: var(--stack-on2); letter-spacing: -.02em; }
 html.stack-view .stack-sheet-togo { display: inline-block; font-size: 22px; font-weight: 800; letter-spacing: -.02em; color: var(--stack-togo, #c8372d); }
