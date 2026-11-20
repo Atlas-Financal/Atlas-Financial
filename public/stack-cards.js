@@ -149,7 +149,7 @@
           + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
-    return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', null, null, hhEst, true);
+    return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' of ', null, hhEst, true);
   }
 
   function mortgageCard(view) {
@@ -183,10 +183,10 @@
     var moved = money(t.saved), entitlement = money(t.entitlement), planned = money(t.needed);
     var head, headOf = null, sub, tail = null, sep = null, width = 0;
     if (moved != null && entitlement != null) {
-      head = moved; headOf = entitlement; sep = ' moved of '; tail = ' this period'; sub = '';
+      head = moved; headOf = entitlement; sep = ' of '; sub = '';
       width = fill(t.saved, t.entitlement);
     } else if (has(t.reasons, 'future-period') && planned != null) {
-      head = planned; sub = 'planned this period';
+      head = planned; sub = '';
     } else { head = null; sub = ''; }
     if (head == null && !items.length) return '';
     var headEst = head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null);

@@ -121,7 +121,8 @@ const cur = savingsOf(withSavings({
   items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] },
     { id: 'c', label: 'Car <fund>', saved: null, needed: null, reasons: ['planned-unavailable'] }],
   totals: { saved: 20.5, needed: null, entitlement: 130.25, completeness: 'pool-level', excluded: ['c'], reasons: ['pool-level', 'planned-incomplete'] } }));
-assert(cur.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' this period</i>'), 'current header');
+assert(cur.includes(fmt(20.5) + '<i> of ' + fmt(130.25) + '</i>'), 'current header: numbers only');
+assert(!/moved|this period|entitlement/.test(cur.replace(/<[^>]+>/g, ' ')), 'no word labels around the Savings strip figures');
 assert(cur.includes('<i>still to set aside </i>' + fmt(40)));
 assert(cur.includes('excludes Car &lt;fund&gt;'));
 assert(!cur.includes('sc-mini') && !/Funded/i.test(cur));
@@ -164,6 +165,14 @@ assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: nu
 ['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
 assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
+
+// strips are numbers only: Budget reads the spent figure, then "of" the budget figure in the muted style, no words
+{
+  const b = card('budget');
+  assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> of ' + fmt(666.66) + '</i></span>'), 'Budget strip: X of Y');
+  assert(!/spent|budget/i.test(b.split('<summary>')[1].split('</summary>')[0].replace(/<[^>]+>/g, ' ').replace('Budget', '')), 'no spent or budget label on the strip');
+  assert(!/<span class="sc-s">/.test(html), 'no subtitle on Bills, Budget or Mortgage');
+}
 
 // 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
 const attr = (h, v) => h.includes('data-stack-sheet="' + v + '" role="button" tabindex="0"');
