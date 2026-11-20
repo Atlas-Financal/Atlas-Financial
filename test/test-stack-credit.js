@@ -63,10 +63,20 @@ const VIEW = {
   householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 310, planned: 500, remaining: 190, overspend: 0 },
     { id: 'fun', label: 'Fun', spent: 130, planned: 100, remaining: 0, overspend: 30 }],
 };
+// Forecast's billHistory (#1446) for the invented bills, newest first. Water's headline entry carries the paid actual
+// (64), a different figure from nothing else on the row; an older one is unpublished; a future one is not history.
+const HISTORY = {
+  water: [
+    { date: '2031-04-05', amount: 64, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
+    { date: '2031-03-05', amount: 64, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+    { date: '2031-02-05', amount: 61.5, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+    { date: '2031-01-05', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
+  mort: [{ date: '2031-03-12', amount: 1850, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' }],
+};
 function context(totals, calls = []) {
   return {
     data: { debts: [], meta: { asOf: '2031-03-10' }, liveOverlay: null }, plan: {}, selectedPeriodKey: VIEW.start,
-    recommendation: { payPeriodViews: [VIEW] },
+    recommendation: { payPeriodViews: [VIEW], billHistory: HISTORY },
     Forecast: {
       cardPeriodMovements: (...args) => { calls.push(args); return { invented: true }; },
       stackCreditLines: (pub, bills) => { calls.push(['lines', pub, bills]); return { lines: LINES, totals }; },
@@ -163,8 +173,8 @@ console.log('5. the sheet');
   ok(red === 'Credit Red Card $0 of $0 Spent $0 Paid $0 Minimum $15 Transactions', "'unknown' minimum check: the minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
-  ok(water === 'Bill Water $64 ✓' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out/.test(water),
-    'paid bill sheet: the amount and the check only; neither the scheduled date and planned account nor the observed ones', water);
+  ok(water === 'Bill Water $64 ✓ Feb 5 $61.50 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
+    'paid bill sheet: the amount and the check, then its earlier occurrences (date, amount or a dash, ✓ when paid); no planned or observed date and account, no future occurrence', water);
   const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
   ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>') && !/Paid|Not paid/.test(text(waterHtml)),
     'a paid bill sheet shows the check (accessible name Paid) and no status word');

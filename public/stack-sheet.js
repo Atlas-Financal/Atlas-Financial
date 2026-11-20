@@ -2,7 +2,8 @@
  *
  * Any block marks a tappable row with data-stack-sheet="<kind>:<id>"; this block opens the sheet for it with that
  * item's published fields from the selected pay period. Blocks never call each other.
- *   bill:<id>@<date>   a row of the selected view's bills (mortgage:<id>@<date> reads the same way)
+ *   bill:<id>@<date>   a row of the selected view's bills (mortgage:<id>@<date> reads the same way); its amounts come
+ *                      from Forecast's billHistory (#1446), the one source for an occurrence's amount and trust
  *   budget:<id>        a row of the selected view's householdBudget
  *   card:<id>          a credit line (window.StackCredit.line(ctx, id), the credit block's one Forecast reading)
  * Escape, the close button or the scrim closes it; focus returns to the row.
@@ -44,13 +45,33 @@
   // alone with no label word (owner, 2026-11-20: no explanatory text). A paid bill shows neither: next to the check they
   // would read as when and from where it was paid, which they are not (bill.date is the schedule, payerLabel the plan;
   // Atlas on #1444). The observed payment fields (postedOn, paidFromLabel) are never read here.
+  //
+  // Its amounts come from Forecast's billHistory (#1446; lead ruling, 2026-11-20): every published occurrence of the bill,
+  // newest first, each { date, amount, amountBasis, trust, paidState } with its amount and trust together. The headline is
+  // this occurrence's entry (same date); with no entry, or an unpublished amount, it is a dash, never bill.amount and never
+  // $0. Below it, the bill's earlier occurrences: date, amount (soft when estimated, a dash when unpublished) and a check
+  // when paid, no words. The page joins nothing across periods and decides no basis.
   const plain = (value, cls = '') => (value ? `<p class="stack-sheet-plain${cls}">${esc(value)}</p>` : '');
+  const DASH = '<span role="img" aria-label="not available">\u2014</span>';
+  const CHECK = '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>';
+  function occurrences(id) {
+    const all = ctx && ctx.recommendation && ctx.recommendation.billHistory;
+    const list = all && typeof all === 'object' && Object.prototype.hasOwnProperty.call(all, id) ? all[id] : null;
+    return Array.isArray(list) ? list.filter(e => e && typeof e === 'object' && typeof e.date === 'string') : [];
+  }
+  const amountHtml = (entry, v) => (entry && num(entry.amount) ? esc(money(entry.amount)) : DASH);
   function billHtml(bill, kicker, v) {
     const paid = bill.paidState === 'paid';
+    const list = occurrences(bill.id);
+    const entry = list.find(e => e.date === bill.date) || null;
+    const earlier = list.filter(e => e.date < bill.date);
     return head(kicker, bill.label || '')
-      + `<div class="stack-sheet-big stack-n${est(bill.displayAmountTrust, v)}">${esc(money(bill.amount))}</div>`
-      + (paid ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>'
-        : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''));
+      + `<div class="stack-sheet-big stack-n${entry && num(entry.amount) ? est(entry.trust, v) : ''}">${amountHtml(entry, v)}</div>`
+      + (paid ? CHECK : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
+      + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => '<li>'
+        + `<span class="stack-sheet-txd">${esc(date(e.date))}</span>`
+        + `<span class="stack-sheet-txa stack-n${num(e.amount) ? est(e.trust, v) : ''}">${amountHtml(e, v)}</span>`
+        + `<span class="stack-sheet-histck">${e.paidState === 'paid' ? CHECK : ''}</span></li>`).join('') + '</ul>' : '');
   }
 
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.
