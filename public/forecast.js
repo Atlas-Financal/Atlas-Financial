@@ -13001,10 +13001,15 @@
   // amount with its own trust, never presented as a paid amount. An amount
   // that is not a number is null with trust 'unavailable'; a trust word
   // outside calculated / estimated is 'unknown'. A 'carried' copy is skipped:
-  // the occurrence is listed in the period that holds it. One entry per bill
-  // id and date: a saved close keeps its unpaid row (alsoCarriedToCurrent)
-  // while the current period carries the same occurrence, so the newest
-  // period's row, which knows most, is the one listed. Reach: exactly the
+  // the occurrence is listed in the period that holds it. One entry per
+  // occurrence, by Forecast's own occurrence identity: the row's
+  // occurrenceKey (id@scheduledDate) when it publishes one, as a statement
+  // that moved the due date does, else the row's own id and date (a legacy
+  // or saved row). A saved close keeps its unpaid row while the current
+  // period carries the same occurrence, perhaps on a statement's new date, so
+  // the newest period's row, which knows most, is the one listed with its
+  // effective date, basis and trust. No alias is inferred from a similar
+  // date or amount. Reach: exactly the
   // published timeline (computed lookbacks within the ledger fetch window and
   // saved closes behind, the projected periods ahead); nothing beyond it is
   // invented.
@@ -13018,6 +13023,10 @@
       : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
     return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState };
   }
+  function billOccurrenceIdentity(row) {
+    if (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')) return row.occurrenceKey;
+    return row.id + '@' + (typeof row.scheduledDate === 'string' && row.scheduledDate ? row.scheduledDate : row.date);
+  }
   function publishBillHistory(result) {
     if (!result || typeof result !== 'object') return result;
     // Pay periods are in timeline order (oldest first), so a later period's
@@ -13028,7 +13037,7 @@
       for (const row of (Array.isArray(view.bills) ? view.bills : [])) {
         if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;
         if (typeof row.date !== 'string' || row.paidState === 'carried') continue;
-        latest.set(row.id + '\u0000' + row.date, row);
+        latest.set(billOccurrenceIdentity(row), row);
       }
     }
     // A Map, then own data properties: a bill id such as 'constructor' or

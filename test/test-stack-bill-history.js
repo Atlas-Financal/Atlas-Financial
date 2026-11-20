@@ -106,6 +106,56 @@ const HAND = [
     'an estimated bill, nothing paid: every occurrence is its scheduled 90, estimated, not paid', JSON.stringify(rec.billHistory.hydro));
 }
 
+console.log('1b. A statement that moves the due date, beside a saved close (Atlas #1446 review)');
+{
+  // An invented card minimum scheduled for Oct 7. The Sep 25 to Oct 8 close was saved while it read Oct 7, unpaid.
+  // The issuer statement then moves that same occurrence to Oct 10, across the payday, so the current period (from
+  // Oct 9) publishes it on Oct 10 with occurrenceKey triangle@2026-10-07. One obligation: one entry, as the current
+  // period has it (Oct 10, the statement's 47.39). The November occurrence is a different one and stays.
+  const source = require('./fixtures/card-backfill-data');
+  const LATER = '2026-10-12', OCT = { start: '2026-09-25', end: '2026-10-08' };
+  const KEYS = ['id', 'label', 'kind', 'date', 'planned', 'amount', 'actual', 'remaining', 'settlement', 'status', 'cardPaid', 'confidence'];
+  const fixture = statement => {
+    const x = source('triangle', 'triangle');
+    x.data.meta.asOf = x.asOf = LATER;
+    const p = x.data.plan;
+    p.opening = { asOf: LATER, priorAsOf: '2026-08-19', representedEvents: [] };
+    p.income[0].anchor = '2026-09-25';
+    p.startingCash.breakdown[0].value = 785.17;
+    p.budget.categories = [];
+    p.obligations = [{ id: 'triangle', label: 'Invented card minimum', debtId: 'triangle', effect: 'payment', frequency: 'monthly',
+      day: 7, firstDue: '2026-10-07', amount: 43.21, confidence: 'estimated', payingAccount: 'chequing-a',
+      ...(statement ? { statementOccurrences: [{ scheduledDate: '2026-10-07', dueDate: '2026-10-10', minimum: 47.39, currency: 'cad', confidence: 'confirmed' }] } : {}) }];
+    return x;
+  };
+  const runWith = (statement, periodHistory, Fx = F) => {
+    const x = fixture(statement);
+    return Fx.recommend(x.data.plan, LATER, { debts: x.data.debts, ...(periodHistory ? { periodHistory } : {}) });
+  };
+  const before = runWith(false);
+  const oct = before.payPeriodViews.find(v => v.start === OCT.start && v.end === OCT.end);
+  const close = { schema: 'atlas-private-period-history-projection/v1', capturedAt: '2026-10-09T19:00:00.000Z',
+    content: { period: { ...OCT, timezone: 'America/Vancouver' }, kind: 'closing', asOf: OCT.end, closingState: 'provisional',
+      planBasis: 'see-baseline-revision', provenance: { policyFingerprint: null },
+      publication: { start: OCT.start, end: OCT.end, bills: (oct.bills || []).map(row => Object.fromEntries(KEYS.filter(k => Object.hasOwn(row, k)).map(k => [k, row[k]]))) } } };
+  const after = runWith(true, [close]);
+  const saved = after.payPeriodViews.find(v => v.start === OCT.start).bills.find(b => b.id === 'triangle');
+  const moved = after.payPeriodViews.find(v => v.timelineRole === 'current').bills.find(b => b.id === 'triangle');
+  ok(saved && saved.date === '2026-10-07' && moved && moved.date === '2026-10-10' && moved.occurrenceKey === 'triangle@2026-10-07',
+    'the world: the saved close keeps Oct 7, the current period publishes the statement\'s Oct 10 for the same occurrence',
+    JSON.stringify([saved && saved.date, moved && moved.date, moved && moved.occurrenceKey]));
+  const near = after.billHistory.triangle.filter(e => e.date < '2026-11-01');
+  ok(same(near, [{ date: '2026-10-10', amount: 47.39, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' }]),
+    'one obligation, one entry: the statement\'s Oct 10 at 47.39, not also the saved Oct 7', JSON.stringify(near));
+  ok(after.billHistory.triangle.some(e => e.date === '2026-11-07'), 'the November occurrence, a different one, is still listed');
+  let proved = true;
+  try { withoutAuthorizedAdditions(structuredClone(after)); } catch (e) { proved = false; ok(false, 'authorized-additions proof on the statement world', e.message); }
+  ok(proved, 'the authorized-additions proof holds on the statement world');
+  const byDate = compile(replaceOnce(SOURCE, '        latest.set(billOccurrenceIdentity(row), row);', "        latest.set(row.id + '@' + row.date, row);", 'by date'), 'by-date');
+  ok(runWith(true, [close], byDate).billHistory.triangle.filter(e => e.date < '2026-11-01').length === 2,
+    'keying by the effective date (listing the saved Oct 7 and the moved Oct 10) is caught');
+}
+
 console.log('2. The publisher on hand-built results');
 {
   const view = (role, bills) => ({ timelineRole: role, bills });
@@ -127,6 +177,16 @@ console.log('2. The publisher on hand-built results');
   const odd = publish({ payPeriodViews: [view('past', [row('2026-08-01', { displayAmountTrust: 'verified' }), row('2026-08-15', { displayAmountTrust: null })])] }, '2026-09-15');
   ok(odd.billHistory.b.every(e => e.trust === 'unknown'), 'a trust word outside calculated / estimated is unknown, never upgraded', JSON.stringify(odd.billHistory.b));
   ok(same(publish({}, '2026-09-15').billHistory, {}), 'no pay periods: an empty history');
+  // A legacy row (no occurrenceKey) and a statement row for the same occurrence on a moved date are one; a separate
+  // month with no key is its own occurrence; nothing is aliased by a similar date or amount.
+  const moved = publish({ payPeriodViews: [
+    view('past', [row('2026-08-12'), row('2026-09-12')]),
+    view('current', [row('2026-08-17', { occurrenceKey: 'b@2026-08-12', scheduledDate: '2026-08-12', amount: 65 })]),
+  ] });
+  ok(same(moved.billHistory.b.map(e => [e.date, e.amount]), [['2026-09-12', 50], ['2026-08-17', 65]]),
+    'a statement-moved occurrence replaces its legacy row; the separate September occurrence survives', JSON.stringify(moved.billHistory.b));
+  const foreign = publish({ payPeriodViews: [view('current', [row('2026-08-12', { occurrenceKey: 'other@2026-08-12' })])] });
+  ok(foreign.billHistory.b.length === 1, 'an occurrenceKey naming another bill is not trusted as this bill\'s identity');
   const odd2 = publish({ payPeriodViews: [view('past', ['constructor', '__proto__', 'toString'].map(id => row('2026-08-01', { id })))] });
   ok(['constructor', '__proto__', 'toString'].every(id => Object.hasOwn(odd2.billHistory, id) && odd2.billHistory[id].length === 1)
     && Object.getPrototypeOf(odd2.billHistory) === Object.prototype && !Array.isArray(Object.getPrototypeOf(odd2.billHistory)),
@@ -178,7 +238,7 @@ console.log('4. Mutants are caught');
     displayAmountBasis: 'schedule', displayAmountTrust: 'calculated', paidState: 'carried' }] }] };
   const withCarried = exposeWith(replaceOnce(SOURCE, " || row.paidState === 'carried') continue;", ') continue;', 'carried included'), 'carried-included');
   ok((withCarried(carried, '2026-09-15').billHistory.b || []).length === 1, 'a carried copy listed is caught');
-  const noDedupe = exposeWith(replaceOnce(SOURCE, "        latest.set(row.id + '\\u0000' + row.date, row);", "        latest.set(latest.size, row);", 'no dedupe'), 'no-dedupe');
+  const noDedupe = exposeWith(replaceOnce(SOURCE, "        latest.set(billOccurrenceIdentity(row), row);", "        latest.set(latest.size, row);", 'no dedupe'), 'no-dedupe');
   const kept = { payPeriodViews: [
     { timelineRole: 'past', bills: [{ id: 'b', date: '2026-09-05', amount: 50, displayAmountBasis: 'schedule', displayAmountTrust: 'calculated', paidState: 'not-paid', alsoCarriedToCurrent: true }] },
     { timelineRole: 'current', bills: [{ id: 'b', date: '2026-09-05', amount: 50, displayAmountBasis: 'schedule', displayAmountTrust: 'calculated', paidState: 'not-paid' }] }] };

@@ -156,11 +156,16 @@ function withoutBillPaidState(node, seen = new Set()) {
 // unavailable. Every period's non-carried dated row (past, current and
 // future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
 const BILL_HISTORY_TRUST_WORDS = new Set(['calculated', 'estimated', 'unknown', 'unavailable']);
+// Forecast's occurrence identity, as the history keys it: the row's
+// occurrenceKey (id@scheduledDate) when it publishes one, else its id and
+// date (or scheduledDate).
+const billOccurrenceOf = row => (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')
+  ? row.occurrenceKey : row.id + '@' + (typeof row.scheduledDate === 'string' && row.scheduledDate ? row.scheduledDate : row.date));
 function proveBillHistory(advice) {
   const history = advice.billHistory;
   assert.ok(history && typeof history === 'object' && !Array.isArray(history), 'authorized addition: billHistory is a map of bill id to occurrences');
   const rows = new Map();
-  const pastKeys = new Set();
+  const occurrences = new Set();
   for (const view of Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : []) {
     if (!view) continue;
     for (const row of Array.isArray(view.bills) ? view.bills : []) {
@@ -168,7 +173,7 @@ function proveBillHistory(advice) {
       const key = row.id + '@' + row.date;
       if (!rows.has(key)) rows.set(key, []);
       rows.get(key).push(row);
-      pastKeys.add(key);
+      occurrences.add(billOccurrenceOf(row));
     }
   }
   const listed = new Set();
@@ -179,8 +184,8 @@ function proveBillHistory(advice) {
       assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState'], `authorized addition: billHistory.${id} entry shape`);
       if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
       const candidates = rows.get(id + '@' + entry.date) || [];
-      const row = candidates.find(r => r.paidState === entry.paidState);
-      assert.ok(row, `authorized addition: billHistory.${id}@${entry.date} copies a published row`);
+      const row = candidates.find(r => r.paidState === entry.paidState && !listed.has(billOccurrenceOf(r)));
+      assert.ok(row, `authorized addition: billHistory.${id}@${entry.date} copies a published row of an occurrence not already listed`);
       const actual = row.displayAmountBasis === 'posted-actual' || row.displayAmountBasis === 'unconfirmed-actual';
       assert.equal(entry.amountBasis, actual ? row.displayAmountBasis : 'schedule', `authorized addition: billHistory.${id}@${entry.date} basis is the row's`);
       const raw = actual ? row.actual : row.amount;
@@ -191,11 +196,13 @@ function proveBillHistory(advice) {
       assert.equal(entry.trust, expected === null ? 'unavailable' : carriedTrust,
         `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
-      assert.ok(!listed.has(id + '@' + entry.date), `authorized addition: billHistory lists ${id}@${entry.date} once`);
-      listed.add(id + '@' + entry.date);
+      listed.add(billOccurrenceOf(row));
     }
   }
-  for (const key of pastKeys) assert.ok(listed.has(key), `authorized addition: billHistory lists the published occurrence ${key}`);
+  // Each published occurrence (by identity, so a statement's moved date and
+  // the saved close's original date are one) is listed exactly once.
+  for (const key of occurrences) assert.ok(listed.has(key), `authorized addition: billHistory lists the published occurrence ${key}`);
+  assert.equal(listed.size, Object.values(history).reduce((n, list) => n + list.length, 0), 'authorized addition: one entry per occurrence');
 }
 
 function withoutAuthorizedAdditions(advice) {
