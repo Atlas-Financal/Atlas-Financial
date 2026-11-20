@@ -96,15 +96,31 @@ console.log('3. Never guessed');
   ok(!CHECK.test(render(view(), { lines: byName }).html), 'a line whose id differs is never matched by its name');
 }
 
+console.log('3b. Only a coverage Forecast vouches for (REVIEWER 2, 7047727410)');
+{
+  // The reviewer's case: one period bill with an unrecognised confidence word makes the bills split's trust, and so
+  // the card's minimumCovered trust, 'unknown' (or 'unavailable') while value stays true. No check is drawn.
+  for (const trust of ['unknown', 'unavailable', undefined, null, 'verified-ish']) {
+    const lines = [line('cardA', { value: true, trust, reasons: ['bill-confidence-unrecognised'] })];
+    ok(!CHECK.test(render(view(), { lines }).html), `covered true with trust ${JSON.stringify(trust)}: no check`);
+  }
+  const verified = render(view(), { lines: [line('cardA', covered(true, 'verified'))] }).rows.cardA;
+  ok(CHECK.test(verified) && /aria-label="Minimum paid">/.test(verified), 'covered true, verified: a plain check');
+}
+
 console.log('4. Mutants are caught');
 {
   const src = read('public/stack-waterfall.js');
-  const truthy = src.replace('if (!covered || covered.value !== true) return \'\';', 'if (!covered || !covered.value) return \'\';');
+  const truthy = src.replace('covered.value !== true || !CHECK_TRUST.has(covered.trust)', '!covered.value || !CHECK_TRUST.has(covered.trust)');
   assert.notEqual(truthy, src);
   ok(CHECK.test(render(view(), { source: truthy }).rows.cardD), 'reading coverage as truthy (a check for \'unknown\') is caught');
   const noFuture = src.replace("if (!view || view.timelineRole === 'future' || projected) return '';", "if (!view) return '';");
   assert.notEqual(noFuture, src);
   ok(CHECK.test(render(view({ timelineRole: 'future' }), { source: noFuture }).html), 'dropping the projected-period guard is caught');
+  const anyTrust = src.replace("covered.value !== true || !CHECK_TRUST.has(covered.trust)", "covered.value !== true");
+  assert.notEqual(anyTrust, src);
+  ok(CHECK.test(render(view(), { source: anyTrust, lines: [line('cardA', covered(true, 'unknown'))] }).html),
+    'dropping the trust requirement (a check on unknown trust) is caught');
 }
 
 console.log(`\nAll ${checks} credit minimum check checks passed`);
