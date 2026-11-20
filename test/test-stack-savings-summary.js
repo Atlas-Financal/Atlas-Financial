@@ -32,7 +32,10 @@
  *   3. every period of the invented corpus: the pour invariants;
  *   4. every existing field is byte-equal without the new key;
  *   5. mutants are caught;
- *   6. the figures snapshot captures every figure and tag.
+ *   6. the figures snapshot captures every figure and tag;
+ *   7. money paid from Savings on or after a balance date is taken off the
+ *      balance once (savingsReportedItemLiabilities), so a goal's saved equals
+ *      the existing Savings allocator's Saved.
  *
  * Invented data only. `node test/test-stack-savings-summary.js` */
 const fs = require('node:fs');
@@ -63,8 +66,10 @@ function compile(text, name) {
   return mod.exports;
 }
 // Each copy exposes its own stackSavings, so the pure pour can be called on an invented packet.
-const EXPOSE = ['  function stackSavings(view, result) {',
-  '  globalThis.__stackSavings = (view, result) => stackSavings(view, result);\n  function stackSavings(view, result) {'];
+// A pure-packet call passes an empty plan and no transactions, so no item payment is taken off the balance.
+const EXPOSE = ['  function stackSavings(view, result, plan, asOf, opts) {',
+  "  globalThis.__stackSavings = (view, result, plan = {}, asOf = '2026-11-20', opts = {}) => stackSavings(view, result, plan, asOf, opts);\n"
+  + '  function stackSavings(view, result, plan, asOf, opts) {'];
 function copy(text, name) {
   const F = compile(replaceOnce(text, ...EXPOSE, 'expose ' + name), name);
   const pour = globalThis.__stackSavings;
@@ -76,7 +81,7 @@ const ORDER = '        return da < db ? -1 : da > db ? 1 : a.rank - b.rank;';
 const shipped = copy(SOURCE, 'shipped');
 const copies = {
   shipped,
-  without: { F: compile(replaceOnce(SOURCE, ', savings: stackSavings(view, result) }', ' }', 'pass off'), 'without') },
+  without: { F: compile(replaceOnce(SOURCE, ', savings: stackSavings(view, result, plan, asOf, opts) }', ' }', 'pass off'), 'without') },
   farthestFirst: mutant(ORDER, '        return da < db ? 1 : da > db ? -1 : a.rank - b.rank;', 'farthest first'),
   tiesReversed: mutant(ORDER, '        return da < db ? -1 : da > db ? 1 : b.rank - a.rank;', 'ties reversed'),
   noCap: mutant('      const take = Math.min(savingsFigureCents(item.needed), left);', '      const take = savingsFigureCents(item.needed);', 'no cap'),
@@ -93,6 +98,7 @@ const copies = {
   paidKept: mutant("      ? funding.rows.filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid') : [];",
     "      ? funding.rows.filter(row => row && typeof row.key === 'string') : [];", 'paid kept'),
   noUnresolved: mutant("      ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];", '];', 'no unresolved'),
+  noPaidOut: mutant('    const cents = reported - out;', '    const cents = reported;', 'no paid out'),
   hiddenWhenWithheld: mutant('    return {\n      items: out,', '    if (balance.cents === null) return null;\n    return {\n      items: out,', 'hidden when withheld'),
 };
 const pour = shipped.pour;
@@ -166,7 +172,15 @@ const packet = over => Object.assign({
   rows: [{ key: 'row:a', label: 'A', members: ['a@2026-12-01'] }, { key: 'row:b', label: 'B', members: ['b@2026-12-01'] },
     { key: 'row:c', label: 'C', members: ['c@2026-11-25'] }],
 }, over);
-const call = (copyOf, over) => copyOf.pour({ timelineRole: 'current' }, { savingsFunding: packet(over) });
+// The invented packets carry the reported stock's account ids and balance dates (both accounts, dated today), as
+// Forecast's reported stock does; with no transactions no item payment is taken off.
+const withAccounts = funding => {
+  const stock = funding.stock && funding.stock.reportedStock;
+  if (stock && !stock.accountIds) Object.assign(stock, { accountIds: ['savings', 'savings-dont-touch'],
+    balanceDates: [{ accountId: 'savings', date: '2026-11-20' }, { accountId: 'savings-dont-touch', date: '2026-11-20' }] });
+  return funding;
+};
+const call = (copyOf, over) => copyOf.pour({ timelineRole: 'current' }, { savingsFunding: withAccounts(packet(over)) });
 const TIE = { items: [['row:c', 5, 5, 'calculated'], ['row:a', 40, 40, 'calculated'], ['row:b', 5, 40, 'estimated']], totals: [50, 50, 85, 0, 'estimated'] };
 const UNKNOWN = { backing: { items: [
   { key: 'a@2026-12-01', date: '2026-12-01', needed: null, trust: 'unknown' },
@@ -247,7 +261,8 @@ for (const inp of INPUTS) for (const shift of [0, 3, 7, 14]) corpus.push(F => ru
   corpus.push(F => F.recommend(structuredClone(data.plan), w.asOf, { debts: structuredClone(data.debts), currentPeriodActuals: structuredClone(actuals) }));
 }
 const REASONS = new Set(['owner-rule:balance-poured-nearest-due-first', 'balance-current', 'balance-dated', 'balance-carried', 'balance-unavailable',
-  'balance-negative', 'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items']);
+  'balance-negative', 'balance-payment-unplaced', 'balance-less-item-payments-after-balance-date', 'rows-items-mismatch',
+  'pour-stopped-at-unknown-need', 'no-savings-items']);
 const TRUST = new Set(['calculated', 'estimated', 'unavailable']);
 const cents = v => Math.round(v * 100);
 function audit(F) {
@@ -352,6 +367,71 @@ console.log('6. The figures snapshot captures every figure and tag');
   }
   ok(s.items.length > 1 && missing === 0, 'the balance, the head, unallocated and each goal\'s saved, needed and trust are captured as published', String(missing));
   ok(snap['period.' + view.start + '.stackSavingsGoal.group:club.saved'] === 95, 'club saved 95 is in the snapshot');
+}
+
+console.log('7. Money paid from Savings after a balance date is taken off once (ATLAS REVIEWER 2, lead ruling)');
+{
+  // The repo's invented world from test-savings-dated-balance-item-liability.js: a 600 trip due Nov 20 (linked to
+  // the Trip category) and a 600 gift due Dec 10, as of Oct 14. A linked trip purchase from Savings lowers the trip's
+  // need; a balance dated on or before the purchase still holds that money. Hand-derived: B 1,000 less the 500
+  // purchase = 500 actually there; trip need 100 takes 100, gift takes 400 of 600; nothing left.
+  const TRIP_LINK = { categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20',
+    effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' };
+  const linked = (savings, balanceDate, purchases) => {
+    const w = H.baseWorld();
+    const sav = w.accounts.find(a => a.id === 'savings');
+    sav.value = savings;
+    if (balanceDate) sav.balanceDate = balanceDate;
+    w.commitments = [
+      { id: 'trip', label: 'Invented trip', date: '2026-11-20', amount: 600, confidence: 'confirmed', sinkingFund: true },
+      { id: 'gift', label: 'Invented gift', date: '2026-12-10', amount: 600, confidence: 'confirmed', sinkingFund: true },
+    ];
+    w.savingsPool = {};
+    w.links = [TRIP_LINK];
+    w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
+      ...purchases.map(p => H.lm({ category: 'Trip', payee: 'Invented airline', ...p }))];
+    return w;
+  };
+  const card = (copyOf, w) => {
+    const { data, error } = H.dataOf(w);
+    if (error) throw error;
+    const o = data.liveOverlay;
+    const advice = copyOf.F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: o.currentPeriodActuals,
+      operatingPlan: o.operatingPlan, observedCash: o.observedCash });
+    const pub = copyOf.F.savingsFundingPublication(advice.savingsFunding, { asOf: w.asOf, advice });
+    const s = sav(byRole(advice, 'current')[0]);
+    const goal = id => s && s.items.find(x => x.id === 'commitment:' + id);
+    const existing = id => { const row = pub.rows.find(r => r.key === 'commitment:' + id); return row ? row.saved : undefined; };
+    return { s, trip: goal('trip'), gift: goal('gift'), existing: [existing('trip'), existing('gift')] };
+  };
+  const PURCHASE = [{ date: '2026-10-12', amount: 500, account: 'savings' }];
+  const dated = card(shipped, linked(1000, '2026-10-10', PURCHASE));
+  ok(dated.trip.saved === 100 && dated.trip.needed === 100 && dated.gift.saved === 400 && dated.gift.needed === 600
+    && dated.s.totals.balance === 500 && dated.s.totals.unallocated === 0,
+    'a dated balance and a later Savings purchase: 1,000 less 500 = 500 poured: trip 100 / 100, gift 400 / 600', JSON.stringify(pick(dated.s)));
+  ok(dated.s.totals.reasons.includes('balance-less-item-payments-after-balance-date') && dated.trip.trust === 'estimated',
+    'the card names the payment taken off; the dated balance makes it estimated');
+  ok(JSON.stringify([dated.trip.saved, dated.gift.saved]) === JSON.stringify(dated.existing),
+    'each goal\'s saved equals the existing Savings allocator\'s Saved (one authority for the adjustment)', JSON.stringify(dated.existing));
+  // A payment today against a balance dated today: same-day inclusion cannot be shown, so it is treated as not yet
+  // in the balance (the existing rule) and taken off once.
+  const today = card(shipped, linked(1000, '2026-10-14', [{ date: '2026-10-14', amount: 500, account: 'savings' }]));
+  ok(today.trip.saved === 100 && today.gift.saved === 400 && today.s.totals.balance === 500
+    && JSON.stringify([today.trip.saved, today.gift.saved]) === JSON.stringify(today.existing),
+    'a payment today against a balance dated today: taken off once, the same as the existing Saved', JSON.stringify(pick(today.s)));
+  // Controls: a balance that already shows the purchase is not reduced again; no purchase, nothing is taken off.
+  const net = card(shipped, linked(500, '2026-10-13', PURCHASE));
+  ok(net.trip.saved === 100 && net.gift.saved === 400 && net.s.totals.balance === 500
+    && !net.s.totals.reasons.includes('balance-less-item-payments-after-balance-date'),
+    'control: a balance dated after the purchase already shows it and is not reduced again', JSON.stringify(pick(net.s)));
+  const none = card(shipped, linked(1000, '2026-10-10', []));
+  ok(none.trip.saved === 600 && none.gift.saved === 400 && none.s.totals.balance === 1000
+    && JSON.stringify([none.trip.saved, none.gift.saved]) === JSON.stringify(none.existing),
+    'control: no purchase, nothing taken off: trip 600, gift 400', JSON.stringify(pick(none.s)));
+  // Mutant: without the adjustment the purchase is counted twice (the gift is shown fully saved from money already spent).
+  const dropped = card(copies.noPaidOut, linked(1000, '2026-10-10', PURCHASE));
+  ok(dropped.gift.saved !== 400 && dropped.s.totals.balance === 1000, 'mutant caught: the adjustment dropped double-counts the purchase',
+    JSON.stringify(pick(dropped.s)));
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack savings checks passed`);
