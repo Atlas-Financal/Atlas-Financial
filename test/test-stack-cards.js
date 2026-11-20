@@ -157,60 +157,53 @@ assert(buildCardsHTML(ctx(z)).includes('$0<'));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
 assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
 
-// Savings card (final A5 shape, invented values): nothing until published
+// Savings card (owner rule 2026-11-20, invented values): nothing until published
 assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
 const withSavings = s => { const v = JSON.parse(JSON.stringify(view)); v.stackSummary.savings = s; return v; };
 const savingsOf = v => { const h = buildCardsHTML(ctx(v)); const p = h.split('data-stack-card="savings"')[1]; return p ? p.split('</details>')[0] : null; };
 const txt = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
-// current period: moved of entitlement this period; rows still to set aside; no bars, no Funded words
-const cur = savingsOf(withSavings({
-  items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] },
-    { id: 'c', label: 'Car <fund>', saved: null, needed: null, reasons: ['planned-unavailable'] }],
-  totals: { saved: 20.5, needed: null, entitlement: 130.25, completeness: 'pool-level', excluded: ['c'], reasons: ['pool-level', 'planned-incomplete'] } }));
-assert(cur.includes(fmt(20.5) + '<i> / ' + fmt(130.25) + '</i>'), 'current header: numbers only');
-assert(!/moved|this period|entitlement/.test(cur.replace(/<[^>]+>/g, ' ')), 'no word labels around the Savings strip figures');
-assert(!cur.includes('sc-mini') && !/Funded|excludes|still to set aside|needs/i.test(cur.replace(/<[^>]+>/g, ' ')));
-assert((cur.match(/<span class="sc-a">\u2014<\/span>/g) || []).length === 2, 'no published saved figure: a dash, the net amount is not printed');
-amounts(cur).forEach(a => assert([20.5, 130.25].map(fmt).includes(a), 'unpublished amount ' + a));
-
-// current period, transfer figure withheld: no header figure
-const nt = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers'] }],
-  totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['pool-transfer-unavailable'] } }));
-assert(nt && /class="sc-f">\u2014</.test(nt) && /<span class="sc-a">\u2014<\/span>/.test(nt), 'current period, transfer withheld: the card stays, a dash header and dash rows (an unknown is not "nothing due")');
-
-// future period: planned total in the header, rows "planned this period", never a moved figure or $0
-const fut = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }],
-  totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['future-period'] } }));
-assert(fut.includes(fmt(40) + '</span>') && fut.includes('<span class="sc-a">' + fmt(40) + '</span>') && !/planned/.test(txt(fut)), 'a future period shows only its planned amount');
-assert(!/moved|\$0/.test(txt(fut)));
-
-// past period: everything null, no amounts
-const pastView = withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: null, reasons: ['past-period'] }],
-  totals: { saved: null, needed: null, entitlement: null, completeness: 'none', excluded: [], reasons: ['past-period'] } });
-pastView.timelineRole = 'past';
-const past = savingsOf(pastView);
-assert(past === null, 'a past period with nothing to print shows no Savings card, not names and dashes');
+// Savings (owner rule, Dale 2026-11-20): the balance poured nearest due first. Head "$saved / $needed" with the bar;
+// one row per goal "$saved / $needed" with its own bar; Unallocated last, only when above $0; dashes when withheld.
+const POURED = { items: [
+  { id: 'club', label: 'Club <fund>', saved: 95, needed: 230, trust: 'calculated' },
+  { id: 'home', label: 'Home', saved: 24, needed: 24, trust: 'calculated' },
+  { id: 'trip', label: 'Trip', saved: 0, needed: 40, trust: 'calculated' }],
+  totals: { balance: 160, saved: 119, needed: 294, unallocated: 41, trust: 'calculated', reasons: ['owner-rule:balance-poured-nearest-due-first', 'balance-current'] } };
+const cur = savingsOf(withSavings(POURED));
+assert(cur.includes('class="sc-f">' + fmt(119) + '<i> / ' + fmt(294) + '</i>'), 'head: total saved / total needed');
+assert(cur.includes('style="width:' + shell.barWidth(119, 294) * 100 + '%"'), 'head bar = barWidth(saved, needed)');
+assert(cur.includes('<span class="sc-a">' + fmt(95) + '<i> / ' + fmt(230) + '</i></span>') && cur.includes('style="width:' + shell.barWidth(95, 230) * 100 + '%"'),
+  'a partly saved goal: "$95 / $230" and its own bar');
+assert(cur.includes('<span class="sc-a">' + fmt(24) + '<i> / ' + fmt(24) + '</i></span>') && cur.includes('width:100%'), 'a full goal reads full');
+assert(cur.includes('<span class="sc-a">$0<i> / ' + fmt(40) + '</i></span>') && cur.includes('<i style="width:0%">'), 'a goal the pour has not reached: $0 and an empty bar');
+assert(cur.includes('Club &lt;fund&gt;') && !cur.includes('<fund>'), 'goal names are escaped');
+assert((cur.match(/sc-full/g) || []).length === 3, 'a bar on every goal, none on Unallocated');
+assert(/<b class="sc-n">Unallocated<\/b><\/span><span class="sc-a">\$41<\/span><\/li><\/ul>$/.test(cur), 'Unallocated is the last row, its amount alone');
+assert(txt(cur).indexOf('Club') < txt(cur).indexOf('Home') && txt(cur).indexOf('Home') < txt(cur).indexOf('Trip'), 'goals print in Forecast\'s pour order');
+amounts(cur).forEach(a => assert([119, 294, 95, 230, 24, 0, 40, 41].map(fmt).includes(a), 'unpublished amount ' + a));
+assert(!cur.includes(fmt(160)), 'the balance itself is not printed (the head is saved / needed)');
+assert(!/Funded|funded|moved|entitlement|this period/.test(txt(cur)), 'no funded or period words');
+// Nothing left over: no Unallocated row
 {
-  const same = role => { const v = JSON.parse(JSON.stringify(pastView)); v.timelineRole = role; return savingsOf(v); };
-  ['current', 'next', 'future'].forEach(role => assert(same(role) !== null && /class="sc-f">\u2014</.test(same(role)), 'a ' + role + ' period with nothing published keeps its card, with a dash header'));
-  assert(same(undefined) !== null, 'an unknown role is not treated as past');
+  const v = JSON.parse(JSON.stringify(POURED)); v.totals.unallocated = 0;
+  assert(!/Unallocated/.test(savingsOf(withSavings(v))), 'unallocated $0: no row');
+  v.totals.unallocated = null;
+  assert(!/Unallocated/.test(savingsOf(withSavings(v))), 'unallocated withheld: no row');
 }
-
-// current period with per-goal saved (nearest due first): "$saved of $periodTarget", full-width bar, $0 with an empty bar
-const per = savingsOf(withSavings({ items: [
-  { id: 'club', label: 'Club', saved: 30, needed: 50, periodTarget: 80, savedTrust: 'calculated', reasons: ['net-of-period-transfers', 'owner-rule:nearest-due-first'] },
-  { id: 'home', label: 'Home', saved: 0, needed: 20, periodTarget: 20, reasons: ['net-of-period-transfers'] },
-  { id: 'over', label: 'Topped', saved: 90, needed: 0, periodTarget: 90, reasons: [] },
-  { id: 'nope', label: 'No attribution', saved: null, needed: 15, periodTarget: null, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] }],
-  totals: { saved: 120, needed: 85, entitlement: 190, completeness: 'pool-level', excluded: [], reasons: ['pool-level'] } }));
-assert(per.includes('<span class="sc-a">' + fmt(30) + '<i> / ' + fmt(80) + '</i></span>'));
-assert(per.includes('<span class="sc-a">$0<i> / ' + fmt(20) + '</i></span>') && per.includes('<i style="width:0%">'));
-assert(per.includes(fmt(90) + '<i> / ' + fmt(90)) && per.includes('width:100%'), 'a topped-up goal reads full, not capped differently');
-assert((per.match(/sc-full/g) || []).length === 3, 'bar only on goals with saved');
-assert(per.includes('<span class="sc-a">\u2014</span>') && !per.includes(fmt(15)), 'no attribution: a dash');
-assert(!per.includes(fmt(50)), 'needed is not printed on a row with its own saved');
-amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 120, 190].map(fmt).includes(a), 'unpublished amount ' + a));
+// The balance withheld: the card stays, a dash head and a dash on every goal, names kept, no amount at all
+const nt = savingsOf(withSavings({ items: [{ id: 'club', label: 'Club', saved: null, needed: null, trust: 'unavailable' },
+  { id: 'home', label: 'Home', saved: null, needed: null, trust: 'unavailable' }],
+  totals: { balance: null, saved: null, needed: null, unallocated: null, trust: 'unavailable', reasons: ['owner-rule:balance-poured-nearest-due-first', 'balance-unavailable'] } }));
+assert(nt && /class="sc-f">\u2014</.test(nt) && (nt.match(/<span class="sc-a">\u2014<\/span>/g) || []).length === 2 && /Club/.test(nt) && /Home/.test(nt),
+  'balance withheld: the card stays with every goal name and a dash, never hidden');
+assert(amounts(nt).length === 0 && !/sc-full/.test(nt) && /<i style="width:0%">/.test(nt), 'balance withheld: no amount, no goal bar, an empty head track');
+// Forecast publishes null on every period but the current and next: no card
+{
+  const v = withSavings(null);
+  assert(savingsOf(v) === null, 'null savings: no card');
+  ['current', 'next', 'future', 'past', undefined].forEach(role => { const w = withSavings(POURED); w.timelineRole = role; assert(savingsOf(w) !== null, 'the card follows what Forecast publishes, not the role: ' + role); });
+}
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
 
 // card colours: every kind's variable is defined in the CSS file
@@ -235,7 +228,7 @@ assert(!/mortgage:mortgage@/.test(html), 'no card opens a mortgage sheet');
 const noId = JSON.parse(JSON.stringify(view)); delete noId.bills[0].date; delete noId.householdBudget[0].id;
 const nh = buildCardsHTML(ctx(noId));
 assert(!nh.includes('bill:hydro') && !nh.includes('budget:groceries'), 'no attribute without the ids');
-assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, needed: 2, reasons: [] }], totals: { saved: 1, entitlement: 2, reasons: [] } })).includes('data-stack-sheet'));
+assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
 // Enter / Space act as a click
 {
   let handler = null, clicked = 0;
@@ -269,11 +262,13 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   const ar = rowsOf(card('budget'));
   assert(ar.length === 2 && ar.every(r => !/sc-mini stack-est/.test(r)), 'an actual period with calculated figures: no bar is soft');
   assert(!html.includes('stack-est'), 'calculated figures carry no class');
-  const se = withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 5, needed: 3, periodTarget: 8, savedTrust: 'estimated', reasons: [] }],
-    totals: { saved: 5, entitlement: 8, trust: 'calculated', entitlementTrust: 'estimated', reasons: [] } });
+  const se = withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 3, needed: 8, trust: 'estimated' }],
+    totals: { balance: 5, saved: 3, needed: 8, unallocated: 2, trust: 'estimated', reasons: [] } });
   const sh = savingsOf(se);
-  assert(/class="sc-f stack-est"/.test(sh) && /sc-a stack-est/.test(sh) && /sc-mini sc-full stack-est/.test(sh) && !/estimated/i.test(sh));
-  assert(!/moved \/ entitlement/.test(sh), 'no jargon subtitle');
+  assert(/class="sc-f stack-est"/.test(sh) && /sc-a stack-est/.test(sh) && /sc-mini sc-full stack-est/.test(sh) && !/estimated/i.test(sh),
+    'a dated balance: the head, each goal and Unallocated are soft, never worded');
+  assert((sh.match(/sc-a stack-est/g) || []).length === 2, 'the goal and Unallocated amounts are both soft');
+  assert(!/class="sc-f stack-est"/.test(savingsOf(withSavings(POURED))) && !/stack-est/.test(savingsOf(withSavings(POURED))), 'a current balance: nothing soft');
   assert(/stack-est/.test(css), 'the css draws the soft style');
 }
 // 2d. a completed period whose original plan Forecast withholds: no category denominator, no progress bar
@@ -298,9 +293,7 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
 
 // 2g. no explanatory words anywhere on the cards (owner rule): names, numbers, bars and the check only
 {
-  const all = withSavings({ items: [{ id: 'club', label: 'Club', saved: 30, needed: 50, periodTarget: 80, reasons: ['net-of-period-transfers'] },
-    { id: 'x', label: 'Extra', saved: null, needed: 15, reasons: ['future-period'] }],
-    totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
+  const all = withSavings(POURED);
   all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
   all.bills[0].stackBillPaymentEvidence = 'posted-equal'; all.bills[3].stackBillPaymentEvidence = 'posted-equal';
   // the one allowed exception: the design's Budget subtitle, exactly

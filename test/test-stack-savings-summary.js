@@ -1,41 +1,36 @@
 'use strict';
-/* Stack Wallet A5: each pay period publishes stackSummary.savings (owner-
- * approved design, Dale 2026-11-19; lead rulings).
+/* Stack Savings: the savings balance poured into the goals, nearest due first
+ * (owner rule, Dale 2026-11-20: "Savings is stupid simple. It takes the grand
+ * total of what I have in my savings account and it funds each savings item
+ * in order. That's all there is to it.").
  *
- * The one authority is savingsFunding (savingsDailyFunding): the current
- * period's goal rows and each later period's projected rows, keyed by goal.
- *   item.needed   the row's thisPeriod (null when unpublished, never 0); for
- *                 the current period it is net of the period's transfers so
- *                 far (reason net-of-period-transfers);
- *   item.saved    current period only: the pool's ledger-evidenced period
- *                 transfers attributed by the owner's rule (Dale, 2026-11-19:
- *                 the pool funds goals nearest due date first), summing to
- *                 the transfers exactly; null on later and past periods;
- *   item.periodTarget  saved + still to set aside (the bar's whole);
- *   totals        needed = cent sum of every goal's needed, or null; saved =
- *                 the pool's ledger-evidenced period transfers and
- *                 entitlement = the period's savings entitlement, current
- *                 period only, completeness 'pool-level'.
+ * The current and next pay periods publish stackSummary.savings; every other
+ * period publishes null (no card).
+ *   totals.balance      savingsFunding.stock.reportedStock.amount: both savings
+ *                       pool accounts summed (the grand total);
+ *   items[] (one per savingsFunding.rows row, in pour order)
+ *     saved             the row's members' pour, min(needed, what is left);
+ *     needed            the row's members' needed, summed;
+ *     trust             the weakest of the balance's trust (current ->
+ *                       calculated; dated or carried -> estimated) and the
+ *                       members' need trust;
+ *   totals.saved / needed  the rows summed; unallocated = what is left.
+ * A withheld balance withholds every figure (null, never 0) and keeps every
+ * goal's name: the card shows dashes, it is never hidden.
  *
- *   1. hand-derived invented worlds (figures inputs savings-live-ready and
- *      savings-live-partial: the same plan, entitlement 80, the second with a
- *      30 transfer already made): current club still to set aside 80 vs 50 =
- *      80 − 30, saved 0 vs 30 (the nearest-due goal takes it), the same
- *      target 80 either way; 0 vs 30 moved of 80; next and future periods gross,
- *      nothing moved, 'future-period'; past periods all null;
- *   2. every period of the invented figures evaluations (and the harness item
- *      world): each item's needed is its savingsFunding row copied, the goals'
- *      saved (current period only) sum to the period's transfers, the totals
- *      rules, pool-level only on the current period, closed reasons, no status
- *      field and no funded wording;
- *   3. every existing field is byte-equal without the new key;
- *   4. mutants are caught: saved from the pool backing (the savings-pot
- *      rule), transfers attributed farthest-due first, needed from the goal's
- *      whole cost, a partial needed total, a
- *      moved total on a future period, a missing entitlement, the net reason
- *      dropped;
- *   6. the figures snapshot captures every total and per-goal figure and tag;
- *   7. the attribution fails closed on inputs it cannot trust.
+ *   1. hand-derived invented worlds (figures input savings-live-ready: goals
+ *      near 60 due 10-21, home 24 due 10-25, far 170 due 10-28; rows club =
+ *      near + far, home): balance covers all; covers some; one goal partly
+ *      saved and later ones 0; zero; a dated balance is estimated; a missing
+ *      balance withholds every figure and keeps the names; the next period
+ *      repeats the pour; no other period publishes a card;
+ *   2. the pure pour on invented packets: equal due dates keep plan order; an
+ *      unknown need stops the pour; rows that do not cover the items withhold;
+ *      a negative balance withholds;
+ *   3. every period of the invented corpus: the pour invariants;
+ *   4. every existing field is byte-equal without the new key;
+ *   5. mutants are caught;
+ *   6. the figures snapshot captures every figure and tag.
  *
  * Invented data only. `node test/test-stack-savings-summary.js` */
 const fs = require('node:fs');
@@ -65,204 +60,253 @@ function compile(text, name) {
   mod._compile(text, FILE.replace(/\.js$/, '-' + name + '.js'));
   return mod.exports;
 }
-const NEEDED = "      const needed = ready && isSavingsFigure(row.thisPeriod) && Object.hasOwn(STACK_TRUST_RANK, row.thisPeriodTrust)\n        ? row.thisPeriod : null;";
+// Each copy exposes its own stackSavings, so the pure pour can be called on an invented packet.
+const EXPOSE = ['  function stackSavings(view, result) {',
+  '  globalThis.__stackSavings = (view, result) => stackSavings(view, result);\n  function stackSavings(view, result) {'];
+function copy(text, name) {
+  const F = compile(replaceOnce(text, ...EXPOSE, 'expose ' + name), name);
+  const pour = globalThis.__stackSavings;
+  delete globalThis.__stackSavings;
+  return { F, pour };
+}
+const mutant = (from, to, label) => copy(replaceOnce(SOURCE, from, to, label), label.replace(/\W+/g, '-'));
+const ORDER = '        return da < db ? -1 : da > db ? 1 : a.rank - b.rank;';
+const shipped = copy(SOURCE, 'shipped');
 const copies = {
-  shipped: require('../public/forecast.js'),
-  without: compile(replaceOnce(SOURCE, ', savings: stackSavings(view, result) }', ' }', 'pass off'), 'without'),
-  savedFromBacking: compile(replaceOnce(SOURCE, '      const saved = savedCents === null ? null : savedCents / 100;',
-    '      const saved = isSavingsFigure(row.saved) ? row.saved : null;', 'saved from backing'), 'saved-from-backing'),
-  farthestFirst: compile(replaceOnce(SOURCE, '      needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: savingsFigureCents(item.needed) })) });',
-    "      needs: items.map((item, rank) => ({ key: item.key, needDate: '9999-12-31', rank: items.length - rank, unpaidCents: savingsFigureCents(item.needed) })) });", 'farthest first'), 'farthest-first'),
-  neededFromCost: compile(replaceOnce(SOURCE, NEEDED, NEEDED.split('row.thisPeriod').join('row.needed'), 'needed from cost'), 'needed-from-cost'),
-  partialNeeded: compile(replaceOnce(SOURCE, '    const neededTotal = items.length && !excluded.length', '    const neededTotal = items.length', 'partial needed'), 'partial-needed'),
-  futureMoved: compile(replaceOnce(SOURCE, '    const transferKnown = current && period.status', '    const transferKnown = !!period && period.status', 'future moved'), 'future-moved'),
-  noEntitlement: compile(replaceOnce(SOURCE, '        entitlement: entitlementKnown ? period.entitlement : null,', '        entitlement: null,', 'no entitlement'), 'no-entitlement'),
-  noNetReason: compile(replaceOnce(SOURCE, "        : current ? [savedWord, 'net-of-period-transfers'] : [savedWord];", '        : [savedWord];', 'no net reason'), 'no-net-reason'),
+  shipped,
+  without: { F: compile(replaceOnce(SOURCE, ', savings: stackSavings(view, result) }', ' }', 'pass off'), 'without') },
+  farthestFirst: mutant(ORDER, '        return da < db ? 1 : da > db ? -1 : a.rank - b.rank;', 'farthest first'),
+  tiesReversed: mutant(ORDER, '        return da < db ? -1 : da > db ? 1 : b.rank - a.rank;', 'ties reversed'),
+  noCap: mutant('      const take = Math.min(savingsFigureCents(item.needed), left);', '      const take = savingsFigureCents(item.needed);', 'no cap'),
+  skipUnknown: mutant("      if (!known) { if (left !== null) reasons.push('pour-stopped-at-unknown-need'); left = null; poured.set(item && item.key, null); continue; }",
+    '      if (!known) { poured.set(item && item.key, null); continue; }', 'skip unknown'),
+  staleCalculated: mutant("    const fresh = { current: 'calculated', dated: 'estimated', carried: 'estimated' };",
+    "    const fresh = { current: 'calculated', dated: 'calculated', carried: 'calculated' };", 'stale calculated'),
+  noUnallocated: mutant('        unallocated: complete && left !== null ? left / 100 : null,', '        unallocated: null,', 'no unallocated'),
+  oneAccount: mutant('    const stock = funding && funding.stock && funding.stock.reportedStock;',
+    "    const first = funding && funding.stock && funding.stock.reportedStock;\n"
+    + "    const stock = first && { ...first, amount: first.amount - 24 };", 'one account'),
+  currentOnly: mutant("    if (role !== 'current' && role !== 'next') return null;", "    if (role !== 'current') return null;", 'current only'),
+  hiddenWhenWithheld: mutant('    return {\n      items: out,', '    if (balance.cents === null) return null;\n    return {\n      items: out,', 'hidden when withheld'),
 };
+const pour = shipped.pour;
 
 const INPUTS = Snap.loadInventedInputs();
 const input = id => INPUTS.find(x => x.id === id);
-function run(F, inp, shift = 0) {
+function run(F, inp, opts = {}) {
   const data = structuredClone(inp.doc.data);
-  return F.recommend(data.plan, F.addDays(data.meta.asOf, shift),
+  if (opts.observe) opts.observe(data.plan.savingsPoolObservation);
+  return F.recommend(data.plan, F.addDays(data.meta.asOf, opts.shift || 0),
     Snap.pageOptions(data, inp.doc.periods == null ? null : structuredClone(inp.doc.periods)));
 }
 const byRole = (r, role) => r.payPeriodViews.filter(v => v.timelineRole === role);
 const sav = v => v && v.stackSummary && v.stackSummary.savings;
-const item = (s, id) => s && s.items.find(x => x.id === id);
+const setBalance = (a, b, date) => o => {
+  o.accounts[0].value = a; o.accounts[1].value = b;
+  if (date) o.accounts.forEach(row => { row.evidenceDate = date; });
+};
+const world = (copyOf, observe) => sav(byRole(run(copyOf.F, input('savings-live-ready'), { observe }), 'current')[0]);
+const pick = s => s && { items: s.items.map(x => [x.id, x.saved, x.needed, x.trust]),
+  totals: [s.totals.balance, s.totals.saved, s.totals.needed, s.totals.unallocated, s.totals.trust] };
+const same = (s, want) => JSON.stringify(pick(s)) === JSON.stringify(want);
+const COVERS_SOME = { items: [['group:club', 95, 230, 'calculated'], ['yearly-bill:home-cost', 24, 24, 'calculated']], totals: [119, 119, 254, 0, 'calculated'] };
 
 console.log('1. Hand-derived invented worlds');
 {
-  const ready = run(copies.shipped, input('savings-live-ready'));
-  const partial = run(copies.shipped, input('savings-live-partial'));
-  const r0 = sav(byRole(ready, 'current')[0]), p0 = sav(byRole(partial, 'current')[0]);
-  ok(item(r0, 'group:club').needed === 80 && r0.totals.saved === 0 && r0.totals.entitlement === 80 && r0.totals.completeness === 'pool-level',
-    'no transfer yet: club still to set aside 80; 0 moved of 80 this period', JSON.stringify(r0.totals));
-  ok(item(p0, 'group:club').needed === 50 && p0.totals.saved === 30 && p0.totals.entitlement === 80 && p0.totals.completeness === 'pool-level',
-    'a 30 transfer: club still to set aside 50 = 80 − 30; 30 moved of 80', JSON.stringify(p0.totals));
-  ok(item(p0, 'group:club').needed === item(r0, 'group:club').needed - p0.totals.saved,
-    'still to set aside falls by exactly what moved (net of the period\'s transfers)');
-  ok(item(p0, 'group:club').saved === 30 && item(p0, 'yearly-bill:home-cost').saved === 0
-    && item(r0, 'group:club').saved === 0 && item(r0, 'yearly-bill:home-cost').saved === 0,
-    'owner rule: the 30 funds the nearest goal with need left (club\'s far cost; near and home are fully backed), 0 elsewhere',
-    JSON.stringify(p0.items.map(x => [x.id, x.saved])));
-  ok(item(p0, 'group:club').periodTarget === 80 && item(r0, 'group:club').periodTarget === 80,
-    'the bar\'s whole is the same 80 in both worlds: saved + still to set aside = 30 + 50 = 0 + 80');
-  ok(p0.items.every(x => x.reasons.includes('owner-rule:nearest-due-first') && x.reasons.includes('net-of-period-transfers') && x.savedTrust === 'calculated')
-    && p0.totals.reasons.includes('pool-level') && p0.totals.reasons.includes('owner-rule:nearest-due-first'),
-    'the current period names its saved as the owner rule and its needed as net', JSON.stringify(p0.items));
-  ok(p0.totals.needed === 50 && p0.totals.excluded.length === 0, 'totals.needed is every goal\'s still-to-set-aside, summed (50 + 0)');
-  const next = sav(byRole(partial, 'next')[0]);
-  ok(next && next.items.length > 0 && next.items.every(x => x.saved === null && x.periodTarget === null && x.reasons.join() === 'future-period')
-    && next.totals.saved === null && next.totals.entitlement === null && next.totals.completeness === 'none',
-    'the next period: gross plan, nothing moved, future-period', JSON.stringify(next && next.totals));
-  const past = sav(byRole(partial, 'past').at(-1));
-  ok(past && past.items.every(x => x.needed === null && x.saved === null && x.trust === 'unavailable' && x.reasons.includes('past-period'))
-    && past.totals.needed === null && past.totals.saved === null, 'a past period publishes no savings figure', JSON.stringify(past && past.totals));
-  const none = sav(byRole(run(copies.shipped, input('card-paid-clear')), 'current')[0]);
-  ok(none && none.items.length === 0 && none.totals.needed === null && none.totals.reasons.includes('planned-unavailable'),
+  // As published: 95 + 24 = 119 across both accounts. near 60 (59 left), home 24 (35 left), far 35 of 170
+  // -> club (near + far) 95 of 230, home 24 of 24, nothing left.
+  const base = world(shipped);
+  ok(same(base, COVERS_SOME), 'covers some: 119 poured near 60, home 24, far 35 -> club 95 / 230, home 24 / 24, nothing left', JSON.stringify(pick(base)));
+  ok(base.items[0].id === 'group:club', 'rows are listed in pour order (club holds the nearest goal)');
+  const all = world(shipped, setBalance(300, 0));
+  ok(same(all, { items: [['group:club', 230, 230, 'calculated'], ['yearly-bill:home-cost', 24, 24, 'calculated']], totals: [300, 254, 254, 46, 'calculated'] }),
+    'covers all: 300 fills every goal and leaves 46 unallocated', JSON.stringify(pick(all)));
+  const some = world(shipped, setBalance(70, 0));
+  ok(same(some, { items: [['group:club', 60, 230, 'calculated'], ['yearly-bill:home-cost', 10, 24, 'calculated']], totals: [70, 70, 254, 0, 'calculated'] }),
+    'one goal partly saved, later ones 0: 70 -> near 60, home 10 of 24, far 0', JSON.stringify(pick(some)));
+  const zero = world(shipped, setBalance(0, 0));
+  ok(same(zero, { items: [['group:club', 0, 230, 'calculated'], ['yearly-bill:home-cost', 0, 24, 'calculated']], totals: [0, 0, 254, 0, 'calculated'] }),
+    'a zero balance saves 0 in every goal (a published 0, not withheld)', JSON.stringify(pick(zero)));
+  const dated = world(shipped, setBalance(95, 24, '2026-10-01'));
+  ok(same(dated, { items: [['group:club', 95, 230, 'estimated'], ['yearly-bill:home-cost', 24, 24, 'estimated']], totals: [119, 119, 254, 0, 'estimated'] })
+    && dated.totals.reasons.includes('balance-dated'), 'a balance dated before today is estimated, every figure with it', JSON.stringify(pick(dated)));
+  const oneDated = world(shipped, o => { o.accounts[1].evidenceDate = '2026-10-01'; });
+  ok(oneDated.totals.trust === 'estimated' && oneDated.items.every(x => x.trust === 'estimated'),
+    'one of the two balances dated: the weaker tag wins (estimated)', JSON.stringify(pick(oneDated)));
+  const missing = world(shipped, o => { o.accounts.pop(); });
+  ok(missing.items.length === 2 && missing.items.every(x => x.label && x.saved === null && x.needed === null && x.trust === 'unavailable')
+    && missing.totals.balance === null && missing.totals.saved === null && missing.totals.unallocated === null && missing.totals.trust === 'unavailable'
+    && missing.totals.reasons.includes('balance-unavailable'),
+    'regression: a withheld balance on the current period keeps every goal name, every figure a dash (never hidden)', JSON.stringify(missing));
+  const r = run(shipped.F, input('savings-live-ready'));
+  ok(JSON.stringify(sav(byRole(r, 'next')[0])) === JSON.stringify(sav(byRole(r, 'current')[0])), 'the next period repeats today\'s pour');
+  const others = r.payPeriodViews.filter(v => !['current', 'next'].includes(v.timelineRole));
+  ok(others.length > 2 && others.every(v => v.stackSummary && v.stackSummary.savings === null), `no other period publishes a card (${others.length} periods)`);
+  for (const role of ['current', 'next']) {
+    ok(!/future-period|past-period/.test(JSON.stringify(sav(byRole(r, role)[0]))), `the ${role} view carries no later- or past-period code`);
+  }
+  const none = sav(byRole(run(shipped.F, input('card-paid-clear')), 'current')[0]);
+  ok(none && none.items.length === 0 && none.totals.saved === null && none.totals.reasons.includes('no-savings-items'),
     'a household with no savings goals publishes no figure, with a reason', JSON.stringify(none && none.totals));
 }
 
-console.log('2. Every period of the corpus');
+console.log('2. The pure pour on invented packets');
+const packet = over => Object.assign({
+  stock: { reportedStock: { status: 'ready', amount: 50, freshness: 'current' } },
+  backing: { items: [
+    { key: 'a@2026-12-01', date: '2026-12-01', needed: 40, trust: 'calculated' },
+    { key: 'b@2026-12-01', date: '2026-12-01', needed: 40, trust: 'estimated' },
+    { key: 'c@2026-11-25', date: '2026-11-25', needed: 5, trust: 'calculated' }] },
+  rows: [{ key: 'row:a', label: 'A', members: ['a@2026-12-01'] }, { key: 'row:b', label: 'B', members: ['b@2026-12-01'] },
+    { key: 'row:c', label: 'C', members: ['c@2026-11-25'] }],
+}, over);
+const call = (copyOf, over) => copyOf.pour({ timelineRole: 'current' }, { savingsFunding: packet(over) });
+const TIE = { items: [['row:c', 5, 5, 'calculated'], ['row:a', 40, 40, 'calculated'], ['row:b', 5, 40, 'estimated']], totals: [50, 50, 85, 0, 'estimated'] };
+const UNKNOWN = { backing: { items: [
+  { key: 'a@2026-12-01', date: '2026-12-01', needed: null, trust: 'unknown' },
+  { key: 'b@2026-12-01', date: '2026-12-01', needed: 40, trust: 'estimated' },
+  { key: 'c@2026-11-25', date: '2026-11-25', needed: 5, trust: 'calculated' }] } };
+{
+  ok(typeof pour === 'function', 'the pour is reachable on an exposed copy');
+  // 50: c (nearest, 11-25) takes 5; a and b tie on 12-01: a first (plan order) takes 40, b the last 5.
+  const tie = call(shipped, {});
+  ok(same(tie, TIE), 'equal due dates keep the plan\'s order; a goal\'s estimated need makes it, and the head, estimated', JSON.stringify(pick(tie)));
+  const unknown = call(shipped, UNKNOWN);
+  ok(same(unknown, { items: [['row:c', 5, 5, 'calculated'], ['row:a', null, null, 'unavailable'], ['row:b', null, null, 'unavailable']], totals: [50, null, null, null, 'unavailable'] })
+    && unknown.totals.reasons.includes('pour-stopped-at-unknown-need'),
+    'an unknown need stops the pour: it and every later goal are withheld, never skipped', JSON.stringify(pick(unknown)));
+  const orphan = call(shipped, { rows: [{ key: 'row:a', label: 'A', members: ['a@2026-12-01'] }, { key: 'row:c', label: 'C', members: ['c@2026-11-25'] }] });
+  ok(orphan.items.length === 2 && orphan.items.every(x => x.saved === null) && orphan.totals.balance === null && orphan.totals.reasons.includes('rows-items-mismatch'),
+    'a goal in no row withholds every figure (the rows would not add up to the pour)', JSON.stringify(pick(orphan)));
+  const negative = call(shipped, { stock: { reportedStock: { status: 'ready', amount: -10, freshness: 'current' } } });
+  ok(negative.items.every(x => x.saved === null) && negative.totals.reasons.includes('balance-negative'), 'a negative balance withholds every figure');
+  const carried = call(shipped, { stock: { reportedStock: { status: 'ready', amount: 50, freshness: 'carried' } } });
+  ok(carried.totals.trust === 'estimated' && carried.items.every(x => x.trust === 'estimated'), 'a balance carried from the last good refresh is estimated');
+  const odd = call(shipped, { stock: { reportedStock: { status: 'ready', amount: 50, freshness: 'fresh' } } });
+  ok(odd.totals.balance === null && odd.totals.trust === 'unavailable', 'an unknown freshness word withholds the balance (never defaults to calculated)');
+  const grouped = call(shipped, { rows: [{ key: 'row:ab', label: 'AB', members: ['a@2026-12-01', 'b@2026-12-01'] }, { key: 'row:c', label: 'C', members: ['c@2026-11-25'] }] });
+  ok(same(grouped, { items: [['row:c', 5, 5, 'calculated'], ['row:ab', 45, 80, 'estimated']], totals: [50, 50, 85, 0, 'estimated'] }),
+    'a grouped row is the sum of its members\' pour', JSON.stringify(pick(grouped)));
+  ok(pour({ timelineRole: 'past' }, { savingsFunding: packet({}) }) === null && pour({ timelineRole: 'future' }, { savingsFunding: packet({}) }) === null,
+    'past and later periods publish null (no card)');
+  const empty = pour({ timelineRole: 'current' }, {});
+  ok(empty && empty.items.length === 0 && empty.totals.trust === 'unavailable', 'no savings packet at all: no figure, no goal');
+}
+
+console.log('3. Every period of the corpus');
 const corpus = [];
-for (const inp of INPUTS) for (const shift of [0, 3, 7, 14]) corpus.push(F => run(F, inp, shift));
+for (const inp of INPUTS) for (const shift of [0, 3, 7, 14]) corpus.push(F => run(F, inp, { shift }));
 {
   const w = H.baseWorld();
   w.commitments = [{ id: 'trip', label: 'Invented trip', date: '2026-11-20', amount: 600, confidence: 'confirmed', sinkingFund: true }];
   w.savingsPool = { value: 1000 };
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
-  const { data, packet, error } = H.dataOf(w);
+  const { data, packet: actuals, error } = H.dataOf(w);
   if (error) throw error;
-  corpus.push(F => F.recommend(structuredClone(data.plan), w.asOf, { debts: structuredClone(data.debts), currentPeriodActuals: structuredClone(packet) }));
+  corpus.push(F => F.recommend(structuredClone(data.plan), w.asOf, { debts: structuredClone(data.debts), currentPeriodActuals: structuredClone(actuals) }));
 }
-const REASONS = new Set(['no-per-goal-attribution', 'owner-rule:nearest-due-first', 'net-of-period-transfers', 'future-period', 'past-period',
-  'planned-unavailable', 'planned-incomplete', 'pool-level', 'pool-transfer-unavailable']);
+const REASONS = new Set(['owner-rule:balance-poured-nearest-due-first', 'balance-current', 'balance-dated', 'balance-carried', 'balance-unavailable',
+  'balance-negative', 'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items']);
+const TRUST = new Set(['calculated', 'estimated', 'unavailable']);
+const cents = v => Math.round(v * 100);
 function audit(F) {
-  const r = { periods: 0, items: 0, published: 0, poolLevel: 0, attributed: 0, copyFail: 0, savedFail: 0, savedSumFail: 0, targetFail: 0,
-    totalFail: 0, poolFail: 0, reasonFail: 0, wordingFail: 0, netFail: 0 };
+  const r = { periods: 0, cards: 0, poured: 0, roleFail: 0, nameFail: 0, capFail: 0, orderFail: 0, sumFail: 0, balanceFail: 0, trustFail: 0, reasonFail: 0 };
   for (const args of corpus) {
     const res = args(F);
     const funding = res.savingsFunding;
     for (const v of res.payPeriodViews || []) {
       r.periods++;
-      const s = sav(v);
-      if (!s) { r.copyFail++; continue; }
-      const json = JSON.stringify(s);
-      if (/funded|"status"/i.test(json)) r.wordingFail++;
-      const current = v.timelineRole === 'current' && funding && funding.period && funding.period.start === v.start;
-      const pv = funding && Array.isArray(funding.periodViews) ? funding.periodViews.find(p => p.start === v.start) : null;
-      const rows = current ? funding.rows || [] : (pv && pv.packet && pv.packet.rows) || [];
-      if (rows.length !== s.items.length) r.copyFail++;
-      s.items.forEach((x, i) => {
-        r.items++;
-        const row = rows[i] || {};
-        if (x.id !== row.key) r.copyFail++;
-        if (x.needed !== null) { r.published++; if (x.needed !== row.thisPeriod || x.trust !== row.thisPeriodTrust) r.copyFail++; }
-        if (x.saved !== null && !current) r.savedFail++;
-        if (x.saved !== null) r.attributed++;
-        if ((x.saved !== null && x.needed !== null) ? x.periodTarget !== Math.round((x.saved + x.needed) * 100) / 100 : x.periodTarget !== null) r.targetFail++;
-        if (!x.reasons.every(c => REASONS.has(c))) r.reasonFail++;
-        if (current && x.needed !== null && !x.reasons.includes('net-of-period-transfers')) r.netFail++;
-        if (!current && x.reasons.includes('net-of-period-transfers')) r.netFail++;
-      });
-      if (s.items.length && s.items.every(x => x.saved !== null)
-          && s.items.reduce((c, x) => c + Math.round(x.saved * 100), 0) !== Math.round(s.totals.saved * 100)) r.savedSumFail++;
-      if (s.items.some(x => x.saved !== null) && !s.items.every(x => x.saved !== null)) r.savedSumFail++;
-      const missing = s.items.filter(x => x.needed === null).map(x => x.id);
-      const sum = s.items.length && !missing.length ? s.items.reduce((c, x) => c + Math.round(x.needed * 100), 0) / 100 : null;
-      if (s.totals.needed !== sum || JSON.stringify(s.totals.excluded) !== JSON.stringify(missing)) r.totalFail++;
-      if (s.totals.completeness === 'pool-level') {
-        r.poolLevel++;
-        if (!current || s.totals.saved !== funding.period.transferred || s.totals.entitlement !== funding.period.entitlement) r.poolFail++;
-      } else if (s.totals.saved !== null || s.totals.entitlement !== null) r.poolFail++;
-      if (!s.totals.reasons.every(c => REASONS.has(c))) r.reasonFail++;
+      const s = v.stackSummary && v.stackSummary.savings;
+      if (!['current', 'next'].includes(v.timelineRole)) { if (s !== null) r.roleFail++; continue; }
+      if (!s) { r.roleFail++; continue; }
+      r.cards++;
+      const rows = funding && Array.isArray(funding.rows) ? funding.rows : [];
+      if (s.items.length !== rows.length || s.items.some(x => !rows.some(row => row.key === x.id && x.label === row.label))) r.nameFail++;
+      for (const x of s.items) {
+        if ((x.saved === null) !== (x.needed === null) || x.saved !== null && (x.saved < 0 || x.saved > x.needed)) r.capFail++;
+        if (!TRUST.has(x.trust) || (x.saved === null) !== (x.trust === 'unavailable')) r.trustFail++;
+      }
+      const t = s.totals;
+      if (t.saved !== null) {
+        r.poured++;
+        if (cents(t.saved) !== s.items.reduce((c, x) => c + cents(x.saved), 0) || cents(t.needed) !== s.items.reduce((c, x) => c + cents(x.needed), 0)
+            || cents(t.saved) + cents(t.unallocated) !== cents(t.balance)) r.sumFail++;
+        // The balance is the reported stock, both accounts summed, as published.
+        const stock = funding.stock.reportedStock;
+        if (t.balance !== stock.amount) r.balanceFail++;
+        if (stock.freshness !== 'current' && t.trust !== 'estimated') r.trustFail++;
+        // Nearest due first (independent of the page's order): a goal holds money only once every goal due
+        // strictly earlier is full.
+        const items = funding.backing.items;
+        const pours = new Map(items.map(i => [i.key, 0]));
+        let left = cents(t.balance);
+        for (const i of [...items].sort((p, q) => (p.date < q.date ? -1 : p.date > q.date ? 1 : items.indexOf(p) - items.indexOf(q)))) {
+          const take = Math.min(cents(i.needed), left); left -= take; pours.set(i.key, take);
+        }
+        for (const x of s.items) {
+          const row = rows.find(rw => rw.key === x.id);
+          if (row.members.reduce((c, m) => c + pours.get(m), 0) !== cents(x.saved)) r.orderFail++;
+        }
+      } else if (t.needed !== null || t.unallocated !== null || t.trust !== 'unavailable') r.sumFail++;
+      if (!t.reasons.every(c => REASONS.has(c))) r.reasonFail++;
     }
   }
   return r;
 }
-const a = audit(copies.shipped);
-ok(a.periods > 100 && a.published > 20 && a.poolLevel >= 5 && a.copyFail === 0,
-  `every goal row is its savingsFunding row copied (${a.items} goals, ${a.published} published, ${a.periods} periods)`, JSON.stringify(a));
-ok(a.savedFail === 0 && a.attributed > 5, `only the current period attributes saved per goal (${a.attributed} goals)`, String(a.savedFail));
-ok(a.savedSumFail === 0, 'the goals\' saved sum to the period\'s transfers exactly, all or none', String(a.savedSumFail));
-ok(a.targetFail === 0, 'each periodTarget is saved + still to set aside, or null', String(a.targetFail));
-ok(a.totalFail === 0, 'totals.needed is the cent sum of every goal\'s needed, or null with the missing goals excluded', String(a.totalFail));
-ok(a.poolFail === 0, `the pool-level moved and entitlement figures appear only on the current period, as published (${a.poolLevel} periods)`, String(a.poolFail));
-ok(a.netFail === 0, 'every current-period needed is marked net of the period\'s transfers, and no later one is', String(a.netFail));
-ok(a.reasonFail === 0 && a.wordingFail === 0, 'reasons are from the closed set; no status field and no funded wording', JSON.stringify([a.reasonFail, a.wordingFail]));
+const a = audit(shipped.F);
+ok(a.periods > 100 && a.cards > 20 && a.poured >= 5 && a.roleFail === 0,
+  `the card is published on the current and next periods only (${a.cards} cards, ${a.poured} poured, ${a.periods} periods)`, JSON.stringify(a));
+ok(a.nameFail === 0, 'every card names every savingsFunding goal row, published or withheld', String(a.nameFail));
+ok(a.capFail === 0, 'each goal\'s saved is between 0 and its needed, both published or both withheld', String(a.capFail));
+ok(a.orderFail === 0, 'each goal\'s saved is an independent nearest-due-first pour of the balance', String(a.orderFail));
+ok(a.sumFail === 0, 'the head is the rows summed, and saved + unallocated is the balance exactly', String(a.sumFail));
+ok(a.balanceFail === 0, 'the balance is the reported stock of both savings accounts, as published', String(a.balanceFail));
+ok(a.trustFail === 0 && a.reasonFail === 0, 'tags never exceed the balance; reasons are from the closed set', JSON.stringify([a.trustFail, a.reasonFail]));
 
-console.log('3. Every existing field is byte-equal');
+console.log('4. Every existing field is byte-equal');
 {
   const strip = res => { for (const v of res.payPeriodViews || []) if (v.stackSummary) delete v.stackSummary.savings; return JSON.stringify(res); };
-  let same = 0;
-  for (const args of corpus) if (strip(args(copies.shipped)) === JSON.stringify(args(copies.without))) same++;
-  ok(same === corpus.length, `the advice without stackSummary.savings is byte-equal on all ${corpus.length} cases`, `${same} of ${corpus.length}`);
+  let n = 0;
+  for (const args of corpus) if (strip(args(shipped.F)) === JSON.stringify(args(copies.without.F))) n++;
+  ok(n === corpus.length, `the advice without stackSummary.savings is byte-equal on all ${corpus.length} cases`, `${n} of ${corpus.length}`);
 }
 
-console.log('4. Mutants are caught');
+console.log('5. Mutants are caught');
 {
-  const partial = F => sav(byRole(run(F, input('savings-live-partial')), 'current')[0]);
-  ok(audit(copies.savedFromBacking).savedSumFail > 0 || item(partial(copies.savedFromBacking), 'group:club').saved !== 30,
-    'saved read from the pool backing (a stock, not a movement) is caught');
-  ok(item(partial(copies.farthestFirst), 'group:club').saved !== 30 || item(partial(copies.farthestFirst), 'yearly-bill:home-cost').saved !== 0
-    || audit(copies.farthestFirst).savedSumFail > 0, 'transfers attributed farthest-due first are caught');
-  ok(item(partial(copies.neededFromCost), 'group:club').needed !== 50 && audit(copies.neededFromCost).copyFail > 0,
-    'needed read from the goal\'s whole cost instead of this period\'s plan is caught');
-  ok(audit(copies.partialNeeded).totalFail > 0, 'a partial needed total passed off as a total is caught');
-  ok(audit(copies.futureMoved).poolFail > 0, 'a moved total on a non-current period is caught');
-  ok(partial(copies.noEntitlement).totals.entitlement === null && partial(copies.shipped).totals.entitlement === 80, 'a missing entitlement is caught');
-  ok(audit(copies.noNetReason).netFail > 0, 'a current-period needed not marked net is caught');
+  ok(!same(world(copies.farthestFirst), COVERS_SOME), 'pouring farthest due first is caught (the covers-some world)', JSON.stringify(pick(world(copies.farthestFirst))));
+  ok(!same(call(copies.tiesReversed, {}), TIE), 'equal due dates in reverse plan order are caught (the tie packet)');
+  ok(world(copies.noCap).totals.saved !== 119, 'a goal saved past what is left (no cap) is caught', JSON.stringify(pick(world(copies.noCap))));
+  ok(call(copies.skipUnknown, UNKNOWN).items.some(x => x.id === 'row:b' && x.saved !== null), 'skipping an unknown need instead of stopping is caught');
+  ok(world(copies.staleCalculated, setBalance(95, 24, '2026-10-01')).totals.trust !== 'estimated', 'a dated balance tagged calculated is caught (the dated world)');
+  ok(world(copies.noUnallocated, setBalance(300, 0)).totals.unallocated !== 46, 'a dropped unallocated is caught (the covers-all world)');
+  ok(world(copies.oneAccount).totals.balance !== 119, 'one account in place of the grand total is caught');
+  ok(sav(byRole(run(copies.currentOnly.F, input('savings-live-ready')), 'next')[0]) === null, 'a next period without the card is caught');
+  ok(world(copies.hiddenWhenWithheld, o => { o.accounts.pop(); }) === null, 'a card hidden when the balance is withheld is caught');
+  for (const [name, c] of [['farthest first', copies.farthestFirst], ['no cap', copies.noCap], ['no unallocated', copies.noUnallocated],
+    ['one account', copies.oneAccount], ['current only', copies.currentOnly]]) {
+    const m = audit(c.F);
+    ok(m.roleFail + m.capFail + m.orderFail + m.sumFail + m.balanceFail + m.trustFail > 0, `the corpus audit also catches: ${name}`, JSON.stringify(m));
+  }
 }
 
-console.log('6. The figures snapshot captures every published per-goal figure and tag');
+console.log('6. The figures snapshot captures every figure and tag');
 {
-  // A per-goal attribution change (say, two goals' saved swapped) must move a
-  // captured field even when the plan and the pool totals do not.
-  const inp = input('savings-live-partial');
+  const inp = input('savings-live-ready');
   const snap = Snap.buildFiguresSnapshot(structuredClone(inp.doc.data), inp.doc.periods == null ? null : structuredClone(inp.doc.periods));
-  const view = byRole(run(copies.shipped, inp), 'current')[0];
-  const goals = sav(view).items;
+  const view = byRole(run(shipped.F, inp), 'current')[0];
+  const s = sav(view);
   let missing = 0;
-  for (const g of goals) for (const field of ['needed', 'saved', 'periodTarget', 'trust', 'savedTrust']) {
+  for (const g of s.items) for (const field of ['saved', 'needed', 'trust']) {
     const key = 'period.' + view.start + '.stackSavingsGoal.' + g.id + '.' + field;
     if (!Object.hasOwn(snap, key) || JSON.stringify(snap[key]) !== JSON.stringify(g[field])) missing++;
   }
-  for (const [field, key] of [['needed', 'stackSavingsNeeded'], ['saved', 'stackSavingsSaved'], ['entitlement', 'stackSavingsEntitlement'],
-    ['trust', 'stackSavingsTrust'], ['entitlementTrust', 'stackSavingsEntitlementTrust'], ['completeness', 'stackSavingsCompleteness']]) {
+  for (const [field, key] of [['balance', 'stackSavingsBalance'], ['saved', 'stackSavingsSaved'], ['needed', 'stackSavingsNeeded'],
+    ['unallocated', 'stackSavingsUnallocated'], ['trust', 'stackSavingsTrust']]) {
     const k = 'period.' + view.start + '.' + key;
-    if (!Object.hasOwn(snap, k) || JSON.stringify(snap[k]) !== JSON.stringify(sav(view).totals[field])) missing++;
+    if (!Object.hasOwn(snap, k) || JSON.stringify(snap[k]) !== JSON.stringify(s.totals[field])) missing++;
   }
-  ok(goals.length > 1 && missing === 0, 'every total and each goal\'s needed, saved, period target and trust tags are captured as published', String(missing));
-  ok(snap['period.' + view.start + '.stackSavingsGoal.group:club.saved'] === 30
-    && snap['period.' + view.start + '.stackSavingsGoal.group:club.periodTarget'] === 80, 'club saved 30 and target 80 are in the snapshot');
-}
-
-console.log('7. The attribution fails closed on inputs it cannot trust');
-{
-  // A copy that exposes the attribution, called on an invented minimal pool:
-  // one goal with 30 saved of which this period moved 30.
-  const exposed = compile(replaceOnce(SOURCE, '  function stackSavings(view, result) {',
-    '  globalThis.__stackSavingsAttribution = stackSavingsAttribution;\n  function stackSavings(view, result) {', 'expose'), 'expose');
-  const attribute = globalThis.__stackSavingsAttribution;
-  delete globalThis.__stackSavingsAttribution;
-  ok(exposed && typeof attribute === 'function', 'the attribution is reachable on an exposed copy');
-  const world = over => Object.assign({
-    asOf: '2026-10-20', rows: [{ key: 'group:club', members: ['club@2026-12-01'] }],
-    period: { transferred: 30, trust: 'calculated' },
-    backing: { status: 'ready', unallocated: 0, items: [{ key: 'club@2026-12-01', saved: 30, needed: 50, date: '2026-12-01' }] },
-    goalAllocation: { status: 'ready', balanceDates: [{ date: '2026-10-20' }] },
-  }, over);
-  const good = attribute(world({}));
-  ok(good instanceof Map && good.get('group:club') === 3000, 'control: 30 moved is attributed to the one goal', String(good && good.get('group:club')));
-  ok(attribute(world({ period: { transferred: 30, trust: 'verified' } })) === null, 'an unknown trust word withholds the split (never defaults to calculated)');
-  ok(attribute(world({ asOf: undefined })) === null, 'a missing as-of withholds the split (the stale-balance guard cannot pass silently)');
-  ok(attribute(world({ rows: [{ key: 'group:club', members: ['club@2026-12-01', 'gone@2026-12-09'] }] })) === null,
-    'a goal member missing from the pool backing withholds the split (never counted as 0)');
-  ok(attribute(world({ backing: { status: 'ready', unallocated: 0, items: [{ key: 'club@2026-12-01', saved: 20, needed: 50, date: '2026-12-01' },
-    { key: 'orphan@2026-12-09', saved: 10, needed: 10, date: '2026-12-09' }] } })) === null,
-    'a pool member in no goal row withholds the split (the goals\' saved would not add up to the moved total)');
-  ok(attribute(world({ goalAllocation: { status: 'ready', balanceDates: [{ date: '2026-10-19' }] } })) === null, 'a pool balance dated before the as-of withholds the split');
+  ok(s.items.length > 1 && missing === 0, 'the balance, the head, unallocated and each goal\'s saved, needed and trust are captured as published', String(missing));
+  ok(snap['period.' + view.start + '.stackSavingsGoal.group:club.saved'] === 95, 'club saved 95 is in the snapshot');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack savings checks passed`);
