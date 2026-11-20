@@ -136,12 +136,22 @@ console.log('3. Unpublished values print nothing (F8)');
   ok(!/\$0\.00/.test(c.innerHTML), 'nothing reads $0');
   ok(/disabled/.test(c.innerHTML) && /<ul class="wf-cards" hidden><\/ul>/.test(c.innerHTML), 'with no published minimums, Credit has no rows to open');
   const slab = /<div class="wf-slab[^"]*" data-row="surplus">([\s\S]*?)<\/div>\s*<\/section>/.exec(c.innerHTML);
-  ok(slab && !/is unavailable|wf-reason/.test(c.innerHTML) && /<span class="wf-dash" aria-hidden="true">\u2014<\/span>$/.test(slab[1])
+  ok(slab && !/is unavailable|wf-reason/.test(c.innerHTML) && /<span class="wf-dash" role="img" aria-label="not available">\u2014<\/span>$/.test(slab[1])
     && slab[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() === '= Surplus after deductions \u2014',
     'a withheld surplus shows its name and a dash: no reason sentence, no amount', slab && slab[1]);
   const shown = fakeContainer();
   W.render(shown, ctxOf([fullView()]));
   ok(!/wf-dash/.test(shown.innerHTML), 'a published surplus has no dash');
+  // A card whose minimum is not published: its row shows the name and a dash (read as "not available"), never $0.
+  const gap = fullView();
+  gap.stackSummary.bills.cardMinimums = [{ debtId: 'mbna', amount: 25 }, { debtId: 'triangle', amount: null }];
+  const g = fakeContainer();
+  W.render(g, ctxOf([gap]));
+  proveSourced(g.innerHTML, gap, 'unpublished card minimum');
+  const gapRows = [...g.innerHTML.matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)].map(m => m[1]);
+  ok(gapRows.length === 2 && /data-unpublished="true"><\/span><span class="wf-dash" role="img" aria-label="not available">\u2014<\/span>$/.test(gapRows[1])
+    && !/wf-dash/.test(gapRows[0]) && !/\$0\.00/.test(gapRows[1]),
+    'an unpublished card minimum: a dash in its row, never $0; a published one has no dash', gapRows[1]);
   const none = fakeContainer();
   W.render(none, ctxOf([{ id: 'x', start: '2026-10-09', timelineRole: 'current' }]));
   ok(cells(none.innerHTML).every(x => x.unpublished) && !MONEY.test(none.innerHTML), 'a period with no stackSummary prints no amount at all');

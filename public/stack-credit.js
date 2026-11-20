@@ -93,7 +93,7 @@
     const stat = est(view, trustOf(line.paid), trustOf(line.spent), status && status.cls === 'is-togo' ? trustOf(line.toGo) : null);
     const minEst = minimumEst(view, line);
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
-      + `<span class="stack-credit-tick${ok ? ' is-on' : ''}">${TICK}</span>`
+      + `<span class="stack-credit-tick${ok ? ' is-on" role="img" aria-label="Paid' : ''}">${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
       + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status && status.text ? stat : ''}">${status ? esc(status.text) : ''}</span></span>`
       + (sub ? `<small class="stack-credit-sub-line${figs}">${esc(sub)}</small>` : '')

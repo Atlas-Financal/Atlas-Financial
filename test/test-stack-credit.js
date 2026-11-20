@@ -132,6 +132,8 @@ console.log('3. open rows');
   ok(rows[3] === 'Line of credit Minimum $210 ✓', 'HELOC: its minimum only', rows[3]);
   ok(/data-stack-sheet="card:cashback"/.test(html) && (html.match(/data-stack-sheet="card:/g) || []).length === 4, 'every row opens the sheet');
   ok(/stack-credit-tick is-on/.test(html.split('<li>')[1]) && !/is-on/.test(html.split('<li>')[2]), 'the tick is filled only for a paid-back line');
+  ok(/<span class="stack-credit-tick is-on" role="img" aria-label="Paid">/.test(html.split('<li>')[1])
+    && !/aria-label/.test(html.split('<li>')[2].split('stack-credit-name')[0]), 'a filled tick is read as "Paid"; an empty one is not named');
 }
 
 console.log('4. no ratio text');

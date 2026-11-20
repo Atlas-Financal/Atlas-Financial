@@ -255,6 +255,8 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));
   };
   const words = [...new Set(texts.flatMap(leftover))];
+  ok(texts.every(t => text(t) !== ''), 'every one of the renders printed something (the word check is not vacuous)',
+    String(texts.filter(t => text(t) === '').length));
   ok(texts.length === 156 && words.length === 0, 'the rendered Stack blocks and sheets hold only names, numbers and ✓', words.join(' | '));
   const control = leftover('<p>Paid back $5 to go Upcoming excludes Red Card Covered ✓ Not yet unavailable Due Mar 5 Comes out of Chequing</p>');
   ok(['back', 'to', 'go', 'Upcoming', 'excludes', 'Covered', 'Not', 'yet', 'unavailable', 'Due', 'Comes', 'out'].every(w => control.includes(w)),
