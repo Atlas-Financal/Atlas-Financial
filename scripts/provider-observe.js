@@ -6431,6 +6431,49 @@ const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonC
 function recurringRefusalPlanId(v) {
   return typeof v === 'string' && v.length <= 64 && /^[a-z][a-z0-9-]*$/.test(v);
 }
+// Reviewed Lunch Money items no identity rule names (lead dispatch, 2026-11-20): so the owner's team can write the
+// lunchMoneyRecurringIds links, each is listed with its numeric id and its schedule only: granularity, quantity, anchor,
+// start and end dates, the Atlas role of its account, and the dates of the transactions Lunch Money found for it in the
+// window. No payee, description, amount, notes, category, currency, provider account id or transaction id leaves. An item
+// whose schedule did not read is listed as unavailable (its id only), never guessed. Suggestions (not reviewed) are not here.
+const RECURRING_UNNAMED_READ_KEYS = Object.freeze(['recurringId', 'status', 'granularity', 'quantity', 'anchorDate', 'startDate',
+  'endDate', 'accountRole', 'foundDates']);
+const RECURRING_UNNAMED_UNAVAILABLE_KEYS = Object.freeze(['recurringId', 'status', 'reason']);
+const RECURRING_UNNAMED_ROLES = Object.freeze(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage',
+  EXTERNAL_LIVE_ROLE, 'unmapped']);
+function recurringUnnamedEntryLooksSanitized(entry) {
+  const keysAre = (obj, keys) => obj && typeof obj === 'object' && !Array.isArray(obj)
+    && Object.keys(obj).length === keys.length && keys.every(key => Object.hasOwn(obj, key));
+  const date = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && realIsoDay(v);
+  if (!entry || typeof entry !== 'object' || typeof entry.recurringId !== 'string' || !/^\d+$/.test(entry.recurringId)) return false;
+  if (entry.status === 'unavailable') return keysAre(entry, RECURRING_UNNAMED_UNAVAILABLE_KEYS) && entry.reason === 'schedule-unreadable';
+  return entry.status === 'read' && keysAre(entry, RECURRING_UNNAMED_READ_KEYS)
+    && ['day', 'week', 'month', 'year'].includes(entry.granularity)
+    && Number.isSafeInteger(entry.quantity) && entry.quantity >= 1
+    && date(entry.anchorDate)
+    && (entry.startDate === null || date(entry.startDate)) && (entry.endDate === null || date(entry.endDate))
+    && (entry.accountRole === null || RECURRING_UNNAMED_ROLES.includes(entry.accountRole))
+    && Array.isArray(entry.foundDates) && entry.foundDates.every(date)
+    && entry.foundDates.every((d, i) => i === 0 || entry.foundDates[i - 1] < d);
+}
+// One reviewed, unnamed item as its closed entry; null when its id is not a Lunch Money recurring id (it is then only counted).
+function unnamedRecurringEntry(item, opts) {
+  const id = item && item.providerId != null ? String(item.providerId) : '';
+  if (!/^\d+$/.test(id)) return null;
+  const unreadable = { recurringId: id, status: 'unavailable', reason: 'schedule-unreadable' };
+  const c = item.criteria, m = item.matches;
+  const broken = (item.unavailableFields || []).some(field => RECURRING_SCHEDULE_FIELDS.has(field)
+    || [...RECURRING_SCHEDULE_FIELDS].some(prefix => field.startsWith(prefix + '.')));
+  const found = m && Array.isArray(m.foundTransactions) ? m.foundTransactions : null;
+  if (broken || !c || !found) return unreadable;
+  const providerAccountId = c.plaidAccountId != null ? c.plaidAccountId : c.manualAccountId;
+  const entry = { recurringId: id, status: 'read', granularity: c.granularity, quantity: c.quantity, anchorDate: c.anchorDate,
+    startDate: c.startDate == null ? null : c.startDate, endDate: c.endDate == null ? null : c.endDate,
+    accountRole: providerAccountId == null ? null : atlasAccountRole(mappingFor((opts && opts.accountMap) || {}, providerAccountId)),
+    foundDates: Array.from(new Set(found.map(f => f && f.date))).sort() };
+  return recurringUnnamedEntryLooksSanitized(entry) ? entry : unreadable;
+}
+
 function sanitizedRecurringEvidence(raw, opts) {
   if (raw == null) return null;
   // A response that claims to continue beyond what it returned (paging keys
@@ -6443,9 +6486,15 @@ function sanitizedRecurringEvidence(raw, opts) {
   for (const rule of opts.identityRules || []) for (const id of ruleLunchMoneyRecurringIds(rule)) named.add(id);
   const dropped = Object.fromEntries(RECURRING_DROP_REASONS.map(reason => [reason, 0]));
   const items = [];
+  const unnamed = [];
   for (const item of raw.read.items) {
     if (!item || item.status !== 'reviewed') { dropped['not-reviewed'] += 1; continue; }
-    if (!named.has(String(item.providerId))) { dropped['not-named'] += 1; continue; }
+    if (!named.has(String(item.providerId))) {
+      dropped['not-named'] += 1;
+      const entry = unnamedRecurringEntry(item, opts);
+      if (entry) unnamed.push(entry);
+      continue;
+    }
     const c = item.criteria, m = item.matches;
     const broken = (item.unavailableFields || []).some(field => RECURRING_SCHEDULE_FIELDS.has(field)
       || [...RECURRING_SCHEDULE_FIELDS].some(prefix => field.startsWith(prefix + '.')));
@@ -6484,7 +6533,7 @@ function sanitizedRecurringEvidence(raw, opts) {
     });
   return { source: 'provider-observe:lunchmoney', status: 'read',
     window: { startDate: raw.read.requestedWindow?.startDate ?? null, endDate: raw.read.requestedWindow?.endDate ?? null },
-    items, dropped, refused };
+    items, dropped, refused, unnamed };
 }
 
 // S2 (owner decision #821 6956651970 (a)/(b): a REVIEWED Lunch Money
@@ -6916,7 +6965,8 @@ function recurringEvidenceLooksSanitized(block) {
   if (block.status === 'unavailable') {
     return keysAre(block, ['source', 'status', 'reason']) && block.reason === 'recurring-read-failed';
   }
-  if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped', 'refused'])) return false;
+  if (block.status !== 'read' || !keysAre(block, ['source', 'status', 'window', 'items', 'dropped', 'refused', 'unnamed'])) return false;
+  if (!Array.isArray(block.unnamed) || !block.unnamed.every(recurringUnnamedEntryLooksSanitized)) return false;
   // A refusal is an Atlas plan row id (never a Lunch Money id, which is all
   // digits) or null, and one closed reason code; nothing else.
   const planId = v => v === null || recurringRefusalPlanId(v);
@@ -8195,6 +8245,7 @@ const api = {
   RECURRING_OBLIGATION_FIELDS,
   RECURRING_REFUSAL_CODES,
   sanitizedRecurringEvidence,
+  RECURRING_UNNAMED_ROLES,
   RECURRING_TIMING_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
