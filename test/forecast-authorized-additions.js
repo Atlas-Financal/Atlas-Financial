@@ -21,6 +21,8 @@
 //     held outflows and card payments beyond the minimum;
 //     savings (A5): each goal's planned amount beside what moved, proved by
 //     proveStackSavings below.
+//   reconMatchesSpent (budget rows): whether a row's listed transactions
+//   reconcile to its Spent to the cent, proved by withoutReconMatchesSpent.
 //   billHistory (Stack Wallet bill sheet): each bill's past and current
 //   occurrences, proved against the published bill rows by proveBillHistory.
 //   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
@@ -148,13 +150,34 @@ function withoutBillPaidState(node, seen = new Set()) {
   for (const value of Object.values(node)) withoutBillPaidState(value, seen);
 }
 
+// reconMatchesSpent (budget category transactions, CARDS' #1450): a boolean
+// set only on a household budget row whose Spent is a number, true exactly
+// when the cents of its counted recon rows (less the pending twin of a posted
+// transaction) equal round(Spent x 100). Proved here by recomputing it from
+// the row, then removed. Presentation only.
+function withoutReconMatchesSpent(node, seen = new Set()) {
+  if (!node || typeof node !== 'object' || seen.has(node)) return;
+  seen.add(node);
+  if (Object.hasOwn(node, 'reconMatchesSpent') && Object.hasOwn(node, 'recon')) {
+    assert.equal(typeof node.reconMatchesSpent, 'boolean', 'authorized addition: reconMatchesSpent is a boolean');
+    assert.ok(typeof node.spent === 'number' && Number.isFinite(node.spent), 'authorized addition: reconMatchesSpent only beside a numeric Spent');
+    const counted = (node.recon || []).filter(r => !(r && r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true));
+    const finite = counted.every(r => r && typeof r.amount === 'number' && Number.isFinite(r.amount));
+    const cents = finite ? counted.reduce((sum, r) => sum + Math.round(r.amount * 100), 0) : null;
+    assert.equal(node.reconMatchesSpent, finite && cents === Math.round(node.spent * 100),
+      'authorized addition: reconMatchesSpent states whether the counted rows reconcile to Spent to the cent');
+    delete node.reconMatchesSpent;
+  }
+  for (const value of Object.values(node)) withoutReconMatchesSpent(value, seen);
+}
+
 // billHistory (Stack Wallet, bill sheet): proved against the published bill
 // rows it copies, then removed. Every entry is one published period row with
 // the same id and date, never a carried copy, listed once, in date order newest
 // first. Its amount follows the row's own displayAmountBasis (a linked actual
 // or the scheduled amount, never mixed), with null exactly when trust is
-// unavailable. Every period's non-carried dated row (past, current and
-// future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
+// unavailable. Its occurrence is that row's identity. Every period's
+// non-carried dated row (past, current and future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
 const BILL_HISTORY_TRUST_WORDS = new Set(['calculated', 'estimated', 'unknown', 'unavailable']);
 // Forecast's occurrence identity, as the history keys it: the row's
 // occurrenceKey (id@scheduledDate) when it publishes one, else its id and
@@ -181,7 +204,7 @@ function proveBillHistory(advice) {
     assert.ok(Array.isArray(list) && list.length, `authorized addition: billHistory.${id} lists occurrences`);
     for (let i = 0; i < list.length; i++) {
       const entry = list[i];
-      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState'], `authorized addition: billHistory.${id} entry shape`);
+      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState', 'occurrence'], `authorized addition: billHistory.${id} entry shape`);
       if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
       const candidates = rows.get(id + '@' + entry.date) || [];
       const row = candidates.find(r => r.paidState === entry.paidState && !listed.has(billOccurrenceOf(r)));
@@ -196,6 +219,7 @@ function proveBillHistory(advice) {
       assert.equal(entry.trust, expected === null ? 'unavailable' : carriedTrust,
         `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
+      assert.equal(entry.occurrence, billOccurrenceOf(row), `authorized addition: billHistory.${id}@${entry.date} occurrence is the row's identity`);
       listed.add(billOccurrenceOf(row));
     }
   }
@@ -208,6 +232,7 @@ function proveBillHistory(advice) {
 function withoutAuthorizedAdditions(advice) {
   if (!advice || typeof advice !== 'object') return advice;
   withoutStackSummary(advice);
+  withoutReconMatchesSpent(advice);
   if (Object.hasOwn(advice, 'billHistory')) {
     proveBillHistory(advice);
     delete advice.billHistory;

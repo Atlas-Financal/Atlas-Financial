@@ -572,8 +572,9 @@ function uniqueKey(used, key) {
 
 /* ---- Stack Wallet bill sheet: Forecast billHistory ------------------------ */
 // Each bill's occurrences as published (date, amount, its basis and trust,
-// the paid word), one key per bill id and date. Copied, never summed.
-const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState'];
+// the paid word, the occurrence identity), one key per bill id and date.
+// Copied, never summed.
+const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState', 'occurrence'];
 function putBillHistory(put, putField, advice) {
   const history = advice.billHistory && typeof advice.billHistory === 'object' ? advice.billHistory : {};
   const keys = new Set();
@@ -615,7 +616,8 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
     // Stack Wallet A6b: Forecast.stackCreditLines on the same publication and
     // the period's published bills split. Per line: the minimum, status, the
     // amount to go and whether the minimum is covered, each with its trust;
-    // and the credit totals with their completeness.
+    // and the credit totals with their completeness. The last balance snapshot
+    // (current period only) with its trust and date, and its total.
     const credit = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
     if (credit) {
       const lineKeys = new Set();
@@ -628,12 +630,18 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         putField(c + '.status', line, 'status');
         put(c + '.minimumCovered', String(line.minimumCovered.value));
         put(c + '.minimumCoveredTrust', line.minimumCovered.trust);
+        put(c + '.balance', line.balance.amount);
+        put(c + '.balanceTrust', line.balance.trust);
+        put(c + '.balanceAsOf', line.balance.asOf);
       }
       const t = p + '.stackCardTotals';
       put(t + '.paid', credit.totals.paid);
       put(t + '.spent', credit.totals.spent);
       put(t + '.trust', credit.totals.trust);
       put(t + '.completeness', credit.totals.completeness);
+      put(t + '.balance', credit.totals.balance.amount);
+      put(t + '.balanceTrust', credit.totals.balance.trust);
+      put(t + '.balanceCompleteness', credit.totals.balance.completeness);
     }
   }
 }
@@ -1097,6 +1105,19 @@ function putSavingsPublication(put, putField, advice, publications) {
       putRows(put, putField, p + '.close.row.', close.rows, CLOSE_ROW_FIELDS);
       putRows(put, putField, p + '.close.item.', close.items, CLOSE_ITEM_FIELDS);
       putAllocations(put, p + '.close.allocation.', close.allocations);
+    }
+    // The projected top-up the page prints as "Added this period", and the
+    // packet's own row "This period", both derived from the period's Budget
+    // funding (plannedCostFunding). Captured so a second schedule cannot move
+    // them unseen.
+    if (kind === 'projected') {
+      putField(p + '.topup.proposal', packet.period, 'proposal');
+      const used = new Set();
+      for (const row of Array.isArray(packet.rows) ? packet.rows : []) {
+        const r = uniqueKey(used, p + '.topup.row.' + segment(row && row.key));
+        putField(r + '.thisPeriod', row, 'thisPeriod');
+        putField(r + '.thisPeriodTrust', row, 'thisPeriodTrust');
+      }
     }
     if (kind === 'projected' && packet.plannedRequirements) {
       putRows(put, putField, p + '.planned.row.', packet.plannedRequirements.rows, PLANNED_ROW_FIELDS);

@@ -39,6 +39,9 @@
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
+      // Stack credit balance snapshot: Forecast's statement-cycle verdict on
+      // the snapshot's own published date, never re-derived in the module.
+      balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
@@ -12669,7 +12672,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));
+      return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))));
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12978,6 +12981,45 @@
     if (row.settlementBasis === 'schedule-trust-on-due') return 'not-paid';
     return row.status === 'PAID' || row.settlement === 'represented' ? 'paid' : 'not-paid';
   }
+  // Budget category transactions (owner ask, Dale, 2026-11-20; lead ruling on
+  // CARDS' #1450): a page may list a household budget row's recon only when
+  // that list is exactly what its published Spent counts, and it must not do
+  // money arithmetic to find out (L-001). Each recon row is rounded to the
+  // cent on its own, while a Spent can sum the unrounded amounts (Other
+  // spending's confirmedHouseholdAmount) and round once: transactions of 10
+  // and 1.005 list as 10.00 and 1.00 beside a Spent of 11.01. One boolean,
+  // set last on the published row: reconMatchesSpent is true when the cents of
+  // its recon rows, less the pending twin of a posted transaction
+  // (pendingPostedDuplicate && pending && !pendingAmountEstimated, the rows
+  // spentFromRecon and confirmedHouseholdAmount do not count), equal
+  // round(Spent x 100); false otherwise; absent when Spent is not a number.
+  // Presentation only: no figure reads it.
+  function reconRowCounted(row) {
+    return !(row && row.pendingPostedDuplicate === true && row.pending === true && row.pendingAmountEstimated !== true);
+  }
+  function reconMatchesSpent(row) {
+    if (!row || typeof row.spent !== 'number' || !Number.isFinite(row.spent)) return undefined;
+    const recon = Array.isArray(row.recon) ? row.recon : [];
+    let cents = 0;
+    for (const r of recon) {
+      if (!reconRowCounted(r)) continue;
+      const amount = r && r.amount;
+      if (typeof amount !== 'number' || !Number.isFinite(amount)) return false;
+      cents += Math.round(amount * 100);
+    }
+    return cents === Math.round(row.spent * 100);
+  }
+  function publishReconMatchesSpent(result) {
+    for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
+      for (const row of (view && Array.isArray(view.householdBudget) ? view.householdBudget : [])) {
+        if (!row || typeof row !== 'object') continue;
+        const match = reconMatchesSpent(row);
+        if (match === undefined) delete row.reconMatchesSpent;
+        else row.reconMatchesSpent = match;
+      }
+    }
+    return result;
+  }
   function publishBillPaidStates(result) {
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       for (const row of (view && Array.isArray(view.bills) ? view.bills : [])) {
@@ -12991,7 +13033,10 @@
   // occurrence in the published pay periods (past, current and future), newest
   // first, copied from the published bill rows, so the bill sheet reads one
   // source for its headline and its history (lead ruling, 2026-11-20):
-  //   { date, amount, amountBasis, trust, paidState }
+  //   { date, amount, amountBasis, trust, paidState, occurrence }
+  // occurrence is the occurrence's identity, the same key the dedupe below
+  // uses (billOccurrenceIdentity), so a consumer matches an entry by identity
+  // and not by its date, which a statement may have moved.
   // A not-yet-due occurrence carries basis 'schedule' with its own trust and
   // its paidState as published.
   // amount and trust follow the row's own displayAmountBasis exactly
@@ -13021,7 +13066,8 @@
     const amount = typeof raw === 'number' && Number.isFinite(raw) ? roundCent(Math.abs(raw)) : null;
     const trust = amount === null ? 'unavailable'
       : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
-    return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState };
+    return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState,
+      occurrence: billOccurrenceIdentity(row) };
   }
   function billOccurrenceIdentity(row) {
     if (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')) return row.occurrenceKey;
@@ -23318,9 +23364,20 @@
         }
         savingsFunding.allocationMode = historicalSavings ? 'historical-pools' : 'combined';
         savingsFunding.manualInventory = historicalSavings ? savingsInventoryWithCommitmentCost(plan, asOf, paydayOpts) : null;
-        savingsFunding.schedule = savingsSchedule;
         const todayReady = savingsFunding.status === 'ready' && savingsFunding.period?.status === 'ready';
-        const savingsNext = savingsSchedule.status !== 'unavailable' ? savingsSchedule.paydays?.[0] : null;
+        // The payday lens reprints the next period's Budget funding (one authority).
+        const nextPeriod = payPeriodTimelinePack.views.find(period => period.timelineRole === 'next');
+        const nextTopUp = savingsProjectedTopUp(nextPeriod
+          ? { start: nextPeriod.start, end: nextPeriod.end, funding: nextPeriod.plannedCostFunding } : null);
+        // The published payday schedule is the detail behind the payday lens
+        // ("Complete exact payday funding plan"). It is the cash-walk schedule,
+        // so it is published only where its first payday reprints that same
+        // Budget top-up (same payday, same total, same named amounts, in
+        // cents); otherwise its detail is withheld, never shown beside a
+        // different proposal. The internal schedule still feeds the timeline.
+        savingsFunding.schedule = savingsScheduleAgreesWithTopUp(savingsSchedule, nextTopUp, nextPeriod)
+          ? savingsSchedule : savingsScheduleWithheld(savingsSchedule,
+            'The payday schedule does not reprint the Budget\'s period funding for this payday, so its detail is withheld.');
         const lensItems = (allocations, ready, byOccurrence) => savingsFunding.backing.items.map(item => ({
           id: item.key, requirementId: item.id, label: item.label, date: item.date, cost: item.needed,
           // Savings audit (PR 3): the backing's own Saved tag; never upgraded.
@@ -23337,12 +23394,12 @@
             items: lensItems(savingsFunding.period?.allocations || [], todayReady, true),
             unscheduled: savingsFunding.unresolved.map(row => ({ ...row, cost: row.needed, confidence: row.trust })),
             reason: savingsFunding.period?.reason || savingsFunding.backing.reason, when: 'unsent top-up today' },
-          { key: 'payday', ready: !!savingsNext, payday: savingsNext?.payday || null, asOf,
-            trust: planSpendFunding.fundingTrust, fundingTrust: planSpendFunding.fundingTrust,
-            proposal: savingsNext?.contribution ?? null, remaining: savingsNext?.stillToFund ?? null,
-            items: lensItems(savingsNext?.allocations || [], !!savingsNext, false),
+          { key: 'payday', ready: nextTopUp.ready, payday: nextTopUp.ready ? nextPeriod.start : null, asOf,
+            trust: nextTopUp.trust, fundingTrust: nextTopUp.trust,
+            proposal: nextTopUp.contribution, remaining: nextTopUp.remaining,
+            items: lensItems(nextTopUp.allocations, nextTopUp.ready, false),
             unscheduled: savingsFunding.unresolved.map(row => ({ ...row, cost: row.needed, confidence: row.trust })),
-            gap: savingsSchedule.gap, reason: savingsSchedule.reason, when: 'projected top-up this payday' },
+            gap: nextTopUp.gap, reason: nextTopUp.reason, when: 'projected top-up this payday' },
         ];
         savingsFunding.periodViews = payPeriodTimelinePack.views.map(period => ({ id: period.id, start: period.start,
           end: period.end, role: period.timelineRole, funding: period.plannedCostFunding, progress: period.budgetProgress }));
@@ -23416,12 +23473,12 @@
         if (plan.savingsEarmarks?.allocationPolicy != null) for (const view of savingsFunding.periodViews) {
           if (view.role === 'current') continue;
           const projected = ['next', 'future'].includes(view.role);
-          const payday = projected ? savingsSchedule.paydays?.find(row => row.payday === view.start && row.through === view.end) : null;
-          const ready = projected && savingsSchedule.status !== 'unavailable' && !!payday;
+          const topUp = projected ? savingsProjectedTopUp(view) : null;
+          const ready = projected && topUp.ready;
           const rows = savingsFunding.rows.map(row => {
             const ids = [...savingsFunding.backing.items, ...savingsFunding.unresolved]
               .filter(item => row.members.includes(item.key)).map(item => item.id);
-            const contribution = ready ? payday.allocations.filter(part => ids.includes(part.id))
+            const contribution = ready ? topUp.allocations.filter(part => ids.includes(part.id))
               .reduce((sum,part) => sum + savingsCents(part.amount),0) / 100 : null;
             return { ...withholdCommitmentCost(row, asOf), saved: null, savedTrust: 'unknown', needed: projected ? row.needed : null,
               neededTrust: projected ? row.neededTrust : 'unknown', neededRange: projected ? row.neededRange : null,
@@ -23447,9 +23504,9 @@
               : 'Historical saving evidence is unavailable. Current observed savings are not substituted into this earlier period.',
             period: { status: ready ? 'ready' : 'unavailable', kind: projected ? 'projected' : 'historical',
               basis: 'operating-surplus-before-proposals', start: view.start, end: view.end,
-              trust: ready ? 'estimated' : 'unknown', proposal: ready ? payday.contribution : null,
-              actualSaved: null, allocations: ready ? payday.allocations : [], cycleAllocations: ready ? payday.allocations : [],
-              reason: ready ? null : projected ? 'This selected period has no qualified projected top-up.' : 'Historical saved evidence is unknown.' } };
+              trust: ready ? 'estimated' : 'unknown', proposal: ready ? topUp.contribution : null,
+              actualSaved: null, allocations: ready ? topUp.allocations : [], cycleAllocations: ready ? topUp.allocations : [],
+              reason: ready ? null : projected ? topUp.reason : 'Historical saved evidence is unknown.' } };
           if (projected) view.packet.plannedRequirements = savingsPlannedRequirements(
             savingsFunding, knowledgeSim.events, asOf, view);
           if (projected) view.packet.forecastClosing = closingSavings.get(view.end) || {
@@ -26099,6 +26156,22 @@
         : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
     };
   }
+  // The Stack credit lines' verdict on the balance snapshot they publish
+  // (Atlas, #1447): the same statement-cycle boundary as cardBalanceFreshness,
+  // applied to the published snapshot's own date, never to a separate stamp or
+  // the plan opening. 'undated' and 'after-as-of' (a date later than the as-of
+  // day) never earn current trust; 'stale' is before this statement cycle;
+  // 'current' is inside it; 'not-assessed' has no statement close day.
+  function cardBalanceAssessment(debt, plan, asOf, shownDate) {
+    const day = financialDate(shownDate);
+    if (!day) return { status: 'undated' };
+    if (!financialDate(asOf) || day > asOf) return { status: 'after-as-of' };
+    const cycleStart = debt && !debt.secured && debt.statementCloseDay != null
+      ? cardStatementCycleStart(asOf, debt.statementCloseDay) : null;
+    if (!cycleStart) return { status: 'not-assessed' };
+    return day >= cycleStart ? { status: 'current', cycleStart }
+      : { status: 'stale', trust: 'estimated', balanceAsOf: day, cycleStart };
+  }
   function staleCardBalanceList(debts) {
     return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)
       .map(d => ({ id: d.id, balanceAsOf: d.balanceFreshness.balanceAsOf, cycleStart: d.balanceFreshness.cycleStart }));
@@ -27959,6 +28032,66 @@
   // Undated and ambiguous unproved requirements remain visible. A dated
   // requirement that has elapsed (before asOf) is not re-listed here (PA-3);
   // it stays on the current period until settlement evidence exists.
+  // One authority for a projected period's top-up (lead dispatch 2026-11-19):
+  // the Budget's own selected-period funding, payPeriodViews[i].plannedCostFunding,
+  // which the period waterfall prints. The Savings reprints of that same top-up
+  // (the projected packet's proposal, allocations and row "This period", and the
+  // payday lens) are read from it, never from a second cash-walk schedule. A
+  // funding-gap period still publishes its capped contribution, so it is read
+  // as the waterfall reads it. Anything else is withheld: no zero, no re-walk.
+  // Whether a published payday schedule's first payday reprints the payday
+  // lens's Budget top-up exactly: the same payday date, the same contribution
+  // and the same named allocations, compared in cents.
+  function savingsScheduleAgreesWithTopUp(schedule, topUp, period) {
+    if (!schedule || schedule.status === 'unavailable') return true;
+    const first = Array.isArray(schedule.paydays) ? schedule.paydays[0] : null;
+    if (!topUp || !topUp.ready || !first || !period || first.payday !== period.start) return false;
+    if (savingsCents(first.contribution) !== savingsCents(topUp.contribution)) return false;
+    const parts = list => new Map((Array.isArray(list) ? list : [])
+      .filter(part => part && savingsCents(part.amount) > 0).map(part => [part.id, savingsCents(part.amount)]));
+    const a = parts(first.allocations), b = parts(topUp.allocations);
+    return a.size === b.size && [...a].every(([id, cents]) => b.get(id) === cents);
+  }
+  // A payday schedule whose payday detail is withheld: its payday rows and its
+  // gap are removed, so nothing prints a payday figure the Budget did not
+  // publish. Its costs, groups, status and as-of stay: the current backing
+  // they carry (Protected now) is not the payday top-up, and the publication
+  // validator still checks the schedule.
+  function savingsScheduleWithheld(schedule, reason) {
+    return { ...schedule, paydays: [], gap: null, paydayReason: reason };
+  }
+  function savingsProjectedTopUp(view) {
+    const funding = view && view.funding;
+    const withheld = reason => ({ ready: false, contribution: null, allocations: [], remaining: null,
+      trust: 'unknown', gap: null, reason });
+    if (!funding || (funding.status !== 'ready' && funding.status !== 'funding-gap')) {
+      return withheld(funding && typeof funding.reason === 'string' && funding.reason
+        ? funding.reason : 'This selected period has no qualified projected top-up.');
+    }
+    if (funding.start !== view.start || funding.end !== view.end
+        || (funding.trust !== 'calculated' && funding.trust !== 'estimated') || !Array.isArray(funding.items)) {
+      return withheld('The selected period funding does not qualify for this period.');
+    }
+    const total = savingsCents(funding.contribution);
+    if (total == null) return withheld('The selected period funding has no qualified contribution.');
+    const seen = new Set(), allocations = [];
+    let sum = 0, remaining = 0;
+    for (const item of funding.items) {
+      const cents = item ? savingsCents(item.contribution) : null;
+      const left = item ? savingsCents(item.remainingGap, true) : null;
+      if (!item || typeof item.id !== 'string' || !item.id || seen.has(item.id) || cents == null || left == null) {
+        return withheld('The selected period funding items do not qualify.');
+      }
+      seen.add(item.id);
+      sum += cents;
+      remaining += Math.max(0, left);
+      if (cents > 0) allocations.push({ id: item.id, label: item.label, amount: cents / 100 });
+    }
+    if (sum !== total) return withheld('The selected period funding items do not close to its contribution.');
+    return { ready: true, contribution: total / 100, allocations, remaining: remaining / 100,
+      trust: funding.trust, gap: funding.gap || null, reason: null };
+  }
+
   function savingsPlannedRequirements(funding, events, asOf, period) {
     const all = [...funding.backing.items, ...funding.unresolved];
     const counts = new Map();

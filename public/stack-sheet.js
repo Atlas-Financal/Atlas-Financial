@@ -67,12 +67,24 @@
   // paid occurrence.
   const shownAmount = (entry, paid) => (entry && num(entry.amount) && !(paid && entry.amountBasis === 'schedule') ? entry.amount : null);
   const amountHtml = amount => (amount === null ? DASH : esc(money(amount)));
+  // The tapped row's occurrence identity, as Forecast keys billHistory (#1455, billOccurrenceIdentity): its occurrenceKey
+  // when it publishes one for this bill, else id@scheduledDate, else id@date. Never inferred from a similar date or amount.
+  const rowOccurrence = bill => (typeof bill.occurrenceKey === 'string' && bill.occurrenceKey.startsWith(bill.id + '@')
+    ? bill.occurrenceKey : `${bill.id}@${typeof bill.scheduledDate === 'string' && bill.scheduledDate ? bill.scheduledDate : bill.date}`);
   function billHtml(bill, kicker, v) {
     const paid = bill.paidState === 'paid';
     const list = occurrences(bill.id);
-    const entry = list.find(e => e.date === bill.date) || null;
+    const identity = rowOccurrence(bill);
+    // This occurrence's entry, found by identity (a statement may have moved its date; a coinciding date never borrows
+    // another occurrence). Only a history that publishes no identity at all falls back to the date. The entry is shown
+    // only when it describes this same copy of the occurrence: the row's own date and paid state. A saved close's copy
+    // (its old date, or its unpaid state) never shows the current copy's amount; the headline is a dash instead
+    // (Atlas on #1455 and #1456).
+    const keyed = list.some(e => typeof e.occurrence === 'string');
+    const match = keyed ? list.find(e => e.occurrence === identity) : list.find(e => e.date === bill.date);
+    const entry = match && match.paidState === bill.paidState && match.date === bill.date ? match : null;
     const asOf = ctx && ctx.data && ctx.data.meta && typeof ctx.data.meta.asOf === 'string' ? ctx.data.meta.asOf : null;
-    const earlier = asOf ? list.filter(e => e.date < bill.date && e.date <= asOf) : [];
+    const earlier = asOf ? list.filter(e => e !== match && (!keyed || e.occurrence !== identity) && e.date < bill.date && e.date <= asOf) : [];
     const headAmount = shownAmount(entry, paid);
     return head(kicker, bill.label || '')
       + `<div class="stack-sheet-big stack-n${headAmount === null ? '' : est(entry.trust, v)}">${amountHtml(headAmount)}</div>`

@@ -148,7 +148,11 @@ try {
     const nativeCopy = withoutBillPaidState(native);
     assert.ok(Object.hasOwn(nativeCopy, 'stackSummary'), 'the native period publishes stackSummary');
     delete nativeCopy.stackSummary;
+    // and less each household budget row's derived reconMatchesSpent (#1452; re-derived on replay, so never saved).
+    assert.ok(nativeCopy.householdBudget.every(r => typeof r.reconMatchesSpent === 'boolean'), 'the native rows publish reconMatchesSpent');
+    for (const r of nativeCopy.householdBudget) delete r.reconMatchesSpent;
     assert.deepEqual(candidate.content.publication, nativeCopy);
+    assert.ok(candidate.content.publication.householdBudget.every(r => !Object.hasOwn(r, 'reconMatchesSpent')), 'the saved publication carries no reconMatchesSpent');
     assert.ok(!Object.hasOwn(candidate.content.publication, 'stackSummary'), 'the saved publication carries no stackSummary');
     assert.deepEqual(transport(candidate), [], 'full posted window, unbounded pending, fetched after cutoff');
     // The invented income occurrence is unsettled natively; that gap is retained, not dropped.
