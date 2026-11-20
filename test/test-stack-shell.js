@@ -121,6 +121,10 @@ console.log('7. phone layout rules (the browser proof is test/browser-stack-layo
   const size = /\.wf-slab \.n, html\.stack-view \.stack-waterfall \.wf-slab \.wf-dash \{ font-size: min\(66px, (\d+(?:\.\d+)?)cqi\); white-space: nowrap; \}/.exec(wf);
   ok(slab && size && Number(size[1]) <= 16 && !/\.wf-slab \.n[^{]*\{[^}]*font-size: \d+px/.test(wf),
     'the surplus is sized to its slab (at most 16cqi, never a fixed px size that can spill past the edge)');
+  // The narrow-phone rows: one block, below 375px only, that keeps each label on one line with a gap before its amount.
+  const narrow = /@media \(max-width: (\d+(?:\.\d+)?)px\) \{([\s\S]*?)\n\}/.exec(wf);
+  ok(narrow && Number(narrow[1]) < 375 && /\.lab \{ white-space: nowrap; \}/.test(narrow[2]) && /column-gap: \d+px/.test(narrow[2]),
+    'the waterfall rows tighten only below 375px (labels on one line, a column gap before the amount)', narrow && narrow[1]);
 }
 
 console.log(`\nPASS Stack shell static checks (${checks})`);

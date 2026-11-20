@@ -4,6 +4,8 @@
  *
  *   1. The surplus fits its slab: at 320 and 390 wide (and 1440), the printed surplus and a long value such as
  *      −$12,345.67 end inside the slab's padding, with no overflow or clipping.
+ *   3. The waterfall rows at 320 wide: each label on one line, at least 8px from its amount (a long invented amount in
+ *      every row), nothing past the row's edge, no horizontal page scroll.
  *   2. Every card's strip is fully visible and tappable: each card's summary (Bills, Budget, Mortgage) and the Credit
  *      head lie wholly inside the page, no later block covers them (the element at each strip's corners and centre is
  *      the strip itself), and they do not overlap one another. Closed and with Credit open.
@@ -104,6 +106,32 @@ const strips = page => page.evaluate(() => {
         const overlaps = s.slice(1).filter((x, i) => x.top < s[i].bottom - 0.5);
         ok(overlaps.length === 0, `${state}: no strip overlaps the one above it`, JSON.stringify(overlaps.map(x => x.name)));
       }
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      await page.close();
+    }
+
+    console.log('the waterfall rows at 320 wide: one line each, a gap before every amount, even for a long one');
+    {
+      const { page, errors } = await open(browser, 320);
+      await page.click('[data-wf-toggle="credit"]').catch(() => {});
+      await page.waitForTimeout(100);
+      const rows = await page.evaluate(() => {
+        const ink = el => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()]; };
+        const wf = document.querySelector('#stack-root [data-block="waterfall"]');
+        // A long invented amount in every published row, to prove the fit is not luck of today's figures.
+        for (const n of wf.querySelectorAll('.wf-line .n:not([data-unpublished]), .wf-card .n:not([data-unpublished])')) n.textContent = '$12,345.67';
+        return [...wf.querySelectorAll('.wf-line, .wf-card')].map(li => {
+          const lab = li.querySelector('.lab, b'), n = li.querySelector('.n:not([data-unpublished])');
+          if (!lab || !n) return null;
+          const l = ink(lab), a = ink(n), box = li.getBoundingClientRect();
+          return { label: lab.textContent.trim(), lines: new Set(l.map(x => Math.round(x.top))).size,
+            gap: Math.min(...a.map(x => x.left)) - Math.max(...l.map(x => x.right)), over: Math.max(...a.map(x => x.right)) - box.right };
+        }).filter(Boolean);
+      });
+      const bad = rows.filter(r => r.lines !== 1 || r.gap < 8 || r.over > 0.5);
+      ok(rows.length >= 8 && bad.length === 0, `every waterfall label is one line, 8px or more from its amount, nothing past the edge (${rows.length} rows)`,
+        JSON.stringify(bad));
+      ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'no horizontal page scroll at 320');
       ok(errors.length === 0, 'no page errors', errors.join('; '));
       await page.close();
     }
