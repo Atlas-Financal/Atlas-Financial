@@ -10,6 +10,8 @@
  *     the plan, so the check always stands beside what was paid. Balance After Deductions moves by exactly the difference.
  *   - The payment evidence is 'posted-verified' and paidConfirmed is true: the Stack Bills card and the bill sheet show the
  *     check. Posted-equal still confirms; pending never does; an unverified differing payment stays at the plan, unchecked.
+ *   - The note is append-only (Grok Bot, Plan #6 thread, after ts 1795212883.667279), so "bill not verified", with the
+ *     same line grammar, withdraws it: the LAST marker line in the note decides.
  *   - Only the occurrence's own fully posted link counts: a note on a pending row, on a row linked to another occurrence,
  *     or an occurrence with a pending linked row, verifies nothing.
  *
@@ -34,13 +36,15 @@ const ok = (cond, label, detail = '') => {
 const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
 const SOURCE = read('public/forecast.js');
-function compile(text, name) {
-  const mod = new Module(FILE, module);
-  mod.filename = FILE;
-  mod.paths = Module._nodeModulePaths(path.dirname(FILE));
-  mod._compile(text, FILE.replace(/\.js$/, '-' + name + '.js'));
+function compile(text, name, file = FILE) {
+  const mod = new Module(file, module);
+  mod.filename = file;
+  mod.paths = Module._nodeModulePaths(path.dirname(file));
+  mod._compile(text, file.replace(/\.js$/, '-' + name + '.js'));
   return mod.exports;
 }
+const OBSERVE_FILE = path.join(__dirname, '..', 'scripts', 'provider-observe.js');
+const OBSERVE_SOURCE = read('scripts/provider-observe.js');
 const swap = (text, from, to, label) => {
   const parts = text.split(from);
   if (parts.length !== 2) throw new Error('anchor not found exactly once: ' + label);
@@ -92,6 +96,14 @@ console.log('1. The marker (observer)');
     'bill  verified', '', null, undefined, 42];
   ok(yes.every(m), 'the marker on line 1, line 3, with " - " or " (" comment, after a CRLF', JSON.stringify(yes.filter(s => !m(s))));
   ok(no.every(s => !m(s)), 'near misses do not count: case, "?", "not", a leading space, a suffix, a full stop, a non-string', JSON.stringify(no.filter(m)));
+  // Append-only withdrawal: the last marker line decides.
+  const last = [['bill verified\nbill not verified', false], ['bill not verified\nbill verified', true], ['bill not verified', false],
+    ['bill verified\nbill not verified - amount to be corrected\nbill verified (re-checked)', true], ['bill verified\nbill not verified (was 40)', false],
+    ['bill verified\nref 9', true], ['bill verified\nbill not verified?', true], ['bill verified\nBill not verified', true],
+    ['bill verified\nnot bill not verified', true], ['bill verified\n bill not verified', true], ['bill verified\nbill not verifiedx', true],
+    ['bill verified\nbill  not verified', true]];
+  ok(last.every(([n, want]) => m(n) === want), 'the last marker line decides; "bill not verified" near misses (?, case, prefix, leading space, suffix, double space) do not withdraw',
+    JSON.stringify(last.filter(([n, want]) => m(n) !== want)));
 }
 
 console.log('2. Hand-derived worlds through the Stack Bills card and the bill sheet (plan 90, October)');
@@ -121,6 +133,14 @@ const NOTE = 'bill verified';
     const d = october(run([pay('2026-10-12', 40, { notes })]));
     ok(d.evidence === 'posted-verified' && d.counted === 40 && d.cardCheck, `the marker ${label}: confirmed at 40`, JSON.stringify([d.evidence, d.counted]));
   }
+  // Withdrawn and re-verified, appended as Grok Bot appends: the last marker decides.
+  const w = october(run([pay('2026-10-12', 40, { notes: 'bill verified\nbill not verified - amount under correction' })]));
+  ok(w.evidence === 'posted-differs' && w.counted === 90 && !w.cardCheck && w.paidConfirmed === false,
+    'verified then "bill not verified": no check, counted at the plan 90', JSON.stringify([w.evidence, w.counted]));
+  const rv = october(run([pay('2026-10-12', 40, { notes: 'bill not verified\nbill verified' })]));
+  ok(rv.evidence === 'posted-verified' && rv.counted === 40 && rv.cardCheck, 'not verified then "bill verified": confirmed at 40', JSON.stringify([rv.evidence, rv.counted]));
+  const it = october(run([pay('2026-10-12', 40, { notes: 'item: invented widget\nbill verified' })]));
+  ok(it.evidence === 'posted-verified' && it.counted === 40 && it.cardCheck, 'a marker appended after an "item:" line still reads', JSON.stringify([it.evidence, it.counted]));
   // Near misses: as if no note.
   for (const notes of ['bill verified?', 'Bill verified', 'not bill verified']) {
     const e = october(run([pay('2026-10-12', 40, { notes })]));
@@ -171,8 +191,14 @@ console.log('4. Mutants are caught');
     "      if (packet.transactions.some(row => row.billVerifiedNote === true)) verified = true;", 'any row'), 'any-row');
   ok(october(run([pay('2026-10-12', 40)], { september: pay('2026-09-12', 90, { notes: NOTE }) }, anyRow)).evidence === 'posted-verified',
     'reading the marker from any packet row (not the occurrence\'s own link) is caught');
-  const loose = /^bill verified(?:$| - | \()/i;
-  ok(loose.test('Bill verified') && !O.billVerifiedMarker('Bill verified'), 'a case-insensitive marker is caught');
+  const observeMutant = (from, to, label) => compile(swap(OBSERVE_SOURCE, from, to, label), label, OBSERVE_FILE).billVerifiedMarker;
+  const DECIDE = '    if (m) verified = m[1] === undefined;';
+  const first = observeMutant(DECIDE, '    if (m) { verified = m[1] === undefined; break; }', 'first-wins');
+  ok(first('bill verified\nbill not verified') === true && O.billVerifiedMarker('bill verified\nbill not verified') === false, 'the first marker line winning is caught');
+  const anyPos = observeMutant(DECIDE, '    if (m && m[1] === undefined) verified = true;', 'any-positive');
+  ok(anyPos('bill verified\nbill not verified') === true && O.billVerifiedMarker('bill verified\nbill not verified') === false, 'any positive line winning is caught');
+  const caseless = observeMutant('const BILL_VERIFIED_LINE = /^bill (not )?verified(?:$| - | \\()/;', 'const BILL_VERIFIED_LINE = /^bill (not )?verified(?:$| - | \\()/i;', 'caseless');
+  ok(caseless('Bill verified') === true && O.billVerifiedMarker('Bill verified') === false, 'a case-insensitive marker (production regex with /i) is caught');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} bill verified note checks passed`);

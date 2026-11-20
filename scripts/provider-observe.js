@@ -1718,9 +1718,17 @@ function ruleLunchMoneyItemNames(rule) {
 // end of the line or an optional comment starting " - " or " (". Case-sensitive, no leading space; every line is
 // read. The note carries no amount and no bill name: the verified amount is the row's own, and the bill link is
 // the incumbent one (rule 17: Atlas only reads the marker). Only the boolean leaves this file, never the note.
-const BILL_VERIFIED_LINE = /^bill verified(?:$| - | \()/;
+// Grok Bot's note can only be appended to, so a later "bill not verified" line withdraws an earlier "bill verified":
+// the LAST marker line decides (Grok Bot, Plan #6 thread, after ts 1795212883.667279).
+const BILL_VERIFIED_LINE = /^bill (not )?verified(?:$| - | \()/;
 function billVerifiedMarker(notes) {
-  return typeof notes === 'string' && notes.split(/\r\n|\r|\n/).some(line => BILL_VERIFIED_LINE.test(line));
+  if (typeof notes !== 'string') return false;
+  let verified = false;
+  for (const line of notes.split(/\r\n|\r|\n/)) {
+    const m = BILL_VERIFIED_LINE.exec(line);
+    if (m) verified = m[1] === undefined;
+  }
+  return verified;
 }
 
 function noteItemNames(notes) {
