@@ -49,7 +49,7 @@ const STUB = `;(function (F) {
         state: 'not-a-spend-card', status: null, minimumCovered: covered('unknown'), transactions: [] },
     ],
     totals: { paid: 500, spent: 660, trust: 'calculated', completeness: 'partial', excluded: ['tdcc'], reasons: [],
-      minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated' },
+      minimumsPaid: { amount: 500, trust: 'estimated', reasons: [] }, minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated' },
   });
 })(window.Forecast);\n`;
 
@@ -88,8 +88,8 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const head = await textOf(page, '[data-stack-credit-toggle]');
     ok(/^Credit/.test(head), 'the card is titled Credit', head);
     if (stub) {
-      ok(/^Credit paid \/ card minimums due \u2014 \/ \$[\d,.]+$/.test(head) && !!(await page.$('.stack-credit-bar')),
-        'a partial paid total prints a soft dash over the published minimums due, with an empty track', head);
+      ok(/^Credit paid \/ card minimums due \$500 \/ \$60$/.test(head) && !!(await page.$('.stack-credit-bar')),
+        'the published paid toward the due minimums over the minimums due, whatever the paid total\'s completeness (never a dash)', head);
     } else {
       const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
       ok(/^Credit paid \/ card minimums due (\u2014|\$[\d,.]+)( \/ (\$[\d,.]+|\u2014))?$/.test(head),

@@ -645,6 +645,8 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
       // The minimums due over the same spend cards as paid (the HELOC out), how many are due and how many are covered.
       put(t + '.minimumsDue', credit.totals.minimumsDue.amount);
       put(t + '.minimumsDueTrust', credit.totals.minimumsDue.trust);
+      put(t + '.minimumsPaid', credit.totals.minimumsPaid.amount);
+      put(t + '.minimumsPaidTrust', credit.totals.minimumsPaid.trust);
       put(t + '.minimumsDueCount', credit.totals.minimumsDueCount);
       put(t + '.minimumsCoveredCount', credit.totals.minimumsCoveredCount);
       put(t + '.minimumsCoveredTrust', credit.totals.minimumsCoveredTrust);

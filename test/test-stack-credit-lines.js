@@ -324,4 +324,37 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
   ok(!JSON.stringify(t.excluded).includes('heloc') && t.minimumsDue.amount !== 375, 'the HELOC is in neither total');
 }
 
+console.log('12. minimums paid: the paid side of the Credit head, over exactly the cards whose minimums are due (Dale, 2026-11-20)');
+{
+  const x = fx.fixture();
+  const mp = bills => totals(x, bills).minimumsPaid;
+  const due = cm => ({ cardMinimums: cm, trust: 'calculated' });
+  // By hand, on the invented card week: Travel paid 100, Cash Back paid 250 (both payments unreconciled, so estimated), the
+  // Emerald card (id tdcc) paid 0 with a calculated, empty week, Triangle and Amazon: paid unavailable (no ledger).
+  const both = mp(split);
+  ok(both.amount === 350 && both.trust === 'estimated' && same(both.reasons, []),
+    'Travel (25 due) and Cash Back (300 due): 100 + 250 = 350 paid toward them, soft because the payments are unreconciled', JSON.stringify(both));
+  ok(mp(due([{ debtId: 'travelvisa', amount: 25 }])).amount === 100,
+    'an overpaid card counts its full paid, uncapped: Travel paid 100 against a 25 minimum reads 100, like its own row');
+  const nothing = mp(due([{ debtId: 'tdcc', amount: 40 }]));
+  ok(nothing.amount === 0 && nothing.trust === 'calculated' && same(nothing.reasons, []) && totals(x, due([{ debtId: 'tdcc', amount: 40 }])).minimumsDue.amount === 40,
+    'nothing paid toward a due card: $0 over its 40, a published zero (never a dash), calculated', JSON.stringify(nothing));
+  const noEvidence = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }]));
+  ok(noEvidence.amount === 100 && noEvidence.trust === 'estimated' && noEvidence.reasons.includes('paid-unavailable-counted-as-zero'),
+    'a due card with no payment evidence (Triangle) counts $0 and keeps the figure soft: 100 + 0 over 425', JSON.stringify(noEvidence));
+  const onlyNoEvidence = mp(due([{ debtId: 'triangle', amount: 400 }]));
+  ok(onlyNoEvidence.amount === 0 && onlyNoEvidence.trust === 'estimated',
+    'only a no-evidence card is due: $0 in the soft (estimated) style, not a dash', JSON.stringify(onlyNoEvidence));
+  const helocOnly = mp(due([{ debtId: 'heloc', amount: 50 }]));
+  ok(helocOnly.amount === 0 && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 0,
+    'the HELOC is in neither side: only its minimum is due, so 0 over 0');
+  const paidNotDue = mp(due([{ debtId: 'tdcc', amount: 40 }, { debtId: 'travelvisa', amount: 0 }]));
+  ok(paidNotDue.amount === 0, 'a card with a $0 minimum is not due, so what it was paid is not counted (Travel\'s 100 is out)', JSON.stringify(paidNotDue));
+  const off = mp(null);
+  ok(off.amount === null && off.trust === 'unavailable' && off.reasons.length > 0,
+    'the minimums due withheld: the paid side is withheld with them (the only dash)', JSON.stringify(off));
+  ok(totals(x, due([{ debtId: 'travelvisa', amount: 25 }])).paid === 350 && mp(due([{ debtId: 'travelvisa', amount: 25 }])).amount === 100,
+    'minimumsPaid is not totals.paid: with only Travel due, all payments to the stated cards are 350 and the paid toward the due card is 100');
+}
+
 console.log(`\nAll stack credit line checks passed (${checks}).`);

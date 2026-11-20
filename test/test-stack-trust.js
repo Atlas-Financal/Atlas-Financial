@@ -85,7 +85,7 @@ function context(v, totalsTrust = 'calculated') {
       power: [{ date: '2031-03-06', amount: 80, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }] } },
     Forecast: { cardPeriodMovements: () => ({}), stackCreditLines: () => ({ lines: LINES,
       totals: { paid: 500, spent: 660, trust: totalsTrust, completeness: 'complete', excluded: [], reasons: [],
-        minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 1, minimumsCoveredTrust: totalsTrust } }) },
+        minimumsPaid: { amount: 500, trust: totalsTrust, reasons: [] }, minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 1, minimumsCoveredTrust: totalsTrust } }) },
   };
 }
 const waterfall = (fns, ctx) => { const el = container(); fns.waterfall(el, ctx); return el.innerHTML; };
