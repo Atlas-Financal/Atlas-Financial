@@ -232,7 +232,9 @@ const STATE_MODELLED = {
 // The machinery: what loads and serves the pages (server.js rewrites the
 // Budget HTML it serves, with scripts/running-build.js), what captures,
 // collects, writes, validates and posts the evidence, and the guard and its
-// comparator. Pinned whole (pre-review 6553590628 B-2, S-5).
+// comparator. Pinned whole (pre-review 6553590628 B-2, S-5), as the ordered
+// list of the file's line hashes (machineryLines), so two changes to
+// different lines of one file write different manifest lines.
 const MACHINERY = ['server.js', 'scripts/running-build.js', 'scripts/js-scan.js', 'scripts/figures-page-capture.js', 'scripts/figures-snapshot.js',
   'scripts/figures-comment.js', 'scripts/ci-output.js', '.github/workflows/figures-review.yml',
   'test/lib/savings-consumer-contract.js', 'test/test-savings-consumer-contract.js'];
@@ -284,8 +286,20 @@ async function computeGuard(root, inputs) {
     selectorRegion: selectorRegion(read('public/forecast.js')),
     pages: Object.fromEntries(Object.keys(Capture.PAGE_HTML).map(p =>
       [p, { scripts: Capture.pageScripts(p, root), html: sha(read(Capture.PAGE_HTML[p])) }])),
-    machinery: Object.fromEntries(MACHINERY.map(f => [f, sha(read(f))])),
+    machinery: machineryPins(root),
   });
+}
+
+// Each machinery file as the ordered list of its raw line hashes. Lossless:
+// the text is the lines joined with '\n' (a final newline is a last empty
+// line), so two lists are equal exactly when the files are byte-equal, and a
+// changed, added, deleted, reordered or duplicated line changes the list.
+// Nothing is normalised: the machinery is pinned byte for byte, as before.
+function machineryLines(text) {
+  return text.split('\n').map(sha);
+}
+function machineryPins(root) {
+  return Object.fromEntries(MACHINERY.map(f => [f, machineryLines(fs.readFileSync(path.join(root, f), 'utf8'))]));
 }
 
 // `const|let|var NAME = …;` statements of any initializer (wording tables,
@@ -480,7 +494,7 @@ function residualLines(normalised) {
  *   guard/modules/<file>.guard/pins/<name>#<k>.sha256   one pin
  *   guard/selector-region.sha256                 '<id> <sha256>' per line, in the compared order
  *   guard/pages/<page>.json                      the page's script list and HTML hash
- *   guard/machinery/<path>.sha256                one machinery file
+ *   guard/machinery/<path>.sha256                one machinery file, one line hash per line, in order
  * The loader rebuilds exactly the guard object computeGuard returns and fails
  * closed on any file it does not recognise, so a stray, missing or malformed
  * entry is a difference or an error, never silently ignored. Nothing here
@@ -507,7 +521,10 @@ function manifestFiles(manifest) {
   }
   files.set('guard/selector-region.sha256', (guard.selectorRegion || []).map(p => p.id + ' ' + p.sha256).join('\n') + '\n');
   for (const [page, v] of Object.entries(guard.pages || {})) files.set('guard/pages/' + page + '.json', JSON.stringify(v, null, 1) + '\n');
-  for (const [f, h] of Object.entries(guard.machinery || {})) files.set('guard/machinery/' + f + '.sha256', h + '\n');
+  for (const [f, h] of Object.entries(guard.machinery || {})) {
+    if (!Array.isArray(h) || !h.length) throw new Error('machinery pin is not a line list: ' + f);
+    files.set('guard/machinery/' + f + '.sha256', h.join('\n') + '\n');
+  }
   return files;
 }
 
@@ -557,9 +574,7 @@ function loadManifest(dir) {
     } else if ((m = /^guard\/pages\/([^/]+)\.json$/.exec(r))) {
       guard.pages[m[1]] = JSON.parse(read(r));
     } else if ((m = /^guard\/machinery\/(.+)\.sha256$/.exec(r))) {
-      const v = lines(r);
-      if (v.length !== 1) fail(r + ': one hash per machinery file');
-      guard.machinery[m[1]] = hash(r, v[0]);
+      guard.machinery[m[1]] = lines(r).map(v => hash(r, v));
     } else fail('unrecognised file ' + r);
   }
   if (!guard.selectorRegion) fail('guard/selector-region.sha256 missing');
@@ -575,6 +590,8 @@ function loadManifest(dir) {
 }
 
 module.exports.residualLines = residualLines;
+module.exports.machineryLines = machineryLines;
+module.exports.machineryPins = machineryPins;
 module.exports.MANIFEST_DIR = MANIFEST_DIR;
 module.exports.manifestFiles = manifestFiles;
 module.exports.loadManifest = loadManifest;

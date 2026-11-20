@@ -44,7 +44,8 @@ function entries(guard) {
     put('page ' + page + ' [scripts]', v.scripts, 'script list the ' + page + ' page loads');
     put('page ' + page + ' [html]', v.html, 'the ' + page + ' page HTML');
   }
-  for (const [f, h] of Object.entries(guard.machinery || {})) put('machinery: ' + f, h, 'review machinery file ' + f);
+  for (const [f, h] of Object.entries(guard.machinery || {})) put('machinery: ' + f, h.length + ' lines, digest ' + Contract.sha(h.join('\n')),
+    'review machinery file ' + f + ', one stored hash per line');
   return out;
 }
 

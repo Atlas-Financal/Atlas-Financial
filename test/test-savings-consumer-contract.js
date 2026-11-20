@@ -105,7 +105,7 @@ const diffGuard = (a, b) => {
     if (x.html !== y.html) out.push(page + ': page HTML');
   }
   for (const f of new Set([...Object.keys(a.machinery || {}), ...Object.keys(b.machinery || {})])) {
-    if ((a.machinery || {})[f] !== (b.machinery || {})[f]) out.push('machinery: ' + f);
+    if (JSON.stringify((a.machinery || {})[f]) !== JSON.stringify((b.machinery || {})[f])) out.push('machinery: ' + f);
   }
   return out;
 };
@@ -721,6 +721,11 @@ test('manifest storage: a removed, stale or stray pin, a changed, dropped or reo
     ['reordered residual lines', (d, p) => swapLines(p(base + 'residual.sha256'), 0, 1), { diff: /public\/forecast\.js: residual/ }],
     ['removed module', (d, p) => fs.rmSync(p(base), { recursive: true }), { diff: /public\/forecast\.js: newly reached/ }],
     ['changed machinery', (d, p) => fs.writeFileSync(p('guard/machinery/server.js.sha256'), '0'.repeat(64) + '\n'), { diff: /machinery: server\.js/ }],
+    ['changed machinery line', (d, p) => { const r = p('guard/machinery/server.js.sha256'); fs.writeFileSync(r, fs.readFileSync(r, 'utf8').replace(/^[0-9a-f]{64}/, 'e'.repeat(64))); }, { diff: /machinery: server\.js/ }],
+    ['dropped machinery line', (d, p) => { const r = p('guard/machinery/server.js.sha256'); fs.writeFileSync(r, fs.readFileSync(r, 'utf8').replace(/^[0-9a-f]{64}\n/, '')); }, { diff: /machinery: server\.js/ }],
+    ['reordered machinery lines', (d, p) => swapLines(p('guard/machinery/server.js.sha256'), 0, 1), { diff: /machinery: server\.js/ }],
+    ['duplicated machinery line', (d, p) => { const r = p('guard/machinery/server.js.sha256'); const t = fs.readFileSync(r, 'utf8'); fs.writeFileSync(r, t.slice(0, 65) + t); }, { diff: /machinery: server\.js/ }],
+    ['malformed machinery line', (d, p) => { const r = p('guard/machinery/server.js.sha256'); fs.writeFileSync(r, 'x\n' + fs.readFileSync(r, 'utf8')); }, { error: /not a sha256/ }],
     ['reordered selector region', (d, p) => swapLines(p('guard/selector-region.sha256'), 0, 1), { diff: /selector region/ }],
     ['changed page', (d, p) => { const f = p('guard/pages/budget.json'); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/"html": "[0-9a-f]/, '"html": "z')); }, { diff: /budget: page HTML/ }],
     ['unknown file', (d, p) => fs.writeFileSync(p('guard/notes.txt'), 'x\n'), { error: /unrecognised file guard\/notes\.txt/ }],
