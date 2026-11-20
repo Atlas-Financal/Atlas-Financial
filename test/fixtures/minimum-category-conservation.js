@@ -193,5 +193,22 @@ module.exports = function minimumCategoryExpectation(report, input, historicalOb
     assert.ok(competing.length, 'an ambiguity row implies at least one paired Bills credit');
     row.earliestPostingDate = competing[0];
   }
+  // Stack card names addition (owner, Dale, 2026-11-20; Grok Bot, rule 17):
+  // every mapped entry carries its account's Lunch Money name, display_name
+  // first, else name. Derived here from the raw invented account by provider
+  // id, not from the observer under test; displayName is unchanged.
+  const rawAccounts = new Map((input.payload.accounts || []).map(row => [String(row.id), row]));
+  const nameOf = raw => {
+    for (const value of [raw && raw.display_name, raw && raw.name]) {
+      if (typeof value === 'string' && value.replace(/\s+/g, ' ').trim()) return value.replace(/\s+/g, ' ').trim().slice(0, 60);
+    }
+    return null;
+  };
+  // Only an entry mapped to an Atlas account carries it: an external-role
+  // entry (atlasId null) names nothing on the page.
+  for (const entry of expected.mapped || []) {
+    assert.ok(!Object.hasOwn(entry, 'ledgerName'), 'historical mapped entry predates the ledger-name leaf');
+    if (entry.atlasId != null) entry.ledgerName = nameOf(rawAccounts.get(String(entry.providerAccountId)));
+  }
   return expected;
 };

@@ -28,13 +28,16 @@
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
   // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
-  const row = (label, value, cls = '') => (value === '' || value == null ? ''
-    : `<div><dt>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  // labelCls: the same treatment for a label that carries a figure of its own (Credit's "Minimum $30").
+  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
+    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
+  // The kicker names the kind and the selected pay period's range ("Bill · Nov 13 – 26"), the shell's one range label.
   function head(kicker, title) {
+    const v = view(), range = v && window.StackBlocks.rangeLabel ? window.StackBlocks.rangeLabel(v) : '';
     return '<div class="stack-sheet-grab" aria-hidden="true"></div><div class="stack-sheet-head"><div>'
-      + `<small class="stack-sheet-kicker">${esc(kicker)}</small><h3 id="stack-sheet-title">${esc(title)}</h3></div>`
+      + `<small class="stack-sheet-kicker">${esc(range ? `${kicker} \u00b7 ${range}` : kicker)}</small><h3 id="stack-sheet-title">${esc(title)}</h3></div>`
       + '<button class="stack-sheet-close" type="button" data-stack-sheet-close aria-label="Close">'
       + '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
       + '</button></div>';
@@ -158,10 +161,31 @@
     return null;
   }
 
+  // While a sheet is open the page behind it must not scroll (iOS Safari scrolls the body through overflow:hidden). The
+  // lock is position:fixed on the body at top:-scrollY (stack-sheet.css, html.stack-sheet-open), and the position is
+  // restored on close. Every way a sheet goes away (close, Escape, a re-render) goes through unlock().
+  let lockY = null;
+  function lock() {
+    if (lockY !== null) return;
+    const root = document.documentElement;
+    lockY = window.pageYOffset || root.scrollTop || 0;
+    root.style.setProperty('--stack-lock-top', '-' + lockY + 'px');
+    root.classList.add('stack-sheet-open');
+  }
+  function unlock() {
+    if (lockY === null) return;
+    const root = document.documentElement, y = lockY;
+    lockY = null;
+    root.classList.remove('stack-sheet-open');
+    root.style.removeProperty('--stack-lock-top');
+    try { window.scrollTo({ top: y, left: 0, behavior: 'instant' }); } catch (e) { window.scrollTo(0, y); }
+  }
+
   function open(key, from) {
     const item = container && find(key);
     if (!item || !item.html) return;
     lastRow = from || null;
+    lock();
     container.innerHTML = `<div class="stack-sheet-scrim" data-stack-sheet-scrim><div class="stack-sheet" data-kind="${esc(item.kind)}"`
       + ` role="dialog" aria-modal="true" aria-labelledby="stack-sheet-title">${item.html}</div></div>`;
     const button = container.querySelector('[data-stack-sheet-close]');
@@ -170,6 +194,7 @@
   function close() {
     if (!container || !container.firstChild) return;
     container.innerHTML = '';
+    unlock();
     if (lastRow && lastRow.isConnected) lastRow.focus({ preventScroll: true });
     lastRow = null;
   }
@@ -198,6 +223,7 @@
     ctx = context;
     // A re-render (a new period or new data) closes an open sheet: its item may no longer be the selected one.
     container.innerHTML = '';
+    unlock();
     wire();
   });
 })();
