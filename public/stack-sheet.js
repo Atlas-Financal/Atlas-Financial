@@ -106,7 +106,7 @@
     // The headline carries Spent and the budget; the list below carries one row, Left (Over when over budget).
     return head('Budget', item.label || '')
       + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
-      + `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${num(item.planned) ? esc(money(item.planned)) : DASH}</i></div>`
+      + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
       + '<dl>' + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
       + budgetTransactionsHtml(item, v);
   }

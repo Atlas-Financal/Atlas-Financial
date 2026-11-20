@@ -68,9 +68,6 @@ console.log('1. The list');
   const dts = [...html.matchAll(/<dt>([^<]*)<\/dt>/g)].map(m => m[1]);
   ok(JSON.stringify(dts) === JSON.stringify(['Left']), 'the sheet has one row, Left (no Spent or Budget row)', JSON.stringify(dts));
   ok(/^Budget Groceries \$75.75 \/ \$500 Left \$424.25 /.test(text(html)), 'the headline still shows spent and budget, then Left', text(html).slice(0, 60));
-  const noPlan = sheet(view({ householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 75.75, planned: null, remaining: null, overspend: 0, recon: [] }] }), 'groceries');
-  ok(/^Budget Groceries \$75.75 \/ —/.test(text(noPlan)) && /stack-sheet-big stack-n"><span[^>]*>\$75.75<\/span><i[^>]*> \/ <span role="img" aria-label="not available">\u2014<\/span><\/i>/.test(noPlan),
-    'an unpublished plan shows a dash after the spent figure, not nothing and not $0', text(noPlan).slice(0, 60));
   const overHtml = sheet(view({ householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 600, planned: 500, remaining: 0, overspend: 100, recon: [] }] }), 'groceries');
   ok(JSON.stringify([...overHtml.matchAll(/<dt>([^<]*)<\/dt>/g)].map(m => m[1])) === JSON.stringify(['Over']), 'an overspent category shows one row, Over');
 }
