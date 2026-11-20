@@ -34,8 +34,8 @@ scaffolding. The rule numbers are kept so existing references (for example
   tell him.
 - **Claude Code (lead):** owns the post-1.0 order, builds, coordinates, and picks
   models per task.
-- **In-house reviewer:** a separate Claude Code session (never a builder of
-  the PR, never the lead; a high model or reasoning level) is the reviewer of
+- **In-house reviewer:** a separate Claude reviewer session, not a builder and
+  not the lead, at a high model or reasoning level, is the reviewer of
   record, including for figures-moved changes, with one bounded review
   (Dale, 2026-11-20; OD-026 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
   It replaces ChatGPT (Atlas) in that role; the review contract, findings
@@ -207,10 +207,11 @@ Two separate things, and they should not be confused.
    questions for the household and live in `docs/01_OPEN_QUESTIONS.md` — and it
    never holds work items, which live in `BACKLOG.md`.
 2. **The Atlas Contract / Systems Review** — the in-house reviewer (a separate
-   Claude Code session; Roles, OD-026) is the reviewer of record. ChatGPT no
-   longer performs it; historical Atlas records stay valid. It reads a pull request's exact head and publishes
+   Claude reviewer session, not a builder and not the lead; Roles, OD-026) is
+   the reviewer of record. ChatGPT no longer performs it; historical Atlas
+   records stay valid. It reads a pull request's exact head and publishes
    factual findings, never a PASS, an approval, or merge permission. It reviews
-   every figures-moved pull request it did not build. It does not make merge
+   every figures-moved pull request. It does not make merge
    decisions. The review contract is defined below.
 
 The decision desk is accountable for usable completion. It owns the
@@ -280,9 +281,9 @@ Routine review and merge run by rule; the dispatcher steps in only on
 exceptions. Extended 2026-10-30 (owner).
 
 - **Default reviewer, named by the builder in its REVIEW READY post:**
-  the in-house reviewer for every pull request (figures-moved or not), unless
-  it built or authored findings on that PR, then Muse or another non-builder
-  Claude Code session.
+  the in-house reviewer for every pull request (figures-moved or not). It
+  never builds, and its bounded re-review of its own `BLOCKERS FOUND` repairs
+  is expected.
 - **Claim before reviewing:** the reviewer posts `Reviewing #<n> at <full head
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
@@ -327,7 +328,7 @@ defect remains a blocker because the defect is real.
 > history.
 
 **The in-house reviewer performs this review by default**, and always for a
-figures-moved pull request it did not build (Dale, 2026-11-20; OD-026, which
+figures-moved pull request (Dale, 2026-11-20; OD-026, which
 replaced ChatGPT / Atlas in this role; historical Atlas records stay valid).
 Any other pull request, including one with a non-figures high-risk trigger, may
 instead be reviewed by Muse or another non-builder Claude Code session. When a high-risk trigger
