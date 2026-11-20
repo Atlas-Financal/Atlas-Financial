@@ -132,8 +132,8 @@ console.log('3. open rows');
   ok(rows[3] === 'Line of credit Minimum $210 ✓', 'HELOC: its minimum only', rows[3]);
   ok(/data-stack-sheet="card:cashback"/.test(html) && (html.match(/data-stack-sheet="card:/g) || []).length === 4, 'every row opens the sheet');
   ok(/stack-credit-tick is-on/.test(html.split('<li>')[1]) && !/is-on/.test(html.split('<li>')[2]), 'the tick is filled only for a paid-back line');
-  ok(/<span class="stack-credit-tick is-on" role="img" aria-label="Paid">/.test(html.split('<li>')[1])
-    && !/aria-label/.test(html.split('<li>')[2].split('stack-credit-name')[0]), 'a filled tick is read as "Paid"; an empty one is not named');
+  ok(/<span class="stack-credit-tick is-on" role="img" aria-label="Paid back">/.test(html.split('<li>')[1])
+    && !/aria-label/.test(html.split('<li>')[2].split('stack-credit-name')[0]), 'a filled tick is read as "Paid back"; an empty one is not named');
 }
 
 console.log('4. no ratio text');
@@ -162,8 +162,9 @@ console.log('5. the sheet');
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
   ok(red === 'Credit Red Card $0 of $0 Spent $0 Paid $0 Minimum $15 Transactions', "'unknown' minimum check: the minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
-  ok(water === 'Bill Water $64 ✓ Mar 5 Chequing' && !/Due|Comes out|Paid on|Paid from|Mar 7|Savings/.test(water),
-    'paid bill sheet: the scheduled date and the planned account alone, never observed evidence', water);
+  // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
+  ok(water === 'Bill Water $64 ✓' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out/.test(water),
+    'paid bill sheet: the amount and the check only; neither the scheduled date and planned account nor the observed ones', water);
   const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
   ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>') && !/Paid|Not paid/.test(text(waterHtml)),
     'a paid bill sheet shows the check (accessible name Paid) and no status word');

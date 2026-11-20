@@ -39,16 +39,18 @@
       + '</button></div>';
   }
 
-  // A bill: its published amount, a green check only when it is paid (#1429's paidState; owner direction: no Paid or
-  // Not paid word, nothing when unpaid), its due date and the paying account.
-  // bill.date is the scheduled date and payerLabel the planned paying account (never observed evidence); each prints
-  // alone, with no label word (owner, 2026-11-20: no explanatory text on the Stack page).
+  // A bill: its published amount, and a green check only when it is paid (#1429's paidState; owner direction: no Paid or
+  // Not paid word, nothing when unpaid). An unpaid bill also shows its scheduled date and planned paying account, each
+  // alone with no label word (owner, 2026-11-20: no explanatory text). A paid bill shows neither: next to the check they
+  // would read as when and from where it was paid, which they are not (bill.date is the schedule, payerLabel the plan;
+  // Atlas on #1444). The observed payment fields (postedOn, paidFromLabel) are never read here.
   const plain = (value, cls = '') => (value ? `<p class="stack-sheet-plain${cls}">${esc(value)}</p>` : '');
   function billHtml(bill, kicker, v) {
+    const paid = bill.paidState === 'paid';
     return head(kicker, bill.label || '')
       + `<div class="stack-sheet-big stack-n${est(bill.displayAmountTrust, v)}">${esc(money(bill.amount))}</div>`
-      + (bill.paidState === 'paid' ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>' : '')
-      + plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || '');
+      + (paid ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>'
+        : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''));
   }
 
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.

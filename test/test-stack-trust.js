@@ -144,6 +144,33 @@ console.log('4. credit card and its sheet');
     'a projected period: the total and every line are soft');
 }
 
+console.log('4b. the paid-back mark always shows when paid back, soft on estimated evidence (Atlas on #1444)');
+{
+  // The same paid-back line, its paid and spent published calculated, then with paid estimated (an unconfirmed payment
+  // allocation), then in a projected period.
+  const { fns, win } = load();
+  const line = (paidTrust, spentTrust) => [{ id: 'travelvisa', label: 'Blue Visa', paid: fig(400, paidTrust), spent: fig(400, spentTrust),
+    minimum: fig(25, 'calculated'), toGo: fig(0, 'calculated'), status: 'paid-back', minimumCovered: { value: true, trust: 'calculated' }, transactions: [] }];
+  const render = (v, lines) => {
+    const ctx = context(v);
+    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines, totals: { paid: 400, spent: 400, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
+    const el = container(); fns.credit(el, ctx);
+    return { row: el.innerHTML.split('<li>')[1], sheet: win.StackSheet.html(ctx, 'card:travelvisa') };
+  };
+  const firm = render(view('actual'), line('calculated', 'calculated'));
+  ok(/stack-credit-tick is-on" role="img" aria-label="Paid back"/.test(firm.row) && /<span class="stack-sheet-check" role="img" aria-label="Paid back">✓<\/span>/.test(firm.sheet),
+    'calculated paid and spent: the row tick is filled and the sheet shows ✓, plain, each read as "Paid back"');
+  for (const [label, r] of [['estimated paid', render(view('actual'), line('estimated', 'calculated'))],
+    ['estimated spent', render(view('actual'), line('calculated', 'estimated'))],
+    ['estimated toGo', render(view('actual'), line('calculated', 'calculated').map(l => ({ ...l, toGo: fig(0, 'estimated') })))], ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
+    ok(/stack-credit-tick is-on stack-est" role="img" aria-label="Paid back, estimated"/.test(r.row)
+      && /<span class="stack-sheet-check stack-est" role="img" aria-label="Paid back, estimated">✓<\/span>/.test(r.sheet)
+      && (label === 'estimated toGo' || (/stack-credit-sub-line stack-est/.test(r.row) && /stack-sheet-big stack-n stack-est/.test(r.sheet))),
+      `${label}: the tick and ✓ still show (paid back), soft, read as "Paid back, estimated"`);
+    ok(!/Paid back|estimated/i.test(r.row.replace(/<[^>]*>/g, ' ') + r.sheet.replace(/<[^>]*>/g, ' ')), `${label}: nothing visible is added`);
+  }
+}
+
 console.log('5. bill and budget sheets');
 {
   const { win } = load();

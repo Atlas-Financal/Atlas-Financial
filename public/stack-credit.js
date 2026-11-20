@@ -69,6 +69,14 @@
     if (line.status === 'to-go') return amountOf(line.toGo) == null ? null : { cls: 'is-togo', text: money(amountOf(line.toGo)) };
     return null;
   }
+  // The paid-back mark (the row's filled tick, the sheet's ✓) is a claim of its own: the card's spending this pay period
+  // is paid back, not that its balance or any bill is paid. It shows whenever the published status is paid-back (a
+  // missing mark would read as not paid), and carries the shell's one soft treatment when paid, spent or toGo is
+  // estimated or the period is projected (owner: estimates are slightly softer). Its screen-reader name is "Paid back",
+  // or "Paid back, estimated" when soft; nothing visible is added. (Atlas on #1444; the lead's ruling.)
+  const paidBackEst = (line, view) => est(view, trustOf(line.paid), trustOf(line.spent), trustOf(line.toGo));
+  const paidBackName = soft => `role="img" aria-label="Paid back${soft ? ', estimated' : ''}"`;
+
   // "Minimum $X" whenever the minimum amount is published, whatever its coverage check says (#1443's HELOC and a future
   // card publish coverage 'unknown'); a ✓ only when coverage is published as true. Never a word for coverage (owner,
   // 2026-11-20), never "covered" or "unpaid" inferred, and nothing (never $0) when the amount is not published.
@@ -87,13 +95,14 @@
     const status = heloc ? null : statusOf(line);
     const sub = heloc ? '' : paidOfSpent(line);
     const min = minimumText(line);
-    const ok = status && status.cls === 'is-ok';
+    const ok = !heloc && line.status === 'paid-back';
+    const okEst = ok ? paidBackEst(line, view) : '';
     // A status is read from the line's paid and spent (and toGo when it prints an amount): soft when any is estimated.
     const figs = est(view, trustOf(line.paid), trustOf(line.spent));
     const stat = est(view, trustOf(line.paid), trustOf(line.spent), status && status.cls === 'is-togo' ? trustOf(line.toGo) : null);
     const minEst = minimumEst(view, line);
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
-      + `<span class="stack-credit-tick${ok ? ' is-on" role="img" aria-label="Paid' : ''}">${TICK}</span>`
+      + `<span class="stack-credit-tick${ok ? ` is-on${okEst}" ${paidBackName(okEst)}` : '"'}>${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
       + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status && status.text ? stat : ''}">${status ? esc(status.text) : ''}</span></span>`
       + (sub ? `<small class="stack-credit-sub-line${figs}">${esc(sub)}</small>` : '')
@@ -129,7 +138,8 @@
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return h.head('Credit', line.label || '')
       + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n${figs}">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>` : '')
-      + (status && status.cls === 'is-ok' ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>' : '')
+      + (!heloc && line.status === 'paid-back'
+        ? `<span class="stack-sheet-check${paidBackEst(line, view)}" ${paidBackName(paidBackEst(line, view))}>\u2713</span>` : '')
       + (status && status.cls === 'is-togo' ? `<span class="stack-sheet-togo stack-n${est(view, trustOf(line.toGo))}">${h.esc(status.text)}</span>` : '')
       + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar' + figs))
       + '<dl>' + (heloc ? '' : h.row('Spent', h.money(spent), est(view, trustOf(line.spent)))
