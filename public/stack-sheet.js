@@ -15,12 +15,10 @@
   if (typeof window === 'undefined' || !window.StackBlocks) return;
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const whole = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0 });
-  const cents = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-    minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const num = v => typeof v === 'number' && Number.isFinite(v);
-  // A published amount as printed: dollars, cents only when the figure has them. Nothing for an unpublished amount.
-  const money = v => (num(v) ? (Number.isInteger(v) ? whole : cents).format(v).replace('-', '−') : '');
+  // The page's one money format (StackBlocks.money, whole dollars). Nothing for an unpublished amount.
+  const money = v => window.StackBlocks.money(v);
+  const txMoney = v => window.StackBlocks.money(v, { cents: true }); // a transaction line, to the cent
   const day = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   const date = iso => (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? day.format(new Date(`${iso}T12:00:00Z`)) : '');
 
@@ -131,14 +129,14 @@
     return rows.length ? '<ul class="stack-sheet-tx">' + rows.map(({ r }) => '<li>'
       + `<span class="stack-sheet-txd">${esc(date(r.date))}</span>`
       + `<span class="stack-sheet-txl">${esc(r.displayedPayee || r.originalMerchant || '')}</span>`
-      + `<span class="stack-sheet-txa stack-n">${esc(money(r.amount))}</span></li>`).join('') + '</ul>' : '';
+      + `<span class="stack-sheet-txa stack-n">${esc(txMoney(r.amount))}</span></li>`).join('') + '</ul>' : '';
   }
 
   // A credit line, from the credit block's reading of Forecast.stackCreditLines.
   function cardHtml(line) {
     const credit = window.StackCredit;
     return credit && typeof credit.sheetHtml === 'function'
-      ? credit.sheetHtml(line, { head, row, money, date, esc }, typeof credit.view === 'function' ? credit.view(ctx) : null) : '';
+      ? credit.sheetHtml(line, { head, row, money, txMoney, date, esc }, typeof credit.view === 'function' ? credit.view(ctx) : null) : '';
   }
 
   function find(key) {

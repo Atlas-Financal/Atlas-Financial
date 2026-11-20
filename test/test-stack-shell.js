@@ -9,6 +9,8 @@
  *      restyle the current page.
  *   4. index.html loads the shell and then the four block files, after every current script.
  *   5. L-001: the shell prints money only from stackSummary.surplus.amount; it does no arithmetic on a figure.
+ *   7. StackBlocks.money, the page's one money format: whole dollars, half away from zero; cents only on a transaction
+ *      line; no block formats money itself.
  * `node test/test-stack-shell.js`
  */
 const assert = require('node:assert/strict');
@@ -137,6 +139,40 @@ console.log('7. phone layout rules (the browser proof is test/browser-stack-layo
   const narrow = /@media \(max-width: (\d+(?:\.\d+)?)px\) \{([\s\S]*?)\n\}/.exec(wf);
   ok(narrow && Number(narrow[1]) < 375 && /\.lab \{ white-space: nowrap; \}/.test(narrow[2]) && /column-gap: \d+px/.test(narrow[2]),
     'the waterfall rows tighten only below 375px (labels on one line, a column gap before the amount)', narrow && narrow[1]);
+}
+
+console.log('7. The one money format: whole dollars, printed by StackBlocks.money and nothing else');
+{
+  const ctx = { console, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON, location: { search: '' } };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(read('public/stack-shell.js'), ctx);
+  const money = ctx.StackBlocks.money;
+  // Written out by hand, independent of the shell: whole dollars, half away from zero, a true minus, no sign on $0.
+  const cases = [
+    [0, '$0'], [-0, '$0'], [0.49, '$0'], [-0.49, '$0'], [0.5, '$1'], [-0.5, '−$1'], [1.5, '$2'], [2.5, '$3'], [-2.5, '−$3'],
+    [64, '$64'], [112.4, '$112'], [888.88, '$889'], [999.5, '$1,000'], [1234.49, '$1,234'], [-12345.67, '−$12,346'],
+    [3000.5, '$3,001'], [1e6, '$1,000,000'],
+  ];
+  const bad = cases.filter(([v, want]) => money(v) !== want).map(([v, want]) => v + ' → ' + money(v) + ', expected ' + want);
+  ok(!bad.length, 'whole dollars, half away from zero ($2.50 → $3, −$2.50 → −$3, $0.49 → $0), with a true minus', bad.join('; '));
+  const signed = [[865.25, '+$865'], [-120.4, '−$120'], [0, '$0'], [0.4, '$0'], [-0.4, '$0'], [0.5, '+$1'], [1000, '+$1,000']];
+  const badSigned = signed.filter(([v, want]) => money(v, { signed: true }) !== want).map(([v, want]) => v + ' → ' + money(v, { signed: true }) + ', expected ' + want);
+  ok(!badSigned.length, 'signed: a plus on a positive amount, never on one that prints as $0', badSigned.join('; '));
+  const cents = [[12.5, '$12.50'], [150, '$150'], [-10, '−$10'], [-400, '−$400'], [22.99, '$22.99'], [0.004, '$0.00'], [-0.004, '$0.00']];
+  const badCents = cents.filter(([v, want]) => money(v, { cents: true }) !== want).map(([v, want]) => v + ' → ' + money(v, { cents: true }) + ', expected ' + want);
+  ok(!badCents.length, 'cents (a transaction line only): to the cent when the amount has cents, whole when it has none', badCents.join('; '));
+  const empty = [null, undefined, NaN, Infinity, -Infinity, '12', '', {}, [], true];
+  ok(empty.every(v => money(v) === '' && money(v, { signed: true }) === '' && money(v, { cents: true }) === ''),
+    'nothing for anything that is not a published number (never $0)');
+  // One home: no block formats money itself; each prints through StackBlocks.money.
+  const own = BLOCKS.filter(n => {
+    const src = read(`public/stack-${n}.js`).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    return /NumberFormat|toLocaleString|toFixed\(2\)|'currency'/.test(src) || !/StackBlocks\.money\(/.test(src);
+  });
+  ok(!own.length, 'every block prints money through StackBlocks.money and formats none itself', own.join(', '));
+  const cuts = BLOCKS.flatMap(n => (read(`public/stack-${n}.js`).match(/cents: true/g) || []).map(() => n));
+  ok(JSON.stringify(cuts) === JSON.stringify(['sheet']), 'only the sheet asks for cents, once (its transaction lines)', cuts.join(', '));
 }
 
 console.log(`\nPASS Stack shell static checks (${checks})`);
