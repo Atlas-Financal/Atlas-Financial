@@ -147,7 +147,7 @@
       return stateRow(r.label || r.name || 'Bill', r, billTarget('bill', r));
     }).join('') + '</ul>';
     return strip('bills', 'Bills', '', paid, total, paid == null ? 0 : fill(split.paid, split.other), rows.length ? body : '', ' / ', null,
-      isEst(split.paidTrust, split.trust), true, 'paid / owed');
+      isEst(split.paidTrust, split.trust), true);
   }
 
   function budgetCard(view) {

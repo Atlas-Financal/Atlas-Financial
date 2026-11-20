@@ -230,8 +230,7 @@ assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.
     'Budget head: no visible grey subtitle (Dale, 2026-11-20); the words stay as screen-reader-only text');
   assert(/\.sc-sr\{position:absolute;width:1px;height:1px;[^}]*clip:rect\(0 0 0 0\)/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8')),
     'the screen-reader-only class really hides the words');
-  assert(!/<span class="sc-s">/.test(card('bills')) && card('bills').includes('<span class="sc-sr">paid / owed</span>'),
-    'Bills head: no visible grey subtitle; "paid / owed" is screen-reader-only text, as Budget\'s "spent / budget"');
+  assert(!/<span class="sc-s">/.test(card('bills')) && !/<span class="sc-sr">/.test(card('bills')), 'Bills head: no subtitle, visible or hidden (no wording beyond the approved design)');
 }
 
 // 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
@@ -311,8 +310,8 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
     totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
   all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
   all.bills[0].stackBillPaymentEvidence = 'posted-equal'; all.bills[3].stackBillPaymentEvidence = 'posted-equal'; all.bills[0].stackBillPaid = all.bills[3].stackBillPaid = true;
-  // the screen-reader-only Budget and Bills words are not visible text; they are removed before the visible-word check
-  const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ').replace('spent / budget', ' ').replace('paid / owed', ' ');
+  // the screen-reader-only Budget words are not visible text; they are removed before the visible-word check
+  const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ').replace('spent / budget', ' ');
   assert(!/needs|set aside|planned|spent|estimated|projected|confirm|excludes|moved|entitlement|paid|period/i.test(visible), 'a word label is visible: ' + visible);
 }
 
