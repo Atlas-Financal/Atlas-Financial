@@ -2748,6 +2748,9 @@ html.reduce .blend-sky { display: block; }
   line-height: 1.3;
 }
 .blend-bills-head .blend-face-badge { order: 5; flex: 1 0 100%; max-width: 100%; }
+/* A ring is narrow (78px at 320): its attention badge ("needs a category") wraps onto centred lines instead of
+ * ellipsing to "needs a cat…", so the flag reads in full. The bills roster badge keeps its single line. */
+.blend-ring .blend-face-badge { white-space: normal; text-align: center; overflow-wrap: break-word; }
 
 .blend-offstage {
   position: absolute !important;
