@@ -12994,7 +12994,10 @@
   // occurrence in the published pay periods (past, current and future), newest
   // first, copied from the published bill rows, so the bill sheet reads one
   // source for its headline and its history (lead ruling, 2026-11-20):
-  //   { date, amount, amountBasis, trust, paidState }
+  //   { date, amount, amountBasis, trust, paidState, occurrence }
+  // occurrence is the occurrence's identity, the same key the dedupe below
+  // uses (billOccurrenceIdentity), so a consumer matches an entry by identity
+  // and not by its date, which a statement may have moved.
   // A not-yet-due occurrence carries basis 'schedule' with its own trust and
   // its paidState as published.
   // amount and trust follow the row's own displayAmountBasis exactly
@@ -13024,7 +13027,8 @@
     const amount = typeof raw === 'number' && Number.isFinite(raw) ? roundCent(Math.abs(raw)) : null;
     const trust = amount === null ? 'unavailable'
       : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
-    return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState };
+    return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState,
+      occurrence: billOccurrenceIdentity(row) };
   }
   function billOccurrenceIdentity(row) {
     if (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')) return row.occurrenceKey;
