@@ -18,7 +18,7 @@ const output=process.env.ATLAS_V2_CREDIT_PROOF||path.join(require('node:os').tmp
     if(!file.startsWith(path.join(root,'public')+path.sep)||!fs.existsSync(file))return route.fulfill({status:404,body:''});
     return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.css')?'text/css':file.endsWith('.js')?'application/javascript':'text/html'});
    });
-   await page.goto('http://credit-date.test/');const cash=page.locator('[data-live-current-balance-amount]');await cash.waitFor();
+   await page.goto('http://credit-date.test/?view=classic');const cash=page.locator('[data-live-current-balance-amount]');await cash.waitFor();
    assert.equal(await cash.innerText(),'$600.00','active Budget cash remains independent of posted/available/limit credit');
    assert.equal(await page.locator('[data-budget-surface="pay-period"]').count(),1,'one active Budget renderer');
    assert.equal(await page.evaluate(()=>App.data.debts[0].balance),fx.qualified.has(mode)?438.16:551.37,'Budget consumes same qualified stock packet');

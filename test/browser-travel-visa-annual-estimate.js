@@ -35,7 +35,7 @@ const states=[],errors=[],external=[],writes=[];
     const file=path.join(root,'public',url.pathname==='/'?'index.html':url.pathname.slice(1));
     return fs.existsSync(file)?route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'}):route.fulfill({status:404,body:''});
    });
-   await page.goto('http://estimate.test/');
+   await page.goto('http://estimate.test/?view=classic');
    await page.locator('[data-budget-surface]').waitFor();
    // The Budget page prints this bill as a funding item with its estimate mark and planning date.
    const item=page.locator('[data-budget-funding-item="invented-card-fee"]').first();await item.waitFor({state:'attached'});

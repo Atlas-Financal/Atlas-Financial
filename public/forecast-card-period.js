@@ -271,7 +271,12 @@
   // Each figure carries a trust word: 'calculated', 'estimated' (a payment
   // whose source the card ledger has not reconciled), or 'unavailable'.
   const STACK_TRUST_ORDER = ['calculated', 'estimated', 'unavailable'];
-  const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => STACK_TRUST_ORDER.indexOf(w)))];
+  // An unrecognised trust word is the weakest there is ('unavailable'), never silently dropped from the comparison.
+  const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => (STACK_TRUST_ORDER.includes(w) ? STACK_TRUST_ORDER.indexOf(w) : STACK_TRUST_ORDER.length - 1)))];
+  // A covered check counts as covered only on evidence Forecast stands behind: a published true whose trust is calculated or
+  // estimated. 'unavailable' (or any other word) is not covered.
+  const COVERED_TRUST = ['calculated', 'verified', 'estimated'];
+  const coveredOn = line => line.minimumCovered.value === true && COVERED_TRUST.includes(line.minimumCovered.trust);
   function stackCards(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
       && publication.currency === 'CAD' && Array.isArray(publication.cards) ? publication : null;
@@ -430,6 +435,31 @@
         trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
         completeness: excluded.length ? 'partial' : 'complete', excluded,
         reasons: excluded.length ? ['some-cards-unavailable'] : [] };
+    // The minimums due, over exactly the spend cards the paid total is over (HELOC excluded: its minimum is part of the
+    // period's Credit line in the waterfall, a different figure by membership). minimumsDue is the sum of those cards'
+    // published minimum amounts, withheld (amount null) when any card's minimum is withheld for a reason other than
+    // no-minimum-due-in-period, never a partial sum. The counts say how many cards have a minimum due and how many of those
+    // are published covered (minimumCovered.value === true), so a bar of covered over due is full only when every due
+    // minimum is covered; they are null when the minimums are withheld. Trust is the weakest input, as for the other totals.
+    const minimumOff = line => line.minimum.amount === null && !line.minimum.reasons.includes('no-minimum-due-in-period');
+    const withheldMins = spendLines.filter(minimumOff);
+    // A published $0 minimum is nothing owed: it is not due, so it is out of the sum and both counts.
+    const dueLines = spendLines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
+    if (withheldMins.length) {
+      totals.minimumsDue = { amount: null, trust: 'unavailable',
+        reasons: [...new Set(withheldMins.flatMap(line => line.minimum.reasons))] };
+      totals.minimumsDueCount = null;
+      totals.minimumsCoveredCount = null;
+      totals.minimumsCoveredTrust = 'unavailable';
+    } else {
+      totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
+        trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
+      totals.minimumsDueCount = dueLines.length;
+      totals.minimumsCoveredCount = dueLines.filter(coveredOn).length;
+      totals.minimumsCoveredTrust = dueLines.length
+        ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
+        : splitTrust;
+    }
     // The balance total is over the spend cards' snapshots (HELOC excluded, as
     // above), with the weakest trust: a stale snapshot is counted and keeps the
     // total estimated; only a card with no snapshot at all is excluded.

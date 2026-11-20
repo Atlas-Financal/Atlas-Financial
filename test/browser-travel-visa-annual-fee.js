@@ -52,7 +52,7 @@ const proposalText = published.period.proposal.toFixed(2);
           if (!file.startsWith(path.join(root, 'public') + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
           return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
         });
-        await page.goto('http://visa-fee.test/');
+        await page.goto('http://visa-fee.test/?view=classic');
         await page.locator('[data-budget-surface]').waitFor();
         const card = page.locator('[data-budget-savings-goals]');
         const bills = page.locator('[data-budget-browse="bills"]');
@@ -150,7 +150,7 @@ const proposalText = published.period.proposal.toFixed(2);
         if (!file.startsWith(path.join(root, 'public') + path.sep) || !fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://visa-fee.test/');
+      await page.goto('http://visa-fee.test/?view=classic');
       // On the current blend layout the savings operating question lives in
       // the hero sheet, not inside the calendar waterfall; its summary opens
       // the same daily-savings detail sheet.

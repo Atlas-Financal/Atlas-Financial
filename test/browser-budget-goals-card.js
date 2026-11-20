@@ -66,7 +66,7 @@ async function open(browser, width, touch, data) {
       : file.endsWith('.woff') ? 'font/woff' : 'text/html';
     return route.fulfill({ body: fs.readFileSync(file), contentType: type });
   });
-  await page.goto('http://budget.test/');
+  await page.goto('http://budget.test/?view=classic');
   await page.locator('[data-budget-surface]').waitFor();
   await page.locator('[data-budget-savings-goals]').waitFor();
   await page.waitForTimeout(400);

@@ -27,7 +27,7 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
       return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.js')
         ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
     });
-    const boot = async () => { await page.goto('http://paid.test/'); await page.locator('[data-budget-surface]').waitFor(); };
+    const boot = async () => { await page.goto('http://paid.test/?view=classic'); await page.locator('[data-budget-surface]').waitFor(); };
     // The period pill was retired; the native step control remains the
     // period control behind the river (as browser-budget-house-bars.js uses).
     const changePeriod = async direction => {

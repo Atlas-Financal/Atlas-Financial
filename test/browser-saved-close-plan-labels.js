@@ -51,7 +51,7 @@ const TOTAL_MISSING = /Total not saved|no period totals|Plan total: Not saved|Ac
         return route.fulfill({ body: fs.readFileSync(file),
           contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('.river').waitFor();
       const start = () => page.evaluate(() => document.querySelector('[data-budget-window-progress]')?.dataset.start || null);
       for (let i = 0; i < 6 && await start() !== START; i++) {

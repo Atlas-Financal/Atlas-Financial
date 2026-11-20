@@ -24,7 +24,7 @@ async function main() {
           ? route.continue() : route.abort());
         const page = await context.newPage(), errors = [];
         page.on('pageerror', e => errors.push(e.message));
-        await page.goto(server.base);
+        await page.goto(server.base + '/?view=classic');
         // Blend face: the From-today proposal lives in the period figures
         // (budget-blend.js wirePeriodFigures); its visible door is the result
         // opener, which shows those figures in the detail sheet.

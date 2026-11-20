@@ -38,7 +38,7 @@ const dates=['2026-08-20','2026-08-17','2026-08-16','2026-08-21',null,'2026-02-3
         if(!file.startsWith(path.join(root,'public'))||!fs.existsSync(file))return route.fulfill({status:404,body:''});
         const ext=path.extname(file);return route.fulfill({body:fs.readFileSync(file),contentType:ext==='.js'?'text/javascript':ext==='.css'?'text/css':ext==='.svg'?'image/svg+xml':'text/html'});
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       await page.evaluate(theme=>{
         document.documentElement.setAttribute('data-theme',theme);

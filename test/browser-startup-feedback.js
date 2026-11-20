@@ -5,8 +5,8 @@
 // STARTUP_ROOT=<pristine checkout> supports the before control.
 // STARTUP_STATIC_ONLY=1 runs the pre-script accessibility regression alone.
 // Receipts/screenshots default outside git; STARTUP_OUT selects their directory.
-// Runs on both Budget pages: ?view=classic (the previous page) and ?view=stack (the Stack page, the default route once
-// B7 lands). STARTUP_VIEW=classic|stack runs one.
+// Runs on both Budget pages: ?view=classic (the previous page) and ?view=stack (the Stack page, the default route since
+// B7, #1439). STARTUP_VIEW=classic|stack runs one.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');

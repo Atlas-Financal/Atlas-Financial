@@ -59,7 +59,7 @@ const data = openingKnown => ({
           return route.fulfill({ body: fs.readFileSync(file),
             contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
         });
-        await page.goto('http://budget.test/');
+        await page.goto('http://budget.test/?view=classic');
         await page.locator('[data-budget-surface]').first().waitFor();
         const label = `${known ? 'known' : 'unknown'}-opening ${width}px`;
         if (!known) {

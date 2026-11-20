@@ -84,7 +84,7 @@ const cases = [
         const types = { '.js': 'application/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.png': 'image/png' };
         return route.fulfill({ body: bytes, contentType: types[path.extname(file)] || 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.waitForSelector('.blend-hero .blend-bad');
       await page.evaluate(() => document.fonts.ready);
       if (c.unavailable) {

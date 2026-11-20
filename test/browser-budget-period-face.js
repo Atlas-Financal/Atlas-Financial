@@ -64,7 +64,7 @@ const norm = text => String(text || '').replace(/\s+/g, ' ').trim();
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css')
           ? 'text/css' : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       await page.locator('[data-blend-rings]').waitFor();
       assert.equal(await page.evaluate(() => App.data.meta.title), 'Synthetic Budget surface');

@@ -46,7 +46,7 @@
 //
 //   CHROME_PATH=<Chromium> node test/browser-boot-treatment.js
 //   Runs every scenario on both Budget pages: ?view=classic (the previous page) and ?view=stack (the Stack page, the
-//   default route once B7 lands). BOOT_VIEW=classic|stack runs one. The Stack run writes its screenshots and receipt
+//   default route since B7, #1439). BOOT_VIEW=classic|stack runs one. The Stack run writes its screenshots and receipt
 //   outside the checkout (os.tmpdir()), so the committed proof images stay the previous page's.
 //   BOOT_BASE_ROOT=<pristine base checkout> — also measure the base tree
 //   under identical delays and record the comparison in the receipt.

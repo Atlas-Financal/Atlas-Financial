@@ -180,7 +180,7 @@ function input(mode) {
         return route.fulfill({ body: bytes, contentType: file.endsWith('.js') ? 'application/javascript'
           : file.endsWith('.css') ? 'text/css' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/html' });
       });
-      await page.goto('http://latest-savings.test/');
+      await page.goto('http://latest-savings.test/?view=classic');
       await page.locator('[data-budget-savings-goals] .blend-g-bar').first().waitFor();
       const result = await page.evaluate(() => {
         const card = document.querySelector('[data-budget-savings-goals]');

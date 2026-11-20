@@ -157,7 +157,7 @@ console.log('3. Unpublished values print nothing (F8)');
   W.render(g, ctxOf([gap]));
   proveSourced(g.innerHTML, gap, 'unpublished card minimum');
   const gapRows = [...g.innerHTML.matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)].map(m => m[1]);
-  ok(gapRows.length === 2 && /data-unpublished="true"><\/span><span class="wf-dash" role="img" aria-label="not available">\u2014<\/span>$/.test(gapRows[1])
+  ok(gapRows.length === 2 && /data-unpublished="true"><\/span><span class="wf-dash" role="img" aria-label="not available">—<\/span><\/span>$/.test(gapRows[1])
     && !/wf-dash/.test(gapRows[0]) && !/\$0(?![\d.,])/.test(gapRows[1]),
     'an unpublished card minimum: a dash in its row, never $0; a published one has no dash', gapRows[1]);
   const none = fakeContainer();
