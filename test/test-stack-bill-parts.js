@@ -152,6 +152,20 @@ console.log('3b. The check is a confirmed payment only; otherwise no check and t
 // need an in between"; a pending payment is up to Grok Bot, who verifies posted rows only. So only a posted payment exactly
 // the counted amount gets the check ("Paid $X"); pending, differing or unmatched show no check and "Planned $X".
 const H = require('./acceptance/harness.js');
+const sheetWin = (() => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const ctx = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
+    location: { search: '' }, document: { addEventListener: () => {}, getElementById: () => null } };
+  ctx.window = ctx; ctx.globalThis = ctx;
+  require('vm').createContext(ctx);
+  for (const f of ['shell', 'waterfall', 'cards', 'credit', 'sheet']) require('vm').runInContext(read(`public/stack-${f}.js`), ctx);
+  return ctx;
+})();
+function sheetOf(rec, date) {
+  const v = rec.payPeriodViews.find(p => (p.bills || []).some(b => b.id === 'hydro' && b.date === date));
+  const bill = v.bills.find(b => b.id === 'hydro' && b.date === date);
+  return sheetWin.StackSheet.html({ recommendation: rec, selectedPeriodKey: v.start, data: { meta: { asOf: '2026-12-31' } }, Forecast: {} }, `bill:hydro@${date}`) || '';
+}
 function hydroWorld(Forecast, octoberPending, octoberOverpaid) {
   const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
   const pay = (date, amount, extra = {}) => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro', ...extra });
@@ -180,8 +194,8 @@ function hydroCards(rec, render = cardHtml) {
   ok(JSON.stringify(got) === JSON.stringify([
     ['2026-08-12', 'pending', 90, null, 'Planned $90', 120],
     ['2026-09-12', 'posted-equal', 90, 'Paid', 'Paid $90', 90],
-    ['2026-10-12', 'posted-differs', 90, null, 'Planned $90', 40]]),
-  'unconfirmed 120: plan, no check; posted 90 = 90: "Paid $90" + check; posted 40 vs 90: plan, no check', JSON.stringify(got));
+    ['2026-10-12', 'posted-differs', 90, null, '$90, payment not confirmed', 40]]),
+  'unconfirmed 120: plan, no check; posted 90 = 90: "Paid $90" + check; posted 40 vs 90: no check, not confirmed', JSON.stringify(got));
   // What a sighted reader sees (Atlas 7045795702): with the accessible names removed, the confirmed row has a check
   // and the pending and differing rows have none.
   ok(c['2026-09-12'].visible.includes('\u2713') && !c['2026-08-12'].visible.includes('\u2713') && !c['2026-10-12'].visible.includes('\u2713')
@@ -194,8 +208,18 @@ function hydroCards(rec, render = cardHtml) {
   // Owner (7046237901): a posted overpayment is compared with the PLAN, not the count that already took it up:
   // plan 90, posted 120, counted 120 is 'posted-differs', no check, until Grok Bot verifies it.
   const over = hydroCards(hydroWorld(F, false, true))['2026-10-12'];
-  ok(over && over.evidence === 'posted-differs' && over.check === false,
-    'a posted overpayment (plan 90, posted 120): no check, though the count took the 120 up', JSON.stringify(over && { e: over.evidence, shown: over.shown, check: over.check }));
+  ok(over && over.evidence === 'posted-differs' && over.check === false && over.shown === 120 && over.name === '$120, payment not confirmed',
+    'a posted overpayment (plan 90, posted 120): $120 counted, no check, named "$120, payment not confirmed" (never "Planned $120")', JSON.stringify(over && { e: over.evidence, shown: over.shown, check: over.check, name: over.name }));
+  // The bill sheet's check follows the same rule (billHistory paidConfirmed): only Sep (posted 90 = plan 90).
+  const sheetRec = hydroWorld(F, false, true);
+  const conf = Object.fromEntries((sheetRec.billHistory.hydro || []).map(e => [e.date, e.paidConfirmed]));
+  ok(conf['2026-08-12'] === false && conf['2026-09-12'] === true && conf['2026-10-12'] === false,
+    'billHistory paidConfirmed: unconfirmed 120 no, posted 90 = plan yes, posted 120 over plan no', JSON.stringify(conf));
+  const sheetHtml = sheetOf(sheetRec, '2026-10-12');
+  const hist = sheetHtml.split('<li>').slice(1);
+  ok(!sheetHtml.split('stack-sheet-hist')[0].includes('\u2713') && hist.length === 2
+    && hist.filter(li => li.includes('\u2713')).length === 1 && hist.find(li => li.includes('\u2713')).includes('$90'),
+    'bill sheet: no check on the over-plan headline or the unconfirmed past one; the confirmed $90 keeps its check', sheetHtml);
   // No matched payment: no check.
   const n = hydroCards(hydroWorld(F, false))['2026-11-12'] || hydroCards(hydroWorld(F, false))[Object.keys(hydroCards(hydroWorld(F, false))).pop()];
   ok(n && n.evidence === 'none' && n.check === false && n.name === 'Planned $90', 'no matched payment: the plan, no check', JSON.stringify(n));
@@ -242,6 +266,21 @@ console.log('4. Mutants are caught');
     selectedPeriodKey: view.start, Forecast: {} }).split('data-stack-card="' + kind + '"')[1].split('</details>')[0];
   const mc = hydroCards(hydroWorld(F, true), render);
   ok(mc['2026-10-12'].check === true && mc['2026-08-12'].check === true, 'checking every matched payment is caught (pending and unconfirmed rows gain a check)');
+}
+
+{
+  // The sheet checks every paid occurrence (paidState only): the unconfirmed past payment gains a check.
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const ctx = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
+    location: { search: '' }, document: { addEventListener: () => {}, getElementById: () => null } };
+  ctx.window = ctx; ctx.globalThis = ctx;
+  require('vm').createContext(ctx);
+  for (const f of ['shell', 'waterfall', 'cards', 'credit']) require('vm').runInContext(read(`public/stack-${f}.js`), ctx);
+  require('vm').runInContext(replaceOnce(read('public/stack-sheet.js'), '${ePaid && e.paidConfirmed === true ? CHECK', '${ePaid ? CHECK', 'sheet paid only'), ctx);
+  const rec = hydroWorld(F, false, true);
+  const v = rec.payPeriodViews.find(p => (p.bills || []).some(b => b.id === 'hydro' && b.date === '2026-10-12'));
+  const html = ctx.StackSheet.html({ recommendation: rec, selectedPeriodKey: v.start, data: { meta: { asOf: '2026-12-31' } }, Forecast: {} }, 'bill:hydro@2026-10-12') || '';
+  ok(html.split('<li>').slice(1).filter(li => li.includes('\u2713')).length === 2, 'a sheet that checks every paid occurrence is caught (the unconfirmed one gains a check)');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack bill part checks passed`);

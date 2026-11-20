@@ -13122,8 +13122,13 @@
     const amount = typeof raw === 'number' && Number.isFinite(raw) ? roundCent(Math.abs(raw)) : null;
     const trust = amount === null ? 'unavailable'
       : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
+    // paidConfirmed: the payment is confirmed, so a page may show the check (owner, Dale 2026-11-20 on #1465,
+    // 7046237901): paid, posted, and the posted amount is exactly the planned amount. Pending, unmatched or a
+    // differing posted payment is not confirmed (until Grok Bot verifies it).
+    const paidConfirmed = row.paidState === 'paid' && basis === 'posted-actual' && amount !== null
+      && Math.round(amount * 100) === stackBillPlannedCents(row);
     return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState,
-      occurrence: billOccurrenceIdentity(row) };
+      occurrence: billOccurrenceIdentity(row), paidConfirmed };
   }
   function billOccurrenceIdentity(row) {
     if (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')) return row.occurrenceKey;

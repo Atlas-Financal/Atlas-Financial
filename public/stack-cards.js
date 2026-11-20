@@ -122,13 +122,16 @@
   // A bill row (owner decision, Dale 2026-11-20 on #1465: "a check for confirmed and no check for not confirmed"):
   // the item, the amount Forecast counted, and the check only for a confirmed payment, a posted payment exactly the
   // amount shown (stackBillPaymentEvidence 'posted-equal'). A pending, differing or unmatched payment shows no check and
-  // the amount is named as the plan ("Planned $X"). No status word is visible. An unpublished amount is a dash, never a zero.
+  // the amount is named as the plan ("Planned $X"), or, for a differing posted payment, "$X, payment not confirmed". No status word is visible. An unpublished amount is a dash, never a zero.
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
     var evidence = r.stackBillPaymentEvidence;
     var exact = evidence === 'posted-equal';
     var soft = isEst(r.stackBillAmountTrust);
-    var name = amountText == null ? null : (exact ? 'Paid ' : 'Planned ') + amountText;
+    // A pending or unmatched payment counts the plan; a differing posted payment may count above it (the Bills total
+    // rule), so it is named from what it is, never "Planned".
+    var name = amountText == null ? null : exact ? 'Paid ' + amountText
+      : evidence === 'posted-differs' ? amountText + ', payment not confirmed' : 'Planned ' + amountText;
     return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
       '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
       '<span class="sc-ck">' + (exact ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';

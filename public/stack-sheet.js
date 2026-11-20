@@ -40,8 +40,8 @@
       + '</button></div>';
   }
 
-  // A bill: its published amount, and a green check only when it is paid (#1429's paidState; owner direction: no Paid or
-  // Not paid word, nothing when unpaid). An unpaid bill also shows its scheduled date and planned paying account, each
+  // A bill: its published amount, and a green check only when its payment is confirmed (billHistory paidConfirmed: posted,
+  // exactly the plan; owner, Dale 2026-11-20 on #1465, 7046237901; no Paid or Not paid word, nothing otherwise). An unpaid bill also shows its scheduled date and planned paying account, each
   // alone with no label word (owner, 2026-11-20: no explanatory text). A paid bill shows neither: next to the check they
   // would read as when and from where it was paid, which they are not (bill.date is the schedule, payerLabel the plan;
   // Atlas on #1444). The observed payment fields (postedOn, paidFromLabel) are never read here.
@@ -88,12 +88,12 @@
     const headAmount = shownAmount(entry, paid);
     return head(kicker, bill.label || '')
       + `<div class="stack-sheet-big stack-n${headAmount === null ? '' : est(entry.trust, v)}">${amountHtml(headAmount)}</div>`
-      + (paid ? CHECK : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
+      + (paid ? (entry && entry.paidConfirmed === true ? CHECK : '') : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
       + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => {
         const ePaid = e.paidState === 'paid', amount = shownAmount(e, ePaid);
         return '<li>' + `<span class="stack-sheet-txd">${esc(date(e.date))}</span>`
           + `<span class="stack-sheet-txa stack-n${amount === null ? '' : est(e.trust, v)}">${amountHtml(amount)}</span>`
-          + `<span class="stack-sheet-histck">${ePaid ? CHECK : ''}</span></li>`;
+          + `<span class="stack-sheet-histck">${ePaid && e.paidConfirmed === true ? CHECK : ''}</span></li>`;
       }).join('') + '</ul>' : '');
   }
 

@@ -240,7 +240,7 @@ function proveBillHistory(advice) {
     assert.ok(Array.isArray(list) && list.length, `authorized addition: billHistory.${id} lists occurrences`);
     for (let i = 0; i < list.length; i++) {
       const entry = list[i];
-      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState', 'occurrence'], `authorized addition: billHistory.${id} entry shape`);
+      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState', 'occurrence', 'paidConfirmed'], `authorized addition: billHistory.${id} entry shape`);
       if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
       const candidates = rows.get(id + '@' + entry.date) || [];
       const row = candidates.find(r => r.paidState === entry.paidState && !listed.has(billOccurrenceOf(r)));
@@ -256,6 +256,10 @@ function proveBillHistory(advice) {
         `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
       assert.equal(entry.occurrence, billOccurrenceOf(row), `authorized addition: billHistory.${id}@${entry.date} occurrence is the row's identity`);
+      const planOf = row.planned != null && Number.isFinite(Number(row.planned)) ? Number(row.planned) : Number(row.amount);
+      assert.equal(entry.paidConfirmed, row.paidState === 'paid' && row.displayAmountBasis === 'posted-actual'
+        && typeof row.actual === 'number' && Math.round(Math.abs(row.actual) * 100) === Math.round(Math.abs(planOf) * 100),
+      `authorized addition: billHistory.${id}@${entry.date} paidConfirmed only for a posted payment of exactly the plan`);
       listed.add(billOccurrenceOf(row));
     }
   }
