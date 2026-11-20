@@ -2,7 +2,8 @@
  *
  * Any block marks a tappable row with data-stack-sheet="<kind>:<id>"; this block opens the sheet for it with that
  * item's published fields from the selected pay period. Blocks never call each other.
- *   bill:<id>@<date>   a row of the selected view's bills (mortgage:<id>@<date> reads the same way)
+ *   bill:<id>@<date>   a row of the selected view's bills (mortgage:<id>@<date> reads the same way); its amounts come
+ *                      from Forecast's billHistory (#1446), the one source for an occurrence's amount and trust
  *   budget:<id>        a row of the selected view's householdBudget
  *   card:<id>          a credit line (window.StackCredit.line(ctx, id), the credit block's one Forecast reading)
  * Escape, the close button or the scrim closes it; focus returns to the row.
@@ -44,13 +45,56 @@
   // alone with no label word (owner, 2026-11-20: no explanatory text). A paid bill shows neither: next to the check they
   // would read as when and from where it was paid, which they are not (bill.date is the schedule, payerLabel the plan;
   // Atlas on #1444). The observed payment fields (postedOn, paidFromLabel) are never read here.
+  //
+  // Its amounts come from Forecast's billHistory (#1446; lead ruling, 2026-11-20): every published occurrence of the bill,
+  // newest first, each { date, amount, amountBasis, trust, paidState } with its amount and trust together. The headline is
+  // this occurrence's entry (same date); with no entry, or an unpublished amount, it is a dash, never bill.amount and never
+  // $0. Below it, the bill's past occurrences: those dated before this one and on or before Forecast's observation date
+  // (data.meta.asOf, the date recommend ran with), so a future schedule is never listed as past. Each shows its date,
+  // amount (soft when estimated, a dash when unpublished) and a check when paid, no words. A paid occurrence whose
+  // amount is still the schedule (amountBasis 'schedule': a pending payment, no actual posted) shows the check with a
+  // dash, never the scheduled amount, which beside the check would read as the amount paid (Atlas on #1453). The page
+  // joins nothing across periods and reads the basis only to withhold.
   const plain = (value, cls = '') => (value ? `<p class="stack-sheet-plain${cls}">${esc(value)}</p>` : '');
+  const DASH = '<span role="img" aria-label="not available">\u2014</span>';
+  const CHECK = '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>';
+  function occurrences(id) {
+    const all = ctx && ctx.recommendation && ctx.recommendation.billHistory;
+    const list = all && typeof all === 'object' && Object.prototype.hasOwnProperty.call(all, id) ? all[id] : null;
+    return Array.isArray(list) ? list.filter(e => e && typeof e === 'object' && typeof e.date === 'string') : [];
+  }
+  // An entry's amount as printed beside its paid state: nothing to show when unpublished, or when it is a schedule on a
+  // paid occurrence.
+  const shownAmount = (entry, paid) => (entry && num(entry.amount) && !(paid && entry.amountBasis === 'schedule') ? entry.amount : null);
+  const amountHtml = amount => (amount === null ? DASH : esc(money(amount)));
+  // The tapped row's occurrence identity, as Forecast keys billHistory (#1455, billOccurrenceIdentity): its occurrenceKey
+  // when it publishes one for this bill, else id@scheduledDate, else id@date. Never inferred from a similar date or amount.
+  const rowOccurrence = bill => (typeof bill.occurrenceKey === 'string' && bill.occurrenceKey.startsWith(bill.id + '@')
+    ? bill.occurrenceKey : `${bill.id}@${typeof bill.scheduledDate === 'string' && bill.scheduledDate ? bill.scheduledDate : bill.date}`);
   function billHtml(bill, kicker, v) {
     const paid = bill.paidState === 'paid';
+    const list = occurrences(bill.id);
+    const identity = rowOccurrence(bill);
+    // This occurrence's entry, found by identity (a statement may have moved its date; a coinciding date never borrows
+    // another occurrence). Only a history that publishes no identity at all falls back to the date. The entry is shown
+    // only when it describes this same copy of the occurrence: the row's own date and paid state. A saved close's copy
+    // (its old date, or its unpaid state) never shows the current copy's amount; the headline is a dash instead
+    // (Atlas on #1455 and #1456).
+    const keyed = list.some(e => typeof e.occurrence === 'string');
+    const match = keyed ? list.find(e => e.occurrence === identity) : list.find(e => e.date === bill.date);
+    const entry = match && match.paidState === bill.paidState && match.date === bill.date ? match : null;
+    const asOf = ctx && ctx.data && ctx.data.meta && typeof ctx.data.meta.asOf === 'string' ? ctx.data.meta.asOf : null;
+    const earlier = asOf ? list.filter(e => e !== match && (!keyed || e.occurrence !== identity) && e.date < bill.date && e.date <= asOf) : [];
+    const headAmount = shownAmount(entry, paid);
     return head(kicker, bill.label || '')
-      + `<div class="stack-sheet-big stack-n${est(bill.displayAmountTrust, v)}">${esc(money(bill.amount))}</div>`
-      + (paid ? '<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>'
-        : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''));
+      + `<div class="stack-sheet-big stack-n${headAmount === null ? '' : est(entry.trust, v)}">${amountHtml(headAmount)}</div>`
+      + (paid ? CHECK : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
+      + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => {
+        const ePaid = e.paidState === 'paid', amount = shownAmount(e, ePaid);
+        return '<li>' + `<span class="stack-sheet-txd">${esc(date(e.date))}</span>`
+          + `<span class="stack-sheet-txa stack-n${amount === null ? '' : est(e.trust, v)}">${amountHtml(amount)}</span>`
+          + `<span class="stack-sheet-histck">${ePaid ? CHECK : ''}</span></li>`;
+      }).join('') + '</ul>' : '');
   }
 
   // A household budget category: spent of planned, and what is left (or over) as Forecast publishes it.

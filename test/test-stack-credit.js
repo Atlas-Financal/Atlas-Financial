@@ -63,10 +63,20 @@ const VIEW = {
   householdBudget: [{ id: 'groceries', label: 'Groceries', spent: 310, planned: 500, remaining: 190, overspend: 0 },
     { id: 'fun', label: 'Fun', spent: 130, planned: 100, remaining: 0, overspend: 30 }],
 };
+// Forecast's billHistory (#1446) for the invented bills, newest first. Water's headline entry carries the paid actual
+// (64), a different figure from nothing else on the row; an older one is unpublished; a future one is not history.
+const HISTORY = {
+  water: [
+    { date: '2031-04-05', amount: 64, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
+    { date: '2031-03-05', amount: 64, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+    { date: '2031-02-05', amount: 61.5, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+    { date: '2031-01-05', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
+  mort: [{ date: '2031-03-12', amount: 1850, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' }],
+};
 function context(totals, calls = []) {
   return {
     data: { debts: [], meta: { asOf: '2031-03-10' }, liveOverlay: null }, plan: {}, selectedPeriodKey: VIEW.start,
-    recommendation: { payPeriodViews: [VIEW] },
+    recommendation: { payPeriodViews: [VIEW], billHistory: HISTORY },
     Forecast: {
       cardPeriodMovements: (...args) => { calls.push(args); return { invented: true }; },
       stackCreditLines: (pub, bills) => { calls.push(['lines', pub, bills]); return { lines: LINES, totals }; },
@@ -163,8 +173,8 @@ console.log('5. the sheet');
   ok(red === 'Credit Red Card $0 of $0 Spent $0 Paid $0 Minimum $15 Transactions', "'unknown' minimum check: the minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
-  ok(water === 'Bill Water $64 ✓' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out/.test(water),
-    'paid bill sheet: the amount and the check only; neither the scheduled date and planned account nor the observed ones', water);
+  ok(water === 'Bill Water $64 ✓ Feb 5 $61.50 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
+    'paid bill sheet: the amount and the check, then its earlier occurrences (date, amount or a dash, ✓ when paid); no planned or observed date and account, no future occurrence', water);
   const waterHtml = win.StackSheet.html(ctx, 'bill:water@2031-03-05'), mortHtml = win.StackSheet.html(ctx, 'mortgage:mort@2031-03-12');
   ok(waterHtml.includes('<span class="stack-sheet-check" role="img" aria-label="Paid">\u2713</span>') && !/Paid|Not paid/.test(text(waterHtml)),
     'a paid bill sheet shows the check (accessible name Paid) and no status word');
@@ -209,6 +219,57 @@ console.log('5b. a published minimum shows whatever its coverage check says (Atl
   ok(/Minimum \$0 ✓$/.test(text(rows[3])), 'a published $0 minimum is a figure and prints (absence is not zero)', text(rows[3]));
   ok(!/covered|not yet|unpaid/i.test(text(el.innerHTML) + MORE.map(l => text(win.StackSheet.html(ctx, 'card:' + l.id) || '')).join(' ')),
     'no coverage word is printed or inferred');
+}
+
+console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale, 2026-11-20; lead ruling)');
+{
+  // Invented lines shaped like #1447's stackCreditLines: line.balance is the card's last balance snapshot with its trust.
+  const bal = (amount, trust = 'calculated') => ({ amount, asOf: '2031-03-09', trust, reasons: trust === 'estimated' ? ['balance-before-statement-cycle'] : [] });
+  const none = fig(null, 'unavailable');
+  const MORE = [
+    { id: 'both', label: 'Both Card', paid: fig(100), spent: fig(260), minimum: fig(30), toGo: fig(160), status: 'to-go',
+      minimumCovered: { value: false, trust: 'calculated' }, balance: bal(1234.56), transactions: [] },
+    { id: 'fresh', label: 'Fresh Card', paid: none, spent: none, minimum: fig(20), toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: bal(812.4), transactions: [] },
+    { id: 'stale', label: 'Stale Card', paid: none, spent: none, minimum: null, toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: bal(305, 'estimated'), transactions: [] },
+    { id: 'half', label: 'Half Card', paid: fig(50), spent: none, minimum: null, toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: bal(77), transactions: [] },
+    { id: 'blank', label: 'Blank Card', paid: none, spent: none, minimum: null, toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: { amount: null, asOf: null, trust: 'unavailable', reasons: ['balance-unavailable'] }, transactions: [] },
+    { id: 'heloc', label: 'Line of credit', paid: null, spent: null, minimum: fig(210), toGo: none, status: null,
+      minimumCovered: { value: true, trust: 'calculated' }, balance: bal(9000), transactions: [] },
+  ];
+  const totals = { ...TOTALS.complete, balance: { amount: 2429.0, trust: 'estimated', completeness: 'complete', excluded: [], reasons: [] } };
+  const { fns, win } = load();
+  const ctx = context(totals);
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals }) };
+  const el = container();
+  fns.credit(el, ctx);
+  const rows = el.innerHTML.split('<li>').slice(1);
+  ok(text(rows[0]) === 'Both Card $160 $100 of $260 Minimum $30' && !/1,234|data-stack-credit-balance/.test(rows[0]),
+    'paid and spent published: "$A of $B", and no balance');
+  ok(text(rows[1]) === 'Fresh Card $812.40 Minimum $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40</.test(rows[1]),
+    'no paid / spent: the last balance, plain when calculated', text(rows[1]));
+  ok(/<small class="stack-credit-bal stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305</.test(rows[2]),
+    'an estimated balance is soft, and named "Last balance, estimated" for a screen reader');
+  ok(text(rows[3]) === 'Half Card $77', 'only one of paid / spent published: the balance (no half "of")', text(rows[3]));
+  ok(text(rows[4]) === 'Blank Card' && !/\$0|data-stack-credit-balance/.test(rows[4]), 'no balance published: nothing, never $0');
+  ok(text(rows[5]) === 'Line of credit Minimum $210 ✓' && !/9,000/.test(rows[5]), 'HELOC: its minimum only, never its balance');
+  ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total>\$500</.test(el.innerHTML),
+    "the head stays the paid / spent total; totals.balance is not shown");
+  const fresh = win.StackSheet.html(ctx, 'card:fresh'), stale = win.StackSheet.html(ctx, 'card:stale');
+  ok(/<div class="stack-sheet-big stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40<\/div>/.test(fresh)
+    && /<div class="stack-sheet-big stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305<\/div>/.test(stale),
+    'the sheet shows the same balance as its big figure, soft when estimated, with the same screen-reader name');
+  // Announced once: the role="img" element's name replaces its text, and no other element repeats the amount.
+  const named = html => (html.match(/aria-label="Last balance[^"]*"/g) || []).length;
+  ok(named(rows[1]) === 1 && named(rows[2]) === 1 && named(fresh) === 1 && named(stale) === 1
+    && (rows[1].match(/812\.40/g) || []).length === 2 && (fresh.match(/812\.40/g) || []).length === 2,
+    'each surface names its balance once (the label and the visible number, nothing else)');
+  ok(!/data-stack-credit-balance/.test(win.StackSheet.html(ctx, 'card:both')) && !/data-stack-credit-balance|\$0/.test(win.StackSheet.html(ctx, 'card:blank'))
+    && !/9,000/.test(win.StackSheet.html(ctx, 'card:heloc')), 'the sheet: no balance beside paid / spent, none when unpublished, none for the HELOC');
+  ok(!/balance|last|estimated|snapshot/i.test(text(el.innerHTML) + text(fresh) + text(stale)), 'no words');
 }
 
 console.log('6. L-001: no arithmetic on money');
