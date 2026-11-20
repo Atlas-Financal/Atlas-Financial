@@ -387,7 +387,7 @@ console.log('5b. cards');
     unsoft.map(m => m[0]).join(' | '));
   const actual = cards(view('actual'));
   const g = /data-stack-sheet="budget:groceries"[\s\S]*?<\/li>/.exec(actual);
-  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> of \$500/.test(g[0]),
+  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> \/ \$500/.test(g[0]),
     'an actual period: the Groceries plan (estimated) is soft, its calculated Spent is not', g && g[0]);
 }
 
@@ -457,6 +457,8 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
   const leftover = html => {
     let t = text(html).replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’');
     for (const n of names) t = t.split(n).join(' ');
+    // the two head subtitles from the approved design, exactly (no other wording)
+    t = t.split('paid back / spent').join(' ').split('spent / budget').join(' ');
     t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b/g, ' ')
       .replace(/[✓=−+\/—·]/g, ' ');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));

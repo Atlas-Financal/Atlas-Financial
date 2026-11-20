@@ -110,7 +110,10 @@ html.stack-view .stack-overlay:empty { display: none; }
 @media (max-width: 472px) { html.stack-view .stack-root { padding-left: 16px; padding-right: 16px; } }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-chip, html.stack-view .sc-chev { transition: none; } }
 /* B5, the one visual trust treatment (StackBlocks.estClass): an estimated or projected figure is drawn in softer ink;
- * a bar from estimated figures gets a dashed outline in place of its fill. No word, no underline (owner). */
+ * a bar from estimated figures keeps its track and draws only its fill softer (the design has no dashed outlines).
+ * No word, no underline (owner). */
 html.stack-view .stack-est { opacity: .58; }
+html.stack-view .stack-credit-bar.stack-est, html.stack-view .stack-credit-minibar.stack-est,
+html.stack-view .stack-sheet-bar.stack-est { opacity: 1; }
 html.stack-view .stack-credit-bar.stack-est > i, html.stack-view .stack-credit-minibar.stack-est > i,
-html.stack-view .stack-sheet-bar.stack-est > i { background: transparent; border: 1.5px dashed currentColor; box-sizing: border-box; }
+html.stack-view .stack-sheet-bar.stack-est > i { opacity: .58; }

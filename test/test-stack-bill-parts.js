@@ -52,7 +52,7 @@ const cardHtml = (view, kind) => cards.buildCardsHTML({ data: {}, plan: {}, reco
   selectedPeriodKey: view.start, Forecast: {} }).split('data-stack-card="' + kind + '"')[1].split('</details>')[0];
 const text = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 // Each listed bill row's visible text (label and amount; a paid check shows as a check mark).
-const rowLabels = h => h.split('<li class="sc-row sc-bill"').slice(1).map(x => { const li = x.split('</li>')[0]; return text(li.slice(li.indexOf('>') + 1)); });
+const rowLabels = h => h.split('<li class="sc-row sc-bill').slice(1).map(x => { const li = x.split('</li>')[0]; return text(li.slice(li.indexOf('>') + 1)); });
 const headOf = h => { const sum = h.slice(h.indexOf('<summary'), h.indexOf('</summary>')); return text(sum.slice(sum.indexOf('>') + 1)); };
 const CHECK = '\u2713';
 
@@ -165,7 +165,7 @@ function hydroCards(rec) {
   for (const v of rec.payPeriodViews) {
     const b = (v.bills || []).find(r => r.id === 'hydro' && r.stackBillPart);
     if (!b) continue;
-    const li = cardHtml(v, 'bills').split('<li class="sc-row sc-bill"').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('Invented hydro')) || '';
+    const li = cardHtml(v, 'bills').split('<li class="sc-row sc-bill').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('Invented hydro')) || '';
     out[b.date] = { evidence: b.stackBillPaymentEvidence, shown: b.stackBillAmount, check: li.includes('sc-check'),
       name: (li.match(/class="sc-a[^"]*" aria-label="([^"]*)"/) || [])[1] || null, paidState: b.paidState };
   }

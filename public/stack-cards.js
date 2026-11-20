@@ -97,10 +97,12 @@
   function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash) {
     var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
       (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
+    // The bar sits in the head (always visible, closed or open), full width under the title and figure; an unpublished
+    // figure draws an empty track, never a guessed fill.
+    var bar = '<span class="sc-bar' + (figure == null ? '' : estCls(est)) + '" aria-hidden="true"><i style="width:' + width + '%"></i></span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
       '<summary aria-expanded="false"><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + f +
-      '<span class="sc-go" aria-hidden="true">' + CHEV + '</span></summary>' +
-      '<div class="sc-bar' + (figure == null ? '' : estCls(est)) + '"><i style="width:' + width + '%"></i></div>' + body + '</details>';
+      '<span class="sc-go" aria-hidden="true">' + CHEV + '</span>' + bar + '</summary>' + body + '</details>';
   }
 
   // Tappable by attribute only; the shell's sheet owns what opens. A row without
@@ -115,6 +117,8 @@
   var DASH = '\u2014';
   // The round go button on every card head: a chevron that turns when the card is open.
   var CHEV = '<svg class="sc-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  // The row's chevron, on every row that opens a sheet (static: it does not turn like the card's go button).
+  var RCV = '<svg class="sc-cv" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   // A bill row: the item, the amount Forecast counted, and the paid check only when Forecast's
   // stackBillPaymentEvidence says a posted payment of exactly that amount ('posted-equal'; lead ruling on #1465).
   // Otherwise the amount is the plan, drawn at its own trust, with no check. No status word is visible; the accessible
@@ -124,20 +128,21 @@
     var paid = r.stackBillPaymentEvidence === 'posted-equal';
     var soft = isEst(r.stackBillAmountTrust);
     var name = amountText == null ? null : (paid ? 'Paid ' : 'Planned ') + amountText;
-    return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
+    return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
       '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
-      '<span class="sc-ck">' + (paid ? '<span class="sc-check" aria-hidden="true">\u2713</span>' : '') + '</span></li>';
+      '<span class="sc-ck">' + (paid ? '<span class="sc-check" aria-hidden="true">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';
   }
 
   function billsCard(view) {
     var split = get(view, ['stackSummary', 'bills']) || {};
     var rows = partRows(view, 'other');
-    var paid = rows.filter(function (r) { return r.stackBillPaymentEvidence === 'posted-equal'; }).length; // a count of rows, not money
+    // The Bills and Mortgage bars stay an empty track until Forecast publishes a paid figure to fill them (the head's
+    // total is not a paid amount, and a count of paid rows is not a share of money).
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
       return stateRow(r.label || r.name || 'Bill', r, billTarget('bill', r));
     }).join('') + '</ul>';
-    return strip('bills', 'Bills', '', total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust), true);
+    return strip('bills', 'Bills', '', total, null, 0, rows.length ? body : '', null, null, isEst(split.trust), true);
   }
 
   function budgetCard(view) {
@@ -153,23 +158,24 @@
     var body = '<ul class="sc-list">' + cats.map(function (c) {
       var s = money(c.spent), p = planPublished ? money(c.planned) : null;
       var est = budgetEst(c);
-      return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
-        (p == null ? '' : '<span class="sc-mini"><i style="width:' + fill(c.spent, c.planned) + '%"></i></span>') + '</span>' +
+      var tgt = c.id != null ? 'budget:' + c.id : null;
+      // The mini bar is always drawn under the name; with no published plan it is an empty track, never a guessed fill.
+      return '<li class="sc-row' + (tgt ? ' sc-go-row' : '') + '"' + sheetAttrs(tgt) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
+        '<span class="sc-mini' + estCls(est.spent || est.planned) + '"><i style="width:' + (p == null ? 0 : fill(c.spent, c.planned)) + '%"></i></span></span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
-          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> of ' + esc(p) + '</i>') + '</span>') + '</li>';
+          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + (tgt ? RCV : '') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
-    return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' of ', null, hhEst, true);
+    return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true);
   }
 
   function mortgageCard(view) {
     var total = money(get(view, ['stackSummary', 'bills', 'mortgage']));
     var rows = partRows(view, 'mortgage');
-    var paid = rows.filter(function (r) { return r.stackBillPaymentEvidence === 'posted-equal'; }).length; // a count of rows, not money
     var body = rows.length ? '<ul class="sc-list">' + rows.map(function (r) {
       return stateRow(r.label || r.name || 'Mortgage', r, billTarget('mortgage', r));
     }).join('') + '</ul>' : '';
-    return strip('mortgage', 'Mortgage', '', total, null, fill(paid, rows.length), body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
+    return strip('mortgage', 'Mortgage', '', total, null, 0, body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
   }
 
   // Savings (owner-approved design): "$saved of $needed" and a bar; open, one
@@ -188,7 +194,7 @@
     var moved = money(t.saved), entitlement = money(t.entitlement), planned = money(t.needed);
     var head, headOf = null, sub, tail = null, sep = null, width = 0;
     if (moved != null && entitlement != null) {
-      head = moved; headOf = entitlement; sep = ' of '; sub = '';
+      head = moved; headOf = entitlement; sep = ' / '; sub = '';
       width = fill(t.saved, t.entitlement);
     } else if (has(t.reasons, 'future-period') && planned != null) {
       head = planned; sub = '';
@@ -206,7 +212,7 @@
       if (own) {
         // "$saved of $periodTarget" with a full-width bar; periodTarget is Forecast's, not added here.
         return '<li class="sc-row sc-own"><span class="sc-n">' + esc(i.label) + '</span>' +
-          '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
+          '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> / ' + esc(tg) + '</i>') + '</span>' +
           '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + fill(i.saved, i.periodTarget) + '%"></i></span></li>';
       }
       // No words (owner rule): a future period shows only its planned amount; any other row with no published
