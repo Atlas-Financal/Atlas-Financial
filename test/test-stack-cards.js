@@ -1,4 +1,4 @@
-// Stack page B3: Bills, Budget and Mortgage cards. Invented figures only.
+// Stack page B3: Bills, Budget and Savings cards (no Mortgage card). Invented figures only.
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -56,14 +56,14 @@ printed.forEach(a => assert(allowed.has(a), 'unpublished amount printed: ' + a))
 const card = k => html.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
 assert(card('bills').includes(fmt(888.88)), 'bills headline = stackSummary.bills.other');
 assert(card('budget').includes(fmt(333.33)) && card('budget').includes(fmt(666.66)));
-assert(card('mortgage').includes(fmt(1234.56)));
+assert(!html.includes('data-stack-card="mortgage"') && !html.includes(fmt(1234.56)) && !html.includes('--sc-mortgage'), 'there is no Mortgage card and its amount is on no card');
 // the go button's text: everything inside <span class="sc-go"> once its tags are removed (the chevron is an svg, so none)
 const goText = h => { const m = /<span class="sc-go"[^>]*>([\s\S]*?)<\/span>/.exec(h); if (!m) throw new Error('no go button'); return m[1].replace(/<[^>]*>/g, '').trim(); };
 assert(goText('<summary><span class="sc-go" aria-hidden="true"><svg></svg></span></summary>') === '', 'control: an svg-only go button has no text');
 assert(goText('<summary><span class="sc-go" aria-hidden="true">Open</span></summary>') === 'Open', 'control: the check reports text put in the go button');
 assert((() => { try { goText('<summary></summary>'); return false; } catch (e) { return true; } })(), 'control: a head with no go button throws, never passes');
 // every head carries the round go button, a chevron with no text, and mirrors its open state in aria-expanded
-['bills', 'budget', 'mortgage'].forEach(k => {
+['bills', 'budget'].forEach(k => {
   const head = card(k).split('</summary>')[0];
   assert(/<summary aria-expanded="false">/.test(head) && /<span class="sc-go" aria-hidden="true"><svg class="sc-chev"/.test(head), k + ' head: aria-expanded and the go button');
   assert(goText(head) === '', k + ' go button has no text', JSON.stringify(goText(head)));
@@ -90,8 +90,7 @@ const CHECK = '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>
 const rowOf = (h, label) => h.split('<li class="sc-row sc-bill').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('>' + label + '<'));
 assert(rowOf(card('bills'), 'Hydro').includes(CHECK), 'a paid row shows the check');
 assert(!rowOf(card('bills'), 'Phone').includes('sc-check') && !rowOf(card('bills'), 'Phone').includes('\u2713'), 'an unpaid row shows no mark');
-assert(!rowOf(card('mortgage'), 'Mortgage').includes('sc-check'), 'an unpaid mortgage shows no mark');
-for (const k of ['bills', 'mortgage', 'budget']) {
+for (const k of ['bills', 'budget']) {
   const visible = card(k).replace(/<[^>]+>/g, ' ');
   assert(!/paid|Paid|Not paid/.test(visible), 'no status word is visible on ' + k);
 }
@@ -99,8 +98,8 @@ assert(!/ of \d+ paid|paid \/ total/.test(html), 'no paid count or descriptor on
 assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'), 'Phone').includes(fmt(222.22)), 'the amount stays');
 {
   const mp = JSON.parse(JSON.stringify(view)); mp.bills[3].stackBillPaymentEvidence = 'posted-equal';
-  const m = buildCardsHTML(ctx(mp)).split('data-stack-card="mortgage"')[1].split('</details>')[0];
-  assert(m.includes(CHECK) && !m.replace(/<[^>]+>/g, ' ').match(/paid/i), 'a paid mortgage row shows the check and no word');
+  const mh = buildCardsHTML(ctx(mp));
+  assert(!/mortgage/i.test(mh), 'a paid mortgage row prints nothing on the cards (its sheet opens from the waterfall)');
   const unk = JSON.parse(JSON.stringify(view)); unk.bills[0].stackBillPaymentEvidence = 'maybe'; unk.bills[3].stackBillPaymentEvidence = 'maybe';
   const u = buildCardsHTML(ctx(unk));
   assert(!u.includes('sc-check') && !u.includes('\u2713'), 'an unknown evidence word renders no check');
@@ -116,7 +115,7 @@ assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'
   look.bills.push({ id: 'unmarked', date: '2026-01-10', label: 'Unmarked', amount: 55.55, paidState: 'not-paid' });
   const lh = buildCardsHTML(ctx(look));
   const of = k => lh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
-  assert(of('bills').includes('Mortgage lookalike') && !of('mortgage').includes('Mortgage lookalike'), 'a plain bill named mortgage stays in Bills, by its mark');
+  assert(of('bills').includes('Mortgage lookalike'), 'a plain bill named mortgage stays in Bills, by its mark');
   assert(!lh.includes('Unmarked') && !lh.includes(fmt(55.55)), 'a row with no mark is listed nowhere');
   // The row prints the amount the split counts there, not the row's own amount.
   const counted = JSON.parse(JSON.stringify(view)); counted.bills[0].stackBillAmount = 131.31;
@@ -126,7 +125,7 @@ assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'
   const bare = JSON.parse(JSON.stringify(view));
   bare.bills.forEach(b => { delete b.stackBillPart; delete b.stackBillAmount; delete b.stackBillDebtId; });
   const bh = buildCardsHTML(ctx(bare));
-  assert(!/sc-row sc-bill/.test(bh) && bh.includes(fmt(888.88)) && bh.includes(fmt(1234.56)), 'unmarked rows: the heads, and no bill row');
+  assert(!/sc-row sc-bill/.test(bh) && bh.includes(fmt(888.88)), 'unmarked rows: the heads, and no bill row');
 }
 // category rows read spent of planned; markup is escaped
 assert(card('budget').includes(fmt(123.45)) && card('budget').includes(fmt(400)));
@@ -154,7 +153,7 @@ const z = JSON.parse(JSON.stringify(view)); z.stackSummary.bills.other = 0;
 assert(buildCardsHTML(ctx(z)).includes('$0<'));
 
 // card colours: every kind's variable is defined in the CSS file
-['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
+['bills', 'budget', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
 assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
 
@@ -215,7 +214,7 @@ amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 120, 190].map(fmt).includes
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
 
 // card colours: every kind's variable is defined in the CSS file
-['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
+['bills', 'budget', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
 assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
 
@@ -224,7 +223,7 @@ assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.
   const b = card('budget');
   assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> / ' + fmt(666.66) + '</i></span>'), 'Budget strip: X / Y');
   assert(b.includes('<span class="sc-s">spent / budget</span>'), 'Budget head: the design\'s subtitle');
-  assert(!/<span class="sc-s">/.test(card('bills') + card('mortgage')), 'no subtitle on Bills or Mortgage until Forecast publishes their paid and total');
+  assert(!/<span class="sc-s">/.test(card('bills')), 'no subtitle on Bills until Forecast publishes their paid and total');
 }
 
 // 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
@@ -232,7 +231,7 @@ const attr = (h, v) => h.includes('data-stack-sheet="' + v + '" role="button" ta
 assert(attr(card('bills'), 'bill:hydro@2026-01-05') && attr(card('bills'), 'bill:phone@2026-01-07'));
 assert(!card('bills').includes('mortgage:') && !card('bills').includes('bill:old@'));
 assert(attr(card('budget'), 'budget:groceries') && attr(card('budget'), 'budget:fun'));
-assert(attr(card('mortgage'), 'mortgage:mortgage@2026-01-02'));
+assert(!/mortgage:mortgage@/.test(html), 'no card opens a mortgage sheet');
 const noId = JSON.parse(JSON.stringify(view)); delete noId.bills[0].date; delete noId.householdBudget[0].id;
 const nh = buildCardsHTML(ctx(noId));
 assert(!nh.includes('bill:hydro') && !nh.includes('budget:groceries'), 'no attribute without the ids');
@@ -258,7 +257,7 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
   assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
     'only the estimated amount (the first row\'s plan) is soft');
-  assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
+  assert(/class="sc-f stack-est"/.test(cardOf('bills')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
   // the category mini bar is soft with its row's figures: an estimated amount, and a projected period (Codex on #1467)
   const rowsOf = h => (h.match(/<li class="sc-row[^>]*data-stack-sheet="budget:[\s\S]*?<\/li>/g) || []);
@@ -332,7 +331,7 @@ console.log('test-stack-cards: ok');
   const css1 = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const sh = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const cr = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  ['bills', 'budget', 'mortgage'].forEach(k => {
+  ['bills', 'budget'].forEach(k => {
     const head = card(k).split('</summary>')[0];
     assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:[\d.]+%"><\/i><\/span>/.test(head), k + ': the bar is in the head, so it shows closed');
     assert(!/<\/summary>[\s\S]*sc-bar/.test(card(k).replace(/<li[\s\S]*?<\/li>/g, '')), k + ': no second bar below the head');
@@ -349,18 +348,18 @@ console.log('test-stack-cards: ok');
   assert(/—/.test(b0) && /<i style="width:0%">/.test(b0) && !/\$0/.test(b0), 'a withheld Budget head: a dash and an empty track');
 }
 
-// B (rows and bars): mini bars show (block), every sheet row has its chevron, Bills and Mortgage bars stay empty until a paid figure is published
+// B (rows and bars): mini bars show (block), every sheet row has its chevron, Bills bar stays empty until a paid figure is published
 {
   const css1 = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const cr = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   assert(/\.sc-mini\{display:block;height:6px;border-radius:3px/.test(css1), 'the category mini bar is a block with its 6px height (an inline span would draw nothing)');
   const rows = h => (h.match(/<li class="sc-row[^>]*data-stack-sheet[\s\S]*?<\/li>/g) || []);
-  ['bills', 'budget', 'mortgage'].forEach(k => {
+  ['bills', 'budget'].forEach(k => {
     const rs = rows(card(k));
     assert(rs.length > 0 && rs.every(r => /<svg class="sc-cv"/.test(r)), k + ': every row that opens a sheet carries its chevron');
   });
   assert(/<svg class="sc-cv"/.test(rowOf(card('bills'), 'Hydro')) === true, 'a bill row ends with its chevron');
-  ['bills', 'mortgage'].forEach(k => assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:0%"><\/i><\/span>/.test(card(k).split('</summary>')[0]),
+  ['bills'].forEach(k => assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:0%"><\/i><\/span>/.test(card(k).split('</summary>')[0]),
     k + ': an empty track until Forecast publishes the paid figure (no fill from a row count or the head total)'));
   assert(/\.sc-f>\[role=img\]\{font-size:\.6em/.test(css1) && /\.stack-credit-figure\[data-unpublished\] \{ font-size: 14\.4px/.test(cr),
     'a withheld head figure is a small soft dash like the "/ b" part, not a big minus');
