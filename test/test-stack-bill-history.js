@@ -127,6 +127,10 @@ console.log('2. The publisher on hand-built results');
   const odd = publish({ payPeriodViews: [view('past', [row('2026-08-01', { displayAmountTrust: 'verified' }), row('2026-08-15', { displayAmountTrust: null })])] }, '2026-09-15');
   ok(odd.billHistory.b.every(e => e.trust === 'unknown'), 'a trust word outside calculated / estimated is unknown, never upgraded', JSON.stringify(odd.billHistory.b));
   ok(same(publish({}, '2026-09-15').billHistory, {}), 'no pay periods: an empty history');
+  const odd2 = publish({ payPeriodViews: [view('past', ['constructor', '__proto__', 'toString'].map(id => row('2026-08-01', { id })))] });
+  ok(['constructor', '__proto__', 'toString'].every(id => Object.hasOwn(odd2.billHistory, id) && odd2.billHistory[id].length === 1)
+    && Object.getPrototypeOf(odd2.billHistory) === Object.prototype && !Array.isArray(Object.getPrototypeOf(odd2.billHistory)),
+    'a bill id named like an object built-in is an ordinary key with its own history', JSON.stringify(Object.keys(odd2.billHistory)));
   // A saved close keeps its unpaid row (marked alsoCarriedToCurrent) while the current period carries the same
   // occurrence, now paid: one entry, the newest period's.
   const twice = publish({ payPeriodViews: [

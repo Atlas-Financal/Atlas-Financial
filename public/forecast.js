@@ -13031,10 +13031,15 @@
         latest.set(row.id + '\u0000' + row.date, row);
       }
     }
-    const history = {};
-    for (const row of latest.values()) (history[row.id] || (history[row.id] = [])).push(billHistoryEntry(row));
-    for (const id of Object.keys(history)) history[id].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-    result.billHistory = history;
+    // A Map, then own data properties: a bill id such as 'constructor' or
+    // '__proto__' is an ordinary key, never a prototype member.
+    const byId = new Map();
+    for (const row of latest.values()) {
+      if (!byId.has(row.id)) byId.set(row.id, []);
+      byId.get(row.id).push(billHistoryEntry(row));
+    }
+    for (const list of byId.values()) list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    result.billHistory = Object.fromEntries(byId);
     return result;
   }
   function calendarIncomeTxFacts(packet) {
