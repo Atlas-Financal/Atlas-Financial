@@ -117,9 +117,10 @@
       const surplus = view.stackSummary && view.stackSummary.surplus;
       const current = view.role === 'active';
       // Owner direction (Dale, 2026-11-20 walk): no dashed or dotted outline on a future period; every chip has the
-      // design's plain fill. A period with no published surplus shows a dash (F8), never $0 and never a blank.
+      // design's plain fill. A period with no published surplus shows a dash (F8) in the soft treatment (lead,
+      // 2026-11-20), never $0 and never a blank.
       const value = amount == null
-        ? '<span class="stack-chip-value" data-stack-chip-amount role="img" aria-label="not available">\u2014</span>'
+        ? '<span class="stack-chip-value stack-est" data-stack-chip-amount role="img" aria-label="not available">\u2014</span>'
         : `<span class="stack-chip-value${neg ? ' is-neg' : ''}${StackBlocks.estClass(surplus && surplus.trust, view)}" data-stack-chip-amount>${esc(money(amount))}</span>`;
       return `<button class="stack-chip${neg ? ' is-neg' : ''}${current ? ' is-now' : ''}" type="button"`
         + ` data-stack-period="${esc(key)}" aria-pressed="${key === state.selectedPeriodKey}"`

@@ -92,7 +92,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
           now: c.getAttribute('aria-current'), date: c.querySelector('.stack-chip-date').textContent,
           dashed: getComputedStyle(c).borderTopStyle, fill: getComputedStyle(c).backgroundColor,
           padTop: getComputedStyle(c).paddingTop,
-          amount: c.querySelector('[data-stack-chip-amount]').textContent })) };
+          amount: c.querySelector('[data-stack-chip-amount]').textContent,
+          soft: c.querySelector('[data-stack-chip-amount]').classList.contains('stack-est') })) };
     });
     const F = require('../public/forecast.js');
     const d = served();
@@ -132,8 +133,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
     ok(view.chips.every((c, i) => {
       const s = views[i].stackSummary && views[i].stackSummary.surplus;
-      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '\u2014' : c.amount === '\u2014';
-    }), 'a chip with no published surplus prints a dash, never $0 and never a blank', JSON.stringify(view.chips.map(c => c.amount)));
+      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '\u2014' : c.amount === '\u2014' && c.soft;
+    }), 'a chip with no published surplus prints a soft dash, never $0 and never a blank', JSON.stringify(view.chips.map(c => [c.amount, c.soft])));
 
     console.log('3. every printed amount is the published value it names');
     const invented = [1000, -250.5, null, 0.25, -3];
@@ -153,11 +154,12 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     await settle(page);
     const printed = await page.evaluate(() => [...document.querySelectorAll('[data-stack-period]')].map(c => ({
       text: c.querySelector('[data-stack-chip-amount]').textContent, neg: c.classList.contains('is-neg'),
+      soft: c.querySelector('[data-stack-chip-amount]').classList.contains('stack-est'),
       valueNeg: c.querySelector('[data-stack-chip-amount]').classList.contains('is-neg') })));
     const want = { 1000: '+$1,000', '-250.5': '−$250.50', 0.25: '+$0.25', '-3': '−$3' };
     ok(printed.every((p, i) => {
       const v = invented[i % invented.length];
-      return v === null ? p.text === '\u2014' && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
+      return v === null ? p.text === '\u2014' && p.soft && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
     }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, a dash when absent',
     JSON.stringify(printed.slice(0, 5)));
 
