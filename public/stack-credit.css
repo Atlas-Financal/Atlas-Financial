@@ -48,6 +48,9 @@ html.stack-view .stack-credit-top { display: flex; justify-content: space-betwee
 html.stack-view .stack-credit-name b { font-size: 17px; font-weight: 600; color: var(--stack-on); }
 html.stack-view .stack-credit-name small { display: block; font-size: 13.5px; color: var(--stack-on2); }
 html.stack-view .stack-credit-name .stack-credit-min { margin-top: 6px; }
+/* A card's last balance (#1447), shown where its paid and spent are not published: in italics (Dale, 2026-11-20), so it
+ * reads as a balance rather than a movement; soft as well when estimated (the shell's one treatment). */
+html.stack-view .stack-credit-name .stack-credit-bal { margin-top: 2px; font-style: italic; font-weight: 600; color: var(--stack-on); }
 html.stack-view .stack-credit-minibar { display: block; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--stack-on-line); overflow: hidden; }
 html.stack-view .stack-credit-minibar i { display: block; height: 100%; border-radius: 3px; background: var(--stack-on); }
 html.stack-view .stack-credit-status { font-size: 16px; font-weight: 700; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
