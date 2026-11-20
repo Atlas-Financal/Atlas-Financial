@@ -223,5 +223,17 @@ console.log('8. No money arithmetic in the block');
     'no figure is added, subtracted, multiplied or divided');
 }
 
+console.log('9. The design\'s marks: letter tiles on the income lines, card-colour swatches on the deductions');
+{
+  const out = W.html(ctxOf([fullView()]), {});
+  const mark = row => { const m = new RegExp(`data-row="${row}"[^>]*>[\\s\\S]*?<span class="lab">(<span class="wf-av[^"]*"(?: style="--wf-k:var\\(--stack-([a-z]+)\\)")? aria-hidden="true">([^<]*)</span>)?`).exec(out); return m ? [m[1] ? 'mark' : '', m[2] || '', m[3] || ''] : null; };
+  const got = Object.fromEntries(['dale', 'amanda', 'other', 'total', 'bills', 'budget', 'mortgage'].map(r => [r, mark(r)]));
+  const credit = /data-row="credit"[\s\S]*?<span class="lab"><span class="wf-av wf-sw" style="--wf-k:var\(--stack-cards\)" aria-hidden="true"><\/span>Credit/.test(out);
+  ok(got.dale.join() === 'mark,,D' && got.amanda.join() === 'mark,,A' && got.other.join() === 'mark,,$'
+    && got.total.join() === ',,' && got.bills.join() === 'mark,bills,' && got.budget.join() === 'mark,budget,'
+    && got.mortgage.join() === 'mark,mort,' && credit,
+  'D, A and $ tiles on the income lines; bills, budget, mortgage and credit swatches; none on Total (all aria-hidden)', JSON.stringify(got));
+}
+
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack waterfall checks passed`);
 process.exit(failures ? 1 : 0);
