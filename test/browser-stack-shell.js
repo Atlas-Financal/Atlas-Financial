@@ -156,11 +156,12 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       text: c.querySelector('[data-stack-chip-amount]').textContent, neg: c.classList.contains('is-neg'),
       soft: c.querySelector('[data-stack-chip-amount]').classList.contains('stack-est'),
       valueNeg: c.querySelector('[data-stack-chip-amount]').classList.contains('is-neg') })));
-    const want = { 1000: '+$1,000', '-250.5': '−$250.50', 0.25: '+$0.25', '-3': '−$3' };
+    // Whole dollars, half away from zero; an amount that prints as $0 has no sign (it stays coral only when negative).
+    const want = { 1000: '+$1,000', '-250.5': '−$251', 0.25: '$0', '-3': '−$3' };
     ok(printed.every((p, i) => {
       const v = invented[i % invented.length];
       return v === null ? p.text === '\u2014' && p.soft && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
-    }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, a dash when absent',
+    }), 'each chip prints its published surplus in whole dollars (+$1,000, −$251, $0, −$3), coral when negative, a dash when absent',
     JSON.stringify(printed.slice(0, 5)));
 
     // The selected chip keeps the soft treatment on an estimate, readable on its fill: the value's ink, blended at its

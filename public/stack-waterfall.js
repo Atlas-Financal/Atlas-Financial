@@ -37,14 +37,9 @@
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const isAmount = v => typeof v === 'number' && Number.isFinite(v);
-  // Display only: the published number, to the cent, with a true minus sign.
-  // Formatting, not arithmetic: the digits are the published value's own.
-  const money = v => {
-    const text = v.toLocaleString('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-      minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return text.replace('-', '−');
-  };
-  const signed = v => (v > 0 ? '+' : '') + money(v);
+  // Display only: the page's one money format (StackBlocks.money, whole dollars). Formatting, not arithmetic.
+  const money = v => globalThis.StackBlocks.money(v);
+  const signed = v => globalThis.StackBlocks.money(v, { signed: true });
 
   // The one place each printed row names its published source.
   const LINE_SOURCES = Object.freeze({
