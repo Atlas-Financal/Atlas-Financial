@@ -2226,9 +2226,10 @@ const composite = (fg, bg) => {
     await capture(fbRed, 'funding-bars-red-390-light.png');
     await fbRed.close();
 
-    // Zero required (both commitments at 0, pool at 0): both stamps are the
-    // known value 0 and the state is no-funding-required — full-width
-    // neutral fill, no --w (no division), distinct from unknown.
+    // An authored $0 commitment is an invalid price, not a known zero (873b3d6e, fail-closed; ENGINE via the lead,
+    // 2026-11-20): Forecast withholds the goal, so its row prints Unavailable with no stamps and any bar it draws is
+    // the unknown treatment, never a known or "no funding required" fill. The page's own 0/0 band is proven with
+    // typed stamps in the edge cases below ('0', '0' -> is-no-funding-required).
     const zeroReqData = dailyConsumerData('ready');
     zeroReqData.plan.commitments[0].amount = 0;
     zeroReqData.plan.commitments[1].amount = 0;
@@ -2236,15 +2237,16 @@ const composite = (fg, bg) => {
     const fbZeroReq = await open(390, 'light', { data: zeroReqData });
     const zeroReqFace = await readFundingFace(fbZeroReq);
     const zeroReqRow = zeroReqFace?.rows.find(row => row.key === 'group:club');
-    if (zeroReqRow?.savedStamp !== '0' || zeroReqRow?.requiredStamp !== '0') {
-      errors.push(`funding zero-required stamps ${JSON.stringify(zeroReqRow)}`);
+    if (!zeroReqRow || zeroReqRow.savedStamp !== null || zeroReqRow.requiredStamp !== null
+      || !/Unavailable/.test(zeroReqRow.amountsText || '')) {
+      errors.push(`funding authored-zero row ${JSON.stringify(zeroReqRow)}`);
     }
-    const zeroReq = expectBand(zeroReqFace, clubGoal, 'is-no-funding-required', '', 'funding zero-required');
-    if (zeroReq && Math.abs(zeroReq.fillW - zeroReq.trackW) > 1.5) {
-      errors.push(`funding zero-required fill ${zeroReq.fillW}px vs track ${zeroReq.trackW}px`);
+    for (const item of zeroReqFace?.items || []) {
+      if (item.barClass !== 'blend-g-bar is-unknown' || item.fillW !== 0 || item.fillBg !== 'rgba(0, 0, 0, 0)') {
+        errors.push(`funding authored-zero bar ${JSON.stringify(item)}`);
+      }
     }
-    bandFills.light.none = zeroReq?.fillBg;
-    await capture(fbZeroReq, 'funding-bars-zero-required-390-light.png');
+    await capture(fbZeroReq, 'funding-bars-authored-zero-390-light.png');
     await fbZeroReq.close();
 
     // Dark theme: same bands, distinguishable fills, bullet matches fill.
