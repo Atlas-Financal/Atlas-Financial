@@ -1464,8 +1464,15 @@ function heldCurrentPeriodProjection(data, advice) {
 // recurring item Atlas did not apply, from the one review provider-observe
 // ran (currentPeriodActuals.lunchMoneyRecurring.refused). Each closed reason
 // code reads as one fixed sentence; the Atlas row is re-checked against the
-// plan. No Lunch Money id, amount, payee or date is published. Read-only: it
-// builds no matching or reconciliation logic.
+// plan. A refusal publishes no Lunch Money id, amount, payee or date.
+// Read-only: it builds no matching or reconciliation logic.
+//
+// The `unnamed` list (lead dispatch, 2026-11-20) is the one place a Lunch Money
+// recurring id is published: the reviewed items no identity rule names, so the
+// links can be written. Each carries the numeric id (a string of digits),
+// granularity, quantity, anchor, start and end dates, the Atlas role of its
+// account and the dates of the transactions Lunch Money found for it, and
+// nothing else; an item that did not read is {recurringId, status:'unavailable'}.
 const RECURRING_REFUSALS = Object.freeze({
   'not-started': ['schedule', 'It has not started yet.'],
   'rule-names-no-event': ['link', 'The rule that names it points at no Atlas bill.'],
@@ -1486,6 +1493,29 @@ const RECURRING_REFUSALS = Object.freeze({
 });
 const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
 const RECURRING_REFUSALS_MAX = 50;
+// Closed fields only, copied one by one (never the entry object itself), so nothing the block might carry beyond the
+// listed fields can reach the packet. Ordered by numeric id; an entry that is not closed-shaped is counted, not listed.
+const UNNAMED_READ_FIELDS = Object.freeze(['granularity', 'quantity', 'anchorDate', 'startDate', 'endDate', 'accountRole']);
+function unnamedRecurringProjection(rows) {
+  if (!Array.isArray(rows)) return unavailable('unnamed-list-unavailable');
+  const date = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const entries = [];
+  for (const row of rows) {
+    if (!row || typeof row.recurringId !== 'string' || !/^\d+$/.test(row.recurringId)) continue;
+    if (row.status === 'unavailable') { entries.push({ recurringId: row.recurringId, status: 'unavailable', reason: 'schedule-unreadable' }); continue; }
+    if (row.status !== 'read' || !Array.isArray(row.foundDates) || !row.foundDates.every(date)) {
+      entries.push({ recurringId: row.recurringId, status: 'unavailable', reason: 'schedule-unreadable' }); continue;
+    }
+    const entry = { recurringId: row.recurringId, status: 'read' };
+    for (const field of UNNAMED_READ_FIELDS) entry[field] = row[field] === undefined ? null : row[field];
+    entry.foundDates = row.foundDates.slice();
+    entries.push(entry);
+  }
+  entries.sort((a, b) => (BigInt(a.recurringId) < BigInt(b.recurringId) ? -1 : BigInt(a.recurringId) > BigInt(b.recurringId) ? 1 : 0));
+  const items = entries.slice(0, RECURRING_REFUSALS_MAX);
+  return { status: 'ok', count: entries.length, listed: items.length, complete: items.length === entries.length, items,
+    note: 'Reviewed Lunch Money recurring items that no identity rule names, so a rule can name them by id. Schedule and the dates of the transactions Lunch Money found only; no payee, description, amount, notes or category. An item whose schedule did not read is listed as unavailable.' };
+}
 function recurringRefusalsProjection(data) {
   const actuals = data && data.liveOverlay && data.liveOverlay.currentPeriodActuals;
   const block = actuals && actuals.lunchMoneyRecurring;
@@ -1504,7 +1534,7 @@ function recurringRefusalsProjection(data) {
       reasonClass, reason };
   });
   const dropped = key => Number.isSafeInteger(block.dropped[key]) && block.dropped[key] >= 0 ? block.dropped[key] : null;
-  return { status: 'ok', source: 'provider-observe:lunchmoney',
+  return { status: 'ok', source: 'provider-observe:lunchmoney', unnamed: unnamedRecurringProjection(block.unnamed),
     count: block.refused.length, listed: items.length, complete: items.length === block.refused.length,
     items,
     notApplied: { notReviewed: dropped('not-reviewed'), notNamed: dropped('not-named'), scheduleInvalid: dropped('schedule-invalid') },
