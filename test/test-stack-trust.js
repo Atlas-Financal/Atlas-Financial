@@ -80,7 +80,9 @@ const LINES = [
 function context(v, totalsTrust = 'calculated') {
   return {
     data: { debts: [{ id: 'travelvisa', label: 'Blue Visa' }], meta: { asOf: '2031-03-10' }, liveOverlay: null }, plan: {},
-    selectedPeriodKey: v.start, recommendation: { payPeriodViews: [v] },
+    selectedPeriodKey: v.start, recommendation: { payPeriodViews: [v], billHistory: {
+      water: [{ date: '2031-03-05', amount: 64, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
+      power: [{ date: '2031-03-06', amount: 80, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }] } },
     Forecast: { cardPeriodMovements: () => ({}), stackCreditLines: () => ({ lines: LINES,
       totals: { paid: 500, spent: 660, trust: totalsTrust, completeness: 'complete', excluded: [], reasons: [] } }) },
   };
@@ -194,6 +196,96 @@ console.log('5. bill and budget sheets');
   ok(soft('budget:dup') === 'spent,Spent,Left', 'a possible duplicate (calculated plan): Spent and Left are soft, the plan is not', soft('budget:dup'));
   ok(soft('budget:other') === 'Left', 'Other spending: its undated plan is never soft; Left follows the row', soft('budget:other'));
   ok(soft('budget:firm') === '', 'a calculated row: nothing soft', soft('budget:firm'));
+}
+
+console.log('5c. the bill sheet reads billHistory, the one source for an occurrence amount and trust (#1446)');
+{
+  // An invented bill whose row amount (100, calculated) differs from its occurrence entry (112.40, estimated: the posted
+  // actual on an unconfirmed allocation), plus a bill with no entry, one with an unpublished amount, and prototype-like ids.
+  const { win } = load();
+  const v = view('actual');
+  v.bills = [
+    { id: 'hydro', date: '2031-03-08', label: 'Hydro', amount: 100, displayAmountTrust: 'calculated', paidState: 'paid', payerLabel: 'Chequing' },
+    { id: 'gym', date: '2031-03-09', label: 'Gym', amount: 40, displayAmountTrust: 'calculated', paidState: 'not-paid', payerLabel: 'Chequing' },
+    { id: 'phone', date: '2031-03-11', label: 'Phone', amount: 55, displayAmountTrust: 'calculated', paidState: 'not-paid', payerLabel: 'Chequing' },
+    { id: 'constructor', date: '2031-03-12', label: 'Odd', amount: 9, displayAmountTrust: 'calculated', paidState: 'not-paid', payerLabel: 'Chequing' }];
+  const ctx = context(v);
+  ctx.recommendation.billHistory = {
+    hydro: [
+      { date: '2031-04-08', amount: 100, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
+      { date: '2031-03-08', amount: 112.4, amountBasis: 'unconfirmed-actual', trust: 'estimated', paidState: 'paid' },
+      { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+      { date: '2031-01-08', amount: 97, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
+    phone: [{ date: '2031-03-11', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
+  };
+  const hydro = win.StackSheet.html(ctx, 'bill:hydro@2031-03-08');
+  ok(/<div class="stack-sheet-big stack-n stack-est">\$112\.40<\/div>/.test(hydro) && !/\$100\b/.test(hydro),
+    'the headline is this occurrence\'s entry, amount and trust together (soft $112.40), never the row\'s amount and trust');
+  const rows = [...hydro.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
+  ok(rows.length === 2 && /Feb 8/.test(rows[0]) && /Jan 8/.test(rows[1]) && !/Apr 8|Mar 8/.test(rows.join('')),
+    'history: the earlier occurrences only, newest first (no later or future one, not the headline itself)', rows.length);
+  ok(/stack-sheet-txa stack-n">\$98\.10</.test(rows[0]) && /stack-sheet-check/.test(rows[0])
+    && /stack-sheet-txa stack-n stack-est">\$97</.test(rows[1]) && !/stack-sheet-check/.test(rows[1]),
+    'each row: its amount (soft when estimated) and a ✓ only when paid');
+  ok(!/[A-Za-z]{3,}/.test(rows.map(r => r.replace(/<[^>]*>/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g, '')).join(' ')),
+    'history rows carry no words, only dates, amounts and ✓');
+  for (const [key, label] of [['bill:gym@2031-03-09', 'no entry'], ['bill:phone@2031-03-11', 'an unpublished amount'],
+    ['bill:constructor@2031-03-12', 'a prototype-like id']]) {
+    const h = win.StackSheet.html(ctx, key);
+    ok(/<div class="stack-sheet-big stack-n"><span role="img" aria-label="not available">—<\/span><\/div>/.test(h)
+      && !/\$\d/.test(h.split('stack-sheet-big')[1].split('</div>')[0]) && !/stack-sheet-hist/.test(h),
+      `${label}: the headline is a dash read as "not available", never the row amount or $0; no history`);
+  }
+  // Atlas on #1453, 1: a paid occurrence whose amount is still the schedule (a pending payment) shows the check with a
+  // dash, never the scheduled amount; a posted actual keeps its amount. In the headline and in a history row.
+  const pend = context(view('actual'));
+  pend.recommendation.payPeriodViews[0].bills = [
+    { id: 'water2', date: '2031-03-07', label: 'Water', amount: 90, displayAmountTrust: 'calculated', paidState: 'paid', payerLabel: 'Chequing' },
+    { id: 'gas', date: '2031-03-09', label: 'Gas', amount: 70, displayAmountTrust: 'calculated', paidState: 'paid', payerLabel: 'Chequing' }];
+  pend.recommendation.billHistory = {
+    water2: [{ date: '2031-03-07', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' },
+      { date: '2031-02-07', amount: 88, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' },
+      { date: '2031-01-07', amount: 87.5, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }],
+    gas: [{ date: '2031-03-09', amount: 71.2, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }],
+  };
+  const w2 = win.StackSheet.html(pend, 'bill:water2@2031-03-07');
+  const w2rows = [...w2.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
+  ok(/<div class="stack-sheet-big stack-n"><span role="img" aria-label="not available">—<\/span><\/div><span class="stack-sheet-check"/.test(w2)
+    && !/\$90/.test(w2), 'headline: a paid occurrence on its schedule shows the check with a dash, never the scheduled $90');
+  ok(w2rows.length === 2 && /aria-label="not available">—/.test(w2rows[0]) && /stack-sheet-check/.test(w2rows[0]) && !/\$88/.test(w2)
+    && /\$87\.50/.test(w2rows[1]) && /stack-sheet-check/.test(w2rows[1]),
+    'history: a paid row on its schedule shows the check with a dash; a posted-actual row keeps its amount and check');
+  ok(/<div class="stack-sheet-big stack-n">\$71\.20<\/div><span class="stack-sheet-check"/.test(win.StackSheet.html(pend, 'bill:gas@2031-03-09')),
+    'control: a paid posted actual shows its amount beside the check');
+  const unpaidSched = context(view('actual'));
+  unpaidSched.recommendation.payPeriodViews[0].bills = [{ id: 'tv', date: '2031-03-12', label: 'TV', amount: 30, displayAmountTrust: 'calculated', paidState: 'not-paid', payerLabel: 'Chequing' }];
+  unpaidSched.recommendation.billHistory = { tv: [{ date: '2031-03-12', amount: 30, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' }] };
+  ok(/stack-sheet-big stack-n">\$30</.test(win.StackSheet.html(unpaidSched, 'bill:tv@2031-03-12')), 'control: an unpaid scheduled amount still shows (no check beside it)');
+
+  // Atlas on #1453, 2: history is bounded by Forecast's observation date (data.meta.asOf 2031-03-10) as well as by the
+  // selected occurrence, so a future bill's history never lists another future schedule; its own schedule stays its headline.
+  const fut = context(view('projected'));
+  fut.recommendation.payPeriodViews[0].bills = [{ id: 'hydro', date: '2031-05-08', label: 'Hydro', amount: 100, displayAmountTrust: 'calculated', paidState: 'not-paid', payerLabel: 'Chequing' }];
+  fut.recommendation.billHistory = { hydro: [
+    { date: '2031-05-08', amount: 101, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
+    { date: '2031-04-08', amount: 100, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
+    { date: '2031-03-08', amount: 112.4, amountBasis: 'unconfirmed-actual', trust: 'estimated', paidState: 'paid' },
+    { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }] };
+  const may = win.StackSheet.html(fut, 'bill:hydro@2031-05-08');
+  const mayRows = [...may.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
+  ok(/stack-sheet-big stack-n stack-est">\$101</.test(may) && mayRows.length === 2 && /Mar 8/.test(mayRows[0]) && /Feb 8/.test(mayRows[1])
+    && !/Apr 8/.test(may), 'a future bill: its own schedule is the headline; history lists only occurrences on or before the observation date');
+  const noAsOf = context(view('projected'));
+  Object.assign(noAsOf, { recommendation: fut.recommendation, data: { ...noAsOf.data, meta: {} } });
+  ok(!/stack-sheet-hist/.test(win.StackSheet.html(noAsOf, 'bill:hydro@2031-05-08')), 'without an observation date, no history is listed');
+
+  const projected = context(view('projected'));
+  projected.recommendation.billHistory = ctx.recommendation.billHistory;
+  const pv = projected.recommendation.payPeriodViews[0];
+  pv.bills = v.bills;
+  ok(/stack-sheet-big stack-n stack-est">\$112\.40/.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08'))
+    && /stack-sheet-txa stack-n stack-est">\$98\.10/.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08')),
+    'a projected period: the headline and every history amount are soft');
 }
 
 console.log('5b. cards');

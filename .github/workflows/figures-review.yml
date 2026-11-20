@@ -186,6 +186,8 @@ jobs:
               ['budget-period-stack-line-to-go-trust', 'period.*.stackLine.*.toGoTrust', 'tag'],
               ['budget-period-stack-line-minimum-covered-trust', 'period.*.stackLine.*.minimumCoveredTrust', 'tag'],
               ['budget-period-stack-card-totals-trust', 'period.*.stackCardTotals.trust', 'tag'],
+              ['bill-history-amount', 'billHistory.*.amount', 'money'], ['bill-history-basis', 'billHistory.*.amountBasis', 'tag'],
+              ['bill-history-paid-state', 'billHistory.*.paidState', 'tag'], ['bill-history-trust', 'billHistory.*.trust', 'tag'],
               ['savings-close-trust', 'savings.period.*.close.trust', 'tag'],
               ['savings-close-row-still-to-fund-trust', 'savings.period.*.close.row.*.stillToFundTrust', 'tag'],
               ['savings-planned-still-to-fund-trust', 'savings.period.*.planned.row.*.stillToFundTrust', 'tag'],

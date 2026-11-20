@@ -21,6 +21,8 @@
 //     held outflows and card payments beyond the minimum;
 //     savings (A5): each goal's planned amount beside what moved, proved by
 //     proveStackSavings below.
+//   billHistory (Stack Wallet bill sheet): each bill's past and current
+//   occurrences, proved against the published bill rows by proveBillHistory.
 //   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
 //   row's Paid / Not paid word. Presentation only; proved one of its three
 //   words, then removed wherever a published row carries it.
@@ -146,9 +148,70 @@ function withoutBillPaidState(node, seen = new Set()) {
   for (const value of Object.values(node)) withoutBillPaidState(value, seen);
 }
 
+// billHistory (Stack Wallet, bill sheet): proved against the published bill
+// rows it copies, then removed. Every entry is one published period row with
+// the same id and date, never a carried copy, listed once, in date order newest
+// first. Its amount follows the row's own displayAmountBasis (a linked actual
+// or the scheduled amount, never mixed), with null exactly when trust is
+// unavailable. Every period's non-carried dated row (past, current and
+// future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
+const BILL_HISTORY_TRUST_WORDS = new Set(['calculated', 'estimated', 'unknown', 'unavailable']);
+// Forecast's occurrence identity, as the history keys it: the row's
+// occurrenceKey (id@scheduledDate) when it publishes one, else its id and
+// date (or scheduledDate).
+const billOccurrenceOf = row => (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')
+  ? row.occurrenceKey : row.id + '@' + (typeof row.scheduledDate === 'string' && row.scheduledDate ? row.scheduledDate : row.date));
+function proveBillHistory(advice) {
+  const history = advice.billHistory;
+  assert.ok(history && typeof history === 'object' && !Array.isArray(history), 'authorized addition: billHistory is a map of bill id to occurrences');
+  const rows = new Map();
+  const occurrences = new Set();
+  for (const view of Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : []) {
+    if (!view) continue;
+    for (const row of Array.isArray(view.bills) ? view.bills : []) {
+      if (!row || typeof row.id !== 'string' || !row.id || typeof row.date !== 'string' || row.paidState === 'carried') continue;
+      const key = row.id + '@' + row.date;
+      if (!rows.has(key)) rows.set(key, []);
+      rows.get(key).push(row);
+      occurrences.add(billOccurrenceOf(row));
+    }
+  }
+  const listed = new Set();
+  for (const [id, list] of Object.entries(history)) {
+    assert.ok(Array.isArray(list) && list.length, `authorized addition: billHistory.${id} lists occurrences`);
+    for (let i = 0; i < list.length; i++) {
+      const entry = list[i];
+      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState'], `authorized addition: billHistory.${id} entry shape`);
+      if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
+      const candidates = rows.get(id + '@' + entry.date) || [];
+      const row = candidates.find(r => r.paidState === entry.paidState && !listed.has(billOccurrenceOf(r)));
+      assert.ok(row, `authorized addition: billHistory.${id}@${entry.date} copies a published row of an occurrence not already listed`);
+      const actual = row.displayAmountBasis === 'posted-actual' || row.displayAmountBasis === 'unconfirmed-actual';
+      assert.equal(entry.amountBasis, actual ? row.displayAmountBasis : 'schedule', `authorized addition: billHistory.${id}@${entry.date} basis is the row's`);
+      const raw = actual ? row.actual : row.amount;
+      const expected = typeof raw === 'number' && Number.isFinite(raw) ? Math.round(Math.abs(raw) * 100) / 100 : null;
+      assert.equal(entry.amount, expected, `authorized addition: billHistory.${id}@${entry.date} amount is the basis amount`);
+      assert.ok(BILL_HISTORY_TRUST_WORDS.has(entry.trust), `authorized addition: billHistory.${id}@${entry.date} trust is a trust word`);
+      const carriedTrust = ['calculated', 'estimated'].includes(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
+      assert.equal(entry.trust, expected === null ? 'unavailable' : carriedTrust,
+        `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
+      assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
+      listed.add(billOccurrenceOf(row));
+    }
+  }
+  // Each published occurrence (by identity, so a statement's moved date and
+  // the saved close's original date are one) is listed exactly once.
+  for (const key of occurrences) assert.ok(listed.has(key), `authorized addition: billHistory lists the published occurrence ${key}`);
+  assert.equal(listed.size, Object.values(history).reduce((n, list) => n + list.length, 0), 'authorized addition: one entry per occurrence');
+}
+
 function withoutAuthorizedAdditions(advice) {
   if (!advice || typeof advice !== 'object') return advice;
   withoutStackSummary(advice);
+  if (Object.hasOwn(advice, 'billHistory')) {
+    proveBillHistory(advice);
+    delete advice.billHistory;
+  }
   withoutBillPaidState(advice);
   if (!Object.hasOwn(advice, 'categorySpendingTrends')) return advice;
   const trends = advice.categorySpendingTrends;
@@ -166,6 +229,10 @@ function authorizedTagKey(key, value) {
   if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)
     || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
+    return true;
+  }
+  if (/^\.billHistory\.[^.]+\.\d+\.trust$/.test(key)) {
+    assert.ok(BILL_HISTORY_TRUST_WORDS.has(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
   if (!key.startsWith('.categorySpendingTrends.')) return false;
