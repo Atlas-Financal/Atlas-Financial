@@ -488,6 +488,54 @@ function projectPredictedEndingBalance(advice) {
 }
 
 
+// Why Savings is or is not published (lead, 2026-11-20: read the live reason
+// privately next time). Statuses and reason codes only, copied from Forecast's
+// savingsFunding and the current period's Stack Savings; no amount, date,
+// name or account. A Forecast reason sentence is copied only when it holds no
+// digit (a reason that ever carried a figure or date is replaced by a code).
+const SAVINGS_REASON_WITHHELD = 'reason-withheld-contains-digits';
+function savingsReason(value) {
+  if (value == null) return null;
+  if (typeof value !== 'string') return SAVINGS_REASON_WITHHELD;
+  return /\d/.test(value) ? SAVINGS_REASON_WITHHELD : value;
+}
+function savingsStatusWord(value) {
+  return typeof value === 'string' && /^[a-z][a-z-]*$/.test(value) ? value : null;
+}
+function savingsPart(part) {
+  if (!part || typeof part !== 'object') return null;
+  return { status: savingsStatusWord(part.status), reason: savingsReason(part.reason) };
+}
+function projectSavingsStatus(advice) {
+  const funding = advice && advice.savingsFunding;
+  if (!funding || typeof funding !== 'object') return unavailable('savings-funding-unavailable');
+  const reported = funding.stock && funding.stock.reportedStock;
+  const current = (Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [])
+    .find(view => view && view.timelineRole === 'current');
+  const stack = current && current.stackSummary && current.stackSummary.savings;
+  const codes = list => (Array.isArray(list) ? list : []).map(savingsStatusWordOrCode).filter(Boolean);
+  return {
+    status: 'ok',
+    source: 'Forecast.savingsFunding',
+    funding: savingsPart(funding),
+    period: savingsPart(funding.period),
+    backing: savingsPart(funding.backing),
+    goalAllocation: savingsPart(funding.goalAllocation),
+    stock: savingsPart(funding.stock),
+    reportedStock: reported && typeof reported === 'object'
+      ? { ...savingsPart(reported), freshness: savingsStatusWord(reported.freshness) } : null,
+    stackSavings: stack && typeof stack === 'object'
+      ? { goals: Array.isArray(stack.items) ? stack.items.length : 0,
+        reasons: codes(stack.totals && stack.totals.reasons) }
+      : null,
+  };
+}
+// A Stack Savings reason code (for example 'balance-current' or
+// 'owner-rule:balance-poured-nearest-due-first'); anything else is dropped.
+function savingsStatusWordOrCode(value) {
+  return typeof value === 'string' && /^[a-z][a-z-]*(:[a-z][a-z-]*)?$/.test(value) ? value : null;
+}
+
 // Smallest operating-picture projection: copy Forecast leftover stages plus
 // the leftover-consuming allocated amounts Talk reprints. Talk does not
 // reconstruct a stage by subtracting. This is not a payday calculator.
@@ -1111,6 +1159,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       budgetCap: unavailable(reason),
       paydayAllocation: unavailable(reason),
       predictedEndingBalance: unavailable(reason),
+      savingsStatus: unavailable(reason),
     };
   }
   if (!advice) return unavailable('forecast-unavailable');
@@ -1131,6 +1180,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       budgetCap: unavailable(reason),
       paydayAllocation: unavailable(reason),
       predictedEndingBalance: unavailable(reason),
+      savingsStatus: unavailable(reason),
     };
   }
   const horizon = advice.knowledge || Forecast.knowledgeHorizon(data.plan, asOf);
@@ -1263,6 +1313,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       : unavailable('current-period-action-unavailable'),
     paydayAllocation: projectPaydayAllocation(advice),
     predictedEndingBalance: projectPredictedEndingBalance(advice),
+    savingsStatus: projectSavingsStatus(advice),
     budgetCap: budget && budget.cap
       ? {
         status: 'ok',
