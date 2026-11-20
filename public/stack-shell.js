@@ -52,6 +52,15 @@ try {
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // A credit line's name (owner decision, Dale, 2026-11-20; Grok Bot, rule 17: the ledger is the one home for
+    // names): the name its Lunch Money account shows (debt.ledgerName, which the live overlay attaches by provider
+    // account id, never by name), else the block's own label. A label only: nothing is matched or derived from it.
+    cardName(data, debtId, fallback) {
+      const debts = data && Array.isArray(data.debts) ? data.debts : [];
+      const debt = debtId == null ? null : debts.find(d => d && d.id === debtId);
+      const name = debt && typeof debt.ledgerName === 'string' ? debt.ledgerName.trim() : '';
+      return name || fallback;
+    },
     // A household budget row's published trust, per printed amount, as Forecast publishes it (the reading the current
     // Budget page documents in plan.js householdBudgetRowHtml): the row's trust (or confidence) marks the row; its plan
     // is estimated when plannedTrust is absent or 'estimated' (an Other spending row's plan only when it is dated); its
@@ -72,6 +81,18 @@ try {
       };
     },
   };
+  // The selected period's range (the header and the sheets' kicker read the same label).
+  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  function rangeLabel(view) {
+    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
+    if (!ok(view.start)) return '';
+    const a = new Date(`${view.start}T12:00:00Z`);
+    if (!ok(view.end)) return rangeDate.format(a);
+    const b = new Date(`${view.end}T12:00:00Z`);
+    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
+      ? String(b.getUTCDate()) : rangeDate.format(b));
+  }
+  StackBlocks.rangeLabel = rangeLabel; // the sheets' kicker reads the same range
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
 
@@ -127,38 +148,38 @@ try {
       const key = keyOf(view), amount = surplusOf(view), neg = amount != null && amount < 0;
       const surplus = view.stackSummary && view.stackSummary.surplus;
       const current = view.role === 'active';
-      // Owner decision (Dale, 2026-11-19): no text labels. A projected period, as Forecast publishes it
-      // (evidenceState 'projected'), is drawn with a dashed outline; it is never inferred from dates here.
-      const projected = view.evidenceState === 'projected';
-      return `<button class="stack-chip${neg ? ' is-neg' : ''}${current ? ' is-now' : ''}${projected ? ' is-projected' : ''}" type="button"`
+      // Owner direction (Dale, 2026-11-20 walk): no dashed or dotted outline on a future period; every chip has the
+      // design's plain fill. A period with no published surplus shows a dash (F8) in the soft treatment (lead,
+      // 2026-11-20), never $0 and never a blank.
+      const value = amount == null
+        ? '<span class="stack-chip-value stack-est" data-stack-chip-amount role="img" aria-label="not available">\u2014</span>'
+        : `<span class="stack-chip-value${neg ? ' is-neg' : ''}${StackBlocks.estClass(surplus && surplus.trust, view)}" data-stack-chip-amount>${esc(money(amount))}</span>`;
+      return `<button class="stack-chip${neg ? ' is-neg' : ''}${current ? ' is-now' : ''}" type="button"`
         + ` data-stack-period="${esc(key)}" aria-pressed="${key === state.selectedPeriodKey}"`
         + `${current ? ' aria-current="date"' : ''}>`
         + `<span class="stack-chip-date">${esc(dayLabel(view.start))}</span>`
-        + `<span class="stack-chip-value${neg ? ' is-neg' : ''}${StackBlocks.estClass(surplus && surplus.trust, view)}" data-stack-chip-amount>${amount == null ? '' : esc(money(amount))}</span>`
+        + value
         + '</button>';
     }).join('');
     return '<div class="stack-tl-head"><button class="stack-now" type="button" data-stack-now>Now</button></div>'
       + `<div class="stack-chips" data-stack-chips>${chips}</div>`;
   }
 
-  // The selected period's range, plus a marker when it is the current period. No text labels (owner decision, Dale,
-  // 2026-11-19): a projected period is told apart by its chip's dashed outline, not by a word.
-  const rangeDate = new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  function rangeLabel(view) {
-    const ok = iso => typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso);
-    if (!ok(view.start)) return '';
-    const a = new Date(`${view.start}T12:00:00Z`);
-    if (!ok(view.end)) return rangeDate.format(a);
-    const b = new Date(`${view.end}T12:00:00Z`);
-    return rangeDate.format(a) + ' \u2013 ' + (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()
-      ? String(b.getUTCDate()) : rangeDate.format(b));
+  // The design's period chip (owner, Dale, 2026-11-20: "Follow the design"): "This pay period" on the current period,
+  // "Last pay period" on the one before it, "Past" on earlier ones. A future period shows no chip (owner: no
+  // "Projected" word). The order is Forecast's own list of periods; nothing is inferred from dates here.
+  function periodChip(view) {
+    const list = views(), i = list.indexOf(view), now = list.findIndex(v => v.role === 'active');
+    if (view.role === 'active') return 'This pay period';
+    if (now < 0 || i < 0 || i > now || view.timelineRole === 'future' || view.evidenceState === 'projected') return '';
+    return i === now - 1 ? 'Last pay period' : 'Past';
   }
   function periodHeadHtml() {
     const view = views().find(v => keyOf(v) === state.selectedPeriodKey);
     if (!view) return '';
-    const current = view.role === 'active';
+    const chip = periodChip(view);
     return `<h2 class="stack-period-range">${esc(rangeLabel(view))}</h2>`
-      + (current ? '<span class="stack-period-now" data-stack-period-now role="img" aria-label="Current pay period"></span>' : '');
+      + (chip ? `<span class="stack-period-chip" data-stack-period-now>${esc(chip)}</span>` : '');
   }
 
   function context() {

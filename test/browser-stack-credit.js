@@ -87,10 +87,12 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const head = await textOf(page, '[data-stack-credit-toggle]');
     ok(/^Credit/.test(head), 'the card is titled Credit', head);
     if (stub) {
-      ok(head === 'Credit' && !(await page.$('.stack-credit-bar')), 'a partial total prints no figure and no bar', head);
+      ok(head === 'Credit paid back / spent \u2014' && !!(await page.$('.stack-credit-bar')) && !/\$/.test(head),
+        'a partial total prints a soft dash and an empty track, no figure', head);
     } else {
       const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
-      ok(head === 'Credit' || (complete && /^Credit \$[\d,.]+ \/ \$[\d,.]+$/.test(head)), 'the head is "Credit", with paid / spent only', head);
+      ok(head === 'Credit paid back / spent \u2014' || (complete && /^Credit paid back \/ spent \$[\d,.]+ \/ \$[\d,.]+$/.test(head)),
+        'the head is "Credit", its subtitle and the total (a dash when withheld)', head);
     }
     ok(!(await page.$('[data-stack-credit-excludes]')), 'no "excludes" line');
 
@@ -107,6 +109,19 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       const coral = await page.$eval('.stack-credit-status.is-togo', el => getComputedStyle(el).color);
       ok(coral === 'rgb(200, 55, 45)', 'the remaining amount is coral', coral);
     } else ok(rows.length === 6, 'six lines', String(rows.length));
+    // Row layout (the shell's bare button reset must not zero a row's divider or padding), and the text keeps its lines at the
+    // design's card width (a 414px viewport gives the 358px card the mock uses; the page gutter itself is DISPLAY's).
+    const layout = await page.$$eval('.stack-credit-line', els => els.map(el => { const cs = getComputedStyle(el);
+      return { border: parseFloat(cs.borderTopWidth), pad: parseFloat(cs.paddingTop) }; }));
+    ok(layout.length === rows.length && layout.every(l => l.border > 0 && l.pad >= 10), 'every row has its divider and its padding', JSON.stringify(layout));
+    await page.setViewportSize({ width: 414, height: 1000 });
+    await settle(page);
+    const wrapped = await page.$$eval('.stack-credit-name small', els => els.filter(el => {
+      const r = document.createRange(); r.selectNodeContents(el);
+      return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size > 1; }).map(el => el.textContent));
+    ok(wrapped.length === 0, 'at the design\'s 358px card width no row line wraps', wrapped.join(' | '));
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await settle(page);
 
     console.log('3. sheet');
     await page.click('[data-stack-sheet="card:travelvisa"]');
@@ -122,7 +137,9 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     console.log('4. no ratio text, no explanatory words, no errors');
     // The whole Stack page with the waterfall's Credit row, the Credit card and every sheet opened in turn (owner,
     // 2026-11-20: names, numbers, bars and the ✓ only).
-    const FORBIDDEN = /Paid back|Upcoming|to go|excludes|covered|Not yet|\bDue\b|Comes out|Spent on it|Paid onto|unavailable|withheld|estimated|projected|≈/i;
+    // The design's Credit wording (Paid back, $X to go, covered / not yet, the sheet's Spent on it / Paid onto it) is allowed now (Dale,
+    // 2026-11-20); every other explanatory word still fails.
+    const FORBIDDEN = /Upcoming|excludes|\bDue\b|Comes out|unavailable|withheld|estimated|projected|≈/i;
     const seen = [];
     const wfToggle = await page.$('[data-wf-toggle="credit"]:not([disabled])');
     if (wfToggle) await wfToggle.click();
@@ -135,9 +152,11 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       seen.push(await textOf(page, '.stack-sheet'));
       await page.keyboard.press('Escape');
     }
-    const hits = seen.filter(t => FORBIDDEN.test(t)).map(t => t.match(FORBIDDEN)[0]);
+    // the Credit head's subtitle from the approved design, exactly, is the one allowed wording
+    const clean = t => t.split('paid back / spent').join(' ');
+    const hits = seen.filter(t => FORBIDDEN.test(clean(t))).map(t => clean(t).match(FORBIDDEN)[0]);
     ok(seen.length > 3 && hits.length === 0, `no explanatory word on the page or in ${seen.length - 1} sheets`, hits.join(', '));
-    ok(FORBIDDEN.test('Paid back $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Spent $5 Paid $5 Minimum $5 ✓'),
+    ok(FORBIDDEN.test('Upcoming $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Paid back $5 to go Minimum $5 covered ✓'),
       'control: the word check catches the removed words and passes the page names');
     const all = await page.$eval('#stack-root', el => el.innerText);
     ok(!/%/.test(all), 'no percent text on the page');

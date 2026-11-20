@@ -105,18 +105,30 @@ console.log('5. L-001: no arithmetic on money in the shell');
     'no sum, rounding or arithmetic on a figure');
 }
 
-console.log('6. no text labels (owner decision, 2026-11-19)');
+console.log('6. the period chip and the chip strip follow the design (owner, Dale, 2026-11-20: "Follow the design")');
 {
   const src = read('public/stack-shell.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok(!/Projected|'Past'|Last pay period|This pay period/.test(src) && /view\.evidenceState === 'projected'/.test(src),
-    'the shell prints no period label; a projected chip is marked from the published evidenceState');
+  ok(/'This pay period'/.test(src) && /'Last pay period'/.test(src) && /'Past'/.test(src) && !/Projected/.test(src),
+    'the period chip uses the design\'s three labels and never prints "Projected"');
+  const css = read('public/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const chipRules = css.match(/[^{}]*stack-chip[^{}]*\{[^}]*\}/g) || [];
+  ok(chipRules.length > 0 && chipRules.every(r => !/dashed|dotted/.test(r)) && !/is-projected/.test(css + src),
+    'no chip is drawn with a dashed or dotted outline (owner, Dale, 2026-11-20 walk)');
+  ok(/html\.stack-view \.stack-root \.stack-chip \{[^}]*background: var\(--stack-t-chip\)/.test(css)
+    && /html\.stack-view \.stack-root button \{[^}]*background: none/.test(css),
+    'the chip fill is scoped under .stack-root, so the page\'s button reset cannot strip it');
+  ok(/\.blend-ambient[^{]*\{ display: none !important; \}/.test(css), 'the current page\'s background art is hidden on the Stack page');
 }
 
 console.log('7. phone layout rules (the browser proof is test/browser-stack-layout.js, local)');
 {
   const pile = read('public/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
-  const gap = /html\.stack-view \.stack-bare \+ \.stack-bare \{ margin-top: (\d+)px; \}/.exec(pile);
-  ok(gap && Number(gap[1]) > 0, 'a bare block after a bare block (Credit after the cards) stands apart instead of overlapping the last card');
+  ok(!/\.stack-bare \+ \.stack-bare/.test(pile), 'Credit overlaps the cards like every block in the pile (no stand-apart override)');
+  const cards = read('public/stack-cards.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const pad = /html\.stack-view \.sc-card\{[^}]*padding:\d+px \d+px (\d+)px/.exec(cards);
+  ok(pad && Number(pad[1]) >= 38 + 16 && /\.sc-card\{[^}]*margin-top:-38px/.test(cards) && /\.sc-card\{[^}]*border-radius:38px/.test(cards),
+    'each card overlaps the one above by 38px with at least 54px of bottom padding, so the next card covers only padding, never the head', pad && pad[1]);
+  ok(/:has\(\+ \.stack-block:empty\) \.sc-card:last-child[^{]*\{padding-bottom:22px\}/.test(cards), 'the last card drops to 22px of bottom padding when no block follows it');
   const wf = read('public/stack-waterfall.css').replace(/\/\*[\s\S]*?\*\//g, '');
   const slab = /\.wf-slab \{[^}]*container-type: inline-size;/.test(wf);
   const size = /\.wf-slab \.n, html\.stack-view \.stack-waterfall \.wf-slab \.wf-dash \{ font-size: min\(66px, (\d+(?:\.\d+)?)cqi\); white-space: nowrap; \}/.exec(wf);

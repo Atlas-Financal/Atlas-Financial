@@ -28,13 +28,16 @@
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
   // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
-  const row = (label, value, cls = '') => (value === '' || value == null ? ''
-    : `<div><dt>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  // labelCls: the same treatment for a label that carries a figure of its own (Credit's "Minimum $30").
+  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
+    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
+  // The kicker names the kind and the selected pay period's range ("Bill · Nov 13 – 26"), the shell's one range label.
   function head(kicker, title) {
+    const v = view(), range = v && window.StackBlocks.rangeLabel ? window.StackBlocks.rangeLabel(v) : '';
     return '<div class="stack-sheet-grab" aria-hidden="true"></div><div class="stack-sheet-head"><div>'
-      + `<small class="stack-sheet-kicker">${esc(kicker)}</small><h3 id="stack-sheet-title">${esc(title)}</h3></div>`
+      + `<small class="stack-sheet-kicker">${esc(range ? `${kicker} \u00b7 ${range}` : kicker)}</small><h3 id="stack-sheet-title">${esc(title)}</h3></div>`
       + '<button class="stack-sheet-close" type="button" data-stack-sheet-close aria-label="Close">'
       + '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
       + '</button></div>';
@@ -103,11 +106,11 @@
     const t = window.StackBlocks.budgetTrust ? window.StackBlocks.budgetTrust(item) : {};
     const spent = est(t.spent, v), planned = est(t.planned, v), rest = est(t.remaining, v);
     // Spent and planned each carry their own treatment, side by side (never nested, so neither inherits the other's).
+    // The headline carries Spent and the budget; the list below carries one row, Left (Over when over budget).
     return head('Budget', item.label || '')
       + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
       + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
-      + '<dl>' + row('Spent', money(item.spent), spent) + row('Budget', money(item.planned), planned)
-      + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
+      + '<dl>' + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
       + budgetTransactionsHtml(item, v);
   }
 

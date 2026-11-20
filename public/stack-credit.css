@@ -12,17 +12,21 @@ html.stack-view .stack-credit-head {
 }
 html.stack-view .stack-credit.is-open .stack-credit-head { align-items: start; }
 html.stack-view .stack-credit-hd {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f"; align-items: center; column-gap: 10px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f" "s f"; align-items: center; column-gap: 10px;
 }
-html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f"; }
+html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f" "s"; }
+html.stack-view .stack-credit-sub { grid-area: s; font-size: 13.5px; font-weight: 500; color: var(--stack-on2); }
+html.stack-view .stack-credit.is-open .stack-credit-sub { margin-top: 2px; }
 html.stack-view .stack-credit-title { grid-area: t; font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
 html.stack-view .stack-credit-figure { grid-area: f; font-size: 24px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
 html.stack-view .stack-credit.is-open .stack-credit-figure { font-size: 52px; margin-top: 6px; }
+html.stack-view .stack-credit-figure[data-unpublished] { font-size: 14.4px; font-weight: 600; color: var(--stack-on2); }
+html.stack-view .stack-credit.is-open .stack-credit-figure[data-unpublished] { font-size: 26px; }
 html.stack-view .stack-credit-figure i { font-style: normal; font-size: .6em; font-weight: 600; color: var(--stack-on2); }
 html.stack-view .stack-credit-go {
   width: 42px; height: 42px; border-radius: 50%; background: var(--stack-on); color: var(--stack-cards); display: grid; place-items: center;
 }
-html.stack-view .stack-chev { flex: none; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+html.stack-view .stack-chev { flex: none; width: 14px; height: 14px; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
 html.stack-view .stack-credit.is-open .stack-credit-go .stack-chev { transform: rotate(90deg); }
 html.stack-view .stack-credit-bar { display: block; height: 8px; margin-top: 12px; border-radius: 6px; background: var(--stack-on-line); overflow: hidden; }
 html.stack-view .stack-credit.is-open .stack-credit-bar { height: 12px; margin-top: 14px; }
@@ -31,8 +35,9 @@ html.stack-view .stack-credit-exp { display: grid; grid-template-rows: 0fr; tran
 html.stack-view .stack-credit.is-open .stack-credit-exp { grid-template-rows: 1fr; }
 html.stack-view .stack-credit-exp > div { overflow: hidden; min-height: 0; }
 html.stack-view .stack-credit-list { list-style: none; margin: 14px 0 0; padding: 0; }
-html.stack-view .stack-credit-line {
-  display: grid; grid-template-columns: 24px minmax(0, 1fr) 14px; gap: 12px; align-items: center; width: 100%;
+/* One class deeper than the shell's bare "button" reset, which would otherwise zero this row's border (the divider) and padding. */
+html.stack-view .stack-root .stack-credit-line {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 14px; gap: 12px; align-items: center; width: 100%;
   min-height: 62px; padding: 14px 0; border: 0; border-top: 1.5px solid var(--stack-on-line); background: none;
   font: inherit; text-align: left; color: var(--stack-on2); cursor: pointer;
 }
@@ -53,8 +58,11 @@ html.stack-view .stack-credit-name .stack-credit-min { margin-top: 6px; }
 html.stack-view .stack-credit-name .stack-credit-bal { margin-top: 2px; font-style: italic; font-weight: 600; color: var(--stack-on); }
 html.stack-view .stack-credit-minibar { display: block; height: 6px; margin-top: 8px; border-radius: 3px; background: var(--stack-on-line); overflow: hidden; }
 html.stack-view .stack-credit-minibar i { display: block; height: 100%; border-radius: 3px; background: var(--stack-on); }
-html.stack-view .stack-credit-status { font-size: 16px; font-weight: 700; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
+html.stack-view .stack-credit-status { font-size: 18px; font-weight: 700; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
 html.stack-view .stack-credit-status.is-togo { color: var(--stack-togo); }
+html.stack-view .stack-credit-pill { display: inline-block; margin-top: 4px; font-size: 14.5px; font-weight: 700; border-radius: 999px; padding: 7px 14px; }
+html.stack-view .stack-credit-pill.is-ok { background: var(--stack-on); color: var(--stack-cards); }
+html.stack-view .stack-credit-pill.is-togo { color: var(--stack-togo); box-shadow: inset 0 0 0 2px var(--stack-togo); }
 html.stack-view .stack-n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   html.stack-view .stack-credit-exp, html.stack-view .stack-chev { transition: none; }

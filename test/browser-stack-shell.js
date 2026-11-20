@@ -110,9 +110,10 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
           .every(el => getComputedStyle(el).display === 'none') && document.getElementById('stack-root').checkVisibility(),
         chips: chips.map(c => ({ key: c.dataset.stackPeriod, pressed: c.getAttribute('aria-pressed'),
           now: c.getAttribute('aria-current'), date: c.querySelector('.stack-chip-date').textContent,
-          projected: c.classList.contains('is-projected'),
-          dashed: getComputedStyle(c).borderTopStyle,
-          amount: c.querySelector('[data-stack-chip-amount]').textContent })) };
+          dashed: getComputedStyle(c).borderTopStyle, fill: getComputedStyle(c).backgroundColor,
+          padTop: getComputedStyle(c).paddingTop,
+          amount: c.querySelector('[data-stack-chip-amount]').textContent,
+          soft: c.querySelector('[data-stack-chip-amount]').classList.contains('stack-est') })) };
     });
     const F = require('../public/forecast.js');
     const d = served();
@@ -131,18 +132,17 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       .format(new Date(v.start + 'T12:00:00Z')));
     ok(view.chips.every((c, i) => c.date === dates[i]), 'each chip shows its period start date');
     ok(views.some(v => v.evidenceState === 'projected') && views.some(v => v.evidenceState !== 'projected')
-      && view.chips.every((c, i) => c.projected === (views[i].evidenceState === 'projected')
-        && (c.dashed === 'dashed') === (views[i].evidenceState === 'projected')),
-    'a projected view (evidenceState, as published) draws a dashed chip; historical and live views do not',
-    JSON.stringify(view.chips.map((c, i) => [views[i].evidenceState, c.projected, c.dashed])));
+      && view.chips.every(c => c.dashed === 'none' && c.fill !== 'rgba(0, 0, 0, 0)' && c.padTop === '9px'),
+    'every chip, projected or not, has the design\'s filled tile and padding and no dashed outline (owner, 2026-11-20)',
+    JSON.stringify(view.chips.map((c, i) => [views[i].evidenceState, c.dashed, c.fill, c.padTop])));
     const words = await page.evaluate(() => document.getElementById('stack-root').textContent);
-    ok(!/Projected|Past|Last pay period|This pay period/i.test(words), 'no period label anywhere on the Stack page (no text labels)');
+    ok(!/Projected/i.test(words), 'no "Projected" word anywhere on the Stack page (owner)');
     const head = await page.evaluate(() => ({ range: document.querySelector('.stack-period-range').textContent,
       text: document.querySelector('[data-stack-period-head]').textContent, dot: !!document.querySelector('[data-stack-period-now]') }));
     const fmt = iso => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso + 'T12:00:00Z'));
     const range = v => fmt(v.start) + ' \u2013 ' + (v.start.slice(0, 7) === v.end.slice(0, 7) ? String(Number(v.end.slice(8))) : fmt(v.end));
-    ok(head.range === range(active) && head.text === range(active) && head.dot,
-      'the shell heads the current period with its range and the current-period marker, and no words', JSON.stringify(head));
+    ok(head.range === range(active) && head.text === range(active) + 'This pay period' && head.dot,
+      'the shell heads the current period with its range and the design\'s "This pay period" chip', JSON.stringify(head));
     const sheets = await page.evaluate(() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => new URL(l.href).pathname)
       .filter(p => /^\/stack[.-]/.test(p)));
     ok(sheets.join() === ['/stack.css', '/stack-waterfall.css', '/stack-cards.css', '/stack-credit.css',
@@ -151,17 +151,18 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       .map(e => e.dataset.stackBlock), overlay: document.querySelector('[data-stack-block="sheet"]').closest('[data-stack-pile]') === null }));
     ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,
       'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
-    // Main's engine (#1426) publishes stackSummary.surplus: each chip prints exactly its view's published amount
-    // (signed, cents only when the figure has them, a true minus), and nothing where none is published (never $0).
-    const signedFmt = (n, cents) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
-      signDisplay: 'always', minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 }).format(n).replace('-', '−');
-    const expected = views.map(v => {
-      const a = v.stackSummary && v.stackSummary.surplus ? v.stackSummary.surplus.amount : null;
-      return typeof a === 'number' && Number.isFinite(a) ? signedFmt(a, !Number.isInteger(a)) : '';
-    });
-    ok(view.chips.length === expected.length && view.chips.every((c, i) => c.amount === expected[i]) && expected.some(t => t !== ''),
-      "main's engine: each chip prints its view's published surplus exactly, and nothing where none is published",
+    // Main's engine (#1426) publishes stackSummary.surplus: each chip prints its view's published amount in the page's one
+    // money format (StackBlocks.money, signed; its rounding is proved in test-stack-shell §7), and a soft dash where
+    // none is published (never $0, never a blank).
+    const expected = await page.evaluate(list => list.map(a => (typeof a === 'number' && Number.isFinite(a)
+      ? StackBlocks.money(a, { signed: true }) : '—')), views.map(v => (v.stackSummary && v.stackSummary.surplus ? v.stackSummary.surplus.amount : null)));
+    ok(view.chips.length === expected.length && view.chips.every((c, i) => c.amount === expected[i]) && expected.some(t => t !== '—'),
+      "main's engine: each chip prints its view's published surplus, and a dash where none is published",
       JSON.stringify({ chips: view.chips.map(c => c.amount), expected }));
+    ok(view.chips.every((c, i) => {
+      const s = views[i].stackSummary && views[i].stackSummary.surplus;
+      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '—' : c.amount === '—' && c.soft;
+    }), 'a chip with no published surplus prints a soft dash, never $0 and never a blank', JSON.stringify(view.chips.map(c => [c.amount, c.soft])));
 
     console.log('3. every printed amount is the published value it names');
     const invented = [1000, -250.5, null, 0.25, -3];
@@ -182,13 +183,55 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     await settle(page);
     const printed = await page.evaluate(() => [...document.querySelectorAll('[data-stack-period]')].map(c => ({
       text: c.querySelector('[data-stack-chip-amount]').textContent, neg: c.classList.contains('is-neg'),
+      soft: c.querySelector('[data-stack-chip-amount]').classList.contains('stack-est'),
       valueNeg: c.querySelector('[data-stack-chip-amount]').classList.contains('is-neg') })));
     const want = { 1000: '+$1,000', '-250.5': '−$250.50', 0.25: '+$0.25', '-3': '−$3' };
     ok(printed.every((p, i) => {
       const v = invented[i % invented.length];
-      return v === null ? p.text === '' && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
-    }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, nothing when absent',
+      return v === null ? p.text === '\u2014' && p.soft && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
+    }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, a dash when absent',
     JSON.stringify(printed.slice(0, 5)));
+
+    // The selected chip keeps the soft treatment on an estimate, readable on its fill: the value's ink, blended at its
+    // own opacity over the chip's fill, clears 4.5:1 contrast, positive and negative, in light and dark. Each scheme
+    // is its own page load, so no theme switch happens mid-page.
+    const ratios = [];
+    for (const theme of ['light', 'dark']) {
+      const t = await open(browser, { query: '?view=stack', theme });
+      await t.page.waitForSelector('#stack-root [data-stack-period]');
+      await t.page.evaluate(() => {
+        const original = Forecast.recommend;
+        Forecast.recommend = function () {
+          const r = original.apply(this, arguments);
+          (r.payPeriodViews || []).forEach((v, i) => {
+            v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: { amount: i % 2 ? -250.5 : 1000, trust: 'estimated' } });
+          });
+          return r;
+        };
+        App.rerender();
+      });
+      for (const i of [0, 1]) {
+        await t.page.click(`[data-stack-period="${views[i].start}"]`);
+        await settle(t.page);
+        ratios.push({ theme, errors: t.errors.length, ...(await t.page.evaluate(() => {
+          const rgb = s => (s.match(/[\d.]+/g) || []).map(Number);
+          const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+          const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+          const chip = document.querySelector('[data-stack-period][aria-pressed="true"]');
+          const v = chip.querySelector('[data-stack-chip-amount]');
+          const fg = rgb(getComputedStyle(v).color), bg = rgb(getComputedStyle(chip).backgroundColor);
+          const a = Number(getComputedStyle(v).opacity) * (fg.length > 3 ? fg[3] : 1);
+          const ink = [0, 1, 2].map(k => a * fg[k] + (1 - a) * bg[k]);
+          const [hi, lo] = [lum(ink), lum(bg.slice(0, 3))].sort((x, y) => y - x);
+          return { ratio: (hi + 0.05) / (lo + 0.05), soft: v.classList.contains('stack-est'), opacity: a, neg: chip.classList.contains('is-neg') };
+        })) });
+      }
+      await t.page.close();
+    }
+    ok(ratios.length === 4 && ratios.every(r => r.soft && r.opacity < 1 && r.ratio >= 4.5 && r.errors === 0)
+      && ratios.filter(r => r.neg).length === 2,
+      'the selected chip keeps the soft treatment on an estimate and still clears 4.5:1 contrast (light and dark, + and −)',
+      JSON.stringify(ratios.map(r => [r.theme, r.neg, r.opacity, Math.round(r.ratio * 100) / 100])));
 
     console.log('4. selection drives every block');
     await page.evaluate(() => {
@@ -210,7 +253,7 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const later = await page.evaluate(() => ({ text: document.querySelector('[data-stack-period-head]').textContent,
       dot: !!document.querySelector('[data-stack-period-now]') }));
     ok(lastView.evidenceState === 'projected' && later.text === range(lastView) && !later.dot,
-      'another period is headed by its range alone: no label, no current marker', JSON.stringify(later));
+      'a future period is headed by its range alone: no "Projected" chip (owner)', JSON.stringify(later));
     ok(after.pressed.join() === target && last.key === target && after.block === 'test block ' + target,
       'tapping a chip selects it and the block renders for that period', JSON.stringify(after.pressed));
     ok(last.keys === 'Forecast,data,plan,recommendation,selectedPeriodKey' && last.sameRec && last.plan && last.forecast,
@@ -218,6 +261,15 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     await page.click('[data-stack-now]');
     const back = await page.evaluate(() => window.__stackCalls[window.__stackCalls.length - 1].key);
     ok(back === active.start, '"Now" returns to the current period');
+    const ai = views.indexOf(active);
+    const pastHeads = [];
+    for (const i of [ai - 1, ai - 2].filter(i => i >= 0)) {
+      await page.click(`[data-stack-period="${views[i].start}"]`);
+      pastHeads.push(await page.evaluate(() => (document.querySelector('[data-stack-period-now]') || {}).textContent || ''));
+    }
+    ok(pastHeads.length === 2 && pastHeads[0] === 'Last pay period' && pastHeads[1] === 'Past',
+      'the period before the current one reads "Last pay period"; an earlier one reads "Past" (the design)', JSON.stringify(pastHeads));
+    await page.click('[data-stack-now]');
     ok(errors.length === 0, 'no page errors under the flag', errors.join('; '));
     await page.close();
 

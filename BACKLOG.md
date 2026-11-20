@@ -1012,7 +1012,7 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 - `browser-card-purchase-coverage` and `browser-payday-bank-eod-anchor`: a local DevTools endpoint.
 - `browser-payday-gap-cash-identity`: `ATLAS_GAP_BASE_APP_ROOT` naming a frozen base checkout.
 - `browser-budget-blend-proof`, `browser-budget-signed-cents`, `browser-river-geometry-proof`, `browser-savings-latest-known-allocation`, `browser-budget-river-readability`: a clean checkout and an evidence directory outside it. A `node_modules` symlink makes the checkout dirty, because `.gitignore`'s `node_modules/` does not match a symlink.
-- `browser-tile-separation`: a one-off proof generator. It needs `--label before|after` and overwrites `docs/proof/tile-separation-2026-10-10/`.
+- ~~`browser-tile-separation`: a one-off proof generator. It needs `--label before|after` and overwrites `docs/proof/tile-separation-2026-10-10/`.~~ Retired 2026-11-20 with `browser-household-total-delta`: both were one-off before/after proofs pinned to old baselines (a 2026-10-10 tile capture; base `c1d8c155`), so their result could change no decision. Their evidence stays in `docs/proof/tile-separation-2026-10-10/` and `test/proofs/household-total-delta/`.
 
 `browser-household-panel-viewport` passes on main (939/939); its earlier failure was load-sensitive (again on 2026-11-18: it fails with three suites at once and passes alone).
 

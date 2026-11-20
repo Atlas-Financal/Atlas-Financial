@@ -316,3 +316,137 @@ test('exact CI bootstrap keeps malformed reports, Node failures and every runner
     assert.equal(run(worker(clean, 0), {}, ['--write']).status, 2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+/* ---- Machinery pins: one stored hash per line, in order --------------------
+ * The machinery (scripts/figures-comment.js, the workflow, …) is pinned byte for
+ * byte, as the ordered list of its line hashes, so two pull requests that change
+ * different lines of one machinery file write different manifest lines and git
+ * merges the pin files as cleanly as it merges the sources. Proved here:
+ *   1. every change a whole-file hash caught still fails --check: an edited, added,
+ *      deleted, reordered or duplicated line, and a dropped final newline;
+ *   2. two non-adjacent edits merge with git without a conflict, in the source and
+ *      in the pin file alike, and the merged pin file is exactly the pins of the
+ *      merged source, which is the same as one combined edit;
+ *   3. the old one-hash storage conflicts on the same merge (the reason for this),
+ *      and adjacent edits still conflict, in the source as in the pins. */
+const MACHINE = 'scripts/js-scan.js';   // a real machinery name, with invented content
+const MACHINE_TEXT = Array.from({ length: 40 }, (_, i) => `const line${i} = ${i};`).concat(['', '// end', '']).join('\n');
+const machineCompute = async root => {
+  const guard = await tinyCompute(root);
+  return { ...guard, machinery: { [MACHINE]: Contract.machineryLines(fs.readFileSync(path.join(root, MACHINE), 'utf8')) } };
+};
+async function machineTree() {
+  const dir = await tinyTree();
+  fs.mkdirSync(path.join(dir, 'scripts'));
+  fs.writeFileSync(path.join(dir, MACHINE), MACHINE_TEXT);
+  Pins.writeManifest(MDIR(dir), { ...load(dir), guard: await machineCompute(dir) });
+  return dir;
+}
+const runMachine = async (dir, args) => {
+  const lines = [];
+  const code = await Pins.main(args, { root: dir, computeGuard: machineCompute, inputs: () => [] }, l => lines.push(l));
+  return { code, out: lines.join('\n') };
+};
+
+test('machinery pins are stored one hash per line and round-trip', async () => {
+  const dir = await machineTree();
+  try {
+    const stored = fs.readFileSync(path.join(MDIR(dir), 'guard/machinery', MACHINE + '.sha256'), 'utf8');
+    const lines = MACHINE_TEXT.split('\n');
+    assert.equal(stored.split('\n').length - 1, lines.length, 'one stored line per source line, the final empty line included');
+    assert.deepEqual(stored.slice(0, -1).split('\n'), lines.map(Contract.sha), 'each stored line is that source line\'s sha256, in order');
+    assert.deepEqual(load(dir).guard.machinery[MACHINE], Contract.machineryLines(MACHINE_TEXT));
+    assert.equal((await runMachine(dir, ['--check'])).code, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('every machinery change a whole-file hash caught still fails --check', async () => {
+  const lines = MACHINE_TEXT.split('\n');
+  const swap = (i, j) => { const l = [...lines]; [l[i], l[j]] = [l[j], l[i]]; return l.join('\n'); };
+  const cases = [
+    ['edited line', MACHINE_TEXT.replace('const line7 = 7;', 'const line7 = 8;')],
+    ['added line', MACHINE_TEXT.replace('const line7 = 7;\n', 'const line7 = 7;\nvoid 0;\n')],
+    ['deleted line', MACHINE_TEXT.replace('const line7 = 7;\n', '')],
+    ['reordered lines', swap(3, 4)],
+    ['duplicated line', MACHINE_TEXT.replace('const line7 = 7;\n', 'const line7 = 7;\nconst line7 = 7;\n')],
+    ['dropped final newline', MACHINE_TEXT.slice(0, -1)],
+    ['whitespace only', MACHINE_TEXT.replace('const line7 = 7;', 'const line7 =  7;')],
+  ];
+  for (const [name, text] of cases) {
+    assert.notEqual(text, MACHINE_TEXT, name + ': the case changes the file');
+    const dir = await machineTree();
+    try {
+      fs.writeFileSync(path.join(dir, MACHINE), text);
+      const r = await runMachine(dir, ['--check']);
+      assert.equal(r.code, 1, name + ': ' + r.out);
+      assert.match(r.out, /CHANGED {2}scripts\/js-scan\.js#machinery {2}[a-f0-9]{12} -> [a-f0-9]{12}/, name);
+      assert.doesNotMatch(r.out, /const line/, name + ': no source text is printed');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
+// A throwaway git repository: the base, two branches with one edit each, then a
+// merge. Each branch commits the source and its pin file, as a builder does.
+function mergeTwoEdits(source, editA, editB, store) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'savings-pins-merge-'));
+  const git = (...args) => spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.name=invented', '-c', 'user.email=invented@example.invalid',
+    '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=base', ...args], { cwd: dir, encoding: 'utf8' });
+  const commit = (text, message) => {
+    fs.writeFileSync(path.join(dir, 'source.js'), text);
+    fs.writeFileSync(path.join(dir, 'source.js.sha256'), store(text));
+    assert.equal(git('add', '-A').status, 0);
+    assert.equal(git('commit', '-q', '-m', message).status, 0);
+  };
+  try {
+    assert.equal(git('init', '-q').status, 0);
+    commit(source, 'base');
+    assert.equal(git('checkout', '-q', '-b', 'a').status, 0);
+    commit(editA(source), 'a');
+    assert.equal(git('checkout', '-q', '-b', 'b', 'base').status, 0);
+    commit(editB(source), 'b');
+    assert.equal(git('checkout', '-q', 'a').status, 0);
+    const merge = git('merge', '-q', '--no-edit', 'b');
+    const conflicted = git('diff', '--name-only', '--diff-filter=U').stdout.split('\n').filter(Boolean).sort();
+    const read = f => fs.readFileSync(path.join(dir, f), 'utf8');
+    return { clean: merge.status === 0, conflicted, source: merge.status === 0 ? read('source.js') : null, pins: merge.status === 0 ? read('source.js.sha256') : null };
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+const perLine = text => Contract.machineryLines(text).join('\n') + '\n';
+const wholeFile = text => Contract.sha(text) + '\n';
+
+test('two non-adjacent edits to one machinery file merge cleanly and re-pin exactly as one combined edit', () => {
+  // The real figures registry, as two figures pull requests change it: one adds a class
+  // row near the top of FIELD_CLASSES, the other edits a line far below it.
+  const source = fs.readFileSync(path.join(ROOT, 'scripts/figures-comment.js'), 'utf8');
+  const lines = source.split('\n');
+  const top = lines.findIndex(l => /^\s+\['[a-z-]+', '[A-Z][a-z]+', '[^']+', '(money|tag)'\],$/.test(l));
+  assert.ok(top > 0 && lines.length - top > 200, 'the registry has a class row well above the end of the file');
+  const far = lines.length - 20;
+  const editA = text => { const l = text.split('\n'); l.splice(top + 1, 0, "  ['invented-class-a', 'Other', 'inventedA.*.amount', 'money'],"); return l.join('\n'); };
+  const editB = text => { const l = text.split('\n'); l[far] = l[far] + ' // invented edit b'; return l.join('\n'); };
+  // The combined edit, made by hand: edit b's line index moves down by the one line a inserts above it.
+  const combined = (() => { const l = editA(source).split('\n'); l[far + 1] = l[far + 1] + ' // invented edit b'; return l.join('\n'); })();
+
+  const r = mergeTwoEdits(source, editA, editB, perLine);
+  assert.ok(r.clean, 'per-line pins: the merge is clean; conflicts in ' + r.conflicted.join(', '));
+  assert.equal(r.source, combined, 'the merged source is the combined edit');
+  assert.equal(r.pins, perLine(combined), 'the merged pin file is exactly the pins of the combined edit: no re-pin needed');
+
+  const old = mergeTwoEdits(source, editA, editB, wholeFile);
+  assert.ok(!old.clean && old.conflicted.length === 1 && old.conflicted[0] === 'source.js.sha256',
+    'control: the old one-hash storage conflicts on the pin file alone: ' + JSON.stringify(old.conflicted));
+});
+
+test('adjacent edits still conflict, in the source and the pins alike, and keeping either side\'s pin file does not match the resolved source', () => {
+  const editA = text => text.replace('const line7 = 7;\n', 'const line7 = 7;\nconst a = 1;\n');
+  const editB = text => text.replace('const line7 = 7;\n', 'const line7 = 7;\nconst b = 2;\n');
+  const r = mergeTwoEdits(MACHINE_TEXT, editA, editB, perLine);
+  assert.ok(!r.clean, 'two insertions at one place conflict');
+  assert.deepEqual(r.conflicted, ['source.js', 'source.js.sha256'], 'the pins conflict exactly where the source does');
+  // Resolving the source by hand and keeping either side's pin file leaves the
+  // guard red until --write: the stored list is not the resolved source's.
+  const resolved = MACHINE_TEXT.replace('const line7 = 7;\n', 'const line7 = 7;\nconst a = 1;\nconst b = 2;\n');
+  for (const side of [editA(MACHINE_TEXT), editB(MACHINE_TEXT)]) {
+    assert.notDeepEqual(Contract.machineryLines(resolved), Contract.machineryLines(side), 'a kept side does not match the resolved source');
+  }
+});
