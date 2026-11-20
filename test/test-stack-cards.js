@@ -84,8 +84,8 @@ assert((() => { try { goText('<summary></summary>'); return false; } catch (e) {
 ['Mortgage', 'Card A minimum', 'Carried one'].forEach(n => assert(!card('bills').includes(n), n + ' leaked into Bills'));
 assert(!card('bills').includes(fmt(77.77)) && !card('bills').includes(fmt(999.99)));
 assert(!html.includes(fmt(999.99)) && !html.includes('Hidden'));
-// rows: item, amount, and a check only for posted-equal evidence (#1465); no status word visible (owner direction)
-const CHECK = '<span class="sc-check" aria-hidden="true">\u2713</span>';
+// rows: item, amount, and the check for a matched payment (#1465, Dale); no status word visible (owner direction)
+const CHECK = '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>';
 const rowOf = (h, label) => h.split('<li class="sc-row sc-bill').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('>' + label + '<'));
 assert(rowOf(card('bills'), 'Hydro').includes(CHECK), 'a paid row shows the check');
 assert(!rowOf(card('bills'), 'Phone').includes('sc-check') && !rowOf(card('bills'), 'Phone').includes('\u2713'), 'an unpaid row shows no mark');
@@ -100,9 +100,9 @@ assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'
   const mp = JSON.parse(JSON.stringify(view)); mp.bills[3].stackBillPaymentEvidence = 'posted-equal';
   const m = buildCardsHTML(ctx(mp)).split('data-stack-card="mortgage"')[1].split('</details>')[0];
   assert(m.includes(CHECK) && !m.replace(/<[^>]+>/g, ' ').match(/paid/i), 'a paid mortgage row shows the check and no word');
-  const unk = JSON.parse(JSON.stringify(view)); unk.bills[0].stackBillPaymentEvidence = 'maybe'; unk.bills[3].stackBillPaymentEvidence = 'pending';
+  const unk = JSON.parse(JSON.stringify(view)); unk.bills[0].stackBillPaymentEvidence = 'maybe'; unk.bills[3].stackBillPaymentEvidence = 'maybe';
   const u = buildCardsHTML(ctx(unk));
-  assert(!u.includes('sc-check') && !u.includes('\u2713'), 'only posted-equal evidence renders a check (an unknown word or pending renders none)');
+  assert(!u.includes('sc-check') && !u.includes('\u2713'), 'an unknown evidence word renders no check');
   const nul = JSON.parse(JSON.stringify(view)); nul.bills[0].stackBillAmount = null;
   const n = buildCardsHTML(ctx(nul)).split('data-stack-card="bills"')[1].split('</details>')[0];
   assert(rowOf(n, 'Hydro').includes('<span class="sc-a">\u2014</span>') && !/[$]0/.test(n), 'an unpublished amount is a dash, never a zero');

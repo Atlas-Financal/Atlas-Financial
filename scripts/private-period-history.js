@@ -196,7 +196,8 @@ function selectedPublication(advice, period) {
     if (bill && typeof bill === 'object') delete bill.paidState;
   }
   // Each bill row's Stack Wallet split mark (Forecast publishStackBillParts:
-  // stackBillPart, stackBillAmount, stackBillDebtId) is derived from the same
+  // stackBillPart, stackBillAmount, stackBillDebtId, stackBillPaymentEvidence,
+  // stackBillAmountTrust) is derived from the same
   // period's split, which a saved close does not keep, so it is not saved
   // either; every earlier contentKey is unchanged.
   for (const bill of Array.isArray(publication.bills) ? publication.bills : []) {

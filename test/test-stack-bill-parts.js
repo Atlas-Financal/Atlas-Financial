@@ -74,9 +74,9 @@ console.log('1. The invented household, mortgage as a mortgage payment (the answ
   const bills = cardHtml(v, 'bills'), mortgage = cardHtml(v, 'mortgage');
   ok(headOf(bills) === 'Bills $205' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Hydro $120', 'Internet $85']),
     'Bills card: head $205 over Hydro $120 and Internet $85 (the card minimum is not here)', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
-  // The fixture's mortgage is linked paid but its payment amount is not posted, so it shows no check (evidence 'pending').
-  ok(headOf(mortgage) === 'Mortgage $1,400' && JSON.stringify(rowLabels(mortgage)) === JSON.stringify(['Mortgage $1,400']),
-    'Mortgage card: head $1,400 over its $1,400 row (no posted payment, so no check)', headOf(mortgage) + ' | ' + rowLabels(mortgage).join(' | '));
+  // The fixture's mortgage has a matched payment whose amount is not posted (evidence 'pending'): the check, beside the plan.
+  ok(headOf(mortgage) === 'Mortgage $1,400' && JSON.stringify(rowLabels(mortgage)) === JSON.stringify(['Mortgage $1,400 ' + CHECK]),
+    'Mortgage card: head $1,400 over its $1,400 row with the payment-seen check', headOf(mortgage) + ' | ' + rowLabels(mortgage).join(' | '));
 }
 
 console.log('2. A plain bill named "mortgage" is not a mortgage payment');
@@ -86,7 +86,7 @@ console.log('2. A plain bill named "mortgage" is not a mortgage payment');
   const v = current(F, {});
   ok(v.stackSummary.bills.mortgage === 0 && v.stackSummary.bills.other === 1605, 'split: mortgage 0, other 1,605');
   const bills = cardHtml(v, 'bills'), mortgage = cardHtml(v, 'mortgage');
-  ok(headOf(bills) === 'Bills $1,605' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400', 'Hydro $120', 'Internet $85']),
+  ok(headOf(bills) === 'Bills $1,605' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400 ' + CHECK, 'Hydro $120', 'Internet $85']),
     'Bills card lists the lookalike with hydro and internet: 1,400 + 120 + 85 = its $1,605 head', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
   ok(headOf(mortgage) === 'Mortgage $0' && rowLabels(mortgage).length === 0, 'Mortgage card: head $0 and no row', headOf(mortgage));
 }
@@ -147,10 +147,11 @@ function handPeriod(Forecast) {
   'a scheduled fee is marked at its periodCost and an overpaid bill at what it counts (8 + 47.50 = other 55.50)', JSON.stringify(view.bills.map(r => r.stackBillAmount)));
 }
 
-console.log('3b. The paid check means a posted payment of exactly the amount shown (lead ruling on #1465)');
-// Owner (Dale, 2026-11-20): a payment that differs from the plan is the bill amount only once Grok Bot verifies it.
-// So the row shows the counted amount (the plan unless the posted payment equals it), and the check appears only for
-// stackBillPaymentEvidence 'posted-equal'; its accessible name says which the number is ("Paid $X" / "Planned $X").
+console.log('3b. The check is payment evidence; the amount is the plan unless the posted payment equals it (Dale, #1465)');
+// Owner (Dale, 2026-11-20, 7045561868 / 7045571141): keep the check whenever Lunch Money matched a likely payment, even
+// pending or of another amount, and show the planned amount separately; a differing amount counts only once Grok Bot
+// verifies it (7043340065). So the row shows the counted amount and the check for any matched payment; unless the posted
+// payment is exactly that amount, the amount is named "Planned $X" and the check "Payment seen".
 const H = require('./acceptance/harness.js');
 function hydroWorld(Forecast, octoberPending) {
   const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
@@ -167,23 +168,27 @@ function hydroCards(rec) {
     if (!b) continue;
     const li = cardHtml(v, 'bills').split('<li class="sc-row sc-bill').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('Invented hydro')) || '';
     out[b.date] = { evidence: b.stackBillPaymentEvidence, shown: b.stackBillAmount, check: li.includes('sc-check'),
-      name: (li.match(/class="sc-a[^"]*" aria-label="([^"]*)"/) || [])[1] || null, paidState: b.paidState };
+      name: (li.match(/class="sc-a[^"]*" aria-label="([^"]*)"/) || [])[1] || null,
+      checkName: (li.match(/class="sc-check" role="img" aria-label="([^"]*)"/) || [])[1] || null, paidState: b.paidState };
   }
   return out;
 }
 {
   const rec = hydroWorld(F, false);
   const c = hydroCards(rec), sheet = new Map((rec.billHistory.hydro || []).map(e => [e.date, e.amount]));
-  const got = ['2026-08-12', '2026-09-12', '2026-10-12'].map(d => [d, c[d] && c[d].evidence, c[d] && c[d].shown, c[d] && c[d].check, c[d] && c[d].name, sheet.get(d)]);
+  const got = ['2026-08-12', '2026-09-12', '2026-10-12'].map(d => [d, c[d] && c[d].evidence, c[d] && c[d].shown, c[d] && c[d].checkName, c[d] && c[d].name, sheet.get(d)]);
   ok(JSON.stringify(got) === JSON.stringify([
-    ['2026-08-12', 'pending', 90, false, 'Planned $90', 120],
-    ['2026-09-12', 'posted-equal', 90, true, 'Paid $90', 90],
-    ['2026-10-12', 'posted-differs', 90, false, 'Planned $90', 40]]),
-  'unconfirmed 120: plan, no check; posted 90 = 90: check "Paid $90"; posted 40 vs 90: plan, no check', JSON.stringify(got));
-  // Atlas's probe: a pending payment (status pending, actual null) that Forecast still calls paid shows no check.
+    ['2026-08-12', 'pending', 90, 'Payment seen', 'Planned $90', 120],
+    ['2026-09-12', 'posted-equal', 90, 'Paid', 'Paid $90', 90],
+    ['2026-10-12', 'posted-differs', 90, 'Payment seen', 'Planned $90', 40]]),
+  'unconfirmed 120: plan + "Payment seen"; posted 90 = 90: "Paid $90" + "Paid"; posted 40 vs 90: plan + "Payment seen"', JSON.stringify(got));
+  // Atlas's probe: a pending payment (status pending, actual null) the ledger matched keeps the check, beside the plan.
   const p = hydroCards(hydroWorld(F, true))['2026-10-12'];
-  ok(p && p.evidence === 'pending' && p.paidState === 'paid' && p.check === false && p.name === 'Planned $90',
-    'a pending payment the ledger links (paidState paid) shows the plan with no check', JSON.stringify(p));
+  ok(p && p.evidence === 'pending' && p.paidState === 'paid' && p.checkName === 'Payment seen' && p.name === 'Planned $90',
+    'a pending matched payment: the check (payment seen) beside the planned amount', JSON.stringify(p));
+  // No matched payment: no check.
+  const n = hydroCards(hydroWorld(F, false))['2026-11-12'] || hydroCards(hydroWorld(F, false))[Object.keys(hydroCards(hydroWorld(F, false))).pop()];
+  ok(n && n.evidence === 'none' && n.check === false && n.name === 'Planned $90', 'no matched payment: the plan, no check', JSON.stringify(n));
 }
 
 console.log('4. Mutants are caught');
@@ -211,11 +216,12 @@ console.log('4. Mutants are caught');
 }
 
 {
-  // The marker calls every paid row posted-equal: the unproven and differing rows would show the check.
-  const allPaid = compile(replaceOnce(SOURCE, "    return billPaidState(row) === 'paid' ? 'pending' : 'none';", "    return billPaidState(row) === 'paid' ? 'posted-equal' : 'none';", 'all paid'), 'all-paid');
+  // The marker calls a pending payment none: the matched payment loses its check.
+  const pendingNone = compile(replaceOnce(SOURCE, "    return billPaidState(row) === 'paid' ? 'pending' : 'none';", "    return 'none';", 'pending none'), 'pending-none');
+  // The marker calls a differing posted payment equal: the plan would be named as the payment.
   const allEqual = compile(replaceOnce(SOURCE, "      return Math.round(Math.abs(row.actual) * 100) === cents ? 'posted-equal' : 'posted-differs';", "      return 'posted-equal';", 'all equal'), 'all-equal');
-  ok(hydroCards(hydroWorld(allPaid, true))['2026-10-12'].check === true, 'calling a pending payment posted is caught (the check appears)');
-  ok(hydroCards(hydroWorld(allEqual, false))['2026-10-12'].check === true, 'calling a differing payment equal is caught (the check appears)');
+  ok(hydroCards(hydroWorld(pendingNone, true))['2026-10-12'].check === false, 'dropping pending as payment evidence is caught (the check disappears)');
+  ok(hydroCards(hydroWorld(allEqual, false))['2026-10-12'].name === 'Paid $90', 'calling a differing payment equal is caught (the plan is named as paid)');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack bill part checks passed`);

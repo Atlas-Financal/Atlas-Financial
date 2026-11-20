@@ -119,18 +119,22 @@
   var CHEV = '<svg class="sc-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   // The row's chevron, on every row that opens a sheet (static: it does not turn like the card's go button).
   var RCV = '<svg class="sc-cv" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-  // A bill row: the item, the amount Forecast counted, and the paid check only when Forecast's
-  // stackBillPaymentEvidence says a posted payment of exactly that amount ('posted-equal'; lead ruling on #1465).
-  // Otherwise the amount is the plan, drawn at its own trust, with no check. No status word is visible; the accessible
-  // name says which the number is ("Paid $X" or "Planned $X"). An unpublished amount is a dash, never a zero.
+  // A bill row (owner decision, Dale 2026-11-20 on #1465): the item, the amount Forecast counted, and the check whenever
+  // the ledger matched a likely payment to this occurrence (stackBillPaymentEvidence posted-equal, posted-differs or
+  // pending; Lunch Money's matched payment, not the scheduled date). The check is payment evidence only: unless the
+  // posted payment is exactly the amount shown ('posted-equal'), the amount is named as the plan ("Planned $X") and the
+  // check as a payment seen, so the plan is never presented as the payment. No status word is visible. An unpublished
+  // amount is a dash, never a zero.
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
-    var paid = r.stackBillPaymentEvidence === 'posted-equal';
+    var evidence = r.stackBillPaymentEvidence;
+    var seen = evidence === 'posted-equal' || evidence === 'posted-differs' || evidence === 'pending';
+    var exact = evidence === 'posted-equal';
     var soft = isEst(r.stackBillAmountTrust);
-    var name = amountText == null ? null : (paid ? 'Paid ' : 'Planned ') + amountText;
+    var name = amountText == null ? null : (exact ? 'Paid ' : 'Planned ') + amountText;
     return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
       '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
-      '<span class="sc-ck">' + (paid ? '<span class="sc-check" aria-hidden="true">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';
+      '<span class="sc-ck">' + (seen ? '<span class="sc-check" role="img" aria-label="' + (exact ? 'Paid' : 'Payment seen') + '">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';
   }
 
   function billsCard(view) {
