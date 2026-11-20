@@ -119,7 +119,11 @@
   // X is named for a screen reader so colour is never the only signal: "Owes $20 more than paid back" when red, "Paid $20"
   // otherwise (", estimated" when soft). The visible text stays the number; role="img" makes the name the announcement.
   const xName = r => (r.x == null ? '' : `${r.tone === 'bad' ? 'Owes ' + money(r.x) + ' more than paid back' : 'Paid ' + money(r.x)}${r.xSoft ? ', estimated' : ''}`);
-  const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(money(r.x))}</span>`
+  // X carries its direction as a printed sign (Dale, 2026-11-20: "I just need the plus minus there"): "\u2212$150" when the
+  // card is behind (the published toGo, red), "+$250" for a published payment, a bare "$0" for nothing. The sign is text
+  // joined to the shell's money format and chosen by comparing the published figure with zero, never by arithmetic.
+  const signed = r => (r.tone === 'bad' ? '\u2212' + money(r.x) : r.x > 0 ? '+' + money(r.x) : money(r.x));
+  const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
     + (r.min != null ? `<i class="stack-credit-of${r.minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');

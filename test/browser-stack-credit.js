@@ -104,8 +104,8 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     ok(expanded === 'true' && !(await page.$eval('.stack-credit-exp', el => el.hasAttribute('inert'))), 'the list opens');
     const rows = await page.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
     if (stub) {
-      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa $400 / $25',
-        'Green Card $160 / $30', 'Red Card \u2014 / $15', 'Gold Card $0 / $10',
+      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa +$400 / $25',
+        'Green Card −$160 / $30', 'Red Card \u2014 / $15', 'Gold Card $0 / $10',
         'Line of credit \u2014 / $210']), 'one row per published line, each "X / minimum"', JSON.stringify(rows));
       const coral = await page.$eval('.stack-credit-x.is-bad', el => getComputedStyle(el).color);
       ok(coral === 'rgb(200, 55, 45)', 'a card behind (spending above payments) is red', coral);
@@ -132,7 +132,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     await page.click('[data-stack-sheet="card:travelvisa"]');
     await page.waitForSelector('.stack-sheet');
     const sheet = await textOf(page, '.stack-sheet');
-    if (stub) ok(/Blue Visa \$400 \/ \$25 Paid onto it \$400 Spent on it \$400 Minimum \$25 ✓/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
+    if (stub) ok(/Blue Visa \+\$400 \/ \$25 Paid onto it \$400 Spent on it \$400 Minimum \$25 ✓/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
       'the sheet prints the line\'s "X / minimum", its rows, payments with +, no tag', sheet);
     if (stub) {
       const big = await page.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color }));
@@ -150,7 +150,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       await fp.click('[data-stack-credit-toggle]');
       await settle(fp);
       const frows = await fp.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
-      ok(JSON.stringify(frows) === JSON.stringify(['Blue Visa $400 / $25', 'Green Card $160 / $30',
+      ok(JSON.stringify(frows) === JSON.stringify(['Blue Visa +$400 / $25', 'Green Card −$160 / $30',
         'Red Card \u2014 / $15', 'Gold Card $0 / $10', 'Line of credit \u2014 / $210']), 'each row reads "X / minimum"', JSON.stringify(frows));
       const colour = sel => fp.$eval(sel, el => getComputedStyle(el).color);
       ok((await colour('.stack-credit-x.is-bad')) === 'rgb(200, 55, 45)' && (await colour('.stack-credit-x.is-good')) === 'rgb(15, 122, 67)',
@@ -166,7 +166,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       await fp.click('[data-stack-sheet="card:travelvisa"]');
       await fp.waitForSelector('.stack-sheet');
       const big = await fp.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color, t: el.innerText.replace(/\s+/g, ' ').trim() }));
-      ok(big.size === '64px' && big.x === 'rgb(15, 122, 67)' && big.t === '$400 / $25', 'the sheet\'s big figure is the same "X / min", 64px and green', JSON.stringify(big));
+      ok(big.size === '64px' && big.x === 'rgb(15, 122, 67)' && big.t === '+$400 / $25', 'the sheet\'s big figure is the same "X / min", 64px and green', JSON.stringify(big));
       const sh = await textOf(fp, '.stack-sheet');
       ok(/Paid onto it \$400 Spent on it \$400 Minimum \$25 ✓/.test(sh), 'the sheet rows: Paid onto it, Spent on it, Minimum with its ✓', sh);
       await fp.keyboard.press('Escape');
