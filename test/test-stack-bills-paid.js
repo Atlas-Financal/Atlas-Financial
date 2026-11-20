@@ -170,6 +170,8 @@ const runPaid = (Forecast, rows, bills = { other: rows.reduce((s, r) => s + r.st
     'a paid row with no trust word withholds paid (never defaulted to calculated)', JSON.stringify(noWord));
   const none = runPaid(exposed, [row('a', 30, false, 'estimated')]);
   ok(none.paid === 0 && none.paidTrust === 'calculated', 'nothing checked: a known 0, calculated', JSON.stringify(none));
+  const noneEst = runPaid(exposed, [row('a', 30, false, 'estimated')], { other: 30, trust: 'estimated' });
+  ok(noneEst.paid === 0 && noneEst.paidTrust === 'estimated', 'nothing checked in an estimated split: 0, estimated (never calculated)', JSON.stringify(noneEst));
   const unmarked = runPaid(exposed, [row('a', 30, false, 'calculated')], { other: 80, trust: 'calculated' });
   ok(unmarked.paid === null && unmarked.paidTrust === 'unavailable', 'marked rows short of the Bills total: withheld, never 0', JSON.stringify(unmarked));
   const split = runPaid(exposed, [], { other: null, trust: 'unavailable' });
@@ -198,6 +200,11 @@ console.log('5. Mutants');
   const fixed = compile(replaceOnce(replaceOnce(SOURCE, EXPORT, '  Forecast.__billsPaid = stackBillsPaid;\n' + EXPORT, 'expose'),
     "    Object.assign(bills, { paid: cents / 100, paidTrust: trust });", "    Object.assign(bills, { paid: cents / 100, paidTrust: 'calculated' });", 'fixed trust'));
   ok(runPaid(fixed, [row('a', 30, true, 'calculated'), row('b', 20, true, 'estimated')]).paidTrust === 'calculated', 'a fixed calculated trust is caught (an estimated paid row reads calculated)');
+  const NONE_TRUST = "      ? row.stackBillAmountTrust : worst, 'calculated') : bills.trust;";
+  const noneCalc = compile(replaceOnce(replaceOnce(SOURCE, EXPORT, '  Forecast.__billsPaid = stackBillsPaid;\n' + EXPORT, 'expose'),
+    NONE_TRUST, "      ? row.stackBillAmountTrust : worst, 'calculated') : 'calculated';", 'none calculated'));
+  ok(runPaid(noneCalc, [row('a', 30, false, 'estimated')], { other: 30, trust: 'estimated' }).paidTrust === 'calculated',
+    'a nothing-paid zero fixed at calculated is caught (an estimated split reads calculated)');
   // The card checks from its own rule (every matched payment) instead of Forecast's flag.
   const ownRule = loadCards(replaceOnce(fs.readFileSync(CARDS_FILE, 'utf8'), "var exact = r.stackBillPaid === true;", "var exact = r.stackBillPaymentEvidence !== 'none';", 'card rule'));
   const r = caseResult(F, CASES[2][1], ownRule);

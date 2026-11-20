@@ -12934,8 +12934,10 @@
     const paid = rows.filter(row => row.stackBillPaid);
     if (paid.some(row => !Object.hasOwn(STACK_TRUST_RANK, row.stackBillAmountTrust))) return withhold();
     const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);
-    const trust = paid.reduce((worst, row) => STACK_TRUST_RANK[row.stackBillAmountTrust] > STACK_TRUST_RANK[worst]
-      ? row.stackBillAmountTrust : worst, 'calculated');
+    // Nothing paid is a zero only as sure as the split it reads: an estimated (later) period's zero is estimated.
+    if (!paid.length && !Object.hasOwn(STACK_TRUST_RANK, bills.trust)) return withhold();
+    const trust = paid.length ? paid.reduce((worst, row) => STACK_TRUST_RANK[row.stackBillAmountTrust] > STACK_TRUST_RANK[worst]
+      ? row.stackBillAmountTrust : worst, 'calculated') : bills.trust;
     Object.assign(bills, { paid: cents / 100, paidTrust: trust });
   }
   function stackBills(view) {

@@ -99,8 +99,10 @@ function proveStackBillParts(view, bills) {
     assert.equal(cents(bills.paid), paidRows.reduce((total, row) => total + cents(row.stackBillAmount), 0),
       'authorized addition: Bills paid is the sum of the checked Bills rows');
     const rank = { calculated: 0, estimated: 1 };
-    assert.equal(bills.paidTrust, paidRows.reduce((worst, row) => rank[row.stackBillAmountTrust] > rank[worst] ? row.stackBillAmountTrust : worst, 'calculated'),
-      'authorized addition: Bills paid carries the weakest trust of its rows (calculated with none)');
+    assert.equal(bills.paidTrust, paidRows.length
+      ? paidRows.reduce((worst, row) => rank[row.stackBillAmountTrust] > rank[worst] ? row.stackBillAmountTrust : worst, 'calculated')
+      : bills.trust,
+      'authorized addition: Bills paid carries the weakest trust of its rows (the split\'s own trust with none)');
   }
   for (const row of marked) for (const key of STACK_BILL_MARKS) delete row[key];
 }
