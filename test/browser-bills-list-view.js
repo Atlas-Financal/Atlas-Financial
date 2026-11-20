@@ -60,7 +60,7 @@ const expected = [
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(`${width}/${theme}: ${error.message}`));
       const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      await page.goto('http://bills.test');
+      await page.goto('http://bills.test/?view=classic');
       const list = page.locator('[data-budget-browse="bills"] [data-blend-bill-list]');
       await list.waitFor(); await settle();
       const tag = `${width}/${theme}`;

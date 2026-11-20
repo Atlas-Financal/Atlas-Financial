@@ -14,7 +14,7 @@ try{for(const width of [1440,390,320])for(const spent of width===320?[137.26,450
  const file=path.join(root,'public',u.pathname==='/'?'index.html':u.pathname.slice(1));
  if(!fs.existsSync(file))return route.fulfill({status:404,body:''});
  return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});});
- await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
+ await page.goto('http://budget.test/?view=classic');await page.locator('[data-budget-surface]').waitFor();
  // The face hides the native period arrows; step through them as browser-budget-other-ring.js does.
  if(historical){await page.evaluate(()=>document.querySelector('[data-budget-window-step="-1"]').click());assert.match(await page.locator('[data-budget-window-range]').innerText(),/Sep 25.*Oct 8/);}
  if(future){await page.evaluate(()=>document.querySelector('[data-budget-window-step="1"]').click());assert.match(await page.locator('[data-budget-window-range]').innerText(),/Oct 9.*Oct 22/);}

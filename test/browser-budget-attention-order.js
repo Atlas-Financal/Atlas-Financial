@@ -38,7 +38,7 @@ if (screenshots) fs.mkdirSync(screenshots, { recursive: true });
             : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
       const boot = async () => {
-        await page.goto('http://budget.test/');
+        await page.goto('http://budget.test/?view=classic');
         await page.locator('[data-budget-surface]').waitFor();
         assert.equal(await page.evaluate(() => App.data.meta.title), 'Synthetic Budget surface');
       };

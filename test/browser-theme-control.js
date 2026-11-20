@@ -93,7 +93,7 @@ const glyphProbe = () => {
 
 async function bootBudget(browser, serveDir, opts) {
   const { context, page, errors } = await openPage(browser, serveDir, opts);
-  await page.goto('http://theme.test/');
+  await page.goto('http://theme.test/?view=classic');
   await page.waitForSelector('[data-budget-bento]', { state: 'attached' });
   await sleep(150);
   const measured = await page.evaluate(glyphProbe);

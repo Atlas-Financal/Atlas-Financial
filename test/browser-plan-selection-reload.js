@@ -43,7 +43,7 @@ const KEY = 'atlas.planSelection.v1';
         .getAttribute('data-selected-pay-period') !== b, before);
     };
     const stored = () => page.evaluate(k => sessionStorage.getItem(k), KEY);
-    const load = async () => { await page.goto('http://budget.test/'); return selected(); };
+    const load = async () => { await page.goto('http://budget.test/?view=classic'); return selected(); };
 
     const current = await load();
     assert.equal(await stored(), null, 'nothing is stored until the household moves');

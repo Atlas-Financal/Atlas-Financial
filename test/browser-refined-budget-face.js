@@ -46,7 +46,7 @@ async function open(browser, data, width) {
     return route.fulfill({ body: fs.readFileSync(file),
       contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
   });
-  await page.goto(ORIGIN + '/');
+  await page.goto(ORIGIN + '/?view=classic');
   await page.locator('[data-budget-savings-goals] [data-blend-goals]').waitFor();
   return page;
 }

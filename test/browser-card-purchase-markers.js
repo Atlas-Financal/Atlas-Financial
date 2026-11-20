@@ -86,7 +86,7 @@ function served(stage) {
       };
       for (const stage of ['purchase', 'partial', 'full', 'unknown', 'ambiguous', 'pending']) {
         data = served(stage);
-        await page.goto('http://budget.test/');
+        await page.goto('http://budget.test/?view=classic');
         await page.locator('[data-budget-surface]').waitFor();
         const trigger = visibleCategory('groceries');
         await trigger.focus(); await page.keyboard.press('Enter');
@@ -110,7 +110,7 @@ function served(stage) {
       }
       for (const stage of ['carry', 'carry-current', 'carry-unknown', 'carry-covered']) {
         data = served(stage);
-        await page.goto('http://budget.test/');
+        await page.goto('http://budget.test/?view=classic');
         await page.locator('[data-budget-surface]').waitFor();
         const trigger = page.locator('[data-blend-bills-open]');
         await openBillsEvidence();
@@ -150,7 +150,7 @@ function served(stage) {
       }
       for (const stage of ['cutover', 'cutover-covered', 'cutover-unknown', 'cutover-observed', 'cutover-same-day', 'cutover-history']) {
         data = served(stage);
-        await page.goto('http://budget.test/');
+        await page.goto('http://budget.test/?view=classic');
         await page.locator('[data-budget-surface]').waitFor();
         const trigger = page.locator('[data-blend-bills-open]');
         await openBillsEvidence();

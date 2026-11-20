@@ -48,7 +48,7 @@ async function pageFor(routePath, plan, options = {}) {
     try { return await route.fulfill({ body, contentType }); } catch { return; }
   });
   const start = Date.now();
-  await page.goto('http://startup.test' + routePath, { waitUntil: 'commit' });
+  await page.goto('http://startup.test' + routePath + '?view=classic', { waitUntil: 'commit' });
   return { page, context, start, calls: () => calls };
 }
 async function shot(page, name) {

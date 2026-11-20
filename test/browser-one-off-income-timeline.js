@@ -58,7 +58,7 @@ async function strip(browser, served) {
       contentType: file.endsWith('.js') ? 'application/javascript'
         : file.endsWith('.css') ? 'text/css' : 'text/html' });
   });
-  await page.goto('http://budget.test/');
+  await page.goto('http://budget.test/?view=classic');
   await page.locator('[data-bad-timeline] li').first().waitFor({ state: 'attached' });
   const rows = await page.evaluate(() => [...document.querySelectorAll('[data-bad-timeline] li')].map(li => ({
     start: li.getAttribute('data-bad-timeline-start'),

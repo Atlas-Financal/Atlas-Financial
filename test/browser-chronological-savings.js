@@ -19,7 +19,7 @@ try{for(const width of [1440,390,320])for(const mode of ['ready','deposit','sett
   let body=fs.readFileSync(file);if(u.pathname==='/forecast.js')body=Buffer.concat([body,Buffer.from(`\n{const native=Forecast.recommend;Forecast.recommend=(...args)=>{const a=native(...args);window.__advice=a;window.__packet=a.savingsFunding;return a;};Forecast.savingsDailyFunding=()=>{throw Error('Forbidden page daily calculator fallback');};Forecast.savingsFundingTimeline=()=>{throw Error('Forbidden page timeline calculator fallback');};}\n`)]);
   return route.fulfill({body,contentType:file.endsWith('.css')?'text/css':file.endsWith('.js')?'application/javascript':'text/html'});
  });
- await page.goto('http://one-pot.test/');const summary=page.locator('[data-operating-question="savings"] > details > summary');await summary.waitFor();
+ await page.goto('http://one-pot.test/?view=classic');const summary=page.locator('[data-operating-question="savings"] > details > summary');await summary.waitFor();
  const packet=await page.evaluate(()=>window.__packet);assert.equal(packet.source,'Forecast.savingsDailyFunding');
  const backed=['ready','deposit','settled'].includes(mode),club=mode==='deposit'?105:95;
  assert.equal(packet.backing.status,backed?'ready':'unavailable');

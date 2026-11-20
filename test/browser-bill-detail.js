@@ -66,7 +66,7 @@ const root = path.join(__dirname, '..');
       });
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
-      await page.goto(base);
+      await page.goto(base + '/?view=classic');
       const details = page.locator('[data-bill-detail]'), summary = details.locator(':scope > summary');
       assert.equal(await details.evaluate(el => el.open), false);
       assert.ok((await summary.boundingBox()).height >= 44, 'phone tap target');

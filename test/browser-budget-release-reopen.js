@@ -140,7 +140,7 @@ async function scenario(browser, width, resume, mode = 'contract') {
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await page.waitForFunction(() => typeof App !== 'undefined' && App.data !== null);
     // The post-login redirect is not routed by Playwright; one ordinary load arms the label.
-    await page.goto(w.origin + '/');
+    await page.goto(w.origin + '/?view=classic');
     await page.waitForFunction(() => typeof App !== 'undefined' && App.data !== null);
     const label0 = (await page.locator('.running-build').innerText()).trim();
     record(id, 'PRE loaded-release-label', label0 === `Running commit ${OLD}`, { label: label0 });

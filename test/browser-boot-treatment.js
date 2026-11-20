@@ -260,7 +260,7 @@ async function openPage(browser, serveDir, contextOpts, dataPlan, extra = {}) {
 // treatment's first-visible time and any in-interval gap.
 async function sampleLoad(page, routePath, timeoutMs = 30000) {
   const t0 = Date.now();
-  const nav = page.goto('http://boot.test' + routePath, { waitUntil: 'commit' });
+  const nav = page.goto('http://boot.test' + routePath + '?view=classic', { waitUntil: 'commit' });
   const samples = [];
   let firstVisibleMs = null;
   let contentMs = null;
@@ -323,7 +323,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const again = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 9000, status: 200 }));
-      const nav = again.page.goto('http://boot.test/', { waitUntil: 'commit' });
+      const nav = again.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await treatmentVisible(again.page);
       await shot(again.page, 'boot-treatment-light.png');
       const noticeRect = await rectOf(again.page, '[data-boot-notice]');
@@ -355,7 +355,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'dark' },
         () => ({ delayMs: 1500, status: 200 }));
-      const nav = page.goto('http://boot.test/', { waitUntil: 'commit' });
+      const nav = page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await treatmentVisible(page);
       const tVis = Date.now();
       const noticeRect = await rectOf(page, '[data-boot-notice]');
@@ -375,7 +375,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 320, height: 700 }, colorScheme: 'light', reducedMotion: 'reduce' },
         () => ({ delayMs: 2500, status: 200 }));
-      const nav = page.goto('http://boot.test/', { waitUntil: 'commit' });
+      const nav = page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await treatmentVisible(page);
       const noticeRect = await rectOf(page, '[data-boot-notice]');
       assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 320');
@@ -413,7 +413,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light', hasTouch: true },
         () => { call++; if (call === 1) return { delayMs: 1500, status: 503 }; if (call === 2) return { delayMs: 1200, status: 503 }; return { delayMs: 2000, status: 200 }; });
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'failure run, first pending');
@@ -465,7 +465,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light', hasTouch: true },
         () => (++calls <= 2 ? { delayMs: 5000, status: 200 } : { delayMs: 1500, status: 200 }));
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'cancel run, first pending');
@@ -524,7 +524,7 @@ async function waitContent(page, timeoutMs = 30000) {
         const { context, page } = await openPage(browser, serveRoot,
           { viewport: cfg.viewport, colorScheme: cfg.colorScheme, reducedMotion: cfg.reducedMotion || 'no-preference', javaScriptEnabled: false },
           () => ({ delayMs: 0, status: 200 }));
-        await page.goto('http://boot.test/', { waitUntil: 'load' });
+        await page.goto('http://boot.test/?view=classic', { waitUntil: 'load' });
         const st = await page.evaluate(visFn);
         assert.ok(st.staticLayer.visible, 'static layer computed-visible without JavaScript (' + cfg.name + ')');
         assert.ok(!st.liveLayer.present, 'no live layer without JavaScript (' + cfg.name + ')');
@@ -582,7 +582,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 6000, status: 200 }));
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await treatmentVisible(page);
       const probed = await stashShellProbe(page);
       await assertShellInert(page, 'inertness run, held load');
@@ -640,7 +640,7 @@ async function waitContent(page, timeoutMs = 30000) {
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 300, status: 200 }),
         { holdScripts: () => gate });
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await page.waitForSelector('[data-boot-static]', { state: 'attached' });
       await page.waitForTimeout(400); // scripts are held; the static phase persists
       const held = await page.evaluate(() => {
@@ -732,7 +732,7 @@ async function waitContent(page, timeoutMs = 30000) {
       const { context, page } = await openPage(browser, serveRoot,
         { viewport: { width: 1440, height: 900 }, colorScheme: 'light' },
         () => ({ delayMs: 5000, status: 200 }));
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await page.waitForSelector('[data-boot-notice]', { state: 'attached', timeout: 20000 });
       await page.waitForTimeout(500); // held load: boot has covered the shell
       const held = await page.evaluate(() => {
@@ -826,7 +826,7 @@ async function waitContent(page, timeoutMs = 30000) {
                 '<section id="road-ahead" hidden inert aria-hidden="true">')
             : body,
         });
-      await page.goto('http://boot.test/', { waitUntil: 'commit' });
+      await page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
       await waitContent(page);
       await shot(page, 'boot-treatment-ready.png');
       // This run resolves too fast to stash the probe during the
@@ -908,7 +908,7 @@ async function waitContent(page, timeoutMs = 30000) {
           { viewport: { width: 1280, height: 900 }, colorScheme: 'light' },
           () => ({ delayMs, status: 200 }));
         const t0 = Date.now();
-        const nav = b.page.goto('http://boot.test/', { waitUntil: 'commit' });
+        const nav = b.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
         let treatmentsSeen = 0;
         await b.page.waitForFunction(() => {
           const c = document.querySelector('#operating-surface');
@@ -937,7 +937,7 @@ async function waitContent(page, timeoutMs = 30000) {
           { viewport: { width: 1280, height: 900 }, colorScheme: 'light' },
           () => ({ delayMs: 5000, status: 200 }));
         const t0 = Date.now();
-        const nav = s.page.goto('http://boot.test/', { waitUntil: 'commit' });
+        const nav = s.page.goto('http://boot.test/?view=classic', { waitUntil: 'commit' });
         await s.page.waitForFunction(() => {
           const c = document.querySelector('#operating-surface');
           return c && (c.innerText || '').trim().length > 20;

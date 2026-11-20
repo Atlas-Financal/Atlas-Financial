@@ -205,7 +205,7 @@ async function visibility(page, selector) {
     // `attached` is only a boot-readiness wait; visibility is proven
     // separately (bounded `waitFor({ state: 'visible' })` plus `visibility()`).
     const visit = async (pathname, waitSel, visibleSels = []) => {
-      await page.goto(origin + pathname);
+      await page.goto(origin + pathname + (pathname.includes('?') ? '&' : '?') + 'view=classic');
       if (waitSel) await page.locator(waitSel).first().waitFor({ state: 'attached', timeout: 10000 });
       await page.waitForLoadState('networkidle');
       const r = await read(page);

@@ -97,7 +97,7 @@ async function session(server, width, steps, extras = true) {
       if (page.url().startsWith(server.base)) {
         await page.waitForFunction(() => !!document.querySelector('dialog[open]') === !!(history.state && history.state.atlasSheet));
         await page.reload();
-      } else await page.goto(server.base);
+      } else await page.goto(server.base + '/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       await page.waitForFunction(() => !!document.querySelector('[data-budget-browse="bills"] [data-budget-bill-open]'));
     };
@@ -219,7 +219,7 @@ async function session(server, width, steps, extras = true) {
           done: new Promise(resolve => { complete = resolve; }), release: () => release(), complete: () => complete() };
         activePhase = { width, mode, navigationAt: performance.now(), synthetic: true };
         server.write(fixture('resolved'));
-        if (page.url().startsWith(server.base)) await page.reload(); else await page.goto(server.base);
+        if (page.url().startsWith(server.base)) await page.reload(); else await page.goto(server.base + '/?view=classic');
         return control;
       };
       const usable = async () => {
@@ -312,8 +312,8 @@ async function session(server, width, steps, extras = true) {
       assert.doesNotMatch(await body().innerText(), /Transaction date|2026-08-16/);
       await closeSheet(futureBill);
       await move('ArrowLeft'); await check(last);
-      await page.goto(server.base + '/');
-      await page.waitForURL(server.base + '/');
+      await page.goto(server.base + '/?view=classic');
+      await page.waitForURL(server.base + '/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       assert.equal(await page.locator('.sitenav, .sitenav-household').count(), 0);
       await check(last);

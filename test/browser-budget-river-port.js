@@ -754,7 +754,7 @@ if (require.main === module) {
           const contentType = file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.woff2') ? 'font/woff2' : 'text/html';
           return route.fulfill({ body: fs.readFileSync(file), contentType });
         });
-        await page.goto('http://budget.test/'); if(!options.riverHarness)await page.locator('.river').waitFor();
+        await page.goto('http://budget.test/?view=classic'); if(!options.riverHarness)await page.locator('.river').waitFor();
         await page.evaluate(() => document.fonts.ready);
         return page;
       };

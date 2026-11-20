@@ -30,7 +30,7 @@ const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
         contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' })
         : route.fulfill({ status: 404, body: '' });
     });
-    await page.goto('http://card-movement.test/');
+    await page.goto('http://card-movement.test/?view=classic');
     const strip = page.locator('[data-budget-card-movements]');
     await strip.waitFor();
     const travel = strip.locator('[data-budget-card-toggle="travelvisa"]');

@@ -47,7 +47,7 @@ async function next(page) {
       const body=fs.readFileSync(file);served[mode][path.relative(revision,file).replaceAll('\\','/')]=hash(body);
       return route.fulfill({body,contentType:file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'text/html'});
     });
-    await page.goto('http://payday-gap.test/');
+    await page.goto('http://payday-gap.test/?view=classic');
     const tile=page.locator('[data-budget-savings-goals]');await tile.waitFor();
     const initial=await page.evaluate(()=>JSON.stringify(App.data));
     const dates=[];for(let n=0;n<3;n++){await next(page);dates.push(await page.locator('[data-budget-window-progress]').getAttribute('data-start'));}

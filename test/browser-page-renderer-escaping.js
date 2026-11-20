@@ -59,7 +59,7 @@ const pages = [
         new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(note)))
           .observe(document, { childList: true, subtree: true });
       });
-      await page.goto('http://atlas.test' + route.path);
+      await page.goto('http://atlas.test' + route.path + '?view=classic');
       await page.waitForFunction(label => (document.body.innerText || '').includes(label), H.LABEL, { timeout: 20000 })
         .catch(() => errors.push(`${route.path}: the hostile label never appeared as text`));
       if (route.main) {
