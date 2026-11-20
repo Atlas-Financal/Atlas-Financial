@@ -23,17 +23,15 @@ html.stack-view .stack-sheet .stack-sheet-close {
   background: var(--stack-on); color: var(--k);
 }
 html.stack-view .stack-sheet-big { margin: 14px 0 10px; font-size: 56px; font-weight: 800; letter-spacing: -.035em; line-height: 1.05; }
+html.stack-view .stack-sheet-big[data-stack-credit-balance] { font-style: italic; }
 html.stack-view .stack-sheet-big i { font-style: normal; font-size: .45em; font-weight: 600; color: var(--stack-on2); letter-spacing: -.02em; }
-html.stack-view .stack-sheet-pill {
-  display: inline-block; font-size: 14.5px; font-weight: 700; border-radius: 999px; padding: 7px 14px;
-  box-shadow: inset 0 0 0 2px var(--stack-on2); color: var(--stack-on);
-}
-html.stack-view .stack-sheet-pill.is-on { box-shadow: none; background: var(--stack-on); color: var(--k); }
-html.stack-view .stack-sheet-pill.is-togo { color: var(--stack-togo, #c8372d); box-shadow: inset 0 0 0 2px var(--stack-togo, #c8372d); }
+html.stack-view .stack-sheet-togo { display: inline-block; font-size: 22px; font-weight: 800; letter-spacing: -.02em; color: var(--stack-togo, #c8372d); }
 html.stack-view .stack-sheet-bar { display: block; height: 10px; margin-top: 14px; border-radius: 5px; background: var(--stack-on-line); overflow: hidden; }
 html.stack-view .stack-sheet-bar i { display: block; height: 100%; border-radius: 5px; background: var(--stack-on); }
 html.stack-view .stack-sheet dl { margin: 18px 0 0; }
 html.stack-view .stack-sheet dl div { display: flex; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1.5px solid var(--stack-on-line); font-size: 17px; }
+html.stack-view .stack-sheet-plain { margin: 0; padding: 13px 0; border-top: 1.5px solid var(--stack-on-line); font-size: 17px; font-weight: 700; }
+html.stack-view .stack-sheet-check + .stack-sheet-plain, html.stack-view .stack-sheet-big + .stack-sheet-plain { margin-top: 18px; }
 html.stack-view .stack-sheet dt { color: var(--stack-on2); }
 html.stack-view .stack-sheet dd { margin: 0; font-weight: 700; }
 html.stack-view .stack-sheet-txh { margin: 22px 0 0; font-size: 15px; font-weight: 700; }
@@ -46,3 +44,11 @@ html.stack-view .stack-sheet-txd { font-size: 13.5px; color: var(--stack-on2); }
 html.stack-view .stack-sheet-txa { font-weight: 700; }
 html.stack-view .stack-sheet-tx li.is-pay .stack-sheet-txl { font-weight: 700; }
 html.stack-view .stack-sheet-tx li.is-pending { opacity: .62; }
+html.stack-view .stack-sheet-hist { list-style: none; margin: 18px 0 0; padding: 0; }
+html.stack-view .stack-sheet-hist li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 28px; gap: 10px; align-items: baseline;
+  padding: 12px 0; border-top: 1.5px solid var(--stack-on-line); font-size: 16.5px;
+}
+html.stack-view .stack-sheet-histck { text-align: right; }
+html.stack-view .stack-sheet-hist .stack-sheet-check { font-size: 18px; }
+html.stack-view .stack-sheet-check { display: inline-block; color: #0f7a43; font-size: 26px; font-weight: 800; line-height: 1; }

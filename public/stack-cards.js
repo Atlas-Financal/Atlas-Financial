@@ -10,7 +10,7 @@
  *
  * Reads, from the selected pay period view:
  *   stackSummary.bills.other / .mortgage / .cardMinimums[].debtId  (#1426)
- *   bills[].paidState  'paid' | 'not-paid' | 'carried'            (#1429)
+ *   bills[].paidState  'paid' | 'not-paid' | 'carried'            (#1429); a green check only for 'paid'
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
@@ -88,8 +88,8 @@
 
   function isMortgageRow(r) { return !!r && (r.debtId === 'mortgage' || r.id === 'mortgage'); }
 
-  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est) {
-    var f = figure == null ? '' : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
+  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash) {
+    var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
       (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
       '<summary><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + f + '</summary>' +
@@ -105,10 +105,14 @@
     return r && r.id != null && r.date != null ? kind + ':' + r.id + '@' + r.date : null;
   }
 
-  function stateWord(row) { return row.paidState === 'paid' ? 'Paid' : 'Not paid'; }
-  function stateRow(label, amountText, paid, word, target) {
-    return '<li class="sc-row"' + sheetAttrs(target) + '><span><b class="sc-n">' + esc(label) + '</b><small class="sc-st' + (paid ? ' sc-paid' : '') + '">' +
-      esc(word) + '</small></span>' + (amountText == null ? '' : '<span class="sc-a">' + esc(amountText) + '</span>') + '</li>';
+  // A bill-like row reads: the item, its amount, and a green check only when Forecast's paidState says paid
+  // (owner direction): no status word, no mark when unpaid or unknown. The check's accessible name is "Paid",
+  // for screen readers only. An unpublished amount is a dash, never a zero.
+  var DASH = '\u2014';
+  function stateRow(label, amountText, paid, target) {
+    return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
+      '<span class="sc-a">' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
+      '<span class="sc-ck">' + (paid ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span></li>';
   }
 
   function billsCard(view) {
@@ -121,10 +125,9 @@
     var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', stateWord(r), billTarget('bill', r));
+      return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', billTarget('bill', r));
     }).join('') + '</ul>';
-    var sub = rows.length ? paid + ' of ' + rows.length + ' paid' : 'paid / total';
-    return strip('bills', 'Bills', sub, total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust));
+    return strip('bills', 'Bills', '', total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust), true);
   }
 
   function budgetCard(view) {
@@ -143,10 +146,10 @@
       return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
         (p == null ? '' : '<span class="sc-mini"><i style="width:' + fill(c.spent, c.planned) + '%"></i></span>') + '</span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
-          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
+          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> of ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
-    return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', null, null, hhEst);
+    return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' of ', null, hhEst, true);
   }
 
   function mortgageCard(view) {
@@ -155,9 +158,8 @@
       return isMortgageRow(r) && r.paidState && r.paidState !== 'carried';
     })[0];
     var paid = !!row && row.paidState === 'paid';
-    var body = row ? '<ul class="sc-list">' + stateRow(row.label || row.name || 'Mortgage', money(row.amount), paid, stateWord(row), billTarget('mortgage', row)) + '</ul>' : '';
-    var sub = row ? stateWord(row) : 'paid / total';
-    return strip('mortgage', 'Mortgage', sub, total, null, paid ? 100 : 0, body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])));
+    var body = row ? '<ul class="sc-list">' + stateRow(row.label || row.name || 'Mortgage', money(row.amount), paid, billTarget('mortgage', row)) + '</ul>' : '';
+    return strip('mortgage', 'Mortgage', '', total, null, paid ? 100 : 0, body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
   }
 
   // Savings (owner-approved design): "$saved of $needed" and a bar; open, one
@@ -170,25 +172,24 @@
     var t = sv.totals || {};
     var amt = function (v) { return v; }; // plain numbers or null (A5)
     var has = function (list, code) { return Array.isArray(list) && list.indexOf(code) >= 0; };
-    var labelOf = {};
-    items.forEach(function (i) { if (i.id != null) labelOf[String(i.id)] = i.label; });
-    var exLabels = (Array.isArray(t.excluded) ? t.excluded : []).map(function (id) { return labelOf[String(id)]; })
-      .filter(function (l) { return l; }); // an id with no listed item has no label to print
-    var ex = exLabels.length ? 'excludes ' + exLabels.join(', ') : null;
     // Header: current period, the pool's "moved of entitlement this period" (only when both
     // are published); a next or future period, the planned total with nothing moved; a past
     // period, no amount. A withheld value prints nothing, never $0.
     var moved = money(t.saved), entitlement = money(t.entitlement), planned = money(t.needed);
     var head, headOf = null, sub, tail = null, sep = null, width = 0;
     if (moved != null && entitlement != null) {
-      head = moved; headOf = entitlement; sep = ' moved of '; tail = ' this period'; sub = '';
+      head = moved; headOf = entitlement; sep = ' of '; sub = '';
       width = fill(t.saved, t.entitlement);
     } else if (has(t.reasons, 'future-period') && planned != null) {
-      head = planned; sub = 'planned this period';
+      head = planned; sub = '';
     } else { head = null; sub = ''; }
+    // No savings goals published at all: no card. A past period with nothing to print: no card (nothing is due in
+    // the past, and a list of names and dashes is clutter). A current or future period whose figures are withheld
+    // keeps its card with dashes: an unknown must not read as "nothing due".
+    var printable = items.some(function (i) { return isNum(i.saved) || (has(i.reasons, 'future-period') && isNum(i.needed)); });
     if (head == null && !items.length) return '';
+    if (head == null && !printable && view.timelineRole === 'past') return '';
     var headEst = head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null);
-    if (ex) sub = ex;
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);
       var own = s != null; // this goal's own published saved value (current period, nearest due first)
@@ -198,13 +199,14 @@
           '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
           '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + fill(i.saved, i.periodTarget) + '%"></i></span></li>';
       }
-      var word = has(i.reasons, 'net-of-period-transfers') ? 'still to set aside ' : 'needs ';
-      var right = n == null || has(i.reasons, 'past-period') ? ''
-        : has(i.reasons, 'future-period') ? '<span class="sc-a' + estCls(isEst(i.trust)) + '">' + esc(n) + '<i> planned this period</i></span>'
-        : '<span class="sc-a' + estCls(isEst(i.trust)) + '"><i>' + word + '</i>' + esc(n) + '</span>';
+      // No words (owner rule): a future period shows only its planned amount; any other row with no published
+      // saved figure shows a dash (the net still-to-set-aside figure is not printed, so it never reads as the target).
+      var right = has(i.reasons, 'future-period') && n != null
+        ? '<span class="sc-a' + estCls(isEst(i.trust)) + '">' + esc(n) + '</span>'
+        : '<span class="sc-a">' + DASH + '</span>';
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b></span>' + right + '</li>';
     }).join('') + '</ul>';
-    return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail, headEst);
+    return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail, headEst, true);
   }
 
   function buildCardsHTML(ctx) {

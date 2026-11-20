@@ -28,6 +28,15 @@ const withoutStackSummary = row => {
   return copy;
 };
 
+// The live period less each household budget row's derived reconMatchesSpent,
+// which is set at publication from the row's own Spent and recon and never saved.
+const withoutReconMatchesSpent = row => {
+  const copy = JSON.parse(JSON.stringify(row));
+  const rows = copy && Array.isArray(copy.householdBudget) ? copy.householdBudget : [];
+  for (const r of rows) delete r.reconMatchesSpent;
+  return copy;
+};
+
 const START = '2030-02-01', END = '2030-02-14';
 const clone = value => JSON.parse(JSON.stringify(value));
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-history-test-'));
@@ -79,8 +88,29 @@ try {
   const refreshed = Live.fromObservation(source), options = Operating.recommendOpts(refreshed.data, {});
   options.periods = source.periods;
   const native = Forecast.recommend(refreshed.data.plan, START, options).payPeriodViews.find(p => p.start === START);
-  assert.deepEqual(candidate.content.publication, withoutBillPaidState(withoutStackSummary(native)), 'archive reprints native Forecast without a second planner');
+  assert.deepEqual(candidate.content.publication, withoutReconMatchesSpent(withoutBillPaidState(withoutStackSummary(native))), 'archive reprints native Forecast without a second planner');
   assert.equal(native.householdBudget.find(row => row.id === 'groceries').spent, 12.34, 'invented posted CAD debit is preserved independently');
+  {
+    // Atlas blocker on #1452: a household budget row's reconMatchesSpent is display-only, derived at publication from
+    // the row's own Spent and recon, so neither value of it is ever written into a saved close; live rows keep it.
+    const flagless = rows => rows.every(row => !Object.hasOwn(row, 'reconMatchesSpent'));
+    assert.ok(native.householdBudget.length > 0 && native.householdBudget.every(row => row.reconMatchesSpent === true),
+      'live rows publish reconMatchesSpent (true here)');
+    assert.ok(flagless(candidate.content.publication.householdBudget), 'the saved publication carries no reconMatchesSpent true');
+    const real = Forecast.recommend;
+    let stamped = 0;
+    Forecast.recommend = (...args) => {
+      const out = real(...args);
+      for (const view of out.payPeriodViews || []) for (const row of view.householdBudget || []) { row.reconMatchesSpent = row.id !== 'groceries'; stamped++; }
+      return out;
+    };
+    try {
+      const again = capture(source);
+      assert.ok(stamped > 0, 'control: the capture ran through the stamped Forecast');
+      assert.ok(flagless(again.content.publication.householdBudget), 'the saved publication carries no reconMatchesSpent false or true');
+      assert.deepEqual(again.content.publication, candidate.content.publication, 'and the saved publication is byte-for-byte what it was without the flag');
+    } finally { Forecast.recommend = real; }
+  }
   rejects(() => History.append({ destination: temporary, candidate }), 'history-capture-disabled');
   rejects(() => History.capture(source), 'history-capture-clock-owned');
   const oldSource = clone(source); delete oldSource.capturedAt;

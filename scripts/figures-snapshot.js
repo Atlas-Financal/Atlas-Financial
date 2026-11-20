@@ -542,6 +542,7 @@ if (trajectory.status === 'ready') {
 
 putPayPeriods(put, putField, advice);
 putStackCards(put, putField, advice, data, plan, asOf);
+putBillHistory(put, putField, advice);
 putSavingsPublication(put, putField, advice, selectPublications(advice, asOf));
 
 return out;
@@ -569,10 +570,27 @@ function uniqueKey(used, key) {
   return candidate;
 }
 
+/* ---- Stack Wallet bill sheet: Forecast billHistory ------------------------ */
+// Each bill's occurrences as published (date, amount, its basis and trust,
+// the paid word, the occurrence identity), one key per bill id and date.
+// Copied, never summed.
+const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState', 'occurrence'];
+function putBillHistory(put, putField, advice) {
+  const history = advice.billHistory && typeof advice.billHistory === 'object' ? advice.billHistory : {};
+  const keys = new Set();
+  for (const id of Object.keys(history).sort()) {
+    for (const entry of Array.isArray(history[id]) ? history[id] : []) {
+      const k = uniqueKey(keys, 'billHistory.' + segment(id) + '@' + segment(entry && entry.date));
+      for (const field of BILL_HISTORY_FIELDS) putField(k + '.' + field, entry, field);
+    }
+  }
+}
+
 /* ---- Stack Wallet A6: Forecast.stackCardSummary per pay period --------- */
 // The page calls Forecast.cardPeriodMovements for a selected period with the
-// applied live overlay (public/plan.js budgetCardMovementsHtml) and reads
-// Forecast.stackCardSummary of that publication. The same call per published
+// applied live overlay (public/plan.js budgetCardMovementsHtml); the Stack
+// page's Credit card (DISPLAY B4, the intended consumer) reads
+// Forecast.stackCardSummary and Forecast.stackCreditLines of that publication. The same call per published
 // pay period, copied as published: paid, spent and net with each figure's
 // trust word, and the card's state. Transaction rows are display only.
 const STACK_FIGURES = ['paid', 'spent', 'net'];
@@ -594,6 +612,36 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         put(c + '.' + field + 'Trust', card[field].trust);
       }
       putField(c + '.state', card, 'state');
+    }
+    // Stack Wallet A6b: Forecast.stackCreditLines on the same publication and
+    // the period's published bills split. Per line: the minimum, status, the
+    // amount to go and whether the minimum is covered, each with its trust;
+    // and the credit totals with their completeness. The last balance snapshot
+    // (current period only) with its trust and date, and its total.
+    const credit = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
+    if (credit) {
+      const lineKeys = new Set();
+      for (const line of credit.lines) {
+        const c = uniqueKey(lineKeys, p + '.stackLine.' + segment(line.id));
+        put(c + '.minimum', line.minimum.amount);
+        put(c + '.minimumTrust', line.minimum.trust);
+        put(c + '.toGo', line.toGo.amount);
+        put(c + '.toGoTrust', line.toGo.trust);
+        putField(c + '.status', line, 'status');
+        put(c + '.minimumCovered', String(line.minimumCovered.value));
+        put(c + '.minimumCoveredTrust', line.minimumCovered.trust);
+        put(c + '.balance', line.balance.amount);
+        put(c + '.balanceTrust', line.balance.trust);
+        put(c + '.balanceAsOf', line.balance.asOf);
+      }
+      const t = p + '.stackCardTotals';
+      put(t + '.paid', credit.totals.paid);
+      put(t + '.spent', credit.totals.spent);
+      put(t + '.trust', credit.totals.trust);
+      put(t + '.completeness', credit.totals.completeness);
+      put(t + '.balance', credit.totals.balance.amount);
+      put(t + '.balanceTrust', credit.totals.balance.trust);
+      put(t + '.balanceCompleteness', credit.totals.balance.completeness);
     }
   }
 }
@@ -628,6 +676,17 @@ function putPayPeriods(put, putField, advice) {
       const record = { mortgage: split.mortgage, credit: terms ? terms.credit : null, other: split.other, trust: split.trust };
       for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust']])
         putField(p + '.' + key, record, field);
+    }
+    // Stack Wallet A5: the period's savings totals and each goal's needed, saved,
+    // period target and trust tags, copied as published.
+    const savings = view.stackSummary && view.stackSummary.savings;
+    const savingsTotals = savings && savings.totals;
+    for (const [field, key] of [['needed', 'stackSavingsNeeded'], ['saved', 'stackSavingsSaved'], ['entitlement', 'stackSavingsEntitlement'],
+      ['trust', 'stackSavingsTrust'], ['entitlementTrust', 'stackSavingsEntitlementTrust'], ['completeness', 'stackSavingsCompleteness']]) putField(p + '.' + key, savingsTotals, field);
+    const goalKeys = new Set();
+    for (const item of savings && Array.isArray(savings.items) ? savings.items : []) {
+      const g = uniqueKey(goalKeys, p + '.stackSavingsGoal.' + segment(item && item.id));
+      for (const field of ['needed', 'saved', 'periodTarget', 'trust', 'savedTrust']) putField(g + '.' + field, item, field);
     }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {
@@ -1046,6 +1105,19 @@ function putSavingsPublication(put, putField, advice, publications) {
       putRows(put, putField, p + '.close.row.', close.rows, CLOSE_ROW_FIELDS);
       putRows(put, putField, p + '.close.item.', close.items, CLOSE_ITEM_FIELDS);
       putAllocations(put, p + '.close.allocation.', close.allocations);
+    }
+    // The projected top-up the page prints as "Added this period", and the
+    // packet's own row "This period", both derived from the period's Budget
+    // funding (plannedCostFunding). Captured so a second schedule cannot move
+    // them unseen.
+    if (kind === 'projected') {
+      putField(p + '.topup.proposal', packet.period, 'proposal');
+      const used = new Set();
+      for (const row of Array.isArray(packet.rows) ? packet.rows : []) {
+        const r = uniqueKey(used, p + '.topup.row.' + segment(row && row.key));
+        putField(r + '.thisPeriod', row, 'thisPeriod');
+        putField(r + '.thisPeriodTrust', row, 'thisPeriodTrust');
+      }
     }
     if (kind === 'projected' && packet.plannedRequirements) {
       putRows(put, putField, p + '.planned.row.', packet.plannedRequirements.rows, PLANNED_ROW_FIELDS);

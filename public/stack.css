@@ -54,6 +54,9 @@ html.stack-view .stack-pile { display: flex; flex-direction: column; min-width: 
 html.stack-view .stack-block { position: relative; min-width: 0; border-radius: 38px; margin-top: -38px; box-shadow: var(--stack-lift); }
 html.stack-view .stack-block:first-child { margin-top: 0; box-shadow: none; }
 html.stack-view .stack-block:empty { display: none; }
+/* Two bare blocks in a row (the cards, then Credit) stand apart like the cards themselves: a bare block has no padding
+ * of its own to absorb the overlap, so overlapping would cover the last card's strip (Mortgage under Credit). */
+html.stack-view .stack-bare + .stack-bare { margin-top: 12px; }
 
 /* Block 1, the timeline. */
 html.stack-view .stack-tl { background: var(--stack-t-bg); color: var(--stack-t-fg); padding: 16px 12px 52px; }

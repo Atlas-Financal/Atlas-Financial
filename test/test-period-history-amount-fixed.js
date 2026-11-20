@@ -62,6 +62,8 @@ const withoutBillPaidState = row => {
   const bills = copy && Array.isArray(copy.bills) ? copy.bills : [];
   if (!bills.every(b => b && Object.hasOwn(b, 'paidState'))) throw new Error('every live bill row publishes paidState');
   for (const b of bills) delete b.paidState;
+  // and less each household budget row's derived reconMatchesSpent (#1452), also set at publication and never saved.
+  for (const r of copy && Array.isArray(copy.householdBudget) ? copy.householdBudget : []) delete r.reconMatchesSpent;
   return copy;
 };
 // The live period less the derived Stack Wallet stackSummary, which is built

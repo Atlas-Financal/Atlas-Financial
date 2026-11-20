@@ -293,7 +293,10 @@ console.log('9. Every published figure, never above the truth, whichever card it
   // second card's own payment credit, that card's provider balance itself
   // differs: an input difference, not card coverage.)
   const CAUTIOUS = [/^totals\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
-    /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/];
+    /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/,
+    // The Stack credit lines' balance snapshot is the same card stock as
+    // revolving.<id>.posted (the debt's balance, #1447), and its total is a sum of it.
+    /^period\.[^.]+\.stackLine\.[^.]+\.balance$/, /^period\.[^.]+\.stackCardTotals\.balance$/];
   // advice.sim's raw walk: the Plan tab draws it directly and main publishes it
   // on every card hold too (from a zero-spend walk, higher still). Lead's call
   // on #1358 (option 1): named here, BACKLOG for the page's withheld path.
