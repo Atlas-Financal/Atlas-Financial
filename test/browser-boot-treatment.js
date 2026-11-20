@@ -1,6 +1,11 @@
 'use strict';
 // Browser proof for the full-screen boot (loading) treatment — the
-// follow-on to PR #581. The whole page IS the loading screen: two
+// follow-on to PR #581. Since 2026-11-20 (owner, Dale: "just the pixel
+// art video") the loading screen draws only the household's campfire
+// scene: the brand mark, wordmark and tips stay in the markup but are
+// not drawn, the scene animates while loading, and reduced motion and
+// the crit surface show its still frame. The history below describes
+// the layers, which are unchanged. The whole page IS the loading screen: two
 // layers, one composition (large brand mark, ATLAS wordmark, status
 // line, restrained brand glow on --plane). The static layer
 // (.boot-static, index.html markup) covers the pre-script interval on
@@ -82,7 +87,7 @@ const visFn = () => {
   const content = document.querySelector('#operating-surface, [data-page-shell], main, h1');
   return {
     staticLayer: probe('[data-boot-static]'),
-    liveLayer: probe('[data-boot-treatment]'),
+    liveLayer: probe('[data-boot-notice]'),
     contentChars: content ? (content.innerText || '').trim().length : 0,
     noticeText: (document.querySelector('.note-box')?.innerText || '').trim(),
   };
@@ -98,55 +103,31 @@ const coversViewport = r => !!r && Math.abs(r.x) <= 1 && Math.abs(r.y) <= 1
   && Math.abs(r.width - r.vw) <= 1 && Math.abs(r.height - r.vh) <= 1;
 
 const treatmentVisible = page => page.waitForFunction(() => {
-  const el = document.querySelector('[data-boot-treatment]');
+  const el = document.querySelector('[data-boot-notice]');
   if (!el) return false;
   const cs = getComputedStyle(el); const r = el.getBoundingClientRect();
   return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
 }, { timeout: 10000 });
 
-// Computed animation name of the first animated brand block inside a
-// layer root ('[data-boot-treatment]' live, '[data-boot-static]'
-// static); null when the layer or its mark is absent.
-const markAnimName = (page, rootSel) => page.evaluate(s => {
-  const el = document.querySelector(s + ' .boot-blocks-mark rect.boot-mark-a');
-  return el ? getComputedStyle(el).animationName : null;
-}, rootSel);
-
-// Sample the four blocks' bounding-box centres across the animation
-// loop and report, per block, the range of its distance from the
-// mark's centre point — geometry, not animation-name bookkeeping:
-// a phased separate -> bump -> settle loop must move the blocks
-// measurably apart and together. The sampling loop lives on the Node
-// side (repeated synchronous evaluates) because an async evaluate
-// never resolves on the JavaScript-disabled static-layer page.
-const markGeometry = async (page, rootSel, frames = 24, intervalMs = 160) => {
-  const seen = [];
-  for (let i = 0; i < frames; i++) {
-    const centres = await markCentres(page, rootSel);
-    if (!centres) return null;
-    if (centres.length !== 4) return { blocks: centres.length, ranges: [] };
-    seen.push(centres);
-    await sleep(intervalMs);
-  }
-  const ranges = [0, 1, 2, 3].map(k => {
-    const ds = seen.map(f => {
-      const mx = f.reduce((a, p) => a + p.cx, 0) / f.length;
-      const my = f.reduce((a, p) => a + p.cy, 0) / f.length;
-      return Math.hypot(f[k].cx - mx, f[k].cy - my);
-    });
-    return Math.round((Math.max(...ds) - Math.min(...ds)) * 100) / 100;
-  });
-  return { blocks: 4, frames: seen.length, ranges };
-};
-
-const markCentres = (page, rootSel) => page.evaluate(s => {
+// The campfire scene (owner, Dale, 2026-11-20: "just the pixel art
+// video"): a layer's computed background names the scene file, and no
+// part of the brand mark, wordmark or tips card is drawn (every one has
+// an empty box, or is absent).
+const sceneState = (page, rootSel) => page.evaluate(s => {
   const rootEl = document.querySelector(s);
   if (!rootEl) return null;
-  return [...rootEl.querySelectorAll('.boot-blocks-mark rect:not(.boot-mark-bg)')].map(r => {
-    const b = r.getBoundingClientRect();
-    return { cx: b.x + b.width / 2, cy: b.y + b.height / 2 };
-  });
+  const bg = getComputedStyle(rootEl).backgroundImage;
+  const drawn = [...rootEl.querySelectorAll('.boot-blocks-mark, .boot-wordmark')]
+    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
+  return { scene: /boot-campfire\.avif/.test(bg) ? 'animation' : /boot-campfire\.jpg/.test(bg) ? 'still' : 'none', brandingDrawn: drawn };
 }, rootSel);
+const assertScene = async (page, rootSel, want, why) => {
+  const st = await sceneState(page, rootSel);
+  assert.ok(st, why + ': the layer is present');
+  assert.equal(st.scene, want, why + ': the layer shows the campfire ' + want);
+  assert.equal(st.brandingDrawn, 0, why + ': no logo or wordmark is drawn');
+  return st;
+};
 
 // Count elements in the boot notice subtree (notice included) whose
 // computed animation is anything but none — the crit surface must be
@@ -173,9 +154,7 @@ const noticeBranding = page => page.evaluate(() => {
 });
 const assertBrandingStatic = async (page, why) => {
   const b = await noticeBranding(page);
-  assert.ok(b && b.treatmentPresent, why + ': the brand treatment is present on the terminated surface');
-  assert.equal(b.wordmark, 'ATLAS', why + ': the ATLAS wordmark is present on the terminated surface');
-  assert.equal(b.markRects, 5, why + ': the four-block brand mark is present on the terminated surface');
+  await assertScene(page, '[data-boot-notice]', 'still', why);
   assert.equal(await noticeAnimations(page), 0, why + ': no running animation anywhere in the notice');
   return b;
 };
@@ -337,16 +316,10 @@ async function waitContent(page, timeoutMs = 30000) {
         return el ? (el.closest('[data-boot-notice]') ? 'notice' : 'other:' + el.tagName) : null;
       });
       assert.equal(headerHit, 'notice', 'the header region is covered by the boot overlay (hit test)');
-      const animName = await markAnimName(again.page, '[data-boot-treatment]');
-      assert.equal(animName, 'boot-blocks', 'brand blocks animate with the phased boot-blocks loop while loading');
-      const geo = await markGeometry(again.page, '[data-boot-treatment]');
-      assert.ok(geo && geo.blocks === 4, 'four animated blocks in the live mark');
-      assert.ok(geo.ranges.every(r => r >= 0.8),
-        'block geometry changes across the loop (separate/bump/settle), per-block centre-distance ranges ' + JSON.stringify(geo.ranges));
-      results.lightLong.markAnimationName = animName;
+      const scene = await assertScene(again.page, '[data-boot-notice]', 'animation', 'loading at 1440 light');
+      results.lightLong.scene = scene.scene;
       results.lightLong.overlayCoversViewport1440 = true;
       results.lightLong.headerCoveredByHitTest = true;
-      results.lightLong.blockSeparationRangesPx = geo.ranges;
       results.lightLong.geometryRunDelayMs = 9000;
       await nav; await waitContent(again.page);
       await shot(again.page, 'boot-treatment-after.png');
@@ -362,13 +335,12 @@ async function waitContent(page, timeoutMs = 30000) {
       const tVis = Date.now();
       const noticeRect = await rectOf(page, '[data-boot-notice]');
       assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 1440 dark');
-      const animName = await markAnimName(page, '[data-boot-treatment]');
-      assert.equal(animName, 'boot-blocks', 'dark: blocks animate while loading');
+      const scene = await assertScene(page, '[data-boot-notice]', 'animation', 'loading at 1440 dark');
       await shot(page, 'boot-treatment-dark.png');
       await nav; await waitContent(page);
       const end = await page.evaluate(visFn);
       assert.ok(!end.staticLayer.present && !end.liveLayer.present, 'dark: layers gone after arrival');
-      results.dark = { delayMs: 1500, treatmentVisibleObserved: true, overlayCoversViewport1440: true, markAnimationName: animName, screenshotAtMs: tVis };
+      results.dark = { delayMs: 1500, treatmentVisibleObserved: true, overlayCoversViewport1440: true, scene: scene.scene, screenshotAtMs: tVis };
       await context.close();
     }
     // 3 — Reduced motion, narrow width: overlay covers 320px, the mark
@@ -381,25 +353,21 @@ async function waitContent(page, timeoutMs = 30000) {
       await treatmentVisible(page);
       const noticeRect = await rectOf(page, '[data-boot-notice]');
       assert.ok(coversViewport(noticeRect), 'live overlay covers the full viewport at 320');
-      const animName = await markAnimName(page, '[data-boot-treatment]');
-      assert.equal(animName, 'none', 'reduced motion: block animation is none');
-      const centres1 = await markCentres(page, '[data-boot-treatment]');
+      const scene = await assertScene(page, '[data-boot-notice]', 'still', 'reduced motion');
+      assert.equal(await noticeAnimations(page), 0, 'reduced motion: no running animation anywhere in the notice');
       const box = await page.evaluate(() => {
-        const el = document.querySelector('[data-boot-treatment]');
+        const el = document.querySelector('[data-boot-notice]');
         const r = el.getBoundingClientRect();
         return { x: r.x, y: r.y, width: r.width, height: r.height };
       });
       const clip = { x: box.x, y: box.y, width: box.width, height: box.height };
       const first = await page.screenshot({ clip });
       await sleep(700);
-      const centres2 = await markCentres(page, '[data-boot-treatment]');
-      const drift = Math.max(...centres1.map((c, i) => Math.hypot(c.cx - centres2[i].cx, c.cy - centres2[i].cy)));
-      assert.ok(drift <= 0.6, 'reduced motion: block centres stable across 700ms (drift ' + drift + 'px)');
       const second = await page.screenshot({ clip });
       assert.ok(first.equals(second), 'reduced motion: treatment frame is byte-stable across 700ms');
       await shot(page, 'boot-treatment-reduced-motion.png');
       await nav; await waitContent(page);
-      results.reducedMotion = { delayMs: 2500, animationName: animName, blockCentreDriftPx: drift, frameStable: true, overlayCoversViewport320: true };
+      results.reducedMotion = { delayMs: 2500, scene: scene.scene, frameStable: true, overlayCoversViewport320: true };
       await context.close();
     }
     // 5 — Failure, then Retry: the crit surface is the full-screen
@@ -549,26 +517,14 @@ async function waitContent(page, timeoutMs = 30000) {
             'static phase: the header and every .wrap child carry the baked pre-script isolation (inert + aria-hidden + data-boot-inert), ' + baked.count + ' elements');
           entry.bakedPreScriptIsolation = true;
           entry.bakedElements = baked.count;
-          const animName = await markAnimName(page, '[data-boot-static]');
-          assert.equal(animName, 'boot-blocks', 'static layer blocks animate with the same phased loop');
-          const geo = await markGeometry(page, '[data-boot-static]');
-          assert.ok(geo && geo.blocks === 4 && geo.ranges.every(x => x >= 0.8),
-            'static layer block geometry changes across the loop ' + JSON.stringify(geo && geo.ranges));
+          const scene = await assertScene(page, '[data-boot-static]', 'animation', 'static layer');
           entry.pointerEvents = pe;
-          entry.markAnimationName = animName;
-          entry.blockSeparationRangesPx = geo.ranges;
+          entry.scene = scene.scene;
           await shot(page, 'boot-treatment-static.png');
         }
         if (cfg.reducedMotion) {
-          const animName = await markAnimName(page, '[data-boot-static]');
-          assert.equal(animName, 'none', 'static layer reduced motion: block animation is none');
-          const c1 = await markCentres(page, '[data-boot-static]');
-          await sleep(700);
-          const c2 = await markCentres(page, '[data-boot-static]');
-          const drift = Math.max(...c1.map((c, i) => Math.hypot(c.cx - c2[i].cx, c.cy - c2[i].cy)));
-          assert.ok(drift <= 0.6, 'static layer reduced motion: block centres stable (drift ' + drift + 'px)');
-          entry.markAnimationName = animName;
-          entry.blockCentreDriftPx = drift;
+          const scene = await assertScene(page, '[data-boot-static]', 'still', 'static layer reduced motion');
+          entry.scene = scene.scene;
         }
         matrix[cfg.name] = entry;
         await context.close();

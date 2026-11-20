@@ -8,7 +8,8 @@
 //   2  the animation stays small (every load downloads it: static files
 //      are served no-store), and the still smaller still;
 //   3  the scene is set only on the two boot layers, reduced motion swaps
-//      in the still, and the crit surface uses the still.
+//      in the still, and the crit surface uses the still;
+//   4  only the scene: no logo or wordmark drawn, and no tips card.
 //   node test/test-boot-campfire.js
 const fs = require('node:fs');
 const path = require('node:path');
@@ -40,5 +41,12 @@ ok(uses.length > 0 && uses.every(([sel]) => sel.split(',').every(s => /\.boot-st
 ok(uses.some(([sel, kind]) => /\[data-boot-notice\]\.crit/.test(sel) && kind === 'jpg'), 'the crit surface shows the still');
 const reduced = (/@media \(prefers-reduced-motion: reduce\) \{\s*\.boot-static, \[data-boot-notice\] \{[^}]*\}/.exec(css.slice(css.lastIndexOf('boot-campfire') - 2000)) || [''])[0];
 ok(/boot-campfire\.jpg/.test(reduced) && !/boot-campfire\.avif/.test(reduced), 'reduced motion shows the still, not the animation');
+
+// 4  only the scene (owner, Dale, 2026-11-20: "get rid of the atlas logo and tips"): the mark and wordmark are not
+//    drawn on either layer, and the tips card is gone from the page code (the browser proof checks what is drawn).
+const app = read('public/app.js').toString('utf8');
+ok(!/buildBootTips|data-boot-tips|boot-tips/.test(app + css), 'the tips card is gone from app.js and styles.css');
+ok(/\.boot-static \.boot-static-mark, \.boot-static \.boot-wordmark,\s*\[data-boot-notice\] \.boot-treatment \{ display:none; \}/.test(css),
+  'the brand mark and wordmark are not drawn on either boot layer');
 
 console.log(`\nPASS campfire loading scene (${checks})`);
