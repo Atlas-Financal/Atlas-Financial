@@ -146,6 +146,27 @@ function handPeriod(Forecast) {
   'a scheduled fee is marked at its periodCost and an overpaid bill at what it counts (8 + 47.50 = other 55.50)', JSON.stringify(view.bills.map(r => r.stackBillAmount)));
 }
 
+console.log('3b. Known limit (lead ruling, option a): a card row is what the split counts, its sheet what was paid');
+{
+  // A 90 monthly hydro, paid 120 in August (unconfirmed), 90 in September and 40 in October (partly paid).
+  // The split counts billAssignedAmount (the plan, or a larger observed payment), so every month adds 90 to
+  // its period's bills and the card row prints 90; the bill's sheet (billHistory) shows the payment the ledger
+  // has, 120 and 40. Pinned so a change to either side is deliberate; whether a partly paid bill should count
+  // 90 or 40 is an owner question, not this code's.
+  const H = require('./acceptance/harness.js');
+  const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
+  const pay = (date, amount) => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro' });
+  const w = H.baseWorld(); w.bills = [HYDRO];
+  w.transactions = [pay('2026-08-12', 120), pay('2026-09-12', 90), pay('2026-10-12', 40)];
+  const o = H.observe(w); if (o.error) throw o.error;
+  const rec = F.recommend(o.plan, w.asOf, { currentPeriodActuals: o.packet });
+  const card = new Map(), sheet = new Map((rec.billHistory.hydro || []).map(e => [e.date, e.amount]));
+  for (const v of rec.payPeriodViews) for (const b of v.bills || []) if (b.id === 'hydro' && b.stackBillPart) card.set(b.date, b.stackBillAmount);
+  const pairs = ['2026-08-12', '2026-09-12', '2026-10-12'].map(d => [d, card.get(d), sheet.get(d)]);
+  ok(JSON.stringify(pairs) === JSON.stringify([['2026-08-12', 90, 120], ['2026-09-12', 90, 90], ['2026-10-12', 90, 40]]),
+    'card row 90 / sheet 120 (unconfirmed overpayment), 90 / 90, 90 / 40 (partly paid)', JSON.stringify(pairs));
+}
+
 console.log('4. Mutants are caught');
 {
   // The one owner files every obligation under other: the split and the rows move together.
