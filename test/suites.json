@@ -1,4 +1,5 @@
 [
+  ["Stack page: a budget category sheet lists the transactions Forecast counted into its Spent (recon less the pending copy of a posted row), newest first; no list for a saved close, an unpublished or withheld Spent or a projected period; every listed set reconciles to the published Spent to the cent","test-stack-budget-transactions.js"],
   ["Stack page Bills, Budget, Mortgage and Savings cards print only published values, nothing for an unpublished one, rows carry the sheet attribute, and nothing loads without ?view=stack (B3)","test-stack-cards.js"],
   ["Stack Wallet A1: each pay period publishes its income split (Dale, Amanda, Other) summing to incomeTotal","test-income-split.js"],
   ["A card minimum filed for one card with a note naming another pays neither minimum and is held To confirm once","test-card-minimum-category-note-conflict.js"],
@@ -608,6 +609,7 @@
   ["Amanda's pay counts when a posted credit within $5 of that payday's amount reaches Bills within 3 business days of it; two candidates or one credit fitting two paydays stay To confirm (Q2)","test-amanda-pay-near-amount.js"],
   ["A plain Bills credit that could be Amanda's pay, posted before the owner's window, holds her next payday instead of counting twice (U6)","test-amanda-pay-early-plain-credit.js"],
   ["An early or split salary credit is held To confirm over its payday's run-up and the payday is counted once, including across a period opening","test-early-salary-credit-counted-once.js"],
+  ["A projected period's savings top-up and the payday lens reprint the Budget's own period funding; unpublished funding is withheld, never zero","test-savings-projected-topup-one-authority.js"],
   ["A near-due bill payment seen pending, then posted days later without a provider link, is deducted once: the posted copy stays held To confirm","test-near-due-pending-replacement.js"],
   ["A card minimum settles from Lunch Money's own match only for one payment covering a confirmed statement minimum in its cycle; otherwise it stays withheld (E2)","test-lunchmoney-matched-card-minimum.js"],
   ["A bill payment first seen pending off its due date and posted days later without a provider link is deducted once: its pending copy is a possible replacement that keeps the claim and the payday gap cautious (lead dispatch 2026-11-18, after #1315)","test-pending-then-posted-bill-once.js"],
@@ -694,6 +696,7 @@
   ["current spendable copy and recorded cash membership","test-recorded-cash-labels.js"],
   ["The Stack page's Outfit font is self-hosted same-origin under font-src 'self', with its OFL licence (F7)","test-outfit-font.js"],
   ["Each published bill row reads Paid only on payment evidence, Not paid otherwise, carried rows unlisted (Stack Wallet A3)","test-bill-paid-state.js"],
+  ["A budget row says whether its listed transactions reconcile to its Spent to the cent","test-budget-recon-matches-spent.js"],
   ["Stack bill sheet history: each bill's published occurrences, newest first","test-stack-bill-history.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],

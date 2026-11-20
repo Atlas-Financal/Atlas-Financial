@@ -1106,6 +1106,19 @@ function putSavingsPublication(put, putField, advice, publications) {
       putRows(put, putField, p + '.close.item.', close.items, CLOSE_ITEM_FIELDS);
       putAllocations(put, p + '.close.allocation.', close.allocations);
     }
+    // The projected top-up the page prints as "Added this period", and the
+    // packet's own row "This period", both derived from the period's Budget
+    // funding (plannedCostFunding). Captured so a second schedule cannot move
+    // them unseen.
+    if (kind === 'projected') {
+      putField(p + '.topup.proposal', packet.period, 'proposal');
+      const used = new Set();
+      for (const row of Array.isArray(packet.rows) ? packet.rows : []) {
+        const r = uniqueKey(used, p + '.topup.row.' + segment(row && row.key));
+        putField(r + '.thisPeriod', row, 'thisPeriod');
+        putField(r + '.thisPeriodTrust', row, 'thisPeriodTrust');
+      }
+    }
     if (kind === 'projected' && packet.plannedRequirements) {
       putRows(put, putField, p + '.planned.row.', packet.plannedRequirements.rows, PLANNED_ROW_FIELDS);
       putRows(put, putField, p + '.planned.item.', packet.plannedRequirements.items, PLANNED_ITEM_FIELDS);

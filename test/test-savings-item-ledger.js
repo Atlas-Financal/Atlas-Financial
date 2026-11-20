@@ -382,7 +382,7 @@ const base = baseEngine();
     if (amount == null) delete near.amount; else near.amount = amount;
     const opts = { ...x.opts, settlementEvidence: evidence(assigned, extra), debts: [] };
     const now = stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(F.recommend(x.plan, x.asOf, opts)))).advice).advice;
-    const then = trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts)))));
+    const then = require('./projected-topup-legacy')(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf, opts))))));
     if (amount == null || amount === 0) {
       assert.equal(now.sim.scheduledAmounts.status, 'unavailable', 'invalid authored price is a named Unknown');
       assert.equal(now.savingsFunding.backing.status, 'unavailable');
@@ -450,8 +450,8 @@ for (const [mutate, items, unknown, label] of [
   delete x.map.savingsLinks;
   const plain = observe(x);
   assert.deepEqual(withoutLinks(enabled), plain, label + ': every existing observer field is unchanged');
-  assert.deepEqual(restoreLegacyBadFamily(stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(live(x, plain)))).advice).advice), restoreLegacyBadFamily.frozen(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
-    { ...x.opts, currentPeriodActuals: plain, debts: [] })))))), label + ': no-link publication equals the pre-A4a engine');
+  assert.deepEqual(restoreLegacyBadFamily(stripPaydaySchedule(stripUnconfirmedBills(JSON.parse(JSON.stringify(live(x, plain)))).advice).advice), restoreLegacyBadFamily.frozen(require('./projected-topup-legacy')(trueLensTrust(withheldHistoricalPools(JSON.parse(JSON.stringify(base.recommend(x.plan, x.asOf,
+    { ...x.opts, currentPeriodActuals: plain, debts: [] }))))))), label + ': no-link publication equals the pre-A4a engine');
 }
 assert(O.currentPeriodActualsLooksSanitized((() => { const x = fixture(); return observe(x); })()));
 console.log('Savings item ledger: edge cases, traps, adapter parity, A4b live effects and no-link parity passed.');

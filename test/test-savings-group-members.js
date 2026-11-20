@@ -304,12 +304,17 @@ const invFigures = block => ({
   }
 
   // Next packet: allocations are named by bare requirement id (Finding 2).
+  // One authority (2026-11-19): the projected top-up reprints the Budget's own
+  // next-period funding, which closes at 80 (funding gap) and funds only far;
+  // the cash-walk schedule's 135 + 10 = 145 no longer publishes here.
   const nextPacket = F.savingsFundingPublication(sf, { asOf: NAT_AS_OF, advice, periodId: nextView.id });
   assert.equal(nextPacket.period.kind, 'projected', 'native next: projected packet');
-  assert.deepEqual(nextPacket.period.cycleAllocations.map(part => part.id), ['far', 'third'],
+  assert.deepEqual(nextPacket.period.cycleAllocations.map(part => part.id), ['far'],
     'native next: published allocations use bare requirement ids');
+  assert.equal(nextPacket.period.proposal, nextView.plannedCostFunding.contribution,
+    'native next: the proposal is the Budget period funding');
   const nextRow = nextPacket.rows.find(row => row.key === 'group:club');
-  assert.equal(nextRow.thisPeriod, 145, 'native next: Forecast sums the bare-id allocations into the row');
+  assert.equal(nextRow.thisPeriod, 80, 'native next: Forecast sums the bare-id allocations into the row');
   for (const [label, html, hook, figures] of surfaces(nextView.id, nextView)) {
     // Owner direction 2026-10-14 (payday sweep) supersedes the retention
     // outcome pinned here before (closing stock 25): the current-tail 80

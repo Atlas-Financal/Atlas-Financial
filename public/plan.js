@@ -6444,6 +6444,14 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
     <div data-budget-funding-savings hidden>${typeof SavingsInventory !== 'undefined' ? SavingsInventory.html(ctx.advice?.savingsFunding || (ctx.plan?.savingsEarmarks?.allocationPolicy == null ? ctx.advice?.savingsInventory : null), { asOf: ctx.asOf || ctx.advice?.defaultView?.asOf, advice: ctx.advice, plan: ctx.plan }) : '<p>Savings inventory unavailable. Saved balances and assignments are unknown.</p>'}</div></div>`;
 }
 
+// A funding gap names the costs it affects by requirement id (Forecast's
+// gap.affected). A lens row's id is its occurrence key; its requirementId is
+// the requirement it belongs to. Rows without one (the earlier schedule's
+// costs) are keyed by requirement id already.
+function budgetFundingRequirementId(item) {
+  return item && item.requirementId != null ? item.requirementId : item && item.id;
+}
+
 function budgetUpcomingFundingHtml(ctx) {
   const current = (ctx.advice?.payPeriodViews || []).find(row => row?.timelineRole === 'current');
   const daily = budgetDailySavingsFor(ctx);
@@ -6495,7 +6503,7 @@ function budgetUpcomingFundingHtml(ctx) {
     const contributionKnown = lens.ready && budgetV3Known(item.contribution, lens.trust) && !undated;
     const scaled = costKnown && item.cost > 0 && contributionKnown && item.contribution >= 0;
     const gap = lens.ready && ['calculated', 'estimated'].includes(lens.fundingTrust)
-      && Array.isArray(lens.gap?.affected) && lens.gap.affected.includes(item.id);
+      && Array.isArray(lens.gap?.affected) && lens.gap.affected.includes(budgetFundingRequirementId(item));
     return `<div class="budget-funding-cost${gap ? ' has-gap' : ''}" data-budget-funding-cost="${budgetV3Escape(item.id)}">
       <div class="budget-funding-cost-head"><strong>${budgetV3Escape(item.label || item.id)}</strong><b>${budgetV3Money(item.cost, costTrust)}</b></div>
       <p>${isValidIsoCalendarDate(item.date) ? budgetV3Escape(fmtDate(item.date)) : 'Date not established'}${item.confidence === 'estimated' ? ' · estimated date' : ''}${undated ? ' · ' + budgetV3Escape(item.reason || 'Contribution unavailable') : ''}</p>
@@ -6515,7 +6523,7 @@ function budgetUpcomingFundingHtml(ctx) {
       return `<div class="budget-funding-timeline-row${heading ? ' is-month-boundary' : ''}"><div class="budget-funding-month">${heading ? budgetV3Escape(month ? budgetMonthName(month) : 'Date unknown') : ''}</div>${costHtml(item, lens)}</div>`;
     }).join('');
     const gapKnown = lens.ready && budgetV3Known(lens.gap?.shortBy, lens.fundingTrust);
-    const names = gapKnown && Array.isArray(lens.gap.affected) ? lens.gap.affected.map(id => lens.items.find(item => item.id === id)?.label || id) : [];
+    const names = gapKnown && Array.isArray(lens.gap.affected) ? lens.gap.affected.map(id => lens.items.find(item => budgetFundingRequirementId(item) === id)?.label || id) : [];
     return `<div id="budget-funding-${escapeHtml(lens.key)}" data-budget-funding-panel="${escapeHtml(lens.key)}" role="tabpanel" aria-labelledby="budget-funding-tab-${escapeHtml(lens.key)}"${lens.key === budgetFundingLens ? '' : ' hidden'}>
       <p class="budget-funding-scope">${lens.key === 'today' ? 'Unsent top-ups from current chequing.' : "Future payday projection. Keep it separate from today's offer."}</p>
       <div class="budget-funding-totals"><div><span>${lens.key === 'today' ? 'Unsent top-up today' : 'Proposed this payday'}</span><strong data-budget-funding-proposal>${budgetV3Money(lens.ready ? lens.proposal : null, lens.trust)}</strong></div><div><span>${lens.key === 'today' ? 'Remaining cycle entitlement' : 'Still to fund after this proposal'}</span><strong>${budgetV3Money(lens.ready ? lens.remaining : null, lens.fundingTrust)}</strong></div></div>

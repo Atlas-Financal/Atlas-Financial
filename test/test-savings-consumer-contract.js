@@ -524,13 +524,15 @@ test('the three context witnesses: null vs omitted periodId, context.plan, Budge
   } }, 'context.plan');
   // 3. An engine option that only Budget's own advice inputs carry
   //    (Forecast.budgetRecommendInputs supplies targetBuffer and the other
-  //    Budget knobs).
+  //    Budget knobs). The probe moves the payday lens's proposal, which the
+  //    page prints as "Proposed this payday" (#1441: the schedule's payday
+  //    rows are withheld wherever they do not reprint that Budget top-up, so
+  //    they are no longer a consumer the probe can rely on).
   expectMoves('savings-deficit-cover', { recommend: real => function (plan, asOf, opts) {
     const advice = real.apply(this, arguments);
-    if (opts && opts.targetBuffer !== undefined && advice.savingsFunding && advice.savingsFunding.schedule
-        && Array.isArray(advice.savingsFunding.schedule.paydays) && advice.savingsFunding.schedule.paydays[0]) {
-      advice.savingsFunding.schedule.paydays[0].contribution += 20;
-    }
+    const lens = opts && opts.targetBuffer !== undefined && advice.savingsFunding
+      && Array.isArray(advice.savingsFunding.lenses) ? advice.savingsFunding.lenses.find(l => l && l.key === 'payday') : null;
+    if (lens && lens.ready && typeof lens.proposal === 'number') lens.proposal += 20;
     return advice;
   } }, 'Budget advice options');
   assert.equal(Capture.perturbed(), false, 'perturbations are cleared after each run');
