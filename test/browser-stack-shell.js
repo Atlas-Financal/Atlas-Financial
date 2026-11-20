@@ -5,14 +5,15 @@
  *   1. ?view=classic (the previous page, kept until C1): unchanged. With the Stack scripts served or blocked, the
  *      rendered body is byte-identical; no Stack stylesheet, class or element appears.
  *   1b. B7, the switch-over: with no query (and with ?view=stack) the Stack page is the Budget page.
- *   5. B7 fail-safe: if the shell throws while drawing, it removes itself and the page is the classic page, body
- *      byte-identical to ?view=classic, never blank. Without JavaScript the default route and ?view=classic match.
+ *   5. B7 fail-safe: if the shell throws while starting up or while drawing, it removes itself and the page is the
+ *      classic page, body byte-identical to ?view=classic, never blank. Without JavaScript the default route and ?view=classic match.
  *   2. ?view=stack: the shell replaces the current page with the title "Budget", the quiet "Last updated" line from
  *      the overlay's sync instant (the current footer's rule), and one timeline chip per published pay period with its
  *      date, the current period marked and selected.
  *   3. Every printed amount is the published value it names: a chip prints its period's stackSummary.surplus amount,
  *      coral when negative, and nothing at all when none is published (never $0). Checked with invented published
- *      values (whole dollars, cents, negative, absent) and with main's engine, which publishes no surplus yet.
+ *      values (whole dollars, cents, negative, absent) and with main's engine (#1426 publishes stackSummary.surplus).
+ *   The running-build label stays visible on the Stack page (B7), so the previous-page-hidden checks exclude it.
  *   4. Tapping a chip selects it; every registered block is called with ctx = { data, plan, recommendation,
  *      selectedPeriodKey, Forecast }, and the key follows the tap. "Now" returns to the current period.
  *
@@ -89,7 +90,7 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       await page.waitForSelector('#stack-root [data-stack-period]', { timeout: 30000 });
       const probe = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
         title: document.querySelector('#stack-root h1')?.textContent,
-        hidden: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice'))
+        hidden: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice') && !el.classList.contains('running-build'))
           .every(el => getComputedStyle(el).display === 'none') }));
       ok(probe.cls && probe.title === 'Budget' && probe.hidden, `${query || '(no query)'}: the Stack page shows and the previous page is hidden`, JSON.stringify(probe));
       ok(errors.length === 0, `${query || '(no query)'}: no page errors`, errors.join('; '));
@@ -103,7 +104,7 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       const chips = [...document.querySelectorAll('[data-stack-period]')];
       return { title: document.querySelector('#stack-root h1').textContent,
         updated: document.querySelector('[data-stack-updated]').textContent,
-        current: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice'))
+        current: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice') && !el.classList.contains('running-build'))
           .every(el => getComputedStyle(el).display === 'none') && document.getElementById('stack-root').checkVisibility(),
         chips: chips.map(c => ({ key: c.dataset.stackPeriod, pressed: c.getAttribute('aria-pressed'),
           now: c.getAttribute('aria-current'), date: c.querySelector('.stack-chip-date').textContent,
@@ -148,8 +149,17 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       .map(e => e.dataset.stackBlock), overlay: document.querySelector('[data-stack-block="sheet"]').closest('[data-stack-pile]') === null }));
     ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,
       'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
-    ok(views.every(v => !(v.stackSummary && v.stackSummary.surplus)) && view.chips.every(c => c.amount === ''),
-      'main publishes no surplus yet, so every chip prints nothing: never $0');
+    // Main's engine (#1426) publishes stackSummary.surplus: each chip prints exactly its view's published amount
+    // (signed, cents only when the figure has them, a true minus), and nothing where none is published (never $0).
+    const signedFmt = (n, cents) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol',
+      signDisplay: 'always', minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 }).format(n).replace('-', '−');
+    const expected = views.map(v => {
+      const a = v.stackSummary && v.stackSummary.surplus ? v.stackSummary.surplus.amount : null;
+      return typeof a === 'number' && Number.isFinite(a) ? signedFmt(a, !Number.isInteger(a)) : '';
+    });
+    ok(view.chips.length === expected.length && view.chips.every((c, i) => c.amount === expected[i]) && expected.some(t => t !== ''),
+      "main's engine: each chip prints its view's published surplus exactly, and nothing where none is published",
+      JSON.stringify({ chips: view.chips.map(c => c.amount), expected }));
 
     console.log('3. every printed amount is the published value it names');
     const invented = [1000, -250.5, null, 0.25, -3];
@@ -159,7 +169,9 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
         const r = original.apply(this, arguments);
         (r.payPeriodViews || []).forEach((v, i) => {
           const amount = values[i % values.length];
-          if (amount !== null) v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: { amount, trust: 'estimated' } });
+          // An absent slot is published as withheld (amount null), replacing the engine's own surplus.
+          v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: amount === null
+            ? { amount: null, trust: 'unavailable', reason: 'invented withheld' } : { amount, trust: 'estimated' } });
         });
         return r;
       };
@@ -249,6 +261,28 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       const brokenBody = normal(await broken.page.evaluate(() => document.body.innerHTML));
       ok(brokenBody === classicBody, 'after the fallback, the body is byte-identical to ?view=classic');
       ok(broken.errors.length === 0, 'the failure is caught (no uncaught page error)', broken.errors.join('; '));
+      // Start-up failures, before any drawing: (a) during set-up (the formatters and helpers), (b) right after the
+      // class and the stylesheets are applied. Each must leave the previous page, byte-identical, and no uncaught error.
+      const startUp = [
+        ['set-up', '  const esc = value => String(value', m => "  throw new Error('invented set-up failure');\n" + m],
+        ['after the class and stylesheets', '      document.head.appendChild(link);\n    }\n',
+          m => m + "    throw new Error('invented start-up failure');\n"],
+      ];
+      for (const [name, marker, inject] of startUp) {
+        const early = await open(browser, { tamperShell: src => {
+          if (!src.includes(marker)) throw new Error(`start-up tamper marker missing: ${name}`);
+          return src.replace(marker, inject(marker));
+        } });
+        await settle(early.page);
+        const earlyProbe = await early.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+          root: !!document.getElementById('stack-root'), text: document.querySelector('.wrap').innerText.trim().length }));
+        ok(!earlyProbe.cls && !earlyProbe.root && earlyProbe.text > 0,
+          `a start-up failure (${name}) leaves the previous page showing (not blank)`, JSON.stringify(earlyProbe));
+        ok(normal(await early.page.evaluate(() => document.body.innerHTML)) === classicBody,
+          `after a start-up failure (${name}), the body is byte-identical to ?view=classic`);
+        ok(early.errors.length === 0, `the start-up failure (${name}) is caught (no uncaught page error)`, early.errors.join('; '));
+        await early.page.close();
+      }
       await classic.page.close(); await broken.page.close();
       const a = await open(browser, { js: false }), b = await open(browser, { query: '?view=classic', js: false });
       const [ba, bb] = [await a.page.evaluate(() => document.body.innerHTML), await b.page.evaluate(() => document.body.innerHTML)];

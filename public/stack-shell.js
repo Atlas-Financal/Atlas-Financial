@@ -18,6 +18,9 @@
  * L-001: this file prints what Forecast publishes and does no arithmetic on money. A chip prints its period's
  * published stackSummary.surplus amount, or nothing when Forecast has not published one (F8: never $0).
  */
+// B7 fail-safe, start-up: a throw anywhere in the shell's set-up is caught here, so the previous page shows (never
+// blank) and no uncaught error escapes; the class and stylesheets are applied only after set-up (applyChrome).
+try {
 (function () {
   'use strict';
   const ORDER = ['waterfall', 'cards', 'credit', 'sheet'];
@@ -73,15 +76,8 @@
   if (!on || typeof document === 'undefined') return;
 
   const root = document.documentElement;
-  root.classList.add('stack-view');
-  // The shell's stylesheet (tokens, pile, header, timeline), then one stylesheet per block, each owned by its block.
-  for (const href of ['/budget-stack-fonts.css', '/stack.css', ...ORDER.map(name => `/stack-${name}.css`)]) {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = href;
-    if (href === '/stack.css') link.addEventListener('load', () => centreNow());
-    document.head.appendChild(link);
-  }
+  // B7 fail-safe, start-up: the class and the stylesheets are applied only after every formatter and helper below is
+  // set up (applyChrome, just before the App hook), so a throw during set-up leaves the previous page showing.
 
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -267,6 +263,19 @@
     state.ready = true;
   }
 
+  function applyChrome() {
+    root.classList.add('stack-view');
+    // The shell's stylesheet (tokens, pile, header, timeline), then one stylesheet per block, each owned by its block.
+    for (const href of ['/budget-stack-fonts.css', '/stack.css', ...ORDER.map(name => `/stack-${name}.css`)]) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      if (href === '/stack.css') link.addEventListener('load', () => centreNow());
+      document.head.appendChild(link);
+    }
+  }
+  try { applyChrome(); } catch (error) { fallBack(error); return; }
+
   if (typeof App !== 'undefined' && App.register) {
     App.register(render);
     // App.boot starts in plan.js, before this file loads, and App.register does not replay a render that already
@@ -274,3 +283,11 @@
     if (App.data) render(App.data, App.periods, App.history);
   }
 })();
+} catch (error) {
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.classList.remove('stack-view');
+    const el = document.getElementById('stack-root');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+  if (typeof console !== 'undefined') console.error('stack page failed to start; showing the classic page', error);
+}
