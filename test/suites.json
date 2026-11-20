@@ -700,6 +700,7 @@
   ["Stack bill sheet history: each bill's published occurrences, newest first","test-stack-bill-history.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
+  ["Stack card names come from the ledger: the Lunch Money display name, carried by provider account id, shown first on the waterfall and the Credit card","test-stack-card-ledger-names.js"],
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
   ["The figures page capture runs the previous Budget page by its explicit route (?view=classic), unchanged when the Stack page is the default","test-figures-capture-classic-view.js"]
 ]
