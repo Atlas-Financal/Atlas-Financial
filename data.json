@@ -222,9 +222,10 @@
                 "frequency": "monthly",
                 "day": 7,
                 "firstDue": "2026-09-07",
+                "lastDue": "2026-11-07",
                 "amount": 253.57,
                 "confidence": "estimated",
-                "note": "August is paid on this opening. A further $300 posted 2026-08-10 was already inside the 2026-08-16 screenshot posted $13,197.00 (13,497.00 - 300.00); that screenshot is not this opening's posted $13,495.32. Displayed due date on the 2026-08-16 screenshot was Aug. 7 with displayed minimum $0.00; on-time status and default-rate consequences are not proven. Future statement minimums are estimated at the current level. firstDue 2026-09-07. October's existing $270 sender posted Oct. 5 is included in Bills cash as of Oct. 6. Dale confirmed \"triangle is paid\" on 2026-10-07 at 01:14:54 UTC (Oct. 6 in the household's America/Vancouver timezone); the original October occurrence is represented effective Oct. 6 by owner confirmation, not a fabricated bank or issuer receipt. See docs/household_interviews/DALE_2026-10-07_TRIANGLE_PAID.md. No additional debit, principal reduction, or excess-payment allocation is recorded.",
+                "note": "August is paid on this opening. A further $300 posted 2026-08-10 was already inside the 2026-08-16 screenshot posted $13,197.00 (13,497.00 - 300.00); that screenshot is not this opening's posted $13,495.32. Displayed due date on the 2026-08-16 screenshot was Aug. 7 with displayed minimum $0.00; on-time status and default-rate consequences are not proven. Future statement minimums are estimated at the current level. firstDue 2026-09-07. October's existing $270 sender posted Oct. 5 is included in Bills cash as of Oct. 6. Dale confirmed \"triangle is paid\" on 2026-10-07 at 01:14:54 UTC (Oct. 6 in the household's America/Vancouver timezone); the original October occurrence is represented effective Oct. 6 by owner confirmation, not a fabricated bank or issuer receipt. See docs/household_interviews/DALE_2026-10-07_TRIANGLE_PAID.md. No additional debit, principal reduction, or excess-payment allocation is recorded. Owner fact 2026-11-20 (Dale): due on the 8th from December; this row ends at 2026-11-07 (lastDue) and `triangle-day8` carries the schedule on.",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -247,6 +248,29 @@
                         "fundingAccountId": "chequing-a",
                         "pending": false,
                         "cashIncludedAsOf": "2026-10-06"
+                    }
+                ]
+            },
+            {
+                "id": "triangle-day8",
+                "debtId": "triangle",
+                "effect": "payment",
+                "label": "Triangle Mastercard minimum",
+                "frequency": "monthly",
+                "day": 8,
+                "firstDue": "2026-12-08",
+                "fixedInterestMinimum": { "balance": 13600.58, "rate": 21.99, "asOf": "2026-11-18" },
+                "amount": 253.57,
+                "confidence": "estimated",
+                "note": "Owner fact 2026-11-20 (Dale): the Triangle Mastercard minimum is due on the 8th of each month (the Nov. 18 statement shows Dec. 8). Successor of `triangle`, which ends at its 2026-11-07 occurrence (lastDue) so its dated history keeps its identity. The Dec. 8 statement minimum is confirmed from that statement; each month plans one month's interest on the Nov. 18 statement balance at the purchase rate, up to the whole dollar, held constant and never below the statement minimum (owner rule 2026-11-20).",
+                "payingAccount": "chequing-a",
+                "statementOccurrences": [
+                    {
+                        "scheduledDate": "2026-12-08",
+                        "dueDate": "2026-12-08",
+                        "minimum": 357.22,
+                        "currency": "cad",
+                        "confidence": "confirmed"
                     }
                 ]
             },
@@ -321,9 +345,10 @@
                 "frequency": "monthly",
                 "day": 31,
                 "firstDue": "2026-09-30",
+                "lastDue": "2026-10-31",
                 "amount": 158.27,
                 "confidence": "estimated",
-                "note": "Future statement minimums after the Aug. 31 confirmed row, estimated at the current level. Day clamps to shorter months. firstDue 2026-09-30 so August is not double-counted with mbna-aug31. Owner confirmation received 2026-10-06 reports a $229 minimum and $250 payment for the original 2026-09-30 occurrence; receipt and cash inclusion remain qualified at the 2026-10-06 opening. The statementOccurrences dueDate retains the existing planning identity, not newly supplied issuer due-date evidence. This confirmation does not establish principal allocation or satisfy, reduce or confirm any later minimum; future amounts remain estimates.",
+                "note": "Future statement minimums after the Aug. 31 confirmed row, estimated at the current level. Day clamps to shorter months. firstDue 2026-09-30 so August is not double-counted with mbna-aug31. Owner confirmation received 2026-10-06 reports a $229 minimum and $250 payment for the original 2026-09-30 occurrence; receipt and cash inclusion remain qualified at the 2026-10-06 opening. The statementOccurrences dueDate retains the existing planning identity, not newly supplied issuer due-date evidence. This confirmation does not establish principal allocation or satisfy, reduce or confirm any later minimum; future amounts remain estimates. Owner fact 2026-11-20 (Dale): due on the 12th, not month-end; this row ends at 2026-10-31 (lastDue) and `mbna-day12` carries the schedule on from 2026-12-12.",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -349,6 +374,20 @@
                         "cashIncludedAsOf": "2026-10-06"
                     }
                 ]
+            },
+            {
+                "id": "mbna-day12",
+                "debtId": "mbna",
+                "effect": "payment",
+                "label": "Amazon.ca Mastercard minimum (MBNA)",
+                "frequency": "monthly",
+                "day": 12,
+                "firstDue": "2026-12-12",
+                "fixedInterestMinimum": { "balance": 8125.43, "rate": 21.74, "asOf": "2026-10-07" },
+                "amount": 158.27,
+                "confidence": "estimated",
+                "note": "Owner fact 2026-11-20 (Dale): the Amazon.ca Mastercard minimum is due on the 12th of each month (his Lunch Money recurring item), not month-end; next 2026-12-12. Successor of `mbna`, which ends at its 2026-10-31 occurrence (lastDue) so its dated history keeps its identity. Owner rule 2026-11-20 (Dale): each month plans one month's interest on the last statement balance on record (2026-10-07) at the purchase rate, up to the whole dollar, held constant and never below a statement minimum.",
+                "payingAccount": "chequing-a"
             },
             {
                 "id": "tdcc",
