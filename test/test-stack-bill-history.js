@@ -2,8 +2,8 @@
 /* Stack Wallet bill sheet: Forecast publishes each bill's past occurrences once, as billHistory (owner ask, Dale,
  * 2026-11-20; lead ruling: one authority, the page does no cross-period join).
  *
- *   billHistory[id] = [{ date, amount, amountBasis, trust, paidState }], newest first, on or before asOf, from the
- *   bill rows of the past and current pay periods. amount follows the row's own displayAmountBasis: a posted or
+ *   billHistory[id] = [{ date, amount, amountBasis, trust, paidState }], newest first, for every occurrence in the
+ *   published pay periods (past, current and future). amount follows the row's own displayAmountBasis: a posted or
  *   unconfirmed linked payment is |actual| (the Lunch Money ledger's own link, read and never matched here, rule 17);
  *   otherwise the scheduled amount, basis 'schedule', with its own trust. Never a scheduled amount called paid.
  *
@@ -46,15 +46,15 @@ function compile(text, name) {
   mod._compile(text, FILE.replace(/\.js$/, '-' + name + '.js'));
   return mod.exports;
 }
-const EXPOSE = '  function publishBillHistory(result, asOf) {';
+const EXPOSE = '  function publishBillHistory(result) {';
 const copies = {
-  without: compile(replaceOnce(SOURCE, 'return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)), asOf);',
+  without: compile(replaceOnce(SOURCE, 'return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));',
     'return publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts));', 'pass off'), 'without'),
   exposed: compile(replaceOnce(SOURCE, EXPOSE, '  globalThis.__publishBillHistory = publishBillHistory;\n' + EXPOSE, 'expose'), 'exposed'),
   scheduleAlways: compile(replaceOnce(SOURCE, '    const raw = actual ? row.actual : row.amount;', '    const raw = row.amount;', 'schedule always'), 'schedule-always'),
   oldestFirst: compile(replaceOnce(SOURCE, '(a.date < b.date ? 1 : a.date > b.date ? -1 : 0)', '(a.date < b.date ? -1 : a.date > b.date ? 1 : 0)', 'oldest first'), 'oldest-first'),
-  futureIncluded: compile(replaceOnce(SOURCE, "if (!view || (view.timelineRole !== 'past' && view.timelineRole !== 'current')) continue;\n      for (const row of (Array.isArray(view.bills) ? view.bills : [])) {\n        if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;\n        if (typeof row.date !== 'string' || !(row.date <= asOf) || row.paidState === 'carried') continue;",
-    "if (!view) continue;\n      for (const row of (Array.isArray(view.bills) ? view.bills : [])) {\n        if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;\n        if (typeof row.date !== 'string' || row.paidState === 'carried') continue;", 'future included'), 'future-included'),
+  futureDropped: compile(replaceOnce(SOURCE, "        if (typeof row.date !== 'string' || row.paidState === 'carried') continue;",
+    "        if (typeof row.date !== 'string' || row.paidState === 'carried' || view.timelineRole === 'future') continue;", 'future dropped'), 'future-dropped'),
 };
 const publish = globalThis.__publishBillHistory;
 delete globalThis.__publishBillHistory;
@@ -73,10 +73,13 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 console.log('1. Hand-derived worlds (as of 2026-10-14)');
 // A 90 monthly hydro bill due on the 12th. September's 90 posted; October's 40 posted (a partial payment, which the
-// paid word counts as paid: payment evidence was seen); nothing seen for
-// August. The history lists Oct, Sep, Aug, newest first; November and December are still to come and are not listed.
+// paid word counts as paid: payment evidence was seen); nothing seen for August. November and December are still to
+// come: every published occurrence is listed (the sheet's headline and history read one source), newest first, a
+// not-yet-due one at its schedule.
 const PAID = [pay('2026-09-12', 90), pay('2026-10-12', 40)];
 const HAND = [
+  { date: '2026-12-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
+  { date: '2026-11-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
   { date: '2026-10-12', amount: 40, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
   { date: '2026-09-12', amount: 90, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
   { date: '2026-08-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
@@ -84,7 +87,7 @@ const HAND = [
 {
   const { w, rec } = world(HYDRO, PAID);
   ok(w.asOf === '2026-10-14', 'the harness date the hand values assume', w.asOf);
-  ok(same(rec.billHistory.hydro, HAND), 'paid 40 of 90 in October and 90 in September: the paid amounts, then the unpaid August at its schedule',
+  ok(same(rec.billHistory.hydro, HAND), 'two to come at the schedule, the paid 40 of 90 in October and 90 in September, then the unpaid August at its schedule',
     JSON.stringify(rec.billHistory.hydro));
   ok(Object.keys(rec.billHistory).length === 1, 'one bill, one history');
 }
@@ -92,8 +95,9 @@ const HAND = [
   // October's payment still pending: Paid, but no linked amount yet, so the entry is October's scheduled 90 with
   // basis 'schedule' (the schedule's own trust), never a paid amount.
   const { rec } = world(HYDRO, [pay('2026-09-12', 90), pay('2026-10-12', 90, { pending: true })]);
-  ok(same(rec.billHistory.hydro[0], { date: '2026-10-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' }),
-    'a pending payment: Paid, at the scheduled 90, labelled schedule', JSON.stringify(rec.billHistory.hydro[0]));
+  const oct = rec.billHistory.hydro.find(e => e.date === '2026-10-12');
+  ok(same(oct, { date: '2026-10-12', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' }),
+    'a pending payment: Paid, at the scheduled 90, labelled schedule', JSON.stringify(oct));
 }
 {
   // An estimated bill with no payment seen: the schedule's own trust, estimated.
@@ -114,10 +118,12 @@ console.log('2. The publisher on hand-built results');
     view('future', [row('2026-10-01')]),
   ] }, '2026-09-15');
   const list = r.billHistory.b;
-  ok(same(list.map(e => e.date), ['2026-09-10', '2026-09-01', '2026-08-01']),
-    'newest first; the carried copy, the rows without an id, after asOf and in a future period are not listed', JSON.stringify(list.map(e => e.date)));
-  ok(list[1].amount === 50.01 && list[1].amountBasis === 'posted-actual', 'a linked actual is its absolute amount, to the cent', JSON.stringify(list[1]));
-  ok(list[0].amount === null && list[0].trust === 'unavailable', 'an amount that is not a number is null and unavailable', JSON.stringify(list[0]));
+  ok(same(list.map(e => e.date), ['2026-10-01', '2026-09-30', '2026-09-10', '2026-09-01', '2026-08-01']),
+    'newest first, future periods included; the carried copy and the rows without an id or date are not listed', JSON.stringify(list.map(e => e.date)));
+  ok(list[0].amountBasis === 'schedule' && list[0].trust === 'calculated' && list[0].paidState === 'not-paid',
+    'a future occurrence is present at its schedule, with its own trust and paid word', JSON.stringify(list[0]));
+  ok(list[3].amount === 50.01 && list[3].amountBasis === 'posted-actual', 'a linked actual is its absolute amount, to the cent', JSON.stringify(list[3]));
+  ok(list[2].amount === null && list[2].trust === 'unavailable', 'an amount that is not a number is null and unavailable', JSON.stringify(list[2]));
   const odd = publish({ payPeriodViews: [view('past', [row('2026-08-01', { displayAmountTrust: 'verified' }), row('2026-08-15', { displayAmountTrust: null })])] }, '2026-09-15');
   ok(odd.billHistory.b.every(e => e.trust === 'unknown'), 'a trust word outside calculated / estimated is unknown, never upgraded', JSON.stringify(odd.billHistory.b));
   ok(same(publish({}, '2026-09-15').billHistory, {}), 'no pay periods: an empty history');
@@ -157,7 +163,7 @@ console.log('4. Mutants are caught');
 {
   ok(!same(world(HYDRO, PAID, copies.scheduleAlways).rec.billHistory.hydro, HAND), 'the scheduled amount published for a paid occurrence is caught');
   ok(!same(world(HYDRO, PAID, copies.oldestFirst).rec.billHistory.hydro, HAND), 'oldest first is caught');
-  ok(!same(world(HYDRO, PAID, copies.futureIncluded).rec.billHistory.hydro, HAND), 'occurrences still to come are caught');
+  ok(!same(world(HYDRO, PAID, copies.futureDropped).rec.billHistory.hydro, HAND), 'dropping the occurrences still to come is caught');
   const exposeWith = (text, name) => {
     compile(replaceOnce(text, EXPOSE, '  globalThis.__p = publishBillHistory;\n' + EXPOSE, 'expose ' + name), name);
     const fn = globalThis.__p;

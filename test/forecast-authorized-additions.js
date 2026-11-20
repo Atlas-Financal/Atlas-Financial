@@ -149,12 +149,12 @@ function withoutBillPaidState(node, seen = new Set()) {
 }
 
 // billHistory (Stack Wallet, bill sheet): proved against the published bill
-// rows it copies, then removed. Every entry is one past or current period row
-// with the same id and date, never a carried copy, in date order newest
+// rows it copies, then removed. Every entry is one published period row with
+// the same id and date, never a carried copy, listed once, in date order newest
 // first. Its amount follows the row's own displayAmountBasis (a linked actual
 // or the scheduled amount, never mixed), with null exactly when trust is
-// unavailable. Every completed (past) period's non-carried dated row is
-// listed. Run before withoutBillPaidState, which removes the rows' paidState.
+// unavailable. Every period's non-carried dated row (past, current and
+// future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
 const BILL_HISTORY_TRUST_WORDS = new Set(['calculated', 'estimated', 'unknown', 'unavailable']);
 function proveBillHistory(advice) {
   const history = advice.billHistory;
@@ -162,13 +162,13 @@ function proveBillHistory(advice) {
   const rows = new Map();
   const pastKeys = new Set();
   for (const view of Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : []) {
-    if (!view || (view.timelineRole !== 'past' && view.timelineRole !== 'current')) continue;
+    if (!view) continue;
     for (const row of Array.isArray(view.bills) ? view.bills : []) {
       if (!row || typeof row.id !== 'string' || !row.id || typeof row.date !== 'string' || row.paidState === 'carried') continue;
       const key = row.id + '@' + row.date;
       if (!rows.has(key)) rows.set(key, []);
       rows.get(key).push(row);
-      if (view.timelineRole === 'past') pastKeys.add(key);
+      pastKeys.add(key);
     }
   }
   const listed = new Set();
@@ -180,7 +180,7 @@ function proveBillHistory(advice) {
       if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
       const candidates = rows.get(id + '@' + entry.date) || [];
       const row = candidates.find(r => r.paidState === entry.paidState);
-      assert.ok(row, `authorized addition: billHistory.${id}@${entry.date} copies a published past or current row`);
+      assert.ok(row, `authorized addition: billHistory.${id}@${entry.date} copies a published row`);
       const actual = row.displayAmountBasis === 'posted-actual' || row.displayAmountBasis === 'unconfirmed-actual';
       assert.equal(entry.amountBasis, actual ? row.displayAmountBasis : 'schedule', `authorized addition: billHistory.${id}@${entry.date} basis is the row's`);
       const raw = actual ? row.actual : row.amount;
@@ -195,7 +195,7 @@ function proveBillHistory(advice) {
       listed.add(id + '@' + entry.date);
     }
   }
-  for (const key of pastKeys) assert.ok(listed.has(key), `authorized addition: billHistory lists the completed period's ${key}`);
+  for (const key of pastKeys) assert.ok(listed.has(key), `authorized addition: billHistory lists the published occurrence ${key}`);
 }
 
 function withoutAuthorizedAdditions(advice) {

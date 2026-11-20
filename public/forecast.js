@@ -12669,7 +12669,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)), asOf);
+      return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12987,10 +12987,13 @@
     return result;
   }
   // Stack Wallet bill history (owner ask, Dale, 2026-11-20; lead ruling: one
-  // authority, the page does no cross-period join). For each bill id, its
-  // occurrences on or before asOf, newest first, copied from the published
-  // bill rows of the past and current pay periods:
+  // authority, the page does no cross-period join). For each bill id, every
+  // occurrence in the published pay periods (past, current and future), newest
+  // first, copied from the published bill rows, so the bill sheet reads one
+  // source for its headline and its history (lead ruling, 2026-11-20):
   //   { date, amount, amountBasis, trust, paidState }
+  // A not-yet-due occurrence carries basis 'schedule' with its own trust and
+  // its paidState as published.
   // amount and trust follow the row's own displayAmountBasis exactly
   // (publishBudgetBillDisplayTrust, or a saved close's capped rule): a posted
   // or unconfirmed actual is the linked payment |actual| from the Lunch Money
@@ -13001,9 +13004,10 @@
   // the occurrence is listed in the period that holds it. One entry per bill
   // id and date: a saved close keeps its unpaid row (alsoCarriedToCurrent)
   // while the current period carries the same occurrence, so the newest
-  // period's row, which knows most, is the one listed. Reach: only as far
-  // back as the published timeline (computed lookbacks within the ledger
-  // fetch window, then saved closes); nothing older is invented.
+  // period's row, which knows most, is the one listed. Reach: exactly the
+  // published timeline (computed lookbacks within the ledger fetch window and
+  // saved closes behind, the projected periods ahead); nothing beyond it is
+  // invented.
   const BILL_HISTORY_TRUST = new Set(['calculated', 'estimated']);
   function billHistoryEntry(row) {
     const basis = row.displayAmountBasis;
@@ -13014,16 +13018,16 @@
       : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
     return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState };
   }
-  function publishBillHistory(result, asOf) {
+  function publishBillHistory(result) {
     if (!result || typeof result !== 'object') return result;
     // Pay periods are in timeline order (oldest first), so a later period's
     // row for the same occurrence replaces an earlier one.
     const latest = new Map();
     for (const view of (Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
-      if (!view || (view.timelineRole !== 'past' && view.timelineRole !== 'current')) continue;
+      if (!view) continue;
       for (const row of (Array.isArray(view.bills) ? view.bills : [])) {
         if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;
-        if (typeof row.date !== 'string' || !(row.date <= asOf) || row.paidState === 'carried') continue;
+        if (typeof row.date !== 'string' || row.paidState === 'carried') continue;
         latest.set(row.id + '\u0000' + row.date, row);
       }
     }
