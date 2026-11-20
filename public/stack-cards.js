@@ -9,7 +9,10 @@
  * Styles live in stack-cards.css (linked by the shell under ?view=stack).
  *
  * Reads, from the selected pay period view:
- *   stackSummary.bills.other / .mortgage / .cardMinimums[].debtId  (#1426)
+ *   stackSummary.bills.other / .mortgage                           (#1426)
+ *   bills[].stackBillPart / .stackBillAmount  Forecast's own place for each row in that split and the amount it
+ *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
+ *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
  *   bills[].paidState  'paid' | 'not-paid' | 'carried'            (#1429); a green check only for 'paid'
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
@@ -86,7 +89,10 @@
     return o;
   }
 
-  function isMortgageRow(r) { return !!r && (r.debtId === 'mortgage' || r.id === 'mortgage'); }
+  // The rows Forecast placed in one part of the bills split (stackBillPart), in published order.
+  function partRows(view, part) {
+    return (Array.isArray(view.bills) ? view.bills : []).filter(function (r) { return r && r.stackBillPart === part; });
+  }
 
   function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash) {
     var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
@@ -117,15 +123,11 @@
 
   function billsCard(view) {
     var split = get(view, ['stackSummary', 'bills']) || {};
-    var cardIds = {};
-    (Array.isArray(split.cardMinimums) ? split.cardMinimums : []).forEach(function (c) { if (c) cardIds[String(c.debtId)] = true; });
-    var rows = (Array.isArray(view.bills) ? view.bills : []).filter(function (r) {
-      return r && r.paidState && r.paidState !== 'carried' && !isMortgageRow(r) && !(r.debtId != null && cardIds[String(r.debtId)]);
-    });
+    var rows = partRows(view, 'other');
     var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Bill', money(r.amount), r.paidState === 'paid', billTarget('bill', r));
+      return stateRow(r.label || r.name || 'Bill', money(r.stackBillAmount), r.paidState === 'paid', billTarget('bill', r));
     }).join('') + '</ul>';
     return strip('bills', 'Bills', '', total, null, fill(paid, rows.length), rows.length ? body : '', null, null, isEst(split.trust), true);
   }
@@ -154,12 +156,12 @@
 
   function mortgageCard(view) {
     var total = money(get(view, ['stackSummary', 'bills', 'mortgage']));
-    var row = (Array.isArray(view.bills) ? view.bills : []).filter(function (r) {
-      return isMortgageRow(r) && r.paidState && r.paidState !== 'carried';
-    })[0];
-    var paid = !!row && row.paidState === 'paid';
-    var body = row ? '<ul class="sc-list">' + stateRow(row.label || row.name || 'Mortgage', money(row.amount), paid, billTarget('mortgage', row)) + '</ul>' : '';
-    return strip('mortgage', 'Mortgage', '', total, null, paid ? 100 : 0, body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
+    var rows = partRows(view, 'mortgage');
+    var paid = rows.filter(function (r) { return r.paidState === 'paid'; }).length; // a count of rows, not money
+    var body = rows.length ? '<ul class="sc-list">' + rows.map(function (r) {
+      return stateRow(r.label || r.name || 'Mortgage', money(r.stackBillAmount), r.paidState === 'paid', billTarget('mortgage', r));
+    }).join('') + '</ul>' : '';
+    return strip('mortgage', 'Mortgage', '', total, null, fill(paid, rows.length), body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
   }
 
   // Savings (owner-approved design): "$saved of $needed" and a bar; open, one

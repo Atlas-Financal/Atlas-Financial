@@ -70,10 +70,10 @@ function compile(text, name) {
   return mod.exports;
 }
 const CENTS = "      - stackCents(mortgage) - creditCents - stackCents(item);";
-const MORTGAGE_IDS = "    const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));";
-const CARD_OF = "      && isStackCreditLine(o.debtId)).map(o => [String(o.id), String(o.debtId)]));";
-const OTHER = '      other: (totalCents - mortgageCents - minimumsCents) / 100,';
-const HELOC_LINE = '      const line = row.cashMinimum === true ? cashMinimumOf.get(id) : cardOf.get(id);';
+const MORTGAGE_IDS = "      mortgageIds: new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id))),";
+const CARD_OF = "        && isStackCreditLine(o.debtId)).map(o => [String(o.id), String(o.debtId)])),";
+const OTHER = '    const otherCents = totalCents - mortgageCents - minimumsCents;';
+const HELOC_LINE = '    const line = row.cashMinimum === true ? context.cashMinimumOf.get(id) : context.cardOf.get(id);';
 const EXPORT = "  if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;";
 const copies = {
   shipped: require('../public/forecast.js'),
@@ -83,10 +83,10 @@ const copies = {
   noItem: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - stackCents(item);', ';'), 'no item'), 'no-item'),
   noCredit: compile(replaceOnce(SOURCE, CENTS, CENTS.replace(' - creditCents', ''), 'no credit'), 'no-credit'),
   noMortgageTerm: compile(replaceOnce(SOURCE, CENTS, CENTS.replace('      - stackCents(mortgage)', '     '), 'no mortgage term'), 'no-mortgage-term'),
-  mortgageInOther: compile(replaceOnce(SOURCE, MORTGAGE_IDS, '    const mortgageIds = new Set();', 'mortgage in other'), 'mortgage-in-other'),
+  mortgageInOther: compile(replaceOnce(SOURCE, MORTGAGE_IDS, '      mortgageIds: new Set(),', 'mortgage in other'), 'mortgage-in-other'),
   minimumsInOther: compile(replaceOnce(SOURCE, CARD_OF, CARD_OF.replace('isStackCreditLine(o.debtId)', 'false'), 'minimums in other'), 'minimums-in-other'),
-  helocInOther: compile(replaceOnce(SOURCE, HELOC_LINE, '      const line = cardOf.get(id);', 'heloc in other'), 'heloc-in-other'),
-  otherIsTotal: compile(replaceOnce(SOURCE, OTHER, '      other: totalCents / 100,', 'other is total'), 'other-is-total'),
+  helocInOther: compile(replaceOnce(SOURCE, HELOC_LINE, '    const line = context.cardOf.get(id);', 'heloc in other'), 'heloc-in-other'),
+  otherIsTotal: compile(replaceOnce(SOURCE, OTHER, '    const otherCents = totalCents;', 'other is total'), 'other-is-total'),
   ignoresWithheld: compile(replaceOnce(SOURCE, '    if (!known) {\n      return { amount: null,', '    if (false) {\n      return { amount: null,', 'ignores withheld'), 'ignores-withheld'),
   fixedTrust: compile(replaceOnce(SOURCE, "      trust: view.balanceAfterDeductionsTrust || 'calculated',", "      trust: 'calculated',", 'fixed trust'), 'fixed-trust'),
   projectedFromRole: compile(replaceOnce(SOURCE, "    const projected = view.evidenceState === 'projected';", "    const projected = view.timelineRole === 'future';", 'projected role'), 'projected-role'),
@@ -253,9 +253,16 @@ console.log('2. The split, called directly');
     { id: 'inv-card-b', kind: 'obligation', planned: 10, amount: 10, needsDate: true },
   ];
   const parts = S.periodAssignedBillParts(rows, null, plan, 373);
-  ok(JSON.stringify(parts) === JSON.stringify({ mortgage: 300, cardMinimums: [{ debtId: 'mbna', amount: 25 }], other: 48 }),
+  const { rows: placed, ...split } = parts;
+  ok(JSON.stringify(split) === JSON.stringify({ mortgage: 300, cardMinimums: [{ debtId: 'mbna', amount: 25 }], other: 48 }),
     'a fee allowance (its 8 period cost) and a bill sharing an obligation id stay in other; a paid minimum keeps 25; an undated row is in no part',
     JSON.stringify(parts));
+  // Each counted row's place and the cents it adds (publishStackBillParts reads this): the undated
+  // minimum is in no part; the other rows' cents add up to other (8 + 40 = 48).
+  ok(JSON.stringify(placed && placed.map(m => [m.row.id, m.row.kind, m.part, m.debtId, m.cents])) === JSON.stringify([
+    ['tdfees', 'bill', 'other', null, 800], ['inv-card-a', 'obligation', 'cardMinimum', 'mbna', 2500],
+    ['inv-mortgage', 'obligation', 'mortgage', null, 30000], ['inv-mortgage', 'bill', 'other', null, 4000]]),
+  'each counted row is placed once, with the cents it adds; the undated row is in no part', JSON.stringify(placed));
   ok(S.periodAssignedBillParts(rows, null, plan, null) === null, 'no total, no split');
   const view = { periodBillLoad: 373, periodBillLoadTrust: 'estimated' };
   S.periodBillLoadPartsByPeriod.set(view, parts);
@@ -348,7 +355,10 @@ ok(shippedAudit.trustFail === 0 && shippedAudit.projectedFail === 0, 'its trust 
 
 console.log('4. Every existing field is byte-equal');
 {
-  const strip = advice => { for (const v of advice.payPeriodViews || []) delete v.stackSummary; return JSON.stringify(advice); };
+  // stackSummary, and the per-row split marks publishStackSummary sets beside it (publishStackBillParts).
+  const strip = advice => { for (const v of advice.payPeriodViews || []) { delete v.stackSummary;
+    for (const b of v.bills || []) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId']) delete b[k]; }
+  return JSON.stringify(advice); };
   let same = 0, total = 0;
   const all = corpus.concat([harnessArgs({}), harnessArgs({ held: true }), harnessArgs({ item: true }), harnessArgs({ bills: true, hydro: null }),
     harnessArgs({}, { incomeOverrides: { payroll: 'not a number' } })]);

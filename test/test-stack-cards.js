@@ -9,11 +9,13 @@ const view = {
   start: '2026-01-01',
   stackSummary: { bills: { mortgage: 1234.56, cardMinimums: [{ debtId: 'card-a', amount: 77.77 }], other: 888.88, trust: 'calculated' } },
   bills: [
-    { id: 'hydro', date: '2026-01-05', label: 'Hydro', amount: 111.11, paidState: 'paid' },
-    { id: 'phone', date: '2026-01-07', label: 'Phone', amount: 222.22, paidState: 'not-paid' },
+    // Each counted row carries Forecast's place for it in the split (stackBillPart) and the amount it counts
+    // there (stackBillAmount); the page groups by that alone. The carried row is not counted, so it has no mark.
+    { id: 'hydro', date: '2026-01-05', label: 'Hydro', amount: 111.11, paidState: 'paid', stackBillPart: 'other', stackBillAmount: 111.11 },
+    { id: 'phone', date: '2026-01-07', label: 'Phone', amount: 222.22, paidState: 'not-paid', stackBillPart: 'other', stackBillAmount: 222.22 },
     { id: 'old', label: 'Carried one', amount: 999.99, paidState: 'carried' },
-    { id: 'mortgage', date: '2026-01-02', debtId: 'mortgage', label: 'Mortgage', amount: 1234.56, paidState: 'not-paid' },
-    { id: 'cardmin', debtId: 'card-a', label: 'Card A minimum', amount: 77.77, paidState: 'paid' },
+    { id: 'mortgage', date: '2026-01-02', label: 'Mortgage', amount: 1234.56, paidState: 'not-paid', stackBillPart: 'mortgage', stackBillAmount: 1234.56 },
+    { id: 'cardmin', label: 'Card A minimum', amount: 77.77, paidState: 'paid', stackBillPart: 'cardMinimum', stackBillAmount: 77.77, stackBillDebtId: 'card-a' },
   ],
   budgetProgress: { household: { actual: { amount: 333.33 }, planned: { amount: 666.66 } } },
   householdBudget: [
@@ -77,9 +79,29 @@ assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'
   const unk = JSON.parse(JSON.stringify(view)); unk.bills[0].paidState = 'maybe'; unk.bills[3].paidState = 'maybe';
   const u = buildCardsHTML(ctx(unk));
   assert(!u.includes('sc-check') && !u.includes('\u2713'), 'an unknown paidState renders no check');
-  const nul = JSON.parse(JSON.stringify(view)); nul.bills[0].amount = null;
+  const nul = JSON.parse(JSON.stringify(view)); nul.bills[0].stackBillAmount = null;
   const n = buildCardsHTML(ctx(nul)).split('data-stack-card="bills"')[1].split('</details>')[0];
   assert(rowOf(n, 'Hydro').includes('<span class="sc-a">\u2014</span>') && !/[$]0/.test(n), 'an unpublished amount is a dash, never a zero');
+}
+// membership is Forecast's mark only (stackBillPart), never this page's own rule
+{
+  // A plain bill named "mortgage" that Forecast files under other stays in Bills; a row with no mark is listed nowhere.
+  const look = JSON.parse(JSON.stringify(view));
+  look.bills.push({ id: 'mortgage', date: '2026-01-09', label: 'Mortgage lookalike', amount: 44.44, paidState: 'not-paid', stackBillPart: 'other', stackBillAmount: 44.44 });
+  look.bills.push({ id: 'unmarked', date: '2026-01-10', label: 'Unmarked', amount: 55.55, paidState: 'not-paid' });
+  const lh = buildCardsHTML(ctx(look));
+  const of = k => lh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
+  assert(of('bills').includes('Mortgage lookalike') && !of('mortgage').includes('Mortgage lookalike'), 'a plain bill named mortgage stays in Bills, by its mark');
+  assert(!lh.includes('Unmarked') && !lh.includes(fmt(55.55)), 'a row with no mark is listed nowhere');
+  // The row prints the amount the split counts there, not the row's own amount.
+  const counted = JSON.parse(JSON.stringify(view)); counted.bills[0].stackBillAmount = 131.31;
+  const ch = buildCardsHTML(ctx(counted)).split('data-stack-card="bills"')[1].split('</details>')[0];
+  assert(rowOf(ch, 'Hydro').includes(fmt(131.31)) && !rowOf(ch, 'Hydro').includes(fmt(111.11)), 'a row prints its stackBillAmount');
+  // No marks at all (Forecast could not say): the heads stay, no row is listed.
+  const bare = JSON.parse(JSON.stringify(view));
+  bare.bills.forEach(b => { delete b.stackBillPart; delete b.stackBillAmount; delete b.stackBillDebtId; });
+  const bh = buildCardsHTML(ctx(bare));
+  assert(!/sc-row sc-bill/.test(bh) && bh.includes(fmt(888.88)) && bh.includes(fmt(1234.56)), 'unmarked rows: the heads, and no bill row');
 }
 // category rows read spent of planned; markup is escaped
 assert(card('budget').includes(fmt(123.45)) && card('budget').includes(fmt(400)));
@@ -91,7 +113,8 @@ assert(!/<details[^>]* open/.test(html));
 const bare = JSON.parse(JSON.stringify(view));
 bare.stackSummary.bills = { mortgage: null, cardMinimums: null, other: null, trust: 'unavailable' };
 bare.budgetProgress.household = { actual: { amount: null }, planned: { amount: null } };
-bare.bills.forEach(b => delete b.paidState);
+// A withheld split marks no row (Forecast publishStackBillParts; proved in forecast-authorized-additions).
+bare.bills.forEach(b => { delete b.paidState; delete b.stackBillPart; delete b.stackBillAmount; delete b.stackBillDebtId; });
 bare.householdBudget = [{ label: 'X', spent: null }];
 const h2 = buildCardsHTML(ctx(bare));
 assert(!/\$0(\.00)?\b/.test(h2) && amounts(h2).length === 0, 'unpublished figure printed');
