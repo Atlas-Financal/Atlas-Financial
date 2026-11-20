@@ -91,14 +91,14 @@
     return (Array.isArray(view.bills) ? view.bills : []).filter(function (r) { return r && r.stackBillPart === part; });
   }
 
-  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash) {
+  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash, srSub) {
     var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
       (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
     // The bar sits in the head (always visible, closed or open), full width under the title and figure; an unpublished
     // figure draws an empty track, never a guessed fill.
     var bar = '<span class="sc-bar' + (figure == null ? '' : estCls(est)) + '" aria-hidden="true"><i style="width:' + width + '%"></i></span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
-      '<summary aria-expanded="false"><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + f +
+      '<summary aria-expanded="false"><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + (srSub ? '<span class="sc-sr">' + esc(srSub) + '</span>' : '') + f +
       '<span class="sc-go" aria-hidden="true">' + CHEV + '</span>' + bar + '</summary>' + body + '</details>';
   }
 
@@ -169,7 +169,8 @@
           + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + (tgt ? RCV : '') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
-    return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true);
+    // No visible descriptor under the name (Dale, 2026-11-20); the words stay for a screen reader only.
+    return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true, 'spent / budget');
   }
 
   // Savings (owner-approved design): "$saved of $needed" and a bar; open, one

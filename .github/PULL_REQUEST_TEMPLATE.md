@@ -25,7 +25,7 @@
 | **Builder surface** | <!-- the tool this work ran on --> |
 | **Primary builder model** | <!-- the displayed model name; if withheld, say so --> |
 | **Supporting / explore models** | <!-- each other model and role, or None --> |
-| **Architecture / dispatch authority** | <!-- normally ChatGPT --> |
+| **Architecture / dispatch authority** | <!-- normally the lead session --> |
 | **Figures moved** | <!-- each published figure, or none --> |
 | **Reproduced / disproved** | <!-- current-main evidence, or n/a --> |
 | **Authority impact** | <!-- winner, loser, and bridge/sunset; or none --> |
@@ -69,9 +69,10 @@
   `CLAUDE.md` owns the narrow trigger list and review protocol.
 
   When a high-risk trigger fires, this review is REQUIRED governance before
-  merge. A non-builder reviewer performs it on the current exact head: Atlas
-  by default and for every figures-moved PR; Claude Code or Muse may review a
-  lower-risk or Atlas-built PR. The builder cannot satisfy it. Request it only
+  merge. A non-builder reviewer performs it on the current exact head: the
+  in-house reviewer (a separate Claude reviewer session, OD-026) by default and
+  for every figures-moved PR; Muse or another non-builder Claude Code session
+  may review a lower-risk PR. The builder cannot satisfy it. Request it only
   on a stable merge candidate, not the first implementation attempt.
 
   The reviewer posts factual findings as a PR comment (Reviewed head /
@@ -93,7 +94,7 @@
 
 - **Required**: <!-- REQUIRED — trigger; or NOT REQUIRED — why no high-risk trigger fired -->
 - **Exact reviewed head**: <!-- 40-character SHA, or N/A -->
-- **Reviewer**: <!-- non-builder reviewer (e.g. Atlas), or N/A -->
+- **Reviewer**: <!-- non-builder reviewer (e.g. In-house reviewer), or N/A -->
 - **Review outcome**: <!-- BLOCKERS FOUND, NO BLOCKERS FOUND, INCOMPLETE, PENDING, or N/A -->
 - **Findings and fix verification**: <!-- link to findings comment; blockers and dispositions; follow-up verification; none; or N/A -->
 
