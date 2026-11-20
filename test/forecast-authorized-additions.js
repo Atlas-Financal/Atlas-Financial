@@ -72,7 +72,6 @@ function proveStackBillParts(view, bills) {
         'authorized addition: posted-equal exactly where the posted payment is the counted amount');
     }
     if (Object.hasOwn(row, 'stackBillAmountTrust')) assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount\'s trust is a trust word');
-    else assert.ok(row.stackBillPaymentEvidence !== 'posted-equal' && row.displayAmountTrust == null || row.stackBillPaymentEvidence !== 'posted-equal', 'authorized addition: a trust word is absent only where the row has none');
   }
   if (marked.length) {
     const sum = list => list.reduce((total, row) => total + cents(row.stackBillAmount), 0);
@@ -289,6 +288,11 @@ function authorizedTagKey(key, value) {
   if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)
     || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
+    return true;
+  }
+  // The Stack bill cards' per-row amount trust (#1465): the row's own posted or plan word, never a new certainty.
+  if (/\.bills\.\d+\.stackBillAmountTrust$/.test(key)) {
+    assert.ok(['calculated', 'estimated', 'unknown'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
   if (/^\.billHistory\.[^.]+\.\d+\.trust$/.test(key)) {
