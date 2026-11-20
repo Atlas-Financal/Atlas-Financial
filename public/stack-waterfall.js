@@ -128,13 +128,15 @@
   // estimated. None for false or 'unknown', none in a projected or future period, none when no coverage is published
   // (the HELOC's cash minimum included), never guessed.
   function minimumCheck(ctx, view, debtId) {
-    if (!view || view.timelineRole === 'future' || view.evidenceState === 'projected') return '';
+    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
+    // A projected period is read through the shell's one rule (isEstimated with no trust word: projected only).
+    const projected = !blocks || typeof blocks.isEstimated !== 'function' || blocks.isEstimated(null, view);
+    if (!view || view.timelineRole === 'future' || projected) return '';
     const credit = typeof globalThis !== 'undefined' ? globalThis.StackCredit : null;
     const line = credit && typeof credit.line === 'function' && debtId != null ? credit.line(ctx, debtId) : null;
     const covered = line && line.minimumCovered;
     if (!covered || covered.value !== true) return '';
-    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
-    const soft = blocks && typeof blocks.estClass === 'function' ? blocks.estClass(covered.trust, view) : '';
+    const soft = typeof blocks.estClass === 'function' ? blocks.estClass(covered.trust, view) : '';
     // The estimate is named too, as the Credit card's paidBackName does: a soft check is never an unqualified claim.
     return `<span class="wf-check${soft}" role="img" aria-label="Minimum paid${soft ? ', estimated' : ''}">\u2713</span>`;
   }

@@ -102,7 +102,7 @@ console.log('4. Mutants are caught');
   const truthy = src.replace('if (!covered || covered.value !== true) return \'\';', 'if (!covered || !covered.value) return \'\';');
   assert.notEqual(truthy, src);
   ok(CHECK.test(render(view(), { source: truthy }).rows.cardD), 'reading coverage as truthy (a check for \'unknown\') is caught');
-  const noFuture = src.replace("if (!view || view.timelineRole === 'future' || view.evidenceState === 'projected') return '';", "if (!view) return '';");
+  const noFuture = src.replace("if (!view || view.timelineRole === 'future' || projected) return '';", "if (!view) return '';");
   assert.notEqual(noFuture, src);
   ok(CHECK.test(render(view({ timelineRole: 'future' }), { source: noFuture }).html), 'dropping the projected-period guard is caught');
 }
