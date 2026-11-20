@@ -42,6 +42,15 @@
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // A credit line's name (owner decision, Dale, 2026-11-20; Grok Bot, rule 17: the ledger is the one home for
+    // names): the name its Lunch Money account shows (debt.ledgerName, which the live overlay attaches by provider
+    // account id, never by name), else the block's own label. A label only: nothing is matched or derived from it.
+    cardName(data, debtId, fallback) {
+      const debts = data && Array.isArray(data.debts) ? data.debts : [];
+      const debt = debtId == null ? null : debts.find(d => d && d.id === debtId);
+      const name = debt && typeof debt.ledgerName === 'string' ? debt.ledgerName.trim() : '';
+      return name || fallback;
+    },
     // A household budget row's published trust, per printed amount, as Forecast publishes it (the reading the current
     // Budget page documents in plan.js householdBudgetRowHtml): the row's trust (or confidence) marks the row; its plan
     // is estimated when plannedTrust is absent or 'estimated' (an Other spending row's plan only when it is dated); its

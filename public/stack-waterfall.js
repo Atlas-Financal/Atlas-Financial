@@ -90,9 +90,12 @@
     if (key != null && key !== '') return views.find(v => v.start === key) || null;
     return views.find(v => v.role === 'active') || views.find(v => v.timelineRole === 'current') || null;
   }
+  // The Lunch Money name first (StackBlocks.cardName), else the plan's debt label, else the id.
   const cardLabel = (ctx, debtId) => {
     const debt = ctx && ctx.data && Array.isArray(ctx.data.debts) ? ctx.data.debts.find(d => d && d.id === debtId) : null;
-    return debt && typeof debt.label === 'string' && debt.label.trim() ? debt.label.trim() : String(debtId);
+    const own = debt && typeof debt.label === 'string' && debt.label.trim() ? debt.label.trim() : String(debtId);
+    const blocks = typeof globalThis !== 'undefined' ? globalThis.StackBlocks : null;
+    return blocks && typeof blocks.cardName === 'function' ? blocks.cardName(ctx && ctx.data, debtId, own) : own;
   };
 
   // One amount cell: the published value, or nothing (F8).

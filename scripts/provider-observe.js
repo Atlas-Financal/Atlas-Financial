@@ -313,12 +313,27 @@ function firstNumber(...values) {
   return null;
 }
 
+const LEDGER_NAME_MAX = 60;
+function ledgerNameOf(raw) {
+  for (const value of [raw.display_name, raw.name]) {
+    if (typeof value !== 'string') continue;
+    const name = value.replace(/\s+/g, ' ').trim();
+    if (name) return name.slice(0, LEDGER_NAME_MAX);
+  }
+  return null;
+}
+
 function normalizeLunchMoneyAccount(raw) {
   if (!raw || raw.id == null) fail('Lunch Money account is missing a stable id.');
   return {
     provider: 'lunchmoney',
     providerAccountId: String(raw.id),
     displayName: raw.name || raw.display_name || null,
+    // The name the household reads in Lunch Money (owner decision, Dale,
+    // 2026-11-20; Grok Bot, rule 17): display_name first, which bank sync
+    // never overwrites, else the provider's name. A label only, carried to the
+    // page by provider account id; never used to match anything.
+    ledgerName: ledgerNameOf(raw),
     institutionName: raw.institution_name || raw.institution || null,
     type: raw.type || null,
     subtype: raw.subtype || raw.type_name || null,
@@ -4749,6 +4764,7 @@ function observeCore(input, capture) {
     mapped.push({
       providerAccountId: account.providerAccountId,
       displayName: account.displayName,
+      ledgerName: account.ledgerName || null,
       atlasId: mapping.canonical.id,
       collection: mapping.canonical.collection,
       atlasRole: mapping.atlasRole,

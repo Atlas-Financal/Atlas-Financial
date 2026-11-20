@@ -107,6 +107,10 @@ html.stack-view .stack-period-chip {
 html.stack-view .stack-bare { box-shadow: none; border-radius: 0; }
 html.stack-view .stack-overlay:empty { display: none; }
 
+/* The side gutter is the design's 16px at phone width (the Wallet mock): the Stack root's own padding, and nothing
+ * from the current page's .wrap (12px at phone width), which otherwise stacked to 28px and narrowed every card by
+ * 24px. The boot notice is fixed to the viewport, so it is not moved by this. Wider screens centre the 440px column. */
+html.stack-view body .wrap { padding-left: 0; padding-right: 0; }
 @media (max-width: 472px) { html.stack-view .stack-root { padding-left: 16px; padding-right: 16px; } }
 @media (prefers-reduced-motion: reduce) { html.stack-view .stack-chip, html.stack-view .sc-chev { transition: none; } }
 /* B5, the one visual trust treatment (StackBlocks.estClass): an estimated or projected figure is drawn in softer ink;
