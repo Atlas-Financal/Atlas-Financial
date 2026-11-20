@@ -26,7 +26,9 @@
  *      repeats the pour; no other period publishes a card;
  *   2. the pure pour on invented packets: equal due dates keep plan order; an
  *      unknown need stops the pour; rows that do not cover the items withhold;
- *      a negative balance withholds;
+ *      a negative balance withholds; a goal poured after an estimated need is
+ *      estimated; a goal confirmed paid is left off; an unresolved goal stops
+ *      the pour at the end;
  *   3. every period of the invented corpus: the pour invariants;
  *   4. every existing field is byte-equal without the new key;
  *   5. mutants are caught;
@@ -87,6 +89,10 @@ const copies = {
     "    const first = funding && funding.stock && funding.stock.reportedStock;\n"
     + "    const stock = first && { ...first, amount: first.amount - 24 };", 'one account'),
   currentOnly: mutant("    if (role !== 'current' && role !== 'next') return null;", "    if (role !== 'current') return null;", 'current only'),
+  ownTrustOnly: mutant('      running = stackWeakerTrust(running, item.trust);', '      running = stackWeakerTrust(balance.trust, item.trust);', 'own trust only'),
+  paidKept: mutant("      ? funding.rows.filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid') : [];",
+    "      ? funding.rows.filter(row => row && typeof row.key === 'string') : [];", 'paid kept'),
+  noUnresolved: mutant("      ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];", '];', 'no unresolved'),
   hiddenWhenWithheld: mutant('    return {\n      items: out,', '    if (balance.cents === null) return null;\n    return {\n      items: out,', 'hidden when withheld'),
 };
 const pour = shipped.pour;
@@ -187,6 +193,41 @@ const UNKNOWN = { backing: { items: [
   const grouped = call(shipped, { rows: [{ key: 'row:ab', label: 'AB', members: ['a@2026-12-01', 'b@2026-12-01'] }, { key: 'row:c', label: 'C', members: ['c@2026-11-25'] }] });
   ok(same(grouped, { items: [['row:c', 5, 5, 'calculated'], ['row:ab', 45, 80, 'estimated']], totals: [50, 50, 85, 0, 'estimated'] }),
     'a grouped row is the sum of its members\' pour', JSON.stringify(pick(grouped)));
+  // Codex P1 (hand-derived): 1,000 poured into an estimated 600 trip (due first) then a confirmed 600 gift. The gift's
+  // 400 is what the trip's estimate leaves, so it is estimated too, never calculated.
+  const DEPENDS = { stock: { reportedStock: { status: 'ready', amount: 1000, freshness: 'current' } },
+    backing: { items: [{ key: 'trip@2026-12-01', date: '2026-12-01', needed: 600, trust: 'estimated' },
+      { key: 'gift@2026-12-20', date: '2026-12-20', needed: 600, trust: 'calculated' }] },
+    rows: [{ key: 'row:trip', label: 'Trip', members: ['trip@2026-12-01'] }, { key: 'row:gift', label: 'Gift', members: ['gift@2026-12-20'] }] };
+  const depends = call(shipped, DEPENDS);
+  ok(same(depends, { items: [['row:trip', 600, 600, 'estimated'], ['row:gift', 400, 600, 'estimated']], totals: [1000, 1000, 1200, 0, 'estimated'] }),
+    'a goal poured after an estimated need is estimated (its saved depends on that estimate)', JSON.stringify(pick(depends)));
+  const firstEst = call(shipped, { ...DEPENDS, backing: { items: [{ key: 'trip@2026-12-01', date: '2026-12-01', needed: 600, trust: 'calculated' },
+    { key: 'gift@2026-12-20', date: '2026-12-20', needed: 600, trust: 'estimated' }] } });
+  ok(firstEst.items[0].trust === 'calculated' && firstEst.items[1].trust === 'estimated',
+    'an estimated need later in the pour does not soften the goals poured before it');
+  // Codex P2 (hand-derived): an owner-confirmed paid trip is a display row with no backing item; the 600 gift takes
+  // 600 of 1,000 and 400 is left. The paid row is left off; the card is not blanked.
+  const PAID = { stock: { reportedStock: { status: 'ready', amount: 1000, freshness: 'current' } },
+    backing: { items: [{ key: 'gift@2026-12-20', date: '2026-12-20', needed: 600, trust: 'calculated' }] },
+    rows: [{ key: 'commitment:trip', label: 'Trip', members: ['trip@2026-12-01'], paymentStatus: 'paid', needed: 0 },
+      { key: 'commitment:gift', label: 'Gift', members: ['gift@2026-12-20'] }] };
+  const paid = call(shipped, PAID);
+  ok(same(paid, { items: [['commitment:gift', 600, 600, 'calculated']], totals: [1000, 600, 600, 400, 'calculated'] })
+    && !paid.totals.reasons.includes('rows-items-mismatch'), 'a goal confirmed paid is left off, and the rest still pours', JSON.stringify(pick(paid)));
+  // An unresolved goal (savingsFunding.unresolved: no need or date) sits in the rows; it comes last and stops the
+  // pour there: the dated goals keep their figures, it and the head and unallocated are withheld.
+  const UNRESOLVED = { stock: { reportedStock: { status: 'ready', amount: 1000, freshness: 'current' } },
+    backing: { items: [{ key: 'gift@2026-12-20', date: '2026-12-20', needed: 600, trust: 'calculated' }] },
+    unresolved: [{ key: 'roof', needed: null, trust: 'unknown' }],
+    rows: [{ key: 'commitment:gift', label: 'Gift', members: ['gift@2026-12-20'] }, { key: 'commitment:roof', label: 'Roof', members: ['roof'] }] };
+  const unres = call(shipped, UNRESOLVED);
+  ok(same(unres, { items: [['commitment:gift', 600, 600, 'calculated'], ['commitment:roof', null, null, 'unavailable']], totals: [1000, null, null, null, 'unavailable'] })
+    && unres.totals.reasons.includes('pour-stopped-at-unknown-need') && !unres.totals.reasons.includes('rows-items-mismatch'),
+    'an unresolved goal stops the pour at the end; the goals before it keep their figures', JSON.stringify(pick(unres)));
+  ok(call(copies.ownTrustOnly, DEPENDS).items[1].trust === 'calculated', 'mutant caught: a saved tagged by its own need only');
+  ok(call(copies.paidKept, PAID).totals.reasons.includes('rows-items-mismatch'), 'mutant caught: a paid display row blanks the card');
+  ok(call(copies.noUnresolved, UNRESOLVED).totals.reasons.includes('rows-items-mismatch'), 'mutant caught: an unresolved goal blanks the card');
   ok(pour({ timelineRole: 'past' }, { savingsFunding: packet({}) }) === null && pour({ timelineRole: 'future' }, { savingsFunding: packet({}) }) === null,
     'past and later periods publish null (no card)');
   const empty = pour({ timelineRole: 'current' }, {});
@@ -220,7 +261,7 @@ function audit(F) {
       if (!['current', 'next'].includes(v.timelineRole)) { if (s !== null) r.roleFail++; continue; }
       if (!s) { r.roleFail++; continue; }
       r.cards++;
-      const rows = funding && Array.isArray(funding.rows) ? funding.rows : [];
+      const rows = funding && Array.isArray(funding.rows) ? funding.rows.filter(row => row.paymentStatus !== 'paid') : [];
       if (s.items.length !== rows.length || s.items.some(x => !rows.some(row => row.key === x.id && x.label === row.label))) r.nameFail++;
       for (const x of s.items) {
         if ((x.saved === null) !== (x.needed === null) || x.saved !== null && (x.saved < 0 || x.saved > x.needed)) r.capFail++;
@@ -237,15 +278,19 @@ function audit(F) {
         if (stock.freshness !== 'current' && t.trust !== 'estimated') r.trustFail++;
         // Nearest due first (independent of the page's order): a goal holds money only once every goal due
         // strictly earlier is full.
-        const items = funding.backing.items;
-        const pours = new Map(items.map(i => [i.key, 0]));
-        let left = cents(t.balance);
+        const items = [...funding.backing.items, ...(funding.unresolved || [])];
+        const pours = new Map(items.map(i => [i.key, 0])), trusts = new Map();
+        let left = cents(t.balance), trust = stock.freshness === 'current' ? 'calculated' : 'estimated';
         for (const i of [...items].sort((p, q) => (p.date < q.date ? -1 : p.date > q.date ? 1 : items.indexOf(p) - items.indexOf(q)))) {
           const take = Math.min(cents(i.needed), left); left -= take; pours.set(i.key, take);
+          if (i.trust === 'estimated') trust = 'estimated';
+          trusts.set(i.key, trust);
         }
         for (const x of s.items) {
           const row = rows.find(rw => rw.key === x.id);
           if (row.members.reduce((c, m) => c + pours.get(m), 0) !== cents(x.saved)) r.orderFail++;
+          // Never more certain than the balance and every need poured up to this goal's members.
+          if (row.members.some(m => trusts.get(m) === 'estimated') && x.trust !== 'estimated') r.trustFail++;
         }
       } else if (t.needed !== null || t.unallocated !== null || t.trust !== 'unavailable') r.sumFail++;
       if (!t.reasons.every(c => REASONS.has(c))) r.reasonFail++;

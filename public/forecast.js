@@ -12706,15 +12706,20 @@
   //            balances of both savings pool accounts, summed (the grand
   //            total). Trust is its freshness: current -> calculated; dated or
   //            carried -> estimated. Missing, unready or negative -> withheld.
-  //   order    savingsFunding.backing.items, nearest due date first; equal
-  //            dates keep the plan's order.
+  //   order    savingsFunding.backing.items and savingsFunding.unresolved,
+  //            nearest due date first; equal dates keep the plan's order; an
+  //            item with no date comes last.
   //   pour     each item is saved min(needed, what is left); an item whose
   //            need or date is unpublished stops the pour (everything from it
   //            on is withheld: the pour never skips an unknown).
   //   rows     savingsFunding.rows, each the sum of its member items, listed
   //            in pour order; unallocated is what is left after the last item.
+  //            A row the owner confirmed paid (every member paid) is left off:
+  //            there is nothing left to save for it.
   // Every figure is null when withheld, never 0; the goal names always show.
-  // A tag is never more certain than the balance or the item's need.
+  // A tag is never more certain than its inputs: an item's saved depends on
+  // the balance and on every need poured before it, so it carries the
+  // weakest of those (and of its own need).
   const STACK_TRUST_RANK = { calculated: 0, estimated: 1 };
   const isSavingsFigure = v => typeof v === 'number' && Number.isFinite(v);
   const savingsFigureCents = v => Math.round(v * 100);
@@ -12734,8 +12739,10 @@
     const role = view.timelineRole;
     if (role !== 'current' && role !== 'next') return null;
     const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
-    const rows = funding && Array.isArray(funding.rows) ? funding.rows.filter(row => row && typeof row.key === 'string') : [];
-    const items = funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : [];
+    const rows = funding && Array.isArray(funding.rows)
+      ? funding.rows.filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid') : [];
+    const items = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
+      ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
     const balance = stackSavingsBalance(funding);
     const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason];
     // The rows must name every item exactly once, or the card would print
@@ -12752,7 +12759,7 @@
         return da < db ? -1 : da > db ? 1 : a.rank - b.rank;
       });
     const poured = new Map(), position = new Map();
-    let left = coherent ? balance.cents : null;
+    let left = coherent ? balance.cents : null, running = balance.trust;
     for (const [i, { item }] of order.entries()) {
       position.set(item && item.key, i);
       const known = left !== null && item && typeof item.date === 'string' && isSavingsFigure(item.needed)
@@ -12760,7 +12767,8 @@
       if (!known) { if (left !== null) reasons.push('pour-stopped-at-unknown-need'); left = null; poured.set(item && item.key, null); continue; }
       const take = Math.min(savingsFigureCents(item.needed), left);
       left -= take;
-      poured.set(item.key, { saved: take, needed: savingsFigureCents(item.needed), trust: stackWeakerTrust(balance.trust, item.trust) });
+      running = stackWeakerTrust(running, item.trust);
+      poured.set(item.key, { saved: take, needed: savingsFigureCents(item.needed), trust: running });
     }
     const out = rows.map(row => {
       const parts = (Array.isArray(row.members) ? row.members : []).map(key => poured.get(key));
