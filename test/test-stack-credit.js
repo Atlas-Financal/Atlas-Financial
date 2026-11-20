@@ -110,10 +110,10 @@ console.log('1. StackBlocks.barWidth');
   ok(bw(1, 4) === 0.25 && bw(9, 4) === 1 && bw(-3, 4) === 0 && bw(0, 4) === 0, 'a ratio clamped to 0–1');
 }
 
-console.log('2. closed card: "paid / minimums due"');
+console.log('2. closed card: "paid / card minimums due"');
 {
   const complete = card(TOTALS.complete);
-  ok(/data-stack-credit-total/.test(complete.html) && text(complete.html).startsWith('Credit paid / minimums due $500 / $345 Blue Visa'),
+  ok(/data-stack-credit-total/.test(complete.html) && text(complete.html).startsWith('Credit paid / card minimums due $500 / $345 Blue Visa'),
     'complete: the head reads "Credit", its subtitle and the published total paid over the waterfall\'s Credit minimums', text(complete.html).slice(0, 60));
   ok(/stack-credit-bar/.test(complete.html), 'complete: the total bar is drawn');
   // A withheld paid total prints a soft dash and the published minimums ("— / $345"); with the minimums also withheld, a
@@ -121,7 +121,7 @@ console.log('2. closed card: "paid / minimums due"');
   const partial = card(TOTALS.partial), none = card(TOTALS.none);
   for (const [label, c] of [['partial', partial], ["'none'", none]]) {
     ok(/data-stack-credit-total>/.test(c.html) && /stack-credit-bar" aria-hidden="true"><i style="width:75.0%">/.test(c.html) && !/\$500|\$660/.test(c.html)
-      && text(c.html).startsWith('Credit paid / minimums due — / $345 Blue Visa'), `${label}: a soft dash over the published minimums; the bar is covered over due (3 of 4), which does not need the paid total`, text(c.html).slice(0, 70));
+      && text(c.html).startsWith('Credit paid / card minimums due — / $345 Blue Visa'), `${label}: a soft dash over the published minimums; the bar is covered over due (3 of 4), which does not need the paid total`, text(c.html).slice(0, 70));
   }
   {
     const { fns } = load();
@@ -130,7 +130,7 @@ console.log('2. closed card: "paid / minimums due"');
     ctx.recommendation = { payPeriodViews: [VIEW] };
     ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: LINES, totals: { ...TOTALS.none, minimumsDue: { amount: null, trust: 'unavailable', reasons: ['bills-split-unavailable'] }, minimumsDueCount: null, minimumsCoveredCount: null, minimumsCoveredTrust: 'unavailable' } }) };
     fns.credit(el, ctx);
-    ok(/data-stack-credit-total data-unpublished>—</.test(el.innerHTML) && text(el.innerHTML).startsWith('Credit paid / minimums due — Blue Visa'),
+    ok(/data-stack-credit-total data-unpublished>—</.test(el.innerHTML) && text(el.innerHTML).startsWith('Credit paid / card minimums due — Blue Visa'),
       'paid and minimums both withheld: one soft dash, no figure');
   }
   {
@@ -185,7 +185,7 @@ function states(creditSrc) {
   return out;
 }
 
-console.log('2b. the head: paid / minimums due from Forecast\'s totals, a bar of covered over due (the in-house reviewer on #1481)');
+console.log('2b. the head: paid / card minimums due from Forecast\'s totals, a bar of covered over due (the in-house reviewer on #1481)');
 {
   // The reviewer's probe, as Forecast would publish it: paid 500 on one card with a 30 minimum, a second card paid 0 with a 40
   // minimum (not covered), and a third with a 400 minimum and no payment evidence: 3 due, 1 covered, 470 due.
@@ -197,7 +197,7 @@ console.log('2b. the head: paid / minimums due from Forecast\'s totals, a bar of
     return el.innerHTML;
   };
   const html = headOf(undefined, probe);
-  ok(text(html).startsWith('Credit paid / minimums due $500 / $470 Blue Visa') && /stack-credit-bar" aria-hidden="true"><i style="width:33\.3%">/.test(html),
+  ok(text(html).startsWith('Credit paid / card minimums due $500 / $470 Blue Visa') && /stack-credit-bar" aria-hidden="true"><i style="width:33\.3%">/.test(html),
     'paid $500 over minimums $470 with 1 of 3 covered: the bar is a third, not full', text(html).slice(0, 50) + ' ' + (html.match(/width:[\d.]+%/) || [])[0]);
   ok(!/999/.test(html), 'the head never reads the waterfall\'s Credit line (surplus.terms.credit, a different figure that includes the HELOC)');
   const full = headOf(undefined, { ...probe, minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 2 });
@@ -206,7 +206,7 @@ console.log('2b. the head: paid / minimums due from Forecast\'s totals, a bar of
   ok(/\$500<\/span><i class="">  ?\/ \$0<\/i>/.test(none.replace(/\s+/g, ' ').replace('> /', '>  /')) || /\/ \$0/.test(text(none)), 'nothing due: "$500 / $0"');
   ok(/stack-credit-bar" aria-hidden="true"><i style="width:0%">/.test(none), 'nothing due: an empty track (no ratio of zero)');
   const off = headOf(undefined, { ...probe, minimumsDue: { amount: null, trust: 'unavailable', reasons: ['bills-split-unavailable'] }, minimumsDueCount: null, minimumsCoveredCount: null, minimumsCoveredTrust: 'unavailable' });
-  ok(text(off).startsWith('Credit paid / minimums due $500 / — Blue Visa') && /stack-credit-bar" aria-hidden="true"><i style="width:0%">/.test(off),
+  ok(text(off).startsWith('Credit paid / card minimums due $500 / — Blue Visa') && /stack-credit-bar" aria-hidden="true"><i style="width:0%">/.test(off),
     'a withheld minimums total: "$500 / —" and an empty track, never a guessed figure');
   // mutants: the old head (paid over the same figure, a bar of paid over due) reads full on the probe, and must be caught
   const src = read('public/stack-credit.js');

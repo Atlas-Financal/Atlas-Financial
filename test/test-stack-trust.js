@@ -473,7 +473,7 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     let t = text(html).replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’');
     for (const n of names) t = t.split(n).join(' ');
     // the two head subtitles from the approved design, exactly (no other wording)
-    t = t.split('paid / minimums due').join(' ').split('spent / budget').join(' ');
+    t = t.split('paid / card minimums due').join(' ').split('spent / budget').join(' ');
     // the design's Credit wording (Dale, 2026-11-20, the Credit Minimum mock-up), exactly: the row lines and the sheet rows
     for (const phrase of ['Spent on it', 'Paid onto it', 'Not due this period']) t = t.split(phrase).join(' ');
     t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( \u2013 ((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?\d{1,2})?\b/g, ' ')

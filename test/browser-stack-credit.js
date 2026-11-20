@@ -88,11 +88,11 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const head = await textOf(page, '[data-stack-credit-toggle]');
     ok(/^Credit/.test(head), 'the card is titled Credit', head);
     if (stub) {
-      ok(/^Credit paid \/ minimums due \u2014 \/ \$[\d,.]+$/.test(head) && !!(await page.$('.stack-credit-bar')),
+      ok(/^Credit paid \/ card minimums due \u2014 \/ \$[\d,.]+$/.test(head) && !!(await page.$('.stack-credit-bar')),
         'a partial paid total prints a soft dash over the published minimums due, with an empty track', head);
     } else {
       const complete = await page.evaluate(() => !!document.querySelector('[data-stack-credit-total]'));
-      ok(/^Credit paid \/ minimums due (\u2014|\$[\d,.]+)( \/ (\$[\d,.]+|\u2014))?$/.test(head),
+      ok(/^Credit paid \/ card minimums due (\u2014|\$[\d,.]+)( \/ (\$[\d,.]+|\u2014))?$/.test(head),
         'the head is "Credit", its subtitle and the total paid over the minimums due (a dash when withheld)', head);
     }
     ok(!(await page.$('[data-stack-credit-excludes]')), 'no "excludes" line');
@@ -196,7 +196,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       await page.keyboard.press('Escape');
     }
     // the Credit head's subtitle from the approved design, exactly, is the one allowed wording
-    const clean = t => t.split('paid / minimums due').join(' ').split('Not due this period').join(' ');
+    const clean = t => t.split('paid / card minimums due').join(' ').split('Not due this period').join(' ');
     const hits = seen.filter(t => FORBIDDEN.test(clean(t))).map(t => clean(t).match(FORBIDDEN)[0]);
     ok(seen.length > 3 && hits.length === 0, `no explanatory word on the page or in ${seen.length - 1} sheets`, hits.join(', '));
     ok(FORBIDDEN.test('Upcoming $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Paid back $5 to go Minimum $5 covered ✓'),
