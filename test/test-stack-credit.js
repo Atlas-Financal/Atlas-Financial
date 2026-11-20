@@ -221,6 +221,51 @@ console.log('5b. a published minimum shows whatever its coverage check says (Atl
     'no coverage word is printed or inferred');
 }
 
+console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale, 2026-11-20; lead ruling)');
+{
+  // Invented lines shaped like #1447's stackCreditLines: line.balance is the card's last balance snapshot with its trust.
+  const bal = (amount, trust = 'calculated') => ({ amount, asOf: '2031-03-09', trust, reasons: trust === 'estimated' ? ['balance-before-statement-cycle'] : [] });
+  const none = fig(null, 'unavailable');
+  const MORE = [
+    { id: 'both', label: 'Both Card', paid: fig(100), spent: fig(260), minimum: fig(30), toGo: fig(160), status: 'to-go',
+      minimumCovered: { value: false, trust: 'calculated' }, balance: bal(1234.56), transactions: [] },
+    { id: 'fresh', label: 'Fresh Card', paid: none, spent: none, minimum: fig(20), toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: bal(812.4), transactions: [] },
+    { id: 'stale', label: 'Stale Card', paid: none, spent: none, minimum: null, toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: bal(305, 'estimated'), transactions: [] },
+    { id: 'half', label: 'Half Card', paid: fig(50), spent: none, minimum: null, toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: bal(77), transactions: [] },
+    { id: 'blank', label: 'Blank Card', paid: none, spent: none, minimum: null, toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unknown' }, balance: { amount: null, asOf: null, trust: 'unavailable', reasons: ['balance-unavailable'] }, transactions: [] },
+    { id: 'heloc', label: 'Line of credit', paid: null, spent: null, minimum: fig(210), toGo: none, status: null,
+      minimumCovered: { value: true, trust: 'calculated' }, balance: bal(9000), transactions: [] },
+  ];
+  const totals = { ...TOTALS.complete, balance: { amount: 2429.0, trust: 'estimated', completeness: 'complete', excluded: [], reasons: [] } };
+  const { fns, win } = load();
+  const ctx = context(totals);
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals }) };
+  const el = container();
+  fns.credit(el, ctx);
+  const rows = el.innerHTML.split('<li>').slice(1);
+  ok(text(rows[0]) === 'Both Card $160 $100 of $260 Minimum $30' && !/1,234|data-stack-credit-balance/.test(rows[0]),
+    'paid and spent published: "$A of $B", and no balance');
+  ok(text(rows[1]) === 'Fresh Card $812.40 Minimum $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance>\$812\.40</.test(rows[1]),
+    'no paid / spent: the last balance, plain when calculated', text(rows[1]));
+  ok(/<small class="stack-credit-bal stack-n stack-est" data-stack-credit-balance>\$305</.test(rows[2]), 'an estimated balance is soft');
+  ok(text(rows[3]) === 'Half Card $77', 'only one of paid / spent published: the balance (no half "of")', text(rows[3]));
+  ok(text(rows[4]) === 'Blank Card' && !/\$0|data-stack-credit-balance/.test(rows[4]), 'no balance published: nothing, never $0');
+  ok(text(rows[5]) === 'Line of credit Minimum $210 ✓' && !/9,000/.test(rows[5]), 'HELOC: its minimum only, never its balance');
+  ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total>\$500</.test(el.innerHTML),
+    "the head stays the paid / spent total; totals.balance is not shown");
+  const fresh = win.StackSheet.html(ctx, 'card:fresh'), stale = win.StackSheet.html(ctx, 'card:stale');
+  ok(/<div class="stack-sheet-big stack-n" data-stack-credit-balance>\$812\.40<\/div>/.test(fresh)
+    && /<div class="stack-sheet-big stack-n stack-est" data-stack-credit-balance>\$305<\/div>/.test(stale),
+    'the sheet shows the same balance as its big figure, soft when estimated');
+  ok(!/data-stack-credit-balance/.test(win.StackSheet.html(ctx, 'card:both')) && !/data-stack-credit-balance|\$0/.test(win.StackSheet.html(ctx, 'card:blank'))
+    && !/9,000/.test(win.StackSheet.html(ctx, 'card:heloc')), 'the sheet: no balance beside paid / spent, none when unpublished, none for the HELOC');
+  ok(!/balance|last|estimated|snapshot/i.test(text(el.innerHTML) + text(fresh) + text(stale)), 'no words');
+}
+
 console.log('6. L-001: no arithmetic on money');
 {
   for (const file of ['public/stack-credit.js', 'public/stack-sheet.js']) {
