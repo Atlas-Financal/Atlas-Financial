@@ -104,11 +104,19 @@ console.log('5. L-001: no arithmetic on money in the shell');
     'no sum, rounding or arithmetic on a figure');
 }
 
-console.log('6. no text labels (owner decision, 2026-11-19)');
+console.log('6. the period chip and the chip strip follow the design (owner, Dale, 2026-11-20: "Follow the design")');
 {
   const src = read('public/stack-shell.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok(!/Projected|'Past'|Last pay period|This pay period/.test(src) && /view\.evidenceState === 'projected'/.test(src),
-    'the shell prints no period label; a projected chip is marked from the published evidenceState');
+  ok(/'This pay period'/.test(src) && /'Last pay period'/.test(src) && /'Past'/.test(src) && !/Projected/.test(src),
+    'the period chip uses the design\'s three labels and never prints "Projected"');
+  const css = read('public/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  const chipRules = css.match(/[^{}]*stack-chip[^{}]*\{[^}]*\}/g) || [];
+  ok(chipRules.length > 0 && chipRules.every(r => !/dashed|dotted/.test(r)) && !/is-projected/.test(css + src),
+    'no chip is drawn with a dashed or dotted outline (owner, Dale, 2026-11-20 walk)');
+  ok(/html\.stack-view \.stack-root \.stack-chip \{[^}]*background: var\(--stack-t-chip\)/.test(css)
+    && /html\.stack-view \.stack-root button \{[^}]*background: none/.test(css),
+    'the chip fill is scoped under .stack-root, so the page\'s button reset cannot strip it');
+  ok(/\.blend-ambient[^{]*\{ display: none !important; \}/.test(css), 'the current page\'s background art is hidden on the Stack page');
 }
 
 console.log('7. phone layout rules (the browser proof is test/browser-stack-layout.js, local)');

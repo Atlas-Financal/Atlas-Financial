@@ -90,8 +90,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
           .every(el => getComputedStyle(el).display === 'none') && document.getElementById('stack-root').checkVisibility(),
         chips: chips.map(c => ({ key: c.dataset.stackPeriod, pressed: c.getAttribute('aria-pressed'),
           now: c.getAttribute('aria-current'), date: c.querySelector('.stack-chip-date').textContent,
-          projected: c.classList.contains('is-projected'),
-          dashed: getComputedStyle(c).borderTopStyle,
+          dashed: getComputedStyle(c).borderTopStyle, fill: getComputedStyle(c).backgroundColor,
+          padTop: getComputedStyle(c).paddingTop,
           amount: c.querySelector('[data-stack-chip-amount]').textContent })) };
     });
     const F = require('../public/forecast.js');
@@ -111,18 +111,17 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       .format(new Date(v.start + 'T12:00:00Z')));
     ok(view.chips.every((c, i) => c.date === dates[i]), 'each chip shows its period start date');
     ok(views.some(v => v.evidenceState === 'projected') && views.some(v => v.evidenceState !== 'projected')
-      && view.chips.every((c, i) => c.projected === (views[i].evidenceState === 'projected')
-        && (c.dashed === 'dashed') === (views[i].evidenceState === 'projected')),
-    'a projected view (evidenceState, as published) draws a dashed chip; historical and live views do not',
-    JSON.stringify(view.chips.map((c, i) => [views[i].evidenceState, c.projected, c.dashed])));
+      && view.chips.every(c => c.dashed === 'none' && c.fill !== 'rgba(0, 0, 0, 0)' && c.padTop === '9px'),
+    'every chip, projected or not, has the design\'s filled tile and padding and no dashed outline (owner, 2026-11-20)',
+    JSON.stringify(view.chips.map((c, i) => [views[i].evidenceState, c.dashed, c.fill, c.padTop])));
     const words = await page.evaluate(() => document.getElementById('stack-root').textContent);
-    ok(!/Projected|Past|Last pay period|This pay period/i.test(words), 'no period label anywhere on the Stack page (no text labels)');
+    ok(!/Projected/i.test(words), 'no "Projected" word anywhere on the Stack page (owner)');
     const head = await page.evaluate(() => ({ range: document.querySelector('.stack-period-range').textContent,
       text: document.querySelector('[data-stack-period-head]').textContent, dot: !!document.querySelector('[data-stack-period-now]') }));
     const fmt = iso => new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso + 'T12:00:00Z'));
     const range = v => fmt(v.start) + ' \u2013 ' + (v.start.slice(0, 7) === v.end.slice(0, 7) ? String(Number(v.end.slice(8))) : fmt(v.end));
-    ok(head.range === range(active) && head.text === range(active) && head.dot,
-      'the shell heads the current period with its range and the current-period marker, and no words', JSON.stringify(head));
+    ok(head.range === range(active) && head.text === range(active) + 'This pay period' && head.dot,
+      'the shell heads the current period with its range and the design\'s "This pay period" chip', JSON.stringify(head));
     const sheets = await page.evaluate(() => [...document.querySelectorAll('link[rel=stylesheet]')].map(l => new URL(l.href).pathname)
       .filter(p => /^\/stack[.-]/.test(p)));
     ok(sheets.join() === ['/stack.css', '/stack-waterfall.css', '/stack-cards.css', '/stack-credit.css',
@@ -131,8 +130,10 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       .map(e => e.dataset.stackBlock), overlay: document.querySelector('[data-stack-block="sheet"]').closest('[data-stack-pile]') === null }));
     ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,
       'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
-    ok(views.every(v => !(v.stackSummary && v.stackSummary.surplus)) && view.chips.every(c => c.amount === ''),
-      'main publishes no surplus yet, so every chip prints nothing: never $0');
+    ok(view.chips.every((c, i) => {
+      const s = views[i].stackSummary && views[i].stackSummary.surplus;
+      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '\u2014' : c.amount === '\u2014';
+    }), 'a chip with no published surplus prints a dash, never $0 and never a blank', JSON.stringify(view.chips.map(c => c.amount)));
 
     console.log('3. every printed amount is the published value it names');
     const invented = [1000, -250.5, null, 0.25, -3];
@@ -142,7 +143,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
         const r = original.apply(this, arguments);
         (r.payPeriodViews || []).forEach((v, i) => {
           const amount = values[i % values.length];
-          if (amount !== null) v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: { amount, trust: 'estimated' } });
+          v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: amount === null
+            ? { amount: null, trust: 'unavailable' } : { amount, trust: 'estimated' } });
         });
         return r;
       };
@@ -155,8 +157,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const want = { 1000: '+$1,000', '-250.5': '−$250.50', 0.25: '+$0.25', '-3': '−$3' };
     ok(printed.every((p, i) => {
       const v = invented[i % invented.length];
-      return v === null ? p.text === '' && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
-    }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, nothing when absent',
+      return v === null ? p.text === '\u2014' && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
+    }), 'each chip prints its published surplus exactly (+$1,000, −$250.50, +$0.25, −$3), coral when negative, a dash when absent',
     JSON.stringify(printed.slice(0, 5)));
 
     console.log('4. selection drives every block');
@@ -179,7 +181,7 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const later = await page.evaluate(() => ({ text: document.querySelector('[data-stack-period-head]').textContent,
       dot: !!document.querySelector('[data-stack-period-now]') }));
     ok(lastView.evidenceState === 'projected' && later.text === range(lastView) && !later.dot,
-      'another period is headed by its range alone: no label, no current marker', JSON.stringify(later));
+      'a future period is headed by its range alone: no "Projected" chip (owner)', JSON.stringify(later));
     ok(after.pressed.join() === target && last.key === target && after.block === 'test block ' + target,
       'tapping a chip selects it and the block renders for that period', JSON.stringify(after.pressed));
     ok(last.keys === 'Forecast,data,plan,recommendation,selectedPeriodKey' && last.sameRec && last.plan && last.forecast,
@@ -187,6 +189,20 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     await page.click('[data-stack-now]');
     const back = await page.evaluate(() => window.__stackCalls[window.__stackCalls.length - 1].key);
     ok(back === active.start, '"Now" returns to the current period');
+    const ai = views.indexOf(active);
+    const pastHeads = [];
+    for (const i of [ai - 1, ai - 2].filter(i => i >= 0)) {
+      await page.click(`[data-stack-period="${views[i].start}"]`);
+      pastHeads.push(await page.evaluate(() => (document.querySelector('[data-stack-period-now]') || {}).textContent || ''));
+    }
+    ok(pastHeads.length === 2 && pastHeads[0] === 'Last pay period' && pastHeads[1] === 'Past',
+      'the period before the current one reads "Last pay period"; an earlier one reads "Past" (the design)', JSON.stringify(pastHeads));
+    await page.click('[data-stack-now]');
+    const sel = await page.evaluate(() => {
+      const v = document.querySelector('[data-stack-period][aria-pressed="true"] [data-stack-chip-amount]');
+      return v ? getComputedStyle(v).opacity : null;
+    });
+    ok(sel === '1', 'the selected chip\'s value is drawn at full strength, dark on the selected fill (the design)', String(sel));
     ok(errors.length === 0, 'no page errors under the flag', errors.join('; '));
     await page.close();
 

@@ -66,9 +66,11 @@ const measureWaterfall = page => page.evaluate(() => {
   return [...wf.querySelectorAll('.wf-line, .wf-card')].map(li => {
     const lab = li.querySelector('.lab, b'), n = li.querySelector('.n:not([data-unpublished])');
     if (!lab || !n) return null; // a row with no published amount has nothing to fit
-    const l = ink(lab), a = ink(n), box = li.getBoundingClientRect();
+    // The label's own words: its text nodes, not the design's decorative letter tile or swatch (aria-hidden).
+    const words = [...lab.childNodes].filter(c => c.nodeType === 3 && c.textContent.trim());
+    const l = words.flatMap(ink), a = ink(n), box = li.getBoundingClientRect();
     const measured = l.length > 0 && a.length > 0;
-    return { label: lab.textContent.trim(), card: li.classList.contains('wf-card'), measured,
+    return { label: words.map(w => w.textContent).join('').trim(), card: li.classList.contains('wf-card'), measured,
       lines: measured ? new Set(l.map(x => Math.round(x.top))).size : 0,
       gap: measured ? Math.min(...a.map(x => x.left)) - Math.max(...l.map(x => x.right)) : null,
       over: measured ? Math.max(...a.map(x => x.right)) - box.right : null };

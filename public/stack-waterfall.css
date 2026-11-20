@@ -10,6 +10,13 @@ html.stack-view .stack-waterfall .wf-line {
   padding: 9px 0; font-size: 18px; font-weight: 500;
 }
 html.stack-view .stack-waterfall .op { font-size: 19px; font-weight: 700; color: var(--stack-on2); }
+html.stack-view .stack-waterfall .lab { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* The design's marks: a dark letter tile per income line, a card-colour swatch per deduction. */
+html.stack-view .stack-waterfall .wf-av {
+  flex: none; width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--stack-on); color: var(--stack-wf); font-size: 13px; font-weight: 800;
+}
+html.stack-view .stack-waterfall .wf-sw { background: var(--wf-k); box-shadow: inset 0 0 0 1.5px var(--stack-on); }
 html.stack-view .stack-waterfall .wf-line .n { font-weight: 700; font-size: 19px; letter-spacing: -.02em; }
 html.stack-view .stack-waterfall .wf-line.tot { font-weight: 800; border-top: 2.5px solid var(--stack-on); margin-top: 6px; padding-top: 13px; }
 html.stack-view .stack-waterfall .wf-line.tot .n { font-weight: 800; }
@@ -67,6 +74,9 @@ html.stack-view .stack-waterfall .wf-slab .n, html.stack-view .stack-waterfall .
   html.stack-view .stack-waterfall .op { font-size: 16px; }
   html.stack-view .stack-waterfall .wf-line .n { font-size: 16px; }
   html.stack-view .stack-waterfall .lab { white-space: nowrap; }
+  /* The design's letter tiles and swatches are decoration; below 360px the words and figures need the room
+   * ("Amanda’s income" beside a five-figure amount), so the marks step aside. */
+  html.stack-view .stack-waterfall .wf-av { display: none; }
   html.stack-view .stack-waterfall .wf-cards { padding-left: 28px; }
   html.stack-view .stack-waterfall .wf-card, html.stack-view .stack-waterfall .wf-card .n { font-size: 15px; }
 }
