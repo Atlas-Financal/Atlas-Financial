@@ -153,8 +153,8 @@ function withoutBillPaidState(node, seen = new Set()) {
 // the same id and date, never a carried copy, listed once, in date order newest
 // first. Its amount follows the row's own displayAmountBasis (a linked actual
 // or the scheduled amount, never mixed), with null exactly when trust is
-// unavailable. Every period's non-carried dated row (past, current and
-// future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
+// unavailable. Its occurrence is that row's identity. Every period's
+// non-carried dated row (past, current and future) is listed. Run before withoutBillPaidState, which removes the rows' paidState.
 const BILL_HISTORY_TRUST_WORDS = new Set(['calculated', 'estimated', 'unknown', 'unavailable']);
 // Forecast's occurrence identity, as the history keys it: the row's
 // occurrenceKey (id@scheduledDate) when it publishes one, else its id and
@@ -181,7 +181,7 @@ function proveBillHistory(advice) {
     assert.ok(Array.isArray(list) && list.length, `authorized addition: billHistory.${id} lists occurrences`);
     for (let i = 0; i < list.length; i++) {
       const entry = list[i];
-      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState'], `authorized addition: billHistory.${id} entry shape`);
+      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState', 'occurrence'], `authorized addition: billHistory.${id} entry shape`);
       if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
       const candidates = rows.get(id + '@' + entry.date) || [];
       const row = candidates.find(r => r.paidState === entry.paidState && !listed.has(billOccurrenceOf(r)));
@@ -196,6 +196,7 @@ function proveBillHistory(advice) {
       assert.equal(entry.trust, expected === null ? 'unavailable' : carriedTrust,
         `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
+      assert.equal(entry.occurrence, billOccurrenceOf(row), `authorized addition: billHistory.${id}@${entry.date} occurrence is the row's identity`);
       listed.add(billOccurrenceOf(row));
     }
   }

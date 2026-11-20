@@ -129,6 +129,7 @@ const FIELD_CLASSES = Object.freeze([
   ['bill-history-basis', 'Other', 'billHistory.*.amountBasis', 'tag'],
   ['bill-history-paid-state', 'Other', 'billHistory.*.paidState', 'tag'],
   ['bill-history-trust', 'Trust', 'billHistory.*.trust', 'tag'],
+  ['bill-history-occurrence', 'Other', 'billHistory.*.occurrence', 'tag'],
   ['savings-close-trust', 'Trust', 'savings.period.*.close.trust', 'tag'],
   ['savings-close-row-still-to-fund-trust', 'Trust', 'savings.period.*.close.row.*.stillToFundTrust', 'tag'],
   ['savings-planned-still-to-fund-trust', 'Trust', 'savings.period.*.planned.row.*.stillToFundTrust', 'tag'],

@@ -572,8 +572,9 @@ function uniqueKey(used, key) {
 
 /* ---- Stack Wallet bill sheet: Forecast billHistory ------------------------ */
 // Each bill's occurrences as published (date, amount, its basis and trust,
-// the paid word), one key per bill id and date. Copied, never summed.
-const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState'];
+// the paid word, the occurrence identity), one key per bill id and date.
+// Copied, never summed.
+const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState', 'occurrence'];
 function putBillHistory(put, putField, advice) {
   const history = advice.billHistory && typeof advice.billHistory === 'object' ? advice.billHistory : {};
   const keys = new Set();
