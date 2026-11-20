@@ -288,6 +288,38 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     'a projected period: the headline and every history amount are soft');
 }
 
+console.log('5d. the bill sheet matches its entry by occurrence identity (#1455), never by a coinciding date');
+{
+  const { win } = load();
+  const mk = (bills, history) => { const c = context(view('actual')); c.recommendation.payPeriodViews[0].bills = bills; c.recommendation.billHistory = history; return c; };
+  const row = (o) => ({ id: 'tri', label: 'Triangle', amount: 50, displayAmountTrust: 'calculated', payerLabel: 'Chequing', ...o });
+  const HIST = { tri: [
+    { date: '2031-03-10', amount: 55.25, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-03-07' },
+    { date: '2031-02-07', amount: 49, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-02-07' }] };
+  // A statement moved the occurrence from Mar 7 to Mar 10; the current row carries its occurrenceKey.
+  const moved = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', occurrenceKey: 'tri@2031-03-07', paidState: 'paid' })], HIST),
+    'bill:tri@2031-03-10');
+  ok(/stack-sheet-big stack-n">\$55\.25<\/div><span class="stack-sheet-check"/.test(moved) && (moved.match(/<li>/g) || []).length === 1 && /Feb 7/.test(moved),
+    'a moved occurrence finds its entry by identity: its amount and ✓, and only the earlier occurrence below');
+  // A saved close kept the old date and its unpaid copy: same identity, but its paid state disagrees with the entry.
+  const saved = win.StackSheet.html(mk([row({ date: '2031-03-07', paidState: 'not-paid' })], HIST), 'bill:tri@2031-03-07');
+  ok(/<div class="stack-sheet-big stack-n"><span role="img" aria-label="not available">—<\/span><\/div>/.test(saved) && !/55\.25/.test(saved),
+    "a saved close's unpaid copy never shows the current paid copy's amount, and does not list it as history");
+  // The row's date coincides with another occurrence's effective date: no match by date.
+  const other = win.StackSheet.html(mk([row({ date: '2031-03-10', occurrenceKey: 'tri@2031-03-10', paidState: 'paid' })], HIST), 'bill:tri@2031-03-10');
+  ok(/aria-label="not available">—/.test(other.split('stack-sheet-big')[1].split('</div>')[0]) && !/55\.25/.test(other),
+    'a coinciding date with a different identity matches nothing (a dash, never another occurrence\'s amount)');
+  // Without occurrenceKey the identity is id@scheduledDate, then id@date.
+  const bySched = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', paidState: 'paid' })], HIST), 'bill:tri@2031-03-10');
+  ok(/stack-sheet-big stack-n">\$55\.25</.test(bySched), 'no occurrenceKey: the identity is id@scheduledDate');
+  const foreignKey = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', occurrenceKey: 'other@2031-03-10', paidState: 'paid' })], HIST), 'bill:tri@2031-03-10');
+  ok(/stack-sheet-big stack-n">\$55\.25</.test(foreignKey), "an occurrenceKey for another bill is ignored (the scheduled date decides)");
+  // The row's own entry dated before the row (its effective date earlier than the row's date) is the headline, never also history.
+  const self = win.StackSheet.html(mk([row({ date: '2031-03-12', occurrenceKey: 'tri@2031-03-07', paidState: 'paid' })], HIST), 'bill:tri@2031-03-12');
+  ok(/stack-sheet-big stack-n">\$55\.25</.test(self) && (self.match(/55\.25/g) || []).length === 1 && (self.match(/<li>/g) || []).length === 1,
+    'the occurrence shown as the headline is never repeated in its own history');
+}
+
 console.log('5b. cards');
 {
   const { fns } = load();
