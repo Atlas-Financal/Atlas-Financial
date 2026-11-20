@@ -52,8 +52,11 @@ scope(Number.isInteger(fullDays), 'the authoritative horizon contains an invalid
 // noncash charges never acquire invented historical occurrences.
 function datesFor(row, days, carryOnce) {
   const end = iso(time(start) + (days - 1) * DAY);
-  scope(!row.until && !row.endDate && !row.end && !row.lastDue,
+  scope(!row.until && !row.endDate && !row.end,
     `${row.id}: new ending-cadence semantics`);
+  // Owner facts 2026-11-20 (Dale): a recurring row may end on an ISO `lastDue`, inclusive.
+  scope(row.lastDue == null || (row.frequency !== 'once' && Number.isFinite(time(row.lastDue))),
+    `${row.id}: unsupported lastDue`);
   if (row.frequency === 'once') {
     scope(Number.isFinite(time(row.date)), `${row.id}: invalid once date`);
     return row.date <= end && (row.date >= start || carryOnce) ? [row.date] : [];
@@ -66,6 +69,7 @@ function datesFor(row, days, carryOnce) {
     const day = new Date(stamp);
     const date = iso(stamp);
     if (row.firstDue && date < row.firstDue) continue;
+    if (row.lastDue && date > row.lastDue) continue;
     if (row.frequency === 'biweekly') {
       scope(Number.isFinite(time(row.anchor)), `${row.id}: missing biweekly anchor`);
       if ((stamp - time(row.anchor)) / DAY % 14 === 0) result.push(date);
@@ -131,10 +135,16 @@ function independentLedger(days) {
   const rows = [];
   const add = (row, kind, carryOnce) => {
     scope(Number.isFinite(row.amount) && row.amount >= 0, `${row.id}: nonnumeric amount`);
+    // Owner rule 2026-11-20 (Dale): a frozen snapshot's one month of interest, rounded up to the whole
+    // dollar, replaces the row estimate and is the floor under a statement minimum.
+    const rule = row.fixedInterestMinimum;
+    scope(rule == null || (Number.isFinite(rule.balance) && rule.balance > 0 && Number.isFinite(rule.rate)
+      && rule.rate > 0 && rule.rate < 100), `${row.id}: unsupported fixed interest minimum`);
+    const fixed = rule == null ? null : Math.ceil(Math.round(rule.balance * 100) * rule.rate / 1200 / 100 - 1e-9);
     for (const date of datesFor(row, days, carryOnce)) {
       if (representedKeys.has(`${row.id}@${date}`)) continue;
       if ((row.statementOccurrences || []).some(statement => statement.scheduledDate === date)) continue;
-      rows.push({ id: row.id, date, kind, amount: row.amount, debtId: row.debtId });
+      rows.push({ id: row.id, date, kind, amount: fixed == null ? row.amount : fixed, debtId: row.debtId });
     }
     // Dated statement facts are a separate source ledger replacing the
     // corresponding calendar-generated estimate, independently of Forecast.
@@ -144,7 +154,8 @@ function independentLedger(days) {
         && Number.isFinite(statement.minimum), row.id + ': unsupported statement fact');
       if (statement.dueDate < start || statement.dueDate > end
         || representedKeys.has(row.id + '@' + statement.scheduledDate)) continue;
-      rows.push({ id: row.id, date: statement.dueDate, kind, amount: statement.minimum, debtId: row.debtId });
+      rows.push({ id: row.id, date: statement.dueDate, kind,
+        amount: fixed == null ? statement.minimum : Math.max(fixed, statement.minimum), debtId: row.debtId });
     }
   };
   const daleSeen = new Set();

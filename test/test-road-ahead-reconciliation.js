@@ -40,6 +40,8 @@ function dates(row, start, end) {
   const out = [];
   for (let d = start; d <= end; d = add(d, 1)) {
     if (row.firstDue && d < row.firstDue) continue;
+    // Owner facts 2026-11-20 (Dale): a recurring row may end on an ISO lastDue, inclusive.
+    if (row.lastDue && d > row.lastDue) continue;
     const [y, m, dom] = d.split('-').map(Number);
     const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
     let match = false;
@@ -578,7 +580,14 @@ for (const start of ['2025-01-30', '2025-01-31', '2025-02-01', '2025-02-12', '20
       const date = statement ? statement.dueDate : scheduledDate;
       if (date > t.horizon.end || date < start && r.frequency !== 'once'
           || prepaid(r.id, scheduledDate) || prepaid(r.id, date)) continue;
-      const occurrence = statement ? { ...r, amount: statement.minimum, confidence: statement.confidence } : r;
+      // Owner rule 2026-11-20 (Dale): a frozen snapshot's one month of interest, up to the whole dollar,
+      // replaces the estimate and floors a statement minimum; a lower statement keeps the row's trust.
+      const rule = r.fixedInterestMinimum;
+      const fixed = rule == null ? null : Math.ceil(Math.round(rule.balance * 100) * rule.rate / 1200 / 100 - 1e-9);
+      const occurrence = fixed == null
+        ? (statement ? { ...r, amount: statement.minimum, confidence: statement.confidence } : r)
+        : statement && statement.minimum >= fixed ? { ...r, amount: statement.minimum, confidence: statement.confidence }
+          : { ...r, amount: fixed };
       if (!(occurrence.amount > 0)) continue;
       ledger.push(event(occurrence, date, 'obligations', start));
       scheduledDebt.set(r.debtId, (scheduledDebt.get(r.debtId) || 0) + cents(occurrence.amount));
