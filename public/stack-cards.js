@@ -122,7 +122,7 @@
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
     var paid = r.stackBillPaymentEvidence === 'posted-equal';
-    var soft = r.stackBillAmountTrust === 'estimated' || r.stackBillAmountTrust === 'unknown';
+    var soft = isEst(r.stackBillAmountTrust);
     var name = amountText == null ? null : (paid ? 'Paid ' : 'Planned ') + amountText;
     return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
       '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
