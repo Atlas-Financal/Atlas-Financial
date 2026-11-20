@@ -33,9 +33,11 @@
     : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
+  // The kicker names the kind and the selected pay period's range ("Bill · Nov 13 – 26"), the shell's one range label.
   function head(kicker, title) {
+    const v = view(), range = v && window.StackBlocks.rangeLabel ? window.StackBlocks.rangeLabel(v) : '';
     return '<div class="stack-sheet-grab" aria-hidden="true"></div><div class="stack-sheet-head"><div>'
-      + `<small class="stack-sheet-kicker">${esc(kicker)}</small><h3 id="stack-sheet-title">${esc(title)}</h3></div>`
+      + `<small class="stack-sheet-kicker">${esc(range ? `${kicker} \u00b7 ${range}` : kicker)}</small><h3 id="stack-sheet-title">${esc(title)}</h3></div>`
       + '<button class="stack-sheet-close" type="button" data-stack-sheet-close aria-label="Close">'
       + '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
       + '</button></div>';

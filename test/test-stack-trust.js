@@ -478,7 +478,7 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     // the design's Credit wording (Dale, 2026-11-20), exactly: the row lines, the status, the minimum and the sheet rows
     for (const phrase of ['Spent on it this pay period', 'Paid onto it', 'Paid back', 'to go', 'Nothing spent yet', 'nothing spent',
       'covered ✓', 'Covered ✓', 'not yet', 'Not yet']) t = t.split(phrase).join(' ');
-    t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}\b/g, ' ')
+    t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( \u2013 ((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?\d{1,2})?\b/g, ' ')
       .replace(/[✓=−+\/—·]/g, ' ');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));
   };
