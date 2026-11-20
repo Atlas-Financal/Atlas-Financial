@@ -54,6 +54,30 @@ const card = k => html.split('data-stack-card="' + k + '"')[1].split('</details>
 assert(card('bills').includes(fmt(888.88)), 'bills headline = stackSummary.bills.other');
 assert(card('budget').includes(fmt(333.33)) && card('budget').includes(fmt(666.66)));
 assert(card('mortgage').includes(fmt(1234.56)));
+// the go button's text: everything inside <span class="sc-go"> once its tags are removed (the chevron is an svg, so none)
+const goText = h => { const m = /<span class="sc-go"[^>]*>([\s\S]*?)<\/span>/.exec(h); if (!m) throw new Error('no go button'); return m[1].replace(/<[^>]*>/g, '').trim(); };
+assert(goText('<summary><span class="sc-go" aria-hidden="true"><svg></svg></span></summary>') === '', 'control: an svg-only go button has no text');
+assert(goText('<summary><span class="sc-go" aria-hidden="true">Open</span></summary>') === 'Open', 'control: the check reports text put in the go button');
+assert((() => { try { goText('<summary></summary>'); return false; } catch (e) { return true; } })(), 'control: a head with no go button throws, never passes');
+// every head carries the round go button, a chevron with no text, and mirrors its open state in aria-expanded
+['bills', 'budget', 'mortgage'].forEach(k => {
+  const head = card(k).split('</summary>')[0];
+  assert(/<summary aria-expanded="false">/.test(head) && /<span class="sc-go" aria-hidden="true"><svg class="sc-chev"/.test(head), k + ' head: aria-expanded and the go button');
+  assert(goText(head) === '', k + ' go button has no text', JSON.stringify(goText(head)));
+});
+// the open state reaches the head's aria-expanded
+{
+  const listeners = {};
+  const c = { innerHTML: '', addEventListener: (t, fn, cap) => { (listeners[t] = listeners[t] || []).push({ fn, cap }); } };
+  require("../public/stack-cards.js").render(c, ctx(view));
+  const attrs = { 'aria-expanded': 'false' };
+  const sum = { setAttribute: (n, v) => { attrs[n] = v; } };
+  const det = { querySelector: () => sum, hasAttribute: () => true };
+  listeners.toggle[0].fn({ target: det });
+  assert(listeners.toggle[0].cap === true && attrs['aria-expanded'] === 'true', 'opening a card sets aria-expanded on its head');
+  det.hasAttribute = () => false; listeners.toggle[0].fn({ target: det });
+  assert(attrs['aria-expanded'] === 'false', 'closing it clears aria-expanded');
+}
 // excluded: mortgage, card minimum and carried rows are not in Bills; their amounts never appear there
 ['Mortgage', 'Card A minimum', 'Carried one'].forEach(n => assert(!card('bills').includes(n), n + ' leaked into Bills'));
 assert(!card('bills').includes(fmt(77.77)) && !card('bills').includes(fmt(999.99)));
@@ -175,7 +199,7 @@ assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.
 {
   const b = card('budget');
   assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> of ' + fmt(666.66) + '</i></span>'), 'Budget strip: X of Y');
-  assert(!/spent|budget/i.test(b.split('<summary>')[1].split('</summary>')[0].replace(/<[^>]+>/g, ' ').replace('Budget', '')), 'no spent or budget label on the strip');
+  assert(!/spent|budget/i.test(b.split('<summary')[1].split('</summary>')[0].replace(/<[^>]+>/g, ' ').replace('Budget', '')), 'no spent or budget label on the strip');
   assert(!/<span class="sc-s">/.test(html), 'no subtitle on Bills, Budget or Mortgage');
 }
 
