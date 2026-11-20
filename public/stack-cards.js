@@ -13,7 +13,8 @@
  *   bills[].stackBillPart / .stackBillAmount  Forecast's own place for each row in that split and the amount it
  *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
  *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
- *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the paid check only for 'posted-equal' (#1465)
+ *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the paid check only for 'posted-equal' (#1465) or
+ *                                                              'posted-verified' (Grok Bot's "bill verified" note)
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed} and .totals
@@ -122,7 +123,9 @@
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
     var evidence = r.stackBillPaymentEvidence;
-    var exact = evidence === 'posted-equal';
+    // Confirmed: a posted payment of exactly the plan, or one Grok Bot verified with a "bill verified" note (counted at
+    // its own amount, so the check still stands beside what was paid).
+    var exact = evidence === 'posted-equal' || evidence === 'posted-verified';
     var soft = isEst(r.stackBillAmountTrust);
     // A pending or unmatched payment counts the plan; a differing posted payment may count above it (the Bills total
     // rule), so it is named from what it is, never "Planned".
