@@ -679,8 +679,11 @@ function putPayPeriods(put, putField, advice) {
     const split = view.stackSummary && view.stackSummary.bills;
     if (split) {
       const terms = surplus && surplus.terms;
-      const record = { mortgage: split.mortgage, credit: terms ? terms.credit : null, other: split.other, trust: split.trust };
-      for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust']])
+      const record = { mortgage: split.mortgage, credit: terms ? terms.credit : null, other: split.other, trust: split.trust,
+        paid: split.paid, paidTrust: split.paidTrust };
+      // The Bills paid figure (stackSummary.bills.paid, Dale 2026-11-20), copied as published.
+      for (const [field, key] of [['mortgage', 'stackMortgage'], ['credit', 'stackCredit'], ['other', 'stackOtherBills'], ['trust', 'stackBillsTrust'],
+        ['paid', 'stackBillsPaid'], ['paidTrust', 'stackBillsPaidTrust']])
         putField(p + '.' + key, record, field);
     }
     // Stack Wallet A5: the period's savings totals and each goal's needed, saved,
