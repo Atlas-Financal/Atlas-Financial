@@ -183,10 +183,12 @@
     } else if (has(t.reasons, 'future-period') && planned != null) {
       head = planned; sub = '';
     } else { head = null; sub = ''; }
-    // Nothing to print (no header figure and no goal row that would show a number): no card, not a list of
-    // names and dashes.
+    // No savings goals published at all: no card. A past period with nothing to print: no card (nothing is due in
+    // the past, and a list of names and dashes is clutter). A current or future period whose figures are withheld
+    // keeps its card with dashes: an unknown must not read as "nothing due".
     var printable = items.some(function (i) { return isNum(i.saved) || (has(i.reasons, 'future-period') && isNum(i.needed)); });
-    if (head == null && !printable) return '';
+    if (head == null && !items.length) return '';
+    if (head == null && !printable && view.timelineRole === 'past') return '';
     var headEst = head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null);
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);
@@ -204,7 +206,7 @@
         : '<span class="sc-a">' + DASH + '</span>';
       return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b></span>' + right + '</li>';
     }).join('') + '</ul>';
-    return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail, headEst);
+    return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail, headEst, true);
   }
 
   function buildCardsHTML(ctx) {
