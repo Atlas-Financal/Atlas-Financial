@@ -33,10 +33,13 @@ const expected = {
   'savings.current.row.group:club.needed': -C, 'savings.current.row.group:club.stillToFund': -C,
   'savings.current.item.near@2026-10-21.saved': -C, 'savings.current.item.near@2026-10-21.needed': -C,
   'savings.current.item.far@2026-10-28.saved': C, 'savings.current.item.far@2026-10-28.stillToFund': -C,
-  // Stack Wallet savings (A5) reads the current period's club row from
-  // savingsFunding, so its needed moves with that row and only by the charge.
-  'period.2026-10-16.stackSavingsNeeded': -C, 'period.2026-10-16.stackSavingsGoal.group:club.needed': -C,
+  // Stack Wallet savings (A5) for the 2026-10-16 period reads that period's
+  // projected top-up (packet rows' thisPeriod), which reprints the Budget's
+  // own period funding (one authority, #1441). That funding is capped at the
+  // period's 80 available: the club needs 135 without the link and 122.66
+  // with it, so min(80, need) = 80 on both sides and these fields do not move.
 };
+const stackUnmoved = ['period.2026-10-16.stackSavingsNeeded', 'period.2026-10-16.stackSavingsGoal.group:club.needed'];
 const facts = { 'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.status': ['unconfigured', 'known'],
   'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.amount': [null, 12.34],
   'savings.current.item.near@2026-10-21.cost.unpaidCost.status': ['unconfigured', 'known'],
@@ -44,6 +47,10 @@ const facts = { 'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.s
 const on = financial(data), off = financial(without);
 const moved = [...new Set([...Object.keys(on), ...Object.keys(off)])].filter(k => JSON.stringify(on[k]) !== JSON.stringify(off[k]));
 assert.deepEqual(moved.sort(), [...Object.keys(expected), ...Object.keys(facts)].sort(), 'exactly the item-effect fields move');
+for (const k of stackUnmoved) {
+  assert.equal(on[k], 80, k + ': the Budget-capped top-up with the link');
+  assert.equal(off[k], 80, k + ': the Budget-capped top-up without the link');
+}
 for (const [key, delta] of Object.entries(expected))
   assert.equal(Math.round(on[key] * 100) - Math.round(off[key] * 100), delta, key + ' moves by the linked charge once');
 for (const [key, [was, now]] of Object.entries(facts)) assert.deepEqual([off[key], on[key]], [was, now], key);
