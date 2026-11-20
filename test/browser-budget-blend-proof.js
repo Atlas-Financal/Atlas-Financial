@@ -2098,7 +2098,12 @@ const composite = (fg, bg) => {
         errors.push(`${label}: ${name} band ${item.barClass} / li ${item.liClass}, expected ${band}`);
       }
       if (item.w !== w) errors.push(`${label}: ${name} --w ${JSON.stringify(item.w)}, expected ${JSON.stringify(w)}`);
-      if (item.barBgImage !== 'none') errors.push(`${label}: ${name} bar background image ${item.barBgImage} (dot/dash treatment must be gone)`);
+      // A known band has no pattern; an unknown band has a visibly distinct treatment (the refined face, a70d0b73,
+      // hatches it) and never a known-style fill (lead ruling, 2026-11-20).
+      if (band === 'is-unknown') {
+        if (item.barBgImage === 'none') errors.push(`${label}: ${name} unknown bar has no distinct treatment`);
+        if (item.fillW !== 0 || item.fillBg !== 'rgba(0, 0, 0, 0)') errors.push(`${label}: ${name} unknown bar shows a fill ${item.fillW}px ${item.fillBg}`);
+      } else if (item.barBgImage !== 'none') errors.push(`${label}: ${name} bar background image ${item.barBgImage} (a known band has no pattern)`);
       return item;
     };
     const clubGoal = 'Invented club costs', homeGoal = 'Invented annual home cost';
@@ -2165,7 +2170,8 @@ const composite = (fg, bg) => {
     const missingFace = await readFundingFace(fbMissing);
     if (!missingFace?.items.length) errors.push('funding missing-stock: no legend items');
     for (const item of missingFace?.items || []) {
-      if (item.barClass !== 'blend-g-bar is-unknown' || item.w !== '' || item.fillW !== 0 || item.barBgImage !== 'none') {
+      if (item.barClass !== 'blend-g-bar is-unknown' || item.w !== '' || item.fillW !== 0
+        || item.fillBg !== 'rgba(0, 0, 0, 0)' || item.barBgImage === 'none') {
         errors.push(`funding missing-stock bar ${JSON.stringify(item)}`);
       }
     }
@@ -2195,7 +2201,8 @@ const composite = (fg, bg) => {
       }
     }
     for (const item of rejectedFace?.items || []) {
-      if (item.barClass !== 'blend-g-bar is-unknown' || item.w !== '' || item.fillW !== 0 || item.barBgImage !== 'none') {
+      if (item.barClass !== 'blend-g-bar is-unknown' || item.w !== '' || item.fillW !== 0
+        || item.fillBg !== 'rgba(0, 0, 0, 0)' || item.barBgImage === 'none') {
         errors.push(`funding rejected-publication bar ${JSON.stringify(item)}`);
       }
     }
@@ -2261,10 +2268,32 @@ const composite = (fg, bg) => {
         errors.push(`funding ${theme} no-funding-required fill collides ${JSON.stringify(fills)}`);
       }
     }
+    // The legend bullet is the row's representative colour: on the refined face (a70d0b73) an amber or red fill
+    // shades with how full the bar is, while the bullet keeps the band's colour. So the bullet must share its fill's
+    // hue family (OKLab hue within 20 degrees, both visibly coloured), not equal it (lead ruling, 2026-11-20).
+    const oklab = text => {
+      const n = (String(text).match(/-?[\d.]+(?:e-?\d+)?/gi) || []).map(Number);
+      if (/^oklab\(/.test(text)) return { a: n[1], b: n[2] };
+      if (/^rgba?\(/.test(text)) {
+        const lin = c => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+        const [r, g, bl] = n.slice(0, 3).map(lin);
+        const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * bl);
+        const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * bl);
+        const q = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * bl);
+        return { a: 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * q, b: 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * q };
+      }
+      return null;
+    };
+    const sameHue = (x, y) => {
+      const p = oklab(x), q = oklab(y);
+      if (!p || !q || Math.hypot(p.a, p.b) < 0.02 || Math.hypot(q.a, q.b) < 0.02) return false;
+      const d = Math.abs(Math.atan2(p.b, p.a) - Math.atan2(q.b, q.a)) * 180 / Math.PI;
+      return Math.min(d, 360 - d) <= 20;
+    };
     for (const face of [readyFace, darkFace]) {
       for (const item of face?.items || []) {
-        if (item.bulletBg !== item.fillBg) {
-          errors.push(`funding bullet/fill mismatch ${item.name}: ${item.bulletBg} vs ${item.fillBg}`);
+        if (item.bulletBg !== item.fillBg && !sameHue(item.bulletBg, item.fillBg)) {
+          errors.push(`funding bullet/fill hue mismatch ${item.name}: ${item.bulletBg} vs ${item.fillBg}`);
         }
       }
     }
