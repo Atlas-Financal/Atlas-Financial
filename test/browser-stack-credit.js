@@ -122,7 +122,9 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     console.log('4. no ratio text, no explanatory words, no errors');
     // The whole Stack page with the waterfall's Credit row, the Credit card and every sheet opened in turn (owner,
     // 2026-11-20: names, numbers, bars and the ✓ only).
-    const FORBIDDEN = /Paid back|Upcoming|to go|excludes|covered|Not yet|\bDue\b|Comes out|Spent on it|Paid onto|unavailable|withheld|estimated|projected|≈/i;
+    // The design's Credit wording (Paid back, $X to go, covered / not yet, the sheet's Spent on it / Paid onto it) is allowed now (Dale,
+    // 2026-11-20); every other explanatory word still fails.
+    const FORBIDDEN = /Upcoming|excludes|\bDue\b|Comes out|unavailable|withheld|estimated|projected|≈/i;
     const seen = [];
     const wfToggle = await page.$('[data-wf-toggle="credit"]:not([disabled])');
     if (wfToggle) await wfToggle.click();
@@ -137,7 +139,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     }
     const hits = seen.filter(t => FORBIDDEN.test(t)).map(t => t.match(FORBIDDEN)[0]);
     ok(seen.length > 3 && hits.length === 0, `no explanatory word on the page or in ${seen.length - 1} sheets`, hits.join(', '));
-    ok(FORBIDDEN.test('Paid back $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Spent $5 Paid $5 Minimum $5 ✓'),
+    ok(FORBIDDEN.test('Upcoming $5') && FORBIDDEN.test('Due Mar 5') && !FORBIDDEN.test('Paid back $5 to go Minimum $5 covered ✓'),
       'control: the word check catches the removed words and passes the page names');
     const all = await page.$eval('#stack-root', el => el.innerText);
     ok(!/%/.test(all), 'no percent text on the page');

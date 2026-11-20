@@ -55,6 +55,9 @@ html.stack-view .stack-credit-minibar { display: block; height: 6px; margin-top:
 html.stack-view .stack-credit-minibar i { display: block; height: 100%; border-radius: 3px; background: var(--stack-on); }
 html.stack-view .stack-credit-status { font-size: 16px; font-weight: 700; letter-spacing: -.02em; color: var(--stack-on); white-space: nowrap; }
 html.stack-view .stack-credit-status.is-togo { color: var(--stack-togo); }
+html.stack-view .stack-credit-pill { display: inline-block; margin-top: 4px; font-size: 14.5px; font-weight: 700; border-radius: 999px; padding: 7px 14px; }
+html.stack-view .stack-credit-pill.is-ok { background: var(--stack-on); color: var(--stack-cards); }
+html.stack-view .stack-credit-pill.is-togo { color: var(--stack-togo); box-shadow: inset 0 0 0 2px var(--stack-togo); }
 html.stack-view .stack-n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   html.stack-view .stack-credit-exp, html.stack-view .stack-chev { transition: none; }

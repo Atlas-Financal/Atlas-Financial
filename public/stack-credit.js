@@ -64,9 +64,11 @@
 
   // The published status, without words (owner, 2026-11-20: names, numbers, bars and the ✓ only): paid back is the
   // tick; "to go" is the coral remaining amount alone; upcoming and an unpublished status print nothing.
+  // The design's wording (Dale, 2026-11-20: follow the design): "Paid back" with its tick, or the coral "$X to go" from the
+  // published toGo; upcoming and an unpublished status print nothing.
   function statusOf(line) {
-    if (line.status === 'paid-back') return { cls: 'is-ok', text: '' };
-    if (line.status === 'to-go') return amountOf(line.toGo) == null ? null : { cls: 'is-togo', text: money(amountOf(line.toGo)) };
+    if (line.status === 'paid-back') return { cls: 'is-ok', text: 'Paid back' };
+    if (line.status === 'to-go') return amountOf(line.toGo) == null ? null : { cls: 'is-togo', text: `${money(amountOf(line.toGo))} to go` };
     return null;
   }
   // The paid-back mark (the row's filled tick, the sheet's ✓) is a claim of its own: the card's spending this pay period
@@ -80,15 +82,28 @@
   // "Minimum $X" whenever the minimum amount is published, whatever its coverage check says (#1443's HELOC and a future
   // card publish coverage 'unknown'); a ✓ only when coverage is published as true. Never a word for coverage (owner,
   // 2026-11-20), never "covered" or "unpaid" inferred, and nothing (never $0) when the amount is not published.
-  const covered = line => !!(line.minimumCovered && line.minimumCovered.value === true);
+  // Coverage is read only from the published check: true prints "covered ✓", false "not yet", 'unknown' prints no coverage
+  // wording at all (an unknown must not read as covered or as short).
+  const coverage = line => (line.minimumCovered && (line.minimumCovered.value === true || line.minimumCovered.value === false)
+    ? line.minimumCovered.value : null);
+  const covered = line => coverage(line) === true;
   function minimumText(line) {
     const min = amountOf(line.minimum);
-    return min == null ? '' : `Minimum ${money(min)}${covered(line) ? ' ✓' : ''}`;
+    const cv = coverage(line);
+    return min == null ? '' : `Minimum ${money(min)}${cv === true ? ' covered ✓' : cv === false ? ' not yet' : ''}`;
   }
-  // The minimum's own trust; the coverage check's trust only when its ✓ is printed.
-  const minimumEst = (view, line) => est(view, trustOf(line.minimum), covered(line) ? line.minimumCovered.trust : null);
+  // The minimum's own trust; the coverage check's trust only when its wording is printed.
+  const minimumEst = (view, line) => est(view, trustOf(line.minimum), coverage(line) !== null ? line.minimumCovered.trust : null);
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
+  // The row's second line, in the design's words from the published paid and spent only: "Paid back $P of $S", or
+  // "Paid $P · nothing spent" when spent is published as nothing.
+  function subText(line) {
+    const p = amountOf(line.paid), s = amountOf(line.spent);
+    if (p == null || s == null) return '';
+    if (s === 0) return p === 0 ? 'Nothing spent yet' : `Paid ${money(p)} · nothing spent`;
+    return `Paid back ${money(p)} of ${money(s)}`;
+  }
   // The card's last balance snapshot (#1447's line.balance, a stock, never a movement): printed only where the line's
   // paid and spent are not both published, with its own trust (soft when estimated). Nothing when unpublished, never $0.
   const balanceShown = line => line.id !== 'heloc' && !paidOfSpent(line) && amountOf(line.balance) != null;
@@ -99,7 +114,7 @@
   function lineHtml(line, view) {
     const heloc = line.id === 'heloc';
     const status = heloc ? null : statusOf(line);
-    const sub = heloc ? '' : paidOfSpent(line);
+    const sub = heloc ? '' : subText(line);
     const min = minimumText(line);
     const ok = !heloc && line.status === 'paid-back';
     const okEst = ok ? paidBackEst(line, view) : '';
@@ -146,13 +161,15 @@
     return h.head('Credit', line.label || '')
       + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n${figs}">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>`
         : balanceShown(line) ? `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${h.esc(h.money(amountOf(line.balance)))}</div>` : '')
+      // The status pill under the figure, as in the design: "Paid back" (dark) or the coral "$X to go".
       + (!heloc && line.status === 'paid-back'
-        ? `<span class="stack-sheet-check${paidBackEst(line, view)}" ${paidBackName(paidBackEst(line, view))}>\u2713</span>` : '')
-      + (status && status.cls === 'is-togo' ? `<span class="stack-sheet-togo stack-n${est(view, trustOf(line.toGo))}">${h.esc(status.text)}</span>` : '')
+        ? `<span class="stack-credit-pill is-ok${paidBackEst(line, view)}">Paid back</span>` : '')
+      + (status && status.cls === 'is-togo' ? `<span class="stack-credit-pill is-togo stack-n${est(view, trustOf(line.toGo))}">${h.esc(status.text)}</span>` : '')
       + (heloc ? '' : bar(paid, spent, 'stack-sheet-bar' + figs))
-      + '<dl>' + (heloc ? '' : h.row('Spent', h.money(spent), est(view, trustOf(line.spent)))
-        + h.row('Paid', h.money(paid), est(view, trustOf(line.paid))))
-      + (min != null ? h.row('Minimum', h.money(min) + (covered(line) ? ' ✓' : ''), minEst) : '')
+      + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent), est(view, trustOf(line.spent)))
+        + h.row('Paid onto it', h.money(paid), est(view, trustOf(line.paid))))
+      + (min != null ? (coverage(line) === null ? h.row('Minimum', h.money(min), minEst)
+        : h.row('Minimum ' + h.money(min), covered(line) ? 'Covered ✓' : 'Not yet', minEst)) : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
