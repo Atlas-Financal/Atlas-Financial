@@ -235,22 +235,45 @@ try {
     return el;
   }
 
-  // Keep the chip row where it was across renders; centre the selected chip the first time and after a tap.
-  // Layout positions, not figures: the chip's offset in the row. Re-run once the stylesheets have loaded, since a
-  // render before then measures an unstyled row.
-  let centre = true;
+  // Where the chip row sits (owner, Dale, 2026-11-20: the current period was off-screen). Until the household scrolls
+  // the row themselves, every render centres the selected chip, so periods that arrive later (older history, a
+  // refresh) cannot push it out of view; so do a tap on a chip and "Now". Once they have scrolled, a re-render keeps
+  // the same chip at the same place, never the same raw offset (an offset shows other periods once the list grows).
+  // Layout positions, not figures. Measured from the rendered boxes, so it holds before and after the fonts and
+  // stylesheets arrive; each of those re-centres too while the row is still the page's to place.
+  let centre = true, userScrolled = false;
+  function chipRow() { return document.querySelector('#stack-root [data-stack-chips]'); }
   function centreNow() {
-    const row = document.querySelector('#stack-root [data-stack-chips]');
+    const row = chipRow();
     const chip = row && row.querySelector('[aria-pressed="true"]');
-    if (row && chip) row.scrollLeft = chip.offsetLeft - (row.clientWidth - chip.offsetWidth) / 2;
+    if (!row || !chip) return;
+    const r = row.getBoundingClientRect(), c = chip.getBoundingClientRect();
+    if (!r.width) return;
+    row.scrollLeft += (c.left + c.width / 2) - (r.left + r.width / 2);
   }
-  function centerSelected(row, scrollLeft) {
-    if (!row) return;
-    if (scrollLeft != null) row.scrollLeft = scrollLeft;
-    if (!centre) return;
-    centre = false;
+  function settleCentre() {
     centreNow();
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(centreNow);
+  }
+  function autoCentre() { if (!userScrolled) settleCentre(); }
+  // The first chip whose box starts inside the row, and where it starts: the anchor a re-render keeps in place.
+  function anchorOf(row) {
+    if (!row) return null;
+    const left = row.getBoundingClientRect().left;
+    const chip = [...row.querySelectorAll('[data-stack-period]')].find(c => c.getBoundingClientRect().right > left);
+    return chip ? { key: chip.getAttribute('data-stack-period'), at: chip.getBoundingClientRect().left - left } : null;
+  }
+  function placeRow(row, anchor) {
+    if (!row) return;
+    if (!row.dataset.stackWatched) {
+      row.dataset.stackWatched = '1';
+      for (const type of ['pointerdown', 'touchstart', 'wheel', 'keydown']) {
+        row.addEventListener(type, () => { userScrolled = true; }, { passive: true });
+      }
+    }
+    if (centre || !userScrolled) { centre = false; settleCentre(); return; }
+    const chip = anchor && row.querySelector(`[data-stack-period="${CSS.escape(anchor.key)}"]`);
+    if (chip) row.scrollLeft += (chip.getBoundingClientRect().left - row.getBoundingClientRect().left) - anchor.at;
   }
 
   // B7 fail-safe: a throw in the shell's own drawing hands the page back to the previous page, never a blank one.
@@ -269,10 +292,9 @@ try {
     const el = mount();
     el.querySelector('[data-stack-updated]').textContent = lastUpdated(state.data);
     const timeline = el.querySelector('[data-stack-block="timeline"]');
-    const previous = timeline.querySelector('[data-stack-chips]');
-    const scrollLeft = previous ? previous.scrollLeft : null;
+    const anchor = anchorOf(timeline.querySelector('[data-stack-chips]'));
     timeline.innerHTML = timelineHtml();
-    centerSelected(timeline.querySelector('[data-stack-chips]'), scrollLeft);
+    placeRow(timeline.querySelector('[data-stack-chips]'), anchor);
     el.querySelector('[data-stack-period-head]').innerHTML = periodHeadHtml();
     const ctx = context();
     for (const name of ORDER) {
@@ -319,7 +341,7 @@ try {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = href;
-      if (href === '/stack.css') link.addEventListener('load', () => centreNow());
+      if (href === '/stack.css' || href === '/budget-stack-fonts.css') link.addEventListener('load', autoCentre);
       // A Stack stylesheet that fails to load would leave both pages showing together: hand back to the previous page
       // (reviewer, #1439). The font stylesheet is exempt: without it the page still reads, in the fallback fonts.
       if (href !== '/budget-stack-fonts.css') {
@@ -329,6 +351,10 @@ try {
     }
   }
   try { applyChrome(); } catch (error) { fallBack(error); return; }
+  // Web fonts widen the chips when they arrive (and a cold iOS Safari load lays out late): re-centre then too, while the
+  // row is still the page's to place.
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') document.fonts.ready.then(autoCentre);
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('load', autoCentre);
 
   // A block script that fails to load would leave the Stack page without its waterfall, cards, Credit or sheets:
   // once the document has parsed (every block script has run or failed), any block that never registered hands back
