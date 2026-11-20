@@ -249,18 +249,24 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
   const rows = el.innerHTML.split('<li>').slice(1);
   ok(text(rows[0]) === 'Both Card $160 $100 of $260 Minimum $30' && !/1,234|data-stack-credit-balance/.test(rows[0]),
     'paid and spent published: "$A of $B", and no balance');
-  ok(text(rows[1]) === 'Fresh Card $812.40 Minimum $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance>\$812\.40</.test(rows[1]),
+  ok(text(rows[1]) === 'Fresh Card $812.40 Minimum $20' && /<small class="stack-credit-bal stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40</.test(rows[1]),
     'no paid / spent: the last balance, plain when calculated', text(rows[1]));
-  ok(/<small class="stack-credit-bal stack-n stack-est" data-stack-credit-balance>\$305</.test(rows[2]), 'an estimated balance is soft');
+  ok(/<small class="stack-credit-bal stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305</.test(rows[2]),
+    'an estimated balance is soft, and named "Last balance, estimated" for a screen reader');
   ok(text(rows[3]) === 'Half Card $77', 'only one of paid / spent published: the balance (no half "of")', text(rows[3]));
   ok(text(rows[4]) === 'Blank Card' && !/\$0|data-stack-credit-balance/.test(rows[4]), 'no balance published: nothing, never $0');
   ok(text(rows[5]) === 'Line of credit Minimum $210 ✓' && !/9,000/.test(rows[5]), 'HELOC: its minimum only, never its balance');
   ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total>\$500</.test(el.innerHTML),
     "the head stays the paid / spent total; totals.balance is not shown");
   const fresh = win.StackSheet.html(ctx, 'card:fresh'), stale = win.StackSheet.html(ctx, 'card:stale');
-  ok(/<div class="stack-sheet-big stack-n" data-stack-credit-balance>\$812\.40<\/div>/.test(fresh)
-    && /<div class="stack-sheet-big stack-n stack-est" data-stack-credit-balance>\$305<\/div>/.test(stale),
-    'the sheet shows the same balance as its big figure, soft when estimated');
+  ok(/<div class="stack-sheet-big stack-n" data-stack-credit-balance role="img" aria-label="Last balance \$812\.40">\$812\.40<\/div>/.test(fresh)
+    && /<div class="stack-sheet-big stack-n stack-est" data-stack-credit-balance role="img" aria-label="Last balance, estimated, \$305">\$305<\/div>/.test(stale),
+    'the sheet shows the same balance as its big figure, soft when estimated, with the same screen-reader name');
+  // Announced once: the role="img" element's name replaces its text, and no other element repeats the amount.
+  const named = html => (html.match(/aria-label="Last balance[^"]*"/g) || []).length;
+  ok(named(rows[1]) === 1 && named(rows[2]) === 1 && named(fresh) === 1 && named(stale) === 1
+    && (rows[1].match(/812\.40/g) || []).length === 2 && (fresh.match(/812\.40/g) || []).length === 2,
+    'each surface names its balance once (the label and the visible number, nothing else)');
   ok(!/data-stack-credit-balance/.test(win.StackSheet.html(ctx, 'card:both')) && !/data-stack-credit-balance|\$0/.test(win.StackSheet.html(ctx, 'card:blank'))
     && !/9,000/.test(win.StackSheet.html(ctx, 'card:heloc')), 'the sheet: no balance beside paid / spent, none when unpublished, none for the HELOC');
   ok(!/balance|last|estimated|snapshot/i.test(text(el.innerHTML) + text(fresh) + text(stale)), 'no words');

@@ -92,6 +92,9 @@
   // The card's last balance snapshot (#1447's line.balance, a stock, never a movement): printed only where the line's
   // paid and spent are not both published, with its own trust (soft when estimated). Nothing when unpublished, never $0.
   const balanceShown = line => line.id !== 'heloc' && !paidOfSpent(line) && amountOf(line.balance) != null;
+  // Its screen-reader name says what the bare number measures (Atlas on #1454): "Last balance $X", or "Last balance,
+  // estimated, $X" when soft. The visible text stays the number alone; role="img" makes the name the one announcement.
+  const balanceAttrs = (line, soft) => `role="img" aria-label="Last balance${soft ? ', estimated,' : ''} ${esc(money(amountOf(line.balance)))}"`;
 
   function lineHtml(line, view) {
     const heloc = line.id === 'heloc';
@@ -109,7 +112,7 @@
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>`
       + `<span class="stack-credit-status stack-n ${status ? status.cls : ''}${status && status.text ? stat : ''}">${status ? esc(status.text) : ''}</span></span>`
       + (sub ? `<small class="stack-credit-sub-line${figs}">${esc(sub)}</small>` : '')
-      + (balanceShown(line) ? `<small class="stack-credit-bal stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance>${esc(money(amountOf(line.balance)))}</small>` : '')
+      + (balanceShown(line) ? `<small class="stack-credit-bal stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${esc(money(amountOf(line.balance)))}</small>` : '')
       + (heloc ? '' : bar(amountOf(line.paid), amountOf(line.spent), 'stack-credit-minibar' + figs))
       + (min ? `<small class="stack-credit-min${minEst}">${esc(min)}</small>` : '') + '</span>'
       + `${CHEV}</button></li>`;
@@ -142,7 +145,7 @@
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return h.head('Credit', line.label || '')
       + (paid != null && spent != null ? `<div class="stack-sheet-big stack-n${figs}">${h.esc(h.money(paid))}<i> of ${h.esc(h.money(spent))}</i></div>`
-        : balanceShown(line) ? `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance>${h.esc(h.money(amountOf(line.balance)))}</div>` : '')
+        : balanceShown(line) ? `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${h.esc(h.money(amountOf(line.balance)))}</div>` : '')
       + (!heloc && line.status === 'paid-back'
         ? `<span class="stack-sheet-check${paidBackEst(line, view)}" ${paidBackName(paidBackEst(line, view))}>\u2713</span>` : '')
       + (status && status.cls === 'is-togo' ? `<span class="stack-sheet-togo stack-n${est(view, trustOf(line.toGo))}">${h.esc(status.text)}</span>` : '')
