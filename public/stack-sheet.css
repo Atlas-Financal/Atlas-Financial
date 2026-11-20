@@ -46,3 +46,4 @@ html.stack-view .stack-sheet-txd { font-size: 13.5px; color: var(--stack-on2); }
 html.stack-view .stack-sheet-txa { font-weight: 700; }
 html.stack-view .stack-sheet-tx li.is-pay .stack-sheet-txl { font-weight: 700; }
 html.stack-view .stack-sheet-tx li.is-pending { opacity: .62; }
+html.stack-view .stack-sheet-check { display: inline-block; color: #0f7a43; font-size: 26px; font-weight: 800; line-height: 1; }

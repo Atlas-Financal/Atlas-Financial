@@ -58,11 +58,30 @@ assert(card('mortgage').includes(fmt(1234.56)));
 ['Mortgage', 'Card A minimum', 'Carried one'].forEach(n => assert(!card('bills').includes(n), n + ' leaked into Bills'));
 assert(!card('bills').includes(fmt(77.77)) && !card('bills').includes(fmt(999.99)));
 assert(!html.includes(fmt(999.99)) && !html.includes('Hidden'));
-// rows read Paid / Not paid from paidState
-assert(/Hydro<\/b><small class="sc-st sc-paid">Paid</.test(card('bills')));
-assert(/Phone<\/b><small class="sc-st">Not paid</.test(card('bills')));
-assert(/Mortgage<\/b><small class="sc-st">Not paid</.test(card('mortgage')));
-// category rows read spent / planned; markup is escaped
+// rows: item, amount, and a green check only when paidState says paid; no status word anywhere (owner direction)
+const CHECK = '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>';
+const rowOf = (h, label) => h.split('<li class="sc-row sc-bill"').slice(1).map(x => x.split('</li>')[0]).find(x => x.includes('>' + label + '<'));
+assert(rowOf(card('bills'), 'Hydro').includes(CHECK), 'a paid row shows the check');
+assert(!rowOf(card('bills'), 'Phone').includes('sc-check') && !rowOf(card('bills'), 'Phone').includes('\u2713'), 'an unpaid row shows no mark');
+assert(!rowOf(card('mortgage'), 'Mortgage').includes('sc-check'), 'an unpaid mortgage shows no mark');
+for (const k of ['bills', 'mortgage', 'budget']) {
+  const visible = card(k).replace(/<[^>]+>/g, ' ');
+  assert(!/paid|Paid|Not paid/.test(visible), 'no status word is visible on ' + k);
+}
+assert(!/ of \d+ paid|paid \/ total/.test(html), 'no paid count or descriptor on the strips');
+assert(rowOf(card('bills'), 'Hydro').includes(fmt(111.11)) && rowOf(card('bills'), 'Phone').includes(fmt(222.22)), 'the amount stays');
+{
+  const mp = JSON.parse(JSON.stringify(view)); mp.bills[3].paidState = 'paid';
+  const m = buildCardsHTML(ctx(mp)).split('data-stack-card="mortgage"')[1].split('</details>')[0];
+  assert(m.includes(CHECK) && !m.replace(/<[^>]+>/g, ' ').match(/paid/i), 'a paid mortgage row shows the check and no word');
+  const unk = JSON.parse(JSON.stringify(view)); unk.bills[0].paidState = 'maybe'; unk.bills[3].paidState = 'maybe';
+  const u = buildCardsHTML(ctx(unk));
+  assert(!u.includes('sc-check') && !u.includes('\u2713'), 'an unknown paidState renders no check');
+  const nul = JSON.parse(JSON.stringify(view)); nul.bills[0].amount = null;
+  const n = buildCardsHTML(ctx(nul)).split('data-stack-card="bills"')[1].split('</details>')[0];
+  assert(rowOf(n, 'Hydro').includes('<span class="sc-a">\u2014</span>') && !/[$]0/.test(n), 'an unpublished amount is a dash, never a zero');
+}
+// category rows read spent of planned; markup is escaped
 assert(card('budget').includes(fmt(123.45)) && card('budget').includes(fmt(400)));
 assert(card('budget').includes('Fun &lt;money&gt;'));
 // closed strips: native <details>, no `open` attribute
@@ -76,7 +95,8 @@ bare.bills.forEach(b => delete b.paidState);
 bare.householdBudget = [{ label: 'X', spent: null }];
 const h2 = buildCardsHTML(ctx(bare));
 assert(!/\$0(\.00)?\b/.test(h2) && amounts(h2).length === 0, 'unpublished figure printed');
-assert(!h2.includes('Not paid') && !h2.includes('>Paid<'), 'state printed without paidState');
+assert(/class="sc-f">\u2014</.test(h2), 'an unpublished headline is a dash'); assert(!/[$]0(\.00)?\b/.test(h2));
+assert(!h2.includes('sc-check') && !h2.includes('\u2713'), 'no check without paidState');
 const none = { start: '2026-01-01' }; // no stackSummary at all (#1426 not merged)
 assert.strictEqual(amounts(buildCardsHTML(ctx(none))).length, 0);
 assert.strictEqual(buildCardsHTML(ctx(view, 'zzz')), '', 'unknown period renders nothing');
@@ -101,12 +121,11 @@ const cur = savingsOf(withSavings({
   items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] },
     { id: 'c', label: 'Car <fund>', saved: null, needed: null, reasons: ['planned-unavailable'] }],
   totals: { saved: 20.5, needed: null, entitlement: 130.25, completeness: 'pool-level', excluded: ['c'], reasons: ['pool-level', 'planned-incomplete'] } }));
-assert(cur.includes(fmt(20.5) + '<i> moved of ' + fmt(130.25) + ' this period</i>'), 'current header');
-assert(cur.includes('<i>still to set aside </i>' + fmt(40)));
-assert(cur.includes('excludes Car &lt;fund&gt;'));
-assert(!cur.includes('sc-mini') && !/Funded/i.test(cur));
-assert(/Car &lt;fund&gt;<\/b><\/span><\/li>/.test(cur), 'withheld needed prints no amount');
-amounts(cur).forEach(a => assert([20.5, 130.25, 40].map(fmt).includes(a), 'unpublished amount ' + a));
+assert(cur.includes(fmt(20.5) + '<i> of ' + fmt(130.25) + '</i>'), 'current header: numbers only');
+assert(!/moved|this period|entitlement/.test(cur.replace(/<[^>]+>/g, ' ')), 'no word labels around the Savings strip figures');
+assert(!cur.includes('sc-mini') && !/Funded|excludes|still to set aside|needs/i.test(cur.replace(/<[^>]+>/g, ' ')));
+assert((cur.match(/<span class="sc-a">\u2014<\/span>/g) || []).length === 2, 'no published saved figure: a dash, the net amount is not printed');
+amounts(cur).forEach(a => assert([20.5, 130.25].map(fmt).includes(a), 'unpublished amount ' + a));
 
 // current period, transfer figure withheld: no header figure
 const nt = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers'] }],
@@ -116,7 +135,7 @@ assert(!nt.includes('sc-f'), 'no header figure when the transfer is withheld');
 // future period: planned total in the header, rows "planned this period", never a moved figure or $0
 const fut = savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['future-period'] }],
   totals: { saved: null, needed: 40, entitlement: null, completeness: 'none', excluded: [], reasons: ['future-period'] } }));
-assert(fut.includes(fmt(40) + '</span>') && fut.includes(fmt(40) + '<i> planned this period</i>'));
+assert(fut.includes(fmt(40) + '</span>') && fut.includes('<span class="sc-a">' + fmt(40) + '</span>') && !/planned/.test(txt(fut)), 'a future period shows only its planned amount');
 assert(!/moved|\$0/.test(txt(fut)));
 
 // past period: everything null, no amounts
@@ -135,15 +154,23 @@ assert(per.includes('<span class="sc-a">' + fmt(30) + '<i> of ' + fmt(80) + '</i
 assert(per.includes('<span class="sc-a">$0<i> of ' + fmt(20) + '</i></span>') && per.includes('<i style="width:0%">'));
 assert(per.includes(fmt(90) + '<i> of ' + fmt(90)) && per.includes('width:100%'), 'a topped-up goal reads full, not capped differently');
 assert((per.match(/sc-full/g) || []).length === 3, 'bar only on goals with saved');
-assert(per.includes('<i>still to set aside </i>' + fmt(15)), 'no attribution falls back to still to set aside');
+assert(per.includes('<span class="sc-a">\u2014</span>') && !per.includes(fmt(15)), 'no attribution: a dash');
 assert(!per.includes(fmt(50)), 'needed is not printed on a row with its own saved');
-amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 15, 120, 190].map(fmt).includes(a), 'unpublished amount ' + a));
+amounts(per).forEach(a => assert([30, 80, 0, 20, 90, 120, 190].map(fmt).includes(a), 'unpublished amount ' + a));
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
 
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'mortgage', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
 assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
+
+// strips are numbers only: Budget reads the spent figure, then "of" the budget figure in the muted style, no words
+{
+  const b = card('budget');
+  assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> of ' + fmt(666.66) + '</i></span>'), 'Budget strip: X of Y');
+  assert(!/spent|budget/i.test(b.split('<summary>')[1].split('</summary>')[0].replace(/<[^>]+>/g, ' ').replace('Budget', '')), 'no spent or budget label on the strip');
+  assert(!/<span class="sc-s">/.test(html), 'no subtitle on Bills, Budget or Mortgage');
+}
 
 // 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
 const attr = (h, v) => h.includes('data-stack-sheet="' + v + '" role="button" tabindex="0"');
@@ -174,7 +201,7 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   e.stackSummary.bills.trust = 'estimated';
   const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
+  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> of /.test(cardOf('budget')),
     'only the estimated amount (the first row\'s plan) is soft');
   assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
@@ -203,6 +230,17 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
   assert(b.includes('style="width:' + shell.barWidth(200, 400) * 100 + '%"'), 'row bar = barWidth(spent, planned)');
   const zero = JSON.parse(JSON.stringify(view)); zero.householdBudget[0].planned = 0;
   assert(buildCardsHTML(ctx(zero)).split('data-stack-card="budget"')[1].includes('width:0%'), 'no whole: empty bar');
+}
+
+// 2g. no explanatory words anywhere on the cards (owner rule): names, numbers, bars and the check only
+{
+  const all = withSavings({ items: [{ id: 'club', label: 'Club', saved: 30, needed: 50, periodTarget: 80, reasons: ['net-of-period-transfers'] },
+    { id: 'x', label: 'Extra', saved: null, needed: 15, reasons: ['future-period'] }],
+    totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
+  all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
+  all.bills[0].paidState = 'paid'; all.bills[3].paidState = 'paid';
+  const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ');
+  assert(!/needs|set aside|planned|spent|estimated|projected|confirm|excludes|moved|entitlement|paid|period/i.test(visible), 'a word label is visible: ' + visible);
 }
 
 // 3. no money arithmetic in the page code

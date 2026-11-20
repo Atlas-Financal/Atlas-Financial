@@ -18,7 +18,9 @@
 //     surplus (A2): income − other bills − household − mortgage − credit −
 //     item spending, proved against its own terms and the bills split here,
 //     and on unmodified output to equal Balance After Deductions plus its
-//     held outflows and card payments beyond the minimum.
+//     held outflows and card payments beyond the minimum;
+//     savings (A5): each goal's planned amount beside what moved, proved by
+//     proveStackSavings below.
 //   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
 //   row's Paid / Not paid word. Presentation only; proved one of its three
 //   words, then removed wherever a published row carries it.
@@ -86,14 +88,47 @@ function proveStackIncome(view, income) {
     }
   }
 }
+// A5: stackSummary.savings. A goal's saved is the current period's transfers
+// attributed by the owner's nearest-due rule, summing to them, or null; needed is a number with a trust word or null
+// and unavailable; totals.needed is the cent sum of every goal's needed or
+// null when any is missing; totals.saved and entitlement are pool-level
+// together, or null; reasons come from the closed set.
+const SAVINGS_REASONS = new Set(['no-per-goal-attribution', 'owner-rule:nearest-due-first', 'net-of-period-transfers', 'future-period', 'past-period',
+  'planned-unavailable', 'planned-incomplete', 'pool-level', 'pool-transfer-unavailable']);
+const isFigure = v => typeof v === 'number' && Number.isFinite(v);
+function proveStackSavings(view, savings) {
+  assert.ok(savings && Array.isArray(savings.items) && savings.totals, 'authorized addition: stackSummary.savings lists items and totals');
+  for (const item of savings.items) {
+    assert.ok(item.saved === null ? item.savedTrust === 'unavailable' && item.periodTarget === null
+      : isFigure(item.saved) && ['calculated', 'estimated'].includes(item.savedTrust) && view.timelineRole === 'current',
+    'authorized addition: a goal\'s saved is the current period\'s attributed transfers, or null');
+    assert.ok(item.needed === null ? item.trust === 'unavailable' : isFigure(item.needed) && ['calculated', 'estimated'].includes(item.trust),
+      'authorized addition: a savings goal\'s needed is a number with its trust, or null and unavailable');
+    assert.ok(Array.isArray(item.reasons) && item.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings reasons are closed');
+  }
+  const t = savings.totals;
+  if (savings.items.length && savings.items.every(item => item.saved !== null)) {
+    assert.equal(savings.items.reduce((c, item) => c + Math.round(item.saved * 100), 0), Math.round(t.saved * 100),
+      'authorized addition: the goals\' saved sum to the period\'s transfers');
+  }
+  const missing = savings.items.filter(item => item.needed === null).map(item => item.id);
+  assert.deepEqual(t.excluded, missing, 'authorized addition: totals.excluded names the goals without a needed');
+  assert.equal(t.needed, savings.items.length && !missing.length
+    ? savings.items.reduce((c, item) => c + Math.round(item.needed * 100), 0) / 100 : null,
+  'authorized addition: totals.needed is the cent sum of every goal\'s needed, or null');
+  assert.ok(t.completeness === 'pool-level' ? isFigure(t.saved) && isFigure(t.entitlement) : t.completeness === 'none' && t.saved === null && t.entitlement === null,
+    'authorized addition: totals.saved and entitlement are pool-level together, or null');
+  assert.ok(Array.isArray(t.reasons) && t.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings totals reasons are closed');
+}
 function withoutStackSummary(node, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return;
   seen.add(node);
   if (Object.hasOwn(node, 'stackSummary') && Object.hasOwn(node, 'incomeTotal')) {
-    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus'], 'authorized addition: stackSummary carries only proved keys');
+    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus', 'savings'], 'authorized addition: stackSummary carries only proved keys');
     proveStackIncome(node, node.stackSummary.income);
     proveStackBills(node, node.stackSummary.bills);
     proveStackSurplus(node, node.stackSummary.surplus, node.stackSummary.bills);
+    proveStackSavings(node, node.stackSummary.savings);
     delete node.stackSummary;
   }
   for (const value of Object.values(node)) withoutStackSummary(value, seen);
@@ -128,7 +163,8 @@ function withoutAuthorizedAdditions(advice) {
 // For flattened trust-tag maps ('.path.to.trust' -> value): the addition's
 // own tags, proved unavailable, are not main's fields.
 function authorizedTagKey(key, value) {
-  if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)) {
+  if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)
+    || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }

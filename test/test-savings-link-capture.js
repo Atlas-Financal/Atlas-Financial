@@ -33,6 +33,9 @@ const expected = {
   'savings.current.row.group:club.needed': -C, 'savings.current.row.group:club.stillToFund': -C,
   'savings.current.item.near@2026-10-21.saved': -C, 'savings.current.item.near@2026-10-21.needed': -C,
   'savings.current.item.far@2026-10-28.saved': C, 'savings.current.item.far@2026-10-28.stillToFund': -C,
+  // Stack Wallet savings (A5) reads the current period's club row from
+  // savingsFunding, so its needed moves with that row and only by the charge.
+  'period.2026-10-16.stackSavingsNeeded': -C, 'period.2026-10-16.stackSavingsGoal.group:club.needed': -C,
 };
 const facts = { 'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.status': ['unconfigured', 'known'],
   'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.amount': [null, 12.34],
