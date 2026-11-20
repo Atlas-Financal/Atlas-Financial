@@ -21,6 +21,8 @@
 //     held outflows and card payments beyond the minimum;
 //     savings (A5): each goal's planned amount beside what moved, proved by
 //     proveStackSavings below.
+//   reconMatchesSpent (budget rows): whether a row's listed transactions
+//   reconcile to its Spent to the cent, proved by withoutReconMatchesSpent.
 //   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
 //   row's Paid / Not paid word. Presentation only; proved one of its three
 //   words, then removed wherever a published row carries it.
@@ -146,9 +148,31 @@ function withoutBillPaidState(node, seen = new Set()) {
   for (const value of Object.values(node)) withoutBillPaidState(value, seen);
 }
 
+// reconMatchesSpent (budget category transactions, CARDS' #1450): a boolean
+// set only on a household budget row whose Spent is a number, true exactly
+// when the cents of its counted recon rows (less the pending twin of a posted
+// transaction) equal round(Spent x 100). Proved here by recomputing it from
+// the row, then removed. Presentation only.
+function withoutReconMatchesSpent(node, seen = new Set()) {
+  if (!node || typeof node !== 'object' || seen.has(node)) return;
+  seen.add(node);
+  if (Object.hasOwn(node, 'reconMatchesSpent') && Object.hasOwn(node, 'recon')) {
+    assert.equal(typeof node.reconMatchesSpent, 'boolean', 'authorized addition: reconMatchesSpent is a boolean');
+    assert.ok(typeof node.spent === 'number' && Number.isFinite(node.spent), 'authorized addition: reconMatchesSpent only beside a numeric Spent');
+    const counted = (node.recon || []).filter(r => !(r && r.pendingPostedDuplicate === true && r.pending === true && r.pendingAmountEstimated !== true));
+    const finite = counted.every(r => r && typeof r.amount === 'number' && Number.isFinite(r.amount));
+    const cents = finite ? counted.reduce((sum, r) => sum + Math.round(r.amount * 100), 0) : null;
+    assert.equal(node.reconMatchesSpent, finite && cents === Math.round(node.spent * 100),
+      'authorized addition: reconMatchesSpent states whether the counted rows reconcile to Spent to the cent');
+    delete node.reconMatchesSpent;
+  }
+  for (const value of Object.values(node)) withoutReconMatchesSpent(value, seen);
+}
+
 function withoutAuthorizedAdditions(advice) {
   if (!advice || typeof advice !== 'object') return advice;
   withoutStackSummary(advice);
+  withoutReconMatchesSpent(advice);
   withoutBillPaidState(advice);
   if (!Object.hasOwn(advice, 'categorySpendingTrends')) return advice;
   const trends = advice.categorySpendingTrends;
