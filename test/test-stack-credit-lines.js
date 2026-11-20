@@ -128,4 +128,85 @@ console.log('6. A payment row with no allocation is estimated, never calculated'
     'a payment with no paymentAllocation: paid 40, estimated');
 }
 
+console.log('7. Minimum covered takes the weakest of paid and the minimum (lead pre-review gap 2)');
+{
+  const x = fx.fixture();
+  const t = line(x, 'travelvisa');
+  ok(t.minimumCovered.value === true && t.minimumCovered.trust === 'estimated',
+    'Travel: covered, estimated (paid 100.00 is estimated; the split is calculated), never relabelled calculated');
+  const ready = { trust: 'calculated', completeness: 'complete', reasons: [] };
+  const pub = { source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2026-08-20',
+    cards: [{ id: 'travelvisa', label: 'Travel', postedMovement: ready, pending: [],
+      posted: [{ id: 'c', date: '2026-08-18', payee: 'Invented', amount: 30, kind: 'charge', pending: false },
+        { id: 'p', date: '2026-08-18', payee: 'Invented', amount: -40, kind: 'payment', pending: false,
+          paymentAllocation: { status: 'reconciled' } }] }] };
+  const reconciled = F.stackCreditLines(pub, split).lines[0];
+  ok(reconciled.minimumCovered.value === true && reconciled.minimumCovered.trust === 'calculated',
+    'a reconciled 40 payment against a calculated 25 minimum: covered, calculated');
+  const est = F.stackCreditLines(pub, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: 'estimated' }).lines[0];
+  ok(est.minimumCovered.trust === 'estimated', 'an estimated minimum makes the verdict estimated');
+}
+
+console.log('8. A card with exactly one of paid / spent stated (lead pre-review gap 1)');
+{
+  const ready = { trust: 'calculated', completeness: 'complete', reasons: [] };
+  const row = (id, amount, kind, extra = {}) => ({ id, date: '2026-08-18', payee: 'Invented', amount, kind, pending: false, ...extra });
+  const pub = { source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2026-08-20',
+    cards: [
+      { id: 'travelvisa', label: 'Travel', postedMovement: ready, pending: [],
+        posted: [row('a', 80, 'charge'), row('b', -80, 'payment', { paymentAllocation: { status: 'reconciled' } })] },
+      // Cash Back: a reconciled 50 payment and an unconfirmed movement: paid 50 stated, spent null.
+      { id: 'cashback', label: 'Cash Back', postedMovement: ready, pending: [],
+        posted: [row('c', -50, 'payment', { paymentAllocation: { status: 'reconciled' } }), row('d', 20, 'movement-unconfirmed')] }] };
+  const r = F.stackCreditLines(pub, split);
+  const c = r.lines.find(l => l.id === 'cashback');
+  ok(c.paid.amount === 50 && c.spent.amount === null && c.status === null && c.toGo.amount === null
+    && c.statusReasons.includes('card-movement-unconfirmed'), 'one-sided card: status and toGo null, card-movement-unconfirmed');
+  ok(r.totals.paid === 80 && r.totals.spent === 80 && r.totals.completeness === 'partial' && same(r.totals.excluded, ['cashback']),
+    'the one-sided card is excluded from both totals (80 / 80, partial), never half-counted');
+}
+
+console.log('9. The balance snapshot (Dale, 2026-11-20): last balance, its date, and a cautious trust');
+{
+  const x = fx.fixture();
+  const all = lines(x);
+  const b = id => all.find(l => l.id === id).balance;
+  ok(same(b('travelvisa'), { amount: 927.4, asOf: '2026-08-20', trust: 'calculated', reasons: [] }),
+    'Travel: a dated balance in the current cycle reads as published', JSON.stringify(b('travelvisa')));
+  ok(same([b('triangle').amount, b('triangle').asOf, b('triangle').trust, b('triangle').reasons],
+    [1980, '2026-08-17', 'estimated', ['manual-balance-before-as-of']]),
+  'Triangle: a manual balance dated before as-of is the last snapshot, estimated, with its date');
+  ok(b('mbna').amount === 760 && b('mbna').asOf === '2026-08-08' && b('mbna').trust === 'estimated',
+    'Amazon: last snapshot 760 as of 2026-08-08, estimated');
+  ok(all.find(l => l.id === 'triangle').paid.amount === null && all.find(l => l.id === 'triangle').spent.amount === null,
+    'a snapshot is a stock: Triangle paid / spent stay null, never inferred from the balance');
+  const t = totals(x).balance;
+  ok(t.amount === 7031.6 && t.trust === 'estimated' && t.completeness === 'complete' && t.excluded.length === 0,
+    'total balance 927.40 + 2264.20 + 1100.00 + 1980.00 + 760.00 = 7031.60, estimated (two stale snapshots)', JSON.stringify(t));
+  ok(b('heloc').amount === null && !t.excluded.includes('heloc'), 'HELOC: no snapshot here, and never in the balance total');
+
+  const stale = fx.fixture();
+  stale.debts.find(d => d.id === 'travelvisa').statementCloseDay = 18;
+  stale.debts.find(d => d.id === 'travelvisa').balanceAsOf = '2026-08-10';
+  const s = line(stale, 'travelvisa').balance;
+  ok(s.amount === 927.4 && s.trust === 'estimated' && s.reasons.includes('balance-before-statement-cycle'),
+    'Forecast\'s verdict (dated 2026-08-10, cycle from 2026-08-18) keeps the balance and makes it estimated', JSON.stringify(s));
+
+  const undated = fx.fixture();
+  undated.overlay.overlays = undated.overlay.overlays.filter(o => o.locator !== 'debts:tdcc');
+  const u = line(undated, 'tdcc').balance;
+  ok(u.amount === 1100 && u.asOf === null && u.trust === 'estimated' && same(u.reasons, ['balance-date-unavailable']),
+    'an undated balance is shown, estimated, with balance-date-unavailable', JSON.stringify(u));
+
+  const gone = fx.fixture(); gone.debts.find(d => d.id === 'mbna').balance = null;
+  const g = totals(gone).balance;
+  ok(line(gone, 'mbna').balance.amount === null && g.completeness === 'partial' && same(g.excluded, ['mbna'])
+    && g.amount === 6271.6 && same(g.reasons, ['some-balances-unavailable']),
+  'no snapshot at all: null, never 0, and excluded from a partial total (7031.60 - 760.00 = 6271.60)');
+
+  const future = fx.fixture(); future.window = F.spendingCycle(future.plan, '2026-08-28');
+  ok(lines(future).every(l => l.balance.amount === null && same(l.balance.reasons, ['not-current-period']))
+    && totals(future).balance.completeness === 'none', 'outside the current period: null with not-current-period');
+}
+
 console.log(`\nAll stack credit line checks passed (${checks}).`);
