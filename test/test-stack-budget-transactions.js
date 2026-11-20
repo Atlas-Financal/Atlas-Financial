@@ -139,6 +139,25 @@ console.log('3b. End to end: Forecast publishes the flag, the page obeys it');
   ok(rows.length > 0, 'and the page lists the rows');
   ok(rows.reduce((s, r) => s + centsOf(r.amount), 0) === Math.round(good.row.spent * 100), 'the listed cents equal the published Spent (independent sum)');
   ok(base.row.reconMatchesSpent === true, 'a plain whole-cent case also reconciles');
+  // Pending copies of a posted purchase, through Forecast's own matching (same date, account, amount and name).
+  const twin = estimated => {
+    const data = fx.served(); const packet = data.liveOverlay.currentPeriodActuals;
+    const posted = packet.transactions.find(x => x.id === 'tx-7');
+    if (estimated) posted.distinctPendingId = 'tx-7p';
+    packet.transactions.push({ ...posted, id: 'tx-7p', pending: true, pendingTreatment: 'pending', savingsPostingEvidence: 'pending' });
+    const rec = F.recommend(data.plan, fx.AS_OF, Snap.pageOptions(data, null));
+    const v = rec.payPeriodViews.find(x => x.timelineRole === 'current');
+    return { v: JSON.parse(JSON.stringify(v)), row: v.householdBudget.find(r => r.otherSpending) };
+  };
+  const dup = twin(false), dupRows = show(dup);
+  ok(dup.row.recon.length === 2 && dup.row.recon.some(r => r.pending === true && r.pendingPostedDuplicate === true && r.pendingAmountEstimated !== true),
+    'Forecast publishes the suppressed pending twin in recon (not counted in Spent)');
+  ok(dup.row.reconMatchesSpent === true && dupRows.length === 1, 'the sheet lists the posted purchase once, not its pending twin', String(dupRows.length));
+  ok(dupRows.reduce((s, r) => s + centsOf(r.amount), 0) === Math.round(dup.row.spent * 100), 'and the listed cents equal the published Spent');
+  const est = twin(true), estRows = show(est);
+  ok(est.row.recon.some(r => r.pending === true && r.pendingAmountEstimated === true), 'Forecast keeps a linked pending amount as an estimate and counts it');
+  ok(est.row.reconMatchesSpent === true && estRows.length === 2, 'the sheet lists both rows', String(estRows.length));
+  ok(estRows.reduce((s, r) => s + centsOf(r.amount), 0) === Math.round(est.row.spent * 100), 'and the listed cents equal the published Spent');
 }
 
 console.log('4. The page adds nothing');
