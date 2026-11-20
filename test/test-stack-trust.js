@@ -131,7 +131,8 @@ console.log('4. credit card and its sheet (the design\'s "X / minimum", soft per
     'Green Card (spent, toGo and minimum estimated): the figure X and the "/ min" are soft', softIn(rows[1]));
   const el2 = container();
   fns.credit(el2, context(view('actual'), 'estimated'));
-  ok(/data-stack-credit-total><span class="stack-est">\$500</.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML), 'estimated totals: the paid total and its bar are soft');
+  ok(/data-stack-credit-total><span>\$500<\/span>/.test(el2.innerHTML) && !/data-stack-credit-total><span class="stack-est">/.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML),
+    'estimated totals: the paid figure prints in normal type whatever its trust word (Dale, 2026-11-20); the bar stays soft');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
   ok(/stack-credit-x is-bad stack-est"[^>]*>−\$160</.test(green) && /<dt>Spent on it<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
@@ -141,8 +142,8 @@ console.log('4. credit card and its sheet (the design\'s "X / minimum", soft per
   const projected = context(view('projected'));
   const pEl = container();
   fns.credit(pEl, projected);
-  ok(/data-stack-credit-total><span class="stack-est">/.test(pEl.innerHTML) && pEl.innerHTML.split('<li>').slice(1).every(r => /stack-credit-x[^"]* stack-est"/.test(r) || /stack-credit-dash/.test(r)),
-    'a projected period: the total and every line are soft');
+  ok(!/data-stack-credit-total><span class="stack-est">/.test(pEl.innerHTML) && pEl.innerHTML.split('<li>').slice(1).every(r => /stack-credit-x[^"]* stack-est"/.test(r) || /stack-credit-dash/.test(r)),
+    'a projected period: every line is soft; the head\'s paid figure stays in normal type (Dale, 2026-11-20)');
 }
 
 console.log('4b. the covered ✓ always shows when covered, soft on estimated evidence (Atlas on #1444)');

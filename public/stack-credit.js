@@ -151,10 +151,10 @@
   function cardHtml(reading) {
     const t = reading.totals, view = reading.view;
     // Both sides are Forecast's published totals over exactly the cards whose minimums are due (the HELOC left out), never
-    // added up here: totals.minimumsPaid (paid toward them: a published $0 when every due card is observed and none was paid,
-    // soft when a payment is still to confirm) over totals.minimumsDue. A due card Forecast cannot see (a manual card, posted
-    // coverage incomplete, a past period) withholds minimumsPaid, so the paid side is a dash there, never a $0; the minimums
-    // due is a dash when it is withheld.
+    // added up here: totals.minimumsPaid (paid toward them: $0 when nothing was paid, a due card Forecast cannot see counting
+    // $0 by owner decision) over totals.minimumsDue. The paid figure prints in normal type, whatever its trust word (Dale,
+    // 2026-11-20: no estimated distinction). A past period with incomplete posted coverage withholds minimumsPaid, so the paid
+    // side is a dash there; the minimums due is a dash when it is withheld.
     // The bar is covered over due, from Forecast's two published counts, so it is full only when every due minimum is covered.
     const mp = t.minimumsPaid && typeof t.minimumsPaid === 'object' ? t.minimumsPaid : null;
     const paidShown = !!mp && num(mp.amount);
@@ -162,7 +162,6 @@
     const due = md && num(md.amount) ? md.amount : null;
     const dueEst = est(view, md ? md.trust : null);
     const countsShown = num(t.minimumsDueCount) && num(t.minimumsCoveredCount);
-    const totalEst = est(view, mp ? mp.trust : null);
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
       + '<span class="stack-credit-hd"><span class="stack-credit-title">Credit</span>'
@@ -170,7 +169,7 @@
       // "paid / card minimums due": paid toward them is a published $0 when nothing has been paid; a withheld part is a soft
       // dash, never a blank or a guessed fill.
       + (paidShown || due != null
-        ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span class="${totalEst.trim()}">${esc(money(mp.amount))}</span>` : dash}`
+        ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span>${esc(money(mp.amount))}</span>` : dash}`
           + (due != null ? `<i class="${dueEst.trim()}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
         : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>—</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'

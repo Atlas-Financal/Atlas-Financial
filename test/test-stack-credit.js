@@ -226,11 +226,14 @@ console.log('2b. the head: paid / card minimums due from Forecast\'s totals, a b
   ok(text(zero).startsWith('Credit paid / card minimums due $0 / $470 Blue Visa') && !/\u2014 \//.test(text(zero).slice(0, 50)),
     'nothing paid toward the due minimums: "$0 / $470", never a dash');
   const soft120 = headOf(undefined, { ...probe, minimumsPaid: { amount: 120, trust: 'estimated', reasons: [] } });
-  ok(text(soft120).startsWith('Credit paid / card minimums due $120 / $470') && /<span class="[^"]*stack-est[^"]*">\$120<\/span>/.test(soft120),
-    'a payment still to confirm on an observed card: the number shows ("$120 / $470"), drawn soft');
+  ok(text(soft120).startsWith('Credit paid / card minimums due $120 / $470') && /data-stack-credit-total><span>\$120<\/span>/.test(soft120) && !/data-stack-credit-total><span class="[^"]*stack-est/.test(soft120),
+    'an estimated paid figure (a payment to confirm, or a card Forecast cannot see counted $0) prints in normal type: "$120 / $470", no soft styling (Dale, 2026-11-20)');
+  const zeroEst = headOf(undefined, { ...probe, minimumsPaid: { amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'] } });
+  ok(text(zeroEst).startsWith('Credit paid / card minimums due $0 / $470') && /data-stack-credit-total><span>\$0<\/span>/.test(zeroEst),
+    'a due card Forecast cannot see counts $0 by owner decision: "$0 / $470" in normal type, not a dash');
   const cannotSee = headOf(undefined, { ...probe, minimumsPaid: { amount: null, trust: 'unavailable', reasons: ['paid-unavailable', 'account-transaction-evidence-unavailable'] } });
   ok(text(cannotSee).startsWith('Credit paid / card minimums due — / $470 Blue Visa') && !/\$0/.test(text(cannotSee).slice(0, 50)),
-    'a due card Forecast cannot see (manual card, incomplete coverage, past period): a dash over the published minimums, never a $0');
+    'a past period with incomplete posted coverage (Forecast withholds the paid side): a dash over the published minimums, never a $0');
   const overpaid = headOf(undefined, { ...probe, minimumsPaid: { amount: 900, trust: 'calculated', reasons: [] } });
   ok(text(overpaid).startsWith('Credit paid / card minimums due $900 / $470'), 'an overpaid total prints its full published paid (uncapped)');
   const legacy = headOf(undefined, (({ minimumsPaid, ...rest }) => rest)(probe));
@@ -440,7 +443,7 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
   ok(text(rows[3]) === 'Half Card $77 \u2014 / \u2014', 'only one of paid / spent published: the balance (no half "of")', text(rows[3]));
   ok(text(rows[4]) === 'Blank Card \u2014 / \u2014' && !/\$0|data-stack-credit-balance/.test(rows[4]), 'no balance published: nothing, never $0');
   ok(text(rows[5]) === 'Line of credit \u2014 / $210' && !/9,000/.test(rows[5]), 'HELOC: its minimum only, never its balance');
-  ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total><span class="">\$120</.test(el.innerHTML),
+  ok(!/2,429/.test(el.innerHTML) && /data-stack-credit-total><span>\$120<\/span>/.test(el.innerHTML),
     "the head stays the paid toward the minimums due over the minimums due; totals.balance is not shown");
   const fresh = win.StackSheet.html(ctx, 'card:fresh'), stale = win.StackSheet.html(ctx, 'card:stale');
   ok(/stack-credit-big/.test(fresh) && !/data-stack-credit-balance/.test(fresh)
