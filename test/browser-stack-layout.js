@@ -97,8 +97,9 @@ const slabFit = (page, texts) => page.evaluate(values => {
 
 // Each strip: its rectangle, and whether the strip itself is what sits at its corners and centre (nothing covers it).
 const strips = page => page.evaluate(() => {
-  // A card's strip is the closed card itself (its summary row and padding); Credit's is its head.
-  const els = [...document.querySelectorAll('#stack-root [data-stack-card]'), document.querySelector('#stack-root [data-stack-credit-toggle]')]
+  // A card's strip is its head (the summary row): the pile lets the next card cover a card's bottom padding, never its head.
+  // Credit's is its head button.
+  const els = [...document.querySelectorAll('#stack-root [data-stack-card] > summary'), document.querySelector('#stack-root [data-stack-credit-toggle]')]
     .filter(Boolean);
   return els.map(el => {
     el.scrollIntoView({ block: 'center' });
@@ -108,7 +109,7 @@ const strips = page => page.evaluate(() => {
     const points = [[cx, r.top + 4], [cx, r.bottom - 4], [r.left + 4, cy], [r.right - 4, cy], [cx, cy]];
     const covered = points.filter(([x, y]) => { const hit = document.elementFromPoint(x, y); return !hit || !el.contains(hit); }).length;
     const page = el.getBoundingClientRect();
-    return { name: el.dataset.stackCard || 'credit',
+    return { name: (el.parentElement && el.parentElement.dataset.stackCard) || 'credit',
       top: page.top + window.scrollY, bottom: page.bottom + window.scrollY, left: r.left, right: r.right,
       height: r.height, covered, viewport: document.documentElement.clientWidth };
   });
@@ -181,10 +182,10 @@ const strips = page => page.evaluate(() => {
       await p2.close();
     }
 
-    console.log('control: the overlap check catches the old pile rule');
+    console.log('control: the overlap check catches a pile that covers a head');
     {
       const { page } = await open(browser, 390);
-      await page.addStyleTag({ content: 'html.stack-view .stack-bare + .stack-bare { margin-top: -38px; }' });
+      await page.addStyleTag({ content: 'html.stack-view .stack-bare + .stack-bare { margin-top: -120px; }' });
       await page.waitForTimeout(50);
       const s = await strips(page);
       ok(s.some(x => x.covered > 0), 'with the Credit block overlapping again, the Mortgage strip is reported covered',

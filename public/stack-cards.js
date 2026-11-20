@@ -92,7 +92,8 @@
     var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
       (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
-      '<summary><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + f + '</summary>' +
+      '<summary aria-expanded="false"><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + f +
+      '<span class="sc-go" aria-hidden="true">' + CHEV + '</span></summary>' +
       '<div class="sc-bar' + (figure == null ? '' : estCls(est)) + '"><i style="width:' + width + '%"></i></div>' + body + '</details>';
   }
 
@@ -109,6 +110,8 @@
   // (owner direction): no status word, no mark when unpaid or unknown. The check's accessible name is "Paid",
   // for screen readers only. An unpublished amount is a dash, never a zero.
   var DASH = '\u2014';
+  // The round go button on every card head: a chevron that turns when the card is open.
+  var CHEV = '<svg class="sc-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   function stateRow(label, amountText, paid, target) {
     return '<li class="sc-row sc-bill"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
       '<span class="sc-a">' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
@@ -223,9 +226,13 @@
   function render(container, ctx) {
     if (!container) return;
     container.innerHTML = buildCardsHTML(ctx);
-    // Enter or Space on a focused row acts as a click (once per container).
+    // Enter or Space on a focused row acts as a click (once per container); a card's open state is mirrored onto its head.
     if (!container.__stackCardsKeys && typeof container.addEventListener === 'function') {
       container.__stackCardsKeys = true;
+      container.addEventListener('toggle', function (e) {
+        var d = e.target, sum = d && d.querySelector && d.querySelector(':scope > summary');
+        if (sum && d.hasAttribute) sum.setAttribute('aria-expanded', d.hasAttribute('open') ? 'true' : 'false');
+      }, true);
       container.addEventListener('keydown', function (e) {
         var t = e.target;
         if ((e.key === 'Enter' || e.key === ' ') && t && t.getAttribute && t.getAttribute('data-stack-sheet') && typeof t.click === 'function') {
