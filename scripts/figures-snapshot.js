@@ -542,6 +542,7 @@ if (trajectory.status === 'ready') {
 
 putPayPeriods(put, putField, advice);
 putStackCards(put, putField, advice, data, plan, asOf);
+putBillHistory(put, putField, advice);
 putSavingsPublication(put, putField, advice, selectPublications(advice, asOf));
 
 return out;
@@ -567,6 +568,21 @@ function uniqueKey(used, key) {
   for (let n = 2; used.has(candidate); n++) candidate = key + '#' + n;
   used.add(candidate);
   return candidate;
+}
+
+/* ---- Stack Wallet bill sheet: Forecast billHistory ------------------------ */
+// Each bill's occurrences as published (date, amount, its basis and trust,
+// the paid word), one key per bill id and date. Copied, never summed.
+const BILL_HISTORY_FIELDS = ['amount', 'amountBasis', 'trust', 'paidState'];
+function putBillHistory(put, putField, advice) {
+  const history = advice.billHistory && typeof advice.billHistory === 'object' ? advice.billHistory : {};
+  const keys = new Set();
+  for (const id of Object.keys(history).sort()) {
+    for (const entry of Array.isArray(history[id]) ? history[id] : []) {
+      const k = uniqueKey(keys, 'billHistory.' + segment(id) + '@' + segment(entry && entry.date));
+      for (const field of BILL_HISTORY_FIELDS) putField(k + '.' + field, entry, field);
+    }
+  }
 }
 
 /* ---- Stack Wallet A6: Forecast.stackCardSummary per pay period --------- */
@@ -599,7 +615,8 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
     // Stack Wallet A6b: Forecast.stackCreditLines on the same publication and
     // the period's published bills split. Per line: the minimum, status, the
     // amount to go and whether the minimum is covered, each with its trust;
-    // and the credit totals with their completeness.
+    // and the credit totals with their completeness. The last balance snapshot
+    // (current period only) with its trust and date, and its total.
     const credit = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
     if (credit) {
       const lineKeys = new Set();
@@ -612,12 +629,18 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         putField(c + '.status', line, 'status');
         put(c + '.minimumCovered', String(line.minimumCovered.value));
         put(c + '.minimumCoveredTrust', line.minimumCovered.trust);
+        put(c + '.balance', line.balance.amount);
+        put(c + '.balanceTrust', line.balance.trust);
+        put(c + '.balanceAsOf', line.balance.asOf);
       }
       const t = p + '.stackCardTotals';
       put(t + '.paid', credit.totals.paid);
       put(t + '.spent', credit.totals.spent);
       put(t + '.trust', credit.totals.trust);
       put(t + '.completeness', credit.totals.completeness);
+      put(t + '.balance', credit.totals.balance.amount);
+      put(t + '.balanceTrust', credit.totals.balance.trust);
+      put(t + '.balanceCompleteness', credit.totals.balance.completeness);
     }
   }
 }

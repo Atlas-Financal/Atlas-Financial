@@ -39,6 +39,9 @@
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
+      // Stack credit balance snapshot: Forecast's statement-cycle verdict on
+      // the snapshot's own published date, never re-derived in the module.
+      balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
@@ -12669,7 +12672,7 @@
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
     incomeTxFactsDepth++;
     try {
-      return publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts));
+      return publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts)));
     } finally {
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
@@ -12984,6 +12987,71 @@
         if (row && typeof row === 'object') row.paidState = billPaidState(row);
       }
     }
+    return result;
+  }
+  // Stack Wallet bill history (owner ask, Dale, 2026-11-20; lead ruling: one
+  // authority, the page does no cross-period join). For each bill id, every
+  // occurrence in the published pay periods (past, current and future), newest
+  // first, copied from the published bill rows, so the bill sheet reads one
+  // source for its headline and its history (lead ruling, 2026-11-20):
+  //   { date, amount, amountBasis, trust, paidState }
+  // A not-yet-due occurrence carries basis 'schedule' with its own trust and
+  // its paidState as published.
+  // amount and trust follow the row's own displayAmountBasis exactly
+  // (publishBudgetBillDisplayTrust, or a saved close's capped rule): a posted
+  // or unconfirmed actual is the linked payment |actual| from the Lunch Money
+  // ledger (rule 17: read, never matched here); 'schedule' is the scheduled
+  // amount with its own trust, never presented as a paid amount. An amount
+  // that is not a number is null with trust 'unavailable'; a trust word
+  // outside calculated / estimated is 'unknown'. A 'carried' copy is skipped:
+  // the occurrence is listed in the period that holds it. One entry per
+  // occurrence, by Forecast's own occurrence identity: the row's
+  // occurrenceKey (id@scheduledDate) when it publishes one, as a statement
+  // that moved the due date does, else the row's own id and date (a legacy
+  // or saved row). A saved close keeps its unpaid row while the current
+  // period carries the same occurrence, perhaps on a statement's new date, so
+  // the newest period's row, which knows most, is the one listed with its
+  // effective date, basis and trust. No alias is inferred from a similar
+  // date or amount. Reach: exactly the
+  // published timeline (computed lookbacks within the ledger fetch window and
+  // saved closes behind, the projected periods ahead); nothing beyond it is
+  // invented.
+  const BILL_HISTORY_TRUST = new Set(['calculated', 'estimated']);
+  function billHistoryEntry(row) {
+    const basis = row.displayAmountBasis;
+    const actual = basis === 'posted-actual' || basis === 'unconfirmed-actual';
+    const raw = actual ? row.actual : row.amount;
+    const amount = typeof raw === 'number' && Number.isFinite(raw) ? roundCent(Math.abs(raw)) : null;
+    const trust = amount === null ? 'unavailable'
+      : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
+    return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState };
+  }
+  function billOccurrenceIdentity(row) {
+    if (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')) return row.occurrenceKey;
+    return row.id + '@' + (typeof row.scheduledDate === 'string' && row.scheduledDate ? row.scheduledDate : row.date);
+  }
+  function publishBillHistory(result) {
+    if (!result || typeof result !== 'object') return result;
+    // Pay periods are in timeline order (oldest first), so a later period's
+    // row for the same occurrence replaces an earlier one.
+    const latest = new Map();
+    for (const view of (Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
+      if (!view) continue;
+      for (const row of (Array.isArray(view.bills) ? view.bills : [])) {
+        if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;
+        if (typeof row.date !== 'string' || row.paidState === 'carried') continue;
+        latest.set(billOccurrenceIdentity(row), row);
+      }
+    }
+    // A Map, then own data properties: a bill id such as 'constructor' or
+    // '__proto__' is an ordinary key, never a prototype member.
+    const byId = new Map();
+    for (const row of latest.values()) {
+      if (!byId.has(row.id)) byId.set(row.id, []);
+      byId.get(row.id).push(billHistoryEntry(row));
+    }
+    for (const list of byId.values()) list.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    result.billHistory = Object.fromEntries(byId);
     return result;
   }
   function calendarIncomeTxFacts(packet) {
@@ -26036,6 +26104,22 @@
         ? `estimate — balance dated ${balanceAsOf}, before this statement cycle (from ${cycleStart}).`
         : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
     };
+  }
+  // The Stack credit lines' verdict on the balance snapshot they publish
+  // (Atlas, #1447): the same statement-cycle boundary as cardBalanceFreshness,
+  // applied to the published snapshot's own date, never to a separate stamp or
+  // the plan opening. 'undated' and 'after-as-of' (a date later than the as-of
+  // day) never earn current trust; 'stale' is before this statement cycle;
+  // 'current' is inside it; 'not-assessed' has no statement close day.
+  function cardBalanceAssessment(debt, plan, asOf, shownDate) {
+    const day = financialDate(shownDate);
+    if (!day) return { status: 'undated' };
+    if (!financialDate(asOf) || day > asOf) return { status: 'after-as-of' };
+    const cycleStart = debt && !debt.secured && debt.statementCloseDay != null
+      ? cardStatementCycleStart(asOf, debt.statementCloseDay) : null;
+    if (!cycleStart) return { status: 'not-assessed' };
+    return day >= cycleStart ? { status: 'current', cycleStart }
+      : { status: 'stale', trust: 'estimated', balanceAsOf: day, cycleStart };
   }
   function staleCardBalanceList(debts) {
     return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)

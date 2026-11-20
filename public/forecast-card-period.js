@@ -8,6 +8,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ForecastCardPeriod = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function buildApi(DisplayName) {
+  const BALANCE_VERDICTS = ['stale', 'current', 'not-assessed', 'undated', 'after-as-of'];
   const cardIdentities = [['travelvisa', 'Travel'], ['cashback', 'Cash Back'], ['tdcc', 'Emerald'],
     ['triangle', 'Triangle'], ['mbna', 'Amazon Mastercard']];
   function publish(input, primitives) {
@@ -100,6 +101,14 @@
         amount: debt.balance, date: date(observed?.evidenceDate) ? observed.evidenceDate
           : date(debt.evidenceDate) ? debt.evidenceDate : null,
         status: date(observed?.evidenceDate) || date(debt.evidenceDate) ? 'dated' : 'date-unavailable' };
+      // Forecast's verdict on this snapshot's own published date rides with it:
+      // 'stale', 'current', 'not-assessed', 'undated' or 'after-as-of' (never
+      // decided here).
+      const verdict = card.reportedBalance && typeof primitives.balanceFreshness === 'function'
+        ? primitives.balanceFreshness(debt, card.reportedBalance.date) : null;
+      if (verdict && BALANCE_VERDICTS.includes(verdict.status)) card.reportedBalance.freshness =
+        verdict.status === 'stale' ? { status: 'stale', balanceAsOf: date(verdict.balanceAsOf) ? verdict.balanceAsOf : null,
+          cycleStart: verdict.cycleStart || null } : { status: verdict.status };
       if (!windowKnown) { issues.push('selected-period-unavailable'); return card; }
       if (role === 'future') { issues.push('future-not-observed'); return card; }
       if (!packetCurrent) issues.push('observation-unavailable');
@@ -327,7 +336,42 @@
   // Each figure is { amount, trust, reasons }; trust is the weakest input.
   // HELOC is one of the credit lines: its minimum only, since the card ledger
   // publishes no paid / spent for it.
+  //   balance  (Dale, 2026-11-20) the card's last balance snapshot: the
+  //            publication's reportedBalance, current period only, with its
+  //            date. It is a stock, never a paid / spent movement. It reads
+  //            'estimated' when Forecast's verdict says it predates the card's
+  //            statement cycle, when it has no date, or when a manual card's
+  //            balance predates the as-of day, or when the card's cycle was
+  //            never assessed and the balance predates the as-of day; else
+  //            FRESH_BALANCE_TRUST ('calculated', lead ruling 2026-11-20: the
+  //            word the Stack gives a fully evidenced movement from the same
+  //            feed; never 'verified').
+  //            Null with 'not-current-period' outside the current period.
   const LINE_LABELS = { heloc: 'HELOC' };
+  const FRESH_BALANCE_TRUST = 'calculated';
+  function balanceOf(card, publication) {
+    if (publication.role !== 'current') return { amount: null, asOf: null, trust: 'unavailable', reasons: ['not-current-period'] };
+    const reported = card && card.reportedBalance;
+    const amount = reported && cents(reported.amount) !== null ? cents(reported.amount) / 100 : null;
+    if (amount === null) return { amount: null, asOf: null, trust: 'unavailable', reasons: ['balance-unavailable'] };
+    const asOf = typeof reported.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(reported.date) ? reported.date : null;
+    const reasons = [];
+    const assessment = reported.freshness && reported.freshness.status;
+    const beforeAsOf = asOf && typeof publication.asOf === 'string' && asOf < publication.asOf;
+    if (!asOf || assessment === 'undated') reasons.push('balance-date-unavailable');
+    // Atlas, #1447: a snapshot dated after the as-of day is unproven, never current.
+    else if (assessment === 'after-as-of') reasons.push('balance-date-after-as-of');
+    // No Forecast verdict for this snapshot: it cannot earn current trust.
+    else if (!BALANCE_VERDICTS.includes(assessment)) reasons.push('balance-assessment-unavailable');
+    else {
+      if (assessment === 'stale') reasons.push('balance-before-statement-cycle');
+      if (card.manualStatement === true && beforeAsOf) reasons.push('manual-balance-before-as-of');
+      // Lead ruling (2026-11-20): a card whose cycle was never assessed is
+      // fresh only when its balance is dated on the as-of day.
+      else if (assessment === 'not-assessed' && beforeAsOf) reasons.push('balance-cycle-unassessed-before-as-of');
+    }
+    return { amount, asOf, trust: reasons.length ? 'estimated' : FRESH_BALANCE_TRUST, reasons };
+  }
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
   function stackCreditLines(publication, bills) {
     const cards = stackCards(publication);
@@ -348,8 +392,10 @@
       paid: unavailable('not-a-spend-card'), spent: unavailable('not-a-spend-card'),
       net: unavailable('not-a-spend-card'), state: null, stateReasons: ['not-a-spend-card'],
       transactions: [] };
+    const published = id => publication.cards.find(row => row && row.id === id) || null;
     const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
+      const balance = balanceOf(published(card.id), publication);
       const paid = card.paid, spent = card.spent;
       const known = paid.amount !== null && spent.amount !== null;
       const inputsTrust = weakest(paid.trust, spent.trust);
@@ -364,7 +410,7 @@
       }
       const covered = paid.amount === null || minimum.amount === null ? 'unknown'
         : cents(paid.amount) >= cents(minimum.amount);
-      return { ...card, minimum, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      return { ...card, balance, minimum, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paid.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paid.reasons.concat(minimum.reasons))] : [] } };
@@ -384,6 +430,18 @@
         trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
         completeness: excluded.length ? 'partial' : 'complete', excluded,
         reasons: excluded.length ? ['some-cards-unavailable'] : [] };
+    // The balance total is over the spend cards' snapshots (HELOC excluded, as
+    // above), with the weakest trust: a stale snapshot is counted and keeps the
+    // total estimated; only a card with no snapshot at all is excluded.
+    const withBalance = spendLines.filter(line => line.balance.amount !== null);
+    const noBalance = spendLines.filter(line => line.balance.amount === null).map(line => line.id);
+    totals.balance = !withBalance.length
+      ? { amount: null, trust: 'unavailable', completeness: 'none', excluded: noBalance,
+        reasons: [...new Set(spendLines.flatMap(line => line.balance.reasons))] }
+      : { amount: withBalance.reduce((sum, line) => sum + cents(line.balance.amount), 0) / 100,
+        trust: weakest(...withBalance.map(line => line.balance.trust)),
+        completeness: noBalance.length ? 'partial' : 'complete', excluded: noBalance,
+        reasons: noBalance.length ? ['some-balances-unavailable'] : [] };
     return { lines, totals };
   }
   return { publish, stackCards, stackCreditLines };
