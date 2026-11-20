@@ -173,7 +173,9 @@
       + '<dl>' + (heloc ? '' : h.row('Spent on it this pay period', h.money(spent), est(view, trustOf(line.spent)))
         + h.row('Paid onto it', h.money(paid), est(view, trustOf(line.paid))))
       + (min != null ? (coverage(line) === null ? h.row('Minimum', h.money(min), minEst)
-        : h.row('Minimum ' + h.money(min), covered(line) ? 'Covered ✓' : 'Not yet', minEst)) : '')
+        // The amount sits in the label, so its own treatment goes on the label; the coverage word carries the check's.
+        : h.row('Minimum ' + h.money(min), covered(line) ? 'Covered ✓' : 'Not yet', est(view, line.minimumCovered.trust),
+          est(view, trustOf(line.minimum)))) : '')
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {

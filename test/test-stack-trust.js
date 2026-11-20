@@ -137,7 +137,7 @@ console.log('4. credit card and its sheet');
     && /Paid onto it<\/dt><dd class="stack-n">/.test(green) && /stack-credit-pill is-togo stack-n stack-est/.test(green),
   'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
-  ok(/<dt>Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(green), 'the estimated minimum is soft');
+  ok(/<dt class="stack-est">Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(green), 'the estimated minimum amount and its coverage word are both soft');
   ok(/<dt>Minimum \$25<\/dt><dd class="stack-n">Covered ✓<\/dd>/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'a calculated minimum is not');
   const projected = context(view('projected'));
   const pEl = container();
@@ -171,6 +171,22 @@ console.log('4b. the paid-back mark always shows when paid back, soft on estimat
       `${label}: the tick and the pill still show (paid back), soft, read as "Paid back, estimated"`);
     ok(!/estimated/i.test(r.row.replace(/<[^>]*>/g, ' ') + r.sheet.replace(/<[^>]*>/g, ' ')), `${label}: no word "estimated" is added`);
   }
+}
+
+console.log('4c. the minimum amount and its coverage word each carry their own treatment (Codex on #1475)');
+{
+  const { win } = load();
+  const sheet = (v, minTrust, covTrust) => {
+    const ctx = context(v);
+    const line = [{ id: 'travelvisa', label: 'Blue Visa', paid: fig(100, 'calculated'), spent: fig(260, 'calculated'), minimum: fig(30, minTrust),
+      toGo: fig(160, 'calculated'), status: 'to-go', minimumCovered: { value: false, trust: covTrust }, transactions: [] }];
+    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: line, totals: { paid: 100, spent: 260, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
+    return win.StackSheet.html(ctx, 'card:travelvisa');
+  };
+  ok(/<dt class="stack-est">Minimum \$30<\/dt><dd class="stack-n">Not yet<\/dd>/.test(sheet(view('actual'), 'estimated', 'calculated')), 'an estimated minimum amount alone: the amount is soft, the coverage word is not');
+  ok(/<dt>Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(sheet(view('actual'), 'calculated', 'estimated')), 'estimated coverage alone: the word is soft, the amount is not');
+  ok(/<dt class="stack-est">Minimum \$30<\/dt><dd class="stack-n stack-est">Not yet<\/dd>/.test(sheet(view('projected'), 'calculated', 'calculated')), 'a projected period: both are soft');
+  ok(/<dt>Minimum \$30<\/dt><dd class="stack-n">Not yet<\/dd>/.test(sheet(view('actual'), 'calculated', 'calculated')), 'calculated minimum and coverage: neither is soft');
 }
 
 console.log('5. bill and budget sheets');

@@ -28,8 +28,9 @@
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
   // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
-  const row = (label, value, cls = '') => (value === '' || value == null ? ''
-    : `<div><dt>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  // labelCls: the same treatment for a label that carries a figure of its own (Credit's "Minimum $30").
+  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
+    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
   function head(kicker, title) {
