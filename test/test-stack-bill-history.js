@@ -121,6 +121,14 @@ console.log('2. The publisher on hand-built results');
   const odd = publish({ payPeriodViews: [view('past', [row('2026-08-01', { displayAmountTrust: 'verified' }), row('2026-08-15', { displayAmountTrust: null })])] }, '2026-09-15');
   ok(odd.billHistory.b.every(e => e.trust === 'unknown'), 'a trust word outside calculated / estimated is unknown, never upgraded', JSON.stringify(odd.billHistory.b));
   ok(same(publish({}, '2026-09-15').billHistory, {}), 'no pay periods: an empty history');
+  // A saved close keeps its unpaid row (marked alsoCarriedToCurrent) while the current period carries the same
+  // occurrence, now paid: one entry, the newest period's.
+  const twice = publish({ payPeriodViews: [
+    view('past', [row('2026-09-05', { alsoCarriedToCurrent: true })]),
+    view('current', [row('2026-09-05', { displayAmountBasis: 'posted-actual', actual: 50, paidState: 'paid' })]),
+  ] }, '2026-09-15');
+  ok(same(twice.billHistory.b, [{ date: '2026-09-05', amount: 50, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }]),
+    'an occurrence a saved close kept and the current period carries is listed once, as the current period has it', JSON.stringify(twice.billHistory.b));
 }
 
 console.log('3. Every invented figures input');
@@ -160,6 +168,12 @@ console.log('4. Mutants are caught');
     displayAmountBasis: 'schedule', displayAmountTrust: 'calculated', paidState: 'carried' }] }] };
   const withCarried = exposeWith(replaceOnce(SOURCE, " || row.paidState === 'carried') continue;", ') continue;', 'carried included'), 'carried-included');
   ok((withCarried(carried, '2026-09-15').billHistory.b || []).length === 1, 'a carried copy listed is caught');
+  const noDedupe = exposeWith(replaceOnce(SOURCE, "        latest.set(row.id + '\\u0000' + row.date, row);", "        latest.set(latest.size, row);", 'no dedupe'), 'no-dedupe');
+  const kept = { payPeriodViews: [
+    { timelineRole: 'past', bills: [{ id: 'b', date: '2026-09-05', amount: 50, displayAmountBasis: 'schedule', displayAmountTrust: 'calculated', paidState: 'not-paid', alsoCarriedToCurrent: true }] },
+    { timelineRole: 'current', bills: [{ id: 'b', date: '2026-09-05', amount: 50, displayAmountBasis: 'schedule', displayAmountTrust: 'calculated', paidState: 'not-paid' }] }] };
+  ok(noDedupe(kept, '2026-09-15').billHistory.b.length === 2 && publish(structuredClone(kept), '2026-09-15').billHistory.b.length === 1,
+    'one occurrence listed twice (saved close and current) is caught');
   const unmarked = { payPeriodViews: [{ timelineRole: 'past', bills: [{ id: 'b', date: '2026-08-01', amount: 5,
     displayAmountBasis: 'schedule', displayAmountTrust: null, paidState: 'not-paid' }] }] };
   const defaulted = exposeWith(replaceOnce(SOURCE, "BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown'",

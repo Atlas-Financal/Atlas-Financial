@@ -12998,7 +12998,10 @@
   // amount with its own trust, never presented as a paid amount. An amount
   // that is not a number is null with trust 'unavailable'; a trust word
   // outside calculated / estimated is 'unknown'. A 'carried' copy is skipped:
-  // the occurrence is listed in the period that holds it. Reach: only as far
+  // the occurrence is listed in the period that holds it. One entry per bill
+  // id and date: a saved close keeps its unpaid row (alsoCarriedToCurrent)
+  // while the current period carries the same occurrence, so the newest
+  // period's row, which knows most, is the one listed. Reach: only as far
   // back as the published timeline (computed lookbacks within the ledger
   // fetch window, then saved closes); nothing older is invented.
   const BILL_HISTORY_TRUST = new Set(['calculated', 'estimated']);
@@ -13013,15 +13016,19 @@
   }
   function publishBillHistory(result, asOf) {
     if (!result || typeof result !== 'object') return result;
-    const history = {};
+    // Pay periods are in timeline order (oldest first), so a later period's
+    // row for the same occurrence replaces an earlier one.
+    const latest = new Map();
     for (const view of (Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || (view.timelineRole !== 'past' && view.timelineRole !== 'current')) continue;
       for (const row of (Array.isArray(view.bills) ? view.bills : [])) {
         if (!row || typeof row !== 'object' || typeof row.id !== 'string' || !row.id) continue;
         if (typeof row.date !== 'string' || !(row.date <= asOf) || row.paidState === 'carried') continue;
-        (history[row.id] || (history[row.id] = [])).push(billHistoryEntry(row));
+        latest.set(row.id + '\u0000' + row.date, row);
       }
     }
+    const history = {};
+    for (const row of latest.values()) (history[row.id] || (history[row.id] = [])).push(billHistoryEntry(row));
     for (const id of Object.keys(history)) history[id].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     result.billHistory = history;
     return result;

@@ -191,6 +191,7 @@ function proveBillHistory(advice) {
       assert.equal(entry.trust, expected === null ? 'unavailable' : carriedTrust,
         `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
+      assert.ok(!listed.has(id + '@' + entry.date), `authorized addition: billHistory lists ${id}@${entry.date} once`);
       listed.add(id + '@' + entry.date);
     }
   }
