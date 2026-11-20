@@ -320,10 +320,26 @@ try {
       link.rel = 'stylesheet';
       link.href = href;
       if (href === '/stack.css') link.addEventListener('load', () => centreNow());
+      // A Stack stylesheet that fails to load would leave both pages showing together: hand back to the previous page
+      // (reviewer, #1439). The font stylesheet is exempt: without it the page still reads, in the fallback fonts.
+      if (href !== '/budget-stack-fonts.css') {
+        link.addEventListener('error', () => fallBack(new Error('stack stylesheet failed to load: ' + href)));
+      }
       document.head.appendChild(link);
     }
   }
   try { applyChrome(); } catch (error) { fallBack(error); return; }
+
+  // A block script that fails to load would leave the Stack page without its waterfall, cards, Credit or sheets:
+  // once the document has parsed (every block script has run or failed), any block that never registered hands back
+  // to the previous page (reviewer, #1439). Checked only when the shell runs during parsing, as it does from
+  // index.html; a harness that loads it otherwise draws what registered.
+  if (document.readyState === 'loading' && typeof document.addEventListener === 'function') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const missing = ORDER.filter(name => !renderers.has(name));
+      if (missing.length) fallBack(new Error('stack block script failed to load: ' + missing.join(', ')));
+    }, { once: true });
+  }
 
   if (typeof App !== 'undefined' && App.register) {
     App.register(render);
