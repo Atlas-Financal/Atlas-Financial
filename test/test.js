@@ -67,6 +67,7 @@ const NOT_SUITES = Object.freeze({
   'atlas069-constructor-failure-driver.js': 'child driver spawned by test-server-observation-memory.js',
   'bills-period-end-legacy-comparison.js': 'helper module required by registered suites',
   'bad-full-load-legacy.js': 'helper module required by registered suites (full-load BAD frozen-engine comparisons)',
+  'projected-topup-legacy.js': 'helper module required by registered suites (rewrites a frozen engine\'s projected Savings top-ups from its own Budget funding)',
   'forecast-authorized-additions.js': 'helper module required by registered suites (proves, then removes, Forecast fields main predates in frozen-engine comparisons)',
   'proof-source-binding.js': 'proof-provenance helper module required by proof and browser scripts',
   'test-savings-consumer-contract.js': 'Savings consumer contract cases module (pinned guard machinery), executed only through test-savings-consumer-contract-part-<n>.js',
