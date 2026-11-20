@@ -29,7 +29,7 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' �
 
 function load() {
   const ctx = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
-    location: { search: '' }, document: { addEventListener: () => {}, getElementById: () => null } };
+    location: { search: '?view=classic' }, document: { addEventListener: () => {}, getElementById: () => null } };
   ctx.window = ctx; ctx.globalThis = ctx;
   vm.createContext(ctx);
   vm.runInContext(read('public/stack-shell.js'), ctx);
@@ -82,7 +82,7 @@ function context(v, totalsTrust = 'calculated') {
     data: { debts: [{ id: 'travelvisa', label: 'Blue Visa' }], meta: { asOf: '2031-03-10' }, liveOverlay: null }, plan: {},
     selectedPeriodKey: v.start, recommendation: { payPeriodViews: [v], billHistory: {
       water: [{ date: '2031-03-05', amount: 64, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
-      power: [{ date: '2031-03-06', amount: 80, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }] } },
+      power: [{ date: '2031-03-06', amount: 80, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }] } },
     Forecast: { cardPeriodMovements: () => ({}), stackCreditLines: () => ({ lines: LINES,
       totals: { paid: 500, spent: 660, trust: totalsTrust, completeness: 'complete', excluded: [], reasons: [],
         minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 1, minimumsCoveredTrust: totalsTrust } }) },
@@ -233,7 +233,7 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     hydro: [
       { date: '2031-04-08', amount: 100, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
       { date: '2031-03-08', amount: 112.4, amountBasis: 'unconfirmed-actual', trust: 'estimated', paidState: 'paid' },
-      { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+      { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true },
       { date: '2031-01-08', amount: 97, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
     phone: [{ date: '2031-03-11', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
   };
@@ -264,16 +264,18 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
   pend.recommendation.billHistory = {
     water2: [{ date: '2031-03-07', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' },
       { date: '2031-02-07', amount: 88, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' },
-      { date: '2031-01-07', amount: 86.4, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }],
-    gas: [{ date: '2031-03-09', amount: 71.2, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }],
+      { date: '2031-01-07', amount: 86.4, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }],
+    gas: [{ date: '2031-03-09', amount: 71.2, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }],
   };
   const w2 = win.StackSheet.html(pend, 'bill:water2@2031-03-07');
   const w2rows = [...w2.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
-  ok(/<div class="stack-sheet-big stack-n"><span role="img" aria-label="not available">—<\/span><\/div><span class="stack-sheet-check"/.test(w2)
-    && !/\$90/.test(w2), 'headline: a paid occurrence on its schedule shows the check with a dash, never the scheduled $90');
-  ok(w2rows.length === 2 && /aria-label="not available">—/.test(w2rows[0]) && /stack-sheet-check/.test(w2rows[0]) && !/\$88/.test(w2)
+  // Owner (Dale, #1465 7046237901): a pending payment is not confirmed, so no check until it posts.
+  ok(/<div class="stack-sheet-big stack-n"><span role="img" aria-label="not available">—<\/span><\/div>/.test(w2)
+    && !/stack-sheet-check/.test(w2.split('stack-sheet-hist')[0]) && !/\$90/.test(w2),
+    'headline: a pending occurrence on its schedule shows a dash and no check, never the scheduled $90');
+  ok(w2rows.length === 2 && /aria-label="not available">—/.test(w2rows[0]) && !/stack-sheet-check/.test(w2rows[0]) && !/\$88/.test(w2)
     && /\$86</.test(w2rows[1]) && /stack-sheet-check/.test(w2rows[1]),
-    'history: a paid row on its schedule shows the check with a dash; a posted-actual row keeps its amount and check');
+    'history: a pending row on its schedule shows a dash and no check; a confirmed posted row keeps its amount and check');
   ok(/<div class="stack-sheet-big stack-n">\$71<\/div><span class="stack-sheet-check"/.test(win.StackSheet.html(pend, 'bill:gas@2031-03-09')),
     'control: a paid posted actual shows its amount beside the check');
   const unpaidSched = context(view('actual'));
@@ -289,7 +291,7 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     { date: '2031-05-08', amount: 101, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
     { date: '2031-04-08', amount: 100, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
     { date: '2031-03-08', amount: 112.4, amountBasis: 'unconfirmed-actual', trust: 'estimated', paidState: 'paid' },
-    { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' }] };
+    { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }] };
   const may = win.StackSheet.html(fut, 'bill:hydro@2031-05-08');
   const mayRows = [...may.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
   ok(/stack-sheet-big stack-n stack-est">\$101</.test(may) && mayRows.length === 2 && /Mar 8/.test(mayRows[0]) && /Feb 8/.test(mayRows[1])
@@ -313,8 +315,8 @@ console.log('5d. the bill sheet matches its entry by occurrence identity (#1455)
   const mk = (bills, history) => { const c = context(view('actual')); c.recommendation.payPeriodViews[0].bills = bills; c.recommendation.billHistory = history; return c; };
   const row = (o) => ({ id: 'tri', label: 'Triangle', amount: 50, displayAmountTrust: 'calculated', payerLabel: 'Chequing', ...o });
   const HIST = { tri: [
-    { date: '2031-03-10', amount: 55.25, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-03-07' },
-    { date: '2031-02-07', amount: 49, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-02-07' }] };
+    { date: '2031-03-10', amount: 55.25, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-03-07', paidConfirmed: true },
+    { date: '2031-02-07', amount: 49, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-02-07', paidConfirmed: true }] };
   // A statement moved the occurrence from Mar 7 to Mar 10; the current row carries its occurrenceKey.
   const moved = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', occurrenceKey: 'tri@2031-03-07', paidState: 'paid' })], HIST),
     'bill:tri@2031-03-10');
@@ -342,7 +344,7 @@ console.log('5d. the bill sheet matches its entry by occurrence identity (#1455)
   ok(/aria-label="not available">—/.test(sameState.split('stack-sheet-big')[1].split('</div>')[0]) && !/55\.25/.test(sameState),
     'a saved copy in the same paid state, on its old date, gets a dash (never the later copy\'s amount)');
   // Same date, different paid state: a saved unpaid copy of an occurrence the current period has since paid.
-  const PAIDNOW = { tri: [{ date: '2031-03-07', amount: 52.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-03-07' }] };
+  const PAIDNOW = { tri: [{ date: '2031-03-07', amount: 52.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', occurrence: 'tri@2031-03-07', paidConfirmed: true }] };
   const unpaidCopy = win.StackSheet.html(mk([row({ date: '2031-03-07', paidState: 'not-paid' })], PAIDNOW), 'bill:tri@2031-03-07');
   ok(/aria-label="not available">—/.test(unpaidCopy.split('stack-sheet-big')[1].split('</div>')[0]) && !/52\.10/.test(unpaidCopy),
     'a saved unpaid copy on the same date never shows the paid copy\'s amount');

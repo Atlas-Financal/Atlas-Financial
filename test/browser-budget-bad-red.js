@@ -101,7 +101,7 @@ async function open(browser, data, { theme = 'light', planHtml = null } = {}) {
   const errors = [];
   page.on('pageerror', err => errors.push(err.message));
   await serve(page, data, planHtml);
-  await page.goto('http://budget.test/');
+  await page.goto('http://budget.test/?view=classic');
   await page.locator('[data-budget-surface]').waitFor();
   await page.locator('[data-blend-term="balanceAfterDeductions"]').waitFor();
   return { page, errors };

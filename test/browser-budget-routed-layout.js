@@ -69,7 +69,7 @@ fs.mkdirSync(screenshots, { recursive: true });
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-      await page.goto(base);
+      await page.goto(base + '/?view=classic');
       await page.locator('.budget-step-summary').first().waitFor();
       assert.equal(await page.evaluate(() => App.data.meta.title), 'Synthetic Budget review');
       const stepDetails = await page.locator('.budget-step-details').evaluateAll(rows => rows.map(el =>

@@ -156,7 +156,7 @@ async function assertEvidence(dialog, mode, expected) {
         served[path.relative(root, file).replaceAll('\\', '/')] = crypto.createHash('sha256').update(body).digest('hex');
         return route.fulfill({ body, contentType: file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://savings-card.test/'); const tile = page.locator('[data-budget-savings-goals]');
+      await page.goto('http://savings-card.test/?view=classic'); const tile = page.locator('[data-budget-savings-goals]');
       await tile.waitFor(); const current = await tile.innerText(), original = await page.evaluate(() => JSON.stringify(App.data));
       await step(page, 1); const next = await tile.innerText();
       const firstFacts = await assertClose(page, tile, mode, CLOSES[0]);

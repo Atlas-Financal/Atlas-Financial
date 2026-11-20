@@ -22,7 +22,7 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   if(!fs.existsSync(file))return route.fulfill({status:404,body:''});
   return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
  });
- await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
+ await page.goto('http://budget.test/?view=classic');await page.locator('[data-budget-surface]').waitFor();
  // The river hides the native step control; drive its incumbent handler.
  const step=async dir=>{const was=await page.evaluate(()=>[...document.querySelectorAll('[data-budget-window-range]')].map(e=>e.textContent).join('|'));
   await page.evaluate(d=>{const b=[...document.querySelectorAll(`[data-budget-window-step="${d}"]`)].find(x=>x.getAttribute('aria-disabled')!=='true');if(!b)throw Error('no step '+d);b.click();},dir);

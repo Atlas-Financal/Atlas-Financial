@@ -28,7 +28,10 @@ html.stack-view[data-theme="dark"] {
 
 /* The Stack page replaces the current page's content; the boot notice (loading, errors) stays visible. */
 html.stack-view body { background: var(--stack-bg); color: var(--stack-ink); font-family: var(--stack-sans); }
-html.stack-view .wrap > :not(#stack-root):not([data-boot-notice]) { display: none !important; }
+html.stack-view .wrap > :not(#stack-root):not([data-boot-notice]):not(.running-build) { display: none !important; }
+/* B7: the build label stays on the Stack page, small and centred below it, as it sits below the previous page. */
+html.stack-view .wrap > .running-build { display: block; order: 40; align-self: center; width: 100%; margin: 28px 0 12px;
+  text-align: center; font-size: 12px; color: var(--stack-muted); }
 /* The current page's background art lives outside .wrap; the design's background is plain. */
 html.stack-view .blend-ambient, html.stack-view .blend-aurora, html.stack-view .blend-sky { display: none !important; }
 /* The site header copies the current page's "Last updated" line; the Stack page prints its own under the title. */

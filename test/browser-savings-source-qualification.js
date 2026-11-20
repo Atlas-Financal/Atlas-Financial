@@ -93,7 +93,7 @@ async function packet(page) {
           : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
       try {
-        await page.goto('http://source-qualification.test/');
+        await page.goto('http://source-qualification.test/?view=classic');
         const tile = page.locator('[data-budget-savings-goals]'); await tile.waitFor();
         eq(await page.evaluate(() => innerWidth), width, 'true CSS viewport');
         let initial;

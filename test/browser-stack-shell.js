@@ -2,14 +2,20 @@
 /* B1, the Stack Wallet page shell, in a real browser: real App.boot, the real public/ files, invented data only
  * (test/fixtures/budget-surface-data.js served for /data.json by route interception; no server, no household data).
  *
- *   1. No flag: the current page is unchanged. With the Stack scripts served or blocked, the rendered body is
- *      byte-identical; no Stack stylesheet, class or element appears.
+ *   1. ?view=classic (the previous page, kept until C1): unchanged. With the Stack scripts served or blocked, the
+ *      rendered body is byte-identical; no Stack stylesheet, class or element appears.
+ *   1b. B7, the switch-over: with no query (and with ?view=stack) the Stack page is the Budget page.
+ *   5. B7 fail-safe: if the shell throws while starting up, after its App hook, or while drawing, it removes itself
+ *      for good (a later re-render draws nothing) and the page is the classic page, byte-identical, never blank.
+ *   6. Freshness: Last updated is the sync instant; for a retained refresh with none, that refresh's own time (a failed
+ *      attempt never advances it); a retained refresh with no printable date stays on the previous page. Without JavaScript the default route and ?view=classic match.
  *   2. ?view=stack: the shell replaces the current page with the title "Budget", the quiet "Last updated" line from
  *      the overlay's sync instant (the current footer's rule), and one timeline chip per published pay period with its
  *      date, the current period marked and selected.
  *   3. Every printed amount is the published value it names: a chip prints its period's stackSummary.surplus amount,
  *      coral when negative, and nothing at all when none is published (never $0). Checked with invented published
- *      values (whole dollars, cents, negative, absent) and with main's engine, which publishes no surplus yet.
+ *      values (whole dollars, cents, negative, absent) and with main's engine (#1426 publishes stackSummary.surplus).
+ *   The running-build label stays visible on the Stack page (B7), so the previous-page-hidden checks exclude it.
  *   4. Tapping a chip selects it; every registered block is called with ctx = { data, plan, recommendation,
  *      selectedPeriodKey, Forecast }, and the key follows the tap. "Now" returns to the current period.
  *
@@ -29,28 +35,29 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
 function served() {
-  const d = fx.served();
+  const d = fx.served({ mortgageObligation: true });
   d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = SYNC_AT;
   return d;
 }
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light' } = {}) {
-  const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce' });
+async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light', tamperShell = null, js = true, mutate = null } = {}) {
+  const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce', javaScriptEnabled: js });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
     const u = new URL(route.request().url());
     if (u.origin !== 'http://stack.test') return route.abort();
-    if (u.pathname === '/data.json') return route.fulfill({ json: served() });
+    if (u.pathname === '/data.json') { const d = served(); if (mutate) mutate(d); return route.fulfill({ json: d }); }
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     if (blockStack && /^\/stack[.-]/.test(u.pathname)) return route.fulfill({ status: 404, body: '' });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
-    return fs.existsSync(file) && fs.statSync(file).isFile()
-      ? route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' })
-      : route.fulfill({ status: 404, body: '' });
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
+    let body = fs.readFileSync(file);
+    if (tamperShell && u.pathname === '/stack-shell.js') body = tamperShell(body.toString('utf8'));
+    return route.fulfill({ body, contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
   await page.goto('http://stack.test/' + query);
-  await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+  if (js) await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
   return { page, errors };
 }
 const settle = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -58,11 +65,11 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH });
   try {
-    console.log('1. no flag: the current page is unchanged');
+    console.log('1. ?view=classic: the previous page is unchanged');
     {
       // The current page's wave animation stamps a time-based phase on each load (--blend-wave-phase); that one
       // value is normalised, everything else must match exactly.
-      const a = await open(browser), b = await open(browser, { blockStack: true });
+      const a = await open(browser, { query: '?view=classic' }), b = await open(browser, { query: '?view=classic', blockStack: true });
       await settle(a.page); await settle(b.page);
       const bodyA = await a.page.evaluate(() => document.body.innerHTML.replace(/<script[^>]*><\/script>/g, '').replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '--blend-wave-phase:;'));
       const bodyB = await b.page.evaluate(() => document.body.innerHTML.replace(/<script[^>]*><\/script>/g, '').replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '--blend-wave-phase:;'));
@@ -73,10 +80,23 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       const probe = await a.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
         root: !!document.getElementById('stack-root'), css: [...document.querySelectorAll('link[rel=stylesheet]')]
           .some(l => /\/stack\/|budget-stack-fonts/.test(l.href)), blocks: typeof window.StackBlocks?.register }));
-      ok(!probe.cls && !probe.root && !probe.css, 'no Stack class, element or stylesheet without the flag', JSON.stringify(probe));
+      ok(!probe.cls && !probe.root && !probe.css, 'no Stack class, element or stylesheet with ?view=classic', JSON.stringify(probe));
       ok(probe.blocks === 'function', 'StackBlocks exists for the block files');
       ok(a.errors.length === 0 && b.errors.length === 0, 'no page errors', a.errors.concat(b.errors).join('; '));
       await a.page.close(); await b.page.close();
+    }
+
+    console.log('1b. B7: the default route is the Stack page');
+    for (const query of ['', '?view=stack']) {
+      const { page, errors } = await open(browser, { query });
+      await page.waitForSelector('#stack-root [data-stack-period]', { timeout: 30000 });
+      const probe = await page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+        title: document.querySelector('#stack-root h1')?.textContent,
+        hidden: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice') && !el.classList.contains('running-build'))
+          .every(el => getComputedStyle(el).display === 'none') }));
+      ok(probe.cls && probe.title === 'Budget' && probe.hidden, `${query || '(no query)'}: the Stack page shows and the previous page is hidden`, JSON.stringify(probe));
+      ok(errors.length === 0, `${query || '(no query)'}: no page errors`, errors.join('; '));
+      await page.close();
     }
 
     console.log('2. ?view=stack: title, Last updated, one chip per published pay period');
@@ -86,7 +106,7 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       const chips = [...document.querySelectorAll('[data-stack-period]')];
       return { title: document.querySelector('#stack-root h1').textContent,
         updated: document.querySelector('[data-stack-updated]').textContent,
-        current: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice'))
+        current: [...document.querySelector('.wrap').children].filter(el => el.id !== 'stack-root' && !el.hasAttribute('data-boot-notice') && !el.classList.contains('running-build'))
           .every(el => getComputedStyle(el).display === 'none') && document.getElementById('stack-root').checkVisibility(),
         chips: chips.map(c => ({ key: c.dataset.stackPeriod, pressed: c.getAttribute('aria-pressed'),
           now: c.getAttribute('aria-current'), date: c.querySelector('.stack-chip-date').textContent,
@@ -131,9 +151,17 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       .map(e => e.dataset.stackBlock), overlay: document.querySelector('[data-stack-block="sheet"]').closest('[data-stack-pile]') === null }));
     ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,
       'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
+    // Main's engine (#1426) publishes stackSummary.surplus: each chip prints its view's published amount in the page's one
+    // money format (StackBlocks.money, signed; its rounding is proved in test-stack-shell §7), and a soft dash where
+    // none is published (never $0, never a blank).
+    const expected = await page.evaluate(list => list.map(a => (typeof a === 'number' && Number.isFinite(a)
+      ? StackBlocks.money(a, { signed: true }) : '—')), views.map(v => (v.stackSummary && v.stackSummary.surplus ? v.stackSummary.surplus.amount : null)));
+    ok(view.chips.length === expected.length && view.chips.every((c, i) => c.amount === expected[i]) && expected.some(t => t !== '—'),
+      "main's engine: each chip prints its view's published surplus, and a dash where none is published",
+      JSON.stringify({ chips: view.chips.map(c => c.amount), expected }));
     ok(view.chips.every((c, i) => {
       const s = views[i].stackSummary && views[i].stackSummary.surplus;
-      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '\u2014' : c.amount === '\u2014' && c.soft;
+      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '—' : c.amount === '—' && c.soft;
     }), 'a chip with no published surplus prints a soft dash, never $0 and never a blank', JSON.stringify(view.chips.map(c => [c.amount, c.soft])));
 
     console.log('3. every printed amount is the published value it names');
@@ -144,8 +172,9 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
         const r = original.apply(this, arguments);
         (r.payPeriodViews || []).forEach((v, i) => {
           const amount = values[i % values.length];
+          // An absent slot is published as withheld (amount null), replacing the engine's own surplus.
           v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: amount === null
-            ? { amount: null, trust: 'unavailable' } : { amount, trust: 'estimated' } });
+            ? { amount: null, trust: 'unavailable', reason: 'invented withheld' } : { amount, trust: 'estimated' } });
         });
         return r;
       };
@@ -271,6 +300,110 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       }
       console.log('  screenshots written to ' + shots);
     }
+    console.log('5. B7 fail-safe and no JavaScript');
+    {
+      const normal = body => body.replace(/<script[^>]*><\/script>/g, '').replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '--blend-wave-phase:;');
+      const classic = await open(browser, { query: '?view=classic' });
+      await settle(classic.page);
+      const classicBody = normal(await classic.page.evaluate(() => document.body.innerHTML));
+      // The shell's own drawing throws (a tampered copy of stack-shell.js, served only to this page).
+      const broken = await open(browser, { tamperShell: src => src.replace('function timelineHtml() {',
+        "function timelineHtml() { throw new Error('invented shell failure');") });
+      await settle(broken.page);
+      const probe = await broken.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+        root: !!document.getElementById('stack-root'), text: document.querySelector('.wrap').innerText.trim().length }));
+      ok(!probe.cls && !probe.root && probe.text > 0, 'a shell failure removes the Stack page and the previous page shows (not blank)', JSON.stringify(probe));
+      const brokenBody = normal(await broken.page.evaluate(() => document.body.innerHTML));
+      ok(brokenBody === classicBody, 'after the fallback, the body is byte-identical to ?view=classic');
+      ok(broken.errors.length === 0, 'the failure is caught (no uncaught page error)', broken.errors.join('; '));
+      // Start-up failures, before any drawing: (a) during set-up (the formatters and helpers), (b) right after the
+      // class and the stylesheets are applied. Each must leave the previous page, byte-identical, and no uncaught error.
+      const startUp = [
+        ['set-up', '  const esc = value => String(value', m => "  throw new Error('invented set-up failure');\n" + m],
+        ['after the class and stylesheets', '      document.head.appendChild(link);\n    }\n',
+          m => m + "    throw new Error('invented start-up failure');\n"],
+      ];
+      for (const [name, marker, inject] of startUp) {
+        const early = await open(browser, { tamperShell: src => {
+          if (!src.includes(marker)) throw new Error(`start-up tamper marker missing: ${name}`);
+          return src.replace(marker, inject(marker));
+        } });
+        await settle(early.page);
+        const earlyProbe = await early.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+          root: !!document.getElementById('stack-root'), text: document.querySelector('.wrap').innerText.trim().length }));
+        ok(!earlyProbe.cls && !earlyProbe.root && earlyProbe.text > 0,
+          `a start-up failure (${name}) leaves the previous page showing (not blank)`, JSON.stringify(earlyProbe));
+        ok(normal(await early.page.evaluate(() => document.body.innerHTML)) === classicBody,
+          `after a start-up failure (${name}), the body is byte-identical to ?view=classic`);
+        ok(early.errors.length === 0, `the start-up failure (${name}) is caught (no uncaught page error)`, early.errors.join('; '));
+        await early.page.close();
+      }
+      // A throw just after the App hook is registered: the durable fail state keeps the Stack page off, even when App
+      // later re-renders through the hook it retains (Atlas, #1439).
+      const late = await open(browser, { tamperShell: src => {
+        const marker = '    App.register(render);\n';
+        if (!src.includes(marker)) throw new Error('post-registration tamper marker missing');
+        return src.replace(marker, marker + "    throw new Error('invented post-registration failure');\n");
+      } });
+      await settle(late.page);
+      await late.page.evaluate(() => App.rerender());
+      await settle(late.page);
+      const lateProbe = await late.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+        root: !!document.getElementById('stack-root') }));
+      ok(!lateProbe.cls && !lateProbe.root, 'a failure after the App hook stays failed: a later re-render draws no Stack page', JSON.stringify(lateProbe));
+      const lateBody = normal(await late.page.evaluate(() => document.body.innerHTML));
+      // The reference is the previous page after the same re-render (its own re-render adds its river element).
+      const classicAgain = await open(browser, { query: '?view=classic' });
+      await settle(classicAgain.page);
+      await classicAgain.page.evaluate(() => App.rerender());
+      await settle(classicAgain.page);
+      const classicRerendered = normal(await classicAgain.page.evaluate(() => document.body.innerHTML));
+      await classicAgain.page.close();
+      ok(lateBody === classicRerendered && late.errors.length === 0,
+        'after the post-registration failure and a re-render, the body is byte-identical to ?view=classic re-rendered, no uncaught error',
+        late.errors.join('; '));
+      await late.page.close();
+      await classic.page.close(); await broken.page.close();
+      const a = await open(browser, { js: false }), b = await open(browser, { query: '?view=classic', js: false });
+      const [ba, bb] = [await a.page.evaluate(() => document.body.innerHTML), await b.page.evaluate(() => document.body.innerHTML)];
+      ok(ba === bb && ba.trim().length > 0, 'without JavaScript, the default route and ?view=classic serve the same non-empty page');
+      await a.page.close(); await b.page.close();
+    }
+
+    console.log('6. freshness: the Last updated line on the default route (OD-3, OD-025; Atlas, #1439)');
+    {
+      // Invented instants. A retained (dated) refresh: its own complete observation, then a later failed attempt.
+      const RETAINED = '2026-08-18T15:00:00.000Z', ATTEMPT = '2026-08-21T09:30:00.000Z';
+      const line = async opts => {
+        const x = await open(browser, opts);
+        await settle(x.page);
+        const r = await x.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+          text: document.querySelector('[data-stack-updated]')?.textContent ?? null }));
+        r.fmt = await x.page.evaluate(([a, b, c]) => [a, b, c].map(v => formatCompleteRefreshTime(v)), [SYNC_AT, RETAINED, ATTEMPT]);
+        r.errors = x.errors;
+        await x.page.close();
+        return r;
+      };
+      const live = await line({});
+      ok(live.cls && live.text === 'Last updated ' + live.fmt[0], 'live: the line is the sync instant', live.text);
+      const retainedSync = await line({ mutate: d => { d.liveOverlay.retainedRefresh = { observedAt: RETAINED, attempt: { checkedAt: ATTEMPT } }; } });
+      ok(retainedSync.cls && retainedSync.text === 'Last updated ' + retainedSync.fmt[0],
+        'a retained refresh with a bank sync instant: the line is the sync instant (as the previous page)', retainedSync.text);
+      const retainedNoSync = await line({ mutate: d => {
+        d.liveOverlay.retainedRefresh = { observedAt: RETAINED, attempt: { checkedAt: ATTEMPT } };
+        delete d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+      } });
+      ok(retainedNoSync.cls && retainedNoSync.text === 'Last updated ' + retainedNoSync.fmt[1] && !retainedNoSync.text.includes(retainedNoSync.fmt[2]),
+        "a retained refresh with no bank sync instant: the line is the retained refresh's own time; the failed attempt does not advance it",
+        retainedNoSync.text);
+      const retainedNoDate = await line({ mutate: d => {
+        d.liveOverlay.retainedRefresh = { observedAt: 'not-a-date', attempt: { checkedAt: ATTEMPT } };
+        delete d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+      } });
+      ok(!retainedNoDate.cls && retainedNoDate.errors.length === 0,
+        'a retained refresh with no printable date stays on the previous page, which discloses it', JSON.stringify(retainedNoDate));
+    }
+
     console.log(`\nPASS Stack shell browser checks (${checks})`);
   } finally {
     await browser.close();

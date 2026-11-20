@@ -37,7 +37,7 @@ const sourceHash=file=>crypto.createHash('sha256').update(fs.readFileSync(path.j
           contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'})
           :route.fulfill({status:404,body:''});
       });
-      await page.goto('http://fees.test/');
+      await page.goto('http://fees.test/?view=classic');
       await page.locator('[data-budget-surface]').waitFor();
       assert.equal(await page.evaluate(()=>App.data.meta.title),'Invented scheduled fee routing');
       const trigger=page.locator('[data-operating-question="04"] > details > summary');

@@ -48,7 +48,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
         return route.fulfill({ body: fs.readFileSync(file),
           contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator(ready).first().waitFor({ state: 'attached' });
       if (ready === '[data-blend-rings]') await page.locator('[data-budget-surface]').waitFor();
       return { page, requests };

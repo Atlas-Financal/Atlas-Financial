@@ -34,7 +34,7 @@ async function main() {
           if (mode === 'setup-unknown') { delete input.data.plan.savingsEarmarks; input.map.mappings.pop(); input.payload.accounts.pop(); }
           if (mode === 'hostile') input.data.plan.savingsEarmarks.pools[0].label = '<img src=x onerror=alert(1)>' + 'LongPoolName'.repeat(8);
           server.write(input);
-          for (const [name, route] of [['budget', '/']]) {
+          for (const [name, route] of [['budget', '/?view=classic']]) {
             // The pools inventory lives only in the legacy Savings accounts disclosure, which the
             // Budget face clips off-screen (budget-blend.css) and keeps out of the Tab order.
             // Whether to show it is an owner decision (BACKLOG); this proof reads that one copy's

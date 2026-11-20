@@ -69,7 +69,7 @@ const OLD = '1111111', NEW = '2222222';
           await context.addCookies([{ name: 'synthetic-session', value: 'kept', url: base }]);
           const page = await context.newPage();
           page.on('pageerror', e => errors.push(e.message));
-          await page.goto(base);
+          await page.goto(base + '/?view=classic');
           await page.locator('.budget-step-summary').first().waitFor();
           assert.equal(await page.locator('.running-build').innerText(), `Running commit ${OLD}`);
           const figures = await page.locator('#operating-surface').innerText();
@@ -85,7 +85,7 @@ const OLD = '1111111', NEW = '2222222';
           assert.equal(await page.locator('[data-app-release]').count(), 0, 'unchanged release is quiet');
           release = NEW;
           // A separate cold navigation already receives the new release.
-          const cold = await context.newPage(); await cold.goto(base);
+          const cold = await context.newPage(); await cold.goto(base + '/?view=classic');
           await cold.locator('.budget-step-summary').first().waitFor();
           assert.equal(await cold.locator('.running-build').innerText(), `Running commit ${NEW}`);
           await cold.close();

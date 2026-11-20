@@ -12713,6 +12713,7 @@
     for (const view of (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : [])) {
       if (!view || typeof view !== 'object') continue;
       const bills = stackBills(view);
+      publishStackBillParts(view, bills);
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result) });
     }
@@ -12867,6 +12868,61 @@
   // The parts are destructured, not read with a dot: test-invariants finds
   // a data.json key's reader by that text, and the plan's top-level `mortgage`
   // key has none.
+  // Each bill row's place in that split, so a page groups rows by Forecast's
+  // own membership and prints the amount the split counted, with no rule of
+  // its own (one owner: stackBillPartOf, via periodAssignedBillParts). Set on
+  // exactly the rows the split counts, and only while the split is published
+  // and every counted row is one of this view's own published rows; otherwise
+  // no row carries a mark (a page lists nothing rather than guess). Presentation
+  // only: no figure reads it, and the save boundary drops it.
+  //   stackBillPart    'mortgage' | 'cardMinimum' | 'other'
+  //   stackBillAmount  the amount that row adds to its part (billAssignedAmount,
+  //                    or a scheduled fee's periodCost), to the cent
+  //   stackBillDebtId  a card minimum's credit line (stackSummary.bills.cardMinimums[].debtId)
+  //   stackBillPaymentEvidence  what the ledger shows for this occurrence's
+  //                    payment: 'posted-equal' (a posted payment of exactly the
+  //                    planned and counted amount), 'posted-differs' (a posted payment of
+  //                    another amount: the plan stands until Grok Bot verifies
+  //                    it, owner Dale 2026-11-20), 'pending' (seen paid, its
+  //                    amount not posted) or 'none'. A page shows the paid check
+  //                    only for 'posted-equal' (owner, Dale, on #1465 7046237901).
+  //   stackBillAmountTrust  the counted amount's own trust: the posted payment's
+  //                    for 'posted-equal', otherwise the plan's (billScheduleDisplayTrust);
+  //                    absent when that has no word (never defaulted to calculated)
+  const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
+  // The planned amount, to the cent (the plan billAssignedAmount starts from), or null.
+  function stackBillPlannedCents(row) {
+    const plan = row.planned != null && isFinite(Number(row.planned)) ? row.planned
+      : row.amount != null && isFinite(Number(row.amount)) ? row.amount : null;
+    return plan == null ? null : Math.round(Math.abs(Number(plan)) * 100);
+  }
+  // 'posted-equal' needs the posted payment to equal the PLANNED amount and the counted one (owner, Dale
+  // 2026-11-20 on #1465, 7046237901): an overpayment the count already took up is still 'posted-differs'.
+  function stackBillPaymentEvidence(row, cents) {
+    if (row.displayAmountBasis === 'posted-actual' && typeof row.actual === 'number' && Number.isFinite(row.actual)) {
+      const posted = Math.round(Math.abs(row.actual) * 100);
+      return posted === cents && posted === stackBillPlannedCents(row) ? 'posted-equal' : 'posted-differs';
+    }
+    return billPaidState(row) === 'paid' ? 'pending' : 'none';
+  }
+  function publishStackBillParts(view, bills) {
+    const rows = Array.isArray(view.bills) ? view.bills : [];
+    for (const row of rows) if (row && typeof row === 'object') for (const key of STACK_BILL_MARKS) delete row[key];
+    const parts = periodBillLoadPartsByPeriod.get(view);
+    if (!bills || bills.trust === 'unavailable' || !parts || !Array.isArray(parts.rows)) return;
+    const own = new Set(rows);
+    if (!parts.rows.every(mark => own.has(mark.row))) return;
+    for (const mark of parts.rows) {
+      mark.row.stackBillPart = mark.part;
+      mark.row.stackBillAmount = mark.cents / 100;
+      if (mark.part === 'cardMinimum') mark.row.stackBillDebtId = mark.debtId;
+      const evidence = stackBillPaymentEvidence(mark.row, mark.cents);
+      mark.row.stackBillPaymentEvidence = evidence;
+      const trust = evidence === 'posted-equal' ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
+      // Never more certain than the row's own word: no word stays no word.
+      if (trust != null) mark.row.stackBillAmountTrust = trust;
+    }
+  }
   function stackBills(view) {
     const parts = periodBillLoadPartsByPeriod.get(view);
     const total = view.periodBillLoad;
@@ -13088,8 +13144,13 @@
     const amount = typeof raw === 'number' && Number.isFinite(raw) ? roundCent(Math.abs(raw)) : null;
     const trust = amount === null ? 'unavailable'
       : BILL_HISTORY_TRUST.has(row.displayAmountTrust) ? row.displayAmountTrust : 'unknown';
+    // paidConfirmed: the payment is confirmed, so a page may show the check (owner, Dale 2026-11-20 on #1465,
+    // 7046237901): paid, posted, and the posted amount is exactly the planned amount. Pending, unmatched or a
+    // differing posted payment is not confirmed (until Grok Bot verifies it).
+    const paidConfirmed = row.paidState === 'paid' && basis === 'posted-actual' && amount !== null
+      && Math.round(amount * 100) === stackBillPlannedCents(row);
     return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState,
-      occurrence: billOccurrenceIdentity(row) };
+      occurrence: billOccurrenceIdentity(row), paidConfirmed };
   }
   function billOccurrenceIdentity(row) {
     if (typeof row.occurrenceKey === 'string' && row.occurrenceKey.startsWith(row.id + '@')) return row.occurrenceKey;
@@ -14642,36 +14703,72 @@
   // the three parts equal periodBillLoad to the cent by construction. A
   // covered or pending minimum keeps its full scheduled amount, as the load
   // does. Null when the load is null.
+  // The one owner of a bill row's part (Stack Wallet bills split): 'mortgage',
+  // 'cardMinimum' (with its credit line's debtId), 'other', or null when the
+  // row is not in the period's assigned load.
+  function stackBillPartContext(plan) {
+    const obligations = ((plan && plan.obligations) || []).filter(o => o && o.id != null);
+    return {
+      mortgageIds: new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id))),
+      cardOf: new Map(obligations.filter(o => o.effect === 'payment' && o.debtId != null && !o.nonCash
+        && isStackCreditLine(o.debtId)).map(o => [String(o.id), String(o.debtId)])),
+      // A credit line whose plan obligation capitalises (the HELOC) pays its
+      // minimum as a separate cash row (capitalisingCashMinimumOccurrences,
+      // cashMinimum: true): that row is the line's minimum.
+      cashMinimumOf: new Map(obligations.filter(o => o.nonCash && o.debtId != null && isStackCreditLine(o.debtId))
+        .map(o => [String(o.id), String(o.debtId)])),
+    };
+  }
+  function stackBillPartOf(row, context) {
+    if (!billInPeriodAssignedLoad(row)) return null;
+    if (row.scheduledFeeAllowance || row.kind !== 'obligation' || row.id == null) return { part: 'other', debtId: null };
+    const id = String(row.id);
+    if (context.mortgageIds.has(id)) return { part: 'mortgage', debtId: null };
+    const line = row.cashMinimum === true ? context.cashMinimumOf.get(id) : context.cardOf.get(id);
+    return line ? { part: 'cardMinimum', debtId: line } : { part: 'other', debtId: null };
+  }
+
+  // Stack Wallet bills split (owner decision, Dale, waterfall reshape): the
+  // same rows and the same amount as periodAssignedBillLoad, each counted in
+  // exactly one part (stackBillPartOf). Mortgage is the planHasMortgagePayment
+  // obligation family (debtId or id 'mortgage'); a credit-line minimum is a
+  // payment row on a STACK_CREDIT_LINE_IDS debt (effect 'payment', not
+  // nonCash: the cards), or the cash-minimum row of a capitalising credit line
+  // (the HELOC), summed per debt. Everything else, card-paid bills and
+  // scheduled-fee allowances included, is `other`, taken as the remainder of
+  // the published total so the three parts equal periodBillLoad to the cent by
+  // construction. A covered or pending minimum keeps its full scheduled
+  // amount, as the load does. Null when the load is null. `rows` lists each
+  // counted row with its part and the cents it adds; it is null when the
+  // other rows' cents do not add up to `other` (a page then lists no rows).
   function periodAssignedBillParts(bills, amountOf, plan, total) {
     if (typeof total !== 'number' || !Number.isFinite(total)) return null;
     const amount = amountOf || billAssignedAmount;
-    const obligations = ((plan && plan.obligations) || []).filter(o => o && o.id != null);
-    const mortgageIds = new Set(obligations.filter(o => o.debtId === 'mortgage' || o.id === 'mortgage').map(o => String(o.id)));
-    const cardOf = new Map(obligations.filter(o => o.effect === 'payment' && o.debtId != null && !o.nonCash
-      && isStackCreditLine(o.debtId)).map(o => [String(o.id), String(o.debtId)]));
-    // A credit line whose plan obligation capitalises (the HELOC) pays its
-    // minimum as a separate cash row (capitalisingCashMinimumOccurrences,
-    // cashMinimum: true): that row is the line's minimum.
-    const cashMinimumOf = new Map(obligations.filter(o => o.nonCash && o.debtId != null && isStackCreditLine(o.debtId))
-      .map(o => [String(o.id), String(o.debtId)]));
-    let mortgageCents = 0;
+    const context = stackBillPartContext(plan);
+    let mortgageCents = 0, otherRowCents = 0;
     const cardCents = new Map();
+    const rows = [];
     for (const row of bills || []) {
-      if (!billInPeriodAssignedLoad(row) || row.scheduledFeeAllowance || row.kind !== 'obligation' || row.id == null) continue;
-      const id = String(row.id);
-      const line = row.cashMinimum === true ? cashMinimumOf.get(id) : cardOf.get(id);
-      if (!mortgageIds.has(id) && !line) continue;
-      const cents = Math.round(Number(amount(row)) * 100);
-      if (!Number.isFinite(cents)) return null;
-      if (mortgageIds.has(id)) mortgageCents += cents;
-      else cardCents.set(line, (cardCents.get(line) || 0) + cents);
+      const place = stackBillPartOf(row, context);
+      if (!place) continue;
+      const cents = Math.round(Number(row.scheduledFeeAllowance ? row.scheduledFeeAllowance.periodCost : amount(row)) * 100);
+      if (!Number.isFinite(cents)) {
+        if (place.part === 'other') { rows.push(null); continue; }
+        return null;
+      }
+      if (place.part === 'mortgage') mortgageCents += cents;
+      else if (place.part === 'cardMinimum') cardCents.set(place.debtId, (cardCents.get(place.debtId) || 0) + cents);
+      else otherRowCents += cents;
+      rows.push({ row, part: place.part, debtId: place.debtId, cents });
     }
     const totalCents = Math.round(total * 100);
     const minimumsCents = [...cardCents.values()].reduce((a, b) => a + b, 0);
+    const otherCents = totalCents - mortgageCents - minimumsCents;
     return {
       mortgage: mortgageCents / 100,
       cardMinimums: [...cardCents].map(([debtId, cents]) => ({ debtId, amount: cents / 100 })),
-      other: (totalCents - mortgageCents - minimumsCents) / 100,
+      other: otherCents / 100,
+      rows: rows.every(Boolean) && otherRowCents === otherCents ? rows : null,
     };
   }
   // Each published waterfall period's bills split, for publishStackSummary
@@ -17782,6 +17879,11 @@
         : periodAssignedBillLoad(assignedBillRows, deductedBillAmount);
       const billLoadParts = periodBillLoad == null ? null
         : periodAssignedBillParts(assignedBillRows, deductedBillAmount, plan, periodBillLoad);
+      // The split counts the assigned rows; a completed period publishes their
+      // qualified copies, so each mark names the row this view publishes.
+      if (billLoadParts && billLoadParts.rows && qualifiedBillCopy) {
+        billLoadParts.rows = billLoadParts.rows.map(mark => Object.assign({}, mark, { row: qualifiedBillCopy.get(mark.row) || mark.row }));
+      }
       const closeBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource, deductedBillAmount);

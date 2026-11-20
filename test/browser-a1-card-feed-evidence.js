@@ -37,7 +37,7 @@ let browser;
         file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' })
         : route.fulfill({ status: 404, body: '' });
     });
-    await page.goto('http://a1.test/');
+    await page.goto('http://a1.test/?view=classic');
     const strip = page.locator('[data-budget-card-movements]');
     await strip.waitFor();
     for (const [id, expected] of Object.entries(before

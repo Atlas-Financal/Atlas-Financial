@@ -35,7 +35,7 @@ try{for(const width of [1440,390,320])for(const state of ['received','partial','
  const file=path.join(root,'public',u.pathname==='/'?'index.html':u.pathname.slice(1));
  if(!fs.existsSync(file))return route.fulfill({status:404,body:''});
  return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});});
- await page.goto('http://budget.test/');await page.locator('[data-budget-surface]').waitFor();
+ await page.goto('http://budget.test/?view=classic');await page.locator('[data-budget-surface]').waitFor();
  assert.equal(await page.evaluate(()=>App.data.meta.title),'Invented receipt reconciliation');
  if(state==='history'){await riverStep(page,'ArrowLeft');assert.match(await page.locator('[data-budget-window-range]').innerText(),/Jun 26.*Jul 9/);}
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'320px has no horizontal overflow');

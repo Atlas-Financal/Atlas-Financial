@@ -45,7 +45,7 @@ function servedFixture() {
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
       const load = async () => {
-        await page.goto(base);
+        await page.goto(base + '/?view=classic');
         await page.locator('[data-pay-period-swipe]').waitFor();
         await page.waitForFunction(() => typeof BillDetail !== 'undefined' && App.data &&
           document.querySelector('[data-period-bill="bill"][data-atlas-bill-row]'));
@@ -193,8 +193,8 @@ function servedFixture() {
       await page.goto('about:blank');
       await page.waitForURL('about:blank');
       data = servedFixture(); data.liveOverlay.currentPeriodActuals.representedActuals = [];
-      await page.goto(base + '/');
-      await page.waitForURL(base + '/');
+      await page.goto(base + '/?view=classic');
+      await page.waitForURL(base + '/?view=classic');
       assert.equal(await page.locator('.sitenav, .sitenav-household').count(), 0);
       await page.locator('[data-pay-period-swipe]').waitFor();
       await openBill();
@@ -202,7 +202,7 @@ function servedFixture() {
 
       data = servedFixture(); data.liveOverlay.operatingPlan = 'unavailable';
       data.liveOverlay.operatingPlanNote = 'Synthetic failed advancing observation';
-      await page.goto(base);
+      await page.goto(base + '/?view=classic');
       await page.locator('#operating-surface-body [data-operating-plan="unavailable"]').first().waitFor();
       assert.equal(await page.locator('#operating-surface-body [data-bill-detail]').count(), 0);
       assert.doesNotMatch(await page.locator('#operating-surface-body').innerText(), /Transaction date|2026-08-18/);

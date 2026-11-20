@@ -55,7 +55,7 @@ const fx = require('./fixtures/budget-surface-data');
         return route.fulfill({ body: fs.readFileSync(file),
           contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic'); // the previous page (B7: the Stack page is the default)
       await page.locator('[data-budget-surface]').waitFor();
       const tile = page.locator('[data-blend-cat="other-spending"]').first().locator('xpath=ancestor::section[1]');
       for (const mode of ['Bars', 'Rings']) {

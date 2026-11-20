@@ -6,7 +6,7 @@
  *   1. Under ?view=stack the current page (and its river) is hidden. Switching the colour scheme, and the page's own
  *      theme button, throw no page error. Before the fix, the hidden river rebuilt its geometry at zero width and
  *      createLinearGradient threw "non-finite" twice.
- *   2. Control, the current page: the river is shown, and a colour-scheme change still rebuilds it in the new theme
+ *   2. Control, the previous page (?view=classic): the river is shown, and a colour-scheme change still rebuilds it in the new theme
  *      (its data-river-theme follows), with no page error.
  *
  * Local (hosted CI has no browser). `node test/browser-river-hidden-theme.js`
@@ -69,9 +69,9 @@ const scheme = async (page, colorScheme) => { await page.emulateMedia({ colorSch
       ok(errors.length === 0, 'a re-render while the river is hidden throws no page error', errors.join('; '));
       await page.close();
     }
-    console.log('2. control, the current page: a shown river still follows the colour scheme');
+    console.log('2. control, the previous page (?view=classic): a shown river still follows the colour scheme');
     {
-      const { page, errors } = await open(browser, '');
+      const { page, errors } = await open(browser, '?view=classic');
       await page.waitForFunction(() => {
         const c = document.querySelector('.t-river canvas.river-canvas');
         return c && c.getBoundingClientRect().width > 0;

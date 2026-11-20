@@ -52,7 +52,7 @@ async function household(page) {
         return route.fulfill({ body: fs.readFileSync(file),
           contentType: file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html' });
       });
-      await page.goto('http://budget.test/');
+      await page.goto('http://budget.test/?view=classic');
       await page.locator('.river').waitFor();
 
       const seen = [];

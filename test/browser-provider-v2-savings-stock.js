@@ -36,7 +36,7 @@ fs.mkdirSync(output, { recursive: true });
         return route.fulfill({ body: fs.readFileSync(file), contentType: file.endsWith('.css') ? 'text/css'
           : file.endsWith('.js') ? 'application/javascript' : 'text/html' });
       });
-      await page.goto('http://v2-stock.test/');
+      await page.goto('http://v2-stock.test/?view=classic');
       const summary = page.locator('[data-operating-question="savings"] > details > summary');
       await summary.waitFor();
       const stock = summary.locator('.budget-step-value');

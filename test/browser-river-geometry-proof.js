@@ -128,7 +128,7 @@ const pageHtml = (theme, narrowWrapper) => '<!doctype html><html data-theme="' +
         const type = file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'font/woff2';
         return route.fulfill({ body: fs.readFileSync(file), contentType: type });
       });
-      await page.goto('http://proof.test/');
+      await page.goto('http://proof.test/?view=classic');
       await page.addScriptTag({ content: SCENARIO_INIT });
       await page.evaluate(() => document.fonts.ready);
       // The tile's entrance animation transforms it for ~1s; the controller

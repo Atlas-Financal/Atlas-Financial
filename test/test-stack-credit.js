@@ -25,7 +25,7 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' â
 
 function load(creditSrc) {
   const ctx = { console, URLSearchParams, Intl, Map, WeakMap, Number, String, Object, Array, JSON, Math, Date,
-    location: { search: '' }, document: { addEventListener: () => {}, getElementById: () => null } };
+    location: { search: '?view=classic' }, document: { addEventListener: () => {}, getElementById: () => null } };
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(read('public/stack-shell.js'), ctx);
@@ -70,8 +70,8 @@ const VIEW = {
 const HISTORY = {
   water: [
     { date: '2031-04-05', amount: 64, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' },
-    { date: '2031-03-05', amount: 64, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
-    { date: '2031-02-05', amount: 61.5, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid' },
+    { date: '2031-03-05', amount: 64, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true },
+    { date: '2031-02-05', amount: 61.5, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true },
     { date: '2031-01-05', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
   mort: [{ date: '2031-03-12', amount: 1850, amountBasis: 'schedule', trust: 'calculated', paidState: 'not-paid' }],
 };

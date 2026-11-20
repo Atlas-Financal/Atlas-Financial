@@ -51,7 +51,7 @@ const cases = [
           await context.addCookies([{ name: cookieName, value: cookieValue, url: server.base, httpOnly: true }]);
           const page = await context.newPage();
           page.on('pageerror', e => errors.push(e.message));
-          await page.goto(server.base + '/');
+          await page.goto(server.base + '/?view=classic');
           await page.locator('[data-budget-surface]').waitFor();
           // #548 moved the roster off-screen: the visible Bills tile opens the
           // native roster (filters, buckets, occurrence rows) in the sheet.
