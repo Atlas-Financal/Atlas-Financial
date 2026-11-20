@@ -235,5 +235,24 @@ console.log('9. The design\'s marks: letter tiles on the income lines, card-colo
   'D, A and $ tiles on the income lines; bills, budget, mortgage and credit swatches; none on Total (all aria-hidden)', JSON.stringify(got));
 }
 
+console.log('10. The Mortgage line opens the mortgage sheet (owner, Dale, 2026-11-20: no Mortgage card)');
+{
+  const row = (over = {}) => Object.assign({ id: 'mortgage', debtId: 'mortgage', date: '2026-10-15', amount: 1000, paidState: 'not-paid' }, over);
+  const lineOf = bills => { const out = W.html(ctxOf([fullView({ bills })]), {});
+    const m = /<li class="wf-line[^"]*" data-row="mortgage">([\s\S]*?)<\/li>/.exec(out); return m ? m[1] : ''; };
+  const keyOf = bills => { const m = /data-stack-sheet="([^"]*)"/.exec(lineOf(bills)); return m ? m[1] : null; };
+  ok(keyOf([{ id: 'water', date: '2026-10-05', paidState: 'paid' }, row()]) === 'mortgage:mortgage@2026-10-15'
+    && /<button type="button" class="wf-toggle"/.test(lineOf([row()])),
+    'the line is a button keyed to the period\'s mortgage row, as the card row was (mortgage:<id>@<date>)');
+  ok(keyOf([row({ id: 'm1', debtId: 'mortgage', date: '2026-10-20' })]) === 'mortgage:m1@2026-10-20',
+    'a row named by its debt (debtId mortgage) is found the same way');
+  ok(keyOf([row({ paidState: 'carried' })]) === null && keyOf([row({ paidState: undefined })]) === null
+    && keyOf([row({ date: null })]) === null && keyOf([]) === null && keyOf(undefined) === null,
+    'no tap without a published row: a carried row, no paid state, no date, or no bills leaves a plain line');
+  ok(/data-source="stackSummary\.bills\.mortgage"/.test(lineOf([row()])) && /data-source="stackSummary\.bills\.mortgage"/.test(lineOf([])),
+    'tappable or plain, the line prints the same published amount (stackSummary.bills.mortgage)');
+  ok(keyOf([row({ id: 'a"b' })]) === 'mortgage:a&quot;b@2026-10-15', 'the key is escaped in the attribute');
+}
+
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack waterfall checks passed`);
 process.exit(failures ? 1 : 0);

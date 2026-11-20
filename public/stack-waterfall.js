@@ -131,6 +131,16 @@
     }).join('');
   }
 
+  // The waterfall's Mortgage line opens the mortgage sheet (owner, Dale, 2026-11-20: no Mortgage card; the line stays
+  // as in the approved design and keeps the payment reachable). Its key is the selected period's mortgage row, as
+  // Forecast publishes it in view.bills (debtId or id 'mortgage', with a paid state that is not 'carried'): the same
+  // row, read the same way, as the card row it replaces. No row, no tap: the line stays plain.
+  function mortgageSheetKey(view) {
+    const row = (Array.isArray(view.bills) ? view.bills : []).find(r => r && (r.debtId === 'mortgage' || r.id === 'mortgage')
+      && r.paidState && r.paidState !== 'carried');
+    return row && row.id != null && row.date != null ? `mortgage:${row.id}@${row.date}` : null;
+  }
+
   function html(ctx, state) {
     const view = selectedView(ctx);
     if (!view) return '<section class="stack-waterfall" data-block="waterfall" data-unpublished="true"></section>';
@@ -145,6 +155,11 @@
       <button type="button" class="wf-toggle" data-wf-toggle="credit" aria-expanded="${open}"${cards ? '' : ' disabled'}>
         <span class="op" aria-hidden="true">−</span><span class="lab">${MARKS.credit}Credit</span>${amountCell(view, 'credit')}</button>
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
+    const sheetKey = mortgageSheetKey(view);
+    const mortgage = sheetKey
+      ? `<li class="wf-line wf-tap" data-row="mortgage"><button type="button" class="wf-toggle" data-stack-sheet="${escape(sheetKey)}">
+        <span class="op" aria-hidden="true">−</span><span class="lab">${MARKS.mortgage}Mortgage</span>${amountCell(view, 'mortgage')}</button></li>`
+      : line('−', 'Mortgage', amountCell(view, 'mortgage'), '', 'mortgage');
     // A withheld surplus shows its name and a dash, no sentence (owner, 2026-11-20: no explanatory text on the page).
     const dash = amount === null ? DASH : '';
     return `<section class="stack-waterfall" data-block="waterfall" data-period="${escape(view.start || '')}"${surplus && surplus.projected ? ' data-projected="true"' : ''}>
@@ -155,7 +170,7 @@
     ${line('=', 'Total income', amountCell(view, 'total'), 'tot', 'total')}
     ${line('−', 'Bills', amountCell(view, 'bills'), '', 'bills')}
     ${line('−', 'Budget', amountCell(view, 'budget'), '', 'budget')}
-    ${line('−', 'Mortgage', amountCell(view, 'mortgage'), '', 'mortgage')}
+    ${mortgage}
     ${credit}
   </ul>
   <div class="wf-slab${deficit ? ' neg' : ''}" data-row="surplus"><div class="sl"><span aria-hidden="true">=</span> ${word}</div>${amountCell(view, 'surplus', { sign: true })}${dash}</div>
@@ -179,5 +194,5 @@
     state.ctx = ctx;
   }
 
-  return { render, html, selectedView, LINE_SOURCES };
+  return { render, html, selectedView, mortgageSheetKey, LINE_SOURCES };
 });

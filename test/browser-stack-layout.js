@@ -240,6 +240,24 @@ const slabInk = (page, amount) => page.evaluate(value => {
       }
       await page.close();
     }
+    console.log('the waterfall\'s Mortgage line opens the mortgage sheet (no Mortgage card; owner, 2026-11-20)');
+    {
+      const { page, errors } = await open(browser, 390);
+      const line = '#stack-root [data-block="waterfall"] [data-row="mortgage"] button[data-stack-sheet^="mortgage:"]';
+      const key = await page.$eval(line, b => b.getAttribute('data-stack-sheet')).catch(() => null);
+      ok(!!key, 'the Mortgage line is a button carrying the mortgage row\'s sheet key', String(key));
+      for (const how of ['tap', 'Enter']) {
+        if (how === 'tap') await page.click(line);
+        else { await page.focus(line); await page.keyboard.press('Enter'); }
+        await page.waitForSelector('.stack-sheet', { timeout: 3000 }).catch(() => {});
+        const sheet = await page.evaluate(() => { const el = document.querySelector('.stack-sheet');
+          return el ? el.innerText.replace(/\s+/g, ' ').trim().slice(0, 40) : null; });
+        ok(!!sheet && /^Mortgage\b/.test(sheet), `a ${how} on the line opens the mortgage sheet`, String(sheet));
+        await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+      }
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      await page.close();
+    }
   } finally {
     await browser.close();
   }
