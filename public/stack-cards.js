@@ -30,13 +30,9 @@
   }
   function isNum(v) { return typeof v === 'number' && isFinite(v); }
 
-  // Formatting only: prints the published number as dollars. No arithmetic.
+  // Formatting only: the page's one money format (StackBlocks.money, whole dollars); null for an unpublished amount.
   function money(v) {
-    if (!isNum(v)) return null;
-    // A whole-dollar value prints without cents ($0, $350); any cents still print.
-    var whole = Math.round(Math.abs(v) * 100) % 100 === 0;
-    var s = Math.abs(v).toLocaleString('en-CA', { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2 });
-    return (v < 0 ? '−' : '') + '$' + s;
+    return isNum(v) ? root.StackBlocks.money(v) : null;
   }
 
   // Forecast's trust word travels with its figure (CLAUDE.md: tag every figure). Only

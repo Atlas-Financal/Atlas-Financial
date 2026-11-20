@@ -234,12 +234,12 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     phone: [{ date: '2031-03-11', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
   };
   const hydro = win.StackSheet.html(ctx, 'bill:hydro@2031-03-08');
-  ok(/<div class="stack-sheet-big stack-n stack-est">\$112\.40<\/div>/.test(hydro) && !/\$100\b/.test(hydro),
-    'the headline is this occurrence\'s entry, amount and trust together (soft $112.40), never the row\'s amount and trust');
+  ok(/<div class="stack-sheet-big stack-n stack-est">\$112<\/div>/.test(hydro) && !/\$100\b/.test(hydro),
+    'the headline is this occurrence\'s entry, amount and trust together (soft $112, printed in whole dollars), never the row\'s amount and trust');
   const rows = [...hydro.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
   ok(rows.length === 2 && /Feb 8/.test(rows[0]) && /Jan 8/.test(rows[1]) && !/Apr 8|Mar 8/.test(rows.join('')),
     'history: the earlier occurrences only, newest first (no later or future one, not the headline itself)', rows.length);
-  ok(/stack-sheet-txa stack-n">\$98\.10</.test(rows[0]) && /stack-sheet-check/.test(rows[0])
+  ok(/stack-sheet-txa stack-n">\$98</.test(rows[0]) && /stack-sheet-check/.test(rows[0])
     && /stack-sheet-txa stack-n stack-est">\$97</.test(rows[1]) && !/stack-sheet-check/.test(rows[1]),
     'each row: its amount (soft when estimated) and a ✓ only when paid');
   ok(!/[A-Za-z]{3,}/.test(rows.map(r => r.replace(/<[^>]*>/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g, '')).join(' ')),
@@ -260,7 +260,7 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
   pend.recommendation.billHistory = {
     water2: [{ date: '2031-03-07', amount: 90, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' },
       { date: '2031-02-07', amount: 88, amountBasis: 'schedule', trust: 'calculated', paidState: 'paid' },
-      { date: '2031-01-07', amount: 87.5, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }],
+      { date: '2031-01-07', amount: 86.4, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }],
     gas: [{ date: '2031-03-09', amount: 71.2, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }],
   };
   const w2 = win.StackSheet.html(pend, 'bill:water2@2031-03-07');
@@ -270,9 +270,9 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     && !/stack-sheet-check/.test(w2.split('stack-sheet-hist')[0]) && !/\$90/.test(w2),
     'headline: a pending occurrence on its schedule shows a dash and no check, never the scheduled $90');
   ok(w2rows.length === 2 && /aria-label="not available">—/.test(w2rows[0]) && !/stack-sheet-check/.test(w2rows[0]) && !/\$88/.test(w2)
-    && /\$87\.50/.test(w2rows[1]) && /stack-sheet-check/.test(w2rows[1]),
+    && /\$86</.test(w2rows[1]) && /stack-sheet-check/.test(w2rows[1]),
     'history: a pending row on its schedule shows a dash and no check; a confirmed posted row keeps its amount and check');
-  ok(/<div class="stack-sheet-big stack-n">\$71\.20<\/div><span class="stack-sheet-check"/.test(win.StackSheet.html(pend, 'bill:gas@2031-03-09')),
+  ok(/<div class="stack-sheet-big stack-n">\$71<\/div><span class="stack-sheet-check"/.test(win.StackSheet.html(pend, 'bill:gas@2031-03-09')),
     'control: a paid posted actual shows its amount beside the check');
   const unpaidSched = context(view('actual'));
   unpaidSched.recommendation.payPeriodViews[0].bills = [{ id: 'tv', date: '2031-03-12', label: 'TV', amount: 30, displayAmountTrust: 'calculated', paidState: 'not-paid', payerLabel: 'Chequing' }];
@@ -300,8 +300,8 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
   projected.recommendation.billHistory = ctx.recommendation.billHistory;
   const pv = projected.recommendation.payPeriodViews[0];
   pv.bills = v.bills;
-  ok(/stack-sheet-big stack-n stack-est">\$112\.40/.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08'))
-    && /stack-sheet-txa stack-n stack-est">\$98\.10/.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08')),
+  ok(/stack-sheet-big stack-n stack-est">\$112</.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08'))
+    && /stack-sheet-txa stack-n stack-est">\$98</.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08')),
     'a projected period: the headline and every history amount are soft');
 }
 
@@ -316,7 +316,7 @@ console.log('5d. the bill sheet matches its entry by occurrence identity (#1455)
   // A statement moved the occurrence from Mar 7 to Mar 10; the current row carries its occurrenceKey.
   const moved = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', occurrenceKey: 'tri@2031-03-07', paidState: 'paid' })], HIST),
     'bill:tri@2031-03-10');
-  ok(/stack-sheet-big stack-n">\$55\.25<\/div><span class="stack-sheet-check"/.test(moved) && (moved.match(/<li>/g) || []).length === 1 && /Feb 7/.test(moved),
+  ok(/stack-sheet-big stack-n">\$55<\/div><span class="stack-sheet-check"/.test(moved) && (moved.match(/<li>/g) || []).length === 1 && /Feb 7/.test(moved),
     'a moved occurrence finds its entry by identity: its amount and ✓, and only the earlier occurrence below');
   // A saved close kept the old date and its unpaid copy: same identity, but its paid state disagrees with the entry.
   const saved = win.StackSheet.html(mk([row({ date: '2031-03-07', paidState: 'not-paid' })], HIST), 'bill:tri@2031-03-07');
@@ -328,9 +328,9 @@ console.log('5d. the bill sheet matches its entry by occurrence identity (#1455)
     'a coinciding date with a different identity matches nothing (a dash, never another occurrence\'s amount)');
   // Without occurrenceKey the identity is id@scheduledDate, then id@date.
   const bySched = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', paidState: 'paid' })], HIST), 'bill:tri@2031-03-10');
-  ok(/stack-sheet-big stack-n">\$55\.25</.test(bySched), 'no occurrenceKey: the identity is id@scheduledDate');
+  ok(/stack-sheet-big stack-n">\$55</.test(bySched), 'no occurrenceKey: the identity is id@scheduledDate');
   const foreignKey = win.StackSheet.html(mk([row({ date: '2031-03-10', scheduledDate: '2031-03-07', occurrenceKey: 'other@2031-03-10', paidState: 'paid' })], HIST), 'bill:tri@2031-03-10');
-  ok(/stack-sheet-big stack-n">\$55\.25</.test(foreignKey), "an occurrenceKey for another bill is ignored (the scheduled date decides)");
+  ok(/stack-sheet-big stack-n">\$55</.test(foreignKey), "an occurrenceKey for another bill is ignored (the scheduled date decides)");
   // The row's own occurrence, published on another date (another copy): a dash headline, and never listed as its history.
   const self = win.StackSheet.html(mk([row({ date: '2031-03-12', occurrenceKey: 'tri@2031-03-07', paidState: 'paid' })], HIST), 'bill:tri@2031-03-12');
   ok(/aria-label="not available">—/.test(self.split('stack-sheet-big')[1].split('</div>')[0]) && !/55\.25/.test(self) && (self.match(/<li>/g) || []).length === 1,
@@ -387,9 +387,9 @@ console.log('5e. producer to sheet: a statement-moved occurrence beside a saved 
     Forecast: { cardPeriodMovements: () => ({}) } }, key);
   const saved = sheet(savedView, 'bill:triangle@2026-10-07'), current = sheet(currentView, 'bill:triangle@2026-10-10');
   const headline = h => h.split('stack-sheet-big')[1].split('</div>')[0];
-  ok(/aria-label="not available">—/.test(headline(saved)) && !/47\.39|43\.21/.test(saved) && /Oct 7/.test(saved),
+  ok(/aria-label="not available">—/.test(headline(saved)) && !/\$4[37](?![\d.,])|47\.39|43\.21/.test(saved) && /Oct 7/.test(saved),
     "the saved Oct 7 copy: a dash, never the statement's 47.39 beside Oct 7 (a pair neither period publishes)", headline(saved));
-  ok(/\$47\.39/.test(headline(current)) && /Oct 10/.test(current), 'control: the current Oct 10 copy shows its own 47.39', headline(current));
+  ok(/\$47$/.test(headline(current)) && /Oct 10/.test(current), 'control: the current Oct 10 copy shows its own 47.39', headline(current));
 }
 
 console.log('5b. cards');

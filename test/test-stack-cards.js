@@ -34,14 +34,15 @@ const shell = (() => {
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-shell.js'), 'utf8'), sandbox);
   return sandbox.window.StackBlocks;
 })();
-globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; }, isEstimated: shell.isEstimated, estClass: shell.estClass,
-  budgetTrust: shell.budgetTrust, barWidth: shell.barWidth };
+const STUB = globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; }, isEstimated: shell.isEstimated, estClass: shell.estClass,
+  budgetTrust: shell.budgetTrust, barWidth: shell.barWidth, money: shell.money };
 delete require.cache[require.resolve(file)];
 const mod = require(file);
 assert.strictEqual(typeof registered.cards, 'function', 'registers as cards');
 const { buildCardsHTML } = mod;
 
-const fmt = n => { const w = Math.round(Math.abs(n) * 100) % 100 === 0; return (n < 0 ? '−' : '') + '$' + Math.abs(n).toLocaleString('en-CA', { minimumFractionDigits: w ? 0 : 2, maximumFractionDigits: w ? 0 : 2 }); };
+// Independent of the page: whole dollars, half away from zero ($888.88 prints $889), U+2212 for a negative.
+const fmt = n => { const d = Math.floor(Math.abs(n) + 0.5); return (n < 0 && d ? '−' : '') + '$' + String(d).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
 const amounts = html => (html.replace(/<[^>]+>/g, ' ').match(/−?\$[\d,]+(?:\.\d\d)?/g) || []);
 
 // 1. every printed amount equals a published value it names; nothing computed
@@ -321,6 +322,7 @@ assert(!/document\.(createElement|write)|addEventListener\('(DOMContentLoaded|lo
 registered = {}; delete globalThis.StackBlocks; delete require.cache[require.resolve(file)];
 require(file); // loads inertly with no StackBlocks
 assert.deepStrictEqual(registered, {});
+globalThis.StackBlocks = STUB; // the checks below render again, through the shell's money format
 console.log('test-stack-cards: ok');
 
 

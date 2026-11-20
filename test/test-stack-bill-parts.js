@@ -43,7 +43,7 @@ const cards = (() => {
   const sandbox = { window: {}, location: { search: '' }, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON, Math, console };
   require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-shell.js'), 'utf8'), sandbox);
   const shell = sandbox.window.StackBlocks;
-  globalThis.StackBlocks = { register: () => {}, isEstimated: shell.isEstimated, estClass: shell.estClass, budgetTrust: shell.budgetTrust, barWidth: shell.barWidth };
+  globalThis.StackBlocks = { register: () => {}, isEstimated: shell.isEstimated, estClass: shell.estClass, budgetTrust: shell.budgetTrust, barWidth: shell.barWidth, money: shell.money };
   const file = path.join(__dirname, '..', 'public', 'stack-cards.js');
   delete require.cache[require.resolve(file)];
   return require(file);
@@ -259,7 +259,7 @@ console.log('4. Mutants are caught');
   // The page checks every matched payment: the pending and differing rows gain a check.
   const file = path.join(__dirname, '..', 'public', 'stack-cards.js');
   const allCheck = replaceOnce(fs.readFileSync(file, 'utf8'), "'<span class=\"sc-ck\">' + (exact ?", "'<span class=\"sc-ck\">' + (r.stackBillPaymentEvidence !== 'none' ?", 'all check');
-  const box = { module: { exports: {} }, window: {}, StackBlocks: globalThis.StackBlocks }; box.exports = box.module.exports;
+  const box = { module: { exports: {} }, window: { StackBlocks: globalThis.StackBlocks }, StackBlocks: globalThis.StackBlocks }; box.exports = box.module.exports;
   require('vm').runInNewContext(allCheck, box);
   const m = box.module.exports.buildCardsHTML ? box.module.exports : box.window.StackCards;
   const render = (view, kind) => m.buildCardsHTML({ data: {}, plan: {}, recommendation: { payPeriodViews: [view] },
