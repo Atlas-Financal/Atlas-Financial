@@ -26,8 +26,8 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, width) {
-  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce' });
+async function open(browser, width, theme = 'light') {
+  const page = await browser.newPage({ viewport: { width, height: 900 }, reducedMotion: 'reduce', colorScheme: theme });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
@@ -114,6 +114,34 @@ const strips = page => page.evaluate(() => {
   });
 });
 
+
+// The slab's printed surplus, set to an invented estimated value, measured as drawn: its ink blended at its own
+// opacity over the slab's fill, as a contrast ratio. Reports whether it carries the soft (estimated) treatment.
+const slabInk = (page, amount) => page.evaluate(value => {
+  const original = window.__origRecommend || (window.__origRecommend = Forecast.recommend);
+  Forecast.recommend = function () {
+    const r = original.apply(this, arguments);
+    (r.payPeriodViews || []).forEach(v => {
+      v.stackSummary = Object.assign(v.stackSummary || {}, { surplus: Object.assign({}, v.stackSummary && v.stackSummary.surplus,
+        { amount: value, trust: 'estimated' }) });
+    });
+    return r;
+  };
+  App.rerender();
+  const rgb = t => (t.match(/[\d.]+/g) || []).map(Number);
+  const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const slab = document.querySelector('#stack-root .wf-slab');
+  const n = slab && slab.querySelector('.n:not([data-unpublished])');
+  if (!n) return { measured: false };
+  const fg = rgb(getComputedStyle(n).color), bg = rgb(getComputedStyle(slab).backgroundColor);
+  const a = Number(getComputedStyle(n).opacity) * (fg.length > 3 ? fg[3] : 1);
+  const ink = [0, 1, 2].map(k => a * fg[k] + (1 - a) * bg[k]);
+  const [hi, lo] = [lum(ink), lum(bg.slice(0, 3))].sort((x, y) => y - x);
+  return { measured: true, text: n.textContent, neg: slab.classList.contains('neg'), soft: n.classList.contains('stack-est'),
+    opacity: a, ratio: Math.round((hi + 0.05) / (lo + 0.05) * 100) / 100 };
+}, amount);
+
 (async () => {
   const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH });
   try {
@@ -192,6 +220,21 @@ const strips = page => page.evaluate(() => {
       await page.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-slab .n { font-size: 66px; }' });
       const fit = await slabFit(page, ['−$12,345.67']);
       ok(fit.some(r => r.overflow || r.inkRight > r.inner + 0.5), 'with the old fixed 66px size, the long value is reported past the slab edge');
+      await page.close();
+    }
+    console.log('the surplus slab: an estimated surplus or deficit stays soft and readable (4.5:1 or more)');
+    for (const theme of ['light', 'dark']) {
+      const { page, errors } = await open(browser, 390, theme);
+      const drawn = [await slabInk(page, 1000), await slabInk(page, -250.5)];
+      ok(drawn.every(r => r.measured && r.soft && r.opacity < 1 && r.ratio >= 4.5) && drawn[1].neg && !drawn[0].neg,
+        `${theme}: an estimated surplus and deficit keep the soft treatment and clear 4.5:1 on the slab`, JSON.stringify(drawn));
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      if (theme === 'light') {
+        console.log('control: the contrast check catches the shell\'s plain .58 fade on the slab');
+        await page.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-slab .n.stack-est { opacity: .58; }' });
+        const faded = await slabInk(page, -250.5);
+        ok(faded.measured && faded.ratio < 4.5, 'with the .58 fade, the deficit is reported under 4.5:1', JSON.stringify(faded));
+      }
       await page.close();
     }
   } finally {
