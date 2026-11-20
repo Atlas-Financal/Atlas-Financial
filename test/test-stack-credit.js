@@ -449,8 +449,6 @@ console.log('6. L-001: no arithmetic on money');
   ok(!/Math\.\w+\(/.test(both.replace(/Math\.min\(1, Math\.max\(0,/g, '')), 'no Math call in either block file');
 }
 
-console.log(`\nPASS Stack credit card and sheet (${checks})`);
-
 console.log('7. row layout rules');
 {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -474,3 +472,5 @@ console.log('8. sheet head: the date range in the kicker, the 64px figure, the s
   ok(/\.stack-sheet \.stack-sheet-close svg \{ width: 14px; height: 14px; \}/.test(css) && /\.stack-sheet \.stack-sheet-close \{[^}]*width: 36px; height: 36px/.test(css),
     'the close mark is a 14px × in a 36px dark circle (not stretched by the global svg rule)');
 }
+
+console.log(`\nPASS Stack credit card and sheet (${checks})`);

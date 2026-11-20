@@ -7,6 +7,7 @@
  *   1b. B7, the switch-over: with no query (and with ?view=stack) the Stack page is the Budget page.
  *   5. B7 fail-safe: if the shell throws while starting up, after its App hook, or while drawing, it removes itself
  *      for good (a later re-render draws nothing) and the page is the classic page, byte-identical, never blank.
+ *      A Stack block script or Stack stylesheet that fails to load does the same (the font stylesheet is exempt).
  *   6. Freshness: Last updated is the sync instant; for a retained refresh with none, that refresh's own time (a failed
  *      attempt never advances it); a retained refresh with no printable date stays on the previous page. Without JavaScript the default route and ?view=classic match.
  *   2. ?view=stack: the shell replaces the current page with the title "Budget", the quiet "Last updated" line from
@@ -40,7 +41,7 @@ function served() {
   return d;
 }
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light', tamperShell = null, js = true, mutate = null } = {}) {
+async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light', tamperShell = null, js = true, mutate = null, missing = [] } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce', javaScriptEnabled: js });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -50,6 +51,7 @@ async function open(browser, { query = '', blockStack = false, width = 390, them
     if (u.pathname === '/data.json') { const d = served(); if (mutate) mutate(d); return route.fulfill({ json: d }); }
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     if (blockStack && /^\/stack[.-]/.test(u.pathname)) return route.fulfill({ status: 404, body: '' });
+    if (missing.includes(u.pathname)) return route.fulfill({ status: 404, body: '' });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
     let body = fs.readFileSync(file);
@@ -369,6 +371,50 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
         'after the post-registration failure and a re-render, the body is byte-identical to ?view=classic re-rendered, no uncaught error',
         late.errors.join('; '));
       await late.page.close();
+      // A Stack file that fails to load (a deploy fault): each block script and each Stack stylesheet, served as a 404
+      // to this page alone, hands back to the previous page with no uncaught error (reviewer, #1439). A stylesheet's
+      // failure can arrive after the Stack page has drawn, and the previous page's river then builds when it is shown, so
+      // the same attributes can be set in another order. The comparison is the body's markup with each element's
+      // attributes in name order; every element, attribute value and text must still match ?view=classic.
+      const canonical = page => page.evaluate(() => {
+        const walk = node => {
+          if (node.nodeType === 3) return node.textContent;
+          if (node.nodeType !== 1) return '';
+          if (node.tagName === 'SCRIPT') return '';
+          const attrs = [...node.attributes].map(a => [a.name, a.name === 'style' ? a.value.replace(/--blend-wave-phase:\s*-?[\d.]+s;/g, '') : a.value])
+            .sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([n, v]) => ` ${n}="${v}"`).join('');
+          return `<${node.tagName.toLowerCase()}${attrs}>${[...node.childNodes].map(walk).join('')}</${node.tagName.toLowerCase()}>`;
+        };
+        return walk(document.body);
+      });
+      const classicFresh = await open(browser, { query: '?view=classic' });
+      await settle(classicFresh.page);
+      const classicCanonical = await canonical(classicFresh.page);
+      await classicFresh.page.close();
+      const stackNow = await open(browser, {});
+      await settle(stackNow.page);
+      ok(await canonical(stackNow.page) !== classicCanonical, 'control: the comparison tells the Stack page from ?view=classic');
+      await stackNow.page.close();
+      const files = ['/stack-waterfall.js', '/stack-cards.js', '/stack-credit.js', '/stack-sheet.js',
+        '/stack.css', '/stack-waterfall.css', '/stack-cards.css', '/stack-credit.css', '/stack-sheet.css'];
+      for (const file of files) {
+        const gone = await open(browser, { missing: [file] });
+        await settle(gone.page);
+        const goneProbe = await gone.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+          root: !!document.getElementById('stack-root'), text: document.querySelector('.wrap').innerText.trim().length }));
+        ok(!goneProbe.cls && !goneProbe.root && goneProbe.text > 0
+          && await canonical(gone.page) === classicCanonical && gone.errors.length === 0,
+        `${file} missing: the previous page shows, the same markup as ?view=classic, no uncaught error`,
+        JSON.stringify({ ...goneProbe, errors: gone.errors }));
+        await gone.page.close();
+      }
+      // Control: the font stylesheet is exempt. Without it the Stack page still draws, in the fallback fonts.
+      const noFonts = await open(browser, { missing: ['/budget-stack-fonts.css'] });
+      await settle(noFonts.page);
+      ok(await noFonts.page.evaluate(() => document.documentElement.classList.contains('stack-view')
+        && !!document.querySelector('#stack-root [data-stack-block="waterfall"] .wf-math')) && noFonts.errors.length === 0,
+      'control: with only the font stylesheet missing, the Stack page still draws', noFonts.errors.join('; '));
+      await noFonts.page.close();
       await classic.page.close(); await broken.page.close();
       const a = await open(browser, { js: false }), b = await open(browser, { query: '?view=classic', js: false });
       const [ba, bb] = [await a.page.evaluate(() => document.body.innerHTML), await b.page.evaluate(() => document.body.innerHTML)];

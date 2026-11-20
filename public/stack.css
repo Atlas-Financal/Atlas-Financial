@@ -64,9 +64,14 @@ html.stack-view .stack-root .stack-now {
   font-size: 12px; font-weight: 700; color: var(--stack-t-fg); border-radius: 999px; padding: 4px 11px;
   box-shadow: inset 0 0 0 1.5px var(--stack-t-chip);
 }
+/* Clean edges (owner, Dale, 2026-11-20: chips at the edges looked cut off): the row fades out over its last 24px at
+ * each end, chips settle on whole snap positions, and 24px of padding lets the first and last chip sit clear of the
+ * fade. */
 html.stack-view .stack-chips {
-  display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity;
-  margin: 0 -12px; padding: 2px 12px;
+  display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory;
+  margin: 0 -12px; padding: 2px 24px; scroll-padding-inline: 24px;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
 }
 html.stack-view .stack-chips::-webkit-scrollbar { display: none; }
 /* Chips are scoped under .stack-root so they outrank the page's button reset above (which otherwise strips their

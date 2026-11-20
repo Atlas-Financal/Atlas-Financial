@@ -1,4 +1,4 @@
-/* Stack page: the Bills, Budget and Mortgage cards (behind ?view=stack only).
+/* Stack page: the Bills, Budget and Savings cards (behind ?view=stack only).
  *
  * Presentation only. Every printed amount is a value Forecast published,
  * printed as given (lesson L-001): no sums, differences or percentages of
@@ -9,7 +9,7 @@
  * Styles live in stack-cards.css (linked by the shell under ?view=stack).
  *
  * Reads, from the selected pay period view:
- *   stackSummary.bills.other / .mortgage                           (#1426)
+ *   stackSummary.bills.other                           (#1426)
  *   bills[].stackBillPart / .stackBillAmount  Forecast's own place for each row in that split and the amount it
  *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
  *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
@@ -136,7 +136,7 @@
   function billsCard(view) {
     var split = get(view, ['stackSummary', 'bills']) || {};
     var rows = partRows(view, 'other');
-    // The Bills and Mortgage bars stay an empty track until Forecast publishes a paid figure to fill them (the head's
+    // The Bills bar stays an empty track until Forecast publishes a paid figure to fill them (the head's
     // total is not a paid amount, and a count of paid rows is not a share of money).
     var total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
@@ -167,15 +167,6 @@
     }).join('') + '</ul>';
     var head = money(spent);
     return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true);
-  }
-
-  function mortgageCard(view) {
-    var total = money(get(view, ['stackSummary', 'bills', 'mortgage']));
-    var rows = partRows(view, 'mortgage');
-    var body = rows.length ? '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Mortgage', r, billTarget('mortgage', r));
-    }).join('') + '</ul>' : '';
-    return strip('mortgage', 'Mortgage', '', total, null, 0, body, null, null, isEst(get(view, ['stackSummary', 'bills', 'trust'])), true);
   }
 
   // Savings (owner-approved design): "$saved of $needed" and a bar; open, one
@@ -230,7 +221,7 @@
     if (!view) return '';
     estView = view;
     try {
-      return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + mortgageCard(view) + savingsCard(view) + '</div>';
+      return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + savingsCard(view) + '</div>';
     } finally {
       estView = null;
     }

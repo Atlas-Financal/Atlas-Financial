@@ -50,6 +50,8 @@ const cards = (() => {
 })();
 const cardHtml = (view, kind) => cards.buildCardsHTML({ data: {}, plan: {}, recommendation: { payPeriodViews: [view] },
   selectedPeriodKey: view.start, Forecast: {} }).split('data-stack-card="' + kind + '"')[1].split('</details>')[0];
+const pageHtml = view => cards.buildCardsHTML({ data: {}, plan: {}, recommendation: { payPeriodViews: [view] },
+  selectedPeriodKey: view.start, Forecast: {} });
 const text = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 // Each listed bill row's visible text (label and amount; a paid check shows as a check mark).
 const rowLabels = h => h.split('<li class="sc-row sc-bill').slice(1).map(x => { const li = x.split('</li>')[0]; return text(li.slice(li.indexOf('>') + 1)); });
@@ -71,12 +73,11 @@ console.log('1. The invented household, mortgage as a mortgage payment (the answ
     JSON.stringify([1400, 205, [{ debtId: 'travelvisa', amount: 60 }]]), 'split: mortgage 1,400, other 205, travelvisa minimum 60', JSON.stringify(v.stackSummary.bills));
   ok(JSON.stringify(placed(v)) === JSON.stringify([['mortgage', 'mortgage', 1400, null], ['hydro', 'other', 120, null],
     ['card-minimum', 'cardMinimum', 60, 'travelvisa'], ['internet', 'other', 85, null]]), 'each row is placed once, with its amount', JSON.stringify(placed(v)));
-  const bills = cardHtml(v, 'bills'), mortgage = cardHtml(v, 'mortgage');
+  const bills = cardHtml(v, 'bills');
   ok(headOf(bills) === 'Bills $205' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Hydro $120', 'Internet $85']),
     'Bills card: head $205 over Hydro $120 and Internet $85 (the card minimum is not here)', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
-  // The fixture's mortgage has a matched payment whose amount is not posted (evidence 'pending'): no check, the plan.
-  ok(headOf(mortgage) === 'Mortgage $1,400' && JSON.stringify(rowLabels(mortgage)) === JSON.stringify(['Mortgage $1,400']),
-    'Mortgage card: head $1,400 over its $1,400 row, no check (pending)', headOf(mortgage) + ' | ' + rowLabels(mortgage).join(' | '));
+  // There is no Mortgage card: Forecast still places the mortgage row (above), the page prints it only in the waterfall.
+  ok(!pageHtml(v).includes('data-stack-card="mortgage"') && !/mortgage/i.test(text(pageHtml(v))), 'no Mortgage card on the page, and no mortgage row on any card');
 }
 
 console.log('2. A plain bill named "mortgage" is not a mortgage payment');
@@ -85,10 +86,10 @@ console.log('2. A plain bill named "mortgage" is not a mortgage payment');
   // so other = 1,400 + 120 + 85 = 1,605 and mortgage 0, and the cards follow the split.
   const v = current(F, {});
   ok(v.stackSummary.bills.mortgage === 0 && v.stackSummary.bills.other === 1605, 'split: mortgage 0, other 1,605');
-  const bills = cardHtml(v, 'bills'), mortgage = cardHtml(v, 'mortgage');
+  const bills = cardHtml(v, 'bills');
   ok(headOf(bills) === 'Bills $1,605' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400', 'Hydro $120', 'Internet $85']),
     'Bills card lists the lookalike with hydro and internet: 1,400 + 120 + 85 = its $1,605 head', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
-  ok(headOf(mortgage) === 'Mortgage $0' && rowLabels(mortgage).length === 0, 'Mortgage card: head $0 and no row', headOf(mortgage));
+  ok(!pageHtml(v).includes('data-stack-card="mortgage"'), 'no Mortgage card to show a $0 head');
 }
 
 console.log('3. Every invented figures input: each part\'s rows add up to that part');
@@ -230,7 +231,7 @@ console.log('4. Mutants are caught');
   // The one owner files every obligation under other: the split and the rows move together.
   const allOther = compile(replaceOnce(SOURCE, "    if (context.mortgageIds.has(id)) return { part: 'mortgage', debtId: null };\n", '', 'mortgage part'), 'all-other');
   const v1 = current(allOther, { mortgageObligation: true });
-  ok(v1.stackSummary.bills.mortgage === 0 && v1.stackSummary.bills.other === 1605 && rowLabels(cardHtml(v1, 'mortgage')).length === 0
+  ok(v1.stackSummary.bills.mortgage === 0 && v1.stackSummary.bills.other === 1605 && !pageHtml(v1).includes('data-stack-card="mortgage"')
     && rowLabels(cardHtml(v1, 'bills')).length === 3, 'removing the mortgage part moves the split and the rows together (one owner)');
   // The marker stamps the row's own amount, not the counted one: some part no longer adds up.
   const ownAmount = exposeMarks(replaceOnce(SOURCE, '      mark.row.stackBillAmount = mark.cents / 100;', '      mark.row.stackBillAmount = mark.row.amount;', 'own amount'));
