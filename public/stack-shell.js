@@ -20,6 +20,10 @@
  */
 // B7 fail-safe, start-up: a throw anywhere in the shell's set-up is caught here, so the previous page shows (never
 // blank) and no uncaught error escapes; the class and stylesheets are applied only after set-up (applyChrome).
+(function () {
+// B7 fail-safe: one durable fail state for the whole shell. Every failure path (start-up, after the App hook, while
+// drawing) sets it, and a registered render never draws again once it is set.
+let failed = false;
 try {
 (function () {
   'use strict';
@@ -99,15 +103,22 @@ try {
     return s && typeof s.amount === 'number' && Number.isFinite(s.amount) ? s.amount : null;
   };
 
-  // The quiet "Last updated" line: the same evidence and rule as the current Budget footer (OD-3, OD-025):
-  // the overlay's last successful sync instant, formatted by app.js formatCompleteRefreshTime. No banner.
-  function lastUpdated(d) {
+  // The quiet "Last updated" line: the same evidence and rule as the current Budget footer and glance (OD-3, OD-025;
+  // plan.js glanceUpdatedNote): the overlay's last successful sync instant; for a retained refresh with no sync instant,
+  // that refresh's own complete-observation instant (retainedRefresh.observedAt), never a failed attempt's time.
+  // Formatted by app.js formatCompleteRefreshTime. Dates only: no banner (owner, 2026-11-20).
+  const instant = value => (typeof value === 'string' && value.includes('T') && Number.isFinite(Date.parse(value))
+    && typeof Forecast !== 'undefined' && Forecast.financialDate(value) ? value : null);
+  function updatedInstant(d) {
     const overlay = d && d.liveOverlay;
     const syncAt = overlay && overlay.applied === true && overlay.currentPeriodActuals
-      ? overlay.currentPeriodActuals.lastSuccessfulSyncAt : null;
-    const known = typeof syncAt === 'string' && syncAt.includes('T') && typeof Forecast !== 'undefined'
-      && Forecast.financialDate(syncAt) && typeof formatCompleteRefreshTime === 'function';
-    return known ? 'Last updated ' + formatCompleteRefreshTime(syncAt) : '';
+      ? instant(overlay.currentPeriodActuals.lastSuccessfulSyncAt) : null;
+    if (syncAt) return syncAt;
+    return overlay && overlay.retainedRefresh ? instant(overlay.retainedRefresh.observedAt) : null;
+  }
+  function lastUpdated(d) {
+    const at = updatedInstant(d);
+    return at && typeof formatCompleteRefreshTime === 'function' ? 'Last updated ' + formatCompleteRefreshTime(at) : '';
   }
 
   function timelineHtml() {
@@ -207,7 +218,6 @@ try {
   }
 
   // B7 fail-safe: a throw in the shell's own drawing hands the page back to the previous page, never a blank one.
-  let failed = false;
   function fallBack(error) {
     failed = true;
     root.classList.remove('stack-view');
@@ -246,6 +256,9 @@ try {
     renderAll();
   }
   function prepare(d, periods) {
+    // A retained (dated) refresh must always show its freshness: when no date can be printed, the previous page, which
+    // says so, stays (Atlas, #1439).
+    if (d && d.liveOverlay && d.liveOverlay.retainedRefresh && !updatedInstant(d)) throw new Error('retained refresh without a printable date');
     state.data = d;
     state.periods = periods;
     // The same settlement gate the current page applies first (plan.js planSettlementOutcome, ATLAS-080):
@@ -284,6 +297,7 @@ try {
   }
 })();
 } catch (error) {
+  failed = true;
   if (typeof document !== 'undefined' && document.documentElement) {
     document.documentElement.classList.remove('stack-view');
     const el = document.getElementById('stack-root');
@@ -291,3 +305,4 @@ try {
   }
   if (typeof console !== 'undefined') console.error('stack page failed to start; showing the classic page', error);
 }
+})();

@@ -5,8 +5,10 @@
  *   1. ?view=classic (the previous page, kept until C1): unchanged. With the Stack scripts served or blocked, the
  *      rendered body is byte-identical; no Stack stylesheet, class or element appears.
  *   1b. B7, the switch-over: with no query (and with ?view=stack) the Stack page is the Budget page.
- *   5. B7 fail-safe: if the shell throws while starting up or while drawing, it removes itself and the page is the
- *      classic page, body byte-identical to ?view=classic, never blank. Without JavaScript the default route and ?view=classic match.
+ *   5. B7 fail-safe: if the shell throws while starting up, after its App hook, or while drawing, it removes itself
+ *      for good (a later re-render draws nothing) and the page is the classic page, byte-identical, never blank.
+ *   6. Freshness: Last updated is the sync instant; for a retained refresh with none, that refresh's own time (a failed
+ *      attempt never advances it); a retained refresh with no printable date stays on the previous page. Without JavaScript the default route and ?view=classic match.
  *   2. ?view=stack: the shell replaces the current page with the title "Budget", the quiet "Last updated" line from
  *      the overlay's sync instant (the current footer's rule), and one timeline chip per published pay period with its
  *      date, the current period marked and selected.
@@ -38,14 +40,14 @@ function served() {
   return d;
 }
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
-async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light', tamperShell = null, js = true } = {}) {
+async function open(browser, { query = '', blockStack = false, width = 390, theme = 'light', tamperShell = null, js = true, mutate = null } = {}) {
   const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, reducedMotion: 'reduce', javaScriptEnabled: js });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => {
     const u = new URL(route.request().url());
     if (u.origin !== 'http://stack.test') return route.abort();
-    if (u.pathname === '/data.json') return route.fulfill({ json: served() });
+    if (u.pathname === '/data.json') { const d = served(); if (mutate) mutate(d); return route.fulfill({ json: d }); }
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
     if (blockStack && /^\/stack[.-]/.test(u.pathname)) return route.fulfill({ status: 404, body: '' });
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
@@ -283,11 +285,70 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
         ok(early.errors.length === 0, `the start-up failure (${name}) is caught (no uncaught page error)`, early.errors.join('; '));
         await early.page.close();
       }
+      // A throw just after the App hook is registered: the durable fail state keeps the Stack page off, even when App
+      // later re-renders through the hook it retains (Atlas, #1439).
+      const late = await open(browser, { tamperShell: src => {
+        const marker = '    App.register(render);\n';
+        if (!src.includes(marker)) throw new Error('post-registration tamper marker missing');
+        return src.replace(marker, marker + "    throw new Error('invented post-registration failure');\n");
+      } });
+      await settle(late.page);
+      await late.page.evaluate(() => App.rerender());
+      await settle(late.page);
+      const lateProbe = await late.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+        root: !!document.getElementById('stack-root') }));
+      ok(!lateProbe.cls && !lateProbe.root, 'a failure after the App hook stays failed: a later re-render draws no Stack page', JSON.stringify(lateProbe));
+      const lateBody = normal(await late.page.evaluate(() => document.body.innerHTML));
+      // The reference is the previous page after the same re-render (its own re-render adds its river element).
+      const classicAgain = await open(browser, { query: '?view=classic' });
+      await settle(classicAgain.page);
+      await classicAgain.page.evaluate(() => App.rerender());
+      await settle(classicAgain.page);
+      const classicRerendered = normal(await classicAgain.page.evaluate(() => document.body.innerHTML));
+      await classicAgain.page.close();
+      ok(lateBody === classicRerendered && late.errors.length === 0,
+        'after the post-registration failure and a re-render, the body is byte-identical to ?view=classic re-rendered, no uncaught error',
+        late.errors.join('; '));
+      await late.page.close();
       await classic.page.close(); await broken.page.close();
       const a = await open(browser, { js: false }), b = await open(browser, { query: '?view=classic', js: false });
       const [ba, bb] = [await a.page.evaluate(() => document.body.innerHTML), await b.page.evaluate(() => document.body.innerHTML)];
       ok(ba === bb && ba.trim().length > 0, 'without JavaScript, the default route and ?view=classic serve the same non-empty page');
       await a.page.close(); await b.page.close();
+    }
+
+    console.log('6. freshness: the Last updated line on the default route (OD-3, OD-025; Atlas, #1439)');
+    {
+      // Invented instants. A retained (dated) refresh: its own complete observation, then a later failed attempt.
+      const RETAINED = '2026-08-18T15:00:00.000Z', ATTEMPT = '2026-08-21T09:30:00.000Z';
+      const line = async opts => {
+        const x = await open(browser, opts);
+        await settle(x.page);
+        const r = await x.page.evaluate(() => ({ cls: document.documentElement.classList.contains('stack-view'),
+          text: document.querySelector('[data-stack-updated]')?.textContent ?? null }));
+        r.fmt = await x.page.evaluate(([a, b, c]) => [a, b, c].map(v => formatCompleteRefreshTime(v)), [SYNC_AT, RETAINED, ATTEMPT]);
+        r.errors = x.errors;
+        await x.page.close();
+        return r;
+      };
+      const live = await line({});
+      ok(live.cls && live.text === 'Last updated ' + live.fmt[0], 'live: the line is the sync instant', live.text);
+      const retainedSync = await line({ mutate: d => { d.liveOverlay.retainedRefresh = { observedAt: RETAINED, attempt: { checkedAt: ATTEMPT } }; } });
+      ok(retainedSync.cls && retainedSync.text === 'Last updated ' + retainedSync.fmt[0],
+        'a retained refresh with a bank sync instant: the line is the sync instant (as the previous page)', retainedSync.text);
+      const retainedNoSync = await line({ mutate: d => {
+        d.liveOverlay.retainedRefresh = { observedAt: RETAINED, attempt: { checkedAt: ATTEMPT } };
+        delete d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+      } });
+      ok(retainedNoSync.cls && retainedNoSync.text === 'Last updated ' + retainedNoSync.fmt[1] && !retainedNoSync.text.includes(retainedNoSync.fmt[2]),
+        "a retained refresh with no bank sync instant: the line is the retained refresh's own time; the failed attempt does not advance it",
+        retainedNoSync.text);
+      const retainedNoDate = await line({ mutate: d => {
+        d.liveOverlay.retainedRefresh = { observedAt: 'not-a-date', attempt: { checkedAt: ATTEMPT } };
+        delete d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt;
+      } });
+      ok(!retainedNoDate.cls && retainedNoDate.errors.length === 0,
+        'a retained refresh with no printable date stays on the previous page, which discloses it', JSON.stringify(retainedNoDate));
     }
 
     console.log(`\nPASS Stack shell browser checks (${checks})`);
