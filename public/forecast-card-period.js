@@ -8,6 +8,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ForecastCardPeriod = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function buildApi(DisplayName) {
+  const BALANCE_VERDICTS = ['stale', 'current', 'not-assessed', 'undated', 'after-as-of'];
   const cardIdentities = [['travelvisa', 'Travel'], ['cashback', 'Cash Back'], ['tdcc', 'Emerald'],
     ['triangle', 'Triangle'], ['mbna', 'Amazon Mastercard']];
   function publish(input, primitives) {
@@ -100,11 +101,12 @@
         amount: debt.balance, date: date(observed?.evidenceDate) ? observed.evidenceDate
           : date(debt.evidenceDate) ? debt.evidenceDate : null,
         status: date(observed?.evidenceDate) || date(debt.evidenceDate) ? 'dated' : 'date-unavailable' };
-      // Forecast's stale-balance verdict rides with the balance it judges:
-      // 'stale', 'current' or 'not-assessed' (never decided here).
+      // Forecast's verdict on this snapshot's own published date rides with it:
+      // 'stale', 'current', 'not-assessed', 'undated' or 'after-as-of' (never
+      // decided here).
       const verdict = card.reportedBalance && typeof primitives.balanceFreshness === 'function'
-        ? primitives.balanceFreshness(debt) : null;
-      if (verdict && ['stale', 'current', 'not-assessed'].includes(verdict.status)) card.reportedBalance.freshness =
+        ? primitives.balanceFreshness(debt, card.reportedBalance.date) : null;
+      if (verdict && BALANCE_VERDICTS.includes(verdict.status)) card.reportedBalance.freshness =
         verdict.status === 'stale' ? { status: 'stale', balanceAsOf: date(verdict.balanceAsOf) ? verdict.balanceAsOf : null,
           cycleStart: verdict.cycleStart || null } : { status: verdict.status };
       if (!windowKnown) { issues.push('selected-period-unavailable'); return card; }
@@ -356,12 +358,18 @@
     const reasons = [];
     const assessment = reported.freshness && reported.freshness.status;
     const beforeAsOf = asOf && typeof publication.asOf === 'string' && asOf < publication.asOf;
-    if (assessment === 'stale') reasons.push('balance-before-statement-cycle');
-    if (!asOf) reasons.push('balance-date-unavailable');
-    else if (card.manualStatement === true && beforeAsOf) reasons.push('manual-balance-before-as-of');
-    // Lead ruling (2026-11-20): a card whose cycle was never assessed is fresh
-    // only when its balance is dated on or after the as-of day.
-    else if (assessment !== 'current' && assessment !== 'stale' && beforeAsOf) reasons.push('balance-cycle-unassessed-before-as-of');
+    if (!asOf || assessment === 'undated') reasons.push('balance-date-unavailable');
+    // Atlas, #1447: a snapshot dated after the as-of day is unproven, never current.
+    else if (assessment === 'after-as-of') reasons.push('balance-date-after-as-of');
+    // No Forecast verdict for this snapshot: it cannot earn current trust.
+    else if (!BALANCE_VERDICTS.includes(assessment)) reasons.push('balance-assessment-unavailable');
+    else {
+      if (assessment === 'stale') reasons.push('balance-before-statement-cycle');
+      if (card.manualStatement === true && beforeAsOf) reasons.push('manual-balance-before-as-of');
+      // Lead ruling (2026-11-20): a card whose cycle was never assessed is
+      // fresh only when its balance is dated on the as-of day.
+      else if (assessment === 'not-assessed' && beforeAsOf) reasons.push('balance-cycle-unassessed-before-as-of');
+    }
     return { amount, asOf, trust: reasons.length ? 'estimated' : FRESH_BALANCE_TRUST, reasons };
   }
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;

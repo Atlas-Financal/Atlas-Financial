@@ -39,9 +39,9 @@
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
-      // Stack credit balance snapshot: Forecast's one stale-balance verdict
-      // (a balance older than the card's statement cycle), never re-derived.
-      balanceFreshness: debt => cardBalanceAssessment(debt, plan, asOf),
+      // Stack credit balance snapshot: Forecast's statement-cycle verdict on
+      // the snapshot's own published date, never re-derived in the module.
+      balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
@@ -26037,16 +26037,21 @@
         : `estimate — balance date unknown; this statement cycle started ${cycleStart}.`,
     };
   }
-  // The Stack credit lines' reading of the same verdict: 'stale' (the verdict
-  // above), 'current' (assessed and inside this statement cycle) or
-  // 'not-assessed' (no statement close day, secured, or no cycle), so a
-  // balance that was never assessed is not mistaken for a current one.
-  function cardBalanceAssessment(debt, plan, asOf) {
-    const stale = cardBalanceFreshness(debt, plan, asOf);
-    if (stale) return stale;
-    const assessed = debt && !debt.secured && debt.statementCloseDay != null
-      && cardStatementCycleStart(asOf, debt.statementCloseDay);
-    return { status: assessed ? 'current' : 'not-assessed' };
+  // The Stack credit lines' verdict on the balance snapshot they publish
+  // (Atlas, #1447): the same statement-cycle boundary as cardBalanceFreshness,
+  // applied to the published snapshot's own date, never to a separate stamp or
+  // the plan opening. 'undated' and 'after-as-of' (a date later than the as-of
+  // day) never earn current trust; 'stale' is before this statement cycle;
+  // 'current' is inside it; 'not-assessed' has no statement close day.
+  function cardBalanceAssessment(debt, plan, asOf, shownDate) {
+    const day = financialDate(shownDate);
+    if (!day) return { status: 'undated' };
+    if (!financialDate(asOf) || day > asOf) return { status: 'after-as-of' };
+    const cycleStart = debt && !debt.secured && debt.statementCloseDay != null
+      ? cardStatementCycleStart(asOf, debt.statementCloseDay) : null;
+    if (!cycleStart) return { status: 'not-assessed' };
+    return day >= cycleStart ? { status: 'current', cycleStart }
+      : { status: 'stale', trust: 'estimated', balanceAsOf: day, cycleStart };
   }
   function staleCardBalanceList(debts) {
     return (Array.isArray(debts) ? debts : []).filter(d => d && d.balanceTrust === 'estimated' && d.balanceFreshness)

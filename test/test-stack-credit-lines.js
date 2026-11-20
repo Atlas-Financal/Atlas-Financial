@@ -187,10 +187,10 @@ console.log('9. The balance snapshot (Dale, 2026-11-20): last balance, its date,
 
   const stale = fx.fixture();
   stale.debts.find(d => d.id === 'travelvisa').statementCloseDay = 18;
-  stale.debts.find(d => d.id === 'travelvisa').balanceAsOf = '2026-08-10';
+  stale.overlay.overlays.find(o => o.locator === 'debts:travelvisa').evidenceDate = '2026-08-10';
   const s = line(stale, 'travelvisa').balance;
-  ok(s.amount === 927.4 && s.trust === 'estimated' && s.reasons.includes('balance-before-statement-cycle'),
-    'Forecast\'s verdict (dated 2026-08-10, cycle from 2026-08-18) keeps the balance and makes it estimated', JSON.stringify(s));
+  ok(s.amount === 927.4 && s.asOf === '2026-08-10' && s.trust === 'estimated' && s.reasons.includes('balance-before-statement-cycle'),
+    'Forecast\'s verdict on the published date (2026-08-10, cycle from 2026-08-18) keeps the balance and makes it estimated', JSON.stringify(s));
 
   const undated = fx.fixture();
   undated.overlay.overlays = undated.overlay.overlays.filter(o => o.locator !== 'debts:tdcc');
@@ -219,8 +219,8 @@ console.log('10. Only a fresh balance reads calculated (lead ruling, 2026-11-20)
   cases.push(['assessed, inside the statement cycle', line(assessed, 'travelvisa').balance, 'calculated', []]);
   // Fresh (not assessed): no close day, dated on as-of.
   cases.push(['not assessed, dated on as-of', line(fx.fixture(), 'cashback').balance, 'calculated', []]);
-  // Stale: assessed and before the cycle.
-  const old = fx.fixture(); set(old, 'travelvisa', { statementCloseDay: 18, balanceAsOf: '2026-08-10' });
+  // Stale: assessed and the published snapshot predates the cycle.
+  const old = fx.fixture(); set(old, 'travelvisa', { statementCloseDay: 18 }); evidence(old, 'travelvisa', '2026-08-10');
   cases.push(['before the statement cycle', line(old, 'travelvisa').balance, 'estimated', ['balance-before-statement-cycle']]);
   // Stale: not assessed and dated before as-of.
   const unassessed = fx.fixture(); evidence(unassessed, 'tdcc', '2026-08-15');
@@ -234,6 +234,51 @@ console.log('10. Only a fresh balance reads calculated (lead ruling, 2026-11-20)
     ok(b.amount !== null && b.trust === trust && same(b.reasons, reasons), label + ': ' + trust, JSON.stringify(b));
   ok(cases.every(([, b]) => (b.trust === 'calculated') === (b.reasons.length === 0) && b.trust !== 'verified'),
     'calculated exactly when no staleness reason applies; never verified');
+}
+
+console.log('11. Trust is judged on the published snapshot date, never a separate stamp (Atlas, #1447)');
+{
+  const set = (x, id, fields) => Object.assign(x.debts.find(d => d.id === id), fields);
+  const evidence = (x, id, day) => { x.overlay.overlays.find(o => o.locator === 'debts:' + id).evidenceDate = day; };
+  // Atlas's case: cycle from 08-18, internal stamp 08-19 (fresh), published observation 08-10 (stale).
+  const freshStamp = fx.fixture(); set(freshStamp, 'travelvisa', { statementCloseDay: 18, balanceAsOf: '2026-08-19' });
+  evidence(freshStamp, 'travelvisa', '2026-08-10');
+  const a = line(freshStamp, 'travelvisa').balance;
+  ok(a.asOf === '2026-08-10' && a.trust === 'estimated' && same(a.reasons, ['balance-before-statement-cycle']),
+    'a fresh stamp (08-19) does not lift a stale published snapshot (08-10): estimated', JSON.stringify(a));
+  // The aggregate inherits it even when every other line is fresh.
+  freshStamp.debts.filter(d => ['triangle', 'mbna'].includes(d.id)).forEach(d => { d.evidenceDate = '2026-08-20'; });
+  freshStamp.overlay.overlays.filter(o => ['debts:triangle', 'debts:mbna'].includes(o.locator)).forEach(o => { o.evidenceDate = '2026-08-20'; });
+  const others = lines(freshStamp).filter(l => l.id !== 'travelvisa' && l.id !== 'heloc');
+  ok(others.every(l => l.balance.trust === 'calculated') && totals(freshStamp).balance.trust === 'estimated'
+    && totals(freshStamp).balance.completeness === 'complete',
+  'the complete total inherits the one stale line: estimated, though every other line is calculated');
+  // The other direction: a stale stamp (08-10) with a published snapshot inside the cycle (08-19) is current.
+  const staleStamp = fx.fixture(); set(staleStamp, 'travelvisa', { statementCloseDay: 18, balanceAsOf: '2026-08-10' });
+  evidence(staleStamp, 'travelvisa', '2026-08-19');
+  const b = line(staleStamp, 'travelvisa').balance;
+  ok(b.asOf === '2026-08-19' && b.trust === 'calculated' && b.reasons.length === 0,
+    'a stale stamp does not drag down a published snapshot inside the cycle (08-19): calculated', JSON.stringify(b));
+  // Same date, inside the cycle: the control.
+  const control = fx.fixture(); set(control, 'travelvisa', { statementCloseDay: 18, balanceAsOf: '2026-08-19' });
+  evidence(control, 'travelvisa', '2026-08-19');
+  ok(line(control, 'travelvisa').balance.trust === 'calculated', 'same-date control (08-19, cycle from 08-18): calculated');
+  // Future fallback: no matching overlay, debt evidence dated 08-21 for an 08-20 observation.
+  const future = fx.fixture(); set(future, 'tdcc', { evidenceDate: '2026-08-21' });
+  future.overlay.overlays = future.overlay.overlays.filter(o => o.locator !== 'debts:tdcc');
+  const f = line(future, 'tdcc').balance;
+  ok(f.amount === 1100 && f.asOf === '2026-08-21' && f.trust === 'estimated' && same(f.reasons, ['balance-date-after-as-of'])
+    && totals(future).balance.trust === 'estimated', 'a snapshot dated after as-of (08-21) is unproven: estimated, and so is the total', JSON.stringify(f));
+  const futureAssessed = fx.fixture(); set(futureAssessed, 'tdcc', { evidenceDate: '2026-08-21', statementCloseDay: 18 });
+  futureAssessed.overlay.overlays = futureAssessed.overlay.overlays.filter(o => o.locator !== 'debts:tdcc');
+  ok(same(line(futureAssessed, 'tdcc').balance.reasons, ['balance-date-after-as-of']), 'after as-of is never current, assessed cycle or not');
+  // No Forecast verdict at all (a hand-built publication): never current.
+  const pub = { source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2026-08-20',
+    cards: [{ id: 'travelvisa', label: 'Travel', postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] },
+      posted: [], pending: [], reportedBalance: { amount: 500, date: '2026-08-20', status: 'dated' } }] };
+  const n = F.stackCreditLines(pub, split).lines[0].balance;
+  ok(n.amount === 500 && n.trust === 'estimated' && same(n.reasons, ['balance-assessment-unavailable']),
+    'a snapshot with no Forecast verdict reads estimated, never calculated', JSON.stringify(n));
 }
 
 console.log(`\nAll stack credit line checks passed (${checks}).`);
