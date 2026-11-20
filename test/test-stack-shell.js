@@ -191,4 +191,19 @@ console.log('8. a sheet holds the page still (the browser proof is test/browser-
     'every way a sheet goes away unlocks the page: close() (button, scrim, Escape) and a re-render');
 }
 
+console.log('9. The top, decluttered, and dark always (owner, Dale, 2026-11-20)');
+{
+  const css = read('public/stack.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok(!/prefers-color-scheme|data-theme/.test(css) && /html\.stack-view \{\s*color-scheme: dark;/.test(css),
+    'one palette: no light/dark switch in the Stack stylesheet, and the page declares color-scheme dark');
+  ok(/html\.stack-view \.site-head \{ display: none !important; \}/.test(css), 'the site header bar is hidden on the Stack page');
+  ok(/\.stack-root \{[^}]*padding: calc\(18px \+ env\(safe-area-inset-top, 0px\)\)/.test(css), 'the top clears the phone\'s safe area');
+  const shell = read('public/stack-shell.js'), app = read('public/app.js');
+  const zone = (/const AS_OF_ZONE = '([^']+)'/.exec(shell) || [])[1];
+  const appZone = (/function formatCompleteRefreshTime[\s\S]*?timeZone: '([^']+)'/.exec(app) || [])[1];
+  ok(zone && zone === appZone, '"as of" uses the household\'s zone, the same as the previous page\'s refresh time', zone + ' / ' + appZone);
+  ok(/document\.querySelector\('\[data-manual-refresh\]'\)/.test(shell) && !/fetch\(/.test(shell),
+    'the refresh icon presses the page\'s one refresh control; the shell fetches nothing itself');
+}
+
 console.log(`\nPASS Stack shell static checks (${checks})`);

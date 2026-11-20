@@ -240,6 +240,76 @@ const slabInk = (page, amount) => page.evaluate(value => {
       }
       await page.close();
     }
+    console.log('the top: no header bar, "as of" and a refresh icon beside the title, dark always (owner, Dale, 2026-11-20)');
+    {
+      // Its own page: counts the data requests, and can start from a light device and a stored light theme.
+      const top = async ({ scheme = 'light', storedTheme = null, query = '' } = {}) => {
+        const page = await browser.newPage({ viewport: { width: 390, height: 900 }, reducedMotion: 'reduce', colorScheme: scheme });
+        const errors = [], loads = [];
+        page.on('pageerror', error => errors.push(error.message));
+        if (storedTheme) await page.addInitScript(t => { try { localStorage.setItem('hfd-theme', t); } catch (e) { /* none */ } }, storedTheme);
+        await page.route('**/*', route => {
+          const u = new URL(route.request().url());
+          if (u.origin !== 'http://stack.test') return route.abort();
+          if (u.pathname === '/data.json') {
+            loads.push(u.search);
+            const d = fx.served({ mortgageObligation: true });
+            d.liveOverlay.currentPeriodActuals.lastSuccessfulSyncAt = '2026-08-20T11:00:00.000Z'; // invented: Aug 20, 4 a.m. in Vancouver
+            return route.fulfill({ json: d });
+          }
+          if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) return route.fulfill({ json: null });
+          const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
+          if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
+          return route.fulfill({ body: fs.readFileSync(file), contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
+        });
+        await page.goto('http://stack.test/' + query);
+        await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+        await page.waitForTimeout(300);
+        return { page, errors, loads };
+      };
+      const { page, errors, loads } = await top({ scheme: 'light', storedTheme: 'light' });
+      const t = await page.evaluate(() => {
+        const head = document.querySelector('.site-head');
+        const h1 = document.querySelector('#stack-root .stack-top h1').getBoundingClientRect();
+        const asof = document.querySelector('#stack-root .stack-asof').getBoundingClientRect();
+        const btn = document.querySelector('#stack-root [data-stack-refresh]');
+        const b = btn.getBoundingClientRect();
+        return { headShown: !!head && head.getClientRects().length > 0, h1Top: Math.round(h1.top),
+          sameRow: asof.top < h1.bottom && asof.bottom > h1.top, asofRight: Math.round(innerWidth - asof.right), asofLeft: Math.round(asof.left),
+          h1Right: Math.round(h1.right), text: document.querySelector('[data-stack-updated]').textContent,
+          name: btn.getAttribute('aria-label'), w: Math.round(b.width), h: Math.round(b.height),
+          icon: Math.round(btn.querySelector('svg').getBoundingClientRect().width),
+          bg: getComputedStyle(document.body).backgroundColor, scheme: getComputedStyle(document.documentElement).colorScheme,
+          theme: document.documentElement.dataset.theme || null };
+      });
+      ok(!t.headShown && t.h1Top < 60, 'no header bar: the page starts with the "Budget" title', JSON.stringify(t));
+      ok(t.sameRow && t.asofLeft > t.h1Right && t.asofRight <= 16 && t.text === 'as of Aug 20, 4 a.m.',
+        '"as of" sits on the title\'s row, at the right, in the short form', JSON.stringify(t));
+      ok(t.name === 'Refresh' && t.w >= 44 && t.h >= 44 && t.icon <= 18, 'the refresh icon is small (16px) on a button named "Refresh" with a 44px tap target', JSON.stringify(t));
+      ok(t.bg === 'rgb(12, 13, 16)' && t.scheme === 'dark',
+        'dark always: a light device with a stored light theme still gets the dark page', JSON.stringify(t));
+      // Refresh: a tap, then the keyboard, each runs the page's one refresh (a forced data load), once.
+      const before = loads.filter(q => /refresh=force/.test(q)).length;
+      await page.click('#stack-root [data-stack-refresh]');
+      await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+      await page.waitForSelector('#stack-root [data-stack-refresh]');
+      const afterTap = loads.filter(q => /refresh=force/.test(q)).length;
+      await page.focus('#stack-root [data-stack-refresh]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => !document.querySelector('[data-boot-notice]'), null, { timeout: 30000 });
+      const afterKey = loads.filter(q => /refresh=force/.test(q)).length;
+      ok(before === 0 && afterTap === 1 && afterKey === 2, 'a tap and the keyboard each run the page\'s refresh once', JSON.stringify({ before, afterTap, afterKey }));
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      await page.close();
+      // Control: the previous page keeps its header bar and its theme.
+      const classic = await top({ scheme: 'light', query: '?view=classic' });
+      const c = await classic.page.evaluate(() => ({ head: document.querySelector('.site-head').getClientRects().length > 0,
+        toggle: !!document.querySelector('[data-blend-theme]') && document.querySelector('[data-blend-theme]').getClientRects().length > 0,
+        stack: document.documentElement.classList.contains('stack-view') }));
+      ok(c.head && c.toggle && !c.stack, 'control: ?view=classic keeps its header bar and theme switch', JSON.stringify(c));
+      await classic.page.close();
+    }
+
     console.log('the side gutter is the design\'s 16px at phone width (Wallet mock), and the current page is unchanged');
     for (const width of [320, 390, 430, 440]) { // the design's column is 440px wide: wider screens centre it
       const { page, errors } = await open(browser, width);

@@ -152,9 +152,20 @@ try {
     if (syncAt) return syncAt;
     return overlay && overlay.retainedRefresh ? instant(overlay.retainedRefresh.observedAt) : null;
   }
+  // The same instant, said simply (owner, Dale, 2026-11-20: "as of Nov 20 3am"): the date and the hour in the
+  // household's time zone, the same zone as app.js formatCompleteRefreshTime, with minutes only when they are not on the
+  // hour. Nothing when no instant is published.
+  const AS_OF_ZONE = 'America/Vancouver';
+  const asOfDay = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, month: 'short', day: 'numeric' });
+  const asOfHour = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, hour: 'numeric' });
+  const asOfTime = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, hour: 'numeric', minute: '2-digit' });
+  const asOfMinute = new Intl.DateTimeFormat('en-CA', { timeZone: AS_OF_ZONE, minute: 'numeric' });
   function lastUpdated(d) {
     const at = updatedInstant(d);
-    return at && typeof formatCompleteRefreshTime === 'function' ? 'Last updated ' + formatCompleteRefreshTime(at) : '';
+    if (!at) return '';
+    const when = new Date(at);
+    const onTheHour = Number(asOfMinute.format(when)) === 0;
+    return 'as of ' + asOfDay.format(when) + ', ' + (onTheHour ? asOfHour : asOfTime).format(when);
   }
 
   function timelineHtml() {
@@ -208,7 +219,12 @@ try {
     el = document.createElement('main');
     el.id = 'stack-root';
     el.className = 'stack-root';
-    el.innerHTML = '<header class="stack-top"><h1>Budget</h1><p class="stack-updated" data-stack-updated></p></header>'
+    // The top (owner, Dale, 2026-11-20: "declutter the top"): the title, and on its row a small "as of" time with a
+    // refresh icon. The site's own header bar is hidden on the Stack page (stack.css).
+    el.innerHTML = '<header class="stack-top"><h1>Budget</h1><p class="stack-asof"><span class="stack-updated" data-stack-updated></span>'
+      + '<button type="button" class="stack-refresh" data-stack-refresh aria-label="Refresh">'
+      + '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M19 9a7 7 0 1 0 0 6M19 4v5h-5"'
+      + ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></p></header>'
       + '<div class="stack-pile" data-stack-pile><section class="stack-block stack-tl" data-stack-block="timeline"'
       + ' aria-label="Pay periods"></section>'
       // The waterfall sits under the shell's period header (range and when-label) in one white block; the block
@@ -221,6 +237,13 @@ try {
       + '<div class="stack-overlay" data-stack-block="sheet"></div>';
     (document.querySelector('.wrap') || document.body).appendChild(el);
     el.addEventListener('click', event => {
+      // Refresh: the page's one refresh control (app.js, single-flight, the same load as before), pressed on the
+      // household's behalf; the Stack page adds no refresh of its own.
+      if (event.target.closest('[data-stack-refresh]')) {
+        const manual = document.querySelector('[data-manual-refresh]');
+        if (manual && !manual.disabled) manual.click();
+        return;
+      }
       const chip = event.target.closest('[data-stack-period]');
       const now = event.target.closest('[data-stack-now]');
       const active = views().find(v => v.role === 'active');
