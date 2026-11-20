@@ -91,10 +91,12 @@
   function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash) {
     var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
       (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
+    // The bar sits in the head (always visible, closed or open), full width under the title and figure; an unpublished
+    // figure draws an empty track, never a guessed fill.
+    var bar = '<span class="sc-bar' + (figure == null ? '' : estCls(est)) + '" aria-hidden="true"><i style="width:' + width + '%"></i></span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
       '<summary aria-expanded="false"><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + f +
-      '<span class="sc-go" aria-hidden="true">' + CHEV + '</span></summary>' +
-      '<div class="sc-bar' + (figure == null ? '' : estCls(est)) + '"><i style="width:' + width + '%"></i></div>' + body + '</details>';
+      '<span class="sc-go" aria-hidden="true">' + CHEV + '</span>' + bar + '</summary>' + body + '</details>';
   }
 
   // Tappable by attribute only; the shell's sheet owns what opens. A row without
@@ -149,10 +151,10 @@
       return '<li class="sc-row"' + sheetAttrs(c.id != null ? 'budget:' + c.id : null) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
         (p == null ? '' : '<span class="sc-mini"><i style="width:' + fill(c.spent, c.planned) + '%"></i></span>') + '</span>' +
         (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
-          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> of ' + esc(p) + '</i>') + '</span>') + '</li>';
+          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
-    return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' of ', null, hhEst, true);
+    return strip('budget', 'Budget', 'spent / budget', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true);
   }
 
   function mortgageCard(view) {
@@ -181,7 +183,7 @@
     var moved = money(t.saved), entitlement = money(t.entitlement), planned = money(t.needed);
     var head, headOf = null, sub, tail = null, sep = null, width = 0;
     if (moved != null && entitlement != null) {
-      head = moved; headOf = entitlement; sep = ' of '; sub = '';
+      head = moved; headOf = entitlement; sep = ' / '; sub = '';
       width = fill(t.saved, t.entitlement);
     } else if (has(t.reasons, 'future-period') && planned != null) {
       head = planned; sub = '';
@@ -199,7 +201,7 @@
       if (own) {
         // "$saved of $periodTarget" with a full-width bar; periodTarget is Forecast's, not added here.
         return '<li class="sc-row sc-own"><span class="sc-n">' + esc(i.label) + '</span>' +
-          '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> of ' + esc(tg) + '</i>') + '</span>' +
+          '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> / ' + esc(tg) + '</i>') + '</span>' +
           '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + fill(i.saved, i.periodTarget) + '%"></i></span></li>';
       }
       // No words (owner rule): a future period shows only its planned amount; any other row with no published

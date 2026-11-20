@@ -12,9 +12,11 @@ html.stack-view .stack-credit-head {
 }
 html.stack-view .stack-credit.is-open .stack-credit-head { align-items: start; }
 html.stack-view .stack-credit-hd {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f"; align-items: center; column-gap: 10px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t f" "s f"; align-items: center; column-gap: 10px;
 }
-html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f"; }
+html.stack-view .stack-credit.is-open .stack-credit-hd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "t" "f" "s"; }
+html.stack-view .stack-credit-sub { grid-area: s; font-size: 13.5px; font-weight: 500; color: var(--stack-on2); }
+html.stack-view .stack-credit.is-open .stack-credit-sub { margin-top: 2px; }
 html.stack-view .stack-credit-title { grid-area: t; font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
 html.stack-view .stack-credit-figure { grid-area: f; font-size: 24px; font-weight: 800; letter-spacing: -.03em; line-height: 1.05; }
 html.stack-view .stack-credit.is-open .stack-credit-figure { font-size: 52px; margin-top: 6px; }
@@ -22,7 +24,7 @@ html.stack-view .stack-credit-figure i { font-style: normal; font-size: .6em; fo
 html.stack-view .stack-credit-go {
   width: 42px; height: 42px; border-radius: 50%; background: var(--stack-on); color: var(--stack-cards); display: grid; place-items: center;
 }
-html.stack-view .stack-chev { flex: none; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+html.stack-view .stack-chev { flex: none; width: 14px; height: 14px; transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
 html.stack-view .stack-credit.is-open .stack-credit-go .stack-chev { transform: rotate(90deg); }
 html.stack-view .stack-credit-bar { display: block; height: 8px; margin-top: 12px; border-radius: 6px; background: var(--stack-on-line); overflow: hidden; }
 html.stack-view .stack-credit.is-open .stack-credit-bar { height: 12px; margin-top: 14px; }

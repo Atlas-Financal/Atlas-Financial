@@ -145,7 +145,7 @@ const cur = savingsOf(withSavings({
   items: [{ id: 'r', label: 'Rainy day', saved: null, needed: 40, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] },
     { id: 'c', label: 'Car <fund>', saved: null, needed: null, reasons: ['planned-unavailable'] }],
   totals: { saved: 20.5, needed: null, entitlement: 130.25, completeness: 'pool-level', excluded: ['c'], reasons: ['pool-level', 'planned-incomplete'] } }));
-assert(cur.includes(fmt(20.5) + '<i> of ' + fmt(130.25) + '</i>'), 'current header: numbers only');
+assert(cur.includes(fmt(20.5) + '<i> / ' + fmt(130.25) + '</i>'), 'current header: numbers only');
 assert(!/moved|this period|entitlement/.test(cur.replace(/<[^>]+>/g, ' ')), 'no word labels around the Savings strip figures');
 assert(!cur.includes('sc-mini') && !/Funded|excludes|still to set aside|needs/i.test(cur.replace(/<[^>]+>/g, ' ')));
 assert((cur.match(/<span class="sc-a">\u2014<\/span>/g) || []).length === 2, 'no published saved figure: a dash, the net amount is not printed');
@@ -181,9 +181,9 @@ const per = savingsOf(withSavings({ items: [
   { id: 'over', label: 'Topped', saved: 90, needed: 0, periodTarget: 90, reasons: [] },
   { id: 'nope', label: 'No attribution', saved: null, needed: 15, periodTarget: null, reasons: ['net-of-period-transfers', 'no-per-goal-attribution'] }],
   totals: { saved: 120, needed: 85, entitlement: 190, completeness: 'pool-level', excluded: [], reasons: ['pool-level'] } }));
-assert(per.includes('<span class="sc-a">' + fmt(30) + '<i> of ' + fmt(80) + '</i></span>'));
-assert(per.includes('<span class="sc-a">$0<i> of ' + fmt(20) + '</i></span>') && per.includes('<i style="width:0%">'));
-assert(per.includes(fmt(90) + '<i> of ' + fmt(90)) && per.includes('width:100%'), 'a topped-up goal reads full, not capped differently');
+assert(per.includes('<span class="sc-a">' + fmt(30) + '<i> / ' + fmt(80) + '</i></span>'));
+assert(per.includes('<span class="sc-a">$0<i> / ' + fmt(20) + '</i></span>') && per.includes('<i style="width:0%">'));
+assert(per.includes(fmt(90) + '<i> / ' + fmt(90)) && per.includes('width:100%'), 'a topped-up goal reads full, not capped differently');
 assert((per.match(/sc-full/g) || []).length === 3, 'bar only on goals with saved');
 assert(per.includes('<span class="sc-a">\u2014</span>') && !per.includes(fmt(15)), 'no attribution: a dash');
 assert(!per.includes(fmt(50)), 'needed is not printed on a row with its own saved');
@@ -198,9 +198,9 @@ assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.
 // strips are numbers only: Budget reads the spent figure, then "of" the budget figure in the muted style, no words
 {
   const b = card('budget');
-  assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> of ' + fmt(666.66) + '</i></span>'), 'Budget strip: X of Y');
-  assert(!/spent|budget/i.test(b.split('<summary')[1].split('</summary>')[0].replace(/<[^>]+>/g, ' ').replace('Budget', '')), 'no spent or budget label on the strip');
-  assert(!/<span class="sc-s">/.test(html), 'no subtitle on Bills, Budget or Mortgage');
+  assert(b.includes('<span class="sc-f">' + fmt(333.33) + '<i> / ' + fmt(666.66) + '</i></span>'), 'Budget strip: X / Y');
+  assert(b.includes('<span class="sc-s">spent / budget</span>'), 'Budget head: the design\'s subtitle');
+  assert(!/<span class="sc-s">/.test(card('bills') + card('mortgage')), 'no subtitle on Bills or Mortgage until Forecast publishes their paid and total');
 }
 
 // 2b. sheet contract: each published row carries the right attribute, is focusable and a button; no savings rows
@@ -232,7 +232,7 @@ assert(!savingsOf(withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 1, nee
   e.stackSummary.bills.trust = 'estimated';
   const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> of /.test(cardOf('budget')),
+  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
     'only the estimated amount (the first row\'s plan) is soft');
   assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-f stack-est"/.test(cardOf('mortgage')));
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
@@ -270,7 +270,8 @@ assert(!/drawWidth/.test(fs.readFileSync(file, 'utf8')), 'local drawWidth remove
     totals: { saved: 30, needed: 65, entitlement: 80, completeness: 'pool-level', excluded: ['x'], reasons: ['pool-level'] } });
   all.stackSummary.bills.trust = 'estimated'; all.budgetProgress.household.actual.trust = 'estimated';
   all.bills[0].paidState = 'paid'; all.bills[3].paidState = 'paid';
-  const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ');
+  // the one allowed exception: the design's Budget subtitle, exactly
+  const visible = buildCardsHTML(ctx(all)).replace(/<[^>]+>/g, ' ').replace('spent / budget', ' ');
   assert(!/needs|set aside|planned|spent|estimated|projected|confirm|excludes|moved|entitlement|paid|period/i.test(visible), 'a word label is visible: ' + visible);
 }
 
@@ -290,3 +291,25 @@ assert.deepStrictEqual(registered, {});
 console.log('test-stack-cards: ok');
 
 
+
+// B: the bar lives in the head (always visible closed), the bar follows the design's sizes, no dashed outline, Savings peach
+{
+  const css1 = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-cards.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const cr = fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-credit.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  ['bills', 'budget', 'mortgage'].forEach(k => {
+    const head = card(k).split('</summary>')[0];
+    assert(/<span class="sc-bar[^"]*" aria-hidden="true"><i style="width:[\d.]+%"><\/i><\/span>/.test(head), k + ': the bar is in the head, so it shows closed');
+    assert(!/<\/summary>[\s\S]*sc-bar/.test(card(k).replace(/<li[\s\S]*?<\/li>/g, '')), k + ': no second bar below the head');
+  });
+  assert(/\.sc-bar\{[^}]*height:8px[^}]*margin-top:12px/.test(css1) && /\.sc-card\[open\] \.sc-bar\{height:12px;margin-top:14px\}/.test(css1), 'bar: 8px closed with 12px above, 12px open with 14px above');
+  assert(/\.sc-card\[open\] \.sc-f\{font-size:52px/.test(css1), 'the open head figure is 52px');
+  assert(!/dashed/.test(css1 + cr) && !/stack-(credit-bar|credit-minibar|sheet-bar)[^{]*\{[^}]*dashed/.test(sh), 'no dashed outline on any bar');
+  assert(/\.sc-bar\.stack-est>i[^{]*\{opacity:\.58\}/.test(css1) && /\.sc-bar\.stack-est[^{]*\{opacity:1\}/.test(css1), 'an estimated bar keeps its track and softens only its fill');
+  assert(/--sc-savings:#ffcfb3/.test(css1) && !/--sc-savings:#b4ead3/.test(css1), 'Savings is peach, not mint');
+  assert(/\.stack-chev \{[^}]*width: 14px; height: 14px/.test(cr), 'Credit\'s chevron is the same 14px as the other cards\' (not stretched by the global svg rule)');
+  // an unpublished budget figure: a dash and an empty track, never a $0 or a guessed fill
+  const nb = JSON.parse(JSON.stringify(view)); nb.budgetProgress.household.actual = null; nb.householdBudget = [];
+  const b0 = buildCardsHTML(ctx(nb)).split('data-stack-card="budget"')[1].split('</summary>')[0];
+  assert(/—/.test(b0) && /<i style="width:0%">/.test(b0) && !/\$0/.test(b0), 'a withheld Budget head: a dash and an empty track');
+}
