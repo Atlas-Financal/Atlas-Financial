@@ -25,6 +25,10 @@
 //   reconcile to its Spent to the cent, proved by withoutReconMatchesSpent.
 //   billHistory (Stack Wallet bill sheet): each bill's past and current
 //   occurrences, proved against the published bill rows by proveBillHistory.
+//   stackBillPart / stackBillAmount / stackBillDebtId (Stack Wallet bill
+//   cards): each counted bill row's place in its period's bills split, proved
+//   by proveStackBillParts: the marked rows of each part add up, in cents,
+//   to that part of the published split; a withheld split marks no row.
 //   paidState (Stack Wallet A3, Forecast.billPaidState): each published bill
 //   row's Paid / Not paid word. Presentation only; proved one of its three
 //   words, then removed wherever a published row carries it.
@@ -50,6 +54,37 @@ function proveStackBills(view, bills) {
     && bills.cardMinimums.every(card => card && typeof card.debtId === 'string' && finite(card.amount)),
     'authorized addition: a published bills split lists its parts');
   assert.ok(['calculated', 'estimated'].includes(bills.trust), 'authorized addition: a published bills split is calculated or estimated');
+}
+const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
+const STACK_BILL_PARTS = new Set(['mortgage', 'cardMinimum', 'other']);
+const STACK_BILL_EVIDENCE = new Set(['posted-equal', 'posted-differs', 'pending', 'none']);
+function proveStackBillParts(view, bills) {
+  const rows = Array.isArray(view.bills) ? view.bills : [];
+  const marked = rows.filter(row => row && STACK_BILL_MARKS.some(key => Object.hasOwn(row, key)));
+  if (bills.other === null) assert.equal(marked.length, 0, 'authorized addition: a withheld bills split marks no bill row');
+  for (const row of marked) {
+    assert.ok(STACK_BILL_PARTS.has(row.stackBillPart) && finite(row.stackBillAmount), 'authorized addition: a marked bill row names its part and amount');
+    assert.equal(Object.hasOwn(row, 'stackBillDebtId'), row.stackBillPart === 'cardMinimum', 'authorized addition: only a card minimum names its line');
+    assert.ok(STACK_BILL_EVIDENCE.has(row.stackBillPaymentEvidence), 'authorized addition: a marked row names its payment evidence');
+    if (row.stackBillPaymentEvidence === 'posted-equal' || row.stackBillPaymentEvidence === 'posted-differs') {
+      assert.equal(row.displayAmountBasis, 'posted-actual', 'authorized addition: posted evidence only on a posted payment');
+      const plan = row.planned != null && Number.isFinite(Number(row.planned)) ? Number(row.planned) : Number(row.amount);
+      const posted = cents(Math.abs(row.actual));
+      assert.equal(posted === cents(row.stackBillAmount) && posted === cents(Math.abs(plan)), row.stackBillPaymentEvidence === 'posted-equal',
+        'authorized addition: posted-equal exactly where the posted payment is both the planned and the counted amount');
+    }
+    if (Object.hasOwn(row, 'stackBillAmountTrust')) assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount\'s trust is a trust word');
+  }
+  if (marked.length) {
+    const sum = list => list.reduce((total, row) => total + cents(row.stackBillAmount), 0);
+    assert.equal(sum(marked.filter(row => row.stackBillPart === 'other')), cents(bills.other), 'authorized addition: the other rows add up to bills.other');
+    assert.equal(sum(marked.filter(row => row.stackBillPart === 'mortgage')), cents(bills.mortgage), 'authorized addition: the mortgage rows add up to bills.mortgage');
+    const lines = new Map(bills.cardMinimums.map(card => [card.debtId, cents(card.amount)]));
+    const byLine = new Map();
+    for (const row of marked.filter(r => r.stackBillPart === 'cardMinimum')) byLine.set(row.stackBillDebtId, (byLine.get(row.stackBillDebtId) || 0) + cents(row.stackBillAmount));
+    assert.deepEqual([...byLine].sort(), [...lines].sort(), 'authorized addition: each line\'s minimum rows add up to its cardMinimums amount');
+  }
+  for (const row of marked) for (const key of STACK_BILL_MARKS) delete row[key];
 }
 function proveStackSurplus(view, surplus, bills) {
   assert.ok(surplus && typeof surplus === 'object', 'authorized addition: stackSummary.surplus is published');
@@ -131,6 +166,7 @@ function withoutStackSummary(node, seen = new Set()) {
     assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus', 'savings'], 'authorized addition: stackSummary carries only proved keys');
     proveStackIncome(node, node.stackSummary.income);
     proveStackBills(node, node.stackSummary.bills);
+    proveStackBillParts(node, node.stackSummary.bills);
     proveStackSurplus(node, node.stackSummary.surplus, node.stackSummary.bills);
     proveStackSavings(node, node.stackSummary.savings);
     delete node.stackSummary;
@@ -204,7 +240,7 @@ function proveBillHistory(advice) {
     assert.ok(Array.isArray(list) && list.length, `authorized addition: billHistory.${id} lists occurrences`);
     for (let i = 0; i < list.length; i++) {
       const entry = list[i];
-      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState', 'occurrence'], `authorized addition: billHistory.${id} entry shape`);
+      assert.deepEqual(Object.keys(entry), ['date', 'amount', 'amountBasis', 'trust', 'paidState', 'occurrence', 'paidConfirmed'], `authorized addition: billHistory.${id} entry shape`);
       if (i) assert.ok(list[i - 1].date >= entry.date, `authorized addition: billHistory.${id} is newest first`);
       const candidates = rows.get(id + '@' + entry.date) || [];
       const row = candidates.find(r => r.paidState === entry.paidState && !listed.has(billOccurrenceOf(r)));
@@ -220,6 +256,10 @@ function proveBillHistory(advice) {
         `authorized addition: billHistory.${id}@${entry.date} trust is the row's display trust (an unrecognised word reads unknown)`);
       assert.equal(entry.amount === null, entry.trust === 'unavailable', `authorized addition: billHistory.${id}@${entry.date} null amount iff unavailable`);
       assert.equal(entry.occurrence, billOccurrenceOf(row), `authorized addition: billHistory.${id}@${entry.date} occurrence is the row's identity`);
+      const planOf = row.planned != null && Number.isFinite(Number(row.planned)) ? Number(row.planned) : Number(row.amount);
+      assert.equal(entry.paidConfirmed, row.paidState === 'paid' && row.displayAmountBasis === 'posted-actual'
+        && typeof row.actual === 'number' && Math.round(Math.abs(row.actual) * 100) === Math.round(Math.abs(planOf) * 100),
+      `authorized addition: billHistory.${id}@${entry.date} paidConfirmed only for a posted payment of exactly the plan`);
       listed.add(billOccurrenceOf(row));
     }
   }
@@ -254,6 +294,11 @@ function authorizedTagKey(key, value) {
   if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)
     || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
+    return true;
+  }
+  // The Stack bill cards' per-row amount trust (#1465): the row's own posted or plan word, never a new certainty.
+  if (/\.bills\.\d+\.stackBillAmountTrust$/.test(key)) {
+    assert.ok(['calculated', 'estimated', 'unknown'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
   if (/^\.billHistory\.[^.]+\.\d+\.trust$/.test(key)) {
