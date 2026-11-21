@@ -48,7 +48,7 @@ const paid = (s, date) => s.rows.some(b => b.date === date && /paid/i.test(b.sta
 console.log('1. Reviewer case: a payment inside the current period, item start long before it (linkedFrom Nov 1)');
 for (const start of ['2025-01-01', '2026-08-01', null]) {
   const s = serve([item(start)], [RULE], '2026-10-21', ['2026-10-15']);
-  ok(J(s.bill.timingBefore) === J({ from: '2026-11-01', frequency: 'monthly', day: 15 }), `start ${start}: cutover is linkedFrom Nov 1`, J(s.bill.timingBefore));
+  ok(J(s.bill.timingBefore) === J({ from: '2026-11-01', frequency: 'monthly', day: 15, dateConfidence: 'estimated' }), `start ${start}: cutover is linkedFrom Nov 1, with the plan's estimated date tag`, J(s.bill.timingBefore));
   ok(paid(s, '2026-10-15') && !s.rows.some(b => b.date === '2026-10-16'), `start ${start}: Oct 15, paid on the 15th, is paid; no Oct 16 row`, J(s.rows));
 }
 
@@ -188,6 +188,27 @@ console.log('9. spotify and rehearsal-space serve exactly the occurrences main s
         `${id}, item day ${day}: occurrences identical to main's`, J(F.occurrences(served, '2026-08-01', '2026-12-31')));
     }
   }
+}
+
+console.log('10. Reviewer case (date tag, owner stop 2): plan day 20 estimated, item on the 25th, linkedFrom Nov 1, as of Oct 14');
+{
+  const b = { id: 'band', label: 'Invented band room', amount: 80, frequency: 'monthly', day: 20, firstDue: '2026-09-01',
+    confidence: 'estimated', dateConfidence: 'estimated', payingAccount: 'chequing-a', householdObligation: true };
+  const got = O.recurringBillSchedules({ status: 'read', items: [{ recurringId: ID, startDate: '2026-01-01', endDate: null, currency: 'cad',
+    accountRole: 'household-cash', expectedDates: [], foundTransactionLocalIds: [], granularity: 'month', quantity: 1, anchorDate: '2026-10-25' }] },
+    [{ ...RULE, eventId: 'band' }], { bills: [b], obligations: [] }, '2026-10-14', {});
+  const served = { ...O.applyRecurringSchedule(b, got[0]), dateConfidence: got[0].dateConfidence };
+  ok(served.dateConfidence === 'confirmed' && served.timingBefore.dateConfidence === 'estimated', 'served: the item\'s confirmed tag; timingBefore keeps the plan\'s estimated', J(served));
+  const plan = { ...data.plan, bills: [served], obligations: [], commitments: [], opening: { ...data.plan.opening, asOf: '2026-10-01', representedEvents: [] } };
+  const ev = F.expandEvents(plan, '2026-10-01', '2026-12-31', {}).filter(e => e.id === 'band').map(e => [e.date, e.dateConfidence]);
+  ok(J(ev) === J([['2026-10-20', 'estimated'], ['2026-11-25', 'confirmed'], ['2026-12-25', 'confirmed']]),
+    'October (plan day 20) stays estimated; November and December (the 25th) are confirmed', J(ev));
+  const plain = { ...b };
+  const ev0 = F.expandEvents({ ...plan, bills: [plain] }, '2026-10-01', '2026-11-30', {}).filter(e => e.id === 'band');
+  ok(ev0.every(e => !Object.hasOwn(e, 'dateConfidence')), 'a bill with no cutover carries no per-occurrence date tag (unchanged)', J(ev0.map(e => e.dateConfidence)));
+  const odd = { ...served, timingBefore: { ...served.timingBefore, dateConfidence: 'verified' } };
+  const ev1 = F.expandEvents({ ...plan, bills: [odd] }, '2026-10-01', '2026-10-31', {}).filter(e => e.id === 'band').map(e => e.dateConfidence);
+  ok(J(ev1) === J(['estimated']), 'an unknown earlier tag reads estimated, never more certain', J(ev1));
 }
 
 console.log(`\n${checks - failures}/${checks} passed`);

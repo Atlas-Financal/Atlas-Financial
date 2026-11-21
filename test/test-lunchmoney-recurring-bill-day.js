@@ -212,7 +212,7 @@ console.log('4b. Cadence leads: a monthly item reschedules a bill Atlas plans on
     const sched = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', linkedFrom: '2026-01-01', lunchMoneyRecurringIds: [ID] }],
       { bills: [{ ...BILL, frequency }] }, '2026-10-14', { amounts: new Map([[ID, 80]]) });
     ok(sched.length === 1 && JSON.stringify(sched[0].timing) === JSON.stringify({ frequency: 'monthly', day: 20,
-      timingBefore: { from: '2026-01-01', frequency, day: 20 } }),
+      timingBefore: { from: '2026-01-01', frequency, day: 20, dateConfidence: 'estimated' } }),
       'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th from linkedFrom Jan 1 (earlier history keeps ' + frequency + ')', JSON.stringify(sched));
   }
   const once = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', linkedFrom: '2026-01-01', lunchMoneyRecurringIds: [ID] }],

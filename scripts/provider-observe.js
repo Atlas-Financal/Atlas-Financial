@@ -6717,7 +6717,10 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
       const before = {};
       for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
-      timing.timingBefore = { from: linkedFrom, ...before };
+      // The plan's own date tag goes with the plan's own timing: occurrences
+      // before the cutover never take the item's confirmed tag (owner stop 2).
+      timing.timingBefore = { from: linkedFrom, ...before,
+        dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     }
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
