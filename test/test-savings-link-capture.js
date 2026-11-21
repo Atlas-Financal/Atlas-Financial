@@ -39,11 +39,11 @@ const expected = {
   // far) and the head need 12.34 less on both. The club's saved does not move:
   // near is fully saved either way, and the 12.34 it no longer needs pours on
   // to far, inside the same club row.
+  // The next period (10-16 to 10-29) holds every goal's date (near 10-21, far 10-28), so every goal has left the
+  // card there (owner rule, Dale 2026-11-21) and its savings fields do not move.
   'period.2026-10-02.stackSavingsNeeded': -C, 'period.2026-10-02.stackSavingsGoal.group:club.needed': -C,
-  'period.2026-10-16.stackSavingsNeeded': -C, 'period.2026-10-16.stackSavingsGoal.group:club.needed': -C,
 };
-const stackUnmoved = ['period.2026-10-02.stackSavingsGoal.group:club.saved', 'period.2026-10-16.stackSavingsGoal.group:club.saved',
-  'period.2026-10-02.stackSavingsSaved', 'period.2026-10-16.stackSavingsSaved'];
+const stackUnmoved = ['period.2026-10-02.stackSavingsGoal.group:club.saved', 'period.2026-10-02.stackSavingsSaved'];
 const facts = { 'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.status': ['unconfigured', 'known'],
   'savings.current.item.near@2026-10-21.cost.confirmedLinkedPaid.amount': [null, 12.34],
   'savings.current.item.near@2026-10-21.cost.unpaidCost.status': ['unconfigured', 'known'],
