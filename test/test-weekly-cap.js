@@ -27,6 +27,9 @@
  */
 
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const { sourceText } = require('./test-source-text');
@@ -421,16 +424,21 @@ console.log('\n=== 9. the page and the snapshot divide nothing ===');
 {
   const planSrc = read('public/plan.js');
   const snapSrc = read('scripts/figures-snapshot.js');
-  for (const [name, src] of [['public/plan.js', planSrc], ['scripts/figures-snapshot.js', snapSrc]]) {
+  // Every page script, the Stack page included, and the snapshot script (test/lib/page-scripts.js).
+  const scanned = [...require('./lib/page-scripts').pageScripts().map(s => [s.file, s.source]), ['scripts/figures-snapshot.js', snapSrc]];
+  for (const [name, src] of scanned) {
     ok(!/365\.25\s*\/\s*12\s*\/\s*7/.test(src),
       `${name} holds no copy of the weeks-per-month constant`);
     ok(!/WEEKS_PER_MONTH/.test(src), `${name} names no such constant at all`);
   }
-  ok(!/const perWeek =/.test(planSrc), 'the page has no conversion helper');
-  ok(!/recMonthly/.test(planSrc), 'and no monthly-cap arithmetic of its own');
-  ok(!/Math\.max\(0, recMonthly - required\)/.test(planSrc),
-    'no discretionary-room arithmetic');
-  ok(!/const short = required - recMonthly/.test(planSrc), 'and no shortfall arithmetic');
+  ok(neverRaw(/const perWeek =/).length === 0,
+  'the page has no conversion helper');
+  ok(neverRaw(/recMonthly/).length === 0,
+  'and no monthly-cap arithmetic of its own');
+  ok(neverRaw(/Math\.max\(0, recMonthly - required\)/).length === 0,
+  'no discretionary-room arithmetic');
+  ok(neverRaw(/const short = required - recMonthly/).length === 0,
+  'and no shortfall arithmetic');
   ok(/Forecast\.monthlyFromWeekly\(/.test(planSrc), 'the page reads the monthly conversion from Forecast');
   ok(/\bF\.monthlyFromWeekly\(/.test(snapSrc), 'and so does the snapshot script');
   // Finish-line audit finding 12: through the shared builder, which takes the

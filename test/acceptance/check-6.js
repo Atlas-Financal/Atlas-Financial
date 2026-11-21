@@ -64,7 +64,6 @@ const scenarios = [
   },
   {
     id: '6.4', basis: 'spec', name: 'a 100 bill with 40 allocated: partial, 60 remaining',
-    fixedBy: 'A7a #841',
     async run(H) {
       const w = billsWorld(H);
       w.bills[0].amount = 100;
@@ -381,7 +380,6 @@ const scenarios = [
   },
   {
     id: '6.17', basis: 'audit', name: 'a default-rule payment of 40 on a 100 bill is not fully Paid (D4)',
-    fixedBy: '6.4 default-rule partial-payment follow-up (#962 D4)',
     // #962 D4: unlike 6.4, there is NO settlesWhen override. Identity and
     // date match, but 100 - 40 = 60 is still owed. The row must say partial
     // with that remainder, or honestly stay To confirm. Existing 6.16

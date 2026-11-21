@@ -375,10 +375,13 @@ console.log('\n=== 4. Forecast stays the authority; unrelated published figures 
       && /calendarHouseholdBudget\(/.test(forecastSrc)
       && /holdTrust = 'estimated'/.test(forecastSrc)
       && /budgetHoldTrust:/.test(forecastSrc)
-      && /balanceAfterDeductionsTrust:/.test(forecastSrc)
-      && !/balanceAfterDeductions\s*-\s*400/.test(read('public/plan.js'))
-      && !/budgetHold\s*\+\s*400/.test(read('public/plan.js')),
-    'the $400 enters through Forecast; plan.js does not subtract or add it');
+      && /balanceAfterDeductionsTrust:/.test(forecastSrc),
+    'the $400 enters through Forecast');
+  // Every page script, the Stack page included, not plan.js alone (test/lib/page-scripts.js).
+  const addsOrSubtracts = require('./lib/page-scripts').pageScriptsMatching(
+    /balanceAfterDeductions\s*-\s*400/, /budgetHold\s*\+\s*400/);
+  ok(addsOrSubtracts.length === 0, 'no page script (classic or Stack) subtracts or adds the $400 itself',
+    addsOrSubtracts.join(', ') || 'none');
   const planSrc = read('public/plan.js');
   ok(/row\.confidence === 'estimated'/.test(planSrc)
       && /row\.trust === 'estimated'/.test(planSrc)

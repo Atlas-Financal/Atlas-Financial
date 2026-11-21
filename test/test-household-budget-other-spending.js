@@ -325,9 +325,11 @@ console.log('\n=== 5. page prints structured Planned / Spent / Remaining and Oth
     'Other spending is labelled as unassigned, not as a total of spending outside the planned rows');
   const planSrc = read('public/plan.js');
   const engineSrc = read('public/forecast.js');
-  ok(!/Spending outside the budget categories above/.test(planSrc)
+  // Every page script, the Stack page included, and the engine.
+  const { neverRaw } = require('./lib/page-scripts');
+  ok(neverRaw(/Spending outside the budget categories above/).length === 0
       && !/Spending outside the budget categories above/.test(engineSrc),
-    'Plan and Forecast no longer publish the totality copy');
+    'no page script (classic or Stack) and not Forecast publishes the totality copy');
   ok(!/planned this period/.test(html) && !/spent this period/.test(html),
     'category rows are not sentence-dense this-period lines');
   const css = read('public/styles.css');

@@ -27,8 +27,12 @@
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
   // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
   // labelCls: the same treatment for a label that carries a figure of its own (Credit's "Minimum $30").
-  const row = (label, value, cls = '', labelCls = '') => (value === '' || value == null ? ''
-    : `<div><dt${labelCls ? ` class="${labelCls.trim()}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`);
+  const row = (label, value, cls = '', labelCls = '') => {
+    if (value === '' || value == null) return '';
+    // Class tokens only: the shell's trust treatment (' stack-est' or ''), never a published string.
+    const labelClass = labelCls.trim();
+    return `<div><dt${labelClass ? ` class="${labelClass}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`;
+  };
   const est = (trust, v) => (window.StackBlocks.estClass ? window.StackBlocks.estClass(trust, v) : '');
 
   // The kicker names the kind and the selected pay period's range ("Bill · Nov 13 – 26"), the shell's one range label.
@@ -102,12 +106,14 @@
   function budgetHtml(item, v) {
     const over = num(item.overspend) && item.overspend > 0;
     const t = window.StackBlocks.budgetTrust ? window.StackBlocks.budgetTrust(item) : {};
+    // The shell's trust treatment for each figure (' stack-est' or ''): class tokens, trimmed for the class attribute.
     const spent = est(t.spent, v), planned = est(t.planned, v), rest = est(t.remaining, v);
+    const spentClass = spent.trim(), plannedClass = planned.trim();
     // Spent and planned each carry their own treatment, side by side (never nested, so neither inherits the other's).
     // The headline carries Spent and the budget; the list below carries one row, Left (Over when over budget).
     return head('Budget', item.label || '')
-      + `<div class="stack-sheet-big stack-n"><span${spent ? ` class="${spent.trim()}"` : ''}>${esc(money(item.spent))}</span>`
-      + `${num(item.planned) ? `<i${planned ? ` class="${planned.trim()}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
+      + `<div class="stack-sheet-big stack-n"><span${spentClass ? ` class="${spentClass}"` : ''}>${esc(money(item.spent))}</span>`
+      + `${num(item.planned) ? `<i${plannedClass ? ` class="${plannedClass}"` : ''}> / ${esc(money(item.planned))}</i>` : ''}</div>`
       + '<dl>' + (over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest)) + '</dl>'
       + budgetTransactionsHtml(item, v);
   }

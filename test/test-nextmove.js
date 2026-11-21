@@ -47,6 +47,9 @@
  */
 
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverCode } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const { sourceText } = require('./test-source-text');
@@ -663,13 +666,15 @@ ok(!/s\.\w+\s*[-+*/]\s*s\.\w+/.test(MOVE_SRC) && !/s\.\w+\s*[-+*/]\s*\d/.test(MO
 
 // The page no longer decides. These are the exact expressions it used.
 ok(/Forecast\.nextMove\(/.test(planCode), 'the Plan page reads the outcome from Forecast');
-ok(!/actionCovers/.test(planCode),
+ok(neverCode(/actionCovers/).length === 0,
   'and no longer compares the action amount with the current gap');
-ok(!/actionLeaves/.test(planCode), 'nor computes the uncovered remainder');
-ok(!/\+ 0\.005/.test(planCode) && !/0\.005/.test(planCode),
+ok(neverCode(/actionLeaves/).length === 0,
+  'nor computes the uncovered remainder');
+ok(neverCode(/\+ 0\.005/, /0\.005/).length === 0,
   'the copied half-cent literal is gone from the page');
-ok(!/fundingGap - first\.amount/.test(planCode), 'and so is the remainder subtraction');
-ok(!/first\.due <= gap\.date/.test(planCode),
+ok(neverCode(/fundingGap - first\.amount/).length === 0,
+  'and so is the remainder subtraction');
+ok(neverCode(/first\.due <= gap\.date/).length === 0,
   'the due-date test against the gap date has moved too');
 ok((planCode.match(/Forecast\.nextMove\(/g) || []).length === 1,
   'the page asks once', String((planCode.match(/Forecast\.nextMove\(/g) || []).length));

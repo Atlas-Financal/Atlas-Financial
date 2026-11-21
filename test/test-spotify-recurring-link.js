@@ -26,7 +26,7 @@ const STREAM = { id: 'stream', label: 'Invented stream', amount: 12, frequency: 
   confidence: 'confirmed', payingAccount: 'chequing-a', householdObligation: true };
 const CONTROL = { id: 'control', label: 'Invented control', amount: 30, frequency: 'monthly', day: 15, firstDue: '2026-09-15',
   confidence: 'confirmed', payingAccount: 'chequing-a', householdObligation: true };
-const rule = ids => ({ eventId: 'stream', settlesWhen: 'schedule-trust-on-due', ...(ids ? { lunchMoneyRecurringIds: ids } : {}) });
+const rule = ids => ({ eventId: 'stream', settlesWhen: 'schedule-trust-on-due', ...(ids ? { linkedFrom: '2026-01-01', lunchMoneyRecurringIds: ids } : {}) });
 const item = { providerId: ID, status: 'reviewed', unavailableFields: [],
   criteria: { startDate: '2026-09-12', endDate: null, granularity: 'month', quantity: 1, anchorDate: '2026-09-12',
     currency: 'CAD', plaidAccountId: '9001', manualAccountId: null },

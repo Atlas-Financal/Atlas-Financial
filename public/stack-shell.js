@@ -213,6 +213,10 @@ try {
       selectedPeriodKey: state.selectedPeriodKey, Forecast: typeof Forecast !== 'undefined' ? Forecast : null };
   }
 
+  // Read-only, for the figures page capture (scripts/figures-page-capture.js): the context the shell hands every block, built
+  // fresh from the state it holds. It sets nothing and draws nothing.
+  StackBlocks.context = context;
+
   function mount() {
     let el = document.getElementById('stack-root');
     if (el) return el;

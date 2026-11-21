@@ -27,10 +27,10 @@ const vm = require('vm');
 const { mask } = require('./js-scan');
 
 const ROOT = path.join(__dirname, '..');
-// The page the capture runs: the previous Budget page, by its explicit route (?view=classic), so making the Stack page
-// the default Budget page (B7) does not change what this capture observes (the previous page's Savings consumers).
-// Temporary: retarget at C1, when the previous page retires (then the capture observes the Stack page's own reads).
-const CAPTURE_LOCATION = Object.freeze({ pathname: '/', search: '?view=classic', hash: '', href: 'http://capture.invalid/?view=classic' });
+// The page the capture runs: the default Budget page, by its default route (C1 S1; the Stack page has been the default
+// since B7). The previous page (?view=classic) is no longer chosen by the capture; while it still exists it renders
+// hidden under the Stack page, as it does in production, and its Savings consumers stay observed as before.
+const CAPTURE_LOCATION = Object.freeze({ pathname: '/', search: '', hash: '', href: 'http://capture.invalid/' });
 // v3 (adopted design 6554987596 + 6555018088 + 6555036724; Muse 6556013994):
 // per-advice exact-context anchors, global result#k indexes, the enumerated
 // loading and handler forms below, and test-mode descriptor originals.
@@ -353,6 +353,9 @@ function observed(fn, before, after) {
 // the real Forecast, with the selector and recommend observed. With
 // options.instrument === false the real Forecast is returned untouched (the
 // uninstrumented same-realm comparison run).
+// The Forecast functions the Stack page reads (public/stack-shell.js, stack-credit.js, stack-sheet.js).
+const STACK_READS = Object.freeze(['recommend', 'budgetRecommendInputs', 'cardPeriodMovements', 'stackCreditLines']);
+const STACK_FILE = /^public\/stack-[\w-]+\.js$/;
 function instrumentForecast(real, observer, context, options) {
   if (options.instrument === false && !PERTURBATIONS.size) return real;
   const wrapped = vm.runInContext('Object.create', context)(real);
@@ -365,10 +368,32 @@ function instrumentForecast(real, observer, context, options) {
   // The page's own selector (perturbed when a test perturbs it), never the
   // observed wrapper: the per-advice anchors call it directly.
   observer.selector = select;
-  wrapped.recommend = observed(recommend, () => null, (token, advice) => { if (advice) observer.advice(advice); });
+  // A recommend the Stack page makes (its shell) is a Stack observation, never one of the previous page's advices, so the
+  // previous page's own evidence numbers its advices exactly as before.
+  wrapped.recommend = observed(recommend, () => null, (token, advice) => { if (advice && !observer.inStack) observer.advice(advice); });
   wrapped.savingsFundingPublication = observed(select,
     args => observer.before(routeOf(new Error().stack), args),
     (token, result, error) => observer.after(token, result, error));
+  // The Stack page's own Forecast reads (C1 S1): the shell's recommend and its input builder, and the Credit block's
+  // card publication and lines (also read by the sheet). A call whose first page frame is a public/stack-*.js file is
+  // recorded with its arguments and its result, and passed through untouched (receiver, arguments, return identity and
+  // thrown exceptions are preserved, as for the selector). A call from any other page file is not recorded here.
+  for (const name of STACK_READS) {
+    const inner = wrapped[name];
+    if (typeof inner !== 'function') continue;
+    wrapped[name] = function (...args) {
+      const stack = new Error().stack;
+      if (!STACK_FILE.test(firstPageFile(stack))) return inner.apply(this, args);
+      const record = { fn: name, route: routeOf(stack), state: observer.stackStateId, args };
+      const prior = observer.inStack;
+      observer.inStack = true;
+      let result;
+      try { result = inner.apply(this, args); }
+      catch (error) { record.error = String(error && error.message); throw error; }
+      finally { observer.inStack = prior; record.result = result; if (record.error === undefined) record.error = null; observer.stack.push(record); }
+      return result;
+    };
+  }
   return wrapped;
 }
 
@@ -517,6 +542,17 @@ function loadPage(page, observer, served, root = ROOT, onContext = () => {}, opt
     // The page's own Forecast, evaluated in the page realm exactly as the
     // browser does (so page-parsed objects meet the engine's own
     // intrinsics), is observed before any later script can cache it.
+    // The Stack shell's block registry, read-only: each block the page registers is also kept here, so the capture can
+    // drive the page's own renderers (driveStack below). The registration itself is passed through unchanged.
+    if (file === 'public/stack-shell.js' && context.StackBlocks && typeof context.StackBlocks.register === 'function') {
+      const register = context.StackBlocks.register;
+      const map = new Map();
+      observer.stackRenderers = map;
+      context.StackBlocks.register = function (name, renderFn) {
+        if (typeof name === 'string' && typeof renderFn === 'function') map.set(name, renderFn);
+        return register.apply(this, arguments);
+      };
+    }
     if (file === 'public/forecast.js') {
       if (context.Forecast && typeof context.Forecast === 'object') context.Forecast = instrumentForecast(context.Forecast, observer, context, options);
       else errors.push(file + ': did not publish Forecast');
@@ -628,12 +664,84 @@ function budgetStates(advice) {
 }
 const BUDGET_DEFAULTS = { planPayPeriodId: null, budgetFundingLens: 'today' };
 
+// The Stack page, driven (C1 S1). The real shell runs on the capture's recording DOM, which cannot hold its elements, so
+// it reads its inputs (Forecast.recommend over the page's own input builder and the ATLAS-080 settlement outcome) and then
+// cannot draw. This drives what it cannot: the page's own registered block renderers (waterfall, cards, credit, sheet),
+// once per published pay period, over the context the real shell built (StackBlocks.context, read-only) with that
+// period selected, into recording containers; then the sheet's own markup for every item the period lists. Each block's
+// outcome is recorded (ok, empty or the error), and the Forecast reads it made are in observer.stack. A page that
+// cannot be driven says why in `status`, so the evidence never reads as covered when it was not.
+const STACK_BLOCKS = Object.freeze(['waterfall', 'cards', 'credit', 'sheet']);
+function driveStack(context, observer, options = {}) {
+  const result = { status: 'rendered', states: [] };
+  const renderers = observer.stackRenderers;
+  const base = vm.runInContext('typeof StackBlocks !== "undefined" && typeof StackBlocks.context === "function" ? StackBlocks.context() : null', context);
+  if (!renderers) return { status: 'shell-absent', states: [] };
+  if (!base) return { status: 'shell-off', states: [] };
+  const rec = base.recommendation;
+  const views = rec && Array.isArray(rec.payPeriodViews) ? rec.payPeriodViews.filter(v => v && typeof v.start === 'string') : [];
+  if (!rec) return { status: 'no-recommendation', states: [] };
+  if (!views.length) return { status: 'no-periods', states: [] };
+  if (STACK_BLOCKS.some(name => !renderers.has(name))) return { status: 'block-missing:' + STACK_BLOCKS.filter(name => !renderers.has(name)).join('+'), states: [] };
+  // One page-realm call each, so a block's own frames (public/stack-*.js) route its Forecast reads.
+  const call = vm.runInContext('(fn, a, b) => fn(a, b)', context);
+  const sheetKeys = vm.runInContext(`(ctx, view) => {
+    const keys = [];
+    const credit = typeof StackCredit !== 'undefined' && StackCredit.read ? StackCredit.read(ctx) : null;
+    for (const line of credit && Array.isArray(credit.lines) ? credit.lines : []) if (line && line.id != null) keys.push('card:' + line.id);
+    for (const b of Array.isArray(view.bills) ? view.bills : []) {
+      if (!b || b.id == null || b.date == null) continue;
+      keys.push((b.stackBillPart === 'mortgage' ? 'mortgage:' : 'bill:') + b.id + '@' + b.date);
+    }
+    for (const item of Array.isArray(view.householdBudget) ? view.householdBudget : []) if (item && item.id != null) keys.push('budget:' + item.id);
+    return keys;
+  }`, context);
+  const document = context.document;
+  for (const view of views) {
+    const id = 'stack:' + view.start;
+    observer.stackStateId = id;
+    const before = observer.stack.length;
+    const ctx = vm.runInContext('(base, key) => Object.assign({}, base, { selectedPeriodKey: key })', context)(base, view.start);
+    const blocks = {};
+    // Test mode (options.recordHtml): the markup each block and each sheet item wrote, for the escaping proofs.
+    const html = options.recordHtml ? { blocks: {}, sheets: {} } : null;
+    for (const name of STACK_BLOCKS) {
+      const container = document.createElement('div');
+      try {
+        call(renderers.get(name), container, ctx);
+        blocks[name] = name === 'sheet' || String(container.innerHTML || '').length > 0 ? 'ok' : 'empty';
+        if (html) html.blocks[name] = String(container.innerHTML || '');
+      }
+      catch (error) { blocks[name] = 'error'; }
+    }
+    const sheets = {};
+    let keys = [];
+    try { keys = sheetKeys(ctx, view); } catch (error) { sheets.keys = 'error'; }
+    const open = vm.runInContext('(ctx, key) => (typeof StackSheet !== "undefined" ? StackSheet.html(ctx, key) : null)', context);
+    for (const key of keys) {
+      const kind = key.slice(0, key.indexOf(':'));
+      sheets[kind] = sheets[kind] || [0, 0];
+      sheets[kind][0]++;
+      try {
+        const markup = open(ctx, key);
+        if (typeof markup === 'string') sheets[kind][1]++;
+        if (html) html.sheets[key] = typeof markup === 'string' ? markup : null;
+      } catch (error) { sheets[kind].push('error'); }
+    }
+    result.states.push({ id, blocks, sheets, calls: observer.stack.length - before, ...(html ? { html } : {}) });
+  }
+  observer.stackStateId = 'done';
+  if (result.states.some(s => Object.values(s.blocks).some(v => v !== 'ok'))) result.status = 'blocks-failed';
+  return result;
+}
+
 function capturePages(data, periods, root = ROOT, options = {}) {
   const observations = [];
   const runs = [];
   const advices = [];
   const gates = [];
   let stateList = null;
+  let stack = null, stackCalls = [];
   const deferred = new Map();
   for (const page of ['budget']) {
     // The entry's plan is the page's own App.data.plan (the page parses its
@@ -646,6 +754,8 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     let state = 'load', seq = 0;
     const pending = new Map();
     const observer = {
+      // The Stack page's reads of Forecast (instrumentForecast), in call order, and the state they were made in.
+      stack: [], stackStateId: 'boot', inStack: false, stackRenderers: null,
       advice(advice) {
         if (!advice || typeof advice !== 'object' || ids.advice.has(advice)) return;
         ids.advice.set(advice, page + '-advice#' + (ids.advice.size + 1));
@@ -769,9 +879,24 @@ function capturePages(data, periods, root = ROOT, options = {}) {
       }
       vm.runInContext(Object.entries(BUDGET_DEFAULTS).map(([k, v]) => k + '=' + JSON.stringify(v) + ';').join(''), context);
     }
+    // The Stack page (the default page): its blocks driven per pay period, after the previous page's states so those
+    // are numbered and observed exactly as before. Not run on the uninstrumented comparison run.
+    if (page === 'budget' && options.instrument !== false && options.stack !== false) {
+      stack = driveStack(context, observer, options);
+      stackCalls = observer.stack;
+      // The Stack blocks register their listeners inside their render (container.addEventListener, the sheet's document
+      // listeners), so those registrations happen during the drive, after the copy above. Copy the Stack files' again, so
+      // the source guard sees them (callbacks the capture never invokes make a module whole-module pinned); the previous
+      // page's own registrations are still copied once, at load, exactly as before.
+      for (const [file, kinds] of pageDeferred) {
+        if (!STACK_FILE.test(file)) continue;
+        if (!deferred.has(file)) deferred.set(file, new Set());
+        for (const k of kinds) deferred.get(file).add(k);
+      }
+    }
     for (const load of runtimeLoads) run.loadErrors.push('runtime load: ' + load);
   }
-  return { version: CAPTURE_VERSION, observations, runs, stateList, deferred, advices, gates };
+  return { version: CAPTURE_VERSION, observations, runs, stateList, deferred, advices, gates, stack, stackCalls };
 }
 
 module.exports = { capturePages, pageScripts, budgetStates, withPerturbations, perturbed: () => PERTURBATIONS.size > 0, observed,

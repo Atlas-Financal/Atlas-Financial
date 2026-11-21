@@ -1,5 +1,8 @@
 {
  "mode": "module",
- "reason": "no function executes under the declared states: reach not established",
- "sha256": "1e7d767c4245aa9400b874efb031ef8025094fe82d2b5d2d5d0258036238da1f"
+ "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
+ "sha256": "8cbad743e98e8c6325f213cf98a440dc50219c450c9954e53fc43fe7c43f9d63",
+ "deferred": [
+  "listener:click"
+ ]
 }

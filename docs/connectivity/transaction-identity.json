@@ -1,6 +1,6 @@
 {
   "schema": "atlas-provider-transaction-identity/v1",
-  "owns": "Lunch Money recurring identity (owner 2026-11-11): a rule that names lunchMoneyRecurringIds is identified by the row's Lunch Money recurring_id alone, then the incumbent account, direction, posting-date, currency, posting-evidence and amount-consistency gates; no payee, descriptor, note or amount substitutes. Named rehearsal-space is the only such rule and may use covers-early-or-due-on-or-before-posting. Owner-directed card backfill repair (2026-10-04): revolving-card minimum rules below retain payment-movement aliases and lookup windows only. provider-observe.cardMinimumNeedsConfirmation refuses automatic settlement for these obligations, including pending replacements. Payee, mapped card, posting date, amount, generic categories, notes and tags do not establish minimum-payment intent. Owner decision 2026-10-07 adds the exact card-specific category convention in docs/proof/MINIMUM_CATEGORY_CONFIRMATION.md: the separate read-only card-minimum-category observer confirms a qualifying posted household debit for one cycle; Forecast determines amount satisfaction. This does not reopen the generic minimum-matching gate or create provider/canonical writes. Exact occurrence confirmations already in plan.opening.representedEvents remain authoritative; this neither asserts an unpaid lender minimum nor adds an obligation. Unambiguous provider-transaction to Forecast-event identity. A match requires an explicit payee alias + mapped Atlas account + direction + an allowed scheduled/posting-date relation, or — for the named fixed Tennis BC salary streams only (owner decision 2026-11-18, #821 6967081727) — a posted CAD credit into BILLS (chequing-a) within $5 of that occurrence's scheduled amount that posts within 3 business days either side of its projected payday, or — for named youtube-premium, named spotify, named chatgpt-plus-dale, named chatgpt-plus-amanda, and named icloud-storage — schedule-trust-on-due, which represents the occurrence from the schedule itself on or after the due date without a bank transaction. Optional payeeExcludePatterns refuse a hit that also matches a reimbursement or other excluded alias. Same-day is the default; named automatic payments may opt into weekend-to-next-business-day; the legacy mapped-card lookup relation identifies the latest due on or before posting, without proving minimum intent. A covers-due-on-or-before-posting match against a once occurrence is allowed only when the posting is on or before seven calendar days after that due; a later same-alias debit does not reuse that once occurrence. Named Fortis, Shaw, Netflix, heloc, bell-sep15-2026, and bell may use covers-early-or-due-on-or-before-posting: after identity, a debit may settle the nearest due within seven calendar days after posting (early pay) or the latest due on or before posting. A nearer prior due still wins over a farther upcoming due when distances tie. Named Triangle and MBNA card-minimum rules may instead use covers-statement-cycle-or-latest-due: the legacy lookup window includes the upcoming minimum created by that card's debts.statementCloseDay and the latest due on or before posting, but these dates do not establish minimum intent. Statement close days are not copied into this file. Amount similarity is not identity. The legacy amount-at-least card rule is not sufficient to settle a minimum; automatic card-minimum settlement is withheld regardless of amount. Named tdfees uses two-leg-sum: both named MONTHLY ACCOUNT FEE debit legs (chequing-a and chequing-b) must uniquely match the same occurrence before it is represented. One leg is not settlement. Two same-account legs are not that tdfees settlement. Named bell-sep15-2026 opts into same-account split legs on two-leg-sum (sameAccountSplitLegs true): exactly two distinct posted Bell Mobility / BELLMOBILITY debits on canonical chequing-a, the same household posting date, and early-or-due, both resolving only to that once occurrence. Named standing bell, from firstDue 2026-10-15, opts into that same same-account split on a separate chequing-a rule. The standing Travel Visa single-debit rule remains. A two-leg subset that is not an accepted pair does not veto that Travel Visa debit. An accepted BILLS pair and a Travel Visa debit for the same standing occurrence stay unresolved. One payment's transaction ids cannot settle both bell-sep15-2026 and a standing bell occurrence. Same-account combining is not the default. Two same-account legs without that explicit opt-in are not settlement. The observed sum is settlement evidence after identity, not identity. Named fixed salary streams (owner decision 2026-11-18, #821 6967081727): a posted CAD credit into BILLS settles that occurrence once, at its actual amount, when it is within $5 of THAT occurrence's scheduled amount (the 15th and month-end amounts differ) and posts within 3 business days (Monday to Friday) before or after the projected payday. Amount and timing are the identity for these two streams only; the earlier same-day exact transfer guard and salary-packet path no longer settle them. Their TENNIS INCOME transfer fields remain only for the early-receipt hold: such a transfer the rule did not settle (too early or off-amount) holds the plan, never counted beside its payday. Two qualifying credits for one occurrence, or one credit qualifying for two occurrences, stay unresolved (To confirm); none is not received. Pending rows, refund, reversal and reimbursement payees, internal household transfers (a same-day same-amount debit on another household account) and credits another rule identifies never qualify. The TENNIS INCOME source deposit is never counted beside the BILLS credit: one income receipt, not two. The received amount is the posted credit, tagged calculated, never verified. A refund or merchant credit is not a card-minimum payment. The mapped TD personal, Cash Back, and Travel Visa posted credit alias PAYMENT - THANK YOU is a card-payment movement alias; a payee that also matches a refund or reversal alias is not. A payment before statement creation does not settle that future minimum. Named mapped-MBNA card-credit rules that claim the literal payee payment require payeeMatchMode exact; a PAYMENT-prefixed reversal, refund, or protection alias is not that identity. Fortis, Shaw, Netflix, tdfees, bell-sep15-2026, and bell remain identity-plus-evidence each cycle: matching confirmed-settled transactions create representedActuals and mark PAID; without matching evidence those bills stay still-due / unverified. YouTube Premium, Spotify, ChatGPT Plus Dale, ChatGPT Plus Amanda, and iCloud Storage are the named schedule-trust exceptions. Do not settle chatgpt-plus-amanda from the Dale rule. Do not invent an Apple scrape or Gmail fetch. Named amazon-prime is the exact payee aliases Amazon Prime and Amazon.ca Prime, mapped Travel Visa, debit, and same-day posting. The exact scheduled amount is a necessary guard after that identity, not identity by itself. Ordinary Amazon shopping, Amazon Prime Video, another card, another day, and a different Prime-like amount do not settle it. Do not use schedule-trust for amazon-prime. Named phoenix-digital-health is the owner-confirmed (2026-10-06) monthly Amanda Phoenix Digital Health card charge: exact payee Phoenix Digital Health or Phoenix Digital Corp, mapped Travel Visa, debit, covers-early-or-due-on-or-before-posting with earlyPayLookaheadDays 2, and the exact scheduled $174.99 as a necessary guard after identity. The $1.00 authorization pair, pending, another amount, and another card do not settle it. A Bills to Travel Visa transfer is card backfill, not this expense. Named warriors is the once Logan Warriors Elite Academy U13 commitment: exact payee Vancouver Warriors, mapped Travel Visa, debit, and covers-early-or-due-on-or-before-posting with earlyPayLookaheadDays 2 so the 2026-09-21 posting can settle the 2026-09-23 due. The exact scheduled $895 is a necessary guard after that identity, not identity by itself. The 2026-08-11 Vancouver Warriors $40 charge, another amount, another account, another merchant, and a posting more than two days before the due are not this settlement. A once occurrence is not reused more than seven days after its due. Two compatible charges stay unresolved. A savings transfer or a Travel Visa payment is not this expense and is not income. Do not invent a prior-period versus current-period surplus split.",
+  "owns": "Lunch Money recurring identity (owner 2026-11-11): linkedFrom (lead design ruling on PR #1511, 2026-11-21): every rule that links a plan bill through lunchMoneyRecurringIds records linkedFrom, an ISO first of a month, the first month the item's timing applies live. It is written when the link is written and never derived from the observation date, the pay period or the item start. Bill occurrences before it keep the bill's own cadence, day and date tag; from it the reviewed item's timing and confirmed date tag apply. A bill link without a valid linkedFrom changes no timing (refused, link-anchor-missing). Links live before the #1508 cutover (spotify, rehearsal-space) record the first of their firstDue month. a rule that names lunchMoneyRecurringIds is identified by the row's Lunch Money recurring_id alone, then the incumbent account, direction, posting-date, currency, posting-evidence and amount-consistency gates; no payee, descriptor, note or amount substitutes. Named rehearsal-space is the only such rule and may use covers-early-or-due-on-or-before-posting. Owner-directed card backfill repair (2026-10-04): revolving-card minimum rules below retain payment-movement aliases and lookup windows only. provider-observe.cardMinimumNeedsConfirmation refuses automatic settlement for these obligations, including pending replacements. Payee, mapped card, posting date, amount, generic categories, notes and tags do not establish minimum-payment intent. Owner decision 2026-10-07 adds the exact card-specific category convention in docs/proof/MINIMUM_CATEGORY_CONFIRMATION.md: the separate read-only card-minimum-category observer confirms a qualifying posted household debit for one cycle; Forecast determines amount satisfaction. This does not reopen the generic minimum-matching gate or create provider/canonical writes. Exact occurrence confirmations already in plan.opening.representedEvents remain authoritative; this neither asserts an unpaid lender minimum nor adds an obligation. Unambiguous provider-transaction to Forecast-event identity. A match requires an explicit payee alias + mapped Atlas account + direction + an allowed scheduled/posting-date relation, or — for the named fixed Tennis BC salary streams only (owner decision 2026-11-18, #821 6967081727) — a posted CAD credit into BILLS (chequing-a) within $5 of that occurrence's scheduled amount that posts within 3 business days either side of its projected payday, or — for named youtube-premium, named spotify, named chatgpt-plus-dale, named chatgpt-plus-amanda, and named icloud-storage — schedule-trust-on-due, which represents the occurrence from the schedule itself on or after the due date without a bank transaction. Optional payeeExcludePatterns refuse a hit that also matches a reimbursement or other excluded alias. Same-day is the default; named automatic payments may opt into weekend-to-next-business-day; the legacy mapped-card lookup relation identifies the latest due on or before posting, without proving minimum intent. A covers-due-on-or-before-posting match against a once occurrence is allowed only when the posting is on or before seven calendar days after that due; a later same-alias debit does not reuse that once occurrence. Named Fortis, Shaw, Netflix, heloc, bell-sep15-2026, and bell may use covers-early-or-due-on-or-before-posting: after identity, a debit may settle the nearest due within seven calendar days after posting (early pay) or the latest due on or before posting. A nearer prior due still wins over a farther upcoming due when distances tie. Named Triangle and MBNA card-minimum rules may instead use covers-statement-cycle-or-latest-due: the legacy lookup window includes the upcoming minimum created by that card's debts.statementCloseDay and the latest due on or before posting, but these dates do not establish minimum intent. Statement close days are not copied into this file. Amount similarity is not identity. The legacy amount-at-least card rule is not sufficient to settle a minimum; automatic card-minimum settlement is withheld regardless of amount. Named tdfees uses two-leg-sum: both named MONTHLY ACCOUNT FEE debit legs (chequing-a and chequing-b) must uniquely match the same occurrence before it is represented. One leg is not settlement. Two same-account legs are not that tdfees settlement. Named bell-sep15-2026 opts into same-account split legs on two-leg-sum (sameAccountSplitLegs true): exactly two distinct posted Bell Mobility / BELLMOBILITY debits on canonical chequing-a, the same household posting date, and early-or-due, both resolving only to that once occurrence. Named standing bell, from firstDue 2026-10-15, opts into that same same-account split on a separate chequing-a rule. The standing Travel Visa single-debit rule remains. A two-leg subset that is not an accepted pair does not veto that Travel Visa debit. An accepted BILLS pair and a Travel Visa debit for the same standing occurrence stay unresolved. One payment's transaction ids cannot settle both bell-sep15-2026 and a standing bell occurrence. Same-account combining is not the default. Two same-account legs without that explicit opt-in are not settlement. The observed sum is settlement evidence after identity, not identity. Named fixed salary streams (owner decision 2026-11-18, #821 6967081727): a posted CAD credit into BILLS settles that occurrence once, at its actual amount, when it is within $5 of THAT occurrence's scheduled amount (the 15th and month-end amounts differ) and posts within 3 business days (Monday to Friday) before or after the projected payday. Amount and timing are the identity for these two streams only; the earlier same-day exact transfer guard and salary-packet path no longer settle them. Their TENNIS INCOME transfer fields remain only for the early-receipt hold: such a transfer the rule did not settle (too early or off-amount) holds the plan, never counted beside its payday. Two qualifying credits for one occurrence, or one credit qualifying for two occurrences, stay unresolved (To confirm); none is not received. Pending rows, refund, reversal and reimbursement payees, internal household transfers (a same-day same-amount debit on another household account) and credits another rule identifies never qualify. The TENNIS INCOME source deposit is never counted beside the BILLS credit: one income receipt, not two. The received amount is the posted credit, tagged calculated, never verified. A refund or merchant credit is not a card-minimum payment. The mapped TD personal, Cash Back, and Travel Visa posted credit alias PAYMENT - THANK YOU is a card-payment movement alias; a payee that also matches a refund or reversal alias is not. A payment before statement creation does not settle that future minimum. Named mapped-MBNA card-credit rules that claim the literal payee payment require payeeMatchMode exact; a PAYMENT-prefixed reversal, refund, or protection alias is not that identity. Fortis, Shaw, Netflix, tdfees, bell-sep15-2026, and bell remain identity-plus-evidence each cycle: matching confirmed-settled transactions create representedActuals and mark PAID; without matching evidence those bills stay still-due / unverified. YouTube Premium, Spotify, ChatGPT Plus Dale, ChatGPT Plus Amanda, and iCloud Storage are the named schedule-trust exceptions. Do not settle chatgpt-plus-amanda from the Dale rule. Do not invent an Apple scrape or Gmail fetch. Named amazon-prime is the exact payee aliases Amazon Prime and Amazon.ca Prime, mapped Travel Visa, debit, and same-day posting. The exact scheduled amount is a necessary guard after that identity, not identity by itself. Ordinary Amazon shopping, Amazon Prime Video, another card, another day, and a different Prime-like amount do not settle it. Do not use schedule-trust for amazon-prime. Named phoenix-digital-health is the owner-confirmed (2026-10-06) monthly Amanda Phoenix Digital Health card charge: exact payee Phoenix Digital Health or Phoenix Digital Corp, mapped Travel Visa, debit, covers-early-or-due-on-or-before-posting with earlyPayLookaheadDays 2, and the exact scheduled $174.99 as a necessary guard after identity. The $1.00 authorization pair, pending, another amount, and another card do not settle it. A Bills to Travel Visa transfer is card backfill, not this expense. Named warriors is the once Logan Warriors Elite Academy U13 commitment: exact payee Vancouver Warriors, mapped Travel Visa, debit, and covers-early-or-due-on-or-before-posting with earlyPayLookaheadDays 2 so the 2026-09-21 posting can settle the 2026-09-23 due. The exact scheduled $895 is a necessary guard after that identity, not identity by itself. The 2026-08-11 Vancouver Warriors $40 charge, another amount, another account, another merchant, and a posting more than two days before the due are not this settlement. A once occurrence is not reused more than seven days after its due. Two compatible charges stay unresolved. A savings transfer or a Travel Visa payment is not this expense and is not income. Do not invent a prior-period versus current-period surplus split.",
   "does_not_own": "Permission to write plan.opening or representedEvents onto data.json, pending-to-posted proof, or a second event engine.",
   "billPaymentPayees": [
     "Bell Mobility",
@@ -52,6 +52,7 @@
     {
       "eventId": "fit4less",
       "lunchMoneyRecurringIds": ["3722395"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Fit4less Msp",
       "payeePatterns": ["Fit4less Msp"],
       "atlasAccountId": "chequing-a",
@@ -82,7 +83,6 @@
     },
     {
       "eventId": "tdcc",
-      "lunchMoneyRecurringIds": ["3722415"],
       "payeePattern": "TFR-TO C/C",
       "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
       "payeeExcludePatterns": ["REFUND", "REVERSAL"],
@@ -205,6 +205,7 @@
     {
       "eventId": "bcaa",
       "lunchMoneyRecurringIds": ["3722144"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "BCAA-AdvAutoIns",
       "payeePatterns": ["BCAA-AdvAutoIns", "Bcaa-adv"],
       "atlasAccountId": "chequing-a",
@@ -224,6 +225,7 @@
     {
       "eventId": "icbc",
       "lunchMoneyRecurringIds": ["3722145"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "ICBC INS",
       "payeePatterns": ["ICBC INS", "Icbc"],
       "atlasAccountId": "chequing-a",
@@ -243,6 +245,7 @@
     {
       "eventId": "resp",
       "lunchMoneyRecurringIds": ["3722146"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "TD WATERHOUSE I REP",
       "payeePatterns": ["TD WATERHOUSE I REP"],
       "atlasAccountId": "chequing-a",
@@ -280,6 +283,7 @@
     {
       "eventId": "google-storage-100gb",
       "lunchMoneyRecurringIds": ["3722157"],
+      "linkedFrom": "2026-12-01",
       "requiredCurrency": "cad",
       "payeePattern": "Google",
       "payeePatterns": ["Google"],
@@ -362,6 +366,7 @@
     {
       "eventId": "shaw",
       "lunchMoneyRecurringIds": ["3722143"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "SHAW CABLE TV BPY",
       "payeePatterns": ["SHAW CABLE TV BPY", "Shaw Cable"],
       "atlasAccountId": "chequing-a",
@@ -384,6 +389,7 @@
     {
       "eventId": "noble-garbage",
       "lunchMoneyRecurringIds": ["3722207"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Noble Dispo",
       "payeePatterns": ["Noble Dispo"],
       "atlasAccountId": "chequing-b",
@@ -402,6 +408,7 @@
     {
       "eventId": "netflix",
       "lunchMoneyRecurringIds": ["3722150"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Netflix",
       "payeePatterns": ["Netflix"],
       "atlasAccountId": "chequing-b",
@@ -438,18 +445,21 @@
     {
       "eventId": "youtube-premium",
       "lunchMoneyRecurringIds": ["3709406"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-09: standing schedule-trust paid on the scheduled due date via Apple Services / PayPal. Do not require an isolated YouTube bank transaction or monthly Dale proof. Do not invent Apple scrape or Gmail fetch. On or after the due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
     {
       "eventId": "spotify",
       "lunchMoneyRecurringIds": ["3709355"],
+      "linkedFrom": "2026-09-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-23: standing schedule-trust on Forecast day 23 ($26.87 monthly), superseding day 17. On or after that due date, identity/settlement emits representedActuals from the schedule itself. The one 2026-09-22 PAYPAL MSP $26.87 debit on chequing-a is owner-confirmed evidence of spotify@2026-09-23 and may be attached to that one occurrence. PAYPAL MSP is not a payee alias. A different PayPal row, amount, day, or account does not settle Spotify. Do not require a Lunch Money Spotify payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, a card-paid identity, or a second September occurrence. Before the due date, with no such exact transaction attached, the bill stays still-due. Do not treat WEEKLY Netflix as this bill. Lead dispatch 2026-11-21 (Dale's go-ahead for recurring ids on #1495, 7053045943; Grok Bot matched the item to the Nov. 18 Spotify payment): lunchMoneyRecurringIds names the reviewed Lunch Money item, which leads Spotify's schedule day (date tag confirmed) as rehearsal-space's does. The amount, firstDue and this owner-set schedule-trust settlement are unchanged; the link is schedule authority only."
     },
     {
       "eventId": "chatgpt-plus-dale",
       "lunchMoneyRecurringIds": ["3722348"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-19: standing schedule-trust paid on the existing Forecast due date via PayPal merchant OpenAI OpCo, LLC ($28 CAD). Trust PayPal cadence. Owner 15th rails are cited for that trust; do not move chatgpt-plus-dale.day (incumbent Forecast due day 14 is already correct). Do not require a Lunch Money OpenAI/ChatGPT payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, or a card-paid identity. Do not settle chatgpt-plus-amanda (separate iOS $24.99 bill). On or after the scheduled due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -461,6 +471,7 @@
     {
       "eventId": "icloud-storage",
       "lunchMoneyRecurringIds": ["3722153"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-19: owner-confirmed Forecast day 14 / $13. Standing schedule-trust paid on the existing Forecast due date via Apple Services / PayPal. Do not require a Lunch Money iCloud payee or monthly Dale naming. Do not invent Apple scrape, Gmail fetch, or a card-paid identity. Do not move icloud-storage.day (incumbent Forecast due day 14 is already correct). On or after the scheduled due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -488,6 +499,29 @@
       "note": "Owner 2026-10-06: Amanda's monthly Phoenix Digital Health charge on mapped Travel Visa. Identity is the exact payee Phoenix Digital Health or Phoenix Digital Corp, plus Travel Visa, plus debit, plus covers-early-or-due-on-or-before-posting with earlyPayLookaheadDays 2: observed charges fall on the 3rd to 5th (2026-08-05, 2026-09-03, and 2026-10-05 after a Saturday 3rd), so a charge up to two days before the day-3 due or the latest due on or before posting settles that one occurrence. A charge a month early does not. The exact scheduled $174.99 is a necessary guard after that identity, not identity by itself. The $1.00 authorization pair, another amount, another card, pending, and another day do not settle it. Matching confirmed-settled evidence creates representedActuals and marks the occurrence represented. Without matching evidence the bill stays still-due / unverified. A Bills to Travel Visa transfer is card backfill, not this expense and not a second obligation. Not schedule-trust. Do not invent a Lunch Money write."
     },
     {
+      "eventId": "cashback-day4",
+      "payeePattern": "TFR-TO C/C",
+      "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
+      "payeeExcludePatterns": ["REFUND", "REVERSAL"],
+      "atlasAccountId": "cashback",
+      "direction": "credit",
+      "postingDateRule": "covers-due-on-or-before-posting",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
+      "eventId": "tdcc-auto17",
+      "lunchMoneyRecurringIds": ["3722415"],
+      "payeePattern": "TFR-TO C/C",
+      "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
+      "payeeExcludePatterns": ["REFUND", "REVERSAL"],
+      "atlasAccountId": "tdcc",
+      "direction": "credit",
+      "postingDateRule": "covers-due-on-or-before-posting",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
       "eventId": "warriors",
       "payeePattern": "Vancouver Warriors",
       "payeePatterns": ["Vancouver Warriors"],
@@ -502,6 +536,7 @@
     {
       "eventId": "microsoft",
       "lunchMoneyRecurringIds": ["3722390"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -512,6 +547,7 @@
     {
       "eventId": "teamsnap-plus",
       "lunchMoneyRecurringIds": ["3722391"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -522,6 +558,7 @@
     {
       "eventId": "muse-meta",
       "lunchMoneyRecurringIds": ["3722358"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -532,6 +569,7 @@
     {
       "eventId": "crave-standard-ads",
       "lunchMoneyRecurringIds": ["3722235"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -542,6 +580,7 @@
     {
       "eventId": "paramount-plus",
       "lunchMoneyRecurringIds": ["3722236"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -552,6 +591,7 @@
     {
       "eventId": "stacktv",
       "lunchMoneyRecurringIds": ["3722237"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -562,6 +602,7 @@
     {
       "eventId": "prime-video-ad-free",
       "lunchMoneyRecurringIds": ["3722299"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -572,6 +613,7 @@
     {
       "eventId": "rehearsal-space",
       "lunchMoneyRecurringIds": ["3667755"],
+      "linkedFrom": "2026-11-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",

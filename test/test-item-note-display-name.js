@@ -7,7 +7,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const Live = require('../scripts/live-plan.js');
 const D = require('../public/display-name.js');
@@ -73,62 +72,9 @@ const stripDisplay = v => JSON.stringify(v, (k, val) => (k === 'displayedNote' ?
     'the settlement candidates are identical');
 }
 
-console.log('\n=== 3. the Spent breakdown shows the item, never the payee ===');
-const appSrc = read('public/app.js');
-const planSrc = read('public/plan.js');
-const source = [
-  grab(appSrc, /^const money = .*$/m, 'money'),
-  grab(appSrc, /^const money2 = .*$/m, 'money2'),
-  grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-  grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-  grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-  grab(planSrc, /^function paydayBucketRow\([\s\S]*?\n\}$/m, 'paydayBucketRow'),
-  grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
-  grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-  grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml'),
-  grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
-  grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
-].join('\n');
-const composer = vm.runInNewContext(`${source}\n({ calendarBudgetHtml });`, { Forecast: F, DisplayName: D });
-const plan = { defaults: { targetBuffer: 500 }, budget: { categories: [
-  { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } };
-const period = recon => ({
-  id: 'this-pay-period', role: 'active', start: '2026-08-28', end: '2026-09-10',
-  spendingCycle: { start: '2026-08-28', end: '2026-09-10', rangeLabel: '28 Aug – 10 Sep' },
-  householdBudget: [{ id: 'groceries', label: 'Groceries', planned: 900, spent: recon.reduce((s, t) => s + t.amount, 0),
-    remaining: 500, recon }],
-  budgetHold: 900,
-});
-const tx = (id, extra) => Object.assign({ id, date: '2026-08-29', amount: 20, pending: false,
-  categoryLabel: 'Groceries', displayedPayee: 'PAYPAL MSP', originalMerchant: 'PAYPAL *MSP 0001' }, extra);
-{
-  const html = composer.calendarBudgetHtml(period([
-    tx('tx-item', { displayedNote: 'Disney+' }),
-    tx('tx-plain', {}),
-    tx('tx-xss', { displayedNote: '<img src=x onerror=alert(1)> & "q"' }),
-    tx('tx-long', { displayedNote: 'L'.repeat(200) }),
-    tx('tx-empty', { displayedNote: '  ' }),
-    tx('tx-pend', { pending: true, displayedNote: 'Movie - Dune' }),
-    tx('tx-post', { pending: false, displayedNote: 'Movie - Dune' }),
-  ]), null, plan);
-  const li = id => { const at = html.indexOf(`data-tx-id="${id}"`); return html.slice(at, html.indexOf('</li>', at)); };
-  const payeeOf = id => { const m = /<span class="household-budget-tx-payee">([\s\S]*?)<\/span>/.exec(li(id)); return m ? m[1] : ''; };
-  ok(/>Disney\+/.test(li('tx-item')) && !/PAYPAL/.test(li('tx-item')), 'a PAYPAL MSP row with "item: Disney+" shows Disney+ and no payee');
-  ok(!/data-tx-note|household-budget-tx-note/.test(li('tx-item')), 'there is no second line');
-  ok(/>PAYPAL MSP/.test(li('tx-plain')) && !/data-tx-note/.test(li('tx-plain')), 'control: a row without a note is unchanged');
-  ok(/>PAYPAL MSP/.test(li('tx-empty')), 'empty item text falls back to the payee');
-  ok(!/<img/.test(li('tx-xss')) && /&lt;img src=x onerror=alert\(1\)&gt; &amp; &quot;q&quot;/.test(li('tx-xss')),
-    'HTML in the item text is escaped');
-  ok(/L{59}…/.test(li('tx-long')) && !/L{61}/.test(li('tx-long')), 'a very long item is capped');
-  ok(payeeOf('tx-pend').replace(/<[^>]*>/g, '').replace('Pending', '') === payeeOf('tx-post').replace(/<[^>]*>/g, ''),
-    'pending and posted versions show the same name');
-  // withheld-Spent fallback lists the packet's own rows
-  const withheld = period([]);
-  withheld.householdBudget[0].spent = null; withheld.householdBudget[0].recon = [];
-  const ov = composer.calendarBudgetHtml(withheld,
-    { applied: true, currentPeriodActuals: { transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] } }, plan);
-  ok(/Disney\+/.test(ov) && !/PAYPAL/.test(ov), 'the withheld-Spent drill-down shows the item too');
-}
+// Section 3 (the classic Spent breakdown printed the item, never the payee) retired with the classic page
+// (C1 S4 batch B1, owner ruling: V1-only behaviour retires). Sections 1-2 and 4-6 keep the Forecast and
+// observer-level facts: the item is carried, the payee and descriptor are untouched, matching never reads it.
 
 console.log('\n=== 4. end to end from the observer: item shown in recon, payee kept for matching ===');
 {

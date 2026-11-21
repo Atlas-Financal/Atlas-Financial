@@ -25,25 +25,27 @@ const item = (id, amount, extra = {}) => ({ providerId: id, status: 'reviewed', 
   matches: { expectedOccurrenceDates: ['2026-10-20'], foundTransactions: [] } });
 const read = items => ({ status: 'read', read: { unexpectedPaginationEvidence: false,
   requestedWindow: { startDate: '2026-09-30', endDate: '2026-10-14' }, items } });
-const rule = (eventId, rid) => ({ eventId, lunchMoneyRecurringIds: [rid], atlasAccountId: 'chequing-a', direction: 'debit',
+const rule = (eventId, rid) => ({ eventId, lunchMoneyRecurringIds: [rid], linkedFrom: '2026-10-01', atlasAccountId: 'chequing-a', direction: 'debit',
   requiredCurrency: 'cad', requiredPostingEvidence: 'posted', postingDateRule: 'covers-early-or-due-on-or-before-posting' });
 
 function serve(items, opts = {}) {
   const w = H.baseWorld();
   if (opts.asOf) w.asOf = opts.asOf;
+  if (opts.postedCash !== undefined) w.accounts.find(a => a.id === 'chequing-a').value = opts.postedCash;
   w.bills = [{ ...BILL, ...(opts.bill || {}) }, ...(opts.extraBills || [])];
   w.identityRules = w.identityRules.concat(opts.rules || [rule(opts.bill && opts.bill.id || 'band', ID)]);
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
     ...(opts.transactions || [])];
   H.productionOpening(w);
   const canonical = H.canonicalOf(w, H.planOf(w));
+  if (opts.opening) canonical.plan.opening = opts.opening;
   const before = J(canonical);
   const r = Live.fromObservation({ data: canonical, payload: { ...H.rawPayload(w), recurringItems: read(items) },
     accountMap: H.accountMapOf(w), identity: H.identityOf(w) });
   const plan = r.data.plan;
   const adv = F.recommend(plan, w.asOf, { currentPeriodActuals: r.data.liveOverlay.currentPeriodActuals, debts: r.data.debts });
   const cur = (adv.defaultView.calendarPeriods.find(p => p.start === '2026-10-09').bills || []).filter(b => b.id === (opts.bill && opts.bill.id || 'band'));
-  return { bill: plan.bills.find(b => b.id === (opts.bill && opts.bill.id || 'band')), cur, unchanged: J(canonical) === before,
+  return { opening: plan.opening, billsBalance: adv.defaultView.billsAccountPeriodBalance, bill: plan.bills.find(b => b.id === (opts.bill && opts.bill.id || 'band')), cur, unchanged: J(canonical) === before,
     schedules: r.report.recurringBillSchedules || [] };
 }
 
@@ -105,15 +107,64 @@ console.log('5b. Stated behaviour (lead, 2026-11-21): an unsettled occurrence al
 }
 
 
-console.log('5c. A lower item amount never un-pays a payment already made (Codex P1 on #1510)');
+console.log('5c. First-seen posted payments qualify against the served price');
+const posted = (amount, date = '2026-10-20') => H.lm({ id: 78123, date, amount, account: 'chequing-a',
+  payee: 'Invented band', raw: { recurring_id: Number(ID) } });
+const pairedRule = { ...rule('band', ID), settlementFrom: 'lunchmoney-matched-occurrences' };
+const pairedItem = (price, payment) => ({
+  ...item(ID, price),
+  matches: { expectedOccurrenceDates: ['2026-10-20'], missingTransactionDates: [],
+    foundTransactions: [{ transactionId: String(payment.id), date: payment.date }] },
+});
+// The invented Bills account starts with 1,400. Its posted balance already includes the debit.
+// The household budget reserves 400. A settled bill takes nothing further. An unmatched bill
+// reserves the full current item amount. The variable bill accepts an underpayment at actual.
+for (const [price, payment, expectedPaid, expectedRemaining, expectedBalance] of [
+  ['130.00', 130, 130, 0, 870],      // full price above 1.5 times the stale plan's 80
+  ['130.00', 125, 125, 0, 875],      // below the served price, above the stale cap
+  ['130.00', 195, 195, 0, 805],      // exactly the served 1.5x upper bound
+  ['40.00', 60.01, null, 40, 899.99], // one cent above the served cap, inside the stale cap
+]) {
+  const tx = posted(payment);
+  for (const pairing of [false, true]) {
+    const s = serve([pairing ? pairedItem(price, tx) : item(ID, price)], {
+      asOf: '2026-10-21', transactions: [tx], rules: [pairing ? pairedRule : rule('band', ID)],
+      postedCash: 1400 - payment,
+    });
+    const row = s.cur[0];
+    const qualified = expectedPaid !== null;
+    ok(row?.amount === Number(price) && row.status === (qualified ? 'PAID' : 'still due')
+      && (row.actual ?? null) === expectedPaid && row.remaining === expectedRemaining
+      && s.billsBalance.remainingBills === expectedRemaining && s.billsBalance.amount === expectedBalance,
+      `payment ${payment}, served price ${price}, ${pairing ? 'provider-paired' : 'date-qualified'}: paid, remaining, Bills balance`,
+      J([row?.status, row?.actual, row?.remaining, s.billsBalance.amount]));
+  }
+}
+
+console.log('5d. A recorded settlement retains its posted amount when the linked price drops');
 {
-  // Item 40.00, plan 80, linked posted 79.50 on Oct 14: 79.50 is within the plan's matching bound (80) though far
-  // above 1.5 x 40, so it still settles Oct 20, at what was paid.
-  const paid = H.lm({ date: '2026-10-14', amount: 79.5, account: 'chequing-a', payee: 'Invented band', raw: { recurring_id: Number(ID) } });
-  const s = serve([item(ID, '40.00')], { transactions: [paid] });
+  const tx = posted(79.5, '2026-10-14');
+  const opts = { asOf: '2026-10-14', transactions: [tx], rules: [pairedRule], postedCash: 1320.5 };
+  const prior = serve([pairedItem('80.00', tx)], opts);
+  ok(prior.cur[0]?.status === 'PAID' && prior.cur[0].actual === 79.5
+    && prior.opening.representedEvents.some(r => r.id === 'band' && r.date === '2026-10-20'),
+    'prior observation settled the posted payment and represented its occurrence');
+  const current = serve([pairedItem('40.00', tx)], { ...opts, asOf: '2026-10-21',
+    opening: JSON.parse(J(prior.opening)) });
+  const row = current.cur[0];
+  ok(row?.status === 'PAID' && row.amount === 40 && row.actual === 79.5 && row.remaining === 0
+    && current.billsBalance.amount === 920.5, 'the recorded occurrence keeps its actual and reserves nothing twice',
+    J([row?.status, row?.actual, row?.remaining, current.billsBalance.amount]));
+}
+
+console.log('5e. Trusted-on-due settlements use the served price as their actual');
+{
+  const s = serve([item(ID, '20.00')], { asOf: '2026-10-21', postedCash: 1380,
+    bill: { amount: 12 }, rules: [{ ...rule('band', ID), settlesWhen: 'schedule-trust-on-due' }] });
   const row = s.cur[0];
-  ok(row && /paid/i.test(row.status || '') && Math.abs(Number(row.cashPaid ?? row.actual) - 79.5) < 0.005,
-    'paid at 79.50, not re-judged against the lower item amount', J(row && { status: row.status, actual: row.actual, remaining: row.remaining }));
+  ok(row?.settlementBasis === 'schedule-trust-on-due' && row.status === 'PAID'
+    && row.amount === 20 && row.actual === 20 && row.remaining === 0 && s.billsBalance.amount === 980,
+    'trusted actual equals the served price and the Bills balance retains only the budget reserve');
 }
 
 console.log('6. Card and obligation rows never take an item amount');
@@ -122,5 +173,58 @@ console.log('6. Card and obligation rows never take an item amount');
   const obl = src.slice(src.indexOf('function recurringObligationSchedule'), src.indexOf('function applyRecurringObligationSchedule'));
   ok(!/recurringBillAmount|amounts/.test(obl), 'the card/obligation schedule path reads no item amount');
 }
-console.log(`\n${checks - failures}/${checks} passed`);
-if (failures) process.exit(1);
+// Standalone regression for review finding 1. Run with --verify-repeat-refresh
+// to exercise two complete provider reads against the same canonical opening.
+async function verifyRepeatRefresh() {
+  const fs = require('node:fs');
+  const { mock } = require('node:test');
+  const w = H.baseWorld('2026-10-21');
+  w.bills = [{ ...BILL }];
+  w.identityRules.push(pairedRule);
+  const tx = posted(79.5, '2026-10-14');
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll',
+    account: 'chequing-a', payee: 'Invented employer' }), tx];
+  w.accounts.find(a => a.id === 'chequing-a').value = 1320.5;
+  H.productionOpening(w);
+  const canonical = H.canonicalOf(w, H.planOf(w));
+  const baseline = J(canonical);
+  const identity = J(H.identityOf(w));
+  const originalRead = fs.readFileSync;
+  let price;
+  try {
+    mock.method(fs, 'readFileSync', function(file, ...args) {
+      return file === O.DEFAULT_IDENTITY ? identity : originalRead.call(this, file, ...args);
+    });
+    mock.method(O, 'loadLiveAccountMap', () => H.accountMapOf(w));
+    mock.method(O, 'resolveLiveCredential', async () => ({ source: 'environment', token: 'synthetic' }));
+    mock.method(O, 'fetchLunchMoneyLive', async () => {
+      const raw = H.rawPayload(w);
+      return { ...raw, provider: 'lunchmoney', accounts: raw.plaid_accounts,
+        transactionWindow: { ...raw.transactionWindow, truncated: false },
+        pendingCoverage: { ...raw.pendingCoverage, truncated: false },
+        recurringItems: read([pairedItem(price, tx)]) };
+    });
+    for (price of ['80.00', '40.00']) {
+      let observation;
+      const data = await Live.applyForServer(canonical, { ATLAS_LIVE_OVERLAY: 'live' },
+        { onObservation(value) { observation = value; } });
+      const view = F.recommend(data.plan, w.asOf, { currentPeriodActuals: data.liveOverlay.currentPeriodActuals,
+        debts: data.debts }).defaultView;
+      const row = view.calendarPeriods.find(period => period.start === '2026-10-09').bills.find(b => b.id === 'band');
+      ok(observation?.qualified === true && !!observation.evidence && data.liveOverlay.applied === true
+        && J(canonical) === baseline, 'complete replay-proven provider refresh, same canonical opening');
+      ok(row.status === 'PAID' && row.amount === Number(price) && row.actual === 79.5
+        && row.remaining === 0 && view.billsAccountPeriodBalance.amount === 920.5,
+        `same posted debit stays paid at served price ${price} across refreshes`,
+        J([row.status, row.actual, row.remaining, view.billsAccountPeriodBalance.amount]));
+    }
+  } finally {
+    mock.restoreAll();
+  }
+}
+async function finish() {
+  if (process.argv.includes('--verify-repeat-refresh')) await verifyRepeatRefresh();
+  console.log(`\n${checks - failures}/${checks} passed`);
+  if (failures) process.exitCode = 1;
+}
+finish().catch(error => { console.error(error); process.exitCode = 1; });

@@ -550,9 +550,10 @@ console.log('\n=== 11. cash omit does not unwind HELOC/TDCC debt reduction; Nobl
 
 console.log('\n=== 10. pages do not special-case these merchants; canonical bytes stay put ===');
 {
-  const planSrc = sourceText(fs.readFileSync(path.join(ROOT, 'public', 'plan.js'), 'utf8'));
-  ok(!/Noble Dispo|IP470/.test(planSrc),
-    'plan.js only prints; it does not special-case Noble Dispo or IP470');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/Noble Dispo|IP470/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) special-cases Noble Dispo or IP470', hits.join(', ') || 'none');
   ok(fs.readFileSync(DATA_PATH, 'utf8') === canonicalFileBefore,
     'this suite does not mutate data.json');
 }

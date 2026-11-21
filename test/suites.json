@@ -1,4 +1,5 @@
 [
+  ["The figures page capture observes the Stack page: it runs the default route, drives the page's own blocks per pay period, records its Forecast reads, and says so (never reads covered) when the Stack page would not run","test-stack-page-capture.js"],
   ["Stack page: a budget category sheet lists the transactions Forecast counted into its Spent (recon less the pending copy of a posted row), newest first; no list for a saved close, an unpublished or withheld Spent or a projected period; every listed set reconciles to the published Spent to the cent","test-stack-budget-transactions.js"],
   ["Stack page Bills, Budget, Mortgage and Savings cards print only published values, nothing for an unpublished one, rows carry the sheet attribute, and nothing loads without ?view=stack (B3)","test-stack-cards.js"],
   ["Stack Wallet A1: each pay period publishes its income split (Dale, Amanda, Other) summing to incomeTotal","test-income-split.js"],
@@ -706,13 +707,19 @@
   ["Stack bill sheet history: each bill's published occurrences, newest first","test-stack-bill-history.js"],
   ["Stack bill cards: each card's rows are Forecast's own place in the bills split and add up to its head","test-stack-bill-parts.js"],
   ["Stack Bills card: Forecast publishes paid (the checked Bills rows, one rule) and the card prints paid / owed","test-stack-bills-paid.js"],
+  ["TD card statements (owner facts 2026-11-21): Cash Back due on the 4th from Dec 4 at the statement minimum; Travel Aug-Nov minimums represented","test-td-card-statement-facts.js"],
+  ["TD credit card fixed autopay (owner fact 2026-11-21): tdcc-auto17 plans the dated amount from Dec 17; earlier occurrences unchanged","test-tdcc-fixed-autopay.js"],
   ["Bill verified note: Grok Bot's note confirms a differing posted bill payment at what was paid (card check, bill history, BAD delta)","test-bill-verified-note.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
   ["Stack card names come from the ledger: the Lunch Money display name, carried by provider account id, shown first on the waterfall and the Credit card","test-stack-card-ledger-names.js"],
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
-  ["The figures page capture runs the previous Budget page by its explicit route (?view=classic), unchanged when the Stack page is the default","test-figures-capture-classic-view.js"],
   ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
   ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"],
-  ["Amounts from Lunch Money: a linked bill is served at its reviewed item's whole-cent CAD amount; otherwise the plan's amount with a reason; Bell and card rows excluded; no tag promotion (Dale, 2026-11-21)","test-lunchmoney-bill-amounts.js"]
+  ["Amounts from Lunch Money: a linked bill is served at its reviewed item's whole-cent CAD amount; otherwise the plan's amount with a reason; Bell and card rows excluded; no tag promotion (Dale, 2026-11-21)","test-lunchmoney-bill-amounts.js"],
+  ["A linked bill whose Lunch Money item is on another day keeps its recorded history: the item timing applies from the link's recorded linkedFrom month, earlier occurrences keep the bill day and date tag (timingBefore), so past payments stay settled (#1508 live check, #1511)","test-bill-link-cutover.js"],
+  ["The page-script scan behind the \"page only prints\" guards covers the Stack page and the classic page, leaves the engine out, and reports the script that contains a pattern (C1 S4 B3)","test-page-scripts.js"],
+  ["Stack budget sheet: the printed Spent, budget and Left or Over equal independent whole-dollar arithmetic from the published row; a withheld Spent prints nothing and never an overlay sum; published zero prints $0 and unpublished never does; six mutants of the sheet are caught (C1 S4 B1)","test-stack-budget-sheet-figures.js"],
+  ["The Stack page boots in a test beside the classic page (loadStackPage): the shell and its blocks draw, the period chips redraw them, a shell that falls back or a Forecast that publishes no periods is never a pass (C1 S4)","test-stack-page-harness.js"],
+  ["The acceptance harness opens the classic page by default (/?view=classic) and the Stack page on request; skipped where Playwright is not installed (C1 S4)","test-acceptance-harness-views.js"]
 ]

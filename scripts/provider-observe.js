@@ -2917,8 +2917,10 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
 // exact-scheduled-amount, two-leg-sum, schedule trust) keep them, and an
 // occurrence with no positive scheduled amount has nothing to compare.
 const BILL_IDENTITY_AMOUNT_SHARE = 1.5;
-function billDebitAmountConsistent(rule, amount, scheduledAmount) {
+function billDebitAmountConsistent(rule, amount, scheduledAmount, tx, date) {
   if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
+  const pair = tx && LM_MATCHED.get(tx);
+  if (pair?.recordedReceipt && pair.eventId === rule.eventId && pair.date === date) return true;
   const need = Math.abs(Number(scheduledAmount));
   if (!(Number.isFinite(need) && need > 0)) return true;
   return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
@@ -2958,7 +2960,7 @@ function collectIdentityHits(tx, input, rules) {
           continue;
         }
       }
-      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
+      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount, tx, scheduledDate)) continue;
       if (rule.transactionKind === 'transfer') {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
@@ -3441,7 +3443,7 @@ function lmMatchedCardMinimum(tx, rule) {
 //     debit rule only). A credit rule's paired receipt settles at its actual
 //     amount: Lunch Money paired it, and Forecast publishes the represented
 //     actual, so no scheduled-amount guard is asked (Q1, lead 2026-11-18).
-function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow) {
+function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow, recurringSchedules = []) {
   for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
   const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
     && rule.eventId && (rule.direction === 'debit' || rule.direction === 'credit')
@@ -3497,9 +3499,23 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     const pairs = foundTx.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))
       || String(a.providerTransactionId).localeCompare(String(b.providerTransactionId)))
       .map((tx, i) => ({ tx, date: matched[i] }));
-    const consistent = pairs.every(({ tx, date }) => {
+    // A recorded opening proves an occurrence was already paid. Only restore the
+    // actual from the reviewed item's own posted pair, seen by that opening.
+    // An opening name alone supplies no amount, and a first-seen pair still
+    // has to qualify against the current item price.
+    const pricedBill = recurringSchedules.some(schedule => schedule.billId === rule.eventId
+      && schedule.recurringId === id && schedule.amount > 0);
+    for (const pair of pairs) {
+      const opening = plan?.opening;
+      pair.recordedReceipt = pricedBill && (opening?.representedEvents || []).some(row =>
+        row && row.id === rule.eventId && row.date === pair.date
+        && Forecast.representedEventEffectiveBy(row, opening.asOf)
+        && pair.tx.date <= (row.effectiveAsOf || opening.asOf))
+        && Forecast.representedOccurrence(plan, rule.eventId, pair.date, opening.asOf);
+    }
+    const consistent = pairs.every(({ tx, date, recordedReceipt }) => {
       const occ = scheduledOccurrence(plan, rule.eventId, date);
-      return occ.length === 1 && (rule.direction === 'credit'
+      return occ.length === 1 && (rule.direction === 'credit' || recordedReceipt
         || billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), occ[0].amount));
     });
     if (!consistent) continue;
@@ -3507,8 +3523,8 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     // E2: a card minimum is otherwise withheld by cardMinimumNeedsConfirmation;
     // the pairing marks only the narrow case that may settle it.
     const card = cardMinimumNeedsConfirmation(plan, rule.eventId, accountMap);
-    for (const { tx, date } of pairs) {
-      LM_MATCHED.set(tx, { eventId: rule.eventId, date,
+    for (const { tx, date, recordedReceipt } of pairs) {
+      LM_MATCHED.set(tx, { eventId: rule.eventId, date, recordedReceipt,
         ...(card ? { cardMinimum: lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) } : {}) });
     }
     applied.push({ eventId: rule.eventId, matchedDates: matched.length });
@@ -3576,7 +3592,7 @@ function representedEventHitGroups(input) {
             continue;
           }
         }
-        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
+        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount, tx, scheduledDate)) continue;
         if (rule.transactionKind === 'transfer') {
           const counterpartCount = countTransferCounterparts(tx, rule, input, amount,
             diagnostic?.forDate(tx.date)?.forOccurrence(rule.eventId, scheduledDate));
@@ -4751,10 +4767,10 @@ function observeCore(input, capture) {
   }
   if (recurringSchedules.some(schedule => schedule.billId) && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
     const byBill = new Map(recurringSchedules.filter(schedule => schedule.billId).map(schedule => [schedule.billId, schedule]));
-    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
-      bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
-    // The item amount is not applied here: payment matching keeps qualifying against the plan's amount, so a
-    // payment already made is never re-judged against a later, lower item price (Codex P1 on #1510).
+    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill => {
+      const schedule = bill && byBill.get(bill.id);
+      return schedule ? applyRecurringAmount(applyRecurringSchedule(bill, schedule), schedule) : bill;
+    }) } } };
   }
   const mapped = [];
   const unmapped = [];
@@ -4866,7 +4882,7 @@ function observeCore(input, capture) {
     debts: (input.data && input.data.debts) || [],
   });
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
-    input.payload && input.payload.recurringItems, normalized.transactionWindow);
+    input.payload && input.payload.recurringItems, normalized.transactionWindow, recurringSchedules);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
@@ -6444,7 +6460,7 @@ const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.start
 const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
   'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
   'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
-  'expected-dates-mismatch']);
+  'expected-dates-mismatch', 'link-anchor-missing']);
 const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
 // The plan-id shape a served refusal may carry: lowercase, starting with a
 // letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
@@ -6605,7 +6621,9 @@ function recurringAmountConsistent(itemAmount, planAmount) {
 }
 // The bill-schedule fields a reviewed Lunch Money item may set on the served
 // plan (owner decision, Dale 2026-11-18: cadence also comes from Lunch Money).
-const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue'];
+const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue', 'timingBefore'];
+// The bill's own cadence fields a cutover keeps for occurrences before it.
+const RECURRING_CUTOVER_FIELDS = ['frequency', 'day', 'month', 'anchor'];
 
 // Lunch Money cadence -> a Forecast cadence it can expand exactly; anything
 // else is null (the plan's cadence and day stand, estimated).
@@ -6673,10 +6691,14 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   };
   const refuse = (eventId, reasonCode) => { refused.push({ ...rowOf(eventId), reasonCode }); };
   const byBill = new Map();
+  const linkedFromByBill = new Map();
   for (const item of block.items) {
     const eventIds = new Set();
     for (const rule of identityRules || []) {
-      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) eventIds.add(String(rule.eventId));
+      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) {
+        eventIds.add(String(rule.eventId));
+        if (typeof rule.linkedFrom === 'string') linkedFromByBill.set(String(rule.eventId), rule.linkedFrom);
+      }
     }
     const only = eventIds.size === 1 ? [...eventIds][0] : null;
     if (item.startDate && item.startDate > asOf) { refuse(only, 'not-started'); continue; }
@@ -6698,6 +6720,12 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       refuse(billId, matches.length || obligationMatches.length ? 'plan-row-ambiguous' : 'no-plan-row'); continue;
     }
     if (matches[0].frequency === 'once') { refuse(billId, 'once-bill'); continue; }
+    // A bill link without a recorded linkedFrom (an ISO first of a month)
+    // changes no timing: fail closed.
+    const linkedFrom = linkedFromByBill.get(billId);
+    if (!(typeof linkedFrom === 'string' && /^\d{4}-\d{2}-01$/.test(linkedFrom) && realIsoDay(linkedFrom))) {
+      refuse(billId, 'link-anchor-missing'); continue;
+    }
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') { refuse(billId, 'account-mismatch'); continue; }
@@ -6720,6 +6748,21 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     if (expected.length) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
       if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
+    }
+    // Recorded history is never re-dated (#1508 live check; lead design
+    // ruling on the #1511 review): the cutover is the link's own recorded
+    // `linkedFrom` date (the first of a month, set when the link is written),
+    // never derived from the observation date, the pay period or the item's
+    // start, so it cannot move between observations. Occurrences before it
+    // keep the bill's own cadence and day (timingBefore); from it on, the
+    // item's timing applies.
+    if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
+      const before = {};
+      for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
+      // The plan's own date tag goes with the plan's own timing: occurrences
+      // before the cutover never take the item's confirmed tag (owner stop 2).
+      timing.timingBefore = { from: linkedFrom, ...before,
+        dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     }
     const amount = recurringBillAmount(item, bill, opts && opts.amounts);
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
@@ -8288,6 +8331,7 @@ const api = {
   recurringBillSchedules,
   RECURRING_AMOUNT_EXCLUDED_BILL_IDS,
   applyRecurringAmount,
+  recurringBillScheduleReview,
   derivedAmountFixedBills,
   billPaymentHistory,
   AMOUNT_HISTORY_DAYS,
@@ -8299,6 +8343,7 @@ const api = {
   sanitizedRecurringEvidence,
   RECURRING_UNNAMED_ROLES,
   RECURRING_TIMING_FIELDS,
+  RECURRING_CUTOVER_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,

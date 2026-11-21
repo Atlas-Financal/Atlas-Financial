@@ -1095,6 +1095,47 @@ function putCaptureEvidence(out, prefix, capture) {
   });
 }
 
+/* ---- Stack page capture evidence (C1 S1) */
+// What the Stack page (the default Budget page) actually did, observed by driving its own block renderers per pay
+// period (scripts/figures-page-capture.js driveStack) on this input. Keys, none holding a figure:
+//   stack.capture.version        capture and encoding versions
+//   stack.capture.status         'rendered', or why the page could not be driven (never read as covered)
+//   stack.capture.states / .state.<i>   one line per driven pay period: block outcomes, sheet counts, Forecast calls made
+//   stack.capture.count / .o<n>  each Forecast read the Stack page made, in order: state|function|route|args|result|error,
+//                                the arguments and the result as SHA-256 digests of their typed encoding
+// The results of recommend are not digested here: every figure it publishes is already compared field by field. What
+// moves these digests is a change in how the page asks (its inputs, its calls) or in what its Credit reads return.
+const STACK_CAPTURE_EVIDENCE = 'atlas-stack-page-capture/v1+' + PUBLICATION_ENCODING;
+function putStackCaptureEvidence(out, prefix, capture) {
+  const set = (key, value) => { out[prefix + 'stack.capture.' + key] = value; };
+  const sha = text => crypto.createHash('sha256').update(text).digest('hex');
+  const word = (value, where) => {
+    if (typeof value !== 'string' || !/^[A-Za-z0-9:+@.-]{1,64}$/.test(value)) throw new Error('stack capture: unexpected word at ' + where);
+    return value;
+  };
+  set('version', STACK_CAPTURE_EVIDENCE);
+  const stack = capture && capture.stack;
+  if (!stack) { set('status', 'not-run'); set('states', 0); set('count', 0); return; }
+  set('status', word(stack.status, 'status'));
+  set('states', stack.states.length);
+  stack.states.forEach((s, i) => {
+    const where = 'stack state ' + i;
+    const blocks = Object.keys(s.blocks).map(name => word(name, where) + '=' + word(s.blocks[name], where)).join(',');
+    const sheets = Object.keys(s.sheets).sort().map(kind => word(kind, where) + '=' + (Array.isArray(s.sheets[kind]) ? s.sheets[kind].join('/') : word(s.sheets[kind], where))).join(',');
+    set('state.' + i, [word(s.id, where), blocks, sheets || 'none', 'calls=' + s.calls].join('|'));
+  });
+  const calls = Array.isArray(capture.stackCalls) ? capture.stackCalls : [];
+  set('count', calls.length);
+  calls.forEach((c, n) => {
+    const where = 'stack call ' + n;
+    const args = sha(encodePublication(c.args, where + ' args'));
+    // recommend's result is the whole advice: compared field by field elsewhere, so only that it returned.
+    const result = c.fn === 'recommend' ? (c.result && typeof c.result === 'object' ? 'object' : String(c.result))
+      : sha(encodePublication(c.result === undefined ? null : c.result, where + ' result'));
+    set('o' + n, [word(c.state, where), word(c.fn, where), c.route, args, result, c.error ? 'error' : ''].join('|'));
+  });
+}
+
 function putSavingsPublication(put, putField, advice, publications) {
   if (!Object.prototype.hasOwnProperty.call(advice, 'savingsFunding') || advice.savingsFunding === undefined) return;
   const funding = advice.savingsFunding;
@@ -1240,7 +1281,7 @@ function buildCheckSnapshot(canonicalInputs, inputs) {
     if (/^(check|coverage|fixture)\./.test(key)) throw new Error('reserved household snapshot key: ' + key);
     if (value !== undefined) out[key] = value;
   }
-  putCaptureEvidence(out, '', captureFor(canonicalInputs.data, canonicalInputs.periods));
+  { const capture = captureFor(canonicalInputs.data, canonicalInputs.periods); putCaptureEvidence(out, '', capture); putStackCaptureEvidence(out, '', capture); }
   const invented = [];
   for (const input of inputs) {
     const snapshot = buildFiguresSnapshot(input.doc.data, input.doc.periods);
@@ -1250,7 +1291,7 @@ function buildCheckSnapshot(canonicalInputs, inputs) {
       if (key.startsWith('input.')) throw new Error('reserved input snapshot key: ' + key);
       if (value !== undefined) out[prefix + key] = value;
     }
-    putCaptureEvidence(out, prefix, captureFor(input.doc.data, input.doc.periods));
+    { const capture = captureFor(input.doc.data, input.doc.periods); putCaptureEvidence(out, prefix, capture); putStackCaptureEvidence(out, prefix, capture); }
     invented.push(snapshot);
   }
   for (const cls of FIELD_CLASSES) {
@@ -1303,6 +1344,8 @@ module.exports = {
   __putCaptureEvidence: putCaptureEvidence,
   PERIOD_CLASS_KEYS,
   captureEvidence: (data, periods) => { const out = {}; putCaptureEvidence(out, '', captureFor(data, periods)); return out; },
+  stackCaptureEvidence: (data, periods) => { const out = {}; putStackCaptureEvidence(out, '', captureFor(data, periods)); return out; },
+  __putStackCaptureEvidence: putStackCaptureEvidence,
   CAPTURE_EVIDENCE,
   INPUT_DIR,
   INPUT_SCHEMA,

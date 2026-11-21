@@ -647,11 +647,11 @@ console.log('=== H. Leftover, Current Balance, and Prepare Ahead are unchanged =
 
 console.log('=== I. Page does not calculate the movement set ===');
 {
-  const planSrc = read('public/plan.js');
   const forecastSrc = read('public/forecast.js');
-  ok(!/postedAccountMovements/.test(planSrc)
-      && !/postedBillsAccountMovements/.test(planSrc),
-    'plan.js does not reprint or calculate posted chequing-a movements');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/postedAccountMovements/, /postedBillsAccountMovements/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) reprints or calculates posted chequing-a movements', hits.join(', ') || 'none');
   ok(/function postedAccountMovements\(/.test(forecastSrc)
       && /POSTED_ACCOUNT_MOVEMENTS_ACCOUNT_ID = 'chequing-a'/.test(forecastSrc)
       && /POSTED_ACCOUNT_MOVEMENTS_CLAIM = 'posted-window-complete'/.test(forecastSrc)

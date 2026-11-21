@@ -216,6 +216,37 @@ What one comparison observes:
   plaintext, as state ids already do; this evidence stays private. The record
   is compared as `savings.capture.*` (evidence v4).
 
+  **The Stack page (C1 S1).** The capture runs the default route (`/`), the
+  Stack page, not `?view=classic`. While the previous page still exists it renders
+  hidden under the Stack page, as in production, so its observations above are
+  unchanged (a test proves `savings.capture.*` is identical with and without the
+  Stack drive). The real Stack shell reads its inputs on the capture's recording
+  DOM (Forecast's `recommend` over the page's own input builder) but cannot draw
+  there, so the capture drives the page's own registered block renderers
+  (waterfall, cards, credit, sheet) once per published pay period over the context
+  the real shell built (`StackBlocks.context`, a read-only seam), into recording
+  containers, then opens every sheet item the period lists. Each Forecast read
+  made from a `public/stack-*.js` file is recorded (`recommend`,
+  `budgetRecommendInputs`, `cardPeriodMovements`, `stackCreditLines`) and passed
+  through untouched. The record is compared as `stack.capture.*`: the status
+  (`rendered`, or why the page could not be driven: `shell-off`, `shell-absent`,
+  `no-recommendation`, `no-periods`, `block-missing:<name>`, `blocks-failed`),
+  one line per driven period (block outcomes, sheet counts, calls made), and one
+  line per Forecast read with SHA-256 digests of its arguments and its result
+  (`recommend`'s result is not digested: every figure it publishes is already
+  compared field by field). A figure is never an evidence value. These keys are
+  compared like any other captured field (family Other). In test mode
+  (`recordHtml`) the drive also records the markup each block and sheet item wrote,
+  which `test/test-forecast-text-escaping.js` drives with the hostile household and
+  the poisoned Forecast (the Stack escaping proof); there is no
+  required-evidence validator for them, because a Stack capture that silently did
+  not run is caught by `test/test-stack-page-capture.js` (in `npm test`), which fails
+  unless the Stack page really ran on invented inputs and proves, on mutated copies
+  of `public/`, that a routing, seam, input-step, block-registration or block
+  failure reads as a status other than `rendered`. Not covered: the shell's own
+  drawing (the title, chips, mount and its listeners), which the capture's DOM
+  cannot hold; the shell is pinned as a whole module.
+
   **The validators' guarantee is bounded.** Both validators (the formatter
   and the independent posting step) check schema, relationships, constants and
   internal consistency, per result. For every observation they derive the

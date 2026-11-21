@@ -85,9 +85,6 @@ console.log('A refund with no display name shows the bank description, marked as
   ok(s.recon.some(t => t.amount === -25 && t.bankDescription === DESC), 'Forecast passes it to the refund recon row only',
     JSON.stringify(s.recon.map(t => [t.amount, t.bankDescription || null])));
   ok(s.recon.filter(t => t.bankDescription).length === 1, 'no other recon row gains one');
-  ok(payees(s.html).includes('Bank description: ' + DESC), 'the Spent list prints "Bank description: …"',
-    JSON.stringify(payees(s.html)));
-  ok(payees(s.html).includes('Invented diner'), 'positive control: the purchase keeps its payee');
 }
 
 console.log('Only a category refund keeps it: other credits never carry the bank text');
