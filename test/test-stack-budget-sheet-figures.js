@@ -8,7 +8,7 @@
  *      overlay's transactions, a recon list) when Spent is withheld; a published $0 prints $0;
  *   3. on every invented figures input, every household budget row of every pay period: the printed Spent, budget and
  *      Left or Over equal the published values, formatted independently here (whole dollars, half away from zero);
- *   4. mutation: the sheet source with each of six figure-affecting breaks fails this test (so the proof can fail).
+ *   4. mutation: the sheet source with each of seven figure-affecting breaks fails this test (so the proof can fail).
  *
  * The transaction list under a sheet is test-stack-budget-transactions. Invented data only.
  * `node test/test-stack-budget-sheet-figures.js` */
@@ -71,6 +71,8 @@ function problems(sheetSource) {
   check('published', row());
   check('half away from zero', row({ spent: 2.5, planned: 7.5, remaining: 5 }));
   check('refund-negative remaining', row({ spent: 600, planned: 500, remaining: -100, overspend: 0 }));
+  // Forecast's published Left is not always budget minus spent (held amounts, carried funds): the sheet prints the published figure.
+  check('published Left differs from budget minus spent', row({ spent: 100, planned: 500, remaining: 250 }));
   check('over budget', row({ spent: 1100, planned: 900, remaining: 0, overspend: 200 }));
   check('published zero spent', row({ spent: 0, planned: 900, remaining: 900, recon: [] }));
   check('spent withheld (null)', row({ spent: null, planned: 900, remaining: 900, withheldReason: 'coverage lost' }));
@@ -113,7 +115,7 @@ console.log('3. Every household budget row on every invented figures input');
   const F = require('../public/forecast.js');
   const Snap = require('../scripts/figures-snapshot.js');
   const win = loadWith(sheetSource); const sheet = sheetFor(win);
-  let rows = 0, withheldRows = 0, overRows = 0;
+  let rows = 0, withheldRows = 0, overRows = 0, skipped = 0, leftDiffers = 0;
   for (const inp of Snap.loadInventedInputs()) {
     const data = structuredClone(inp.doc.data);
     const rec = F.recommend(data.plan, data.meta.asOf, Snap.pageOptions(data, inp.doc.periods == null ? null : structuredClone(inp.doc.periods)));
@@ -121,17 +123,21 @@ console.log('3. Every household budget row on every invented figures input');
       for (const item of Array.isArray(v.householdBudget) ? v.householdBudget : []) {
         if (!item || item.id == null) continue;
         const html = sheet(JSON.parse(JSON.stringify(v)), item.id);
-        if (html == null) continue;
+        if (html == null) { skipped++; continue; }
         const got = printed(html), want = expected(item);
         assert.deepStrictEqual(got, want, `${inp.id} ${v.start} ${item.id}`);
         rows++;
         if (typeof item.spent !== 'number') withheldRows++;
         if (item.overspend > 0) overRows++;
+        if (typeof item.spent === 'number' && typeof item.planned === 'number' && typeof item.remaining === 'number'
+          && Math.abs((item.planned - item.spent) - item.remaining) > 0.5) leftDiffers++;
       }
     }
   }
   ok(rows >= 50, 'the corpus has many rows, so the comparison is not vacuous (' + rows + ' rows, ' + withheldRows + ' with Spent unpublished, ' + overRows + ' over budget)');
-  ok(withheldRows > 0 || overRows > 0, 'the corpus includes unpublished-Spent or over-budget rows');
+  ok(withheldRows > 0 && overRows > 0, 'the corpus includes both unpublished-Spent and over-budget rows');
+  ok(skipped === 0, 'every corpus row drew a sheet (' + skipped + ' skipped)');
+  console.log('  corpus rows whose published Left differs from budget minus spent: ' + leftDiffers);
 }
 
 console.log('4. The proof can fail');
@@ -142,6 +148,7 @@ console.log('4. The proof can fail');
     ['the budget drawn from Spent', '/ ${esc(money(item.planned))}', '/ ${esc(money(item.spent))}'],
     ['Left drawn from Spent', "row('Left', money(item.remaining), rest)", "row('Left', money(item.spent), rest)"],
     ['Over drawn from the remaining', "row('Over', money(item.overspend), rest)", "row('Over', money(item.remaining), rest)"],
+    ['Left worked out as budget minus Spent instead of the published figure', "row('Left', money(item.remaining), rest)", "row('Left', money(item.planned - item.spent), rest)"],
     ['an unpublished Spent printed as $0', 'esc(money(item.spent))', 'esc(money(item.spent || 0))'],
     ['Over and Left swapped', "(over ? row('Over', money(item.overspend), rest) : row('Left', money(item.remaining), rest))",
       "(over ? row('Left', money(item.remaining), rest) : row('Over', money(item.overspend), rest))"],
