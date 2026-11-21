@@ -94,7 +94,49 @@ ok(months['2026-12'] === 2, 'without lastDue, Dec has two TD payments (the guard
 const noAuto = tdRows(livePlan(p => { p.obligations = p.obligations.filter(o => o.id !== 'tdcc-auto17'); }));
 ok(!noAuto.some(r => r.date === '2026-12-17'), 'without the successor row, nothing is planned on Dec 17');
 
-console.log('5. Statement minimum against the fixed amount (warning only)');
+console.log('5. One payment settles one TD occurrence (invented ledger, through the live path)');
+{
+  // Invented: categorized TD payments from Bills, close day 23, the two rows shaped as in data.json (2035 dates,
+  // invented amounts). tdcc and tdcc-auto17 share one alias rule shape; a posting must settle one occurrence only.
+  const Live = require('../scripts/live-plan');
+  const Category = require('../scripts/card-minimum-category');
+  const source = require('./fixtures/card-backfill-data');
+  const settledBy = (now, posted) => {
+    const x = source('tdcc', 'tdcc');
+    const name = Object.keys(Category.CATEGORIES).find(k => Category.CATEGORIES[k] === 'tdcc');
+    x.data.meta.asOf = x.data.plan.opening.asOf = '2035-11-01';
+    x.data.plan.opening.representedEvents = [];
+    x.data.plan.income[0].anchor = '2035-11-01'; x.data.plan.income[0].amount = 0;
+    x.data.plan.budget = { categories: [] };
+    x.data.debts[0].statementCloseDay = 23;
+    x.data.plan.obligations = [
+      { id: 'tdcc', debtId: 'tdcc', effect: 'payment', frequency: 'monthly', day: 17, firstDue: '2035-10-17', lastDue: '2035-11-17',
+        payingAccount: 'chequing-a', amount: 31.07, confidence: 'estimated' },
+      { id: 'tdcc-auto17', debtId: 'tdcc', effect: 'payment', frequency: 'monthly', day: 17, firstDue: '2035-12-17',
+        payingAccount: 'chequing-a', amount: 37.5, confidence: 'estimated' }];
+    x.data.plan.startingCash.breakdown[0].value = 1000; x.data.debts[0].balance = 800;
+    x.payload.accounts.forEach(a => { a.updated_at = now + 'T17:00:00Z'; a.balance_last_update = now + 'T17:00:00Z'; });
+    x.payload.fetchedAt = now + 'T18:00:00Z';
+    x.payload.transactionWindow = { startDate: '2035-11-01', endDate: now, complete: true, hasMore: false, truncated: false };
+    x.payload.categories = [{ id: 9001, name, is_income: false, is_group: false, exclude_from_totals: true, exclude_from_budget: true }];
+    x.payload.transactions = posted.map((d, i) => ({ id: 98001 + i, account_id: 3001, date: d, amount: 37.5, currency: 'cad',
+      payee: 'TFR-TO C/C', category_id: 9001, is_pending: false, status: 'reviewed' }));
+    x.asOf = now;
+    const live = Live.fromObservation(x);
+    return { applied: !!(live.data.liveOverlay && live.data.liveOverlay.applied),
+      settled: ((live.data.plan.cardMinimumCategoryEvidence || {}).payments || []).map(p => p.id + '@' + p.scheduledDate) };
+  };
+  const one = settledBy('2035-12-20', ['2035-11-17']);
+  ok(one.applied && J(one.settled) === J(['tdcc@2035-11-17']),
+    'a Nov 17 payment settles tdcc@Nov 17 only; tdcc-auto17@Dec 17 is not settled by it', J(one));
+  const two = settledBy('2035-12-20', ['2035-11-17', '2035-12-17']);
+  ok(two.applied && J(two.settled) === J(['tdcc@2035-11-17', 'tdcc-auto17@2035-12-17']),
+    'two payments settle the two occurrences, one each', J(two));
+  const none = settledBy('2035-12-20', []);
+  ok(none.applied && none.settled.length === 0, 'with no payment, nothing is settled', J(none));
+}
+
+console.log('6. Statement minimum against the fixed amount (warning only)');
 const minimums = [tdcc, auto].flatMap(r => (r.statementOccurrences || []).map(o => ({ due: o.dueDate || o.scheduledDate, minimum: o.minimum })));
 const over = minimums.filter(m => Number.isFinite(m.minimum) && cents(m.minimum) > cents(auto.amount) && m.due >= '2026-10-17');
 if (over.length) console.log(`  WARN  ${over.length} statement minimum(s) on record from ${over.map(m => m.due).join(', ')} exceed the fixed autopay (it would underpay); tell the owner`);
