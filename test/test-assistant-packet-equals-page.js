@@ -18,17 +18,18 @@
  * both. Nothing rendered or computed is printed: mismatches are reported by
  * key name only.
  *
- * The page is the Stack page (public/stack-shell.js, the default route since
- * B7): the packet is compared with the Forecast.recommend call the shell makes
- * and hands to its blocks (StackBlocks.context().recommendation), not with
- * the classic page's. plan.js is still loaded because it holds
- * planSettlementOutcome, the settlement gate the shell calls (it moves out of
- * plan.js at C1 S5, and this load line changes with it), and the classic
- * boot's budgetBreakdown call is still compared (the Stack page does not call
- * budgetBreakdown): that one parity RETIRES AT C1 S7 with the classic page
- * (docs/C1_TEST_DISPOSITIONS.md, lead ruling). Whether the packet's printed
- * surplus equals the waterfall's "Surplus after deductions" is a separate,
- * queued proof (Q1 in that file), not this one.
+ * Two pages still call Forecast, and the packet is compared with both: the
+ * Stack page (public/stack-shell.js, the default route since B7: the shell's
+ * Forecast.recommend call, which it hands to its blocks as
+ * StackBlocks.context().recommendation) and the classic page's own call
+ * (plan.js, with the worksheet knobs). The classic half, including the
+ * budgetBreakdown parity (the Stack page does not call budgetBreakdown),
+ * RETIRES AT C1 S7 with the classic page (docs/C1_TEST_DISPOSITIONS.md, lead
+ * ruling: both stay until then). plan.js is loaded because it is the classic
+ * page and holds planSettlementOutcome, the settlement gate the shell calls
+ * (it moves out of plan.js at C1 S5, and this load line changes with it).
+ * Whether the packet's printed surplus equals the waterfall's "Surplus after
+ * deductions" is a separate, queued proof (Q1 in that file), not this one.
  */
 const fs = require('fs');
 const path = require('path');
@@ -168,26 +169,23 @@ function invented(extra) {
     console.log(`\n=== ${what} ===`);
     const page = await bootPage(JSON.parse(JSON.stringify(data)));
     const pkt = buildPacket(data);
-    const fromShell = list => (list || []).filter(c => c.origin === 'shell');
-    const pRec = fromShell(page.calls.recommend)[0];
-    ok(fromShell(page.calls.recommend).length === 1, 'the Stack shell calls Forecast.recommend once');
+    const callsOf = (origin, fn) => ((page.calls[fn] || []).filter(c => c.origin === origin));
+    const shellRec = callsOf('shell', 'recommend');
+    ok(shellRec.length === 1, 'the Stack shell calls Forecast.recommend once');
     ok(page.errors.length === 0, 'the Stack shell ran without falling back to the classic page', String(page.errors.length));
     const shellContext = page.sb.StackBlocks && page.sb.StackBlocks.context && page.sb.StackBlocks.context();
-    ok(!!pRec && !!shellContext && shellContext.recommendation === pRec.r,
+    ok(!!shellContext && !!shellRec[0] && shellContext.recommendation === shellRec[0].r,
       'the call compared is the one the shell hands to its blocks');
+    const classicRec = callsOf('classic', 'recommend');
+    ok(classicRec.length >= 1, 'the classic page still calls Forecast.recommend (retires at C1 S7)');
     const aRec = pkt.calls.recommend && pkt.calls.recommend[0];
-    ok(!!pRec && !!aRec, 'both the page and the packet call Forecast.recommend');
-    if (!pRec || !aRec) continue;
-    ok(pRec.args[1] === aRec.args[1], 'the same as-of date');
-    // The packet adds exactly one input, collectHeldTransactions (the held-row
-    // to-do list). It may add only currentPeriodAction.heldTransactions: with
-    // that one field removed, the packet's whole recommend output must equal
-    // the page's, so no figure or tag can move through it.
+    ok(!!aRec, 'the packet calls Forecast.recommend');
+    if (!shellRec[0] || !classicRec[0] || !aRec) continue;
+
+    // The packet is compared with each page that still calls Forecast: the Stack shell (the page the household
+    // reads) and the classic page's own call (with the worksheet knobs). The classic half RETIRES AT C1 S7 with the
+    // classic page (docs/C1_TEST_DISPOSITIONS.md, lead ruling: both stay until then).
     const HELD_FLAG = 'collectHeldTransactions';
-    const recDiff = diffKeys(pRec.args[2], aRec.args[2]).filter(k => k !== HELD_FLAG);
-    ok(recDiff.length === 0, 'identical Forecast.recommend inputs', recDiff.join(', '));
-    ok(aRec.args[2][HELD_FLAG] === true && !(HELD_FLAG in pRec.args[2]),
-      'only the packet asks for the held-row list; the page never does');
     const withoutHeld = advice => {
       const copy = JSON.parse(JSON.stringify(advice));
       if (copy.currentPeriodAction) delete copy.currentPeriodAction.heldTransactions;
@@ -195,30 +193,40 @@ function invented(extra) {
       for (const k of ['planOptions', 'simOptions']) if (copy[k]) delete copy[k][HELD_FLAG];
       return copy;
     };
-    const outDiff = diffKeys(withoutHeld(pRec.r), withoutHeld(aRec.r));
-    ok(outDiff.length === 0, 'the packet\'s recommend output equals the page\'s apart from the held-row list',
-      outDiff.join(', '));
-    ok(!(pRec.r.currentPeriodAction && 'heldTransactions' in pRec.r.currentPeriodAction),
-      'the page\'s advice carries no held-row list');
+    for (const [who, pRec] of [['Stack shell', shellRec[0]], ['classic page, retires at S7', classicRec[0]]]) {
+      const okw = (cond, label, detail) => ok(cond, label + ' [' + who + ']', detail);
+      okw(pRec.args[1] === aRec.args[1], 'the same as-of date');
+      // The packet adds exactly one input, collectHeldTransactions (the held-row to-do list). It may add only
+      // currentPeriodAction.heldTransactions: with that one field removed, the packet's whole recommend output
+      // must equal the page's, so no figure or tag can move through it.
+      const recDiff = diffKeys(pRec.args[2], aRec.args[2]).filter(k => k !== HELD_FLAG);
+      okw(recDiff.length === 0, 'identical Forecast.recommend inputs', recDiff.join(', '));
+      okw(aRec.args[2][HELD_FLAG] === true && !(HELD_FLAG in pRec.args[2]),
+        'only the packet asks for the held-row list; the page never does');
+      const outDiff = diffKeys(withoutHeld(pRec.r), withoutHeld(aRec.r));
+      okw(outDiff.length === 0, 'the packet\'s recommend output equals the page\'s apart from the held-row list',
+        outDiff.join(', '));
+      okw(!(pRec.r.currentPeriodAction && 'heldTransactions' in pRec.r.currentPeriodAction),
+        'the page\'s advice carries no held-row list');
+      // The figures themselves: the packet prints what the page's advice holds.
+      const rec = pkt.packet.forecast && pkt.packet.forecast.recommendation;
+      okw(rec && cents(rec.weekly) === cents(pRec.r.weekly), 'the weekly recommendation equals the page\'s');
+      const peb = pkt.packet.forecast && pkt.packet.forecast.predictedEndingBalance;
+      const pageBad = activePeriod(pRec.r) && activePeriod(pRec.r).balanceAfterDeductions;
+      okw(!peb || peb.status !== 'ok' || cents(peb.amount) === cents(pageBad),
+        'Balance After Deductions equals the page\'s current pay period');
+    }
     ok(!('revolvingExtra' in aRec.args[2]) && 'extraFacilities' in aRec.args[2],
       'overdraft facilities reach recommend under the key the engine reads (extraFacilities)');
     // RETIRES AT C1 S7: the Stack page does not call budgetBreakdown, so this parity is with the classic boot only.
-    const pBud = page.calls.budgetBreakdown && page.calls.budgetBreakdown[0];
+    const pBud = callsOf('classic', 'budgetBreakdown')[0];
     const aBud = pkt.calls.budgetBreakdown && pkt.calls.budgetBreakdown[0];
+    ok(!!pBud && !!aBud, 'both the classic page and the packet call Forecast.budgetBreakdown (retires at C1 S7)');
     if (pBud && aBud) {
       const budDiff = diffKeys(pBud.args[2], aBud.args[2]);
       ok(budDiff.length === 0, 'identical Forecast.budgetBreakdown inputs (paypalPerMonth, weekly basis, as-of)', budDiff.join(', '));
-    } else {
-      ok(!pBud === !aBud, 'budgetBreakdown is called by both or by neither');
     }
-
-    // The figures themselves: the packet prints what the page's advice holds.
-    const pageAdvice = pRec.r, rec = pkt.packet.forecast && pkt.packet.forecast.recommendation;
-    ok(rec && cents(rec.weekly) === cents(pageAdvice.weekly), 'the weekly recommendation equals the page\'s');
-    const peb = pkt.packet.forecast && pkt.packet.forecast.predictedEndingBalance;
-    const pageBad = activePeriod(pageAdvice) && activePeriod(pageAdvice).balanceAfterDeductions;
-    ok(!peb || peb.status !== 'ok' || cents(peb.amount) === cents(pageBad),
-      'Balance After Deductions equals the page\'s current pay period');
+    const rec = pkt.packet.forecast && pkt.packet.forecast.recommendation;
 
     // No invented or borrowed trust (#1081 6798337483): Forecast tags
     // neither of these figures, so both read unknown/not-tagged-by-Forecast.
@@ -264,7 +272,14 @@ function invented(extra) {
     ok(pageUnavailable === true, 'the Stack page reads the current plan unavailable (PA-5 #775)');
     ok(shellRec.args[2].operatingPlan === 'unavailable'
       && pkt.calls.recommend[0].args[2].operatingPlan === 'unavailable',
-      'both tell Forecast the effective verdict, unavailable');
+      'the Stack shell and the packet tell Forecast the effective verdict, unavailable');
+    // RETIRES AT C1 S7 with the classic page: the classic page's own verdict and input.
+    const classicCall = page.calls.recommend.find(c => c.origin === 'classic');
+    ok(!!classicCall, 'the classic page asks Forecast for the plan (retires at C1 S7)');
+    ok(vm.runInContext('liveOperatingPlanUnavailable', page.sb)(classicCall.r, d.liveOverlay) === true,
+      'the classic page reads the current plan unavailable (PA-5 #775) [classic page, retires at S7]');
+    ok(classicCall.args[2].operatingPlan === 'unavailable',
+      'the classic page tells Forecast the effective verdict, unavailable [classic page, retires at S7]');
     const cash = pkt.packet.current && pkt.packet.current.spendableHouseholdCash;
     ok(cash && cash.status !== 'ok' && cash.current !== true,
       'the packet does not publish the committed opening as current, status ok', cash ? String(cash.status) : 'none');
