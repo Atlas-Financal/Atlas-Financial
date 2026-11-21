@@ -295,6 +295,17 @@ console.log('9. The minimum\'s due date beside each Credit card name (Dale, 2026
   ok(JSON.stringify(dues(view)) === JSON.stringify(['Oct 12', null, null, null, null]),
     'a date prints only on the card with exactly one dated occurrence; two occurrences, an undated row, a malformed date and an unmarked row print none', JSON.stringify(dues(view)));
   ok(/<b>Invented card A<\/b><span class="wf-due">Oct 12<\/span>/.test(W.html(ctxOf([view]), { creditOpen: true })), 'the date sits right beside the card name');
+  // A shape-valid date that is not a calendar day (month 13, Feb 30, day 00) shows nothing and never breaks the render.
+  for (const bad of ['2026-13-05', '2026-02-30', '2026-10-00', '2026-04-31', '2026-00-10']) {
+    const badView = fullView({ bills: [mark('a', 'mbna', bad)] });
+    badView.stackSummary.bills.cardMinimums = [{ debtId: 'mbna', amount: 25 }];
+    let out = null, threw = null;
+    try { out = dues(badView); } catch (e) { threw = e.message; }
+    ok(threw === null && out.length === 1 && out[0] === null, `a calendar-invalid date (${bad}) prints no date and does not throw`, threw || JSON.stringify(out));
+  }
+  const leap = fullView({ bills: [mark('a', 'mbna', '2028-02-29')] });
+  leap.stackSummary.bills.cardMinimums = [{ debtId: 'mbna', amount: 25 }];
+  ok(dues(leap)[0] === 'Feb 29', 'a real leap day still prints', String(dues(leap)[0]));
   ok(dues({ ...view, bills: undefined }).every(d => d === null), 'no bill rows (the split withheld): no date, never a guess');
   ok(/\.wf-card \.wf-due \{[^}]*color: var\(--stack-on2\)/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-waterfall.css'), 'utf8')), 'the date is the muted ink, small');
   // Mutant: reading the first row whatever the count prints a guessed date for the two-occurrence card.

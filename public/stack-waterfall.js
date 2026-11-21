@@ -146,7 +146,12 @@
   function dueLabel(view, debtId) {
     const rows = (Array.isArray(view.bills) ? view.bills : []).filter(r => r && r.stackBillPart === 'cardMinimum' && String(r.stackBillDebtId) === String(debtId));
     const iso = rows.length === 1 ? rows[0].date : null;
-    return typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? dueFormat.format(new Date(iso + 'T12:00:00Z')) : '';
+    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+    // A real calendar day only: month 13 or Feb 30 shows nothing (never a throw that would blank the waterfall, never a
+    // rolled-over date). The round trip catches what a shape check cannot.
+    const when = new Date(iso + 'T12:00:00Z');
+    if (Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== iso) return '';
+    try { return dueFormat.format(when); } catch (error) { return ''; }
   }
 
   // The minimums due in the selected pay period, exactly Forecast's cardMinimums: a card with no minimum due in the
