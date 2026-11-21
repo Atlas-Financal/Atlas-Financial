@@ -4,6 +4,8 @@
  * TD Cash Back Visa: the minimum is due on the 4th. `cashback` ends at its 2026-11-01 occurrence (lastDue) and the
  * successor `cashback-day4` carries the schedule on from 2026-12-04, whose statement minimum is owner-confirmed;
  * later months stay estimated at the existing level.
+ * The same Cash Back statement shows a last payment on 2026-11-09 and no past-due amount, so the 2026-11-01 minimum is
+ * represented effective 2026-11-09 (lead, 2026-11-21).
  * TD Travel Visa: the statement balance is paid (a 2026-11-19 payment), so there are no arrears. The 2026-08-26 to
  * 2026-11-26 minimums are represented effective 2026-11-19 by owner confirmation, and the 11-26 statement minimum is
  * owner-confirmed; later minimums stay estimated.
@@ -59,6 +61,9 @@ const travelRep = (data.plan.opening.representedEvents || []).filter(e => e.id =
 ok(JSON.stringify(travelRep.map(e => e.date)) === JSON.stringify(TRAVEL_DATES)
   && travelRep.every(e => e.effectiveAsOf === '2026-11-19'),
   'travel: the four minimums are represented effective 2026-11-19 (the covering payment), not before');
+const cbRep = (data.plan.opening.representedEvents || []).filter(e => e.id === 'cashback' && e.date === '2026-11-01');
+ok(cbRep.length === 1 && cbRep[0].effectiveAsOf === '2026-11-09' && !(cashback.sentPayments || []).some(p => p.scheduledDate === '2026-11-01'),
+  'cashback: the 2026-11-01 minimum is represented effective 2026-11-09 (the last payment), with no payment amount recorded');
 const strip = rule => { const { eventId, ...rest } = rule; return JSON.stringify(rest); };
 const base = identity.rules.filter(r => r.eventId === 'cashback').map(strip);
 ok(base.length > 0 && JSON.stringify(identity.rules.filter(r => r.eventId === 'cashback-day4').map(strip)) === JSON.stringify(base),
@@ -94,18 +99,22 @@ console.log('3. The cash walk from ' + AS_OF);
 const walk = F.expandEvents(livePlan(), AS_OF, '2026-12-31', {}).filter(e => e.kind === 'obligation');
 ok(!walk.some(e => e.id === 'travel' && e.date === '2026-11-26'), 'the satisfied Nov 26 Travel minimum is not paid again');
 ok(walk.some(e => e.id === 'travel' && e.date === '2026-12-26'), 'the Dec 26 Travel minimum still leaves cash');
-// The earlier 2026-11-01 occurrence (before this change, unconfirmed) is carried as before; it is not in scope here.
 const out = walk.filter(e => /^cashback/.test(e.id) && e.date >= AS_OF);
 ok(out.length === 1 && out[0].id === 'cashback-day4' && out[0].date === '2026-12-04',
   'the only Cash Back minimum due from today to year end is 2026-12-04 (no Dec 1)', JSON.stringify(out.map(e => [e.id, e.date])));
-ok(walk.filter(e => /^cashback/.test(e.id) && e.date < AS_OF).every(e => e.id === 'cashback' && e.date === '2026-11-01'),
-  'the earlier unconfirmed 2026-11-01 occurrence keeps its own row and date (unchanged by this change)');
+ok(!walk.some(e => /^cashback/.test(e.id) && e.date < AS_OF), 'the paid 2026-11-01 Cash Back minimum is no longer carried');
+const novCb = rows(period(vs, '2026-10-23'), /^cashback$/)[0];
+ok(novCb && novCb.date === '2026-11-01' && novCb.settlement === 'represented' && novCb.status === 'PAID',
+  'the 2026-11-01 Cash Back minimum (Oct 23-Nov 5) reads paid (represented)');
 
 console.log('4. Each change does the work (removed, the old state comes back)');
 {
   const noRep = views(livePlan(p => { p.opening.representedEvents = p.opening.representedEvents.filter(e => e.id !== 'travel'); }));
   const oct = rows(period(noRep, '2026-10-23'), /^travel$/)[0];
   ok(oct && oct.settlement === 'unverified', 'without the represented entries the Oct 26 Travel minimum reads unverified again');
+  const noCb = livePlan(p => { p.opening.representedEvents = p.opening.representedEvents.filter(e => !(e.id === 'cashback' && e.date === '2026-11-01')); });
+  ok(F.expandEvents(noCb, AS_OF, '2026-12-31', {}).some(e => e.id === 'cashback' && e.date === '2026-11-01'),
+    'without its represented entry the 2026-11-01 Cash Back minimum is carried again');
   const noEnd = views(livePlan(p => { delete p.obligations.find(o => o.id === 'cashback').lastDue; }));
   ok(rows(period(noEnd, '2026-11-20'), /^cashback$/).some(r => r.date === '2026-12-01'),
     'without lastDue a Dec 1 Cash Back minimum returns to Nov 20-Dec 3 (beside the Dec 4 one)');
