@@ -5,7 +5,9 @@
  * successor `cashback-day4` carries the schedule on from 2026-12-04, whose statement minimum is owner-confirmed;
  * later months stay estimated at the existing level.
  * The same Cash Back statement shows a last payment on 2026-11-09 and no past-due amount, so the 2026-11-01 minimum is
- * represented effective 2026-11-09 (lead, 2026-11-21).
+ * represented effective 2026-11-09 (lead, 2026-11-21). Its payment (the ledger's 2026-11-06 Bills transfer) is recorded on that
+ * occurrence's sentPayments, so the card-minimum category path treats it as consumed and it cannot also settle
+ * cashback-day4's 2026-12-04 minimum (ATLAS REVIEWER 2, #1509). Section 5 proves that on an invented ledger.
  * TD Travel Visa: the statement balance is paid (a 2026-11-19 payment), so there are no arrears. The 2026-08-26 to
  * 2026-11-26 minimums are represented effective 2026-11-19 by owner confirmation, and the 11-26 statement minimum is
  * owner-confirmed; later minimums stay estimated.
@@ -62,8 +64,14 @@ ok(JSON.stringify(travelRep.map(e => e.date)) === JSON.stringify(TRAVEL_DATES)
   && travelRep.every(e => e.effectiveAsOf === '2026-11-19'),
   'travel: the four minimums are represented effective 2026-11-19 (the covering payment), not before');
 const cbRep = (data.plan.opening.representedEvents || []).filter(e => e.id === 'cashback' && e.date === '2026-11-01');
-ok(cbRep.length === 1 && cbRep[0].effectiveAsOf === '2026-11-09' && !(cashback.sentPayments || []).some(p => p.scheduledDate === '2026-11-01'),
-  'cashback: the 2026-11-01 minimum is represented effective 2026-11-09 (the last payment), with no payment amount recorded');
+ok(cbRep.length === 1 && cbRep[0].effectiveAsOf === '2026-11-09',
+  'cashback: the 2026-11-01 minimum is represented effective 2026-11-09 (the last payment)');
+const novSent = (cashback.sentPayments || []).filter(p => p.scheduledDate === '2026-11-01');
+ok(novSent.length === 1 && novSent[0].confirmed === true && novSent[0].pending === false && novSent[0].intent === 'minimum'
+  && novSent[0].fundingAccountId === cashback.payingAccount && novSent[0].postedOn === '2026-11-06' && novSent[0].amount > 0
+  && novSent[0].currency === 'cad' && novSent[0].cashIncludedAsOf === '2026-11-09'
+  && !(day4.sentPayments || []).length,
+  'cashback: its 2026-11-01 payment is recorded once, on that occurrence (posted 2026-11-06 from the paying account), and on no other row');
 const strip = rule => { const { eventId, ...rest } = rule; return JSON.stringify(rest); };
 const base = identity.rules.filter(r => r.eventId === 'cashback').map(strip);
 ok(base.length > 0 && JSON.stringify(identity.rules.filter(r => r.eventId === 'cashback-day4').map(strip)) === JSON.stringify(base),
@@ -121,6 +129,59 @@ console.log('4. Each change does the work (removed, the old state comes back)');
   const early = views(livePlan(p => { p.opening.representedEvents.filter(e => e.id === 'travel').forEach(e => { e.effectiveAsOf = '2026-11-22'; }); }));
   ok(rows(period(early, '2026-10-23'), /^travel$/)[0].settlement === 'unverified',
     'an effective date after the opening does not settle them (the 2026-11-19 date is what qualifies them)');
+}
+
+console.log('5. One payment settles one minimum (invented ledger, through the live path)');
+{
+  // Invented: a $49.37 categorized Cash Back payment from Bills posted 2035-11-09, inside cashback-day4's 2035-12-04
+  // window (close day 7) and after cashback's 2035-11-01 window. The rows are shaped as in data.json.
+  const Live = require('../scripts/live-plan');
+  const Category = require('../scripts/card-minimum-category');
+  const source = require('./fixtures/card-backfill-data');
+  const NOW = '2035-11-21';
+  const world = recorded => {
+    const x = source('cashback', 'cashback');
+    const name = Object.keys(Category.CATEGORIES).find(k => Category.CATEGORIES[k] === 'cashback');
+    x.data.meta.asOf = x.data.plan.opening.asOf = '2035-11-01';
+    x.data.plan.opening.representedEvents = [{ id: 'cashback', date: '2035-11-01', effectiveAsOf: '2035-11-09' }];
+    x.data.plan.income[0].anchor = '2035-11-01'; x.data.plan.income[0].amount = 0;
+    x.data.plan.budget = { categories: [] };
+    x.data.debts[0].statementCloseDay = 7;
+    const old = { id: 'cashback', debtId: 'cashback', effect: 'payment', frequency: 'monthly', day: 1, firstDue: '2035-10-01',
+      lastDue: '2035-11-01', payingAccount: 'chequing-a', amount: 41.13, confidence: 'estimated' };
+    if (recorded) old.sentPayments = [{ scheduledDate: '2035-11-01', confirmed: true, intent: 'minimum', debitId: 'cashback-2035-11-bank-sent',
+      postedOn: '2035-11-09', amount: 49.37, currency: 'cad', fundingAccountId: 'chequing-a', pending: false, cashIncludedAsOf: '2035-11-09' }];
+    x.data.plan.obligations = [old, { id: 'cashback-day4', debtId: 'cashback', effect: 'payment', frequency: 'monthly', day: 4,
+      firstDue: '2035-12-04', payingAccount: 'chequing-a', amount: 41.13, confidence: 'estimated',
+      statementOccurrences: [{ scheduledDate: '2035-12-04', dueDate: '2035-12-04', minimum: 43.19, currency: 'cad', confidence: 'confirmed' }] }];
+    x.data.plan.startingCash.breakdown[0].value = 1000; x.data.debts[0].balance = 800;
+    x.payload.accounts[0].balance = 950.63; x.payload.accounts[3].balance = 750.63;
+    x.payload.accounts.forEach(a => { a.updated_at = NOW + 'T17:00:00Z'; a.balance_last_update = NOW + 'T17:00:00Z'; });
+    x.payload.fetchedAt = NOW + 'T18:00:00Z';
+    x.payload.transactionWindow = { startDate: '2035-11-01', endDate: NOW, complete: true, hasMore: false, truncated: false };
+    x.payload.categories = [{ id: 9001, name, is_income: false, is_group: false, exclude_from_totals: true, exclude_from_budget: true }];
+    x.payload.transactions = [{ id: 98001, account_id: 3001, date: '2035-11-09', amount: 49.37, currency: 'cad',
+      payee: 'TFR-TO C/C', category_id: 9001, is_pending: false, status: 'reviewed' }];
+    x.asOf = NOW;
+    return x;
+  };
+  const run = recorded => {
+    const live = Live.fromObservation(world(recorded)), plan = live.data.plan;
+    const settled = ((plan.cardMinimumCategoryEvidence || {}).payments || []).map(p => p.id + '@' + p.scheduledDate);
+    const walk = F.expandEvents(plan, NOW, '2035-12-31', {}).filter(e => /^cashback/.test(e.id)).map(e => e.id + '@' + e.date);
+    const shown = F.recommend(plan, NOW, {}).payPeriodViews.flatMap(v => rows(v, /^cashback/));
+    return { applied: !!(live.data.liveOverlay && live.data.liveOverlay.applied), settled, walk,
+      nov: shown.find(r => r.date === '2035-11-01'), dec: shown.find(r => r.date === '2035-12-04') };
+  };
+  const fixed = run(true);
+  ok(fixed.applied && fixed.settled.length === 0, 'with the payment recorded on Nov 1, the category path settles nothing else', JSON.stringify(fixed.settled));
+  ok(fixed.nov && fixed.nov.status === 'PAID' && fixed.nov.settlement === 'represented', 'the Nov 1 minimum reads paid');
+  ok(fixed.dec && fixed.dec.status === 'still due' && fixed.dec.settlement === 'upcoming'
+    && JSON.stringify(fixed.walk) === JSON.stringify(['cashback-day4@2035-12-04']),
+    'the Dec 4 minimum stays due and is the one Cash Back minimum still taken from cash', JSON.stringify(fixed.walk));
+  const mutant = run(false);
+  ok(mutant.applied && JSON.stringify(mutant.settled) === JSON.stringify(['cashback-day4@2035-12-04']) && mutant.walk.length === 0,
+    'mutant: without the recorded payment the same payment also settles Dec 4 (the double settle is caught)', JSON.stringify(mutant));
 }
 
 console.log(failures ? `${failures} of ${checks} FAILED` : `All ${checks} TD card statement checks passed`);

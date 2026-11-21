@@ -61,9 +61,11 @@ const clone = x => JSON.parse(JSON.stringify(x));
 const liveData = JSON.parse(fs.readFileSync(DATA, 'utf8'));
 // The owner's own committed represented entries for one id (e.g. Travel, Dale's statement 2026-11-21): the overlay
 // carries them through and must add none of its own.
-const committedRepresented = id => ((liveData.plan.opening.representedEvents || []).filter(e => e.id === id)
-  .map(e => e.id + '@' + e.date).sort().join());
-const representedOf = (list, id) => (list || []).filter(e => e.id === id).map(e => e.id + '@' + e.date).sort().join();
+// Whole entries (with effectiveAsOf), duplicates kept: an invented entry on a committed date still differs.
+const entryKey = e => JSON.stringify([e.id, e.date, e.effectiveAsOf === undefined ? null : e.effectiveAsOf]);
+const committedRepresented = id => JSON.stringify((liveData.plan.opening.representedEvents || []).filter(e => e.id === id)
+  .map(entryKey).sort());
+const representedOf = (list, id) => JSON.stringify((list || []).filter(e => e && e.id === id).map(entryKey).sort());
 const accountMap = JSON.parse(fs.readFileSync(MAP, 'utf8'));
 const identity = JSON.parse(fs.readFileSync(IDENTITY, 'utf8'));
 const liveHash = hashFile(DATA);

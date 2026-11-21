@@ -290,7 +290,7 @@
                 "lastDue": "2026-11-01",
                 "amount": 170,
                 "confidence": "estimated",
-                "note": "The 2026-08-14 Chequing A TFR-TO C/C $763.00 posted against this card (posted fell $50 + $763 to $4,799.43, under the $5,000 limit). That payment satisfies the previous over-limit September spike of $762.36 (64 cents of rounding); the once row was removed so Forecast does not reserve it again. Future statement minimums are estimated at about $170. firstDue 2026-10-01. Owner-reported confirmation received 2026-10-06: minimum $209.37 paid $230.00 for the existing October occurrence. The existing scheduled date is retained; no new issuer statement due date is inferred. Receipt and cash inclusion are qualified at the observed 2026-10-06 opening. This occurrence-specific minimum does not replace later estimates, and the payment is not allocated to another cycle. The separate $180.00 Phoenix transfer is not this minimum payment. Owner fact 2026-11-21 (Dale, his TD Cash Back Visa statement for Oct. 8 to Nov. 9, 2026, read from his banking app): the minimum is due on the 4th; this row ends at its 2026-11-01 occurrence (lastDue) so its dated history keeps its identity, and `cashback-day4` carries the schedule on from 2026-12-04. The same statement shows a last payment on 2026-11-09 (above the estimate) and carries no past-due amount, so the 2026-11-01 minimum was paid: it is represented effective 2026-11-09 by owner confirmation (lead's reading of Dale's statement, 2026-11-21), not a fabricated bank or issuer receipt. No payment amount or allocation is recorded.",
+                "note": "The 2026-08-14 Chequing A TFR-TO C/C $763.00 posted against this card (posted fell $50 + $763 to $4,799.43, under the $5,000 limit). That payment satisfies the previous over-limit September spike of $762.36 (64 cents of rounding); the once row was removed so Forecast does not reserve it again. Future statement minimums are estimated at about $170. firstDue 2026-10-01. Owner-reported confirmation received 2026-10-06: minimum $209.37 paid $230.00 for the existing October occurrence. The existing scheduled date is retained; no new issuer statement due date is inferred. Receipt and cash inclusion are qualified at the observed 2026-10-06 opening. This occurrence-specific minimum does not replace later estimates, and the payment is not allocated to another cycle. The separate $180.00 Phoenix transfer is not this minimum payment. Owner fact 2026-11-21 (Dale, his TD Cash Back Visa statement for Oct. 8 to Nov. 9, 2026, read from his banking app): the minimum is due on the 4th; this row ends at its 2026-11-01 occurrence (lastDue) so its dated history keeps its identity, and `cashback-day4` carries the schedule on from 2026-12-04. The same statement shows a last payment on 2026-11-09 (above the estimate) and carries no past-due amount, so the 2026-11-01 minimum was paid: it is represented effective 2026-11-09 by owner confirmation (lead's reading of Dale's statement, 2026-11-21), not a fabricated bank or issuer receipt. The payment is the Bills transfer the ledger posts on 2026-11-06 with the note `card payment: TD Cash Back Visa` (the card shows it on 2026-11-09); it is recorded on this row's 2026-11-01 sentPayments so it is consumed once and cannot also settle `cashback-day4`'s 2026-12-04 minimum (ATLAS REVIEWER 2, #1509).",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -314,6 +314,18 @@
                         "fundingAccountId": "chequing-a",
                         "pending": false,
                         "cashIncludedAsOf": "2026-10-06"
+                    },
+                    {
+                        "scheduledDate": "2026-11-01",
+                        "confirmed": true,
+                        "intent": "minimum",
+                        "debitId": "cashback-2026-11-bank-sent",
+                        "postedOn": "2026-11-06",
+                        "amount": 277.52,
+                        "currency": "cad",
+                        "fundingAccountId": "chequing-a",
+                        "pending": false,
+                        "cashIncludedAsOf": "2026-11-09"
                     }
                 ]
             },
