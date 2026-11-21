@@ -73,15 +73,20 @@ for (const [label, rule] of [['missing', (({ linkedFrom, ...r }) => r)(RULE)], [
 }
 ok(O.RECURRING_REFUSAL_CODES.includes('link-anchor-missing'), 'link-anchor-missing is a closed refusal code');
 
-console.log('4. Every committed bill link records linkedFrom 2026-12-01');
+console.log('4. Every committed bill link records linkedFrom: 2026-12-01 for the #1508 links; spotify and rehearsal-space, live before #1508, from their first month');
+const EARLIER = { spotify: '2026-09-01', 'rehearsal-space': '2026-11-01' };
 {
   const billIds = new Set(data.plan.bills.map(b => b.id));
   const links = identity.rules.filter(r => (r.lunchMoneyRecurringIds || []).length && billIds.has(r.eventId));
-  ok(links.length > 0 && links.every(r => r.linkedFrom === '2026-12-01'), `${links.length} bill links, each linkedFrom 2026-12-01`,
-    J(links.filter(r => r.linkedFrom !== '2026-12-01').map(r => r.eventId)));
+  const bad = links.filter(r => r.linkedFrom !== (EARLIER[r.eventId] || '2026-12-01')).map(r => [r.eventId, r.linkedFrom]);
+  ok(links.length > 0 && bad.length === 0, `${links.length} bill links, each with its linkedFrom`, J(bad));
+  for (const id of Object.keys(EARLIER)) {
+    const b = data.plan.bills.find(x => x.id === id);
+    ok(b && EARLIER[id] <= b.firstDue, `${id}: linkedFrom ${EARLIER[id]} is on or before its firstDue (no occurrence keeps the plan day)`, b && b.firstDue);
+  }
 }
 
-console.log('5. Every committed link, any item start, any observation date: nothing before Dec 1 is re-dated and the cutover never moves');
+console.log('5. Every 2026-12-01 link, any item start, any observation date: nothing before Dec 1 is re-dated and the cutover never moves');
 {
   const ids = {};
   for (const r of identity.rules) for (const x of r.lunchMoneyRecurringIds || []) ids[x] = r.eventId;
@@ -98,7 +103,7 @@ console.log('5. Every committed link, any item start, any observation date: noth
     });
     const at = asOf => O.recurringBillSchedules({ status: 'read', items }, identity.rules, data.plan, asOf, {});
     const a = at('2026-11-21'), b2 = at('2026-11-28');
-    for (const s of a.filter(x => x.billId)) {
+    for (const s of a.filter(x => x.billId && !EARLIER[x.billId])) {
       const b = bills.find(x => x.id === s.billId);
       const served = O.applyRecurringSchedule(b, s);
       const other = b2.find(x => x.billId === s.billId);
@@ -162,6 +167,26 @@ console.log('8. Card rows (obligation cutover path, unchanged): triangle-td3 and
     const s = got.find(x => x.obligationId === id);
     const served = s ? { ...row, ...s.fields } : row;
     ok(J(F.occurrences(row, '2025-01-01', '2026-11-21')) === J(F.occurrences(served, '2025-01-01', '2026-11-21')), `${id}: no occurrence on or before the observation date moves`);
+  }
+}
+
+console.log('9. spotify and rehearsal-space serve exactly the occurrences main serves (no cutover effect), for invented item days');
+{
+  const ids = {};
+  for (const r of identity.rules) for (const x of r.lunchMoneyRecurringIds || []) ids[r.eventId] = x;
+  for (const day of [1, 5, 9, 16, 23, 28]) {
+    const items = Object.keys(EARLIER).map(id => ({ recurringId: ids[id], startDate: '2026-09-01', endDate: null, currency: 'cad', accountRole: 'household-cash',
+      expectedDates: [], foundTransactionLocalIds: [], granularity: 'month', quantity: 1, anchorDate: '2026-11-' + String(day).padStart(2, '0') }));
+    const got = O.recurringBillSchedules({ status: 'read', items }, identity.rules, data.plan, '2026-11-21', {});
+    for (const id of Object.keys(EARLIER)) {
+      const b = data.plan.bills.find(x => x.id === id);
+      const s = got.find(x => x.billId === id);
+      const served = O.applyRecurringSchedule(b, s);
+      const { timingBefore, ...mainTiming } = s.timing;
+      const main = O.applyRecurringSchedule(b, { ...s, timing: mainTiming });
+      ok(J(F.occurrences(served, '2026-01-01', '2027-06-30')) === J(F.occurrences(main, '2026-01-01', '2027-06-30')),
+        `${id}, item day ${day}: occurrences identical to main's`, J(F.occurrences(served, '2026-08-01', '2026-12-31')));
+    }
   }
 }
 
