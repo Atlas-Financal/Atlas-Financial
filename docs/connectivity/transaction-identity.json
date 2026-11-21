@@ -520,6 +520,16 @@
       "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): TeamSnap+ is identified by its Lunch Money recurring link alone (item 3722391), as rehearsal-space is: a posted native-CAD BILLS ACCOUNT debit whose recurring_id is that item. The item leads the schedule; payee, notes and amount are not identity."
     },
     {
+      "eventId": "muse-meta",
+      "lunchMoneyRecurringIds": ["3722358"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): Muse from Meta is identified by its Lunch Money recurring link alone (item 3722358), as rehearsal-space is: a posted native-CAD BILLS ACCOUNT debit whose recurring_id is that item. The item leads the schedule; payee, notes and amount are not identity."
+    },
+    {
       "eventId": "crave-standard-ads",
       "lunchMoneyRecurringIds": ["3722235"],
       "atlasAccountId": "chequing-a",

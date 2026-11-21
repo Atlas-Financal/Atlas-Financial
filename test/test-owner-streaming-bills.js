@@ -33,9 +33,11 @@ for (const [id, label, amount, day, firstDue] of specifications) {
   assert.equal(row.budgetCategory, 'subscriptions');
   assert.equal(row.subscription, true);
   assert.equal(row.householdObligation, true);
-  assert.equal(row.payingAccount, 'wise');
-  assert.equal(row.fundingAccount, 'chequing-a');
-  assert.equal(row.jointCash, false);
+  // Owner fact 2026-11-21 (Dale, via the lead: "all on Bills now"): each is paid from Bills directly, per its
+  // Lunch Money recurring item's account; the Wise funding leg is retired.
+  assert.equal(row.payingAccount, 'chequing-a');
+  assert.equal(Object.hasOwn(row, 'fundingAccount'), false);
+  assert.equal(Object.hasOwn(row, 'jointCash'), false);
   assert.equal(F.isCardPaidBill(row, data.plan), false, `${id}: not revolving card debt`);
   assert.equal(F.billAffectsJointCash(row, data.plan), true, `${id}: one planned Bills funding requirement`);
   for (const field of ['settledOn', 'paid', 'paidOn', 'representedEvents', 'merchantKeys', 'noPaymentRequiredOn']) {
@@ -55,9 +57,15 @@ assert(!F.expandEvents(data.plan, '2026-08-19', '2026-10-10').some(event => ids.
 assert(!(data.plan.opening.representedEvents || []).some(event => ids.has(event.id)),
   'receipt and funding evidence do not create paid markers');
 const identity = JSON.parse(fs.readFileSync(path.join(root, 'docs/connectivity/transaction-identity.json'), 'utf8'));
-for (const id of ids) assert(!JSON.stringify(identity).includes('"' + id + '"'),
-  `${id}: no invented provider settlement mapping`);
-console.log('PASS owner receipt/input contract, independent total, separate Prime and no history/paid rewrite');
+// Owner-provided recurring ids (2026-11-21): each bill is identified by its own Lunch Money recurring link alone.
+const OWNER_ITEMS = { 'paramount-plus': '3722236', stacktv: '3722237', 'prime-video-ad-free': '3722299', 'crave-standard-ads': '3722235' };
+for (const id of ids) {
+  const rules = identity.rules.filter(rule => rule.eventId === id);
+  assert(rules.length === 1 && JSON.stringify(rules[0].lunchMoneyRecurringIds) === JSON.stringify([OWNER_ITEMS[id]])
+    && !rules[0].payeePattern && !rules[0].payeePatterns && rules[0].atlasAccountId === 'chequing-a',
+    `${id}: one link-only rule naming its owner-provided item, no payee mapping`);
+}
+console.log('PASS owner receipt/input contract (paid from Bills since 2026-11-21), independent total, separate Prime and no history/paid rewrite');
 
 // Explicit household acceptance is kept apart from invented behavior values.
 const forward = F.expandEvents(data.plan, '2026-10-10', '2026-11-30').filter(e => ids.has(e.id));
@@ -70,7 +78,7 @@ assert.deepEqual(forward.map(e => [e.id, e.date, -cents(e.amount)]), [
 assert.equal(forward.filter(e => e.date.startsWith('2026-10')).reduce((n,e) => n-cents(e.amount), 0), 3357);
 assert.equal(forward.filter(e => e.date.startsWith('2026-11')).reduce((n,e) => n-cents(e.amount), 0), 4700);
 assert(forward.every(e => e.jointCash && !e.cardPaid && e.payingAccount === 'chequing-a'
-  && e.fundingAccount === 'chequing-a' && e.merchantPayingAccount === 'wise'));
+  && !Object.hasOwn(e, 'merchantPayingAccount')));
 console.log('PASS separate October forward 3357 cents and November 4700 cents, once per bill');
 
 // Invented values, dates and labels: behavior is not specified by live cents.

@@ -12,7 +12,7 @@ const ok = (cond, label, detail) => { checks++; if (cond) console.log('  PASS  '
 const J = JSON.stringify;
 const LINKS = { shaw: '3722143', bcaa: '3722144', icbc: '3722145', resp: '3722146', netflix: '3722150', 'icloud-storage': '3722153',
   'google-storage-100gb': '3722157', 'chatgpt-plus-dale': '3722348', 'youtube-premium': '3709406', 'noble-garbage': '3722207',
-  fit4less: '3722395', tdcc: '3722415', 'triangle-td3': '3722506', microsoft: '3722390', 'teamsnap-plus': '3722391', 'mbna-auto30': '3709492', 'crave-standard-ads': '3722235',
+  fit4less: '3722395', tdcc: '3722415', 'triangle-td3': '3722506', microsoft: '3722390', 'teamsnap-plus': '3722391', 'muse-meta': '3722358', 'mbna-auto30': '3709492', 'crave-standard-ads': '3722235',
   'paramount-plus': '3722236', stacktv: '3722237', 'prime-video-ad-free': '3722299' };
 // Invented items: monthly on the 5th (a day no linked row uses today), quarterly, biweekly as the row's cadence needs.
 const invented = (id, rid) => {
@@ -31,13 +31,13 @@ console.log('1. The committed rules name each owner-provided id exactly once');
 const owners = {};
 for (const r of identity.rules) for (const x of r.lunchMoneyRecurringIds || []) owners[x] = (owners[x] || []).concat(r.eventId);
 for (const [id, rid] of Object.entries(LINKS)) ok(J(owners[rid]) === J([id]), `${id} → ${rid}, one rule`, J(owners[rid]));
-for (const rid of ['3722173', '3722165', '3722147', '3722158', '3722163', '3722170', '3722167', '3722358'])
+for (const rid of ['3722173', '3722165', '3722147', '3722158', '3722163', '3722170', '3722167'])
   ok(!owners[rid], `${rid} is not linked (see the merge card)`);
 
 console.log('2. An invented item moves each linked row; nothing else moves');
 const got = review(identity.rules);
 const byId = Object.fromEntries(got.map(s => [s.billId || s.obligationId, s]));
-for (const id of ['shaw', 'bcaa', 'icbc', 'resp', 'netflix', 'icloud-storage', 'google-storage-100gb', 'chatgpt-plus-dale', 'youtube-premium', 'microsoft', 'teamsnap-plus', 'crave-standard-ads', 'paramount-plus', 'stacktv', 'prime-video-ad-free'])
+for (const id of ['shaw', 'bcaa', 'icbc', 'resp', 'netflix', 'icloud-storage', 'google-storage-100gb', 'chatgpt-plus-dale', 'youtube-premium', 'microsoft', 'teamsnap-plus', 'muse-meta', 'crave-standard-ads', 'paramount-plus', 'stacktv', 'prime-video-ad-free'])
   ok(byId[id] && byId[id].timing.frequency === 'monthly' && byId[id].timing.day === 5, `${id}: monthly on the invented 5th`, J(byId[id]));
 ok(byId['noble-garbage'] && byId['noble-garbage'].timing.frequency === 'quarterly' && byId['noble-garbage'].timing.day === 5,
   'noble-garbage: quarterly on the 5th', J(byId['noble-garbage']));
