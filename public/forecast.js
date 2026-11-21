@@ -95,9 +95,30 @@
     return records;
   }
 
+  // Owner rule (Dale, 2026-11-20, Triangle and Amazon): the planned minimum is one month's interest on a
+  // frozen statement balance at its purchase rate, rounded up to the whole dollar, and held every month
+  // (authored `fixedInterestMinimum: { balance, rate, asOf }`, rate in percent). A refreshed balance never
+  // moves it; only a re-authored snapshot does. A malformed snapshot fails closed.
+  function fixedInterestMinimum(row) {
+    const rule = row && row.fixedInterestMinimum;
+    if (rule == null) return null;
+    if (!paymentRow(row) || !rule || typeof rule !== 'object' || cents(rule.balance) == null || !(rule.balance > 0)
+        || typeof rule.rate !== 'number' || !Number.isFinite(rule.rate) || !(rule.rate > 0) || !(rule.rate < 100)
+        || !date(rule.asOf)) throw new Error('Invalid fixed interest minimum.');
+    // Whole cents first (balance × rate% / 12), then up to the whole dollar.
+    const interestCents = Math.round(cents(rule.balance) * rule.rate / 1200 * 1e6) / 1e6;
+    return Math.ceil(interestCents / 100);
+  }
+  // The planned amount of one occurrence: the fixed amount where the rule applies, never below the issuer's
+  // statement minimum (max of the two); otherwise the statement minimum or the row's estimate as before.
+  function plannedOccurrenceAmount(row, statement, fixed) {
+    if (fixed == null) return statement ? statement.minimum : row.amount;
+    return statement ? Math.max(fixed, statement.minimum) : fixed;
+  }
   function resolveOccurrences(row, start, end, occurrences, outflowDates) {
+    const fixed = fixedInterestMinimum(row);
     if (row.statementOccurrences == null) return outflowDates(row, start, end).map(scheduledDate => ({
-      scheduledDate, date: scheduledDate, amount: row.amount, confidence: row.confidence, statement: false }));
+      scheduledDate, date: scheduledDate, amount: plannedOccurrenceAmount(row, null, fixed), confidence: row.confidence, statement: false }));
     const statements = statementRows(row, occurrences);
     const byScheduled = new Map(statements.map(record => [record.scheduledDate, record]));
     const candidates = new Set(outflowDates(row, start, end));
@@ -116,8 +137,9 @@
         ? (Object.prototype.hasOwnProperty.call(statement, 'dateConfidence') ? statement.dateConfidence : 'confirmed')
         : null;
       return { scheduledDate, date: statement ? statement.dueDate : scheduledDate,
-        amount: statement ? statement.minimum : row.amount,
-        confidence: statement ? statement.confidence : row.confidence,
+        amount: plannedOccurrenceAmount(row, statement, fixed),
+        // A statement's confirmation covers the amount only when the statement minimum is the amount paid.
+        confidence: statement && (fixed == null || statement.minimum >= fixed) ? statement.confidence : row.confidence,
         ...(dateConfidence ? { dateConfidence } : {}),
         statement: !!statement };
     }).filter(record => record.date <= end && (record.date >= start || row.frequency === 'once'))
