@@ -296,6 +296,17 @@ Each batch is one PR, one outcome, in the lane stated, with the in-house reviewe
 | `test-stack-shell.js` | index.html +?view=classic | The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1) | 15/36 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
 | `test-stack-trust.js` |  +?view=classic | One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, wit | 44/60 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
 
+## Savings pool on the Stack page (acceptance Check 2, B3/B4)
+
+| Classic browser scenarios | Replacement proof |
+|---|---|
+| 2.1 and 2.2 read Saved and Still to fund on the classic goal rows. | Open the Stack Savings card and check each goal's saved and needed amounts, in need-date order. Swapping only the due dates switches which goal receives the full share. The selected page's Forecast recommendation supplies the explicit Still to fund figures, which the card represents with saved and needed amounts. The tests assert the original gaps independently. |
+| 2.3 read the reported combined savings line. | Compare the published balance with the input observation. Reconcile the card's heading and complete row list in two cases. When the balance exceeds all needs, the remainder has its own Unallocated row. Published shares, needs and totals are checked to the cent alongside the whole-dollar display. |
+| 2.4 and 2.5 distinguished an observed zero balance from missing savings evidence. | An observed zero shows zero saved for each goal and keeps both full needs outstanding. Missing evidence shows a dash in the card heading and both named rows. The published balance, shares, needs and gaps are withheld. |
+| 2.10 reloaded classic and compared the goal rows. | Reload Stack with the same served observation. Compare its opened card, ordered rows and published figures before and after, with independently expected shares as a positive control. |
+
+The six scenarios use `openBudget` through `withBudget(..., { view: 'stack' })`. In disposable copies they detect reversed allocation priority, one-cent changes to a share, need, pool total, excess or funding gap, a missing amount published or printed as zero, a real zero withheld, incorrect trust, an omitted Unallocated row, a wrong printed share and a change delivered only on reload.
+
 ## Manual browser files (96)
 
 Not run by `npm test` (`test.js` lists the `browser-` prefix as not a node suite), so retiring one removes no CI protection; the figure or trust claim a browser file makes is carried by the CI row above that covers the same subject. Dispositions: `RETIRE-AT-S7 (manual)` unless the file proves shared shell/boot behaviour or the Stack page (`ADAPT-OR-KEEP`: run it on the Stack page, decide per file in B5), or is one of the escaping twins (`RETARGETED`).
