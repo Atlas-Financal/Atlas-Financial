@@ -439,6 +439,7 @@
                 "confidence": "estimated",
                 "note": "The 2026-08-14 Chequing A TFR-TO C/C $94.03 posted and the TD card posted balance fell by exactly $94.03 to $1,705.94. firstDue 2026-09-17 so August is not reserved again. A further miss would restart the 24.99% penalty-rate clock. Owner confirmation received 2026-10-06: Emerald minimum $45.96 paid $50.00. The owner-authorized target is the next existing October household planning occurrence, tdcc@2026-10-17. October 17 remains an estimated planning date, not newly proven issuer due-date evidence. The Bills debit posted 2026-10-05 and is included in the observed 2026-10-06 cash opening. The separately represented tdcc@2026-09-17 settlement remains intact. This occurrence-specific minimum does not replace later $94.03 estimates; the send does not infer a separate excess-principal allocation or another cash deduction.",
                 "firstDue": "2026-09-17",
+                "lastDue": "2026-11-17",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -464,6 +465,19 @@
                         "cashIncludedAsOf": "2026-10-06"
                     }
                 ]
+            },
+            {
+                "id": "tdcc-auto17",
+                "debtId": "tdcc",
+                "effect": "payment",
+                "label": "TD credit card — fixed automatic payment",
+                "frequency": "monthly",
+                "day": 17,
+                "firstDue": "2026-12-17",
+                "amount": 50,
+                "confidence": "estimated",
+                "note": "Owner fact 2026-11-21 (Dale, consolidated list relayed in the lead session): the TD credit card (Emerald) is paid by a fixed automatic payment of $50.00 on the 17th, Lunch Money recurring item 3722415. Successor of `tdcc`, which ends at its 2026-11-17 occurrence (lastDue) so its dated history keeps its identity. The confidence tag is unchanged from `tdcc` (no promotion). The last statement minimum on record (2026-10-17) is below the fixed amount; a later statement minimum above it would mean the autopay underpays, which test/test-tdcc-fixed-autopay.js reports as a warning.",
+                "payingAccount": "chequing-a"
             },
             {
                 "id": "travel",
