@@ -42,6 +42,13 @@ const worlds = {
       (d.plan.startingCash.breakdown || []).forEach(row => { row.value = null; }); return d; },
     reach: ['#status-band', '#transfer-note', '#nextmove-card', '[data-unavailable-primary]'],
   },
+  // The Stack page (the default Budget page): its own hostile household, the poisoned Forecast leaving clean the keys its
+  // blocks branch on, every assertion scoped to #stack-root (the previous page renders hidden under it).
+  'Stack page': {
+    stack: true,
+    data: () => H.hostileStack(),
+    reach: ['#stack-root [data-stack-block="credit"]', '#stack-root [data-stack-block="cards"]', '#stack-root [data-stack-block="waterfall"]'],
+  },
 };
 
 (async () => {
@@ -67,11 +74,13 @@ const worlds = {
           : file.endsWith('.woff2') ? 'font/woff2' : file.endsWith('.png') ? 'image/png' : 'text/html';
         return intercepted.fulfill({ body: fs.readFileSync(file), contentType: type });
       });
-      await page.addInitScript(...P.browserInit);
+      await page.addInitScript(...(world.stack ? P.browserInitWith('part|evidence|basis') : P.browserInit));
+      if (world.stack) await page.addInitScript(() => { window.__scope = '#stack-root'; });
       await page.addInitScript(() => {
         window.__injected = [];
         const note = el => {
           if (!el || el.nodeType !== 1) return;
+          if (window.__scope && !(el.closest && el.closest(window.__scope))) return;
           for (const node of [el, ...el.querySelectorAll('*')]) {
             const tag = node.tagName.toLowerCase();
             for (const a of node.attributes) if (/^on/i.test(a.name)) window.__injected.push(`${tag}[${a.name}]`);
@@ -81,25 +90,28 @@ const worlds = {
         new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(note)))
           .observe(document, { childList: true, subtree: true });
       });
-      await page.goto('http://atlas.test/?view=classic');
-      await page.waitForFunction(() => document.querySelector('[data-budget-surface]'), null, { timeout: 20000 })
+      await page.goto(world.stack ? 'http://atlas.test/' : 'http://atlas.test/?view=classic');
+      await page.waitForFunction(stack => (stack ? document.querySelector('#stack-root [data-stack-block="credit"] *') : document.querySelector('[data-budget-surface]')), world.stack === true, { timeout: 20000 })
         .catch(() => errors.push(`${name}: the Budget never rendered`));
-      // Show the diagnostics section and render it.
-      await page.evaluate(() => { const r = document.getElementById('road-ahead'); r.hidden = false; r.inert = false; App.rerender(); });
+      // Show the diagnostics section and render it (the previous page only).
+      if (!world.stack) await page.evaluate(() => { const r = document.getElementById('road-ahead'); r.hidden = false; r.inert = false; App.rerender(); });
       await page.waitForTimeout(200);
       // Shown as text, before the clicks move the view: the poisoned Forecast
       // text, or the fixture's household note (plan-owned text such as
       // plan.nextDollar.summary).
       const missing = await page.evaluate(({ reach, markers }) => reach.filter(sel => ![...document.querySelectorAll(sel)]
         .some(el => markers.some(m => (el.textContent || '').includes(m)))),
-      { reach: world.reach, markers: ['<img src=z data-poisoned-forecast', H.NOTE] });
-      const n = await page.evaluate(() => {
-        const controls = [...document.querySelectorAll('button, summary, [role="tab"], [data-budget-bill-open], [tabindex="0"]')];
+      { reach: world.reach, markers: ['<img src=z data-poisoned-forecast', H.NOTE, ...(world.stack ? [H.LABEL] : [])] });
+      const n = await page.evaluate(stack => {
+        const controls = [...document.querySelectorAll(stack
+          ? '#stack-root [data-stack-credit-toggle], #stack-root [data-wf-toggle], #stack-root summary, #stack-root [data-stack-sheet], #stack-root [data-stack-period]'
+          : 'button, summary, [role="tab"], [data-budget-bill-open], [tabindex="0"]')];
         controls.forEach((el, i) => el.setAttribute('data-forecast-escape-probe', String(i)));
         return controls.length;
-      });
+      }, world.stack === true);
       for (let i = 0; i < Math.min(n, 400); i++) {
         await page.click(`[data-forecast-escape-probe="${i}"]`, { timeout: 200, force: true }).catch(() => {});
+        if (world.stack) await page.keyboard.press('Escape').catch(() => {});
       }
       await page.waitForTimeout(50);
       const face = { injected: await page.evaluate(() => window.__injected), missing };

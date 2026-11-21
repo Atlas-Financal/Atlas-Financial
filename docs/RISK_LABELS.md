@@ -235,7 +235,10 @@ What one comparison observes:
   line per Forecast read with SHA-256 digests of its arguments and its result
   (`recommend`'s result is not digested: every figure it publishes is already
   compared field by field). A figure is never an evidence value. These keys are
-  compared like any other captured field (family Other); there is no
+  compared like any other captured field (family Other). In test mode
+  (`recordHtml`) the drive also records the markup each block and sheet item wrote,
+  which `test/test-forecast-text-escaping.js` drives with the hostile household and
+  the poisoned Forecast (the Stack escaping proof); there is no
   required-evidence validator for them, because a Stack capture that silently did
   not run is caught by `test/test-stack-page-capture.js` (in `npm test`), which fails
   unless the Stack page really ran on invented inputs and proves, on mutated copies

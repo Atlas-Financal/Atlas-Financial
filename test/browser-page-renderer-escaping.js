@@ -18,16 +18,20 @@ const { chromium } = require('playwright');
 const H = require('./fixtures/hostile-page-text');
 
 const root = path.join(__dirname, '..');
+// The previous page by its explicit route, and the Stack page (the default Budget page) by the default route, with its own
+// hostile household and every assertion scoped to #stack-root (the previous page renders hidden under it, so a page-wide check
+// could be satisfied by that page alone).
 const pages = [
-  { path: '/', main: true },
+  { path: '/', main: true, search: '?view=classic', name: 'classic page' },
+  { path: '/', main: false, stack: true, search: '', name: 'Stack page' },
 ];
 
 (async () => {
   const errors = [];
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, headless: true });
-  const data = H.hostile();
   try {
     for (const route of pages) {
+      const data = route.stack ? H.hostileStack() : H.hostile();
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       const dialogs = [];
       page.on('dialog', d => { dialogs.push(d.message()); d.dismiss().catch(() => {}); });
@@ -49,6 +53,8 @@ const pages = [
         window.__injected = [];
         const note = el => {
           if (!el || el.nodeType !== 1) return;
+          // Scoped runs (the Stack page) count only what lands inside #stack-root, its sheet overlay included.
+          if (window.__scope && !(el.closest && el.closest(window.__scope))) return;
           for (const node of [el, ...el.querySelectorAll('*')]) {
             const tag = node.tagName.toLowerCase();
             for (const a of node.attributes) if (/^on/i.test(a.name)) window.__injected.push(`${tag}[${a.name}]`);
@@ -59,9 +65,30 @@ const pages = [
         new MutationObserver(list => list.forEach(m => m.addedNodes.forEach(note)))
           .observe(document, { childList: true, subtree: true });
       });
-      await page.goto('http://atlas.test' + route.path + '?view=classic');
-      await page.waitForFunction(label => (document.body.innerText || '').includes(label), H.LABEL, { timeout: 20000 })
-        .catch(() => errors.push(`${route.path}: the hostile label never appeared as text`));
+      if (route.stack) await page.addInitScript(() => { window.__scope = '#stack-root'; });
+      await page.goto('http://atlas.test' + route.path + route.search);
+      // The hostile label is visible as text (textContent: a closed <details> keeps its content out of innerText).
+      await page.waitForFunction(({ label, scope }) => ((scope ? document.querySelector(scope) : document.body) || {}).textContent
+        && (scope ? document.querySelector(scope) : document.body).textContent.includes(label), { label: H.LABEL, scope: route.stack ? '#stack-root' : null }, { timeout: 20000 })
+        .catch(() => errors.push(`${route.name}: the hostile label never appeared as text`));
+      if (route.stack) {
+        // Open everything the Stack page offers, twice: Credit and its rows, every sheet row (a bill, a budget category, a
+        // card, the mortgage), each period chip. A sheet is closed with Escape before the next row.
+        for (let round = 0; round < 2; round++) {
+          const n = await page.evaluate(() => {
+            const controls = [...document.querySelectorAll('#stack-root [data-stack-credit-toggle], #stack-root [data-wf-toggle], #stack-root summary, #stack-root [data-stack-sheet], #stack-root [data-stack-period]')];
+            controls.forEach((el, i) => el.setAttribute('data-escape-probe', String(i)));
+            return controls.length;
+          });
+          if (round === 0 && n < 10) errors.push(`${route.name}: only ${n} controls to open`);
+          for (let i = 0; i < Math.min(n, 400); i++) {
+            await page.click(`[data-escape-probe="${i}"]`, { timeout: 300, force: true }).catch(() => {});
+            await page.keyboard.press('Escape').catch(() => {});
+          }
+        }
+        const sheets = await page.evaluate(() => document.querySelectorAll('#stack-root [data-stack-sheet]').length);
+        if (sheets < 5) errors.push(`${route.name}: only ${sheets} sheet rows on the Stack page`);
+      }
       if (route.main) {
         for (let round = 0; round < 2; round++) {
           const n = await page.evaluate(() => {
@@ -81,22 +108,23 @@ const pages = [
       }
       await page.waitForTimeout(50);
       const face = await page.evaluate(() => {
-        const all = [...document.querySelectorAll('*')];
+        const scope = window.__scope ? document.querySelector(window.__scope) : null;
+        const all = [...(scope ? [scope, ...scope.querySelectorAll('*')] : document.querySelectorAll('*'))];
         const handlers = all.flatMap(el => [...el.attributes].filter(a => /^on/i.test(a.name))
           .map(a => `${el.tagName.toLowerCase()}[${a.name}]`));
         return {
           handlers: handlers.concat(window.__injected),
-          imgs: document.querySelectorAll('img').length,
-          inlineScripts: [...document.querySelectorAll('script')].filter(s => !s.src).length,
+          imgs: (scope || document).querySelectorAll('img').length,
+          inlineScripts: [...(scope || document).querySelectorAll('script')].filter(s => !s.src).length,
           tipChildren: [...(document.getElementById('tip')?.querySelectorAll('*') || [])].map(e => e.tagName.toLowerCase()),
         };
       });
-      if (dialogs.length) errors.push(`${route.path}: dialog opened ${JSON.stringify(dialogs)}`);
-      if (face.handlers.length) errors.push(`${route.path}: injected event attributes ${face.handlers.join(', ')}`);
-      if (face.imgs) errors.push(`${route.path}: ${face.imgs} injected img element(s)`);
-      if (face.inlineScripts) errors.push(`${route.path}: ${face.inlineScripts} injected inline script(s)`);
+      if (dialogs.length) errors.push(`${route.name}: dialog opened ${JSON.stringify(dialogs)}`);
+      if (face.handlers.length) errors.push(`${route.name}: injected event attributes ${face.handlers.join(', ')}`);
+      if (face.imgs) errors.push(`${route.name}: ${face.imgs} injected img element(s)`);
+      if (face.inlineScripts) errors.push(`${route.name}: ${face.inlineScripts} injected inline script(s)`);
       const strayTip = face.tipChildren.filter(t => !['b', 'span', 'br', 'i'].includes(t));
-      if (strayTip.length) errors.push(`${route.path}: tooltip holds ${strayTip.join(', ')}`);
+      if (strayTip.length) errors.push(`${route.name}: tooltip holds ${strayTip.join(', ')}`);
       await page.close();
     }
   } finally {
