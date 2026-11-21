@@ -425,8 +425,9 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   const ft = toward(failed, 'travelvisa');
   ok(ft.amount === null && ft.trust === 'unavailable' && ft.reasons[0] === 'paid-unavailable', 'a tracked card with a failed sync is withheld (a dash), not $0', JSON.stringify(ft));
   // The HELOC: observed (its publication card, posted coverage complete) reads the sum of its posted payment rows, $0 with none.
-  const helocWorld = rows => {
+  const helocWorld = (rows, sync = 'proven') => {
     const w = fx.fixture();
+    if (sync !== 'missing') w.packet.syncEvidence.push({ id: 'heloc', role: 'heloc', syncEvidence: sync, fields: { last_fetch: sync === 'proven', plaid_last_successful_update: false, status: false } });
     w.debts.push({ id: 'heloc', label: 'Example HELOC', structure: 'HELOC', secured: true, limit: 20000, pending: 0, rate: 7, balance: 9000 });
     w.overlay.overlays.push({ locator: 'debts:heloc', field: 'balance', proposedValue: 9000, evidenceDate: w.asOf });
     rows.forEach(([id, date, amount, kindHint]) => w.packet.transactions.push({ id, coverageRef: 'invented-' + id, atlasAccountId: 'heloc', account: 'heloc',
@@ -434,7 +435,19 @@ console.log('13. paidToward: one published paid figure per line, read by the row
     return w;
   };
   const none = toward(helocWorld([]), 'heloc');
-  ok(none.amount === 0 && none.trust === 'estimated' && same(none.reasons, []), 'HELOC observed, nothing posted: $0 (published, no counted-as-zero reason)', JSON.stringify(none));
+  ok(none.amount === 0 && none.trust === 'estimated' && same(none.reasons, []), 'HELOC with its sync proven, nothing posted: a known $0 (published, no counted-as-zero reason)', JSON.stringify(none));
+  // Its own sync row is read as the cards' is: proven stands; absent or missing is an unseen card; an explicit failure withholds.
+  for (const state of ['absent', 'missing']) {
+    const z = toward(helocWorld([], state), 'heloc');
+    ok(z.amount === 0 && z.trust === 'estimated' && z.reasons[0] === 'paid-unavailable-counted-as-zero' && z.reasons.includes('heloc-sync-unproven'),
+      'HELOC sync ' + state + ', nothing posted: $0 counted as zero, estimated, with its reason (the manual-card rule)', JSON.stringify(z));
+  }
+  const shown = toward(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']], 'absent'), 'heloc');
+  ok(shown.amount === 150 && shown.trust === 'estimated' && same(shown.reasons, ['heloc-sync-unproven']),
+    'HELOC sync absent but a payment is posted: the payment the ledger shows (150), estimated, with the reason (never hidden as $0)', JSON.stringify(shown));
+  const failedSync = toward(helocWorld([], 'failed'), 'heloc');
+  ok(failedSync.amount === null && failedSync.trust === 'unavailable' && failedSync.reasons.includes('sync-failed'),
+    'HELOC sync explicitly failed: withheld (missing data), never $0', JSON.stringify(failedSync));
   const paid = toward(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment'], ['heloc-interest', '2026-08-19', 22.5, 'interest']]), 'heloc');
   ok(paid.amount === 150 && paid.trust === 'estimated', 'HELOC observed with a posted payment of 150 and an interest charge: paid is 150 (interest is not a payment)', JSON.stringify(paid));
   const two = toward(helocWorld([['heloc-pay-1', '2026-08-16', -150, 'payment'], ['heloc-pay-2', '2026-08-19', -40, 'bill-payment']]), 'heloc');
@@ -476,6 +489,14 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   const noObs = load(src.replace(obsGuard, "if (!pubCard) return withheldPaid(['heloc-not-observed']);"));
   ok(noObs.stackCreditLines(publish(x), bills).lines.find(l => l.id === 'heloc').paidToward.amount === null,
     'MUTANT: withholding for an unobserved HELOC reads a dash, which the not-observed check above rejects');
+  const syncGuard = "if (pubCard.syncState === 'proven') return { amount: paidCents / 100, trust: 'estimated', reasons: [] };";
+  ok(src.includes(syncGuard), 'the HELOC sync mutants target the proven guard');
+  const syncIgnored = load(src.replace(syncGuard, "return { amount: paidCents / 100, trust: 'estimated', reasons: [] };"));
+  ok(same(syncIgnored.stackCreditLines(publish(helocWorld([], 'absent')), bills).lines.find(l => l.id === 'heloc').paidToward.reasons, []),
+    'MUTANT: ignoring the HELOC sync row makes an unproven $0 look known (no reason), which the sync-absent check above rejects');
+  const failIgnored = load(src.replace("if (pubCard.syncState === 'failed') gaps.push('sync-failed');", ''));
+  ok(failIgnored.stackCreditLines(publish(helocWorld([], 'failed')), bills).lines.find(l => l.id === 'heloc').paidToward.amount === 0,
+    'MUTANT: ignoring an explicit HELOC sync failure reads $0, which the failed-sync check above rejects');
   const interestAsPaid = load(src.replace("if (row.kind === 'payment') paidCents += -value;", "if (row.kind === 'payment' || row.kind === 'interest') paidCents += -value;"));
   ok(interestAsPaid.stackCreditLines(publish(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment'], ['heloc-interest', '2026-08-19', 22.5, 'interest']])), bills).lines.find(l => l.id === 'heloc').paidToward.amount === 127.5,
     'MUTANT: counting HELOC interest as a payment reads 127.5, which the interest check above rejects');

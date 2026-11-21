@@ -89,7 +89,13 @@
         opening: null, closing: null, reportedBalance: null, posted: [], pending: [],
         postedCoverage: coverage ? 'complete-provider-response' : 'incomplete',
         pendingCoverage: role !== 'current' ? 'not-observed' : packetCurrent && ledgerValid && boundsValid && covered(packet.pendingCoverage) ? 'complete-provider-response' : 'unavailable',
-        manualStatement: id === 'triangle' || id === 'mbna', reasons: issues };
+        manualStatement: id === 'triangle' || id === 'mbna', reasons: issues,
+        // The HELOC's own sync row, read the way the cards' is (below): 'proven', another published state ('absent',
+        // 'failed'), or 'missing' when the packet carries no single row for it. Only the Credit row's paid figure reads it.
+        ...(id === 'heloc' ? { syncState: (() => {
+          const rowsFor = Array.isArray(packet?.syncEvidence) ? packet.syncEvidence.filter(row => row?.id === 'heloc') : [];
+          return rowsFor.length === 1 && typeof rowsFor[0].syncEvidence === 'string' && rowsFor[0].syncEvidence ? rowsFor[0].syncEvidence : 'missing';
+        })() } : {}) };
       const debt = (debts || []).find(row => row?.id === id);
       // Preserve the actual observation date; never retime a manual balance.
       const observations = Array.isArray(overlay?.overlays) ? overlay.overlays : [];
@@ -407,7 +413,10 @@
     //     publication card; the one exception to the never-0 rule above;
     //   * the HELOC, when its publication card is observed in the current period (posted coverage complete, no evidence
     //     gap): the sum of its posted payment rows (estimated: no reconciled allocation exists for
-    //     it), $0 when it has none; an unconfirmed credit or an unqualified amount withholds it;
+    //     it), $0 when it has none; an unconfirmed credit or an unqualified amount withholds it. Its own sync row is read as
+    //     the cards' is (positive sync evidence is what makes an empty ledger a known zero): proven, the figure stands; an
+    //     explicit failure withholds it; absent or missing (an account with no feed) is an unseen card, counted $0 with its
+    //     reason and trust estimated (Dale's "$0 not a dash"), or the sum of the payments the ledger does show;
     //   * missing history withholds it (null, unavailable, with reasons): a PAST period, a tracked card whose paid is withheld
     //     (a failed sync, incomplete posted coverage), a HELOC whose observation has a gap.
     const countedZero = reasons => ({ amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'].concat(reasons) });
@@ -430,7 +439,10 @@
         if (row.kind === 'payment') paidCents += -value;
         else if (row.kind === 'credit-unconfirmed') gaps.push('card-credit-purpose-unconfirmed');
       }
-      return gaps.length ? withheldPaid([...new Set(gaps)]) : { amount: paidCents / 100, trust: 'estimated', reasons: [] };
+      if (pubCard.syncState === 'failed') gaps.push('sync-failed');
+      if (gaps.length) return withheldPaid([...new Set(gaps)]);
+      if (pubCard.syncState === 'proven') return { amount: paidCents / 100, trust: 'estimated', reasons: [] };
+      return paidCents > 0 ? { amount: paidCents / 100, trust: 'estimated', reasons: ['heloc-sync-unproven'] } : countedZero(['heloc-sync-unproven']);
     };
     const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
