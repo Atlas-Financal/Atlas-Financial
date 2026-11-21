@@ -6603,7 +6603,9 @@ function recurringAmountConsistent(itemAmount, planAmount) {
 }
 // The bill-schedule fields a reviewed Lunch Money item may set on the served
 // plan (owner decision, Dale 2026-11-18: cadence also comes from Lunch Money).
-const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue'];
+const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue', 'timingBefore'];
+// The bill's own cadence fields a cutover keeps for occurrences before it.
+const RECURRING_CUTOVER_FIELDS = ['frequency', 'day', 'month', 'anchor'];
 
 // Lunch Money cadence -> a Forecast cadence it can expand exactly; anything
 // else is null (the plan's cadence and day stand, estimated).
@@ -6694,6 +6696,19 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     if (expected.length) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
       if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
+    }
+    // Recorded history is never re-dated (#1508 live check): when the item's
+    // timing differs from the bill's own, the item's timing applies only from
+    // its start (the observation date when it has none), and occurrences
+    // before that keep the bill's own cadence and day (timingBefore), so a
+    // payment that settled an earlier occurrence stays on it. A monthly start
+    // is taken to its month's first day, so no month holds both days.
+    if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
+      const start = realIsoDay(item.startDate) ? item.startDate : asOf;
+      const from = timing.frequency === 'monthly' ? start.slice(0, 8) + '01' : start;
+      const before = {};
+      for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
+      timing.timingBefore = { from, ...before };
     }
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
@@ -8269,6 +8284,7 @@ const api = {
   sanitizedRecurringEvidence,
   RECURRING_UNNAMED_ROLES,
   RECURRING_TIMING_FIELDS,
+  RECURRING_CUTOVER_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,

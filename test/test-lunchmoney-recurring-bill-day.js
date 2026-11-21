@@ -210,8 +210,9 @@ console.log('4b. Cadence leads: a monthly item reschedules a bill Atlas plans on
     // The item expects $80 a time, the plan's amount (#1289 blocker 1).
     const sched = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
       { bills: [{ ...BILL, frequency }] }, '2026-10-14', { amounts: new Map([[ID, 80]]) });
-    ok(sched.length === 1 && JSON.stringify(sched[0].timing) === JSON.stringify({ frequency: 'monthly', day: 20 }),
-      'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th', JSON.stringify(sched));
+    ok(sched.length === 1 && JSON.stringify(sched[0].timing) === JSON.stringify({ frequency: 'monthly', day: 20,
+      timingBefore: { from: '2026-01-01', frequency, day: 20 } }),
+      'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th from the item start month (earlier history keeps ' + frequency + ')', JSON.stringify(sched));
   }
   const once = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
     { bills: [{ ...BILL, frequency: 'once', date: '2026-10-20' }] }, '2026-10-14');
