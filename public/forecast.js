@@ -12693,7 +12693,7 @@
       const bills = stackBills(view);
       publishStackBillParts(view, bills);
       view.stackSummary = Object.assign(view.stackSummary || {},
-        { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result, plan, asOf, opts) });
+        { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result) });
     }
     return result;
   }
@@ -12704,14 +12704,15 @@
   // no card on any other period.
   //   balance  savingsFunding.stock.reportedStock: the provider-reported
   //            balances of both savings pool accounts, summed (the grand
-  //            total), less the linked item payments that left Savings on or
-  //            after a balance date (savingsReportedItemLiabilities, the same
-  //            step the Savings allocator uses): an item's need already counts
-  //            them and a dated balance does not yet show them, so the money
-  //            is what is actually there and nothing is counted twice. Trust
-  //            is its freshness: current -> calculated; dated or carried ->
-  //            estimated. Missing, unready, negative, or a payment that cannot
-  //            be placed against its balance date -> withheld.
+  //            total), as reported. Owner ruling (Dale, 2026-11-21, relayed by
+  //            the lead on #1493): "For savings, all you need is the total
+  //            amount in my savings account. That's it. ... Savings amount.
+  //            Funds. Every savings item in order." So the card takes nothing
+  //            off and adds no hold of the Savings allocator's (payments after
+  //            a balance date, an unpaid card charge for a goal, one transfer
+  //            in both balances): the allocator's own figures keep those.
+  //            Trust is its freshness: current -> calculated; dated or carried
+  //            -> estimated. Missing, unready or negative -> withheld.
   //   order    savingsFunding.backing.items and savingsFunding.unresolved,
   //            nearest due date first; equal dates keep the plan's order; an
   //            item with no date comes last.
@@ -12731,25 +12732,17 @@
   const savingsFigureCents = v => Math.round(v * 100);
   const stackWeakerTrust = (a, b) => a === 'unavailable' || b === 'unavailable' ? 'unavailable'
     : STACK_TRUST_RANK[b] > STACK_TRUST_RANK[a] ? b : a;
-  function stackSavingsBalance(funding, plan, asOf, opts) {
+  function stackSavingsBalance(funding) {
     const stock = funding && funding.stock && funding.stock.reportedStock;
     if (!stock || typeof stock !== 'object') return { cents: null, trust: 'unavailable', reason: 'balance-unavailable' };
     const fresh = { current: 'calculated', dated: 'estimated', carried: 'estimated' };
     if (stock.status !== 'ready' || !isSavingsFigure(stock.amount) || !Object.hasOwn(fresh, stock.freshness))
       return { cents: null, trust: 'unavailable', reason: 'balance-unavailable' };
-    const reported = savingsFigureCents(stock.amount);
-    if (!Number.isSafeInteger(reported) || reported < 0) return { cents: null, trust: 'unavailable', reason: 'balance-negative' };
-    if (!Array.isArray(stock.accountIds) || !Array.isArray(stock.balanceDates))
-      return { cents: null, trust: 'unavailable', reason: 'balance-unavailable' };
-    const paidOut = savingsReportedItemLiabilities(plan, asOf, opts, stock, null);
-    if (!Array.isArray(paidOut.rows)) return { cents: null, trust: 'unavailable', reason: 'balance-payment-unplaced' };
-    const out = paidOut.rows.reduce((sum, row) => sum + row.cents, 0);
-    const cents = reported - out;
+    const cents = savingsFigureCents(stock.amount);
     if (!Number.isSafeInteger(cents) || cents < 0) return { cents: null, trust: 'unavailable', reason: 'balance-negative' };
-    return { cents, trust: fresh[stock.freshness], reason: 'balance-' + stock.freshness,
-      ...(out > 0 ? { less: 'balance-less-item-payments-after-balance-date' } : {}) };
+    return { cents, trust: fresh[stock.freshness], reason: 'balance-' + stock.freshness };
   }
-  function stackSavings(view, result, plan, asOf, opts) {
+  function stackSavings(view, result) {
     const role = view.timelineRole;
     if (role !== 'current' && role !== 'next') return null;
     const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
@@ -12757,8 +12750,8 @@
       ? funding.rows.filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid') : [];
     const items = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
       ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
-    const balance = stackSavingsBalance(funding, plan, asOf, opts);
-    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(balance.less ? [balance.less] : [])];
+    const balance = stackSavingsBalance(funding);
+    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason];
     // The rows must name every item exactly once, or the card would print
     // goals that do not add up to the pour.
     const members = rows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);

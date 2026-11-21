@@ -133,8 +133,7 @@ function proveStackIncome(view, income) {
 // or both null with trust unavailable; the head is the goals summed, and
 // saved + unallocated is the balance; reasons come from the closed set.
 const SAVINGS_REASONS = new Set(['owner-rule:balance-poured-nearest-due-first', 'balance-current', 'balance-dated', 'balance-carried',
-  'balance-unavailable', 'balance-negative', 'balance-payment-unplaced', 'balance-less-item-payments-after-balance-date',
-  'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items']);
+  'balance-unavailable', 'balance-negative', 'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items']);
 const isFigure = v => typeof v === 'number' && Number.isFinite(v);
 function proveStackSavings(view, savings) {
   if (!['current', 'next'].includes(view.timelineRole)) {
