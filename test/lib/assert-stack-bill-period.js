@@ -28,9 +28,10 @@ function assertStackBillPeriod(page, start, figures, occurrences) {
     const published = source.split('.').reduce((node, key) => node?.[key], view);
     const parts = waterfall.split(`data-row="${row}"`);
     assert.equal(parts.length, 2, `one ${row} row`);
-    const cell = /<span class="n(?: [^"]*)?" data-source="([^"]+)"([^>]*)>([^<]*)<\/span>/
-      .exec(parts[1].split('data-row=')[0]);
-    assert.ok(cell, `${row} amount cell`);
+    const cells = [...parts[1].split('data-row=')[0].matchAll(
+      /<span class="n(?: [^"]*)?" data-source="([^"]+)"([^>]*)>([^<]*)<\/span>/g)];
+    assert.equal(cells.length, 1, `one ${row} amount cell`);
+    const [cell] = cells;
     assert.equal(cell[1], source, `${row} source`);
     if (expected === null) {
       assert.ok(published == null, `${row} withheld by Forecast`);
