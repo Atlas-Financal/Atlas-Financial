@@ -92,8 +92,15 @@ const CASES = [
   ['all paid: both posted at their planned amount', [pay('Invented hydro', '2026-10-12', 90), pay('Invented internet', '2026-10-13', 60)], 150, 'calculated', ['hydro', 'internet']],
   ['none paid: no payment seen (a known 0, calculated)', [], 0, 'calculated', []],
   ['some paid with one pending: hydro posted 90, internet pending 60', [pay('Invented hydro', '2026-10-12', 90), pay('Invented internet', '2026-10-13', 60, { pending: true })], 90, 'calculated', ['hydro']],
-  ['a posted payment of another amount is not paid: hydro posted 40, internet posted 60', [pay('Invented hydro', '2026-10-12', 40), pay('Invented internet', '2026-10-13', 60)], 60, 'calculated', ['internet']],
-];
+  ['a posted payment of another amount is not paid: hydro posted 40, internet posted 60', [pay('Invented hydro', '2026-10-12', 40), pay('Invented internet', '2026-10-13', 60)], 60, 'calculated', ['internet']],];
+// #1497: Grok Bot's "bill verified" note confirms a differing posted payment, counted at what was paid (hydro 40): it is
+// checked and paid, and owed follows the counted amount (40 + 60 = 100).
+{
+  const v = world(F, [pay('Invented hydro', '2026-10-12', 40, { notes: 'bill verified' }), pay('Invented internet', '2026-10-13', 60)]);
+  const b = v.stackSummary.bills, h = billsCard(v);
+  ok(b.other === 100 && b.paid === 100 && b.paidTrust === 'calculated', 'a "bill verified" hydro posted 40 is paid at 40: paid 100 of 100', JSON.stringify(b));
+  ok(checkedCents(v, h) === 10000 && headOf(h) === 'Bills $100 / $100', 'the card checks both rows and prints "Bills $100 / $100"', headOf(h));
+}
 function caseResult(Forecast, payments, cards = CARDS) {
   const v = world(Forecast, payments);
   const b = v && v.stackSummary && v.stackSummary.bills;
@@ -229,9 +236,9 @@ console.log('5. Mutants');
   const PAID_FILTER = "    const paid = rows.filter(row => row.stackBillPaid);";
   const allRows = compile(replaceOnce(SOURCE, PAID_FILTER, '    const paid = rows;', 'all rows'));
   ok(caseResult(allRows, CASES[1][1]).b.paid === 150, 'counting every Bills row as paid is caught (none paid reads 150)');
-  const pending = compile(replaceOnce(SOURCE, "    return evidence === 'posted-equal';\n", "    return evidence === 'posted-equal' || evidence === 'pending';\n", 'pending'));
+  const pending = compile(replaceOnce(SOURCE, "    return evidence === 'posted-equal' || evidence === 'posted-verified';\n", "    return evidence === 'posted-equal' || evidence === 'posted-verified' || evidence === 'pending';\n", 'pending'));
   ok(caseResult(pending, CASES[2][1]).b.paid === 150, 'counting a pending payment as paid is caught (some paid reads 150)');
-  const differs = compile(replaceOnce(SOURCE, "    return evidence === 'posted-equal';\n", "    return evidence !== 'none';\n", 'differs'));
+  const differs = compile(replaceOnce(SOURCE, "    return evidence === 'posted-equal' || evidence === 'posted-verified';\n", "    return evidence !== 'none';\n", 'differs'));
   ok(caseResult(differs, CASES[3][1]).b.paid === 150, 'counting a differing payment as paid is caught (it reads 150)');
   const PART = "    const rows = (Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.stackBillPart === 'other');";
   const anyPart = compile(replaceOnce(SOURCE, PART, "    const rows = (Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.stackBillPart);", 'any part'));
