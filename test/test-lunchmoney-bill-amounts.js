@@ -30,6 +30,7 @@ const rule = (eventId, rid) => ({ eventId, lunchMoneyRecurringIds: [rid], atlasA
 
 function serve(items, opts = {}) {
   const w = H.baseWorld();
+  if (opts.asOf) w.asOf = opts.asOf;
   w.bills = [{ ...BILL, ...(opts.bill || {}) }, ...(opts.extraBills || [])];
   w.identityRules = w.identityRules.concat(opts.rules || [rule(opts.bill && opts.bill.id || 'band', ID)]);
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
@@ -90,6 +91,17 @@ console.log('5. A settled occurrence keeps what was paid');
   const row = s.cur[0];
   ok(row && /paid/i.test(row.status || row.householdPaymentStatus || '') && Math.abs(Number(row.cashPaid ?? row.actual) - 79.5) < 0.005,
     'the linked posted 79.50 on Oct 14 (inside the 7-day early window) settles Oct 20 at what was paid, not the item amount', J(row && { status: row.status, cashPaid: row.cashPaid, actual: row.actual }));
+}
+
+
+console.log('5b. Stated behaviour (lead, 2026-11-21): an unsettled occurrence already past still owed shows the item\'s current amount');
+{
+  // As of Oct 21 the Oct 20 occurrence is past and unpaid; it is still owed in the Oct 9-22 period at 64.25, not 80
+  // ("change it in Lunch Money and it appears in Atlas").
+  const s = serve([item(ID, '64.25')], { asOf: '2026-10-21' });
+  const row = s.cur.find(b => b.date === '2026-10-20');
+  ok(row && row.amount === 64.25 && !/paid/i.test(row.status || ''), 'past, unpaid Oct 20 is owed at the item amount 64.25',
+    J(row && { date: row.date, amount: row.amount, status: row.status }));
 }
 
 console.log('6. Card and obligation rows never take an item amount');
