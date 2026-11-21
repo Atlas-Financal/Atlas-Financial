@@ -4753,6 +4753,8 @@ function observeCore(input, capture) {
     const byBill = new Map(recurringSchedules.filter(schedule => schedule.billId).map(schedule => [schedule.billId, schedule]));
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
       bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
+    // The item amount is not applied here: payment matching keeps qualifying against the plan's amount, so a
+    // payment already made is never re-judged against a later, lower item price (Codex P1 on #1510).
   }
   const mapped = [];
   const unmapped = [];
@@ -6626,6 +6628,30 @@ function recurringItemTiming(item) {
 // Apply a schedule to one bill row (served plan only): its timing fields are
 // replaced by the schedule's, and its date tag becomes confirmed. Amount,
 // firstDue and the amount tag stay the plan's.
+// Amounts from Lunch Money (owner, Dale 2026-11-21: Lunch Money is where he manages his bills, amounts included). A
+// linked bill's served amount is its reviewed item's amount when that is a positive whole-cent CAD amount; the
+// plan's amount stands otherwise, with a closed reason. Served plan only (data.json is never written); settled and
+// represented occurrences keep their own amounts; the amount tag stays the plan's (no promotion). Card and
+// obligation rows never take an item amount (CardMinimumContract owns them); excluded bills keep the plan's.
+const RECURRING_AMOUNT_EXCLUDED_BILL_IDS = Object.freeze(new Set([
+  'bell', // Owner (Dale 2026-11-21): 160 a month arrives as two payments; its item covers one line only.
+]));
+function recurringBillAmount(item, bill, amounts) {
+  if (RECURRING_AMOUNT_EXCLUDED_BILL_IDS.has(bill.id)) return { reason: 'amount-excluded' };
+  if (bill.amountSchedule !== undefined) return { reason: 'amount-schedule-present' };
+  if (item.currency !== 'cad') return { reason: 'amount-currency' };
+  const value = amounts instanceof Map ? amounts.get(item.recurringId) : null;
+  const cents = typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
+  if (cents == null || !(cents > 0) || Math.abs(cents - value * 100) > 1e-6) return { reason: 'amount-unavailable' };
+  return { amount: cents / 100 };
+}
+// The served amount is applied separately (applyRecurringAmount), after the live overlay's owner-policy guard, as
+// Lunch Money budget targets are: the guard checks the overlay against the canonical plan, not this derived input.
+function applyRecurringAmount(bill, schedule) {
+  if (!bill || !schedule || schedule.billId !== bill.id) return bill;
+  if (!(typeof schedule.amount === 'number' && Number.isFinite(schedule.amount) && schedule.amount > 0)) return bill;
+  return { ...bill, amount: schedule.amount };
+}
 function applyRecurringSchedule(bill, schedule) {
   const out = { ...bill };
   for (const field of RECURRING_TIMING_FIELDS) delete out[field];
@@ -6695,7 +6721,9 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
       if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
     }
-    out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
+    const amount = recurringBillAmount(item, bill, opts && opts.amounts);
+    out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
+      ...(amount.amount != null ? { amount: amount.amount } : { amountReason: amount.reason }) });
   }
   return done(out);
 }
@@ -8258,6 +8286,8 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  RECURRING_AMOUNT_EXCLUDED_BILL_IDS,
+  applyRecurringAmount,
   derivedAmountFixedBills,
   billPaymentHistory,
   AMOUNT_HISTORY_DAYS,

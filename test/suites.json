@@ -713,5 +713,6 @@
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
   ["The figures page capture runs the previous Budget page by its explicit route (?view=classic), unchanged when the Stack page is the default","test-figures-capture-classic-view.js"],
   ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
-  ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"]
+  ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"],
+  ["Amounts from Lunch Money: a linked bill is served at its reviewed item's whole-cent CAD amount; otherwise the plan's amount with a reason; Bell and card rows excluded; no tag promotion (Dale, 2026-11-21)","test-lunchmoney-bill-amounts.js"]
 ]
