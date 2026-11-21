@@ -130,8 +130,15 @@
   // card is behind (the published toGo, red), "+$250" for a published payment, a bare "$0" for nothing. The sign is text
   // joined to the shell's money format and chosen by comparing the published figure with zero, never by arithmetic.
   const signed = r => (r.tone === 'bad' ? '\u2212' + money(r.x) : r.x > 0 ? '+' + money(r.x) : money(r.x));
-  const figureHtml = r => `<span class="stack-credit-x${r.tone ? ` is-${r.tone}` : ''}${r.x == null ? '' : r.xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
-    + (r.min != null ? `<i class="stack-credit-of${r.minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
+  const figureHtml = r => {
+    // Class tokens only, from this file's fixed vocabulary: the tone ('', 'good', 'bad') and the shell's trust treatment
+    // (' stack-est' or ''), never a published string.
+    const tone = r.tone ? ` is-${r.tone}` : '';
+    const xSoft = r.x == null ? '' : r.xSoft;
+    const minSoft = r.minSoft;
+    return `<span class="stack-credit-x${tone}${xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
+      + (r.min != null ? `<i class="stack-credit-of${minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
+  };
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
   // The card's last balance snapshot (#1447's line.balance, a stock, never a movement): printed only where the line's
@@ -167,7 +174,8 @@
     const paidShown = !!mp && num(mp.amount);
     const md = t.minimumsDue && typeof t.minimumsDue === 'object' ? t.minimumsDue : null;
     const due = md && num(md.amount) ? md.amount : null;
-    const dueEst = est(view, md ? md.trust : null);
+    // The shell's trust treatment for the minimums due (' stack-est' or ''): a class token, trimmed for the class list.
+    const dueClass = est(view, md ? md.trust : null).trim();
     const countsShown = num(t.minimumsDueCount) && num(t.minimumsCoveredCount);
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
       + `<button class="stack-credit-head" type="button" data-stack-credit-toggle aria-expanded="${open}">`
@@ -177,7 +185,7 @@
       // dash, never a blank or a guessed fill.
       + (paidShown || due != null
         ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span>${esc(money(mp.amount))}</span>` : dash}`
-          + (due != null ? `<i class="${dueEst.trim()}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
+          + (due != null ? `<i class="${dueClass}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
         : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>—</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
       // A bar with no ratio to draw (counts withheld, or nothing due) is an empty track, never a guessed fill.
@@ -193,27 +201,30 @@
   function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
     const r = readLine(line, view);
-    const rowHtml = (label, valueHtml) => `<div><dt>${h.esc(label)}</dt><dd class="stack-n">${valueHtml}</dd></div>`;
-    const soft = (text, cls) => `<span class="${cls.trim()}">${h.esc(text)}</span>`;
+    // The sheet's own helpers (stack-sheet.js): escape and the shell's money and date formats.
+    const { esc: escape, money: formatMoney, txMoney, date: formatDate, head } = h;
+    const rowHtml = (label, valueHtml) => `<div><dt>${escape(label)}</dt><dd class="stack-n">${valueHtml}</dd></div>`;
+    // cls is the shell's trust treatment (' stack-est' or ''), a class token from this file's fixed vocabulary.
+    const soft = (text, cls) => { const tokens = cls.trim(); return `<span class="${tokens}">${escape(text)}</span>`; };
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
-    return h.head('Credit', line.label || '')
+    return head('Credit', line.label || '')
       + (r.x != null || r.min != null || !balanceShown(line)
         ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
-        : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${h.esc(h.money(amountOf(line.balance)))}</div>`)
-      + '<dl>' + (heloc ? '' : (r.paid != null ? rowHtml('Paid onto it', soft(h.money(r.paid), est(view, trustOf(line.paid)))) : '')
-        + (r.spent != null ? rowHtml('Spent on it', soft(h.money(r.spent), est(view, trustOf(line.spent)))) : ''))
+        : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${escape(formatMoney(amountOf(line.balance)))}</div>`)
+      + '<dl>' + (heloc ? '' : (r.paid != null ? rowHtml('Paid onto it', soft(formatMoney(r.paid), est(view, trustOf(line.paid)))) : '')
+        + (r.spent != null ? rowHtml('Spent on it', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : ''))
       + (r.min != null
-        ? rowHtml('Minimum', soft(h.money(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
+        ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
           // A payment onto the card is published negative with payment: true; its printed value's minus sign becomes "+".
-          const printed = h.txMoney(t.amount);
+          const printed = txMoney(t.amount);
           const shown = t.payment ? printed.replace(/^−/, '+') : printed;
           return `<li class="${t.payment ? 'is-pay' : ''}${t.pending ? ' is-pending' : ''}">`
-            + `<span class="stack-sheet-txd">${h.esc(h.date(t.date))}</span><span class="stack-sheet-txl">${h.esc(t.name || '')}</span>`
-            + `<span class="stack-sheet-txa stack-n">${h.esc(shown)}</span></li>`;
+            + `<span class="stack-sheet-txd">${escape(formatDate(t.date))}</span><span class="stack-sheet-txl">${escape(t.name || '')}</span>`
+            + `<span class="stack-sheet-txa stack-n">${escape(shown)}</span></li>`;
         }).join('') + '</ul>'
         : ''));
   }

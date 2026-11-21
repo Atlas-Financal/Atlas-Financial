@@ -571,11 +571,13 @@ console.log('\n=== 5. Output is deterministic ===');
   // The household's page-capture evidence (G1 v3) is unprefixed beside the
   // household map; it is not part of buildFiguresSnapshot.
   const householdPart = Object.fromEntries(Object.entries(checkCli)
-    .filter(([k]) => !/^(check|coverage|fixture)\./.test(k) && !k.startsWith('savings.capture.')));
+    .filter(([k]) => !/^(check|coverage|fixture)\./.test(k) && !k.startsWith('savings.capture.') && !k.startsWith('stack.capture.')));
   ok(JSON.stringify(householdPart) === JSON.stringify(a),
     'the default check snapshot carries exactly that household map, unprefixed');
   ok(typeof checkCli['savings.capture.version'] === 'string' && Number.isSafeInteger(checkCli['savings.capture.count']),
     'and the household page-capture evidence beside it');
+  ok(typeof checkCli['stack.capture.version'] === 'string' && Number.isSafeInteger(checkCli['stack.capture.count'])
+    && typeof checkCli['stack.capture.status'] === 'string', 'and the Stack page-capture evidence beside that');
   const keys = Object.keys(a);
   const sorted = [...keys].sort();
   ok(JSON.stringify(Object.keys(cli)) === JSON.stringify(keys),

@@ -109,7 +109,11 @@ ok(/not a locator/.test(list.lookup) && /unresolved or ask/.test(list.lookup), '
 // 4. Nothing reaches the page or the figures snapshot: only the packet asks.
 const pageAdvice = Forecast.recommend(data.plan, Forecast.budgetAsOf(data), Forecast.budgetRecommendInputs(data, {}));
 ok(!('heldTransactions' in pageAdvice.currentPeriodAction), 'Forecast publishes no held list unless asked');
-for (const file of ['public/plan.js', 'public/app.js', 'public/budget-surface.js', 'scripts/figures-snapshot.js', 'server.js']) {
+// Every page script, so the Stack page and any classic script alike (not a list that
+// names files and misses the next one); only forecast.js defines the option.
+const pageScripts = fs.readdirSync(path.join(ROOT, 'public')).filter(f => f.endsWith('.js') && f !== 'forecast.js');
+ok(pageScripts.includes('stack-shell.js') && pageScripts.includes('app.js'), 'the scan covers the Stack shell and app.js');
+for (const file of pageScripts.map(f => 'public/' + f).concat(['scripts/figures-snapshot.js', 'server.js'])) {
   ok(!fs.readFileSync(path.join(ROOT, file), 'utf8').includes('collectHeldTransactions'), file + ' never asks for the held list');
 }
 

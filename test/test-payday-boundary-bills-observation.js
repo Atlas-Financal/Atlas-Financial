@@ -617,12 +617,11 @@ console.log('=== K. Stale cash overlay on payday fails closed for this packet ==
 
 console.log('=== L. Page does not calculate or reprint the observation ===');
 {
-  const planSrc = read('public/plan.js');
   const forecastSrc = read('public/forecast.js');
-  ok(!/paydayBoundaryBillsObservation/.test(planSrc)
-      && !/paydayBoundaryAccountObservation/.test(planSrc)
-      && !/paydayAccountObservations/.test(planSrc),
-    'plan.js does not reprint or calculate payday-boundary chequing-a evidence');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/paydayBoundaryBillsObservation/, /paydayBoundaryAccountObservation/, /paydayAccountObservations/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) reprints or calculates payday-boundary chequing-a evidence', hits.join(', ') || 'none');
   ok(/posted-balance-observed-on-household-date/.test(forecastSrc)
       && /function paydayBoundaryAccountObservation\(/.test(forecastSrc)
       && /isPaydayMorningOpening: false/.test(forecastSrc)

@@ -1213,13 +1213,10 @@ console.log('\n=== 6. independent remaining-bill deltas ===');
 
 console.log('\n=== 7. pages do not special-case these merchants ===');
 {
-  const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8'));
-  ok(!/Fortisbc Energy|MONTHLY ACCOUNT FEE|YouTube Premium|SHAW CABLE TV BPY/.test(planSrc)
-      && !/\bNetflix\b/.test(planSrc)
-      && !/\bSpotify\b/.test(planSrc)
-      && !/ChatGPT Plus/.test(planSrc)
-      && !/\biCloud\b/.test(planSrc),
-    'plan.js only prints; it does not special-case these identities');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/Fortisbc Energy|MONTHLY ACCOUNT FEE|YouTube Premium|SHAW CABLE TV BPY/, /\bNetflix\b/, /\bSpotify\b/, /ChatGPT Plus/, /\biCloud\b/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) only prints: none special-cases these identities', hits.join(', ') || 'none');
 }
 
 console.log('\n=== 8. schedule-trust uses the financial as-of, never fetchedAt ===');

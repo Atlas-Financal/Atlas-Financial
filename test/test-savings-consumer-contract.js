@@ -587,10 +587,14 @@ test('state-equality invariant: every Budget state calls recommend with identica
     const input = byId(id);
     const calls = [];
     const capture = Capture.withPerturbations({ recommend: real => function (...args) {
-      calls.push({ args: serial(args) });
+      // The Stack page's own recommend (its shell, at boot; observed as a Stack read) is not one of the previous Budget
+      // page's states.
+      // Decided as the capture decides it: by the first page frame (the file that called recommend).
+      const caller = /(public\/[\w.-]+\.js):\d+:\d+/.exec(String(new Error().stack).split('\n').slice(1).join('\n'));
+      if (!(caller && /^public\/stack-[\w-]+\.js$/.test(caller[1]))) calls.push({ args: serial(args) });
       return real.apply(this, args);
     } }, () => Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
-    // Budget is the only page: every recommend call is a Budget call.
+    // The previous Budget page's states: every other recommend call is one of its calls.
     const budget = calls.map(c => c.args);
     const states = capture.runs.find(r => r.page === 'budget').states.length;
     assert.ok(states > 3 && budget.length >= states && budget.length % states === 0, id + ': recommend runs equally in every Budget state');
