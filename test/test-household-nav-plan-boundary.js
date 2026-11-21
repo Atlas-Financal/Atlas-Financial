@@ -13,6 +13,9 @@
  * served behind the session gate and a deleted legacy URL redirects to /.
  */
 const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
@@ -243,8 +246,8 @@ console.log('\n=== 4 + 5. Plan waterfall keeps Balance After Deductions and stop
   ok(!/extra debt and big purchases/.test(page)
       && !/Live Current Balance, then this payday’s income, bills and household budget\./.test(page),
     'the Budget page does not render the removed This payday lede');
-  ok(!/extra debt and big purchases/.test(planSrc),
-    'the plan.js lede constant matches');
+  ok(neverRaw(/extra debt and big purchases/).length === 0,
+  'no page script carries the retired "extra debt and big purchases" lede');
 }
 
 console.log('\n=== 6. Forecast still computes the chain past the household-budget boundary ===');

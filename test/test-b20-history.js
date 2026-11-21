@@ -7,6 +7,9 @@
  * Writer behaviour is proved on fixtures.
  */
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -491,8 +494,8 @@ console.log('\n=== 13. household-facing trend agrees with the underlying snapsho
 console.log('\n=== 14. no second reconciliation or current-state calculation in the page layer ===');
 {
   const page = read('public/balance-history.js') + '\n' + read('public/plan.js');
-  ok(!/reconcile\.js/.test(page) && !/buildSnapshot/.test(page),
-    'Plan / display layer does not run the snapshot writer or reconciler');
+  ok(neverRaw(/reconcile\.js/, /buildSnapshot/).length === 0,
+  'no page script (classic or Stack) runs the snapshot writer or reconciler');
   ok(!/Forecast\.recommend/.test(read('public/balance-history.js')),
     'display assembly does not call Forecast.recommend');
   ok(!/startingCashAmount/.test(read('public/balance-history.js')),
