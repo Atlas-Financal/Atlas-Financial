@@ -9,6 +9,9 @@
  * on the Seaspan 2026-08-14 anchor. Live cents are not the specification.
  */
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
@@ -315,8 +318,8 @@ ok(liveTravel && liveTravel.debtId === 'travelvisa' && liveTravel.effect === 'pa
 console.log('\n=== 14. page remains render-only; Forecast owns the date ===');
 const planSrc = fs.readFileSync(path.join(__dirname, '..', 'public/plan.js'), 'utf8');
 const appSrc = fs.readFileSync(path.join(__dirname, '..', 'public/app.js'), 'utf8');
-ok(!/day\s*=\s*15/.test(planSrc) && !/currentMonthly\s*=\s*121/.test(planSrc),
-  'plan.js does not invent the Bell day or the $121 amount');
+ok(neverRaw(/day\s*=\s*15/, /currentMonthly\s*=\s*121/).length === 0,
+  'no page script (classic or Stack) invents the Bell day or the $121 amount');
 ok(/function glanceLineLabel/.test(planSrc) && /row\.date/.test(planSrc),
   'plan.js still only renders Forecast-owned bill dates');
 

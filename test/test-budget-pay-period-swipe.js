@@ -1,5 +1,8 @@
 'use strict';
 const { liveBudgetComposerSource } = require('./lib/budget-page-harness');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 /* Budget pay-period navigation is presentation only. Synthetic rows prove
  * selection, one-step gesture/control movement, bounds, trust preservation,
  * and direct-row rendering without pinning live household cents.
@@ -154,8 +157,8 @@ ok(/data-calendar-waterfalls data-household-as-of="2031-01-30"/.test(currentHtml
   '11a. every selected row supplies the authoritative as-of anchor Budget bill chrome consumes');
 
 console.log('\n=== authority and accessible input contracts ===');
-ok(!/income\s*[−-]\s*[^\n]*bills/i.test(planSource),
-  '12. page source has no Income minus Bills minus Household Budget arithmetic');
+ok(neverRaw(/income\s*[−-]\s*[^\n]*bills/i).length === 0,
+  '12. no page script (classic or Stack) has Income minus Bills minus Household Budget arithmetic');
 // This check guards the pay-period swipe composer functions only — they
 // must not depend on Road Ahead.
 ok(!/baselineTrajectory|roadAhead|stage1|stage2|stage3/.test(source),
