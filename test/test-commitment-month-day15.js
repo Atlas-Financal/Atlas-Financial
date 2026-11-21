@@ -44,13 +44,15 @@ function independentMonth15(when) {
 const OWNER_EXPLICIT = {
   'burrards-logan-team-fee-oct': { date: '2026-10-16', amount: 202.88, when: null },
   'burrards-logan-team-fee-nov': { date: '2026-11-01', amount: 202.87, when: null },
-  'seattle-dec': { date: '2026-12-09', amount: 1500, when: 'Dec 2026' },
+  // Dale, 2026-11-21 (lead session): "the Seattle trip is December 4th and 5th"; "San Diego is January 9th and
+  // 10th". His dates are the cash dates (lead ruling (A), 2026-11-21), superseding Dec 9 and the clear-month 15th.
+  'seattle-dec': { date: '2026-12-04', amount: 1500, when: 'Dec 2026' },
   'linden-birthday': { date: '2026-12-09', amount: 500, when: 'Dec 2026' },
   'christmas-2026': { date: '2026-12-25', amount: 3500, when: 'by Christmas 2026' },
+  'san-diego': { date: '2027-01-09', amount: 3000, when: 'Jan 2027' },
 };
 const OWNER_DAY15 = {
   'seattle-nov': { date: '2026-11-15', amount: 1500, when: 'Nov 2026' },
-  'san-diego': { date: '2027-01-15', amount: 3000, when: 'Jan 2027' },
 };
 const LEFT_UNDATED = {};
 // provincials: retired by owner decision (Dale, 2026-11-11).
@@ -60,7 +62,7 @@ const RETIRED = ['downstairs-couch', 'exterior-painting', 'vehicle-maintenance',
 // owner-confirmed paid, settledOn 2026-11-02 (confirmation date, not a payment date), so the December instalment
 // is settled history and emits no December occurrence.
 const HAND_DEC_CASH = [
-  { id: 'seattle-dec', date: '2026-12-09', amount: -1500 },
+  { id: 'seattle-dec', date: '2026-12-04', amount: -1500 },
   { id: 'linden-birthday', date: '2026-12-09', amount: -500 },
   { id: 'christmas-2026', date: '2026-12-25', amount: -3500 },
 ];
@@ -88,10 +90,10 @@ for (const [id, expected] of Object.entries(OWNER_EXPLICIT)) {
 ok(OWNER_EXPLICIT['seattle-dec'].date !== '2026-12-15'
     && OWNER_EXPLICIT['linden-birthday'].date !== '2026-12-15'
     && OWNER_EXPLICIT['christmas-2026'].date !== '2026-12-15',
-  'hand-listed Seattle/Linden/Christmas dates are Dec 9, Dec 9, and Dec 25, not the 15th');
+  'hand-listed Seattle/Linden/Christmas dates are Dec 4, Dec 9, and Dec 25, not the 15th');
 ok(OWNER_EXPLICIT['seattle-dec'].amount !== OWNER_EXPLICIT['linden-birthday'].amount
-    && OWNER_EXPLICIT['seattle-dec'].date === OWNER_EXPLICIT['linden-birthday'].date,
-  'Linden birthday shares Seattle December cash date and is a different $500 amount');
+    && OWNER_EXPLICIT['seattle-dec'].date !== OWNER_EXPLICIT['linden-birthday'].date,
+  'Linden birthday is a separate $500 on its own date (Dec 9), not Seattle December (Dec 4)');
 for (const [id, expected] of Object.entries(OWNER_DAY15)) {
   const row = byId[id];
   const independent = independentMonth15(expected.when);
@@ -193,8 +195,8 @@ console.log('\n=== expandEvents dates the occurrences (synthetic when-only + liv
   const seattle = decEvents.find(e => e.id === 'seattle-dec');
   const linden = decEvents.find(e => e.id === 'linden-birthday');
   const xmas = decEvents.find(e => e.id === 'christmas-2026');
-  ok(seattle && seattle.date === '2026-12-09' && near(seattle.amount, -1500),
-    'seattle-dec cash is −1500 on 2026-12-09');
+  ok(seattle && seattle.date === '2026-12-04' && near(seattle.amount, -1500),
+    'seattle-dec cash is −1500 on 2026-12-04');
   ok(linden && linden.date === '2026-12-09' && near(linden.amount, -500),
     'linden-birthday cash is −500 on 2026-12-09');
   ok(decEvents.filter(e => e.id === 'linden-birthday').length === 1
@@ -215,26 +217,16 @@ console.log('\n=== expandEvents dates the occurrences (synthetic when-only + liv
       && seattleNov.length === 0,
     'settled seattle-nov emits no November cash',
     seattleNov.map(e => `${e.date} ${e.amount}`).join(','));
-  const day15Cash = [
-    { id: 'san-diego', date: '2027-01-15', amount: -3000 },
-  ];
-  for (const hand of day15Cash) {
-    const hit = F.expandEvents(plan, hand.date, hand.date, {})
-      .find(e => e.id === hand.id);
-    ok(hit && hit.date === hand.date && near(hit.amount, hand.amount)
-        && hit.kind === 'commitment',
-      `${hand.id} emits on the hand-listed 15th`,
-      hit ? `${hit.date} ${hit.amount}` : 'missing');
-  }
+  // San Diego's cash date is the owner's trip date, 2027-01-09 (Dale, 2026-11-21), no longer the clear-month 15th.
   const january = F.expandEvents(plan, '2027-01-01', '2027-01-31', {});
   const sanDiego = january.filter(e => e.id === 'san-diego');
-  ok(sanDiego.length === 1 && sanDiego[0].date === '2027-01-15' && near(sanDiego[0].amount, -3000),
-    'san-diego emits once on the clear-month 15th',
+  ok(sanDiego.length === 1 && sanDiego[0].date === '2027-01-09' && near(sanDiego[0].amount, -3000),
+    'san-diego emits once on the owner date 2027-01-09',
     sanDiego.map(e => `${e.date} ${e.amount}`).join(','));
   ok(!january.some(e => e.id === 'indio-tournament'),
     'indio-tournament emits no January cash event');
-  ok(!january.some(e => e.id === 'san-diego' && e.date !== '2027-01-15'),
-    'san-diego does not also emit on a trip-window day');
+  ok(!january.some(e => e.id === 'san-diego' && e.date === '2027-01-15'),
+    'san-diego no longer emits on the 15th');
 }
 
 console.log('\n=== December Stage2 planned-spending includes the hand-listed commitments ===');
