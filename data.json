@@ -287,9 +287,10 @@
                 "frequency": "monthly",
                 "day": 1,
                 "firstDue": "2026-10-01",
+                "lastDue": "2026-11-01",
                 "amount": 170,
                 "confidence": "estimated",
-                "note": "The 2026-08-14 Chequing A TFR-TO C/C $763.00 posted against this card (posted fell $50 + $763 to $4,799.43, under the $5,000 limit). That payment satisfies the previous over-limit September spike of $762.36 (64 cents of rounding); the once row was removed so Forecast does not reserve it again. Future statement minimums are estimated at about $170. firstDue 2026-10-01. Owner-reported confirmation received 2026-10-06: minimum $209.37 paid $230.00 for the existing October occurrence. The existing scheduled date is retained; no new issuer statement due date is inferred. Receipt and cash inclusion are qualified at the observed 2026-10-06 opening. This occurrence-specific minimum does not replace later estimates, and the payment is not allocated to another cycle. The separate $180.00 Phoenix transfer is not this minimum payment.",
+                "note": "The 2026-08-14 Chequing A TFR-TO C/C $763.00 posted against this card (posted fell $50 + $763 to $4,799.43, under the $5,000 limit). That payment satisfies the previous over-limit September spike of $762.36 (64 cents of rounding); the once row was removed so Forecast does not reserve it again. Future statement minimums are estimated at about $170. firstDue 2026-10-01. Owner-reported confirmation received 2026-10-06: minimum $209.37 paid $230.00 for the existing October occurrence. The existing scheduled date is retained; no new issuer statement due date is inferred. Receipt and cash inclusion are qualified at the observed 2026-10-06 opening. This occurrence-specific minimum does not replace later estimates, and the payment is not allocated to another cycle. The separate $180.00 Phoenix transfer is not this minimum payment. Owner fact 2026-11-21 (Dale, his TD Cash Back Visa statement for Oct. 8 to Nov. 9, 2026, read from his banking app): the minimum is due on the 4th; this row ends at its 2026-11-01 occurrence (lastDue) so its dated history keeps its identity, and `cashback-day4` carries the schedule on from 2026-12-04. The same statement shows a last payment on 2026-11-09 (above the estimate) and carries no past-due amount, so the 2026-11-01 minimum was paid: it is represented effective 2026-11-09 by owner confirmation (lead's reading of Dale's statement, 2026-11-21), not a fabricated bank or issuer receipt. The payment is the Bills transfer the ledger posts on 2026-11-06 with the note `card payment: TD Cash Back Visa` (the card shows it on 2026-11-09); it is recorded on this row's 2026-11-01 sentPayments so it is consumed once and cannot also settle `cashback-day4`'s 2026-12-04 minimum (ATLAS REVIEWER 2, #1509).",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -313,6 +314,40 @@
                         "fundingAccountId": "chequing-a",
                         "pending": false,
                         "cashIncludedAsOf": "2026-10-06"
+                    },
+                    {
+                        "scheduledDate": "2026-11-01",
+                        "confirmed": true,
+                        "intent": "minimum",
+                        "debitId": "cashback-2026-11-bank-sent",
+                        "postedOn": "2026-11-06",
+                        "amount": 277.52,
+                        "currency": "cad",
+                        "fundingAccountId": "chequing-a",
+                        "pending": false,
+                        "cashIncludedAsOf": "2026-11-09"
+                    }
+                ]
+            },
+            {
+                "id": "cashback-day4",
+                "debtId": "cashback",
+                "effect": "payment",
+                "label": "TD Cash Back Visa minimum",
+                "frequency": "monthly",
+                "day": 4,
+                "firstDue": "2026-12-04",
+                "amount": 170,
+                "confidence": "estimated",
+                "note": "Owner fact 2026-11-21 (Dale, his TD Cash Back Visa statement for Oct. 8 to Nov. 9, 2026, read from his banking app): minimum $162.78 due 2026-12-04, nothing paid toward it yet. Successor of `cashback`, which ends at its 2026-11-01 occurrence (lastDue). The Dec. 4 statement minimum is confirmed from that statement; later minimums stay estimated at the existing $170 level, on the 4th.",
+                "payingAccount": "chequing-a",
+                "statementOccurrences": [
+                    {
+                        "scheduledDate": "2026-12-04",
+                        "dueDate": "2026-12-04",
+                        "minimum": 162.78,
+                        "currency": "cad",
+                        "confidence": "confirmed"
                     }
                 ]
             },
@@ -439,7 +474,17 @@
                 "day": 26,
                 "amount": 17,
                 "confidence": "estimated",
-                "payingAccount": "chequing-a"
+                "note": "Owner fact 2026-11-21 (Dale, his TD Travel Visa statement for Oct. 7 to Nov. 5, 2026, read from his banking app): minimum $20.00 due 2026-11-26, and the statement balance is shown paid by a payment on 2026-11-19. With the full statement balance paid there are no arrears, so the 2026-08-26, 09-26 and 10-26 minimums are not outstanding and the 11-26 minimum is satisfied: all four are represented effective 2026-11-19 by owner confirmation (plan.opening.representedEvents), not a fabricated bank or issuer receipt. No payment amount, principal reduction or allocation is recorded. Later minimums stay estimated.",
+                "payingAccount": "chequing-a",
+                "statementOccurrences": [
+                    {
+                        "scheduledDate": "2026-11-26",
+                        "dueDate": "2026-11-26",
+                        "minimum": 20,
+                        "currency": "cad",
+                        "confidence": "confirmed"
+                    }
+                ]
             }
         ],
         "bills": [
@@ -1593,7 +1638,12 @@
                 { "id": "triangle", "date": "2026-10-07", "effectiveAsOf": "2026-10-06" },
                 { "id": "mbna-aug31", "date": "2026-08-31", "effectiveAsOf": "2026-10-05" },
                 { "id": "cashback", "date": "2026-10-01", "effectiveAsOf": "2026-10-06" },
-                { "id": "mbna", "date": "2026-09-30", "effectiveAsOf": "2026-10-06" }
+                { "id": "mbna", "date": "2026-09-30", "effectiveAsOf": "2026-10-06" },
+                { "id": "cashback", "date": "2026-11-01", "effectiveAsOf": "2026-11-09" },
+                { "id": "travel", "date": "2026-08-26", "effectiveAsOf": "2026-11-19" },
+                { "id": "travel", "date": "2026-09-26", "effectiveAsOf": "2026-11-19" },
+                { "id": "travel", "date": "2026-10-26", "effectiveAsOf": "2026-11-19" },
+                { "id": "travel", "date": "2026-11-26", "effectiveAsOf": "2026-11-19" }
             ],
             "note": "One cutover from the 2026-08-19 Lunch Money observation. Friday 14 August payroll, mortgage, Shaw, Fit4Less, BC Hydro $220, the $94.03 TD card minimum, and the $763 Cash Back payment are already inside the cash and debt snapshots; they fall before this as-of, so Forecast does not replay them. No same-day 19 August scheduled item is inside that observation. Dale-gated 2026-09-18 posting evidence names three prepaid joint-cash settles relative to this start (not card-paid standing, not a payingAccount change): tdcc@2026-09-17 (BILLS TFR-TO C/C), noble-garbage@2026-09-18 (Noble Dispo on WEEKLY / chequing-b), heloc@2026-09-21 (BILLS HELOC cash minimum, IP470 transfer). Triangle posted $13,495.32 and MBNA posted $7,875.99 MATCH under owner-approved monthly statement cadence (evidence 2026-08-18); pending on both is proven $0.00. The 2026-08-16 Triangle screenshot ($13,197.00 + $15.62) and Lunch Money's older last-statement figure are not this posted opening. Amanda/TENNIS INCOME is not spendable. Q19 ANSWERED: remaining August HELOC cash requirement is $0 additional after the 14 August $1,100 already inside this opening."
         }
