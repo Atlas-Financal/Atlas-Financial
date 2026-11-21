@@ -139,6 +139,21 @@
     return `<span class="wf-check${soft}" role="img" aria-label="Minimum paid${soft ? ', estimated' : ''}">\u2713</span>`;
   }
 
+  // A card's minimum due date (Dale, 2026-11-21): the date of the one minimum occurrence Forecast counted for that card in this
+  // period, read from the rows it marked (stackBillPart 'cardMinimum', stackBillDebtId). Exactly one dated row, else nothing:
+  // a card with several occurrences, or an undated or malformed one, shows no date rather than a guess.
+  const dueFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  function dueLabel(view, debtId) {
+    const rows = (Array.isArray(view.bills) ? view.bills : []).filter(r => r && r.stackBillPart === 'cardMinimum' && String(r.stackBillDebtId) === String(debtId));
+    const iso = rows.length === 1 ? rows[0].date : null;
+    if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+    // A real calendar day only: month 13 or Feb 30 shows nothing (never a throw that would blank the waterfall, never a
+    // rolled-over date). The round trip catches what a shape check cannot.
+    const when = new Date(iso + 'T12:00:00Z');
+    if (Number.isNaN(when.getTime()) || when.toISOString().slice(0, 10) !== iso) return '';
+    try { return dueFormat.format(when); } catch (error) { return ''; }
+  }
+
   // The minimums due in the selected pay period, exactly Forecast's cardMinimums: a card with no minimum due in the
   // period has no row (owner, Dale, 2026-11-20).
   function creditRows(ctx, view) {
@@ -149,7 +164,8 @@
       const cell = card && isAmount(card.amount)
         ? `<span class="n${est(view, 'stackSummary.bills.trust')}" data-source="${source}">${escape(money(card.amount))}</span>`
         : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
-      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span><b>${escape(cardLabel(ctx, card && card.debtId))}</b></span>`
+      const due = card ? dueLabel(view, card.debtId) : '';
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span class="wf-name"><b>${escape(cardLabel(ctx, card && card.debtId))}</b>${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
         + `<span class="wf-amt">${cell}${minimumCheck(ctx, view, card && card.debtId)}</span></li>`;
     }).join('');
   }
