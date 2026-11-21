@@ -636,6 +636,7 @@
   ["legacy /planning.html retired to Budget at / (redirect, HTTP variants, auth preserved)","test-planning-retirement.js"],
   ["eight legacy pages switched off behind one server.js list (redirect, HTTP variants, auth preserved)","test-legacy-pages-switched-off.js"],
   ["read-only assistant interface","test-assistant-interface.js"],
+  ["assistant packet savingsStatus: why Savings is or is not published, statuses and reason codes only (no amount, date or account; a reason with a digit is replaced)","test-assistant-packet-savings-status.js"],
   ["MCP route refuses oversized JSON-RPC batches before any tool runs; SDK patched","test-assistant-mcp-batch-cap.js"],
   ["Aug. 16 household evidence absorption","test-aug16-evidence.js"],
   ["2026-09-03 card-charge evidence intake","test-card-charge-evidence-2026-09-03.js"],
