@@ -101,7 +101,37 @@
       "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
     },
     {
+      "eventId": "triangle-td3",
+      "payeePattern": "CAN TIRE MC",
+      "payeePatterns": ["CAN TIRE MC"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "postingDateRule": "covers-statement-cycle-or-latest-due",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
+      "eventId": "triangle-day8",
+      "payeePattern": "CAN TIRE MC",
+      "payeePatterns": ["CAN TIRE MC"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "postingDateRule": "covers-statement-cycle-or-latest-due",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
       "eventId": "mbna",
+      "payeePattern": "MBNA M/C",
+      "payeePatterns": ["MBNA M/C"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "postingDateRule": "covers-statement-cycle-or-latest-due",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
+      "eventId": "mbna-day12",
       "payeePattern": "MBNA M/C",
       "payeePatterns": ["MBNA M/C"],
       "atlasAccountId": "chequing-a",
@@ -122,6 +152,17 @@
     },
     {
       "eventId": "mbna",
+      "payeePattern": "payment",
+      "payeePatterns": ["payment"],
+      "payeeMatchMode": "exact",
+      "atlasAccountId": "mbna",
+      "direction": "credit",
+      "postingDateRule": "covers-statement-cycle-or-latest-due",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
+      "eventId": "mbna-day12",
       "payeePattern": "payment",
       "payeePatterns": ["payment"],
       "payeeMatchMode": "exact",

@@ -14,7 +14,8 @@
  *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
  *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
  *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the payment evidence and the counted amount's trust
- *   bills[].stackBillPaid  Forecast's paid check (stackBillPaidEvidence, #1465), the rows stackSummary.bills.paid sums
+ *   bills[].stackBillPaid  Forecast's paid check (stackBillPaidEvidence: 'posted-equal' (#1465) or 'posted-verified'
+ *                          (Grok Bot's "bill verified" note)), the rows stackSummary.bills.paid sums
  *   stackSummary.bills.paid / .paidTrust  the Bills head's paid figure (Dale 2026-11-20 "bills needs the paid/owed")
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
@@ -124,7 +125,8 @@
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
     var evidence = r.stackBillPaymentEvidence;
-    // Forecast's one paid rule (stackBillPaidEvidence): the same rows stackSummary.bills.paid sums.
+    // Forecast's one paid rule (stackBillPaidEvidence): a posted payment of exactly the plan, or one Grok Bot verified
+    // with a "bill verified" note (counted at its own amount). The same rows stackSummary.bills.paid sums.
     var exact = r.stackBillPaid === true;
     var soft = isEst(r.stackBillAmountTrust);
     // A pending or unmatched payment counts the plan; a differing posted payment may count above it (the Bills total
