@@ -818,6 +818,36 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Closure:** a ruling on a looser match applied to the withdrawal line only (never to the verifying line or any other note), then one outcome with proof on invented notes: each near-miss of the withdrawal reads as a withdrawal, the same near-misses of the verifying line still verify nothing, and a looser match can cost at most a check.
 - Source: ATLAS REVIEWER bounded re-review on #1497 (comment 7053346117), non-blocking observation; noted as a follow-up in the lead's disposition (comment 7053570398).
 
+**Owner card-payment records should carry `movementIdentity` (the provider debit hash), not rely on date and cents** · QUEUED (ATLAS LEAD 11, 2026-11-21): the residual from the TD statements PR (#1509). Full lane if it changes which payment settles a minimum.
+- **Why:** an owner `sentPayments` record with a label `debitId` consumes a ledger payment only by matching card, funding account, exact posting date and exact cents (`Forecast.minimumCategoryAllocationConflict`). If the ledger re-dates or re-amounts that debit, the record no longer consumes it, and the same payment can settle a second minimum of the card through the category path. The lead accepted this for #1509 because re-dating a two-week-old debit is unlikely.
+- **Closure:** owner card-payment records carry `movementIdentity` (`source: lunchmoney-minimum-category` plus the provider debit hash), so consumption follows the debit itself. Proof on an invented ledger: the same payment re-dated by a day still settles only its recorded occurrence, and a record without the identity reverts to today's date-and-cents behaviour.
+- Source: ATLAS REVIEWER 2's blocker on #1509 (7056807037), repaired by date-and-cents consumption; residual disposition by the lead (ADDED TO BACKLOG, 2026-11-21).
+
+**Record that TD Cash Back's statement close day varies (7th, then 9th)** · QUEUED (ATLAS LEAD 11, 2026-11-21): from the TD statements PR (#1509). Light lane unless a published figure moves.
+- **Why:** `debts.statementCloseDay` for Cash Back is 7, but its Oct. 8 to Nov. 9 statement closed on the 9th. The close day sets the card-minimum category path's lookup window, which decides which minimum a categorized payment can settle. One statement does not establish a new fixed day, so #1509 left it at 7. Changing it would not have removed #1509's double-settle (the review showed close day 9 still exposes it).
+- **Closure:** decide from more than one statement whether the close day is fixed, and record it, or model a varying close (for example from statement dates). Proof: the lookup window opens on the recorded close for each cycle tested.
+- Source: ATLAS REVIEWER 2 on #1509 (7056807037) and the merge card's Additional findings; lead's ask, 2026-11-21.
+
+**Stack-arm boot: the "focus refused" checks still probe the hidden header** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Light lane (tests only).
+- **Why:** on the Stack arm the header the boot's "focus refused" checks look at is hidden, so those checks probe an element the household never sees and can pass or fail for the wrong reason.
+- **Closure:** the checks probe the element the Stack arm actually shows. Proof: a case where focus is refused on the visible Stack element fails the check.
+- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+
+**A yearly bill's explicit `goalRef` bypasses `savingsGoal: false`** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane if a savings figure moves.
+- **Why:** a bill marked `savingsGoal: false` should not become a savings goal, but an explicit yearly-bill `goalRef` still makes it one, so the flag is not the single authority.
+- **Closure:** one rule decides whether a bill is a savings goal, and `savingsGoal: false` wins over a `goalRef`. Proof on invented data: a yearly bill with both is not a goal, and removing the flag restores the goal.
+- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+
+**When items are held, the Savings card's totals do not add up on their face** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane if a published figure or its trust changes.
+- **Why:** with held items, the Savings card's printed parts and its total do not sum as a reader adds them, so the card looks wrong even if each figure is right.
+- **Closure:** the card either shows parts that sum to its total or says plainly what the total includes. Proof on invented data: a held item, and the rendered parts and total reconcile as printed.
+- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+
+**An overdue unpaid savings item is treated as spent** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane (a figure the household acts on).
+- **Why:** a savings item whose date has passed but which was not paid reads as spent, so the money still set aside for it looks gone.
+- **Closure:** an overdue unpaid item stays held (or reads unconfirmed), never spent, until a payment is seen. Proof on invented data: an item past its date with no payment keeps its money held, and a payment moves it to spent.
+- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
 - **Why:** on the 753-purchase invented harness world (main `311c6c7b`), building the hold set (`computeHeldOtherIncomeKeys` → `calendarIncomeSections`, which scans every packet transaction in its span) is 292 of 1,035 ms inside `recommend`. One `recommend` builds it 36 times. The payday and weekly searches already share it within a search (#980 follow-up, #1406); the other callers do not.
 - **Measured (scratch prototype, not a proof):** sharing one holder per outermost `recommend`, matched with the 16 keys below ignored, cuts builds from 36 to 7 on that world (634 to 154 on the 60 invented figures evaluations). Advice was identical on 63 invented cases with 1,020 shared hits. One `recommend` on that world went 101.6 → 79.8 ms (about 21% lower). There was no measurable gain on the invented figures inputs, where the matching overhead eats it. Exact-match sharing alone removes only 7 of 36 builds.
