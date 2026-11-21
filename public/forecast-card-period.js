@@ -398,6 +398,40 @@
       net: unavailable('not-a-spend-card'), state: null, stateReasons: ['not-a-spend-card'],
       transactions: [] };
     const published = id => publication.cards.find(row => row && row.id === id) || null;
+    // The paid figure a Credit row and the Credit head both read (Dale, 2026-11-20: "0/ owed total if nothing has been paid yet",
+    // "Just normal font"): one rule per line, so the head, which sums the due spend cards' paidToward, and the rows cannot
+    // disagree. { amount, trust, reasons }:
+    //   * a spend card with a published paid: that paid, with its own trust;
+    //   * a card Forecast cannot see counts $0 (trust estimated in the data), by owner decision: a manual / no-ledger card in
+    //     the current period, any card in an upcoming period (nothing is observed yet), and a HELOC whose account has no
+    //     publication card; the one exception to the never-0 rule above;
+    //   * the HELOC, when its publication card is observed in the current period (posted coverage complete, no evidence
+    //     gap): the sum of its posted payment rows (estimated: no reconciled allocation exists for
+    //     it), $0 when it has none; an unconfirmed credit or an unqualified amount withholds it;
+    //   * missing history withholds it (null, unavailable, with reasons): a PAST period, a tracked card whose paid is withheld
+    //     (a failed sync, incomplete posted coverage), a HELOC whose observation has a gap.
+    const countedZero = reasons => ({ amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'].concat(reasons) });
+    const withheldPaid = reasons => ({ amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(reasons) });
+    const paidTowardOf = (card, pubCard) => {
+      if (card.id !== 'heloc') {
+        if (card.paid.amount !== null) return { amount: card.paid.amount, trust: card.paid.trust, reasons: card.paid.reasons.slice() };
+        const manual = !!(pubCard && pubCard.manualStatement === true);
+        return future || (publication.role === 'current' && manual) ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);
+      }
+      if (future) return countedZero(['future-not-observed']);
+      if (publication.role !== 'current') return withheldPaid(['not-current-period']);
+      if (!pubCard) return countedZero(['heloc-not-observed']);
+      const gaps = (Array.isArray(pubCard.reasons) ? pubCard.reasons : []).filter(r => r !== 'opening-unavailable' && r !== 'closing-unavailable');
+      if (pubCard.postedCoverage !== 'complete-provider-response') gaps.push('posted-coverage-incomplete');
+      let paidCents = 0;
+      for (const row of Array.isArray(pubCard.posted) ? pubCard.posted : []) {
+        const value = typeof row.amount === 'number' && Number.isFinite(row.amount) ? Math.round(row.amount * 100) : null;
+        if (value === null) { gaps.push('transaction-amount-unqualified'); continue; }
+        if (row.kind === 'payment') paidCents += -value;
+        else if (row.kind === 'credit-unconfirmed') gaps.push('card-credit-purpose-unconfirmed');
+      }
+      return gaps.length ? withheldPaid([...new Set(gaps)]) : { amount: paidCents / 100, trust: 'estimated', reasons: [] };
+    };
     const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
       const balance = balanceOf(published(card.id), publication);
@@ -413,9 +447,10 @@
         status = gap > 0 ? 'to-go' : 'paid-back';
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
+      const paidToward = paidTowardOf(card, published(card.id));
       const covered = paid.amount === null || minimum.amount === null ? 'unknown'
         : cents(paid.amount) >= cents(minimum.amount);
-      return { ...card, balance, minimum, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      return { ...card, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paid.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paid.reasons.concat(minimum.reasons))] : [] } };
@@ -455,23 +490,15 @@
     } else {
       totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
         trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
-      // The paid side of the Credit head, over exactly the cards in minimumsDue (Dale, 2026-11-20: "$0 / owed if nothing has been
-      // paid"). Each due card's published paid, uncapped (an overpaid card counts its full paid, like its own row); $0 when
-      // nothing was paid. Owner decision (Dale, 2026-11-20: "I don't need a distinction with estimated"): a due MANUAL / no-ledger
-      // card (Triangle, Amazon: manualStatement in the publication) that Forecast cannot see counts $0 in the current period, and
-      // every card counts $0 in an upcoming one (nothing is observed yet), the one exception to the never-0 rule, with the trust word kept honest (estimated) in the data. Missing HISTORY is
-      // not an unseen card: a card with a feed whose paid is withheld (a failed sync, incomplete posted coverage) or any unseen card
-      // in a PAST period withholds the whole figure (null, unavailable, with its reasons), since a $0 there could hide a real
-      // payment. A payment still to confirm on an observed card is that card's estimated paid, number shown. HELOC is not here.
-      const unseen = dueLines.filter(line => line.paid.amount === null);
-      const unseenManual = line => !!(published(line.id) && published(line.id).manualStatement === true);
-      const missingHistory = unseen.some(line => publication.role === 'past' || (publication.role !== 'future' && !unseenManual(line)));
-      const unseenReasons = [...new Set(unseen.flatMap(line => line.paid.reasons))];
-      totals.minimumsPaid = missingHistory
-        ? { amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(unseenReasons.filter(r => r !== 'paid-unavailable')) }
-        : { amount: dueLines.reduce((sum, line) => sum + (line.paid.amount === null ? 0 : cents(line.paid.amount)), 0) / 100,
-          trust: dueLines.length ? weakest(...dueLines.map(line => line.paid.amount === null ? 'estimated' : line.paid.trust)) : splitTrust,
-          reasons: unseen.length ? ['paid-unavailable-counted-as-zero'].concat(unseenReasons) : [] };
+      // The paid side of the Credit head: the sum of each due spend card's paidToward (the figure its row prints, one rule),
+      // uncapped (an overpaid card counts its full paid). A $0 when nothing was paid; withheld (null, unavailable, with its
+      // reasons) when any due card's paidToward is withheld, never a partial sum. Trust is the weakest of the figures.
+      const unseen = dueLines.filter(line => line.paidToward.amount === null);
+      totals.minimumsPaid = unseen.length
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set(['paid-unavailable'].concat(unseen.flatMap(line => line.paidToward.reasons.filter(r => r !== 'paid-unavailable'))))] }
+        : { amount: dueLines.reduce((sum, line) => sum + cents(line.paidToward.amount), 0) / 100,
+          trust: dueLines.length ? weakest(...dueLines.map(line => line.paidToward.trust)) : splitTrust,
+          reasons: [...new Set(dueLines.filter(line => line.paidToward.reasons.includes('paid-unavailable-counted-as-zero')).flatMap(line => line.paidToward.reasons))] };
       totals.minimumsDueCount = dueLines.length;
       totals.minimumsCoveredCount = dueLines.filter(coveredOn).length;
       totals.minimumsCoveredTrust = dueLines.length

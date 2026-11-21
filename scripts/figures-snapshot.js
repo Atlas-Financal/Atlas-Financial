@@ -630,6 +630,9 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         putField(c + '.status', line, 'status');
         put(c + '.minimumCovered', String(line.minimumCovered.value));
         put(c + '.minimumCoveredTrust', line.minimumCovered.trust);
+        // The paid figure the row prints and the head sums (one rule), with its trust.
+        put(c + '.paidToward', line.paidToward.amount);
+        put(c + '.paidTowardTrust', line.paidToward.trust);
         put(c + '.balance', line.balance.amount);
         put(c + '.balanceTrust', line.balance.trust);
         put(c + '.balanceAsOf', line.balance.asOf);

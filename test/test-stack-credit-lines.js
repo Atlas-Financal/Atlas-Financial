@@ -392,22 +392,93 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
   const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
-  const guard = "const missingHistory = unseen.some(line => publication.role === 'past' || (publication.role !== 'future' && !unseenManual(line)));";
-  ok(src.includes(guard), 'the mutants target the missing-history guard');
+  const guard = "return future || (publication.role === 'current' && manual) ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);";
+  ok(src.includes(guard), 'the mutants target the per-line unseen-card rule');
   const pastManual = mp(due([{ debtId: 'triangle', amount: 40 }]), past);
   ok(pastManual.amount === null && pastManual.reasons[0] === 'paid-unavailable', 'a manual card in a PAST period is missing history too: withheld', JSON.stringify(pastManual));
-  const noPast = load(src.replace(guard, "const missingHistory = unseen.some(line => publication.role !== 'future' && !unseenManual(line));"));
+  const noPast = load(src.replace(guard, "return future || manual ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);"));
   ok(noPast.stackCreditLines(publish(past), due([{ debtId: 'triangle', amount: 40 }])).totals.minimumsPaid.amount === 0,
     'MUTANT: counting an unseen manual card as $0 in a past period too reads $0, which the past-period check above rejects');
-  const feedAsZero = load(src.replace(guard, "const missingHistory = unseen.some(line => publication.role === 'past');"));
+  const feedAsZero = load(src.replace(guard, "return countedZero(card.paid.reasons);"));
   ok(feedAsZero.stackCreditLines(publish(failed), due([{ debtId: 'travelvisa', amount: 25 }])).totals.minimumsPaid.amount === 0,
     'MUTANT: treating every unseen card as a manual one reads $0 for a failed sync, which the failed-sync check above rejects');
-  const dashEverywhere = load(src.replace(guard, 'const missingHistory = unseen.length > 0;'));
+  const dashEverywhere = load(src.replace(guard, "return withheldPaid(card.paid.reasons);"));
   ok(dashEverywhere.stackCreditLines(publish(x), due([{ debtId: 'triangle', amount: 400 }])).totals.minimumsPaid.amount === null,
     'MUTANT: withholding for any unseen card reads a dash for the manual card, which the owner-decision check above rejects');
-  const lies = load(src.replace("trust: dueLines.length ? weakest(...dueLines.map(line => line.paid.amount === null ? 'estimated' : line.paid.trust)) : splitTrust,", "trust: 'calculated',"));
+  const lies = load(src.replace("trust: dueLines.length ? weakest(...dueLines.map(line => line.paidToward.trust)) : splitTrust,", "trust: 'calculated',"));
   ok(lies.stackCreditLines(publish(x), due([{ debtId: 'triangle', amount: 400 }])).totals.minimumsPaid.trust === 'calculated',
     'MUTANT: a trust word of calculated on an unseen card reads calculated, which the honest-trust checks above reject');
+}
+
+console.log('13. paidToward: one published paid figure per line, read by the row and summed by the head (Dale, 2026-11-20)');
+{
+  const lineOf = (world, id, bills = split) => F.stackCreditLines(publish(world), bills).lines.find(l => l.id === id);
+  const toward = (world, id, bills) => lineOf(world, id, bills).paidToward;
+  const x = fx.fixture();
+  // The spend cards: an observed card's paid; a manual card counted $0 (estimated); a tracked card with a failed sync withheld.
+  ok(same([toward(x, 'travelvisa').amount, toward(x, 'travelvisa').trust], [100, 'estimated']) && same([toward(x, 'tdcc').amount, toward(x, 'tdcc').trust], [0, 'calculated']),
+    'an observed card reads its published paid: Travel 100 (estimated, the payment is unreconciled), Emerald 0 (calculated)');
+  const tri = toward(x, 'triangle'), mb = toward(x, 'mbna');
+  ok(tri.amount === 0 && tri.trust === 'estimated' && tri.reasons[0] === 'paid-unavailable-counted-as-zero' && same([mb.amount, mb.trust], [0, 'estimated']),
+    'the manual cards (Triangle, Amazon) read $0 in the current period, estimated in the data', JSON.stringify([tri, mb]));
+  const failed = fx.fixture(); failed.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
+  const ft = toward(failed, 'travelvisa');
+  ok(ft.amount === null && ft.trust === 'unavailable' && ft.reasons[0] === 'paid-unavailable', 'a tracked card with a failed sync is withheld (a dash), not $0', JSON.stringify(ft));
+  // The HELOC: observed (its publication card, posted coverage complete) reads the sum of its posted payment rows, $0 with none.
+  const helocWorld = rows => {
+    const w = fx.fixture();
+    w.debts.push({ id: 'heloc', label: 'Example HELOC', structure: 'HELOC', secured: true, limit: 20000, pending: 0, rate: 7, balance: 9000 });
+    w.overlay.overlays.push({ locator: 'debts:heloc', field: 'balance', proposedValue: 9000, evidenceDate: w.asOf });
+    rows.forEach(([id, date, amount, kindHint]) => w.packet.transactions.push({ id, coverageRef: 'invented-' + id, atlasAccountId: 'heloc', account: 'heloc',
+      accountRole: 'heloc', date, amount, currency: 'cad', displayedPayee: 'Example HELOC', kindHint, pending: false, savingsPostingEvidence: 'posted' }));
+    return w;
+  };
+  const none = toward(helocWorld([]), 'heloc');
+  ok(none.amount === 0 && none.trust === 'estimated' && same(none.reasons, []), 'HELOC observed, nothing posted: $0 (published, no counted-as-zero reason)', JSON.stringify(none));
+  const paid = toward(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment'], ['heloc-interest', '2026-08-19', 22.5, 'interest']]), 'heloc');
+  ok(paid.amount === 150 && paid.trust === 'estimated', 'HELOC observed with a posted payment of 150 and an interest charge: paid is 150 (interest is not a payment)', JSON.stringify(paid));
+  const two = toward(helocWorld([['heloc-pay-1', '2026-08-16', -150, 'payment'], ['heloc-pay-2', '2026-08-19', -40, 'bill-payment']]), 'heloc');
+  ok(two.amount === 190, 'two posted payments: 150 + 40 = 190', JSON.stringify(two));
+  const unlabelled = toward(helocWorld([['heloc-credit', '2026-08-18', -150, undefined]]), 'heloc');
+  ok(unlabelled.amount === null && unlabelled.reasons.includes('card-credit-purpose-unconfirmed'), 'an unlabelled credit on the HELOC is not a known payment: withheld', JSON.stringify(unlabelled));
+  const partial = helocWorld([]); partial.packet.transactionCoverage = 'incomplete';
+  const pc = toward(partial, 'heloc');
+  ok(pc.amount === null && pc.reasons.includes('posted-coverage-incomplete'), 'HELOC with incomplete posted coverage: withheld (missing history), never $0', JSON.stringify(pc));
+  const unobserved = toward(x, 'heloc');
+  ok(unobserved.amount === 0 && unobserved.trust === 'estimated' && unobserved.reasons.includes('heloc-not-observed'), 'no HELOC publication card (its account is not observed): $0, estimated, with its reason', JSON.stringify(unobserved));
+  const future = helocWorld([]); future.window = F.spendingCycle(future.plan, '2026-08-28');
+  const past = helocWorld([]); past.window = F.spendingCycle(past.plan, '2026-07-20');
+  ok(toward(future, 'heloc').amount === 0 && toward(past, 'heloc').amount === null && toward(past, 'heloc').reasons.includes('not-current-period'),
+    'HELOC: an upcoming period reads $0; a past period is missing history and is withheld');
+  // The head is the sum of the due spend cards' paidToward, so the rows always add up to it (the HELOC is in the rows, not the head).
+  const worlds = [['current', x], ['failed sync', failed], ['HELOC paid', helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])], ['past', past], ['upcoming', future]];
+  const bills = { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }, { debtId: 'triangle', amount: 400 }, { debtId: 'heloc', amount: 50 }], trust: 'calculated' };
+  for (const [label, w] of worlds) {
+    const r = F.stackCreditLines(publish(w), bills);
+    const dueRows = r.lines.filter(l => l.id !== 'heloc' && l.minimum.amount !== null && l.minimum.amount > 0);
+    const sum = dueRows.every(l => l.paidToward.amount !== null) ? dueRows.reduce((a, l) => a + Math.round(l.paidToward.amount * 100), 0) / 100 : null;
+    ok(r.totals.minimumsPaid.amount === sum, label + ': the head\'s minimumsPaid is the sum of the due spend rows\' paidToward (' + sum + '), HELOC outside', JSON.stringify(r.totals.minimumsPaid));
+  }
+  ok(!JSON.stringify(F.stackCreditLines(publish(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])), bills).totals).includes('150'), 'a HELOC payment never enters the head (it is a different figure by membership)');
+  // MUTANTS
+  const Module = require('module'), fs = require('node:fs'), pathMod = require('node:path');
+  const file = require.resolve('../public/forecast-card-period.js');
+  const src = fs.readFileSync(file, 'utf8');
+  const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
+  const covGuard = "if (pubCard.postedCoverage !== 'complete-provider-response') gaps.push('posted-coverage-incomplete');";
+  const obsGuard = "if (!pubCard) return countedZero(['heloc-not-observed']);";
+  ok(src.includes(covGuard) && src.includes(obsGuard), 'the HELOC mutants target the coverage and observation guards');
+  const reasonGaps = "const gaps = (Array.isArray(pubCard.reasons) ? pubCard.reasons : []).filter(r => r !== 'opening-unavailable' && r !== 'closing-unavailable');";
+  ok(src.includes(reasonGaps), 'the HELOC mutant also targets the publication-reasons guard');
+  const noCov = load(src.replace(covGuard, '').replace(reasonGaps, 'const gaps = [];'));
+  ok(noCov.stackCreditLines(publish(partial), bills).lines.find(l => l.id === 'heloc').paidToward.amount === 0,
+    'MUTANT: with no coverage check at all (neither the explicit one nor the publication\'s reasons) an incomplete-coverage HELOC reads $0, which the incomplete-coverage check above rejects');
+  const noObs = load(src.replace(obsGuard, "if (!pubCard) return withheldPaid(['heloc-not-observed']);"));
+  ok(noObs.stackCreditLines(publish(x), bills).lines.find(l => l.id === 'heloc').paidToward.amount === null,
+    'MUTANT: withholding for an unobserved HELOC reads a dash, which the not-observed check above rejects');
+  const interestAsPaid = load(src.replace("if (row.kind === 'payment') paidCents += -value;", "if (row.kind === 'payment' || row.kind === 'interest') paidCents += -value;"));
+  ok(interestAsPaid.stackCreditLines(publish(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment'], ['heloc-interest', '2026-08-19', 22.5, 'interest']])), bills).lines.find(l => l.id === 'heloc').paidToward.amount === 127.5,
+    'MUTANT: counting HELOC interest as a payment reads 127.5, which the interest check above rejects');
 }
 
 console.log(`\nAll stack credit line checks passed (${checks}).`);
