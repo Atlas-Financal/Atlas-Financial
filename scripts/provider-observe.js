@@ -1713,6 +1713,24 @@ function ruleLunchMoneyItemNames(rule) {
   const values = Array.isArray(rule && rule.lunchMoneyItemNames) ? rule.lunchMoneyItemNames : [];
   return Array.from(new Set(values.map(normalizeItemName).filter(Boolean)));
 }
+// Grok Bot's bill verification marker (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot, Plan #6 thread,
+// ts 1795188508.458429): the exact text "bill verified" at the start of ANY line of the payment's note, then the
+// end of the line or an optional comment starting " - " or " (". Case-sensitive, no leading space; every line is
+// read. The note carries no amount and no bill name: the verified amount is the row's own, and the bill link is
+// the incumbent one (rule 17: Atlas only reads the marker). Only the boolean leaves this file, never the note.
+// Grok Bot's note can only be appended to, so a later "bill not verified" line withdraws an earlier "bill verified":
+// the LAST marker line decides (Grok Bot, Plan #6 thread, after ts 1795212883.667279).
+const BILL_VERIFIED_LINE = /^bill (not )?verified(?:$| - | \()/;
+function billVerifiedMarker(notes) {
+  if (typeof notes !== 'string') return false;
+  let verified = false;
+  for (const line of notes.split(/\r\n|\r|\n/)) {
+    const m = BILL_VERIFIED_LINE.exec(line);
+    if (m) verified = m[1] === undefined;
+  }
+  return verified;
+}
+
 function noteItemNames(notes) {
   if (typeof notes !== 'string') return [];
   return notes.split(';').map(part => part.trim())
@@ -7526,6 +7544,9 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       parentId: localIdFor(tx.parentId),
       pendingPostedDuplicate: tx.pendingPostedDuplicate === true,
       pendingPostedAmbiguous: tx.pendingPostedAmbiguous === true,
+      // Grok Bot's "bill verified" marker, on a posted row only (a pending row never verifies); the boolean, never
+      // the note text.
+      ...(tx.pending !== true && billVerifiedMarker(tx.notes || tx.note) ? { billVerifiedNote: true } : {}),
       // The posted minimum category's card, present only on such a row, so the
       // held reader can see a category/note conflict (cardPaymentDestinationConflict).
       ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
@@ -8223,6 +8244,7 @@ const api = {
   reconciliationReceiptLooksSanitized,
   reconciliationReceipt,
   normalizeLunchMoneyAccount,
+  billVerifiedMarker,
   postedBalanceEvidenceInstant,
   cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,

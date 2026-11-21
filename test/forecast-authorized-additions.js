@@ -57,7 +57,7 @@ function proveStackBills(view, bills) {
 }
 const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
 const STACK_BILL_PARTS = new Set(['mortgage', 'cardMinimum', 'other']);
-const STACK_BILL_EVIDENCE = new Set(['posted-equal', 'posted-differs', 'pending', 'none']);
+const STACK_BILL_EVIDENCE = new Set(['posted-equal', 'posted-differs', 'posted-verified', 'pending', 'none']);
 function proveStackBillParts(view, bills) {
   const rows = Array.isArray(view.bills) ? view.bills : [];
   const marked = rows.filter(row => row && STACK_BILL_MARKS.some(key => Object.hasOwn(row, key)));
@@ -66,13 +66,20 @@ function proveStackBillParts(view, bills) {
     assert.ok(STACK_BILL_PARTS.has(row.stackBillPart) && finite(row.stackBillAmount), 'authorized addition: a marked bill row names its part and amount');
     assert.equal(Object.hasOwn(row, 'stackBillDebtId'), row.stackBillPart === 'cardMinimum', 'authorized addition: only a card minimum names its line');
     assert.ok(STACK_BILL_EVIDENCE.has(row.stackBillPaymentEvidence), 'authorized addition: a marked row names its payment evidence');
-    if (row.stackBillPaymentEvidence === 'posted-equal' || row.stackBillPaymentEvidence === 'posted-differs') {
+    if (['posted-equal', 'posted-differs', 'posted-verified'].includes(row.stackBillPaymentEvidence)) {
       assert.equal(row.displayAmountBasis, 'posted-actual', 'authorized addition: posted evidence only on a posted payment');
       const plan = row.planned != null && Number.isFinite(Number(row.planned)) ? Number(row.planned) : Number(row.amount);
       const posted = cents(Math.abs(row.actual));
-      assert.equal(posted === cents(row.stackBillAmount) && posted === cents(Math.abs(plan)), row.stackBillPaymentEvidence === 'posted-equal',
-        'authorized addition: posted-equal exactly where the posted payment is both the planned and the counted amount');
+      const verified = row.billPaymentVerified === true;
+      // Grok Bot's "bill verified" note: verified exactly where the row carries the stamp and the posted payment is
+      // the counted amount; otherwise posted-equal exactly where it is both the planned and the counted amount.
+      assert.equal(verified && posted === cents(row.stackBillAmount), row.stackBillPaymentEvidence === 'posted-verified',
+        'authorized addition: posted-verified exactly where a verified posted payment is the counted amount');
+      assert.equal(!verified && posted === cents(row.stackBillAmount) && posted === cents(Math.abs(plan)), row.stackBillPaymentEvidence === 'posted-equal',
+        'authorized addition: posted-equal exactly where an unverified posted payment is both the planned and the counted amount');
     }
+    assert.ok(!Object.hasOwn(row, 'billPaymentVerified') || (row.billPaymentVerified === true && row.displayAmountBasis === 'posted-actual'),
+      'authorized addition: only a posted payment carries the verified stamp');
     if (Object.hasOwn(row, 'stackBillAmountTrust')) assert.ok(['calculated', 'estimated', 'unknown'].includes(row.stackBillAmountTrust), 'authorized addition: a marked amount\'s trust is a trust word');
   }
   if (marked.length) {
@@ -258,8 +265,9 @@ function proveBillHistory(advice) {
       assert.equal(entry.occurrence, billOccurrenceOf(row), `authorized addition: billHistory.${id}@${entry.date} occurrence is the row's identity`);
       const planOf = row.planned != null && Number.isFinite(Number(row.planned)) ? Number(row.planned) : Number(row.amount);
       assert.equal(entry.paidConfirmed, row.paidState === 'paid' && row.displayAmountBasis === 'posted-actual'
-        && typeof row.actual === 'number' && Math.round(Math.abs(row.actual) * 100) === Math.round(Math.abs(planOf) * 100),
-      `authorized addition: billHistory.${id}@${entry.date} paidConfirmed only for a posted payment of exactly the plan`);
+        && typeof row.actual === 'number' && (Math.round(Math.abs(row.actual) * 100) === Math.round(Math.abs(planOf) * 100)
+          || row.billPaymentVerified === true),
+      `authorized addition: billHistory.${id}@${entry.date} paidConfirmed only for a posted payment of exactly the plan, or a verified one`);
       listed.add(billOccurrenceOf(row));
     }
   }

@@ -705,6 +705,7 @@
   ["A budget row says whether its listed transactions reconcile to its Spent to the cent","test-budget-recon-matches-spent.js"],
   ["Stack bill sheet history: each bill's published occurrences, newest first","test-stack-bill-history.js"],
   ["Stack bill cards: each card's rows are Forecast's own place in the bills split and add up to its head","test-stack-bill-parts.js"],
+  ["Bill verified note: Grok Bot's note confirms a differing posted bill payment at what was paid (card check, bill history, BAD delta)","test-bill-verified-note.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
   ["Stack card names come from the ledger: the Lunch Money display name, carried by provider account id, shown first on the waterfall and the Credit card","test-stack-card-ledger-names.js"],
