@@ -17,8 +17,8 @@
  *                                                              'posted-verified' (Grok Bot's "bill verified" note)
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
- *   stackSummary.savings.items[] {label, saved, needed} and .totals
- *     {saved, entitlement, entitlement, completeness ('pool-level' | 'none'), excluded[], reasons[]}  (A5; plain numbers or null)
+ *   stackSummary.savings.items[] {label, saved, needed, trust} and .totals {balance, saved, needed, unallocated,
+ *     trust, reasons[]}  (owner rule 2026-11-20: the balance poured nearest due first; plain numbers or null)
  */
 (function (root) {
   'use strict';
@@ -173,51 +173,34 @@
     return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true, 'spent / budget');
   }
 
-  // Savings (owner-approved design): "$saved of $needed" and a bar; open, one
-  // row per goal with its own small bar. No Funded / Not funded wording.
-  // Nothing renders until Forecast publishes stackSummary.savings (F8).
+  // Savings (owner rule, Dale 2026-11-20): the savings balance poured into the goals, nearest due first. Forecast
+  // pours; this card prints. Head "$saved / $needed" with a bar; open, one row per goal, "$saved / $needed" with its
+  // own small bar, then what is left over as Unallocated (only when Forecast publishes it above $0). A withheld figure
+  // is a dash, never $0 and never hidden: the goal names always show. Forecast publishes the card for the current
+  // and next periods only (stackSummary.savings is null elsewhere, and then there is no card).
   function savingsCard(view) {
     var sv = get(view, ['stackSummary', 'savings']);
     if (!sv || typeof sv !== 'object') return '';
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
+    if (!items.length) return ''; // no savings goals at all: no card
     var t = sv.totals || {};
-    var amt = function (v) { return v; }; // plain numbers or null (A5)
-    var has = function (list, code) { return Array.isArray(list) && list.indexOf(code) >= 0; };
-    // Header: current period, the pool's "moved of entitlement this period" (only when both
-    // are published); a next or future period, the planned total with nothing moved; a past
-    // period, no amount. A withheld value prints nothing, never $0.
-    var moved = money(t.saved), entitlement = money(t.entitlement), planned = money(t.needed);
-    var head, headOf = null, sub, tail = null, sep = null, width = 0;
-    if (moved != null && entitlement != null) {
-      head = moved; headOf = entitlement; sep = ' / '; sub = '';
-      width = fill(t.saved, t.entitlement);
-    } else if (has(t.reasons, 'future-period') && planned != null) {
-      head = planned; sub = '';
-    } else { head = null; sub = ''; }
-    // No savings goals published at all: no card. A past period with nothing to print: no card (nothing is due in
-    // the past, and a list of names and dashes is clutter). A current or future period whose figures are withheld
-    // keeps its card with dashes: an unknown must not read as "nothing due".
-    var printable = items.some(function (i) { return isNum(i.saved) || (has(i.reasons, 'future-period') && isNum(i.needed)); });
-    if (head == null && !items.length) return '';
-    if (head == null && !printable && view.timelineRole === 'past') return '';
-    var headEst = head != null && isEst(t.trust, moved != null && entitlement != null ? t.entitlementTrust : null);
+    var saved = money(t.saved), needed = money(t.needed);
+    var known = saved != null && needed != null;
+    var headEst = known && isEst(t.trust);
+    var row = function (label, f, n, trust, width) {
+      var est = estCls(isEst(trust));
+      var right = f == null ? '<span class="sc-a">' + DASH + '</span>'
+        : '<span class="sc-a' + est + '">' + esc(f) + (n == null ? '' : '<i> / ' + esc(n) + '</i>') + '</span>';
+      var bar = width == null ? '' : '<span class="sc-mini sc-full' + est + '"><i style="width:' + width + '%"></i></span>';
+      return bar ? '<li class="sc-row sc-own"><span class="sc-n">' + esc(label) + '</span>' + right + bar + '</li>'
+        : '<li class="sc-row"><span><b class="sc-n">' + esc(label) + '</b></span>' + right + '</li>';
+    };
     var body = '<ul class="sc-list">' + items.map(function (i) {
-      var s = money(i.saved), n = money(i.needed), tg = money(i.periodTarget);
-      var own = s != null; // this goal's own published saved value (current period, nearest due first)
-      if (own) {
-        // "$saved of $periodTarget" with a full-width bar; periodTarget is Forecast's, not added here.
-        return '<li class="sc-row sc-own"><span class="sc-n">' + esc(i.label) + '</span>' +
-          '<span class="sc-a' + estCls(isEst(i.savedTrust, i.trust)) + '">' + esc(s) + (tg == null ? '' : '<i> / ' + esc(tg) + '</i>') + '</span>' +
-          '<span class="sc-mini sc-full' + estCls(isEst(i.savedTrust, i.trust)) + '"><i style="width:' + fill(i.saved, i.periodTarget) + '%"></i></span></li>';
-      }
-      // No words (owner rule): a future period shows only its planned amount; any other row with no published
-      // saved figure shows a dash (the net still-to-set-aside figure is not printed, so it never reads as the target).
-      var right = has(i.reasons, 'future-period') && n != null
-        ? '<span class="sc-a' + estCls(isEst(i.trust)) + '">' + esc(n) + '</span>'
-        : '<span class="sc-a">' + DASH + '</span>';
-      return '<li class="sc-row"><span><b class="sc-n">' + esc(i.label) + '</b></span>' + right + '</li>';
-    }).join('') + '</ul>';
-    return strip('savings', 'Savings', sub, head, headOf, width, items.length ? body : '', sep, tail, headEst, true);
+      var f = money(i.saved), n = money(i.needed);
+      return f != null && n != null ? row(i.label, f, n, i.trust, fill(i.saved, i.needed)) : row(i.label, null, null, null, null);
+    }).join('') + (isNum(t.unallocated) && t.unallocated > 0 && known ? row('Unallocated', money(t.unallocated), null, t.trust, null) : '') + '</ul>';
+    return strip('savings', 'Savings', '', known ? saved : null, known ? needed : null,
+      known ? fill(t.saved, t.needed) : 0, body, ' / ', null, headEst, true);
   }
 
   function buildCardsHTML(ctx) {
