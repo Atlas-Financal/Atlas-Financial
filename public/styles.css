@@ -480,7 +480,7 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
    loading screen just the pixel art video"). While loading, both boot
    layers show only the household's animation, full screen: an animated
    AVIF (an image, so the existing img-src 'self' policy covers it; no
-   video, no new policy), 12 frames a second, about 220 KB. The brand mark and
+   video, no new policy), 12 frames a second, about 350 KB: the household's 30-second v2 scene (Dale, 2026-11-21), with its own "LOADING" text drawn in, anchored at the top. The brand mark and
    wordmark are not shown, and the tips card is gone. The status line stays for screen
    readers only (role="status" is unchanged), and Cancel stays reachable
    by keyboard, appearing only when focused; while invisible it takes no
@@ -494,10 +494,10 @@ svg { display:block; width:100%; height:auto; overflow:visible; }
   justify-content:center;
   padding-bottom:calc(env(safe-area-inset-bottom, 0px) + 24px);
   color:#f4f3ef;
-  background:url('/boot-campfire.avif') center 62% / cover no-repeat, #070a17;
+  background:url('/boot-campfire.avif') center top / cover no-repeat, #070a17;
 }
 [data-boot-notice].crit { background:linear-gradient(180deg, rgba(6,8,18,.72), rgba(6,8,18,.55)),
-  url('/boot-campfire.jpg') center 62% / cover no-repeat, #070a17; }
+  url('/boot-campfire.jpg') center top / cover no-repeat, #070a17; }
 [data-boot-notice].is-loading::before { content:none; }
 .boot-static .boot-static-mark, .boot-static .boot-wordmark,
 [data-boot-notice] .boot-treatment { display:none; }

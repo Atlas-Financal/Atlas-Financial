@@ -26,7 +26,7 @@ const avif = read('public/boot-campfire.avif');
 const jpg = read('public/boot-campfire.jpg');
 ok(avif.slice(4, 12).toString('latin1') === 'ftypavis', 'the animation is an animated AVIF image (an image sequence, "avis" brand)');
 ok(jpg[0] === 0xff && jpg[1] === 0xd8, 'the still is a JPEG');
-ok(avif.length <= 300 * 1024, 'the animation is at most 300 KB (' + Math.round(avif.length / 1024) + ' KB)');
+ok(avif.length <= 400 * 1024, 'the animation is at most 400 KB (' + Math.round(avif.length / 1024) + ' KB)');
 ok(jpg.length <= 80 * 1024, 'the still is at most 80 KB (' + Math.round(jpg.length / 1024) + ' KB)');
 
 const html = read('public/index.html').toString('utf8');
