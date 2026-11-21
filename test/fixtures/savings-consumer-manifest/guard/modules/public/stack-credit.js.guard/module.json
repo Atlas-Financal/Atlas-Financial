@@ -1,5 +1,3 @@
 {
- "mode": "module",
- "reason": "no function executes under the declared states: reach not established",
- "sha256": "7b2d1e86ecc59823d0c1775420c64da4a48a82585bd29cf3e909b78c2f856dca"
+ "mode": "functions"
 }
