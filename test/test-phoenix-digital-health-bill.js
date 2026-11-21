@@ -21,7 +21,7 @@ const near = (a, b) => Math.abs(Number(a) - Number(b)) <= 0.005;
 const load = file => JSON.parse(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'));
 const ID = 'phoenix-digital-health';
 const AMOUNT = 174.99;
-const DUE = '2026-10-03'; // Saturday
+const DUE = '2026-10-04'; // Sunday (owner fact 2026-11-21: due on the 4th)
 const POSTED = '2026-10-05'; // next business day
 const LIVE = '2026-10-06';
 const OPENING = '2026-08-19';
@@ -120,11 +120,54 @@ console.log('=== one card-paid monthly bill ===');
 {
   const rows = load('data.json').plan.bills.filter(b => b.id === ID);
   const r = rows[0] || {};
-  ok(rows.length === 1 && r.frequency === 'monthly' && r.day === 3 && r.firstDue === DUE
+  ok(rows.length === 1 && r.frequency === 'monthly' && r.day === 4 && r.firstDue === DUE
       && r.amount === AMOUNT && r.payingAccount === 'travelvisa' && r.jointCash === false
-      && r.budgetCategory === null, 'monthly $174.99 on day 3, Travel Visa, not a BILLS withdrawal, category open');
-  ok(new Date(DUE + 'T00:00:00Z').getUTCDay() === 6 && new Date(POSTED + 'T00:00:00Z').getUTCDay() === 1,
-    'hand dates: due Saturday 3 Oct, charge Monday 5 Oct');
+      && r.budgetCategory === null, 'monthly $174.99 on day 4, Travel Visa, not a BILLS withdrawal, category open');
+  ok(new Date(DUE + 'T00:00:00Z').getUTCDay() === 0 && new Date(POSTED + 'T00:00:00Z').getUTCDay() === 1,
+    'hand dates: due Sunday 4 Oct, charge Monday 5 Oct');
+}
+
+console.log('\n=== owner fact 2026-11-21: due on the 4th; nothing else moves ===');
+{
+  // Independent expectation: hand calendar dates, not Forecast output. With the
+  // 4th, the December occurrence is Friday 4 Dec, outside Nov 20 - Dec 3.
+  ok(new Date('2026-12-04T00:00:00Z').getUTCDay() === 5, 'hand date: 4 Dec 2026 is a Friday');
+  const plan = load('data.json').plan;
+  const ids = (from, to) => F.expandEvents(plan, from, to).filter(e => e.id === ID).map(e => e.date);
+  ok(ids('2026-11-20', '2026-12-03').length === 0, 'no Phoenix occurrence in the Nov 20 - Dec 3 period',
+    JSON.stringify(ids('2026-11-20', '2026-12-03')));
+  ok(JSON.stringify(ids('2026-12-04', '2026-12-17')) === JSON.stringify(['2026-12-04']),
+    'the December occurrence is Dec 4, in the next period', JSON.stringify(ids('2026-12-04', '2026-12-17')));
+  // The same plan on the old day 3 / firstDue 2026-10-03: every other event is identical, and
+  // each Phoenix occurrence moves exactly one day later (one-for-one, same amount).
+  const old = JSON.parse(JSON.stringify(plan));
+  const row = old.bills.find(b => b.id === ID);
+  row.day = 3; row.firstDue = '2026-10-03';
+  const FROM = '2026-10-01', TO = '2027-12-31';
+  const key = e => `${e.id}@${e.date}:${e.amount}`;
+  const now = F.expandEvents(plan, FROM, TO), was = F.expandEvents(old, FROM, TO);
+  ok(JSON.stringify(now.filter(e => e.id !== ID).map(key)) === JSON.stringify(was.filter(e => e.id !== ID).map(key)),
+    'every non-Phoenix event from Oct 2026 to Dec 2027 is unchanged');
+  const nowP = now.filter(e => e.id === ID), wasP = was.filter(e => e.id === ID);
+  const shift = d => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); };
+  ok(nowP.length === wasP.length && nowP.length === 15
+      && nowP.every((e, i) => e.date === shift(wasP[i].date) && e.amount === wasP[i].amount && /-04$/.test(e.date)),
+    'fifteen Phoenix occurrences (Oct 2026 - Dec 2027), each exactly one day later on the 4th, same amount',
+    JSON.stringify(nowP.map(e => e.date)));
+  // Period figures: Bills for Nov 20 - Dec 3 fall by exactly the scheduled $174.99 and the Dec 4 - Dec 17
+  // period gains it; income is unchanged in both, and the period after is untouched.
+  const data = load('data.json');
+  const oldData = JSON.parse(JSON.stringify(data));
+  Object.assign(oldData.plan.bills.find(b => b.id === ID), { day: 3, firstDue: '2026-10-03' });
+  const viewOf = (d, start) => F.recommend(d.plan, '2026-11-21', { debts: d.debts, periods: [] })
+    .payPeriodViews.find(v => v.start === start);
+  for (const [start, delta] of [['2026-11-20', -AMOUNT], ['2026-12-04', AMOUNT], ['2026-12-18', 0]]) {
+    const a = viewOf(data, start), b = viewOf(oldData, start);
+    ok(!!a && !!b && near(a.totalBillsThisPeriod - b.totalBillsThisPeriod, delta)
+        && JSON.stringify(a.income) === JSON.stringify(b.income),
+      `period ${start}: Bills move by ${delta.toFixed(2)}, income unchanged`,
+      a && b ? `${b.totalBillsThisPeriod} -> ${a.totalBillsThisPeriod}` : 'missing view');
+  }
 }
 
 console.log('\n=== matching charge represents the occurrence once ===');
@@ -132,7 +175,7 @@ console.log('\n=== matching charge represents the occurrence once ===');
   const settled = live([tx(9701, AMOUNT, 'Phoenix Digital Corp'), tx(9702, 1, 'Phoenix Digital Corp')]);
   const plan = settled.data.plan;
   ok((plan.opening.representedEvents || []).filter(e => e.id === ID && e.date === DUE).length === 1,
-    'the posted $174.99 Monday charge represents the Saturday occurrence once');
+    'the posted $174.99 Monday charge represents the Sunday occurrence once');
   ok(!F.expandEvents(plan, LIVE, '2026-10-31').some(e => e.id === ID && e.date === DUE),
     'the represented occurrence is not carried');
   ok(near(reservedDelta(plan), 0), 'no Bills reserve remains for the represented charge', `Δ=${reservedDelta(plan)}`);
