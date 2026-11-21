@@ -1,0 +1,413 @@
+# C1 — test dispositions for retiring the previous Budget page (`?view=classic`)
+
+Status: **proposal for the lead's bulk review** (C1 S4 batch 2, PR 1 of 2; docs only, light lane). Nothing in this table is executed by this PR. No suite is moved, repointed or deleted here.
+
+Source: the lead's C1 plan (2026-11-21, adopted) and Dale's decision of 2026-11-21: "I think we can delete the old Atlas too. V1. It can be retired. V2 is good enough to troubleshoot and use at the same time." Slice order: S1 (capture observes the Stack page, merged #1513), S4 batch 1 (escaping proofs cover the Stack renderers, merged #1515, #1516 pending), then this table, then the batches below, then S5 (move the settlement gate and boot out of `plan.js`), S6 (remove `?view=classic`), S7 (delete the dead code and its tests).
+
+## The rule this table enforces
+
+1. **Nothing is deleted until the thing it protected has a new home.** A suite is retired only when its row names what now protects the same fact.
+2. **A replacement must fail when the figure is broken.** Before a suite marked `RETIRE-AFTER-PROOF` or `SPLIT` retires, its batch PR shows that the named replacement (a Forecast-level test, a Stack-level test, or the page capture) goes red when the Forecast-published figure or verdict it covers is mutated. A replacement that only exists is not a replacement.
+3. **Presentation of the previous page is not a figure.** A suite that proves only the layout, interaction or wording of the classic surface (`RETIRE-AT-S7`) protects nothing once that surface is gone, and says so.
+4. **Open means open.** A row the batch PR cannot map to a replacement stays listed as OPEN for the lead; it is never dropped.
+
+## Method and its limits (read this before trusting a row)
+
+The 310 files here are every file under `test/` that loads a classic script (`plan.js`, `budget-surface.js`, `budget-blend.js`, `budget-polish.js`, `budget-river.js`, `budget-card-movements.js`, `budget-sheet-motion.js`, `household-view.js`, `savings-inventory.js`, `bill-detail.js`, `balance-history.js`, `aurora.js`), reads `public/index.html`, or runs `?view=classic`: 206 registered in `test/suites.json` (the CI suites), 96 manual `browser-*.js` files, and 8 helpers and fixtures.
+
+Each CI suite was triaged **mechanically**, then given its row. The inputs were: (a) how it loads the page (vm harness, source-text read, `renderPlan`, a browser); (b) which classic functions it names; (c) the share of its assertion statements that mention markup (`html`, `innerHTML`, a literal tag, `textContent`, a printed label) against all its assertions; (d) a name rule for shell and presentation suites. **This is triage, not a per-suite semantic review.** Where the split is clear (under 30% markup assertions, or over 60%) the row is firm; in between it is `SPLIT`. The batch PR for each family re-reads every suite in it before it moves anything, and corrects its row here in the same PR. Rows I could not decide mechanically are marked `RETIRE-AFTER-PROOF` with the replacement left to name; I did not guess replacement tests (a first attempt matched suites by the Forecast functions they share, and its matches were wrong often enough that I dropped it).
+
+Not covered by this table: whether each Forecast function a `REPOINT` suite calls through the page is also reachable without the page (the batch PR checks it as it moves the suite), and the 8 helper/fixture files (listed last; they move with their suites).
+
+## Disposition vocabulary
+
+| Disposition | Meaning | Suites |
+|---|---|---|
+| `REPOINT` | The classic page is only a vehicle for a Forecast figure (or a source-text guard such as "the page has no hard-coded X"). Call `forecast.js` / `Forecast.budgetRecommendInputs` directly; keep every Forecast-side assertion unchanged; drop the page-markup assertions and the plan.js read. | 99 |
+| `SPLIT` | Mixed: repoint the Forecast-side assertions; the markup assertions retire with the page after a replacement proof (rule 2). | 45 |
+| `RETIRE-AFTER-PROOF` | Proves classic markup of a Forecast-published figure or verdict. Retire only after the replacement is named and shown to fail on a broken figure (rule 2). Replacement column: to name in the batch PR. | 30 |
+| `RETIRE-AT-S7` | Proves only the classic surface's layout, interaction or wording (rule 3). No replacement needed. | 11 |
+| `KEEP-ADAPT` | Shared shell, server or Stack page. Survives; drop the `?view=classic` harness or adapt `index.html` expectations at S5/S7. | 14 |
+| `ADAPT-AT-S7 (full lane)` | Guard and figures machinery. The consumer list, page capture and pins shrink when `plan.js` goes; re-pin with the reviewer on the pin diff. | 2 |
+| `RETARGETED` | Already given Stack proofs (S4 batch 1, #1515, #1516); the classic coverage retires at S7. | 3 |
+| `RETARGET (S4 PR 2)` | The assistant-packet parity suites: next PR (see below). | 2 |
+
+## Execution order (batches after this table)
+
+Each batch is one PR, one outcome, in the lane stated, with the in-house reviewer. Within a batch, suites move together by family so a reviewer can check the replacement proofs side by side.
+
+| Batch | Content | Lane |
+|---|---|---|
+| B2b | the assistant-packet parity suites retargeted to the Stack shell's `recommend` call (`budgetBreakdown` parity: `RETIRE-AT-S7`, stated on the card) | full |
+| B3 | `REPOINT` suites, by family, repointed to `forecast.js` (mechanical; the Forecast assertions are untouched) | light, full where a suite guards a financial authority |
+| B4 | `SPLIT` and `RETIRE-AFTER-PROOF` suites, by family, each with its replacement proof and a mutation demonstration | full |
+| B5 | `KEEP-ADAPT`: drop `?view=classic` from the shell and Stack suites | light |
+| S5 | move `planSettlementOutcome` + helpers and the App boot out of `plan.js`; stop registering `renderPlan` | full |
+| S6 | remove the `?view=classic` route and the fall-back to the classic page; add the Stack page's retry state (lead ruling) | full |
+| S7 | delete the dead JS/CSS/HTML and the `RETIRE-AT-S7` suites; `ADAPT-AT-S7` machinery re-pinned | full |
+
+## CI suites — Bills, income, payday (62)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-amanda-pay-near-amount.js` | plan.js | Amanda's pay counts when a posted credit within $5 of that payday's amount reaches Bills within 3 business day | 1/31 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bad-full-period-bill-load.js` | plan.js | BAD deducts the full assigned period bill load | 7/24 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bc-hydro-sep4-classification.js` | plan.js | BC Hydro Sep 4 Other-spending classification | 1/34 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-bell-dated-planning.js` | plan.js | Bell dated mid-month planning | 5/59 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bill-detail.js` | bill-detail.js | read-only bill payment evidence and exact sanitized links | 29/55 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-bill-near-due-not-household.js` | bill-detail.js | #962 D3: an identity bill payment near its due date is held To confirm, not household | 12/50 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-bill-paid-state.js` | plan.js | Each published bill row reads Paid only on payment evidence, Not paid otherwise, carried rows unlisted (Stack  | 0/8 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bill-partial-remainder.js` | plan.js | Bills: a bill marked amountFixed and paid in part keeps its remainder reserved; an unmarked bill, confirmed or | 3/36 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bill-payment-history.js` | bill-detail.js | The bill sheet's Last 6 months box shows each bill's identified posted payments per month with average and ran | 7/44 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bill-settlement-identities.js` | plan.js | standing Fortis / Shaw / Netflix / TD / YouTube / Spotify / ChatGPT Plus Dale / ChatGPT Plus Amanda / iCloud s | 3/235 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-bills-total-unknown-load.js` | plan.js | an open period's bill total and remainder are withheld over an unknown bill load | 2/24 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-commitment-month-day15.js` | plan.js | commitment month-only day-15 dating | 0/37 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-dale-gated-represented-settles.js` | plan.js | Dale-gated Noble / HELOC / TDCC represented settles | 2/69 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-dale-payday-current-balance.js` | plan.js | Dale payday Current Balance assumption | 3/33 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-early-income-uncertainty.js` | plan.js | posted income and unresolved future occurrence cash gate | 0/3 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-historical-bill-settlement-evidence.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js | completed pay periods count a bill as PAID only when a posted transaction in the packet backs its settlement | 32/154 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-hydro.js` | plan.js | Hydro dated obligation (B91 D4+D5) | 5/92 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-income-deadline.js` | plan.js | income dependency deadline | 0/11 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-income-recognition-owner-policy.js` | plan.js | owner income-recognition policy 2026-09-11 | 2/21 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-income-settles-on-identity.js` | plan.js | Expected one-off income settles only on qualified identity (C3) | 8/42 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-leftover-bills-cash-explanation.js` | plan.js | leftover vs BILLS ACCOUNT cash explanation | 3/19 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-linked-bill-misfit-check-parity.js` | plan.js,budget-surface.js,budget-card-movements.js,savings-inventory.js,bill-detail.js,balance-history.js | the linked-bill note's check names have one home: observer, Forecast and the page agree | 3/11 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-live-payday-bills-base.js` | plan.js | live payday pre-BILLS base retain | 15/60 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-lunchmoney-dale-amanda-guilt-free.js` | plan.js | Lunch Money Dale/Amanda guilt-free category assignment | 6/28 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-missed-bill-once.js` | plan.js | item 12: a missed bill occurrence reads To confirm once, in one pay period, and its closed period does not cou | 7/50 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-other-income.js` | plan.js | Other Income payday waterfall | 8/55 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-allocation.js` | plan.js | payday allocation waterfall | 15/84 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-answer-stays-hidden.js` | index.html | the current-period worksheet (#payday-answer) stays hidden: its figures are not all trust-tagged (BACKLOG) | 0/3 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-balance-owner-policy.js` | plan.js | owner-policy Payday balance waterfall | 1/20 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-boundary-bills-observation.js` | plan.js | payday-boundary chequing-a posted cash observation | 11/41 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-payday-boundary-observation-persist.js` | plan.js | payday-boundary chequing-a observation persist | 3/46 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-payday-opening-authority.js` | plan.js | payday opening authority from dated opening | 8/87 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-rollover-boundary.js` | plan.js | Sep 10 to Sep 11 payday rollover boundary | 5/40 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-settlement-boundary.js` | plan.js | payday settlement survives live opening advancement | 6/27 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-snapshot-live-balance.js` | plan.js | payday snapshot vs live Current Balance | 10/57 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-payday-waterfall-bill-load.js` | plan.js | payday waterfall bill load vs remaining-only leftover | 4/39 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-quarterly-recurrence.js` | plan.js | quarterly recurrence (every 3 months) | 0/45 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-salary-recognition-drift.js` | plan.js | salary recognition and payroll drift | 5/41 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-schedule-authority.js` | plan.js | household schedule authority | 10/71 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-b96-payday.js` | plan.js,styles.css,index.html | end-to-end payday proof (B96 / AF-PLAN-02) | 54/141 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-bill-history-reason-parity.js` | bill-detail.js | the bill detail's payment-history reasons: every observer reason has its own page text, and every page reason  | 7/14 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-bill-payment-excess.js` | plan.js,bill-detail.js | bill payment excess: Forecast.billPaymentState publishes and Budget discloses it | 10/28 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-bills-partly-paid.js` | plan.js | bills: a linked payment below the plan reads Partly paid at any shortfall (a label, no figure moves); a pendin | 16/33 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-bills-unknown-amount-drawer.js` | plan.js | a bill of unknown amount shows its Bills drawer lines (live replay and current period); a saved close still pr | 12/23 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-funding-plan-one-schedule.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | One funding schedule: the Today sheet reprints Forecast's published payday schedule, never a page-computed one | 8/26 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-operate-payday-acceptance.js` | plan.js,index.html | payday operating-surface acceptance (AF-OPERATE-07) | 29/56 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-payday-carryover-trend.js` | plan.js | Plan payday carryover trend | 24/63 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-payday-reserve-detail.js` | plan.js | payday reserve itemization | 44/85 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-bill-calendar-periods.js` | plan.js | Plan calendar bill sections | 16/39 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-payday-waterfall-balance.js` | plan.js | Plan payday waterfall balance date and post-payday identity | 13/36 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-schedule-trust-settlement-marker.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js | schedule-trust-on-due settlements print PAID with a trusted-on-due-date (not seen) marker everywhere, includin | 33/60 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-settlement-evidence-publication-gating.js` | plan.js,budget-surface.js,budget-card-movements.js,budget-sheet-motion.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | settlement evidence publication gating: configured-unavailable withholding at the packet, Planning and Plan su | 69/177 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-this-payday-already-paid.js` | plan.js | this-payday already-paid set and cancelled CMAW drop | 14/38 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-bill-detail-budget-integration.js` | plan.js,bill-detail.js,bill-detail.css,index.html | Budget bill payment evidence integration and hooks | 25/39 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-bills-recorded-payment.js` | plan.js | recorded household minimum action stays separate from issuer settlement | 10/14 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-estimated-payroll-label.js` | plan.js | Budget estimated payroll trust label | 11/17 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-captured-close-bill-qualifiers.js` | plan.js | captured close keeps its own bill state: no later payment qualifier is borrowed (#818, Atlas on #867) | 6/9 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-completed-period-remaining-bills.js` | plan.js | completed-period remaining bills count unproven bills; an unknown amount leaves the remainder unknown | 7/9 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-one-off-bill-period.js` | plan.js,budget-surface.js,budget-blend.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | #887 a one-off bill beside a recurring bill is counted in the pay period of its real date | 28/45 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-payday-instruction-shell.js` | plan.js | Payday instruction shell (AMANDA slice 1) | 218/281 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-payday-operating-sheet.js` | plan.js | payday operating sheet six glance answers | 27/45 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-this-payday-layout-order.js` | plan.js,budget-polish.js | This payday printout layout order | 9/12 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+
+## CI suites — Cards, chequing, credit (25)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-bell-travelvisa-classification.js` | plan.js | Bell Mobility Travel Visa Other-spending classification | 1/42 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-budget-secondary-spending-basis.js` | plan.js | secondary Budget failed-cap spending basis | 2/84 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-card-backfill-intent.js` | plan.js | purchase backfills cannot confirm scheduled card minima | 5/47 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-card-minimum-cycle-contract.js` | plan.js | card statement cycle replacement and sender-only minimum evidence | 0/4 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-card-minimum-occurrence-boundaries.js` | plan.js | card minimum occurrence history and early-paid publication | 4/23 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-card-payment-no-identity-listed-once.js` | plan.js | A no-identity "Credit card payment" debit held To confirm by the held reader is listed once: the card drawer p | 0/15 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-card-purchase-coverage.js` | plan.js | immediate evidence-qualified card purchase coverage | 17/135 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-chequing-a-posted-movements.js` | plan.js | posted chequing-a movement evidence set | 3/31 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-chequing-availability.js` | plan.js,index.html | chequing availability headline | 1/35 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-current-balance-chequing-cash.js` | plan.js,household-view.js | Current Balance is planning-hub cash only | 9/39 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-heloc-crossing-authority.js` | plan.js | HELOC crossing-date authority | 2/36 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-household-budget-other-spending.js` | plan.js,styles.css | Household Budget Other spending residual | 12/65 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-uncategorised-other-spending.js` | plan.js | Uncategorised debit enters Other Spending once | 4/29 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-unknown-chequing-opening-spendable.js` | plan.js | unknown chequing opening makes spendable cash unknown | 5/51 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-card-estimate-as-of-date.js` | plan.js,budget-surface.js | card coverage: a Budget figure estimated only by card coverage shows the bank data's date instead of the estim | 23/45 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-card-payment-reasons-closed-set.js` | bill-detail.js | The card ledger owns the closed set of reasons an unreconciled card payment row publishes, with the one line t | 5/14 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-card-purchase-tracker.js` | plan.js | card purchase markers retain expense and whole-ledger trust | 59/115 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-card-minimum-issuer-lifecycle.js` | plan.js | card minimum issuer confirmation across advancing live refreshes | n/a | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-invalid-pending-stays-unknown.js` | plan.js | an invalid pending amount keeps card pending unknown, never zero (A19) | n/a | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-page-stale-card-balance-note.js` | plan.js,budget-card-movements.js | The page prints the stale-card estimate note beside figures built from a stale card balance | 10/14 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-planned-spending-funding-status.js` | plan.js | Planned-spending funding status (AMANDA slice 4) | 58/73 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-unknown-pending-consumer-debt.js` | plan.js | a card with unknown pending makes consumer debt unknown in every Forecast publication | n/a | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-figures-snapshot-credit-planning.js` | plan.js | figures snapshot Credit and Planning coverage (B100) | 0/81 | `ADAPT-AT-S7 (full lane)` | guard/figures machinery: the consumer list, page capture and pins shrink when plan.js goes; re-pin with the reviewer on the pin diff |
+| `test-stack-cards.js` | index.html +?view=classic | Stack page Bills, Budget, Mortgage and Savings cards print only published values, nothing for an unpublished o | 81/105 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-stack-credit.js` |  +?view=classic | The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B | 77/101 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+
+## CI suites — Savings (9)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-goal-cash-floor.js` | plan.js | goal verdicts and Unallocated subtract cash held for card purchases (one cash floor) | 0/1 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-savings-a4b-routing.js` | plan.js | A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload) | 8/67 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-savings-earmarks-integration.js` | plan.js | confirmed savings authenticated observation and both surfaces | 4/31 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-savings-failed-refresh-evidence.js` | plan.js | a failed refresh keeps the dated Savings evidence; carried backing is Unknown (G2 #725) | 0/63 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-savings-selected-roster.js` | plan.js,savings-inventory.js | selected future Savings requirement roster independent of monetary qualification | 10/39 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-savings-evidence-integration.js` | plan.js | savings evidence authenticated server and Budget | 11/35 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-budget-plan-spend-earmark.js` | plan.js | Budget Plan Spend earmark on pay periods | 19/21 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-savings-still-to-fund-render.js` | plan.js | PA-2b Decision 2: the Budget goals list renders row-owned Still to fund with its estimate mark and reason; leg | 13/20 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-savings-capture-roster.js` | plan.js,savings-inventory.js | figures check: Savings per-state call roster, gate facts, the pre-review regression witnesses and the finite-r | 19/121 | `ADAPT-AT-S7 (full lane)` | guard/figures machinery: the consumer list, page capture and pins shrink when plan.js goes; re-pin with the reviewer on the pin diff |
+
+## CI suites — Budget page, plan surfaces, shell (100)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-b20-history.js` | plan.js,balance-history.js | balance history as a refresh by-product (B20 / AF-HIST-01) | 28/138 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-bank-feed-freshness.js` | plan.js | stale bank feed verdict for the Budget household spending (#821) | 4/28 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-budget.js` | plan.js | household budget reconciliation | 7/86 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-calendar-represented-actuals-paid.js` | plan.js,budget-polish.js | calendar / Budget bills reprint representedActuals as Paid | 5/22 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-cancelled-service-unexpected-charge.js` | plan.js | cancelled-service unexpected charge | 2/20 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-counterfactuals.js` | plan.js,budget-surface.js,index.html | gap counterfactuals | 10/95 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-current-period-actuals.js` | plan.js | current-period actuals action plan | 38/240 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-displayed-item-note.js` | plan.js | Household Budget Spent shows a deliberately marked item: note in place of the payee, bounded and display-only | 12/48 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-focus-debt-continuity.js` | plan.js | Focus debt continuity (AMANDA slice 6) | 21/79 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-food-fuel.js` | plan.js | food and fuel monthly figures | 1/31 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-header-freshness-source-identity.js` | plan.js | header freshness source identity (history vs live overlay spending) | 3/23 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-household-budget-waterfall-contract.js` | plan.js | payday Household Budget max(planned, actual) contract | 10/49 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-hub-account-balance-after-deductions.js` | plan.js | hub-account Current Balance and Balance After Deductions | 9/56 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-invariants.js` | plan.js | authority invariants | 10/226 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-knowledge-evidence-register.js` | plan.js | knowledge-evidence register (external-reference) | 10/43 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-last-non-withheld-picture.js` | plan.js | last non-withheld picture: a hold raised on a complete refresh still shows the last full picture, with no bann | 2/33 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-leftover-operating-cash-explanation.js` | plan.js | leftover vs Current Balance operating-cash explanation | 3/24 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-live-plan.js` | plan.js | live plan overlay without rewriting openings | 53/379 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-lunchmoney-recurring-refusals.js` | plan.js,budget-surface.js | Each reviewed Lunch Money recurring item Atlas did not apply is served as its plan row and one closed reason c | 8/37 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-master-forecast.js` | plan.js | master forecast engine (B94 / AF-PLAN-01) | 3/228 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-mission.js` | plan.js | homepage mission | 4/45 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-near-boundary.js` | plan.js | near-boundary payday output (B91 D11) | 6/49 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-next-payment-out.js` | plan.js | next payment out | 6/33 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-nextmove.js` | plan.js,budget-surface.js,index.html | what the next move achieves | 15/96 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-operate-debt-answer.js` | plan.js | required and extra debt answer (AF-OPERATE-06) | 7/36 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-other-spend-calendar-hold.js` | plan.js,budget-polish.js | Other spend is not a Household Budget calendar hold | 7/25 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-other-spend-owner-target.js` | plan.js,budget-surface.js | Other spend $800/month owner target | 15/59 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-overdue-next-payment.js` | plan.js | overdue carried outflows in next-payment lookups | 0/25 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-pay-period-residual-identity.js` | plan.js | Forecast residual pay-period identity vs Budget This Pay Period | 10/25 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-plan-cold-refresh-failure.js` | plan.js | PA-5 (#775): a cold first-refresh failure never presents the dated opening period as the current plan | 5/32 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-plan-phases.js` | plan.js | phase titles and risk list | 0/56 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-plan-selection-storage.js` | plan.js | Plan period selection persists per tab, guarded storage | 1/10 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-predicted-ending-balance.js` | plan.js | current-pay-period Balance After Deductions (owner 2026-09-21) | 1/79 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-risk-text-parity.js` | plan.js,budget-surface.js,budget-card-movements.js,savings-inventory.js,bill-detail.js,balance-history.js | every Forecast planPhases risk id has RISK_WHAT and RISK_CHANGE page text, and every page entry a producer | 1/9 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-selector-formatters.js` | plan.js | selector locale formatter equivalence | 3/11 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-status-band.js` | plan.js,budget-surface.js,index.html | plan status band + funding verdicts | 17/101 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-unallocated-cash.js` | plan.js | unallocated / free cash | 0/31 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-unlinked-item-refund.js` | savings-inventory.js | an untagged refund of a linked item purchase unresolves the item and nets nowhere | 5/51 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-waterfall-trust-unknown-word.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js | an unrecognised bill or income trust word makes the period term unknown, never estimated | 7/37 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-weekly-cap.js` | plan.js,budget-surface.js,index.html | weekly cap conversion + discretionary room | 17/136 | `REPOINT` | engine test: the classic page is only the vehicle for a Forecast figure; call forecast.js / Forecast.budgetRecommendInputs directly and keep the Forecast-side assertions; drop the page-markup assertions |
+| `test-atlas-077-malformed-amounts.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js | ATLAS-077 household consumer acceptance for malformed scheduled amounts | 11/27 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-bad-timeline-river.js` | budget-blend.js | Budget river withholds historical BAD and preserves native selection | 29/67 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-budget-detail-sheet-controller.js` | plan.js | Budget detail sheet preserves original nodes, nested focus and remount identity | 49/163 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-budget-pay-period-swipe.js` | plan.js,budget-polish.js | Budget pay-period swipe navigation | 7/20 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-budget-synchronized-wheels.js` | plan.js,styles.css | Budget synchronized month and pay-period wheels | 41/83 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-budget-ui-polish.js` | budget-polish.js,styles.css,budget-polish.css,index.html | approved Budget UI presentation | 13/23 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-from-today-integration.js` | plan.js | from-today observation to Budget integration | 29/65 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-future-other-spend-reserve.js` | plan.js,index.html | future pay-period Other Spend reserve | 26/58 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-historical-pay-periods.js` | plan.js | Plan completed historical pay periods | 61/149 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-household-budget-spent-drilldown.js` | plan.js,styles.css | Household Budget Spent transaction drill-down | 27/48 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-household-budget-spent-possible-replacement-drilldown.js` | plan.js | Household Budget Spent possible-replacement drill-down | 11/26 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-household-nav-plan-boundary.js` | plan.js,styles.css,household-view.css,index.html | household nav and Plan waterfall boundary | 27/48 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-household-whole-dollars.js` | budget-blend.js | Household tile whole-dollar face rounds each published token once | 26/80 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-item-note-display-name.js` | plan.js,budget-card-movements.js | An item: note replaces the bank payee wherever a purchase is displayed; matching and figures untouched | 14/31 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-operating-cash-explanation-placement.js` | plan.js,budget-polish.js | operating-cash explanation after Q07 after budget polish | 23/41 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-budget-digest.js` | plan.js | Plan actual vs budget digest | 10/32 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-calendar-waterfalls.js` | plan.js | Plan calendar waterfalls | 60/198 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-decision-desk.js` | plan.js,household-view.js,styles.css,household-view.css | Plan homepage decision desk | 19/35 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-default-view.js` | plan.js,index.html | Plan default view layout | 24/48 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-plan-lookahead-week.js` | plan.js | Plan next-period lookahead and week picker | 12/30 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-refresh-06-trust-surface.js` | plan.js,index.html | refresh trust on the operating surface (AF-REFRESH-06) | 33/62 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-refund-bank-description.js` | plan.js | refunds: a refund with no display name shows its bank description (Bank description: …), else Merchant unavail | 9/25 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-refund-unlinked-own-line.js` | plan.js | refunds: a standalone (unlinked) refund never nets into its category or Other and is listed as Refunds not lin | 6/17 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-reserve-aware-funding-integration.js` | plan.js | purpose-reserve authenticated funding and both page consumers | 9/20 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-sim-unavailable-guard.js` | plan.js,budget-surface.js | a withheld cash walk is unavailable in status, mission and next move | 9/17 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-upcoming-funding-pressure.js` | plan.js | Upcoming funding pressure (AMANDA slice 5) | 33/93 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-budget-estimated-later-periods.js` | plan.js,budget-surface.js | Budget shows later pay periods, estimated, while today's cash is unconfirmed | 12/16 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-plan-status-scope.js` | budget-blend.js | Budget hero cannot borrow whole-window confidence | 7/11 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-review-regressions.js` | plan.js | Budget review future settlement and zero-plan markers | 8/11 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-shell-never-blanks.js` | plan.js,budget-surface.js,budget-card-movements.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | Budget page never blanks: under a whole-plan hold the current pay period stays as a shell, every figure Unknow | 24/27 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-sign-estimate-convention.js` | plan.js | Budget sign and estimate wording: over, ≈ and HELOC fallback label, amounts and tags unchanged | n/a | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-surface.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | active Budget surface: one renderer, Forecast figures, drilldown and withheld states | 139/184 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-household-budget-overlay-spent-drilldown.js` | plan.js | Household Budget overlay Spent drill-down when recon withheld | 22/34 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-operate-future-gravity.js` | plan.js | future financial gravity (AF-OPERATE-05) | 22/26 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-plan-unavailable-surface.js` | plan.js | Plan unavailable operating state | 20/30 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-recorded-cash-labels.js` | plan.js,index.html | current spendable copy and recorded cash membership | n/a | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-refund-bank-description-hardening.js` | plan.js | refunds: the bank description drops only invisible text-direction and zero-width characters (case and punctuat | 16/25 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-saved-close-plan-labels.js` | plan.js | a saved close never calls its plan Unavailable beside the plan amounts it shows; it names the piece it did not | 37/46 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-saved-history-unavailable.js` | plan.js,budget-surface.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | Past periods never silently rebuild: an unreadable saved history is stated, never presented as the saved close | 8/13 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-stale-evidence-dates.js` | plan.js,budget-surface.js,budget-blend.js,savings-inventory.js,bill-detail.js,balance-history.js,index.html | Stale evidence never reads as Now or today: dated-view marker, household-day reload, balance dated by its own  | 18/29 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-unknown-balance-totals.js` | plan.js | an Unknown debt balance or asset value makes every dependent total Unknown on Deep Dive, Records and the Plan | 7/8 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-unknown-never-zero.js` | plan.js,budget-card-movements.js | unknown figures print Unknown, never $0.00 or $NaN, and one bad row degrades only itself | 12/17 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+| `test-budget-attention-face-flags.js` | index.html +?view=classic | every Budget attention item has a visible flag on the face, the Other ring included | 4/5 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-budget-owner-voice.js` | plan.js,budget-polish.js,budget-polish.css | Budget owner-voice presentation | 17/25 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-budget-signed-cents.js` | budget-blend.js | Budget signed-cents decorator preserves printed text and sign grouping | 7/7 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-budget-stepped-layout.js` | plan.js | Budget stepped period layout and inline disclosures | 69/102 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-hidden-knobs-ignored.js` | plan.js,budget-surface.js,index.html | hidden worksheet knobs: a stale stored key prints the same page as a clean one, and is cleared (finish-line au | 7/9 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-household-view.js` | plan.js,household-view.js,index.html | plain-language household homepage | 13/21 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-operating-surface.js` | plan.js,index.html | decision-first payday operating surface (AF-OPERATE-02) | 19/29 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-plan-status-unquantified.js` | plan.js | plan status unquantified presentation | 11/13 | `RETIRE-AT-S7` | presentation of the classic surface (layout, interaction, wording): no figure or trust claim to protect once the surface is gone |
+| `test-app-release-resume.js` | index.html | Budget release detection on resume | 9/16 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-boot-campfire.js` | styles.css,index.html | loading screen is only the campfire scene: an image the existing policy allows, small, boot layers only, no lo | 8/13 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-legacy-pages-switched-off.js` | index.html | eight legacy pages switched off behind one server.js list (redirect, HTTP variants, auth preserved) | 4/24 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-outfit-font.js` | index.html +?view=classic | The Stack page's Outfit font is self-hosted same-origin under font-src 'self', with its OFL licence (F7) | 6/26 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-planning-retirement.js` | index.html | legacy /planning.html retired to Budget at / (redirect, HTTP variants, auth preserved) | 17/32 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-preview-localhost-synthetic.js` | index.html | dev preview binds 127.0.0.1 and stages invented data only | 8/37 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-response-compression.js` | plan.js,budget-blend.js,styles.css,index.html | allowlisted page and data responses compress byte-identically; gate, auth and error responses do not | 4/73 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-running-build.js` | running-build.css,index.html +?view=classic | Budget running build identity | 23/27 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-startup-manifest.js` | budget-blend.css,index.html | phone startup entry: web app manifest, brand icons and head metadata pin the launch to / | 15/28 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-static.js` | plan.js,index.html | static sanity | 9/32 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+
+## CI suites — Figures machinery (3)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-compact-snapshot.js` | plan.js | compact snapshot | 0/33 | `REPOINT` | plan.js is read or loaded incidentally (a source-text guard such as "the page has no hard-coded X", or the page's input builder): drop the plan.js dependency, keep the Forecast assertions unchanged |
+| `test-coverage-forecast-withhold.js` | plan.js | C2/N3 coverage authority (Forecast): unestablished coverage withholds remainder, future costs and liquidity | 17/47 | `SPLIT` | mixed: repoint the Forecast-side assertions to forecast.js; the markup assertions retire with the page after the figure-proof below |
+| `test-uncaptured-close-estimated.js` | plan.js | an uncaptured completed close is ≈ estimated only when every term is known; captured closes keep native trust; | 23/31 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
+
+## CI suites — Assistant packet (2)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-assistant-held-transactions.js` | plan.js,budget-surface.js | assistant packet lists held current-period rows, closed fields only | 4/9 | `RETARGET (S4 PR 2)` | packet vs page parity: retarget to the Stack shell's recommend call; budgetBreakdown parity RETIRE-AT-S7 (lead ruling); printed-figure parity queued (item Q1) |
+| `test-assistant-packet-equals-page.js` | plan.js,budget-surface.js | the assistant packet gives the Budget page's figures, tags and unavailable verdict for the same served data (f | 1/19 | `RETARGET (S4 PR 2)` | packet vs page parity: retarget to the Stack shell's recommend call; budgetBreakdown parity RETIRE-AT-S7 (lead ruling); printed-figure parity queued (item Q1) |
+
+## CI suites — Escaping (3)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-forecast-text-escaping.js` | plan.js,budget-surface.js,budget-card-movements.js,savings-inventory.js,bill-detail.js,balance-history.js | poisoned Forecast text never reaches the Budget or Plan page as markup (stored XSS) | 17/20 | `RETARGETED` | S4 batch 1 (#1515, #1516) added the Stack proofs; classic coverage retires at S7 |
+| `test-page-renderer-escape-static.js` | index.html | covered page renderers interpolate no unescaped data field into HTML (audit C2) | 6/8 | `RETARGETED` | S4 batch 1 (#1515, #1516) added the Stack proofs; classic coverage retires at S7 |
+| `test-page-renderer-escaping.js` | plan.js,index.html | page renderers show invented hostile text inert: no injected element or event attribute (audit C2) | 7/11 | `RETARGETED` | S4 batch 1 (#1515, #1516) added the Stack proofs; classic coverage retires at S7 |
+
+## CI suites — Stack page (2)
+
+| Suite | Loads | Protects | Markup asserts | Disposition | Next action |
+|---|---|---|---|---|---|
+| `test-stack-shell.js` | index.html +?view=classic | The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1) | 15/36 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-stack-trust.js` |  +?view=classic | One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, wit | 44/60 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+
+## Manual browser files (96)
+
+Not run by `npm test` (`test.js` lists the `browser-` prefix as not a node suite), so retiring one removes no CI protection; the figure or trust claim a browser file makes is carried by the CI row above that covers the same subject. Dispositions: `RETIRE-AT-S7 (manual)` unless the file proves shared shell/boot behaviour or the Stack page (`ADAPT-OR-KEEP`: run it on the Stack page, decide per file in B5), or is one of the escaping twins (`RETARGETED`).
+
+| File | Disposition |
+|---|---|
+| `browser-app-release-resume.js` | `ADAPT-OR-KEEP` |
+| `browser-boot-treatment.js` | `ADAPT-OR-KEEP` |
+| `browser-latest-complete-refresh.js` | `ADAPT-OR-KEEP` |
+| `browser-observation-memory.js` | `ADAPT-OR-KEEP` |
+| `browser-routes-render.js` | `ADAPT-OR-KEEP` |
+| `browser-stack-credit.js` | `ADAPT-OR-KEEP` |
+| `browser-stack-layout.js` | `ADAPT-OR-KEEP` |
+| `browser-stack-sheet-scroll.js` | `ADAPT-OR-KEEP` |
+| `browser-stack-shell.js` | `ADAPT-OR-KEEP` |
+| `browser-stale-evidence-never-now.js` | `ADAPT-OR-KEEP` |
+| `browser-startup-feedback.js` | `ADAPT-OR-KEEP` |
+| `browser-forecast-text-escaping.js` | `RETARGETED` |
+| `browser-page-renderer-escaping.js` | `RETARGETED` |
+| `browser-a1-card-feed-evidence.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-a9-expanded-panel-visibility.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-a9-future-period-retirement.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-a9-unknown-operation.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-absent-funding-sources-acceptance.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bill-detail-budget.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bill-detail.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-closing-period-identity.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-header-payments.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-list-view.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-opening-source-transition.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-period-end-balance.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-recorded-payment.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-bills-usability.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-attention-order.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-back-closes-sheet.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-bad-red.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-bill-badge-sheet-refresh.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-bill-status.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-blend-proof.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-estimated-later-periods.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-etransfers.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-fixed-board.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-goals-card.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-house-bars.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-household-total.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-income-receipts.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-other-ring.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-period-face.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-release-reopen.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-river-port.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-river-readability.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-rounding-note.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-routed-layout.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-signed-cents.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-stale-feed.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-budget-unknown-ring.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-card-panel-lead.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-card-payment-diagnostics.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-card-period-movements.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-card-posted-period-movement.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-card-purchase-markers.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-chronological-savings-review-boundaries.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-chronological-savings.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-dale-2027-one-payroll-figure.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-early-income-settlement.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-goal-cash-floor.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-household-panel-viewport.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-household-path.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-income-sheet-colours.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-malformed-scheduled-amounts-acceptance.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-one-off-income-timeline.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-other-period-target.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-paid-actual-display-trust.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-past-period-unknown.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-payday-gap-cash-identity.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-plan-selection-reload.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-provider-v2-credit-date.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-provider-v2-savings-stock.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-refined-budget-face.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-river-geometry-proof.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-river-hidden-theme.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-saved-close-plan-labels.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-saved-history-unavailable.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-card-recipient.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-daily-consumer.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-earmarks.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-evidence.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-future-closing.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-goal-paid-progress.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-group-members.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-latest-known-allocation.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-link-foundation.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-selected-roster.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-source-qualification.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-savings-stock-pending.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-scheduled-fee-routing.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-settlement-save-view.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-stale-card-balance-note.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-theme-control.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-travel-visa-annual-estimate.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-travel-visa-annual-fee.js` | `RETIRE-AT-S7 (manual)` |
+| `browser-unknown-chequing-opening-budget.js` | `RETIRE-AT-S7 (manual)` |
+
+## Helpers and fixtures that move with their suites (8)
+
+- `budget-page-harness.js`
+- `figures-coverage-cases.js`
+- `harness.js`
+- `hostile-page-text.js`
+- `proof-savings-latest-known-allocation.js`
+- `savings-consumer-contract.js`
+- `test-local.js`
+- `test-savings-consumer-contract.js`
+
+## Queued items (not in a batch yet; end of table)
+
+- **Q1 — printed-figure parity** (lead ruling): the packet's surplus against the waterfall's "Surplus after deductions". New proof, not a retarget.
+- **Q2 — the shell's own drawing** (the title, chips, mount and its listeners) is outside the figures capture (its DOM cannot hold it) and the browser tests are not run by CI. If the household-reading page needs a CI proof of the drawing, that is a separate item.
+- **Q3 — a manual browser file that proves a figure or trust claim** keeps its CI counterpart row's replacement; if a browser file is the only proof of a claim, the batch PR lists it here.
