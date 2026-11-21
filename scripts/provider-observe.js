@@ -6697,18 +6697,52 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
       if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
     }
-    // Recorded history is never re-dated (#1508 live check): when the item's
-    // timing differs from the bill's own, the item's timing applies only from
-    // its start (the observation date when it has none), and occurrences
-    // before that keep the bill's own cadence and day (timingBefore), so a
-    // payment that settled an earlier occurrence stays on it. A monthly start
-    // is taken to its month's first day, so no month holds both days.
+    // Recorded history is never re-dated (#1508 live check; lead ruling on
+    // the #1511 review): when the item's timing differs from the bill's own,
+    // occurrences before the cutover keep the bill's own cadence and day
+    // (timingBefore), so a payment that settled one stays on it. The floor is
+    // the later of the item's start and the current pay period's start, so
+    // nothing before the current period is re-dated whatever the item says.
+    // A week-based item cuts over at the floor; a month-based item at the
+    // first of the month after the last earlier-timing occurrence before the
+    // floor (a month later while its first occurrence would fall before the
+    // floor), so no month holds both timings.
     if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
-      const start = realIsoDay(item.startDate) ? item.startDate : asOf;
-      const from = timing.frequency === 'monthly' ? start.slice(0, 8) + '01' : start;
       const before = {};
       for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
+      // No resolvable pay period (a plan without income): the observation
+      // date is the floor.
+      let periodStart = asOf;
+      try { periodStart = (Array.isArray(plan.income) && Forecast.paydayPeriodOrigin(plan, asOf, {})) || asOf; } catch (_) { periodStart = asOf; }
+      const start = realIsoDay(item.startDate) ? item.startDate : asOf;
+      const floor = start > periodStart ? start : periodStart;
+      const monthBased = ['monthly', 'quarterly', 'yearly', 'annual', 'semiannual'].includes(timing.frequency);
+      // A bill whose own timing cannot be expanded (for example biweekly with
+      // no anchor) has no history to keep: no cutover.
+      let earlier = null;
+      try {
+        earlier = Forecast.occurrences({ ...before, ...(bill.firstDue ? { firstDue: bill.firstDue } : {}) },
+          Forecast.addDays(floor, -400), Forecast.addDays(floor, -1));
+      } catch (_) { earlier = null; }
+      if (earlier) {
+      const last = earlier.length ? earlier[earlier.length - 1] : null;
+      // A week-based item starts at the floor itself (nothing before it moves).
+      let from = floor;
+      if (monthBased) {
+        const next = (last || Forecast.addDays(floor, -1)).slice(0, 7);
+        const [y, m] = next.split('-').map(Number);
+        from = (m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0')) + '-01';
+      }
+      // A month-based cutover never places a new-timing occurrence before the
+      // floor: the earlier timing keeps that month instead.
+      for (let guard = 0; monthBased && guard < 13; guard++) {
+        const first = Forecast.occurrences({ ...timing, lastDue: undefined }, from, Forecast.addDays(from, 400))[0];
+        if (!first || first >= floor) break;
+        const [y, m] = from.split('-').map(Number);
+        from = (m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0')) + '-01';
+      }
       timing.timingBefore = { from, ...before };
+      }
     }
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }

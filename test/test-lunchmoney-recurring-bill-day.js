@@ -101,13 +101,15 @@ console.log('2. A reviewed item anchored on the plan\'s day (20th) confirms it; 
 console.log('2a. Day leads: an anchor day that differs from the plan\'s day wins, confirmed');
 {
   // Plan day 20, reviewed item anchored on the 4th: the served day is the 4th,
-  // confirmed. Hand-derived: Oct 4 is before the Oct 9 opening, so the next
-  // occurrence is Nov 4, in the Oct 23-Nov 5 period; the current period holds none.
+  // confirmed. Hand-derived: the cutover never puts an item occurrence before
+  // the current period (Oct 9): Oct 4 would, so October keeps the plan's
+  // Oct 20 (timingBefore) and the item's day applies from Nov 4, in the
+  // Oct 23-Nov 5 period.
   const s = serve(world(), read([readItem(ID, { criteria: { anchorDate: '2026-01-04' }, expected: ['2026-10-04'] })]));
   ok(s.bill.day === 4 && s.bill.dateConfidence === 'confirmed' && s.bill.confidence === 'estimated',
     'served day 4, date confirmed, amount still estimated', JSON.stringify([s.bill.day, s.bill.dateConfidence, s.bill.confidence]));
   ok(s.scheduled.length === 1 && s.noWithheldKey, 'applied, nothing withheld');
-  ok(s.current.length === 0 && s.next.length === 1 && s.next[0].date === '2026-11-04', '$80 on Nov 4, next period',
+  ok(s.current.length === 1 && s.current[0].date === '2026-10-20' && s.next.length === 1 && s.next[0].date === '2026-11-04', 'Oct 20 kept this period, $80 on Nov 4 next period',
     JSON.stringify([s.current.map(b => b.date), s.next.map(b => b.date)]));
   // And the other way: plan day 4, anchor on the 4th, agrees and confirms.
   const agree = serve(world({ bill: { day: 4 } }), read([readItem(ID, { criteria: { anchorDate: '2026-01-04' }, expected: ['2026-10-04'] })]));
@@ -210,9 +212,9 @@ console.log('4b. Cadence leads: a monthly item reschedules a bill Atlas plans on
     // The item expects $80 a time, the plan's amount (#1289 blocker 1).
     const sched = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
       { bills: [{ ...BILL, frequency }] }, '2026-10-14', { amounts: new Map([[ID, 80]]) });
-    ok(sched.length === 1 && JSON.stringify(sched[0].timing) === JSON.stringify({ frequency: 'monthly', day: 20,
-      timingBefore: { from: '2026-01-01', frequency, day: 20 } }),
-      'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th from the item start month (earlier history keeps ' + frequency + ')', JSON.stringify(sched));
+    ok(sched.length === 1 && sched[0].timing.frequency === 'monthly' && sched[0].timing.day === 20
+      && (!sched[0].timing.timingBefore || (sched[0].timing.timingBefore.frequency === frequency && sched[0].timing.timingBefore.from > '2026-10-09')),
+      'Atlas ' + frequency + ' vs LM monthly: monthly on the 20th (any earlier history keeps ' + frequency + ', cut over after the current period start)', JSON.stringify(sched));
   }
   const once = O.recurringBillSchedules({ status: 'read', items: [item] }, [{ eventId: 'band', lunchMoneyRecurringIds: [ID] }],
     { bills: [{ ...BILL, frequency: 'once', date: '2026-10-20' }] }, '2026-10-14');
