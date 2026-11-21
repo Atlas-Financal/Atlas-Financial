@@ -11,6 +11,9 @@
  * `node test/test-household-budget-spent-possible-replacement-drilldown.js`
  */
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const { sourceText } = require('./test-source-text');
@@ -451,8 +454,8 @@ console.log('\n=== 10–11. page remains render-only; no second detector in plan
   const planSrc = sourceText(read('public/plan.js'));
   const metricSrc = grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric');
   const categorySrc = grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml');
-  ok(!/spendDuplicateKey|pendingPostedDuplicateIdSet|isPossibleReplacementPending|confirmedHouseholdAmount|normalizeMerchantKey|spendIdentityKey|skipDuplicatePending/.test(planSrc),
-    'plan.js introduces no Forecast duplicate-identity helper');
+  ok(neverRaw(/spendDuplicateKey|pendingPostedDuplicateIdSet|isPossibleReplacementPending|confirmedHouseholdAmount|normalizeMerchantKey|spendIdentityKey|skipDuplicatePending/).length === 0,
+  'no page script (classic or Stack) introduces a Forecast duplicate-identity helper');
   ok(!/AICHATAPP|Calendly|Mailchimp|Shopify|ZEPHYR WIDGETS/.test(metricSrc),
     'household Spent renderer names no merchant special case');
   ok(!/classifyCurrentPeriodTransaction|sumCategoryActuals|spendDuplicateKey/.test(metricSrc + categorySrc)

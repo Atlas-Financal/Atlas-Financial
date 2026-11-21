@@ -16,6 +16,9 @@
  * `node test/test-income-recognition-owner-policy.js`
  */
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
@@ -274,8 +277,8 @@ console.log('\n=== 6. Pages print Forecast; they do not own income recognition =
   const incomeFn = grab(src, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml');
   ok(/row\.status === 'relied-upon'/.test(incomeFn),
     'plan.js prints Forecast relied-upon status');
-  ok(!/isDaleSeaspanPaydayRecognition|Seaspan payday/.test(src),
-    'plan.js does not decide Seaspan payday recognition');
+  ok(neverRaw(/isDaleSeaspanPaydayRecognition|Seaspan payday/).length === 0,
+  'no page script (classic or Stack) decides Seaspan payday recognition');
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
