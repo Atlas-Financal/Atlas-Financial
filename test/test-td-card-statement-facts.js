@@ -85,8 +85,8 @@ ok(later.length === 2 && later.every(r => r.id === 'cashback-day4' && r.date.sli
   && cents(r.amount) === cents(day4.amount)), 'later months: on the 4th, estimated at the existing level',
   JSON.stringify(later.map(r => [r.id, r.date, r.confidence])));
 const shown = vs.filter(v => v.start <= '2026-12-03').flatMap(v => rows(v, /^travel$/));
-ok(shown.length >= 3 && shown.every(r => TRAVEL_DATES.includes(r.date) && r.settlement === 'represented' && r.status === 'PAID'),
-  'acceptance 2: every Travel minimum through Nov 26 on the page reads paid (represented)',
+ok(JSON.stringify(shown.map(r => r.date)) === JSON.stringify(TRAVEL_DATES.slice(1)) && shown.every(r => TRAVEL_DATES.includes(r.date) && r.settlement === 'represented' && r.status === 'PAID'),
+  'acceptance 2: the three Travel minimums on the page through Nov 26 (Sep, Oct, Nov) all read paid (represented)',
   JSON.stringify(shown.map(r => [r.date, r.settlement])));
 const nov = rows(now, /^travel$/)[0];
 ok(nov && nov.date === '2026-11-26' && cents(nov.amount) === cents(nov26.minimum) && nov.confidence === 'confirmed',
