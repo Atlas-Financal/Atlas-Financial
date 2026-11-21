@@ -9,6 +9,9 @@
    Every check here exists because the contradiction it tests for was real. */
 
 const fs = require('fs');
+// Every page script, the Stack page included, for the "never" assertions; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw, neverCode } = require('./lib/page-scripts');
 const path = require('path');
 const F = require('../public/forecast.js');
 const { sourceText } = require('./test-source-text');
@@ -497,21 +500,21 @@ ok(/^  combination: \{/m.test(planJs2Code) && /^  partial: s =>/m.test(planJs2Co
 // judged them against the gap, so they disagreed on screen.
 ok(/const needed = fundingGap/.test(planJs2),
   'the funding cards are judged against the gap, not the day\'s payment');
-ok(!/const enough = o\.available >= dueThatDay/.test(planJs2),
+ok(neverRaw(/const enough = o\.available >= dueThatDay/).length === 0,
   'the old dueThatDay verdict is gone');
 
 // 2. Two budget explanations on one page disagreed about provenance: the cap
 //    section said nine owner targets, the detailed section said none.
-ok(!/No owner-built budget has been supplied/.test(planJs2),
+ok(neverRaw(/No owner-built budget has been supplied/).length === 0,
   'the detailed budget no longer claims no owner budget exists');
-ok(!/every figure here is a historical actual/.test(planJs2),
+ok(neverRaw(/every figure here is a historical actual/).length === 0,
   'nor that every figure is a historical actual');
 ok(/ownerTargetCount/.test(planJs2),
   'both budget explanations count the owner targets from the same result');
 
 // 3. Consumer debt appeared twice under one label, $247.18 apart, because the
 //    compact snapshot summed raw balances while the tile used the projection.
-ok(!/const consumer = d\.debts\.filter\(x => !x\.secured\)/.test(planJs2),
+ok(neverRaw(/const consumer = d\.debts\.filter\(x => !x\.secured\)/).length === 0,
   'the compact snapshot no longer re-sums raw balances for consumer debt');
 ok(/const consumer = today\.consumer/.test(planJs2),
   'it reuses the projected day-zero figure the tile shows');
@@ -526,7 +529,7 @@ ok(/const consumer = today\.consumer/.test(planJs2),
 //    proves it bites; this only holds the page out of the decision.
 ok(/funding\.parts\.some\(p => p\.debtId === option\.debtId\)/.test(forecastCode),
   'borrowing status comes from the whole allocation, not just a lone source');
-ok(!/fundingIsDraw/.test(planJs2Code),
+ok(neverCode(/fundingIsDraw/).length === 0,
   'and the page no longer decides it at all');
 
 // 5. The Next move card promised a restored buffer even when the gap cannot be
@@ -535,7 +538,7 @@ ok(!/fundingIsDraw/.test(planJs2Code),
 //    `fundingShort`, so the gate is asserted where it now lives.
 ok(/Forecast\.planPhases\(/.test(planJs2),
   'the opening phase body comes from the engine, gated on whether the gap is fundable');
-ok(!/status\.id === 'unfunded'/.test(planJs2Code),
+ok(neverCode(/status\.id === 'unfunded'/).length === 0,
   'and the page no longer re-reads the status verdict to pick that body');
 ok(/openingId = fundingShort \? 'unfunded'/.test(forecastCode),
   'the engine selects the unfunded opening phase from the funding result');
@@ -552,18 +555,18 @@ ok(/openingId = fundingShort \? 'unfunded'/.test(forecastCode),
 // A boolean cannot describe a mixed funding plan.
 ok(/fundingPlan\.parts\.map/.test(planJs2),
   'the scoreboard renders the allocated parts rather than a single source');
-ok(!/'the top-ranked source'/.test(planJs2),
+ok(neverRaw(/'the top-ranked source'/).length === 0,
   'and no longer calls a two-part plan "the top-ranked source"');
 ok(/drawn > 0 \? 'helocDrawn'/.test(forecastCode),
   'the HELOC risk says whether THIS plan draws on it');
-ok(!/helocDrawn > 0/.test(planJs2Code),
+ok(neverCode(/helocDrawn > 0/).length === 0,
   'and the page no longer decides that');
 // The cap qualifier attached one simulation's condition to another's answer.
 // The separate full-coverage evaluation belongs to `Forecast.counterfactuals`
 // now; the page reads its result and composes no second scenario.
 ok(/ifCovered\.applies/.test(planJs2) && /ifCovered\.weekly/.test(planJs2),
   'a partly-funded cap reports what full coverage would allow, separately');
-ok(!/available: Infinity/.test(planJs2Code),
+ok(neverCode(/available: Infinity/).length === 0,
   'and no longer invents an infinite funding source to get it');
 // Written once. The same sentence on the tile and the headline meant fixing
 // one and leaving the other describing a different simulation.
@@ -584,7 +587,7 @@ ok(/capQualifier/.test(planJs2) &&
 // decides.
 ok(/Forecast\.nextMove\(/.test(planJs2),
   'the Next move outcome comes from the engine, judged against the current gap');
-ok(!/actionCovers/.test(planJs2Code) && !/actionLeaves/.test(planJs2Code),
+ok(neverCode(/actionCovers/, /actionLeaves/).length === 0,
   'and the page no longer compares the action amount with the gap, or subtracts them');
 // An override that breaches must be reported as a breach, whatever else is
 // true about the opening gap. The engine decides that now — the page reads the
@@ -594,7 +597,7 @@ ok(!/actionCovers/.test(planJs2Code) && !/actionLeaves/.test(planJs2Code),
 // that selection moved too, so what is asserted here is that the card no longer
 // re-reads the verdict, and that the breach survives the move at every buffer
 // the household can set — which is where it used to be lost.
-ok(!/status\.id === 'overrideBreach'/.test(planJs2Code),
+ok(neverCode(/status\.id === 'overrideBreach'/).length === 0,
   'the next-move card no longer re-reads the status verdict to pick its own outcome');
 ok(/NEXT_MOVE\[move\.id\]\(move\)/.test(planJs2Code),
   'it renders the one outcome the engine selected');
@@ -620,7 +623,7 @@ ok(/NEXT_MOVE\[move\.id\]\(move\)/.test(planJs2Code),
 // The note named categories that stopped being $0 when sinking funds were split.
 ok(/fullyDatedNames/.test(planJs2),
   'the fully-dated categories are derived, not named in prose');
-ok(!/Insurance and children's sports show \$0/.test(planJs2),
+ok(neverRaw(/Insurance and children's sports show \$0/).length === 0,
   'and the stale sentence claiming sports shows $0 is gone');
 // The ledger has to add up on the page, not just in the engine.
 ok(/T\.injections > 0/.test(planJs2),
@@ -934,16 +937,22 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
   // one `JSON.stringify(state)` away from localStorage — balances and credit
   // limits written to the disk of whatever machine the page was opened on,
   // outside the authenticated gate that protects everything else.
-  ok(!/JSON\.stringify\(state\)/.test(planJs2),
-    'the page never serialises its whole state — that would persist balances',
+  ok(neverRaw(/JSON\.stringify\(state\)/).length === 0,
+  'the page never serialises its whole state — that would persist balances',
     'localStorage sits outside the authenticated financial-data gate');
   // Finish-line audit finding 9 made this stricter: the knob controls are
   // hidden, so the page persists and restores nothing at all. The behaviour
   // (a stale or tampered key prints the clean page) is proved end to end in
   // test-hidden-knobs-ignored.js; these pin the source contract.
   const planCode2 = planJs2.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  // plan.js alone: other scripts store non-financial preferences on purpose (the settlement pending record in app.js,
+  // the view and theme choice in budget-blend.js), so this one cannot widen to every page script. The Stack page
+  // keeps nothing in storage at all, which the next assertion holds.
   ok(!/localStorage\.setItem/.test(planCode2),
-    'nothing the page holds is written to localStorage — no knobs, no balances');
+  'nothing the page holds is written to localStorage — no knobs, no balances');
+  const stackStorage = require('./lib/page-scripts').pageScripts()
+    .filter(s => /^public\/stack-/.test(s.file) && /\b(localStorage|sessionStorage|indexedDB)\b/.test(s.source)).map(s => s.file);
+  ok(stackStorage.length === 0, 'no Stack script reads or writes browser storage', stackStorage.join(', ') || 'none');
   ok(!/localStorage\.getItem/.test(planCode2) && /localStorage\.removeItem\(KNOB_KEY\)/.test(planCode2),
     'and nothing is restored from it (the old knob key is cleared), so a stale or tampered '
     + 'payload cannot supply its own knobs or balances for the plan to be built on');
@@ -1430,9 +1439,9 @@ ok(advice.sim.daily[0] !== undefined
 const planJs = read('public/plan.js');
 ok(/Forecast\.recommend\(/.test(planJs),
   'the Plan page calls the single recommendation authority');
-ok(!/recommendWeekly\(/.test(planJs),
+ok(neverRaw(/recommendWeekly\(/).length === 0,
   'and does not solve the budget a second time by itself');
-ok(!/postGapWeekly|shifted\.startingCash/.test(planJs),
+ok(neverRaw(/postGapWeekly|shifted\.startingCash/).length === 0,
   'the DOM-level re-slicing that double-counted the first payday is gone');
 
 console.log('\n=== confidence, provenance and freshness ===');

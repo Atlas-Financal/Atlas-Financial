@@ -31,6 +31,9 @@
  */
 
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const { sourceText } = require('./test-source-text');
@@ -666,10 +669,12 @@ ok(Object.keys(FUND_VERDICT).sort().join(',') === engineVerdicts.slice().sort().
 
 // The page no longer decides. These are the exact expressions it used.
 ok(/Forecast\.planStatus\(/.test(planSrc), 'the Plan page reads the status from Forecast');
-ok(!/const overrideBreaches =/.test(planSrc),
+ok(neverRaw(/const overrideBreaches =/).length === 0,
   'and no longer hand-copies the engine\'s buffer comparison and epsilon');
-ok(!/sim\.buffer - 0\.005/.test(planSrc), 'the copied epsilon literal is gone from the page');
-ok(!/const fundingShort =/.test(planSrc), 'it does not re-derive whether the gap can be funded');
+ok(neverRaw(/sim\.buffer - 0\.005/).length === 0,
+  'the copied epsilon literal is gone from the page');
+ok(neverRaw(/const fundingShort =/).length === 0,
+  'it does not re-derive whether the gap can be funded');
 // The band picked two dates by walking the daily balances against a threshold —
 // the first breach and the first negative day. Both selections moved. What is
 // left in the page is a lookup of a KNOWN date, which decides nothing.
@@ -679,12 +684,13 @@ ok(!/const fundingShort =/.test(planSrc), 'it does not re-derive whether the gap
     'it selects no date by comparing a daily balance against a threshold',
     dailyFinds.join(' | ') || 'no daily lookups at all');
 }
-ok(!/fundingPlan\.parts\.reduce\(/.test(planSrc),
+ok(neverRaw(/fundingPlan\.parts\.reduce\(/).length === 0,
   'and totals no funding parts of its own');
-ok(!/const enough = o\.available >= needed/.test(planSrc),
+ok(neverRaw(/const enough = o\.available >= needed/).length === 0,
   'the per-source coverage comparison is gone');
-ok(!/needed - o\.available/.test(planSrc), 'and so is the per-source shortfall arithmetic');
-ok(!/plan\.funding\.options\s*\n?\s*\.slice\(\)\.sort/.test(planSrc),
+ok(neverRaw(/needed - o\.available/).length === 0,
+  'and so is the per-source shortfall arithmetic');
+ok(neverRaw(/plan\.funding\.options\s*\n?\s*\.slice\(\)\.sort/).length === 0,
   'the page no longer ranks the funding sources itself');
 
 console.log('\n=== 12. migration equivalence on the real published plan ===');

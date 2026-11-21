@@ -24,6 +24,9 @@
  */
 
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const { sourceText } = require('./test-source-text');
@@ -459,13 +462,13 @@ ok(wordedIds.every(id => engineIds.includes(id)),
 
 // The page no longer decides. These are the exact expressions it used.
 ok(/Forecast\.mission\(/.test(planSrc), 'the Plan page reads the mission from Forecast');
-ok(!/missionParts/.test(planSrc), 'and assembles no mission parts of its own');
-ok(!/if \(gap && fundingShort\) \{\s*\n\s*missionParts/.test(planSrc),
+ok(neverRaw(/missionParts/).length === 0,
+  'and assembles no mission parts of its own');
+ok(neverRaw(/if \(gap && fundingShort\) \{\s*\n\s*missionParts/).length === 0,
   'it does not choose between covering a gap and reporting a shortfall');
-ok(!/if \(!fundingShort\) \{\s*\n\s*missionParts/.test(planSrc),
+ok(neverRaw(/if \(!fundingShort\) \{\s*\n\s*missionParts/).length === 0,
   'it does not decide whether a spending instruction applies');
-ok(!/missionParts\.push\(helocBreach/.test(planSrc)
-  && !/if \(helocBreach\) missionParts/.test(planSrc),
+ok(neverRaw(/missionParts\.push\(helocBreach/, /if \(helocBreach\) missionParts/).length === 0,
   'and it does not choose between the HELOC crossing and the surplus');
 
 console.log('\n=== migration equivalence on the real published plan ===');

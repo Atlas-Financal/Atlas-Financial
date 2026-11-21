@@ -69,4 +69,10 @@ const pageScriptsMatching = (...patterns) => pageScripts()
 const pageCodeMatching = (...patterns) => pageScripts()
   .filter(s => patterns.some(pattern => pattern.test(s.code))).map(s => s.file);
 
-module.exports = { pageScripts, pageScriptsMatching, pageCodeMatching, indexScripts, ENGINE };
+// For the many "the page never does X" assertions in older suites: the offending files (none means the guard
+// holds), printed first so a failing assertion names the script. Raw source, or code with comments removed.
+const reportHits = hits => { if (hits.length) console.log('    found in: ' + hits.join(', ')); return hits; };
+const neverRaw = (...patterns) => reportHits(pageScriptsMatching(...patterns));
+const neverCode = (...patterns) => reportHits(pageCodeMatching(...patterns));
+
+module.exports = { pageScripts, pageScriptsMatching, pageCodeMatching, neverRaw, neverCode, indexScripts, ENGINE };
