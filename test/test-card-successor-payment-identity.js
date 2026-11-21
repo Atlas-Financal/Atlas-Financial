@@ -1,6 +1,6 @@
 'use strict';
 /* Owner facts 2026-11-20 (Dale): Triangle and Amazon carry their schedules on successor rows (triangle-td3,
- * triangle-day8, mbna-day12). A categorized card payment from Bills must still link to the row that owns the
+ * triangle-day8, mbna-auto30). A categorized card payment from Bills must still link to the row that owns the
  * occurrence, through the committed payment-alias rules. Invented ledger: one 49.37 payment against a 43.19
  * statement minimum, $1,000 cash and $800 debt, as in test-card-minimum-category.js. */
 const assert = require('node:assert/strict');
@@ -36,7 +36,7 @@ function fixture(card, id, rules) {
 }
 const payments = x => O.observe({ ...x, provider: 'lunchmoney' }).cardMinimumCategoryEvidence.payments;
 
-for (const [card, id] of [['triangle', 'triangle-td3'], ['triangle', 'triangle-day8'], ['mbna', 'mbna-day12']]) {
+for (const [card, id] of [['triangle', 'triangle-td3'], ['triangle', 'triangle-day8'], ['mbna', 'mbna-auto30']]) {
   const got = payments(fixture(card, id));
   ok(got.length === 1,
     `${id}: the categorized 49.37 payment links to the successor row (one payment)`, JSON.stringify(got.map(p => p.cashPaid)));
@@ -46,8 +46,9 @@ for (const [card, id] of [['triangle', 'triangle-td3'], ['triangle', 'triangle-d
 }
 ok(payments(fixture('triangle', 'triangle-elsewhere')).length === 0,
   'negative: a Triangle row id with no alias rule gets no payment');
-for (const [base, successors] of [['triangle', ['triangle-td3', 'triangle-day8']], ['mbna', ['mbna-day12']]]) {
-  const strip = rule => { const { eventId, ...rest } = rule; return JSON.stringify(rest); };
+for (const [base, successors] of [['triangle', ['triangle-td3', 'triangle-day8']], ['mbna', ['mbna-auto30']]]) {
+  // Recurring links are per row (owner-provided ids, 2026-11-21), not part of the copied alias.
+  const strip = rule => { const { eventId, lunchMoneyRecurringIds, ...rest } = rule; return JSON.stringify(rest); };
   const original = identity.rules.filter(r => r.eventId === base).map(strip);
   for (const id of successors) {
     ok(original.length > 0 && JSON.stringify(identity.rules.filter(r => r.eventId === id).map(strip)) === JSON.stringify(original),
@@ -105,6 +106,15 @@ ok(payments(withTx(fixture('triangle', 'triangle-td3'), { notes: 'card payment: 
     ok(windows.length > 0 && clash.length === 0, `${card}: no two rows' payment windows overlap in the committed schedule`,
       JSON.stringify(clash.map(w => [w.id, w.due])));
   }
+}
+
+
+{
+  // A card payment from an account the plan excludes (as the Nov 13 Amazon payment from Debt & Payments was) never
+  // settles a card occurrence: the categorized matcher takes household-cash (Bills) debits only.
+  const x = fixture('mbna', 'mbna-auto30');
+  x.payload.transactions[0].account_id = 999999; // invented, mapped to no household account
+  ok(payments(x).length === 0, 'excluded account: a categorized Amazon payment from outside household cash leaves the occurrence due');
 }
 
 console.log(`\n${checks - failures}/${checks} passed`);

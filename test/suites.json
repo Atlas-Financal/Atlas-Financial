@@ -680,7 +680,7 @@
   ["card minimum occurrence history and early-paid publication","test-card-minimum-occurrence-boundaries.js"],
   ["Triangle and Amazon minimum: one month's interest on a frozen statement balance, up to the whole dollar, held every month, never below the statement minimum (owner, Dale 2026-11-20)","test-fixed-interest-minimum.js"],
   ["Triangle early recurring payment: three dated payments on the 3rd stand in for the minimum, which resumes after the last; the day before payday counts in its period (owner, Dale 2026-11-20)","test-card-early-recurring-payment.js"],
-  ["Triangle and Amazon successor rows keep their payment-alias identity: a categorized card payment links to triangle-td3, triangle-day8 and mbna-day12 (owner, Dale 2026-11-20)","test-card-successor-payment-identity.js"],
+  ["Triangle and Amazon successor rows keep their payment-alias identity: a categorized card payment links to triangle-td3, triangle-day8 and mbna-auto30 (owner, Dale 2026-11-20)","test-card-successor-payment-identity.js"],
   ["purchase backfills cannot confirm scheduled card minima","test-card-backfill-intent.js"],
   ["month-end bill settlement and unmatched fee visibility","test-month-end-bill-reconciliation.js"],
   ["Dale-gated Noble / HELOC / TDCC represented settles","test-dale-gated-represented-settles.js"],
@@ -707,10 +707,12 @@
   ["Stack bill sheet history: each bill's published occurrences, newest first","test-stack-bill-history.js"],
   ["Stack bill cards: each card's rows are Forecast's own place in the bills split and add up to its head","test-stack-bill-parts.js"],
   ["Stack Bills card: Forecast publishes paid (the checked Bills rows, one rule) and the card prints paid / owed","test-stack-bills-paid.js"],
+  ["TD card statements (owner facts 2026-11-21): Cash Back due on the 4th from Dec 4 at the statement minimum; Travel Aug-Nov minimums represented","test-td-card-statement-facts.js"],
   ["Bill verified note: Grok Bot's note confirms a differing posted bill payment at what was paid (card check, bill history, BAD delta)","test-bill-verified-note.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
   ["Stack card names come from the ledger: the Lunch Money display name, carried by provider account id, shown first on the waterfall and the Credit card","test-stack-card-ledger-names.js"],
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
-  ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"]
+  ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
+  ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"]
 ]

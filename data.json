@@ -259,10 +259,10 @@
                 "frequency": "monthly",
                 "day": 3,
                 "firstDue": "2026-12-03",
-                "lastDue": "2027-02-03",
-                "amount": 900,
+                "lastDue": "2027-06-03",
+                "amount": 370,
                 "confidence": "confirmed",
-                "note": "Owner fact 2026-11-20 (Dale, #atlas-coordination ts 1795212645.899659): recurring TD payment from Bills to Triangle, monthly on the 3rd, first 2026-12-03, last 2027-02-03 (three payments, a test run). It is the Triangle payment for December, January and February; `triangle-day8` resumes the fixed-interest minimum on 2027-03-08.",
+                "note": "Owner fact 2026-11-20 (Dale, #atlas-coordination ts 1795212645.899659): recurring TD payment from Bills to Triangle, monthly on the 3rd, first 2026-12-03, last 2027-02-03 (three payments, a test run). It is the Triangle payment for December, January and February; `triangle-day8` resumes the fixed-interest minimum on 2027-03-08. Owner correction 2026-11-21 (Dale, Slack ts 1795224666.361409: \"it is NOT open-ended. His bank schedule runs 7 monthly payments, Dec 3, 2026 through Jun 3, 2027, then stops.\"): 7 payments, last 2027-06-03, at the amount Dale set; Lunch Money item 3722506.",
                 "payingAccount": "chequing-a"
             },
             {
@@ -272,11 +272,11 @@
                 "label": "Triangle Mastercard minimum",
                 "frequency": "monthly",
                 "day": 8,
-                "firstDue": "2027-03-08",
+                "firstDue": "2027-07-08",
                 "fixedInterestMinimum": { "balance": 13600.58, "rate": 21.99, "asOf": "2026-11-18" },
                 "amount": 253.57,
                 "confidence": "estimated",
-                "note": "Owner fact 2026-11-20 (Dale): the Triangle Mastercard minimum is due on the 8th of each month (the Nov. 18 statement shows Dec. 8). Successor of `triangle`, which ends at its 2026-11-07 occurrence (lastDue) so its dated history keeps its identity. The Dec. 8 statement minimum is confirmed from that statement; each month plans one month's interest on the Nov. 18 statement balance at the purchase rate, up to the whole dollar, held constant and never below the statement minimum (owner rule 2026-11-20). Owner fact 2026-11-20 (Dale, #atlas-coordination ts 1795212645.899659): a recurring TD payment from Bills on the 3rd (2026-12-03 to 2027-02-03, row `triangle-td3`) is that month's Triangle payment, paid before the 8th and above the minimum, so this minimum row starts 2027-03-08; the December statement minimum is covered by the Dec. 3 payment.",
+                "note": "Owner fact 2026-11-20 (Dale): the Triangle Mastercard minimum is due on the 8th of each month (the Nov. 18 statement shows Dec. 8). Successor of `triangle`, which ends at its 2026-11-07 occurrence (lastDue) so its dated history keeps its identity. The Dec. 8 statement minimum is confirmed from that statement; each month plans one month's interest on the Nov. 18 statement balance at the purchase rate, up to the whole dollar, held constant and never below the statement minimum (owner rule 2026-11-20). Owner fact 2026-11-20 (Dale, #atlas-coordination ts 1795212645.899659): a recurring TD payment from Bills on the 3rd (2026-12-03 to 2027-02-03, row `triangle-td3`) is that month's Triangle payment, paid before the 8th and above the minimum, so this minimum row starts 2027-03-08; the December statement minimum is covered by the Dec. 3 payment. Owner correction 2026-11-21: the TD payment runs through 2027-06-03, so this row starts 2027-07-08.",
                 "payingAccount": "chequing-a"
             },
             {
@@ -287,9 +287,10 @@
                 "frequency": "monthly",
                 "day": 1,
                 "firstDue": "2026-10-01",
+                "lastDue": "2026-11-01",
                 "amount": 170,
                 "confidence": "estimated",
-                "note": "The 2026-08-14 Chequing A TFR-TO C/C $763.00 posted against this card (posted fell $50 + $763 to $4,799.43, under the $5,000 limit). That payment satisfies the previous over-limit September spike of $762.36 (64 cents of rounding); the once row was removed so Forecast does not reserve it again. Future statement minimums are estimated at about $170. firstDue 2026-10-01. Owner-reported confirmation received 2026-10-06: minimum $209.37 paid $230.00 for the existing October occurrence. The existing scheduled date is retained; no new issuer statement due date is inferred. Receipt and cash inclusion are qualified at the observed 2026-10-06 opening. This occurrence-specific minimum does not replace later estimates, and the payment is not allocated to another cycle. The separate $180.00 Phoenix transfer is not this minimum payment.",
+                "note": "The 2026-08-14 Chequing A TFR-TO C/C $763.00 posted against this card (posted fell $50 + $763 to $4,799.43, under the $5,000 limit). That payment satisfies the previous over-limit September spike of $762.36 (64 cents of rounding); the once row was removed so Forecast does not reserve it again. Future statement minimums are estimated at about $170. firstDue 2026-10-01. Owner-reported confirmation received 2026-10-06: minimum $209.37 paid $230.00 for the existing October occurrence. The existing scheduled date is retained; no new issuer statement due date is inferred. Receipt and cash inclusion are qualified at the observed 2026-10-06 opening. This occurrence-specific minimum does not replace later estimates, and the payment is not allocated to another cycle. The separate $180.00 Phoenix transfer is not this minimum payment. Owner fact 2026-11-21 (Dale, his TD Cash Back Visa statement for Oct. 8 to Nov. 9, 2026, read from his banking app): the minimum is due on the 4th; this row ends at its 2026-11-01 occurrence (lastDue) so its dated history keeps its identity, and `cashback-day4` carries the schedule on from 2026-12-04. The same statement shows a last payment on 2026-11-09 (above the estimate) and carries no past-due amount, so the 2026-11-01 minimum was paid: it is represented effective 2026-11-09 by owner confirmation (lead's reading of Dale's statement, 2026-11-21), not a fabricated bank or issuer receipt. The payment is the Bills transfer the ledger posts on 2026-11-06 with the note `card payment: TD Cash Back Visa` (the card shows it on 2026-11-09); it is recorded on this row's 2026-11-01 sentPayments so it is consumed once and cannot also settle `cashback-day4`'s 2026-12-04 minimum (ATLAS REVIEWER 2, #1509).",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -313,6 +314,40 @@
                         "fundingAccountId": "chequing-a",
                         "pending": false,
                         "cashIncludedAsOf": "2026-10-06"
+                    },
+                    {
+                        "scheduledDate": "2026-11-01",
+                        "confirmed": true,
+                        "intent": "minimum",
+                        "debitId": "cashback-2026-11-bank-sent",
+                        "postedOn": "2026-11-06",
+                        "amount": 277.52,
+                        "currency": "cad",
+                        "fundingAccountId": "chequing-a",
+                        "pending": false,
+                        "cashIncludedAsOf": "2026-11-09"
+                    }
+                ]
+            },
+            {
+                "id": "cashback-day4",
+                "debtId": "cashback",
+                "effect": "payment",
+                "label": "TD Cash Back Visa minimum",
+                "frequency": "monthly",
+                "day": 4,
+                "firstDue": "2026-12-04",
+                "amount": 170,
+                "confidence": "estimated",
+                "note": "Owner fact 2026-11-21 (Dale, his TD Cash Back Visa statement for Oct. 8 to Nov. 9, 2026, read from his banking app): minimum $162.78 due 2026-12-04, nothing paid toward it yet. Successor of `cashback`, which ends at its 2026-11-01 occurrence (lastDue). The Dec. 4 statement minimum is confirmed from that statement; later minimums stay estimated at the existing $170 level, on the 4th.",
+                "payingAccount": "chequing-a",
+                "statementOccurrences": [
+                    {
+                        "scheduledDate": "2026-12-04",
+                        "dueDate": "2026-12-04",
+                        "minimum": 162.78,
+                        "currency": "cad",
+                        "confidence": "confirmed"
                     }
                 ]
             },
@@ -381,17 +416,16 @@
                 ]
             },
             {
-                "id": "mbna-day12",
+                "id": "mbna-auto30",
                 "debtId": "mbna",
                 "effect": "payment",
                 "label": "Amazon.ca Mastercard minimum (MBNA)",
                 "frequency": "monthly",
-                "day": 12,
-                "firstDue": "2026-12-12",
-                "fixedInterestMinimum": { "balance": 8125.43, "rate": 21.74, "asOf": "2026-10-07" },
-                "amount": 158.27,
+                "day": 30,
+                "firstDue": "2026-12-30",
+                "amount": 140.72,
                 "confidence": "estimated",
-                "note": "Owner fact 2026-11-20 (Dale): the Amazon.ca Mastercard minimum is due on the 12th of each month (his Lunch Money recurring item), not month-end; next 2026-12-12. Successor of `mbna`, which ends at its 2026-10-31 occurrence (lastDue) so its dated history keeps its identity. Owner rule 2026-11-20 (Dale): each month plans one month's interest on the last statement balance on record (2026-10-07) at the purchase rate, up to the whole dollar, held constant and never below a statement minimum.",
+                "note": "Owner fact 2026-11-20 (Dale): the Amazon.ca Mastercard minimum is due on the 12th of each month (his Lunch Money recurring item), not month-end; next 2026-12-12. Successor of `mbna`, which ends at its 2026-10-31 occurrence (lastDue) so its dated history keeps its identity. Owner rule 2026-11-20 (Dale): each month plans one month's interest on the last statement balance on record (2026-10-07) at the purchase rate, up to the whole dollar, held constant and never below a statement minimum. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): an automatic minimum payment from Bills on the 30th, planned from 2026-12-30 (the Nov 30 payment waits on Dale's confirmation of the October minimum), at each statement's minimum (estimated at the current statement amount), Lunch Money item 3709492. It replaces the fixed-interest minimum on the 12th for Amazon; one payment a month, no second minimum.",
                 "payingAccount": "chequing-a"
             },
             {
@@ -440,7 +474,17 @@
                 "day": 26,
                 "amount": 17,
                 "confidence": "estimated",
-                "payingAccount": "chequing-a"
+                "note": "Owner fact 2026-11-21 (Dale, his TD Travel Visa statement for Oct. 7 to Nov. 5, 2026, read from his banking app): minimum $20.00 due 2026-11-26, and the statement balance is shown paid by a payment on 2026-11-19. With the full statement balance paid there are no arrears, so the 2026-08-26, 09-26 and 10-26 minimums are not outstanding and the 11-26 minimum is satisfied: all four are represented effective 2026-11-19 by owner confirmation (plan.opening.representedEvents), not a fabricated bank or issuer receipt. No payment amount, principal reduction or allocation is recorded. Later minimums stay estimated.",
+                "payingAccount": "chequing-a",
+                "statementOccurrences": [
+                    {
+                        "scheduledDate": "2026-11-26",
+                        "dueDate": "2026-11-26",
+                        "minimum": 20,
+                        "currency": "cad",
+                        "confidence": "confirmed"
+                    }
+                ]
             }
         ],
         "bills": [
@@ -811,10 +855,8 @@
                 "budgetCategory": "subscriptions",
                 "subscription": true,
                 "householdObligation": true,
-                "payingAccount": "wise",
-                "fundingAccount": "chequing-a",
-                "jointCash": false,
-                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-09-12: CAD 13.43 including taxes. Day 12 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-10-12 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md."
+                "payingAccount": "chequing-a",
+                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-09-12: CAD 13.43 including taxes. Day 12 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-10-12 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): now paid from Bills, per its Lunch Money recurring item's account."
             },
             {
                 "id": "stacktv",
@@ -828,10 +870,8 @@
                 "budgetCategory": "subscriptions",
                 "subscription": true,
                 "householdObligation": true,
-                "payingAccount": "wise",
-                "fundingAccount": "chequing-a",
-                "jointCash": false,
-                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-09-22: CAD 16.79 including taxes. Day 22 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-10-22 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md."
+                "payingAccount": "chequing-a",
+                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-09-22: CAD 16.79 including taxes. Day 22 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-10-22 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): now paid from Bills, per its Lunch Money recurring item's account."
             },
             {
                 "id": "prime-video-ad-free",
@@ -845,10 +885,8 @@
                 "budgetCategory": "subscriptions",
                 "subscription": true,
                 "householdObligation": true,
-                "payingAccount": "wise",
-                "fundingAccount": "chequing-a",
-                "jointCash": false,
-                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-09-25: CAD 3.35 including taxes. Day 25 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-10-25 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md. This ad-free add-on is separate from the unchanged Amazon Prime membership."
+                "payingAccount": "chequing-a",
+                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-09-25: CAD 3.35 including taxes. Day 25 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-10-25 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md. This ad-free add-on is separate from the unchanged Amazon Prime membership. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): now paid from Bills, per its Lunch Money recurring item's account."
             },
             {
                 "id": "crave-standard-ads",
@@ -862,10 +900,44 @@
                 "budgetCategory": "subscriptions",
                 "subscription": true,
                 "householdObligation": true,
-                "payingAccount": "wise",
-                "fundingAccount": "chequing-a",
-                "jointCash": false,
-                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-10-09: CAD 13.43 including taxes. Day 9 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-11-09 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md."
+                "payingAccount": "chequing-a",
+                "note": "Owner 2026-10-10 confirmed active/monthly and approved adding this bill. Receipt 2026-10-09: CAD 13.43 including taxes. Day 9 is an estimated recurring billing anchor from that receipt, not a confirmed future invoice deadline. firstDue 2026-11-09 activates the next forward planning occurrence; no past charge is created or marked paid. Owner-confirmed Wise payment uses the existing held-elsewhere wise identity, not a Lunch Money account mapping or Travel Visa. Future household funding is planned from BILLS ACCOUNT through fundingAccount chequing-a, once per individual occurrence; this is not an automatic transfer or a confirmed payment date. The CAD 47 Bills-to-Wise transfer confirmed on 2026-10-10 is funding/backfill, not this purchase, income, or settlement proof. Source: docs/source_intake/STREAMING_BILLS_2026-10-10.md. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): now paid from Bills, per its Lunch Money recurring item's account."
+            },
+            {
+                "id": "microsoft",
+                "label": "Microsoft",
+                "frequency": "monthly",
+                "day": 9,
+                "firstDue": "2026-12-09",
+                "amount": 2.24,
+                "confidence": "confirmed",
+                "budgetCategory": "subscriptions",
+                "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): monthly, tax included, paid from Bills; Lunch Money recurring item 3722390 leads its schedule.",
+                "payingAccount": "chequing-a"
+            },
+            {
+                "id": "teamsnap-plus",
+                "label": "TeamSnap+ (Apple)",
+                "frequency": "monthly",
+                "day": 7,
+                "firstDue": "2026-12-07",
+                "amount": 2.23,
+                "confidence": "confirmed",
+                "budgetCategory": "subscriptions",
+                "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): monthly, tax included, paid from Bills; Lunch Money recurring item 3722391 leads its schedule.",
+                "payingAccount": "chequing-a"
+            },
+            {
+                "id": "muse-meta",
+                "label": "Muse from Meta",
+                "frequency": "monthly",
+                "day": 14,
+                "firstDue": "2026-12-14",
+                "amount": 31.36,
+                "confidence": "confirmed",
+                "budgetCategory": "subscriptions",
+                "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): monthly, tax included, paid from Bills (\"Bills account pays muse\"); Lunch Money recurring item 3722358 leads its schedule.",
+                "payingAccount": "chequing-a"
             }
         ],
         "billsNote": "Extracted from the transaction history and owner evidence, not guessed: only bills still active in the last three months are dated here. Owner 2026-08-30: future planned payingAccount for dated bills, dated subscriptions, card minimums, and HELOC cash minimum is BILLS ACCOUNT (Chequing A, id chequing-a). Dated Bell Mobility standing $160.00/month from firstDue 2026-10-15 is a BILLS ACCOUNT (Chequing A) joint-cash withdrawal. Owner 2026-09-21 set autopay from that account. September 2026 is the once row bell-sep15-2026 $283.94 due 2026-09-15 (owner 2026-09-19 catch-up / wife payment-mess total; supersedes $265.65), not a second $160 on that day. Owner 2026-09-18: Square One home insurance $3,131.76 yearly on 10 February (policy #5157890, firstDue 2027-02-10) is card-paid reserved gravity, jointCash false, not a BILLS ACCOUNT / chequing withdrawal, not a Household Budget plannedMonthly, and not a second plan.commitments home. The 2026-02-10 payment is settled evidence and is not invented as unpaid arrears. Historical Lunch Money postings are not rewritten. The 15 August BCAA, ICBC and RESP occurrences remain unknown in posting (not a confirmed unposted fact) and are reserved as once rows on this opening; those monthly rows resume 15 September. The children's RESP contribution is included as a hard $100 monthly bill. Owner-confirmed 2026-08-24: the recurring $25/month CMAW Local 1995 union-dues payment has been cancelled. Owner 2026-08-30: stop tracking the cancelled dues — there is no August posting-unknown stub. Historical Union dues actuals stay in periods.json. BC Hydro 1 September $237.45 is a household obligation now planned from BILLS ACCOUNT; a $220 Hydro debit from BILLS ACCOUNT on 14 August is already inside opening cash and is not scheduled again. Owner-confirmed 2026-08-16: the old Hydro arrears are settled and are not scheduled. Owner 2026-09-09: the equal monthly payment becomes $199.00 from the next bill (hydro-equal-payment, monthly, estimated firstDue 2026-10-01); that amount is confirmed, the payment day is not. The Sep. 9 notice also shows a −$53.08 Hydro-account credit; Forecast nets the next cash hit to $145.92, then later months are full $199. That credit is not joint-cash income on 9 September. This does not replace the Sep. 1 once due. Noble Disposal Services is the household garbage bill: $95.85 every 3 months on the 18th (anchor 2026-03-18, firstDue 2026-09-18). Owner-confirmed 2026-08-23: Affirm has one final $32.53 payment due 2026-09-21 and no recurrence after it. TELUS IS CLOSED — do not forecast Telus as an active household bill. Historical streaming actuals include Amazon Channels and other scattered charges; those remain inside historical spending. Owner-confirmed 2026-08-27 dated subscription bills: Netflix $26.87/month on the 17th; Spotify $26.87/month on the 17th; Google storage 100 GB $3.13/month around month-end (last calendar day); Ultimate Guitar $50/year on May 8; iCloud Storage $13/month on the 14th; YouTube Premium $17/month on the 2nd; ChatGPT Plus — Dale $28/month CAD planning amount on the 14th (estimated); ChatGPT Plus — Amanda $24.99/month iOS on the 14th. Owner 2026-09-22: Amazon Prime membership $11.19/month on the 19th from firstDue 2026-09-19 is card-paid Travel Visa (jointCash false), not a BILLS ACCOUNT withdrawal. The repeated $11.19 Amazon Prime / Amazon.ca Prime Travel Visa charges are that membership. The separate $24.63 Prime-like charge is not. Ordinary Amazon shopping is not. The 19 August charge is not reserved again. Netflix, Spotify, and the named Google subscriptions moved off PayPal onto the household debit/bills path; Instacart and Uber are not recorded as moved. Canva, Mailchimp, Guitar Tabs monthly, and GitHub annual have no forward recurrence; historical transactions stay in history. Owner-confirmed 2026-09-21: Mailchimp, Calendly, AICHATAPP, and Pixieset are cancelled; their explicit merchant identities are retained only so a later posted debit is counted once in Other Spending and disclosed as an unexpected cancelled-service charge, never restored to plan.bills. Subscription rows other than that Amazon Prime membership and the owner-approved 2026-10-10 Wise streaming additions are planned from BILLS ACCOUNT. Paramount+, STACKTV, Prime Video ad-free and Crave Standard with ads are four separate active monthly household subscriptions, CAD 47.00 total including taxes, paid through the existing held-elsewhere Wise path. Their receipt-day anchors remain estimated and activate only the next forward occurrences; prior actuals and paid state are not rewritten. The owner-confirmed CAD 47.00 Bills-to-Wise funding/backfill on 2026-10-10 is separate from guilt-free funding and is not income, a fifth expense, four new purchases or bill settlement. Wise is not mapped in the current Lunch Money catalog. The approved bounded funding repair retains each Wise merchant-payment route and plans its future cash requirement from BILLS ACCOUNT via fundingAccount chequing-a, using that bill's amount and estimated date once. There is no combined CAD 47 bill, automatic transfer, confirmed future payment date or inferred provider settlement. They are not mapped onto a payday by a second table — expandEvents dates them, and paydayAllocation / currentPeriodAction consume that same schedule.",
@@ -1566,7 +1638,12 @@
                 { "id": "triangle", "date": "2026-10-07", "effectiveAsOf": "2026-10-06" },
                 { "id": "mbna-aug31", "date": "2026-08-31", "effectiveAsOf": "2026-10-05" },
                 { "id": "cashback", "date": "2026-10-01", "effectiveAsOf": "2026-10-06" },
-                { "id": "mbna", "date": "2026-09-30", "effectiveAsOf": "2026-10-06" }
+                { "id": "mbna", "date": "2026-09-30", "effectiveAsOf": "2026-10-06" },
+                { "id": "cashback", "date": "2026-11-01", "effectiveAsOf": "2026-11-09" },
+                { "id": "travel", "date": "2026-08-26", "effectiveAsOf": "2026-11-19" },
+                { "id": "travel", "date": "2026-09-26", "effectiveAsOf": "2026-11-19" },
+                { "id": "travel", "date": "2026-10-26", "effectiveAsOf": "2026-11-19" },
+                { "id": "travel", "date": "2026-11-26", "effectiveAsOf": "2026-11-19" }
             ],
             "note": "One cutover from the 2026-08-19 Lunch Money observation. Friday 14 August payroll, mortgage, Shaw, Fit4Less, BC Hydro $220, the $94.03 TD card minimum, and the $763 Cash Back payment are already inside the cash and debt snapshots; they fall before this as-of, so Forecast does not replay them. No same-day 19 August scheduled item is inside that observation. Dale-gated 2026-09-18 posting evidence names three prepaid joint-cash settles relative to this start (not card-paid standing, not a payingAccount change): tdcc@2026-09-17 (BILLS TFR-TO C/C), noble-garbage@2026-09-18 (Noble Dispo on WEEKLY / chequing-b), heloc@2026-09-21 (BILLS HELOC cash minimum, IP470 transfer). Triangle posted $13,495.32 and MBNA posted $7,875.99 MATCH under owner-approved monthly statement cadence (evidence 2026-08-18); pending on both is proven $0.00. The 2026-08-16 Triangle screenshot ($13,197.00 + $15.62) and Lunch Money's older last-statement figure are not this posted opening. Amanda/TENNIS INCOME is not spendable. Q19 ANSWERED: remaining August HELOC cash requirement is $0 additional after the 14 August $1,100 already inside this opening."
         }
