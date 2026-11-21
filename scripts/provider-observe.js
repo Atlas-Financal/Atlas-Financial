@@ -4752,7 +4752,9 @@ function observeCore(input, capture) {
   if (recurringSchedules.some(schedule => schedule.billId) && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
     const byBill = new Map(recurringSchedules.filter(schedule => schedule.billId).map(schedule => [schedule.billId, schedule]));
     input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
-      bill && byBill.has(bill.id) ? applyRecurringAmount(applyRecurringSchedule(bill, byBill.get(bill.id)), byBill.get(bill.id)) : bill) } } };
+      bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
+    // The item amount is not applied here: payment matching keeps qualifying against the plan's amount, so a
+    // payment already made is never re-judged against a later, lower item price (Codex P1 on #1510).
   }
   const mapped = [];
   const unmapped = [];

@@ -104,6 +104,18 @@ console.log('5b. Stated behaviour (lead, 2026-11-21): an unsettled occurrence al
     J(row && { date: row.date, amount: row.amount, status: row.status }));
 }
 
+
+console.log('5c. A lower item amount never un-pays a payment already made (Codex P1 on #1510)');
+{
+  // Item 40.00, plan 80, linked posted 79.50 on Oct 14: 79.50 is within the plan's matching bound (80) though far
+  // above 1.5 x 40, so it still settles Oct 20, at what was paid.
+  const paid = H.lm({ date: '2026-10-14', amount: 79.5, account: 'chequing-a', payee: 'Invented band', raw: { recurring_id: Number(ID) } });
+  const s = serve([item(ID, '40.00')], { transactions: [paid] });
+  const row = s.cur[0];
+  ok(row && /paid/i.test(row.status || '') && Math.abs(Number(row.cashPaid ?? row.actual) - 79.5) < 0.005,
+    'paid at 79.50, not re-judged against the lower item amount', J(row && { status: row.status, actual: row.actual, remaining: row.remaining }));
+}
+
 console.log('6. Card and obligation rows never take an item amount');
 {
   const src = require('fs').readFileSync(require('path').join(__dirname, '../scripts/provider-observe.js'), 'utf8');
