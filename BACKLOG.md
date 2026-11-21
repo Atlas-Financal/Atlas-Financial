@@ -753,7 +753,7 @@ Cash-payment VEVENTs are derived from the Plan via `Forecast.expandEvents`.
 
 New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is frozen.
 
-**The figures page capture should also observe the Stack page's reads** · QUEUED (ATLAS LEAD 11, 2026-11-19): a named limit of option A (`agent/figures-capture-classic-view`), not a blocker. Full lane: figures hard-gate machinery, Atlas reviews.
+**The figures page capture should also observe the Stack page's reads** · DONE by C1 S1 (`agent/c1-s1-capture-stack`, ATLAS LEAD 11, 2026-11-21; `docs/RISK_LABELS.md`, `test/test-stack-page-capture.js`; the previous-page keys stay until C1 S7) · was QUEUED (ATLAS LEAD 11, 2026-11-19): a named limit of option A (`agent/figures-capture-classic-view`), not a blocker. Full lane: figures hard-gate machinery, Atlas reviews.
 - **Why:** `scripts/figures-page-capture.js` now runs the previous Budget page by its explicit route (`?view=classic`), so making the Stack page the default (B7, #1439) does not shift its Savings observations. Once the Stack page is the page the household reads, the capture covers only the fallback page's Savings consumers, not the Stack page's own reads (the shell's `Forecast.recommend`, the Credit card's `cardPeriodMovements` / `stackCreditLines`).
 - **Closure:** at C1, when the previous page retires, retarget the capture at the Stack page (remove `CAPTURE_LOCATION`'s `?view=classic`) and make its observations stable across the Stack page's states, so the page the household reads stays covered. `test/test-figures-capture-classic-view.js` retires with it.
 - Source: lead ruling on #1439's figures report, 2026-11-19.
