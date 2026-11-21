@@ -1,17 +1,21 @@
 'use strict';
-/* Household Budget Spent drill-down is presentation of Forecast row.recon.
+/* Household Budget Spent drill-down: Forecast row.recon is the membership.
  *
  * Forecast already classifies current-period actuals and attaches supporting
- * transactions on each calendar Household Budget row. This suite proves the
- * Plan page renders those supplied rows as an inline Spent disclosure, and
- * that the disclosed amounts independently sum to the displayed Spent figure.
- * plan.js must not reclassify membership (L-001 / L-002).
+ * transactions on each calendar Household Budget row. This suite proves that
+ * membership at the Forecast level: the supporting rows independently sum to
+ * Spent, the classifier excludes bills / transfers / income / outside-cycle
+ * rows, and the sanitizer carries merchant identity only on eligible rows.
+ *
+ * The classic page markup that used to render those rows (details/summary,
+ * payee, date, Pending and Total markup) retired with the classic page
+ * (C1 S4 batch B1); what the household reads now is the Stack budget sheet,
+ * proved by test-stack-budget-sheet-figures.js (printed Spent / budget / Left
+ * or Over against independent arithmetic) and test-stack-budget-transactions.js
+ * (list = recon less the pending twin, summing to published Spent).
  *
  * `node test/test-household-budget-spent-drilldown.js`
  */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
 
@@ -22,37 +26,6 @@ const ok = (cond, label, detail = '') => {
 };
 const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const roundCent = n => Math.round((Number(n) || 0) * 100) / 100;
-const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-
-function grab(src, re, label) {
-  const match = re.exec(src);
-  if (!match) throw new Error('missing ' + label);
-  return match[0];
-}
-
-function loadComposer() {
-  const appSrc = read('public/app.js');
-  const planSrc = read('public/plan.js');
-  const source = [
-    grab(appSrc, /^const money = .*$/m, 'money'),
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-    grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-    grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^function paydayBucketRow\([\s\S]*?\n\}$/m, 'paydayBucketRow'),
-    grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
-    grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-    grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml'),
-    grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
-    grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
-  ].join('\n');
-  return vm.runInNewContext(`${source}\n({ calendarBudgetHtml, householdBudgetMetric, money2 });`, {
-    Forecast: F,
-  });
-}
-
-const composer = loadComposer();
-
 function syntheticPlan() {
   return {
     defaults: { targetBuffer: 500 },
@@ -110,22 +83,6 @@ function period(view, id) {
 }
 function budgetRow(p, id) {
   return ((p && p.householdBudget) || []).find(r => r.id === id) || null;
-}
-function block(html, id) {
-  const marker = `data-budget-category="${id}"`;
-  const at = html.indexOf(marker);
-  if (at < 0) return '';
-  const from = html.lastIndexOf('<div', at);
-  const next = html.indexOf('data-budget-category="', at + marker.length);
-  if (next < 0) return html.slice(from);
-  const to = html.lastIndexOf('<div', next);
-  return html.slice(from, to > from ? to : next);
-}
-function txIds(html) {
-  return [...html.matchAll(/data-tx-id="([^"]+)"/g)].map(m => m[1]);
-}
-function txPayees(html) {
-  return [...html.matchAll(/household-budget-tx-payee">([^<]*)/g)].map(m => m[1]);
 }
 
 const AS_OF = '2026-09-01';
@@ -269,153 +226,6 @@ console.log('\n=== 2. Forecast row.recon is the membership the page must print =
     'categoryLabel stays classification; it is not copied as merchant identity');
 }
 
-console.log('\n=== 3. rendered Spent is interactive only when recon exists ===');
-{
-  const advice = recommend(fixtureTxs);
-  const active = period(advice.defaultView, 'this-pay-period');
-  const html = composer.calendarBudgetHtml(active);
-  const groceries = block(html, 'groceries');
-  const pets = block(html, 'pets');
-  const other = block(html, 'other-spending');
-  ok(/<dt>Spent<\/dt>/.test(groceries)
-      && /<details class="household-budget-spent-detail" data-budget-spent="groceries">/.test(groceries)
-      && /<summary class="household-budget-spent-summary">/.test(groceries)
-      && groceries.indexOf('<details') < groceries.indexOf('data-budget-spent-detail'),
-    'Groceries Spent is a native details/summary disclosure');
-  ok(!/\sopen(>| )/.test(groceries) && !/\sopen="/.test(groceries),
-    'Groceries disclosure starts collapsed');
-  ok(!/<details/.test(pets) && /<dt>Spent<\/dt>/.test(pets)
-      && /<dd>\$0\.00<\/dd>/.test(pets),
-    'Pets Spent is a static $0.00 metric, not a false clickable breakdown');
-  ok(/data-budget-spent="other-spending"/.test(other) && /<summary /.test(other),
-    'Other spending Spent is also an interactive disclosure');
-}
-
-console.log('\n=== 4. disclosed rows are exactly Forecast recon, summing to Spent ===');
-{
-  const advice = recommend(fixtureTxs);
-  const active = period(advice.defaultView, 'this-pay-period');
-  const html = composer.calendarBudgetHtml(active);
-  const groceriesHtml = block(html, 'groceries');
-  const fuelHtml = block(html, 'fuel');
-  const eatingHtml = block(html, 'restaurants');
-  const otherHtml = block(html, 'other-spending');
-  const groceries = budgetRow(active, 'groceries');
-  const groceryIds = txIds(groceriesHtml);
-  ok(groceryIds.length === 3
-      && groceryIds.includes('tx-grocery-a')
-      && groceryIds.includes('tx-grocery-b')
-      && groceryIds.includes('tx-grocery-p'),
-    'Groceries detail lists the three incumbent recon ids');
-  ok(groceriesHtml.includes(composer.money2(GROCERY_A))
-      && groceriesHtml.includes(composer.money2(GROCERY_B))
-      && groceriesHtml.includes(composer.money2(GROCERY_P))
-      && groceriesHtml.includes(`data-budget-spent-total="groceries">${composer.money2(GROCERY_TOTAL)}`),
-    'Groceries detail prints constructed amounts and Total equals displayed Spent');
-  ok(/data-tx-id="tx-grocery-p"[^>]*data-tx-pending="true"/.test(groceriesHtml)
-      && /data-tx-id="tx-grocery-p"[\s\S]*household-budget-tx-pending">Pending</.test(groceriesHtml)
-      && !/data-tx-id="tx-grocery-a"[\s\S]*Pending/.test(groceriesHtml.split('data-tx-id="tx-grocery-p"')[0]),
-    'pending state is shown only on the pending grocery tx');
-  ok(txIds(fuelHtml).join() === 'tx-fuel' && fuelHtml.includes(composer.money2(FUEL)),
-    'Fuel detail is the one incumbent fuel tx');
-  ok(txIds(eatingHtml).join() === 'tx-eat' && eatingHtml.includes(composer.money2(EATING)),
-    'Eating out detail is the one incumbent eating-out tx');
-  const otherIds = txIds(otherHtml);
-  ok(otherIds.length === 2 && otherIds.includes('tx-other-a') && otherIds.includes('tx-other-b')
-      && otherHtml.includes(composer.money2(OTHER_A))
-      && otherHtml.includes(composer.money2(OTHER_B))
-      && otherHtml.includes(composer.money2(OTHER_TOTAL)),
-    'Other spending detail uses its incumbent residual txs');
-  const allIds = txIds(html);
-  ok(new Set(allIds).size === allIds.length,
-    'a transaction appears in only one Household Budget disclosure');
-  ok(!allIds.includes('tx-mortgage') && !allIds.includes('tx-card')
-      && !allIds.includes('tx-transfer') && !allIds.includes('tx-income')
-      && !allIds.includes('tx-before') && !allIds.includes('tx-after'),
-    'bills, transfers, income, and outside-cycle txs are absent from every disclosure');
-  ok(txPayees(groceriesHtml).includes('Save-On-Foods')
-      && txPayees(groceriesHtml).includes('Costco')
-      && txPayees(groceriesHtml).includes('Walmart')
-      && !txPayees(groceriesHtml).includes('Groceries'),
-    'Groceries detail identifies Save-On-Foods / Costco / Walmart, not Groceries');
-  ok(txPayees(fuelHtml).includes('Shell') && !txPayees(fuelHtml).includes('Fuel'),
-    'Fuel detail identifies Shell, not Fuel');
-  ok(txPayees(eatingHtml).includes('Merchant unavailable')
-      && !txPayees(eatingHtml).includes('Restaurants'),
-    'missing merchant identity is a neutral fallback, not the Restaurants label');
-  ok(/datetime="2026-08-29"/.test(groceriesHtml) && /datetime="2026-08-30"/.test(groceriesHtml),
-    'disclosed grocery rows keep their incumbent dates');
-  const grocerySpent = composer.money2(groceries.spent);
-  ok(groceriesHtml.includes(grocerySpent),
-    'collapsed Spent control still shows the incumbent Groceries spent figure');
-}
-
-console.log('\n=== 5. merchant identity uses displayedPayee, then originalMerchant ===');
-{
-  const saveOn = composer.householdBudgetMetric('Spent', 18.56, {
-    recon: [{
-      id: 'tx-save-on', date: '2026-08-31', amount: 18.56,
-      displayedPayee: 'Save-On-Foods', originalMerchant: 'Save-On-Foods',
-      categoryLabel: 'Groceries', pending: false,
-    }],
-    id: 'groceries',
-  });
-  ok(txPayees(saveOn).join() === 'Save-On-Foods'
-      && saveOn.includes(composer.money2(18.56))
-      && /datetime="2026-08-31"/.test(saveOn)
-      && !txPayees(saveOn).includes('Groceries')
-      && !/>Groceries</.test(saveOn.replace(/<h3[\s\S]*?<\/h3>/, '')),
-    'constructed Aug 31 Save-On-Foods $18.56; Groceries is not the transaction identity');
-
-  const displayedWins = composer.householdBudgetMetric('Spent', 22.00, {
-    recon: [{
-      id: 'tx-display-wins', date: '2026-08-31', amount: 22.00,
-      displayedPayee: 'Thrifty Foods', originalMerchant: 'THRIFTY FOODS #88',
-      categoryLabel: 'Groceries', pending: false,
-    }],
-    id: 'groceries',
-  });
-  ok(txPayees(displayedWins).join() === 'Thrifty Foods'
-      && !txPayees(displayedWins).includes('THRIFTY FOODS #88')
-      && !txPayees(displayedWins).includes('Groceries'),
-    'displayedPayee wins when both merchant fields are present');
-
-  const originalFallback = composer.householdBudgetMetric('Spent', 9.41, {
-    recon: [{
-      id: 'tx-original-only', date: '2026-08-30', amount: 9.41,
-      originalMerchant: 'Safeway', categoryLabel: 'Groceries', pending: false,
-    }],
-    id: 'groceries',
-  });
-  ok(txPayees(originalFallback).join() === 'Safeway'
-      && !txPayees(originalFallback).includes('Groceries'),
-    'originalMerchant is used when displayedPayee is unavailable');
-
-  const missing = composer.householdBudgetMetric('Spent', 5.00, {
-    recon: [{ id: 'tx-label', date: '2026-08-30', amount: 5.00, categoryLabel: 'Fuel', pending: false }],
-    id: 'fuel',
-  });
-  ok(txPayees(missing).join() === 'Merchant unavailable'
-      && !txPayees(missing).includes('Fuel')
-      && !/>Fuel</.test(missing),
-    'missing merchant identity is Merchant unavailable; categoryLabel is not substituted');
-
-  const empty = composer.householdBudgetMetric('Spent', 0, { recon: [], id: 'pets' });
-  ok(!/<details/.test(empty) && /<dt>Spent<\/dt>/.test(empty),
-    'empty recon is not an interactive breakdown');
-  const planSrc = read('public/plan.js');
-  const metricSrc = grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric');
-  const categorySrc = grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml');
-  ok(!/classifyCurrentPeriodTransaction/.test(metricSrc + categorySrc)
-      && !/sumCategoryActuals/.test(metricSrc + categorySrc)
-      && /row\.recon/.test(categorySrc)
-      && /displayedPayee/.test(metricSrc)
-      && /originalMerchant/.test(metricSrc)
-      && /Merchant unavailable/.test(metricSrc)
-      && !/categoryLabel \|\|/.test(metricSrc),
-    'Plan Household Budget renderer consumes row.recon merchant fields and does not classify');
-}
-
 console.log('\n=== 5b. Forecast recon originalMerchant fallback is independent of the renderer ===');
 {
   const txs = [{
@@ -433,11 +243,6 @@ console.log('\n=== 5b. Forecast recon originalMerchant fallback is independent o
       && !Object.prototype.hasOwnProperty.call(groceries.recon[0], 'payee')
       && near(groceries.spent, 18.56),
     'Forecast recon keeps originalMerchant when displayedPayee is absent; membership and spent unchanged');
-  const groceriesHtml = block(composer.calendarBudgetHtml(active), 'groceries');
-  ok(txPayees(groceriesHtml).join() === 'Safeway'
-      && !txPayees(groceriesHtml).includes('Groceries')
-      && groceriesHtml.includes(composer.money2(18.56)),
-    'rendered originalMerchant fallback is Safeway $18.56, not Groceries');
 }
 
 console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend still renders ===');
@@ -497,43 +302,20 @@ console.log('\n=== 5c. sanitizer omits merchant on excluded rows; eligible spend
   ok(groceries && near(groceries.spent, 18.56) && groceries.recon.length === 1
       && groceries.recon[0].displayedPayee === 'Save-On-Foods',
     'Forecast Spent and recon still use the eligible grocery merchant');
-  const groceriesHtml = block(composer.calendarBudgetHtml(active), 'groceries');
-  ok(txPayees(groceriesHtml).includes('Save-On-Foods')
-      && !txPayees(groceriesHtml).includes('SEASPAN PAYROLL')
-      && !txPayees(groceriesHtml).includes('ACME CORP')
-      && !txPayees(groceriesHtml).includes('Groceries'),
-    'rendered Spent row is Aug 31 Save-On-Foods, not income/business counterparties');
 }
 
-console.log('\n=== 6. Planned, Remaining, and waterfall figures stay put ===');
+console.log('\n=== 6. Planned, Remaining and the hold sum stay put (Forecast level) ===');
 {
   const advice = recommend(fixtureTxs);
   const active = period(advice.defaultView, 'this-pay-period');
-  const html = composer.calendarBudgetHtml(active);
   const groceries = budgetRow(active, 'groceries');
-  const groceriesHtml = block(html, 'groceries');
-  ok(near(groceries.planned, 900) && groceriesHtml.includes(composer.money2(900))
-      && /<dt>Planned<\/dt>/.test(groceriesHtml),
-    'Groceries Planned remains the cycle hold $900.00');
+  ok(near(groceries.planned, 900), 'Groceries Planned remains the cycle hold $900.00');
   const remaining = roundCent(900 - GROCERY_TOTAL);
-  ok(near(groceries.remaining, remaining)
-      && groceriesHtml.includes(composer.money2(remaining))
-      && /<dt>Remaining<\/dt>/.test(groceriesHtml)
-      && /household-budget-remaining/.test(groceriesHtml),
+  ok(near(groceries.remaining, remaining),
     'Groceries Remaining is still planned minus the constructed spent');
   ok(near(active.budgetHold, (active.householdBudget || []).reduce(
     (s, r) => roundCent(s + (Number(r.hold) || 0)), 0)),
     'budgetHold remains the sum of row.hold values');
-  const planSrc = read('public/plan.js');
-  ok(/householdBudgetMetric\('Planned'/.test(planSrc)
-      && /householdBudgetMetric\('Spent'/.test(planSrc)
-      && /householdBudgetMetric\('Remaining'/.test(planSrc),
-    'structured Planned / Spent / Remaining calls remain');
-  const css = read('public/styles.css');
-  ok(/household-budget-spent-summary[\s\S]*min-height:\s*44px/.test(css)
-      && /household-budget-spent-summary[\s\S]*cursor:\s*pointer/.test(css)
-      && /\.household-budget-tx \{[\s\S]*grid-template-columns:\s*auto minmax\(0,\s*1fr\) auto/.test(css),
-    'Spent control is a 44px disclosure and tx rows keep amount right-aligned');
 }
 
 if (failures) {
