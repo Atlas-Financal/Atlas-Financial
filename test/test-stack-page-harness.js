@@ -116,6 +116,20 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' â
   ok((await handlerCallsOnFellBack(require('./lib/budget-page-harness'))) === 0,
     'a press on a page that fell back does not reach the shell\'s handler');
 
+  // An error out of the shell's click handler is a page error, as in a browser: it is recorded in errors (once), the press
+  // does not throw out of the harness, and the page then reads fell-back. Pins the catch in selectPeriod.
+  const handlerErrorRecorded = async lib => {
+    const p = await lib.loadStackPage({ data: fixture() });
+    const keys = p.periodKeys();
+    const before = p.errors.length;
+    p.document.__root.listeners.click = [() => { throw new Error('a click handler fails'); }];
+    let threw = false;
+    try { p.selectPeriod(keys[0]); } catch (e) { threw = true; }
+    return !threw && p.errors.length === before + 1 && /a click handler fails/.test(String(p.errors[before][0])) && p.status() === 'fell-back';
+  };
+  ok(await handlerErrorRecorded(require('./lib/budget-page-harness')),
+    'an error out of the click handler is recorded as one page error, does not throw, and the page reads fell-back');
+
   // A fall-back on a later draw: the page rendered, then a later draw throws and the shell hands back the classic page.
   const later = await loadStackPage({ data: fixture() });
   const laterKeys = later.periodKeys();
@@ -139,6 +153,7 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' â
     ['the gate on selectedKey', "selectedKey: () => { const ctx = live() ? context() : null;", "selectedKey: () => { const ctx = context();"],
     ['the gate on periodKeys', "const ctx = live() ? context() : null;\n      const views", "const ctx = context();\n      const views"],
     ['the gate on context', "context: () => (live() ? context() : null),", "context: () => context(),"],
+    ['the catch on the click handler', "try { fn(event); } catch (error) { errors.push([error]); }", "fn(event);"],
   ];
   for (const [what, from, to] of mutants) {
     assert.ok(source.split(from).length === 2, 'the mutation target appears once: ' + what);
@@ -158,7 +173,9 @@ const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' â
         && m.periodKeys().length === 0;
       const statusSame = JSON.stringify(seen) === JSON.stringify(expectedStatuses);
       const pressedGone = (await handlerCallsOnFellBack(mutated)) === 0;
-      ok(!statusSame || !staleOk || !pressedGone, 'removing ' + what + ' makes a scenario fail', JSON.stringify(seen) + ' stale-ok=' + staleOk + ' press-gated=' + pressedGone);
+      let errorRecorded = true;
+      try { errorRecorded = await handlerErrorRecorded(mutated); } catch (e) { errorRecorded = false; }
+      ok(!statusSame || !staleOk || !pressedGone || !errorRecorded, 'removing ' + what + ' makes a scenario fail', JSON.stringify(seen) + ' stale-ok=' + staleOk + ' press-gated=' + pressedGone);
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   }
 
