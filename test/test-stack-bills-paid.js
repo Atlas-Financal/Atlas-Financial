@@ -2,13 +2,15 @@
 /* Stack Wallet Bills card: paid / owed (Dale, 2026-11-20: "bills needs the paid/owed").
  *
  * Forecast publishes stackSummary.bills.paid: the Bills part ('other': no mortgage, no card minimums) that the
- * payment evidence confirms paid. One rule decides "confirmed paid" (stackBillPaidEvidence, today 'posted-equal'):
- * it sets each marked row's stackBillPaid, which the card's check reads, so paid is the sum of the checked rows by
- * construction. Trust (lead ruling, 2026-11-20): 0 'calculated' when no Bills row is checked; otherwise the weakest of
- * the paid rows' own amount trust; withheld (null, 'unavailable', a reason) when the split, the marks or a paid row's
- * trust is unpublished. Nothing paid takes the split's own trust (bbbb0150). A period whose posted evidence is not
- * complete under Budget's own actuals gate (budgetProgress.coverage.complete) withholds paid: no packet, incomplete
- * coverage, a past period before the ledger window (ATLAS REVIEWER 2, 7053664784); a later period reads 0. The card head prints paid / owed and its bar fills through the shell's shared barWidth.
+ * payment evidence confirms paid. One rule decides "confirmed paid" (stackBillPaidEvidence: 'posted-equal', a posted
+ * payment of exactly the plan, #1465; or 'posted-verified', Grok Bot's "bill verified" note, #1497): it sets each
+ * marked row's stackBillPaid, which the card's check reads, so paid is the sum of the checked rows by construction.
+ * Trust (lead rulings, 2026-11-20): nothing checked is 0 with the split's own trust; otherwise the weakest of the paid
+ * rows' own amount trust; withheld (null, 'unavailable', a reason) when the split, the marks or a paid row's trust is
+ * unpublished. A period whose posted evidence is not complete under Budget's own actuals gate
+ * (budgetProgress.coverage.complete) withholds paid: no packet, incomplete coverage, a past period before the ledger
+ * window (ATLAS REVIEWER 2, 7053664784); a later period reads 0. The card head prints paid / owed and its bar fills
+ * through the shell's shared barWidth.
  *
  * Proof, independent of the publisher: invented acceptance-harness households with two Bills rows, hydro 90 and
  * internet 60, both in the Oct 9-22 period, their answers worked by hand; the Budget-surface household with a paid
@@ -31,6 +33,8 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail !== '' ? ' — ' + detail : ''}`);
 };
 const cents = v => Math.round(v * 100);
+// The evidence the paid check shows, written out here (not read from Forecast): #1465 and #1497.
+const PAID_EVIDENCE = new Set(['posted-equal', 'posted-verified']);
 const FILE = path.join(__dirname, '..', 'public', 'forecast.js');
 const SOURCE = fs.readFileSync(FILE, 'utf8');
 const EXPORT = "  if (typeof module !== 'undefined' && module.exports) module.exports = Forecast;";
@@ -180,7 +184,7 @@ console.log('3. Every invented figures input: paid is the checked Bills rows, or
       published++;
       const sum = rows.filter(r => r.stackBillPaid).reduce((s, r) => s + cents(r.stackBillAmount), 0);
       if (cents(b.paid) !== sum) bad.push(input.id + ' ' + v.start + ' sum');
-      if (rows.some(r => r.stackBillPaid !== (r.stackBillPaymentEvidence === 'posted-equal'))) bad.push(input.id + ' ' + v.start + ' flag');
+      if (rows.some(r => r.stackBillPaid !== PAID_EVIDENCE.has(r.stackBillPaymentEvidence))) bad.push(input.id + ' ' + v.start + ' flag');
       if (checkedCents(v, billsCard(v)) !== cents(b.paid)) bad.push(input.id + ' ' + v.start + ' card');
     }
   }
