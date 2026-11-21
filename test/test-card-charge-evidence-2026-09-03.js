@@ -57,7 +57,9 @@ function routesPrimeAdFree(row) {
 function isOwnerApprovedAdFree(bill, route) {
   return !!bill && bill.id === 'prime-video-ad-free'
     && /^Owner 2026-10-10/.test(bill.note || '')
-    && bill.subscription === true && bill.payingAccount === 'wise'
+    // Owner fact 2026-11-21 ("all on Bills now"): paid from Bills, no longer via Wise.
+    && bill.subscription === true
+    && bill.payingAccount === 'chequing-a' && /Owner fact 2026-11-21/.test(bill.note || '')
     && routesPrimeAdFree(route);
 }
 

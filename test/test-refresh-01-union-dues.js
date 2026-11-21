@@ -200,7 +200,7 @@ function obligationKey(row) {
 }
 // Owner facts 2026-11-20 (Dale): the Triangle and Amazon successor schedules (new due days, the
 // fixed-interest minimum and the Dec–Feb TD payment) are added rows, not a CMAW side-effect.
-const OWNER_2026_11_20_CARD_ROWS = new Set(['triangle-day8', 'mbna-day12', 'triangle-td3']);
+const OWNER_2026_11_20_CARD_ROWS = new Set(['triangle-day8', 'mbna-auto30', 'triangle-td3']);
 ok(JSON.stringify((before.plan.obligations || []).map(obligationKey))
     === JSON.stringify((plan.obligations || []).filter(row => !OWNER_2026_11_20_CARD_ROWS.has(row.id)).map(obligationKey)),
   'plan.obligations identity, amount and cadence are unchanged');

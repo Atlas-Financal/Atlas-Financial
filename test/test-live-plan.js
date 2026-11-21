@@ -1270,10 +1270,12 @@ console.log('\n=== 17. posted payday-window mortgage and Fit4less Msp are repres
 
   const fitHit = (identified.report.representedEventCandidates || [])
     .find(c => c.id === 'fit4less' && c.date === PAYDAY_AS_OF);
-  ok(fitHit && fitHit.identity === 'payee+account+date'
+  // Fit4Less's rule also names its owner-provided Lunch Money item (2026-11-21), so the hit's label is the
+  // recurring-link one (ruleIdentityLabel); the identity is still account + date, never the amount.
+  ok(fitHit && fitHit.identity === 'lunchmoney-recurring+account+date'
     && fitHit.amountNotUsed === true
     && near(fitHit.observedAmount, SYNTHETIC_FIT_OBSERVED),
-    'Fit4Less identity is payee+account+date, not the scheduled $ amount');
+    'Fit4Less identity is account+date (its rule names its Lunch Money item), not the scheduled $ amount');
   ok((identified.data.plan.opening.representedEvents || [])
       .some(e => e.id === 'fit4less' && e.date === PAYDAY_AS_OF),
     'posted Friday Fit4less Msp is named on the in-memory opening');
