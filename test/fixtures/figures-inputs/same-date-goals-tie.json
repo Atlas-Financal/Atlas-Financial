@@ -1,6 +1,6 @@
 {
   "schema": "atlas-figures-input/v1",
-  "id": "savings-same-date-tie",
+  "id": "same-date-goals-tie",
   "invented": true,
   "description": "Invented served data: two Savings goals due on the same day, one confirmed and one estimated, so the funding order breaks the date tie by certainty (confirmed first) on the page path.",
   "origin": {
