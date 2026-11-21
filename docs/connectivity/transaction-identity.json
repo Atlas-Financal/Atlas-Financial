@@ -52,6 +52,7 @@
     {
       "eventId": "fit4less",
       "lunchMoneyRecurringIds": ["3722395"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Fit4less Msp",
       "payeePatterns": ["Fit4less Msp"],
       "atlasAccountId": "chequing-a",
@@ -205,6 +206,7 @@
     {
       "eventId": "bcaa",
       "lunchMoneyRecurringIds": ["3722144"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "BCAA-AdvAutoIns",
       "payeePatterns": ["BCAA-AdvAutoIns", "Bcaa-adv"],
       "atlasAccountId": "chequing-a",
@@ -224,6 +226,7 @@
     {
       "eventId": "icbc",
       "lunchMoneyRecurringIds": ["3722145"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "ICBC INS",
       "payeePatterns": ["ICBC INS", "Icbc"],
       "atlasAccountId": "chequing-a",
@@ -243,6 +246,7 @@
     {
       "eventId": "resp",
       "lunchMoneyRecurringIds": ["3722146"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "TD WATERHOUSE I REP",
       "payeePatterns": ["TD WATERHOUSE I REP"],
       "atlasAccountId": "chequing-a",
@@ -280,6 +284,7 @@
     {
       "eventId": "google-storage-100gb",
       "lunchMoneyRecurringIds": ["3722157"],
+      "linkedFrom": "2026-12-01",
       "requiredCurrency": "cad",
       "payeePattern": "Google",
       "payeePatterns": ["Google"],
@@ -362,6 +367,7 @@
     {
       "eventId": "shaw",
       "lunchMoneyRecurringIds": ["3722143"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "SHAW CABLE TV BPY",
       "payeePatterns": ["SHAW CABLE TV BPY", "Shaw Cable"],
       "atlasAccountId": "chequing-a",
@@ -384,6 +390,7 @@
     {
       "eventId": "noble-garbage",
       "lunchMoneyRecurringIds": ["3722207"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Noble Dispo",
       "payeePatterns": ["Noble Dispo"],
       "atlasAccountId": "chequing-b",
@@ -402,6 +409,7 @@
     {
       "eventId": "netflix",
       "lunchMoneyRecurringIds": ["3722150"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Netflix",
       "payeePatterns": ["Netflix"],
       "atlasAccountId": "chequing-b",
@@ -438,18 +446,21 @@
     {
       "eventId": "youtube-premium",
       "lunchMoneyRecurringIds": ["3709406"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-09: standing schedule-trust paid on the scheduled due date via Apple Services / PayPal. Do not require an isolated YouTube bank transaction or monthly Dale proof. Do not invent Apple scrape or Gmail fetch. On or after the due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
     {
       "eventId": "spotify",
       "lunchMoneyRecurringIds": ["3709355"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-23: standing schedule-trust on Forecast day 23 ($26.87 monthly), superseding day 17. On or after that due date, identity/settlement emits representedActuals from the schedule itself. The one 2026-09-22 PAYPAL MSP $26.87 debit on chequing-a is owner-confirmed evidence of spotify@2026-09-23 and may be attached to that one occurrence. PAYPAL MSP is not a payee alias. A different PayPal row, amount, day, or account does not settle Spotify. Do not require a Lunch Money Spotify payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, a card-paid identity, or a second September occurrence. Before the due date, with no such exact transaction attached, the bill stays still-due. Do not treat WEEKLY Netflix as this bill. Lead dispatch 2026-11-21 (Dale's go-ahead for recurring ids on #1495, 7053045943; Grok Bot matched the item to the Nov. 18 Spotify payment): lunchMoneyRecurringIds names the reviewed Lunch Money item, which leads Spotify's schedule day (date tag confirmed) as rehearsal-space's does. The amount, firstDue and this owner-set schedule-trust settlement are unchanged; the link is schedule authority only."
     },
     {
       "eventId": "chatgpt-plus-dale",
       "lunchMoneyRecurringIds": ["3722348"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-19: standing schedule-trust paid on the existing Forecast due date via PayPal merchant OpenAI OpCo, LLC ($28 CAD). Trust PayPal cadence. Owner 15th rails are cited for that trust; do not move chatgpt-plus-dale.day (incumbent Forecast due day 14 is already correct). Do not require a Lunch Money OpenAI/ChatGPT payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, or a card-paid identity. Do not settle chatgpt-plus-amanda (separate iOS $24.99 bill). On or after the scheduled due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -461,6 +472,7 @@
     {
       "eventId": "icloud-storage",
       "lunchMoneyRecurringIds": ["3722153"],
+      "linkedFrom": "2026-12-01",
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-19: owner-confirmed Forecast day 14 / $13. Standing schedule-trust paid on the existing Forecast due date via Apple Services / PayPal. Do not require a Lunch Money iCloud payee or monthly Dale naming. Do not invent Apple scrape, Gmail fetch, or a card-paid identity. Do not move icloud-storage.day (incumbent Forecast due day 14 is already correct). On or after the scheduled due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -502,6 +514,7 @@
     {
       "eventId": "microsoft",
       "lunchMoneyRecurringIds": ["3722390"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -512,6 +525,7 @@
     {
       "eventId": "teamsnap-plus",
       "lunchMoneyRecurringIds": ["3722391"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -522,6 +536,7 @@
     {
       "eventId": "muse-meta",
       "lunchMoneyRecurringIds": ["3722358"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -532,6 +547,7 @@
     {
       "eventId": "crave-standard-ads",
       "lunchMoneyRecurringIds": ["3722235"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -542,6 +558,7 @@
     {
       "eventId": "paramount-plus",
       "lunchMoneyRecurringIds": ["3722236"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -552,6 +569,7 @@
     {
       "eventId": "stacktv",
       "lunchMoneyRecurringIds": ["3722237"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -562,6 +580,7 @@
     {
       "eventId": "prime-video-ad-free",
       "lunchMoneyRecurringIds": ["3722299"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
@@ -572,6 +591,7 @@
     {
       "eventId": "rehearsal-space",
       "lunchMoneyRecurringIds": ["3667755"],
+      "linkedFrom": "2026-12-01",
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",

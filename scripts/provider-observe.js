@@ -6442,7 +6442,7 @@ const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.start
 const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
   'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
   'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
-  'expected-dates-mismatch']);
+  'expected-dates-mismatch', 'link-anchor-missing']);
 const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
 // The plan-id shape a served refusal may carry: lowercase, starting with a
 // letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
@@ -6649,10 +6649,14 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   };
   const refuse = (eventId, reasonCode) => { refused.push({ ...rowOf(eventId), reasonCode }); };
   const byBill = new Map();
+  const linkedFromByBill = new Map();
   for (const item of block.items) {
     const eventIds = new Set();
     for (const rule of identityRules || []) {
-      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) eventIds.add(String(rule.eventId));
+      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) {
+        eventIds.add(String(rule.eventId));
+        if (typeof rule.linkedFrom === 'string') linkedFromByBill.set(String(rule.eventId), rule.linkedFrom);
+      }
     }
     const only = eventIds.size === 1 ? [...eventIds][0] : null;
     if (item.startDate && item.startDate > asOf) { refuse(only, 'not-started'); continue; }
@@ -6674,6 +6678,12 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       refuse(billId, matches.length || obligationMatches.length ? 'plan-row-ambiguous' : 'no-plan-row'); continue;
     }
     if (matches[0].frequency === 'once') { refuse(billId, 'once-bill'); continue; }
+    // A bill link without a recorded linkedFrom (an ISO first of a month)
+    // changes no timing: fail closed.
+    const linkedFrom = linkedFromByBill.get(billId);
+    if (!(typeof linkedFrom === 'string' && /^\d{4}-\d{2}-01$/.test(linkedFrom) && realIsoDay(linkedFrom))) {
+      refuse(billId, 'link-anchor-missing'); continue;
+    }
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') { refuse(billId, 'account-mismatch'); continue; }
@@ -6697,52 +6707,17 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
       if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
     }
-    // Recorded history is never re-dated (#1508 live check; lead ruling on
-    // the #1511 review): when the item's timing differs from the bill's own,
-    // occurrences before the cutover keep the bill's own cadence and day
-    // (timingBefore), so a payment that settled one stays on it. The floor is
-    // the later of the item's start and the current pay period's start, so
-    // nothing before the current period is re-dated whatever the item says.
-    // A week-based item cuts over at the floor; a month-based item at the
-    // first of the month after the last earlier-timing occurrence before the
-    // floor (a month later while its first occurrence would fall before the
-    // floor), so no month holds both timings.
+    // Recorded history is never re-dated (#1508 live check; lead design
+    // ruling on the #1511 review): the cutover is the link's own recorded
+    // `linkedFrom` date (the first of a month, set when the link is written),
+    // never derived from the observation date, the pay period or the item's
+    // start, so it cannot move between observations. Occurrences before it
+    // keep the bill's own cadence and day (timingBefore); from it on, the
+    // item's timing applies.
     if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
       const before = {};
       for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
-      // No resolvable pay period (a plan without income): the observation
-      // date is the floor.
-      let periodStart = asOf;
-      try { periodStart = (Array.isArray(plan.income) && Forecast.paydayPeriodOrigin(plan, asOf, {})) || asOf; } catch (_) { periodStart = asOf; }
-      const start = realIsoDay(item.startDate) ? item.startDate : asOf;
-      const floor = start > periodStart ? start : periodStart;
-      const monthBased = ['monthly', 'quarterly', 'yearly', 'annual', 'semiannual'].includes(timing.frequency);
-      // A bill whose own timing cannot be expanded (for example biweekly with
-      // no anchor) has no history to keep: no cutover.
-      let earlier = null;
-      try {
-        earlier = Forecast.occurrences({ ...before, ...(bill.firstDue ? { firstDue: bill.firstDue } : {}) },
-          Forecast.addDays(floor, -400), Forecast.addDays(floor, -1));
-      } catch (_) { earlier = null; }
-      if (earlier) {
-      const last = earlier.length ? earlier[earlier.length - 1] : null;
-      // A week-based item starts at the floor itself (nothing before it moves).
-      let from = floor;
-      if (monthBased) {
-        const next = (last || Forecast.addDays(floor, -1)).slice(0, 7);
-        const [y, m] = next.split('-').map(Number);
-        from = (m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0')) + '-01';
-      }
-      // A month-based cutover never places a new-timing occurrence before the
-      // floor: the earlier timing keeps that month instead.
-      for (let guard = 0; monthBased && guard < 13; guard++) {
-        const first = Forecast.occurrences({ ...timing, lastDue: undefined }, from, Forecast.addDays(from, 400))[0];
-        if (!first || first >= floor) break;
-        const [y, m] = from.split('-').map(Number);
-        from = (m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0')) + '-01';
-      }
-      timing.timingBefore = { from, ...before };
-      }
+      timing.timingBefore = { from: linkedFrom, ...before };
     }
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
@@ -8307,6 +8282,7 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  recurringBillScheduleReview,
   derivedAmountFixedBills,
   billPaymentHistory,
   AMOUNT_HISTORY_DAYS,
