@@ -328,7 +328,20 @@ function contentType(file) {
 
 // Serve one data document (or a sequence: a reload serves the next one) to
 // the real page, intercepting every request. Nothing leaves the process.
+//
+// opts.view picks the page. 'classic' (the default until C1 S7 removes it) is the Budget page every scenario here
+// was written against, opened at /?view=classic: since B7 the default route is the Stack page, and a scenario that
+// waits for the classic surface on it waits for an element the Stack page hides. 'stack' opens the default route and
+// waits for the Stack page's waterfall; read it with stackText / stackRows, move through its pay periods with
+// periods / selectPeriod.
+const VIEW_ROUTE = { classic: '/?view=classic', stack: '/' };
+const READY = { classic: '[data-budget-surface]', stack: '#stack-root [data-stack-block="waterfall"] > *' };
+// The classic page waits for its surface to be visible, as before (the strictness every scenario was written against);
+// the Stack page waits for its waterfall to be attached (its blocks draw into containers the shell has laid out).
+const READY_STATE = { classic: 'visible', stack: 'attached' };
 async function openBudget(dataDocs, opts = {}) {
+  const view = opts.view || 'classic';
+  if (!VIEW_ROUTE[view]) throw new Error('openBudget: unknown view ' + view);
   const docs = Array.isArray(dataDocs) ? dataDocs : [dataDocs];
   let served = 0;
   const b = await browser();
@@ -350,10 +363,10 @@ async function openBudget(dataDocs, opts = {}) {
     return route.fulfill({ body: fs.readFileSync(file), contentType: contentType(file) });
   });
   if (opts.exposeData) await page.addInitScript(d => { window.__atlasAcceptanceData = d; }, docs[0]);
-  await page.goto(ORIGIN + '/');
-  await page.locator('[data-budget-surface]').waitFor({ timeout: 20000 });
+  await page.goto(ORIGIN + VIEW_ROUTE[view]);
+  await page.locator(READY[view]).first().waitFor({ state: READY_STATE[view], timeout: 20000 });
   const api = {
-    page, errors,
+    page, errors, view,
     async text(selector = '[data-budget-surface]') {
       const loc = page.locator(selector);
       if (!(await loc.count())) return '';
@@ -375,7 +388,29 @@ async function openBudget(dataDocs, opts = {}) {
     async range() { return page.locator('[data-budget-window-range]:visible').first().innerText().catch(() => ''); },
     async reload() {
       await page.reload();
-      await page.locator('[data-budget-surface]').waitFor({ timeout: 20000 });
+      await page.locator(READY[view]).first().waitFor({ state: READY_STATE[view], timeout: 20000 });
+    },
+    // The Stack page (view 'stack'): the text of one block (waterfall, cards, credit, sheet) or of the whole page, the
+    // textContent of every match inside it, the pay periods it offers, and the household pressing a period chip.
+    async stackText(block) {
+      const sel = block ? `#stack-root [data-stack-block="${block}"]` : '#stack-root';
+      const loc = page.locator(sel);
+      return (await loc.count()) ? (await loc.allInnerTexts()).join('\n') : '';
+    },
+    async stackRows(selector) {
+      return page.evaluate(sel => [...document.querySelectorAll('#stack-root ' + sel)]
+        .map(e => e.textContent.replace(/\s+/g, ' ').trim()), selector);
+    },
+    async periods() {
+      return page.evaluate(() => [...document.querySelectorAll('#stack-root [data-stack-period]')]
+        .map(e => e.getAttribute('data-stack-period')));
+    },
+    async selectPeriod(key) {
+      const before = await page.evaluate(() => document.querySelector('#stack-root [data-stack-block="waterfall"]')?.innerHTML || '');
+      // force: the chip row scrolls sideways and a chip may sit under the edge; the click is the household's tap.
+      await page.locator(`#stack-root [data-stack-period="${key}"]`).first().click({ force: true });
+      await page.waitForFunction(b => (document.querySelector('#stack-root [data-stack-block="waterfall"]')?.innerHTML || '') !== b,
+        before, { timeout: 5000 }).catch(() => {});
     },
     async openDetail(selector) {
       const clicked = await page.evaluate(sel => {

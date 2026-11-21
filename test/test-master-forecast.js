@@ -1646,10 +1646,13 @@ console.log('\n=== overdue unsettled point commitments stay protected ===');
 console.log('\n=== existing consumers still derive from Forecast ===');
 {
   const planJs = read('public/plan.js');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  // The positive assertions stay on plan.js and retire with it (C1 S7); the "never" reads every page script.
   ok(/advice\.majorPlans|Forecast\.majorPlans/.test(planJs),
     'the Plan page renders Forecast.majorPlans and does not invent the verdicts');
-  ok(!/verdict\s*=\s*['"]ON TRACK['"]/.test(planJs),
-    'the Plan page does not assign ON TRACK itself');
+  const assignsOnTrack = pageScriptsMatching(/verdict\s*=\s*['"]ON TRACK['"]/);
+  ok(assignsOnTrack.length === 0,
+    'no page script (classic or Stack) assigns ON TRACK itself', assignsOnTrack.join(', ') || 'none');
   ok(/Forecast\.recommend\(/.test(planJs),
     'the Plan page still takes the weekly cap from Forecast.recommend');
 }
@@ -1682,8 +1685,8 @@ console.log('\n=== live opening: Q19, buffer, cards, undated rows ===');
     'Indio is not an active live commitment');
   const sanDiego = (live.plan.commitments || []).find(c => c.id === 'san-diego');
   ok(sanDiego && F.commitmentNeed(sanDiego) === 3000 && sanDiego.amountMin == null
-      && sanDiego.date === '2027-01-15' && sanDiego.tripWindow === 'Jan 9–10, 2027',
-    'San Diego is a $3,000 point on the clear-month cash date, with the trip window separate');
+      && sanDiego.date === '2027-01-09' && sanDiego.tripWindow === 'Jan 9–10, 2027',
+    'San Diego is a $3,000 point on the owner cash date 2027-01-09 (Dale, 2026-11-21), with the trip window kept');
   const linden = (live.plan.commitments || []).find(c => c.id === 'linden-birthday');
   const seattleDec = (live.plan.commitments || []).find(c => c.id === 'seattle-dec');
   ok(linden && F.commitmentNeed(linden) === 500 && linden.date === '2026-12-09'
@@ -1692,14 +1695,14 @@ console.log('\n=== live opening: Q19, buffer, cards, undated rows ===');
     'Linden birthday is a $500 point on 2026-12-09 with no payingAccount or tripWindow');
   ok((live.plan.commitments || []).filter(c => c.id === 'linden-birthday').length === 1,
     'exactly one live linden-birthday commitment');
-  ok(seattleDec && seattleDec.date === '2026-12-09' && F.commitmentNeed(seattleDec) === 1500,
-    'seattle-dec remains $1,500 on 2026-12-09 beside Linden');
+  ok(seattleDec && seattleDec.date === '2026-12-04' && F.commitmentNeed(seattleDec) === 1500,
+    'seattle-dec is $1,500 on the owner date 2026-12-04 (Dale, 2026-11-21)');
   const decEvents = F.expandEvents(live.plan, asOf, '2026-12-31', {});
   const lindenCash = decEvents.filter(e => e.id === 'linden-birthday');
   ok(lindenCash.length === 1 && lindenCash[0].date === '2026-12-09' && near(lindenCash[0].amount, -500),
     'Forecast emits Linden birthday once at −500 on 2026-12-09');
   ok(decEvents.filter(e => e.id === 'seattle-dec').length === 1,
-    'seattle-dec still emits once through 31 Dec beside Linden');
+    'seattle-dec emits once through 31 Dec, separate from Linden');
   ok(!/emergency reserve/i.test(read('public/forecast.js')),
     'the engine does not relabel the $500 buffer as an emergency reserve');
 

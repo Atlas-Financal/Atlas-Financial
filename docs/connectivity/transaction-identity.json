@@ -83,7 +83,6 @@
     },
     {
       "eventId": "tdcc",
-      "lunchMoneyRecurringIds": ["3722415"],
       "payeePattern": "TFR-TO C/C",
       "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
       "payeeExcludePatterns": ["REFUND", "REVERSAL"],
@@ -505,6 +504,18 @@
       "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
       "payeeExcludePatterns": ["REFUND", "REVERSAL"],
       "atlasAccountId": "cashback",
+      "direction": "credit",
+      "postingDateRule": "covers-due-on-or-before-posting",
+      "settlesWhen": "amount-at-least",
+      "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
+    },
+    {
+      "eventId": "tdcc-auto17",
+      "lunchMoneyRecurringIds": ["3722415"],
+      "payeePattern": "TFR-TO C/C",
+      "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
+      "payeeExcludePatterns": ["REFUND", "REVERSAL"],
+      "atlasAccountId": "tdcc",
       "direction": "credit",
       "postingDateRule": "covers-due-on-or-before-posting",
       "settlesWhen": "amount-at-least",

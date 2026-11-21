@@ -167,10 +167,15 @@ const stored = storedCrossingClaims(plan);
 ok(stored.length === 0,
   'assumptions, nextDollar and actions do not store an exact HELOC crossing day',
   stored.join(' | ') || 'none');
-const planSourceClaims = findCrossingDateClaims(read('public/plan.js'));
-ok(planSourceClaims.length === 0,
-  'Plan page copy does not hardcode a HELOC crossing calendar day',
-  planSourceClaims.join(' | ') || 'none');
+// Every page script, the Stack page included, not plan.js alone (C1 S4 B3, test/lib/page-scripts.js).
+const { pageScripts } = require('./lib/page-scripts');
+const scannedPages = pageScripts();
+const pageSourceClaims = scannedPages.flatMap(s => findCrossingDateClaims(s.source).map(claim => s.file + ': ' + String(claim).slice(0, 120)));
+ok(scannedPages.some(s => s.file === 'public/plan.js') && scannedPages.some(s => s.file === 'public/stack-waterfall.js'),
+  'the page scan covers the classic page and the Stack page');
+ok(pageSourceClaims.length === 0,
+  'No page script (classic or Stack) hardcodes a HELOC crossing calendar day',
+  pageSourceClaims.join(' | ') || 'none');
 const forecastSourceClaims = findCrossingDateClaims(read('public/forecast.js'));
 ok(forecastSourceClaims.length === 0,
   'Forecast source does not hardcode a HELOC crossing calendar day',

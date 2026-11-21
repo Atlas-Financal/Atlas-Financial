@@ -12,7 +12,7 @@ const ok = (cond, label, detail) => { checks++; if (cond) console.log('  PASS  '
 const J = JSON.stringify;
 const LINKS = { shaw: '3722143', bcaa: '3722144', icbc: '3722145', resp: '3722146', netflix: '3722150', 'icloud-storage': '3722153',
   'google-storage-100gb': '3722157', 'chatgpt-plus-dale': '3722348', 'youtube-premium': '3709406', 'noble-garbage': '3722207',
-  fit4less: '3722395', tdcc: '3722415', 'triangle-td3': '3722506', microsoft: '3722390', 'teamsnap-plus': '3722391', 'muse-meta': '3722358', 'mbna-auto30': '3709492', 'crave-standard-ads': '3722235',
+  fit4less: '3722395', 'tdcc-auto17': '3722415', 'triangle-td3': '3722506', microsoft: '3722390', 'teamsnap-plus': '3722391', 'muse-meta': '3722358', 'mbna-auto30': '3709492', 'crave-standard-ads': '3722235',
   'paramount-plus': '3722236', stacktv: '3722237', 'prime-video-ad-free': '3722299' };
 // Invented items: monthly on the 5th (a day no linked row uses today), quarterly, biweekly as the row's cadence needs.
 const invented = (id, rid) => {
@@ -22,6 +22,8 @@ const invented = (id, rid) => {
   if (row.frequency === 'biweekly') return { ...base, granularity: 'week', quantity: 2, anchorDate: '2026-11-13' };
   // Amazon's card row: an item on its own day (the 30th) links; a card day never moves later than its plan day.
   if (id === 'mbna-auto30') return { ...base, granularity: 'month', quantity: 1, anchorDate: '2026-10-30' };
+  // The TD card's fixed autopay row (successor from Dec 17): an item on its own day (the 17th) links.
+  if (id === 'tdcc-auto17') return { ...base, granularity: 'month', quantity: 1, anchorDate: '2026-11-17' };
   return { ...base, granularity: 'month', quantity: 1, anchorDate: '2026-11-05' };
 };
 const review = rules => O.recurringBillSchedules({ status: 'read', items: Object.entries(LINKS).map(([id, rid]) => invented(id, rid)) },
@@ -44,7 +46,13 @@ ok(byId['noble-garbage'] && byId['noble-garbage'].timing.frequency === 'quarterl
 ok(byId.fit4less && byId.fit4less.timing.frequency === 'biweekly' && byId.fit4less.timing.anchor === '2026-11-13',
   'fit4less: every two weeks from the invented Nov 13', J(byId.fit4less));
 ok(byId['mbna-auto30'] && byId['mbna-auto30'].fields.day === 30, 'mbna-auto30 (card row): the item on the 30th links (schedule source lunchmoney-recurring)', J(byId['mbna-auto30']));
-ok(byId.tdcc && byId.tdcc.fields.day === 5, 'tdcc (card row): day 5, earlier than the plan\'s 17th', J(byId.tdcc));
+ok(byId['tdcc-auto17'] && byId['tdcc-auto17'].fields.day === 17 && !byId['tdcc-auto17'].fields.timingBefore,
+  'tdcc-auto17 (card row): the item on the 17th links, its own day', J(byId['tdcc-auto17']));
+{ // An earlier-day item cannot move the successor before its first payment (the Dec 17 occurrence would be lost): plan dates stand.
+  const early = { ...invented('tdcc-auto17', LINKS['tdcc-auto17']), anchorDate: '2026-11-05' };
+  ok(O.recurringBillSchedules({ status: 'read', items: [early] }, identity.rules, data.plan, '2026-11-21', {}).length === 0,
+    'tdcc-auto17: an invented item on the 5th is refused (plan day stands)'); }
+ok(!byId.tdcc, 'tdcc (ended Nov 17): no longer linked, takes no schedule');
 ok(!byId['triangle-td3'], 'triangle-td3: an open-ended invented item cannot move a dated card row past its statement (plan dates stand)');
 ok(Object.keys(byId).every(id => LINKS[id]), 'only linked rows have a schedule', J(Object.keys(byId)));
 

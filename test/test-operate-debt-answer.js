@@ -1,6 +1,9 @@
 'use strict';
 /* AF-OPERATE-06 — independent proof for the homepage debt answer. */
 const fs = require('fs');
+// The "never" assertions read every page script, the Stack page included; positive "the classic page reads X" assertions
+// stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+const { neverRaw } = require('./lib/page-scripts');
 const path = require('path');
 const vm = require('vm');
 const F = require('../public/forecast.js');
@@ -147,8 +150,8 @@ const page = read('public/plan.js');
 const renderer = /function operatingDebtAnswerHtml\([\s\S]*?\n\}/.exec(page);
 ok(renderer && !/\.sort\(|\.rate\s*[<>]=?|openingBalance|absorbable\s*[-+*/]/.test(renderer[0]),
   'the page performs no target ranking or debt-capacity arithmetic');
-ok(!/plan\.nextDollar\s*&&\s*plan\.nextDollar\.target/.test(page),
-  'the production page does not read a stored policy target');
+ok(neverRaw(/plan\.nextDollar\s*&&\s*plan\.nextDollar\.target/).length === 0,
+  'no page script (classic or Stack) reads a stored policy target');
 
 console.log('\n=== current household answer ===');
 const currentPriority = F.debtPriority(live.plan, live.debts);

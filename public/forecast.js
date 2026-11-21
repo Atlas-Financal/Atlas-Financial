@@ -12782,19 +12782,40 @@
     const role = view.timelineRole;
     if (role !== 'current' && role !== 'next') return null;
     const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
-    const rows = funding && Array.isArray(funding.rows)
-      ? funding.rows.filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid') : [];
-    const items = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
+    // Owner rule (Dale, 2026-11-21) with the lead's ruling on its money
+    // (#1505, ATLAS REVIEWER 7056773000): an item leaves the card from the
+    // pay period that contains its date, but leaving the list does not hand
+    // its money onward. While it can still be unpaid it keeps its nearest-
+    // first share of the balance, hidden: in the period that holds its date,
+    // and in the next period's card too, because that card pours the same
+    // balance of today. Only an item dated before the current period is gone
+    // from the pour, because by then the balance reflects the spend. An item
+    // with no date stays on the card.
+    const current = role === 'current' ? view
+      : (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : []).find(v => v && v.timelineRole === 'current');
+    const periodEnd = typeof view.end === 'string' ? view.end : null;
+    const pourStart = current && typeof current.start === 'string' ? current.start : null;
+    const bounded = periodEnd !== null && pourStart !== null;
+    const allItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
       ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
-    const balance = stackSavingsBalance(funding);
-    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason];
+    const dated = item => item && typeof item.key === 'string' && typeof item.date === 'string';
+    const gone = new Set(!bounded ? [] : allItems.filter(item => dated(item) && item.date < pourStart).map(item => item.key));
+    const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));
+    const items = allItems.filter(item => !(item && gone.has(item.key)));
+    const allRows = (funding && Array.isArray(funding.rows) ? funding.rows : [])
+      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid');
+    const balance = !bounded ? { cents: null, trust: 'unavailable', reason: 'period-bounds-unknown' } : stackSavingsBalance(funding);
+    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(gone.size || hidden.size ? ['items-due-this-period-left'] : [])];
     // The rows must name every item exactly once, or the card would print
-    // goals that do not add up to the pour.
-    const members = rows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
-    const keys = items.map(item => item && item.key);
+    // goals that do not add up to the pour. Checked before anything leaves.
+    const members = allRows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
+    const keys = allItems.map(item => item && item.key);
     const coherent = members.length === keys.length && new Set(members).size === members.length
       && keys.every(key => typeof key === 'string' && members.includes(key));
     if (!coherent) reasons.push('rows-items-mismatch');
+    const rows = allRows
+      .map(row => !Array.isArray(row.members) ? row : { ...row, members: row.members.filter(key => !gone.has(key) && !hidden.has(key)) })
+      .filter(row => !Array.isArray(row.members) || row.members.length > 0);
     const order = items.map((item, rank) => ({ item, rank }))
       .sort((a, b) => {
         const da = a.item && typeof a.item.date === 'string' ? a.item.date : '\uffff';
@@ -27829,7 +27850,11 @@
       if (next && next.date && next.date>end) end=next.date;
     }
     const rosterOpts = { ...opts, horizonDays: diffDays(day,end)+1, viewDays: diffDays(day,end)+1 };
-    const seq = fundingSequence(plan,day,rosterOpts).filter(row => !disabled.has(row.id)
+    // Owner fact (Dale, 2026-11-21): a bill marked savingsGoal: false is not a
+    // savings item. It stays a bill everywhere else; only the savings list
+    // (this backing and its goal rows) leaves it out.
+    const notSavingsGoal = new Set((plan.bills || []).filter(bill => bill && bill.savingsGoal === false).map(bill => bill.id));
+    const seq = fundingSequence(plan,day,rosterOpts).filter(row => !disabled.has(row.id) && !notSavingsGoal.has(row.id)
       && row.flexibility !== 'optional' && (row.source || (plan.commitments || []).some(c => c.id === row.id && c.sinkingFund === true)));
     // Inspect raw occurrence identity without recursively deriving its backing.
     const occurrencePlan = { ...plan };
@@ -27877,7 +27902,7 @@
     // those native records as unknown, without inventing an amount or date.
     const competing = new Set((plan.commitments || []).map(row => row.id));
     for (const bill of plan.bills || []) {
-      if (!isYearlyCardPaidBill(bill,plan) || disabled.has(bill.id) || competing.has(bill.id)
+      if (!isYearlyCardPaidBill(bill,plan) || disabled.has(bill.id) || notSavingsGoal.has(bill.id) || competing.has(bill.id)
           || seq.some(row => row.id === bill.id)) continue;
       const selected = firstEligibleYearlyCardPaidOccurrence(bill,plan,day,end);
       if (!selected) continue;

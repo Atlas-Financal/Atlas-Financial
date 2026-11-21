@@ -439,6 +439,7 @@
                 "confidence": "estimated",
                 "note": "The 2026-08-14 Chequing A TFR-TO C/C $94.03 posted and the TD card posted balance fell by exactly $94.03 to $1,705.94. firstDue 2026-09-17 so August is not reserved again. A further miss would restart the 24.99% penalty-rate clock. Owner confirmation received 2026-10-06: Emerald minimum $45.96 paid $50.00. The owner-authorized target is the next existing October household planning occurrence, tdcc@2026-10-17. October 17 remains an estimated planning date, not newly proven issuer due-date evidence. The Bills debit posted 2026-10-05 and is included in the observed 2026-10-06 cash opening. The separately represented tdcc@2026-09-17 settlement remains intact. This occurrence-specific minimum does not replace later $94.03 estimates; the send does not infer a separate excess-principal allocation or another cash deduction.",
                 "firstDue": "2026-09-17",
+                "lastDue": "2026-11-17",
                 "payingAccount": "chequing-a",
                 "statementOccurrences": [
                     {
@@ -464,6 +465,19 @@
                         "cashIncludedAsOf": "2026-10-06"
                     }
                 ]
+            },
+            {
+                "id": "tdcc-auto17",
+                "debtId": "tdcc",
+                "effect": "payment",
+                "label": "TD credit card — fixed automatic payment",
+                "frequency": "monthly",
+                "day": 17,
+                "firstDue": "2026-12-17",
+                "amount": 50,
+                "confidence": "estimated",
+                "note": "Owner fact 2026-11-21 (Dale, consolidated list relayed in the lead session): the TD credit card (Emerald) is paid by a fixed automatic payment of $50.00 on the 17th, Lunch Money recurring item 3722415. Successor of `tdcc`, which ends at its 2026-11-17 occurrence (lastDue) so its dated history keeps its identity. The confidence tag is unchanged from `tdcc` (no promotion). The last statement minimum on record (2026-10-17) is below the fixed amount; a later statement minimum above it would mean the autopay underpays, which test/test-tdcc-fixed-autopay.js reports as a warning.",
+                "payingAccount": "chequing-a"
             },
             {
                 "id": "travel",
@@ -841,6 +855,7 @@
                 "budgetCategory": null,
                 "jointCash": false,
                 "payingAccount": "travelvisa",
+                "savingsGoal": false,
                 "note": "Owner-authorized 2026-10-07 annual-fee planning estimate: approximately CAD 149 around 2027-10-06, based on the owner-reported Travel Visa annual fee posted 2026-10-06. Amount and annual posting timing remain estimated. firstDue is the first forecast occurrence, not an issuer payment due date, statement minimum, recorded settlement or payment instruction. Later annual occurrences are unverified planning projections, not confirmed charges. Source: docs/source_intake/TRAVEL_VISA_ANNUAL_FEE_ESTIMATE_2026-10-07.md."
             },
             {
@@ -1099,14 +1114,14 @@
             },
             {
                 "id": "seattle-dec",
-                "date": "2026-12-09",
+                "date": "2026-12-04",
                 "label": "Seattle December 2026",
                 "amount": 1500,
                 "when": "Dec 2026",
                 "budgetCategory": "travel",
                 "confidence": "confirmed",
                 "sinkingFund": true,
-                "note": "Owner-confirmed planning amount $1,500, Dec 2026 (owner 2026-09-23; supersedes the prior $1,200 estimate). Owner assigned cash date 2026-12-09 (Seattle tournament is Dec 9), not the month-only 15th. Distinct from Seattle November."
+                "note": "Owner-confirmed planning amount $1,500, Dec 2026 (owner 2026-09-23; supersedes the prior $1,200 estimate). Cash date 2026-12-04: Dale, 2026-11-21 (lead session, verbatim): \"the Seattle trip is December 4th and 5th\"; the item leaves the savings list in that pay period. Supersedes the earlier owner-assigned 2026-12-09 (tournament Dec 9). Not the month-only 15th. Distinct from Seattle November."
             },
             {
                 "id": "linden-birthday",
@@ -1132,7 +1147,7 @@
             },
             {
                 "id": "san-diego",
-                "date": "2027-01-15",
+                "date": "2027-01-09",
                 "label": "San Diego",
                 "amount": 3000,
                 "when": "Jan 2027",
@@ -1140,7 +1155,40 @@
                 "budgetCategory": "travel",
                 "confidence": "confirmed",
                 "sinkingFund": true,
-                "note": "Owner 2026-10-10 17:17 Pacific, message Sentinel_8310f386bfa881918efa63cda8e1beb9: confirmed San Diego, California trip January 9–10, 2027, superseding earlier trip-window values. Owner 2026-10-11, message 01a12858-2163-7b32-ace3-3f249bf6cb93: flights on points; hotel checkout/payment January 10, 2027. Owner 2026-09-23 confirmed the $3,000 planning envelope and replaced the retired Indio tournament. Named planned commitment, separate from normal household spending. The hotel amount and remaining all-in trip costs/payment deadlines remain unconfirmed. The hotel checkout/payment date does not establish an all-in payment deadline for the full envelope. Forecast admits one cash-application date per commitment and retains the existing modeled date 2027-01-15 for the full envelope under the incumbent clear-month rule, pending separate all-in payment evidence. January 15 salary cannot establish January 10 checkout funding; cash available by checkout remains unproven. Trip-window endpoints and a midpoint do not redate the envelope. No saving, payment or settlement is asserted. Not a second $3,000."
+                "note": "Cash date 2027-01-09: Dale, 2026-11-21 (lead session, verbatim): \"San Diego is January 9th and 10th\"; the dates he gave are the dates the items happen and leave the savings list. This supersedes the earlier clear-month rule that kept the modeled date 2027-01-15 (owner decision, lead 2026-11-21). Owner 2026-10-10 17:17 Pacific, message Sentinel_8310f386bfa881918efa63cda8e1beb9: confirmed San Diego, California trip January 9–10, 2027, superseding earlier trip-window values. Owner 2026-10-11, message 01a12858-2163-7b32-ace3-3f249bf6cb93: flights on points; hotel checkout/payment January 10, 2027. Owner 2026-09-23 confirmed the $3,000 planning envelope and replaced the retired Indio tournament. Named planned commitment, separate from normal household spending. The hotel amount and remaining all-in trip costs/payment deadlines remain unconfirmed. The hotel checkout/payment date does not establish an all-in payment deadline for the full envelope. Forecast admits one cash-application date per commitment and retains the existing modeled date 2027-01-15 for the full envelope under the incumbent clear-month rule, pending separate all-in payment evidence. January 15 salary cannot establish January 10 checkout funding; cash available by checkout remains unproven. Trip-window endpoints and a midpoint do not redate the envelope. No saving, payment or settlement is asserted. Not a second $3,000."
+            },
+            {
+                "id": "box-lacrosse-registration-2027",
+                "date": "2027-01-25",
+                "label": "Box Lacrosse Registration",
+                "amount": 750.9,
+                "when": "Jan 2027",
+                "budgetCategory": "sport",
+                "confidence": "estimated",
+                "sinkingFund": true,
+                "note": "Owner-requested savings item (Dale, 2026-11-21, lead session: \"Want to add those items to savings\"). Both boys, one item. 2027 season, distinct from the 2026 burrards-team-fees and fusion-household rows. Planning amount set by the owner (Dale, 2026-11-21, lead session); tagged estimated until the 2027 fee is known. Dated Jan 25, ahead of the Feb 1 late fee."
+            },
+            {
+                "id": "fusion-west-spring-2027",
+                "date": "2027-04-06",
+                "label": "Fusion West Spring Season",
+                "amount": 3600,
+                "when": "Apr 2027",
+                "budgetCategory": "sport",
+                "confidence": "estimated",
+                "sinkingFund": true,
+                "note": "Owner-requested savings item (Dale, 2026-11-21, lead session: \"Want to add those items to savings\"). Both boys, one item. 2027 season, distinct from the 2026 burrards-team-fees and fusion-household rows. Planning amount set by the owner (Dale, 2026-11-21, lead session, with his correction): per boy, taxes in, both boys; tagged estimated until the 2027 fee is known."
+            },
+            {
+                "id": "box-lacrosse-team-fees-2027",
+                "date": "2027-05-01",
+                "label": "Box Lacrosse Team Fees",
+                "amount": 800,
+                "when": "May 2027",
+                "budgetCategory": "sport",
+                "confidence": "estimated",
+                "sinkingFund": true,
+                "note": "Owner-requested savings item (Dale, 2026-11-21, lead session: \"Want to add those items to savings\"). Both boys, one item. 2027 season, distinct from the 2026 burrards-team-fees and fusion-household rows. Planning amount set by the owner (Dale, 2026-11-21, lead session): an equal share per boy; tagged estimated until the 2027 fee is known."
             }
         ],
         "groups": [

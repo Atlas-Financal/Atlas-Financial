@@ -8,7 +8,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const { sourceText } = require('./test-source-text');
 
@@ -25,46 +24,6 @@ function grab(src, re, label) {
   const match = re.exec(src);
   if (!match) throw new Error('missing ' + label);
   return match[0];
-}
-
-function loadComposer() {
-  const appSrc = read('public/app.js');
-  const planSrc = read('public/plan.js');
-  const source = [
-    grab(appSrc, /^const money = .*$/m, 'money'),
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-    grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-    grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
-    grab(planSrc, /^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
-    grab(planSrc, /^function paydayGlanceCashNote\([\s\S]*?\n\}$/m, 'paydayGlanceCashNote'),
-    grab(planSrc, /^function providerBalanceDate\([\s\S]*?\n\}$/m, 'providerBalanceDate'),
-    grab(planSrc, /^function glanceUpdatedNote\([\s\S]*?\n\}$/m, 'glanceUpdatedNote'),
-    grab(planSrc, /^function glanceSignedMoney\([\s\S]*?\n\}$/m, 'glanceSignedMoney'),
-    grab(planSrc, /^function glanceMoney\([\s\S]*?\n\}$/m, 'glanceMoney'),
-    grab(planSrc, /^function glanceLineLabel\([\s\S]*?\n\}$/m, 'glanceLineLabel'),
-    grab(planSrc, /^function cashGlanceHtml\([\s\S]*?\n\}$/m, 'cashGlanceHtml'),
-    grab(planSrc, /^function liveCurrentBalanceHtml\([\s\S]*?\n\}$/m, 'liveCurrentBalanceHtml'),
-    grab(planSrc, /^function runningLeftoverHtml\([\s\S]*?\n\}$/m, 'runningLeftoverHtml'),
-    grab(planSrc, /^function periodBillLine\([\s\S]*?\n\}$/m, 'periodBillLine'),
-    grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
-    grab(planSrc, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml'),
-    grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
-    grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-    grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml'),
-    grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
-    grab(planSrc, /^function calendarPeriodBillsHtml\([\s\S]*?\n\}$/m, 'calendarPeriodBillsHtml'),
-    grab(planSrc, /^function extraRepaymentHtml\([\s\S]*?\n\}$/m, 'extraRepaymentHtml'),
-    grab(planSrc, /^function calendarFromTodayEvidenceHtml\([\s\S]*?\n\}$/m, 'calendarFromTodayEvidenceHtml'),
-    grab(planSrc, /^function calendarWaterfallHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallHtml'),
-    grab(planSrc, /^function calendarPickerHtml\([\s\S]*?\n\}$/m, 'calendarPickerHtml'),
-    grab(planSrc, /^function calendarWaterfallsHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallsHtml'),
-  ].join('\n');
-  return vm.runInNewContext(
-    `${source}\n({ calendarWaterfallHtml, calendarWaterfallsHtml, glanceUpdatedNote, providerBalanceDate, money2 });`,
-    { Forecast: F }
-  );
 }
 
 const PAYDAY = '2026-09-11';
@@ -139,66 +98,13 @@ function incomeRow(p, id) {
   return ((p && p.income) || []).find(r => r && r.id === id) || null;
 }
 
-const composer = loadComposer();
 const planSrc = read('public/plan.js');
 const forecastSrc = read('public/forecast.js');
 const observeSrc = read('scripts/provider-observe.js');
 
 console.log('=== 1. Provider balance date and fetchedAt stay distinct ===');
 {
-  const fetchedAt = '2026-09-04T18:00:00.000Z';
-  const providerDay = '2026-09-03';
-  ok(providerDay !== fetchedAt.slice(0, 10),
-    'fixture provider day and Atlas fetch calendar day are different');
-  const overlay = {
-    applied: true,
-    operatingPlan: 'live',
-    fetchedAt,
-    observedAt: fetchedAt,
-    observedAsOf: '2026-09-04',
-    observedCash: {
-      complete: true,
-      asOf: '2026-09-04',
-      accounts: [
-        { id: 'chequing-a', value: 400, evidenceDate: providerDay },
-        { id: 'chequing-b', value: 200, evidenceDate: providerDay },
-      ],
-    },
-  };
-  ok(composer.providerBalanceDate(overlay) === providerDay,
-    'providerBalanceDate uses cash evidenceDate, not overlay observedAsOf or fetchedAt');
-  const note = composer.glanceUpdatedNote('2026-09-04', overlay);
-  ok(/As of September 3/.test(note) && !/September 4/.test(note) && !/6:00/.test(note),
-    'Current Balance note uses the provider observation date, not fetchedAt');
-  const promptHtml = composer.calendarWaterfallsHtml({
-    liveCurrentBalance: OPENING_CASH,
-    asOf: '2026-09-04',
-    calendarPeriods: [{
-      id: 'this-pay-period',
-      role: 'active',
-      openingKnown: true,
-      opening: OPENING_CASH,
-      currentBalance: OPENING_CASH,
-      available: OPENING_CASH,
-      income: [],
-      bills: [],
-      householdBudget: [],
-      cashNote: null,
-    }],
-    activeCalendarPeriodId: 'this-pay-period',
-  }, 'this-pay-period', overlay, {
-    available: OPENING_CASH,
-    liveCurrentBalance: OPENING_CASH,
-    cashBasis: { asOf: '2026-09-04' },
-    asOf: '2026-09-04',
-  });
-  ok(/data-live-current-balance/.test(promptHtml)
-      && /as of September 3/.test(promptHtml),
-    'live Current Balance glance uses the provider observation date');
-  ok(!/data-operating-prompt="Current balance as of September 3"/.test(promptHtml),
-    'active payday card does not use Current Balance as a waterfall prompt');
-  ok(!/6:00/.test(promptHtml) && !/18:00/.test(promptHtml),
-    'live glance does not print the Atlas fetch date or time');
+  // The classic Current Balance note and glance (the provider observation date, never fetchedAt, no printed time) retired (C1 S4 B2, owner ruling: V1-only behaviour retires with no rebuild). The Stack page prints no cash balance date; see Q8 in docs/C1_TEST_DISPOSITIONS.md.
 }
 
 console.log('\n=== 2. No hardcoded Lunch Money hour and no browser-clock freshness ===');
@@ -284,16 +190,7 @@ console.log('\n=== 5. Household-facing label and render-only page ===');
   const advice = F.recommend(plan, PAYDAY, { targetBuffer: 0, debts });
   const active = period(advice.defaultView, 'this-pay-period');
   const next = period(advice.defaultView, 'next-pay-period');
-  const html = composer.calendarWaterfallsHtml(
-    advice.defaultView, 'this-pay-period', null, advice.paydayAllocation);
-  ok(/data-live-current-balance/.test(html),
-    'live Current Balance is rendered outside the payday card');
-  ok(/Payday balance/.test(html) && html.includes(composer.money2(active.available)),
-    'Income block prints Forecast period.available as Payday balance');
-  ok(!/data-operating-prompt="Balance after payday"/.test(html),
-    'waterfall does not publish a competing Balance after payday row');
-  ok(!/data-operating-prompt="Available balance"/.test(html),
-    'Available balance is no longer the payday-waterfall label');
+  // The classic Income block's printed Payday balance and absent competing rows retired (C1 S4 B2); the Forecast figure is asserted in sections 3 and 4 and the Stack waterfall prints the published income total (test-stack-waterfall.js).
   const incomeFn = grab(planSrc, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml');
   ok(/period\.available/.test(incomeFn)
       && /Payday balance/i.test(incomeFn)
@@ -301,22 +198,7 @@ console.log('\n=== 5. Household-facing label and render-only page ===');
       && !/Assigned income/i.test(incomeFn)
       && !/Total income/i.test(incomeFn),
     'plan.js renders Forecast available as Payday balance; it does not compute opening + income');
-  const nextHtml = composer.calendarWaterfallHtml(next, {
-    applied: true,
-    operatingPlan: 'live',
-    fetchedAt: '2026-09-04T18:00:00.000Z',
-    observedAsOf: '2026-09-03',
-    observedCash: {
-      complete: true,
-      asOf: '2026-09-03',
-      accounts: [{ id: 'chequing-a', value: 1, evidenceDate: '2026-09-03' }],
-    },
-  }, advice.paydayAllocation);
-  ok(/data-operating-prompt="Opening balance"/.test(nextHtml),
-    'Next Pay Period keeps Opening balance, not a live Current balance as-of');
-  ok(!/Current balance as of/.test(nextHtml)
-      && /Projected opening\. Not today's balance/.test(nextHtml),
-    'next-period opening is not labelled as a provider-observed current balance');
+  // The classic Next Pay Period opening label and note retired (C1 S4 B2, V1-only wording); the Forecast opening below stays.
   const cashLeftover = roundCent(
     (Number(active.opening) || 0) + (Number(active.incomeAdded) || 0)
     - (Number(active.periodBillLoad) || 0) - (Number(active.budgetHold) || 0));
@@ -329,65 +211,7 @@ console.log('\n=== 5. Household-facing label and render-only page ===');
 
 console.log('\n=== 6. Fail-closed date and dated opening stay honest ===');
 {
-  ok(composer.providerBalanceDate(null) == null, 'no overlay yields no provider date');
-  ok(composer.providerBalanceDate({
-    applied: false,
-    operatingPlan: 'unavailable',
-    fetchedAt: '2026-09-04T18:00:00.000Z',
-    observedAsOf: '2026-09-03',
-  }) == null, 'untrusted overlay does not publish a provider date');
-  const disagreeingOverlay = {
-    applied: true,
-    operatingPlan: 'live',
-    fetchedAt: '2026-09-04T18:00:00.000Z',
-    observedAsOf: '2026-09-04',
-    observedCash: {
-      complete: true,
-      accounts: [
-        { id: 'chequing-a', evidenceDate: '2026-09-03' },
-        { id: 'chequing-b', evidenceDate: '2026-09-02' },
-      ],
-    },
-  };
-  ok(composer.providerBalanceDate(disagreeingOverlay) == null,
-    'disagreeing cash evidence dates fail closed');
-  const undated = composer.glanceUpdatedNote('2026-09-04', disagreeingOverlay);
-  ok(undated === 'Current Balance. Not credit.'
-      && !/Updated/.test(undated) && !/As of/.test(undated)
-      && !/Sep/.test(undated) && !/September/.test(undated),
-    'trusted overlay with disagreeing cash dates prints Current Balance without a date');
-  const disagreeingHtml = composer.calendarWaterfallsHtml({
-    liveCurrentBalance: OPENING_CASH,
-    asOf: '2026-09-04',
-    calendarPeriods: [{
-      id: 'this-pay-period',
-      role: 'active',
-      openingKnown: true,
-      opening: OPENING_CASH,
-      currentBalance: OPENING_CASH,
-      available: OPENING_CASH,
-      income: [],
-      bills: [],
-      householdBudget: [],
-      cashNote: null,
-    }],
-    activeCalendarPeriodId: 'this-pay-period',
-  }, 'this-pay-period', disagreeingOverlay, {
-    available: OPENING_CASH,
-    liveCurrentBalance: OPENING_CASH,
-    cashBasis: { asOf: '2026-09-04' },
-    asOf: '2026-09-04',
-  });
-  ok(/data-live-current-balance/.test(disagreeingHtml)
-      && !/Updated Sep/.test(disagreeingHtml)
-      && !/Updated September/.test(disagreeingHtml)
-      && !/As of September/.test(disagreeingHtml)
-      && !/as of September/.test(disagreeingHtml)
-      && !/Current balance as of/.test(disagreeingHtml),
-    'live glance with disagreeing cash dates does not invent a Current Balance date');
-  const dated = composer.glanceUpdatedNote('2026-08-19', null);
-  ok(/Updated Aug 19/.test(dated) && !/As of/.test(dated),
-    'dated opening without provider evidence keeps Updated as-of, and does not invent a live date');
+  // The classic fail-closed date notes (no provider date for an untrusted overlay or disagreeing cash dates; Updated as-of for a dated opening) retired (C1 S4 B2, owner ruling: V1-only behaviour retires with no rebuild). The Stack page prints no cash balance date; see Q8 in docs/C1_TEST_DISPOSITIONS.md.
 }
 
 if (failures) {

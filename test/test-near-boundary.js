@@ -251,14 +251,18 @@ ok(!/\$600/.test(JSON.stringify(liveRec.nearBoundary))
 
 console.log('\n=== G. page renders the engine part; mutation drops the exposure ===');
 const planSrc = read('public/plan.js');
+const { pageScriptsMatching } = require('./lib/page-scripts');
+// Positive "the classic page reads Forecast.X" assertions stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md);
+// the "never" assertions read every page script, the Stack page included (test/lib/page-scripts.js).
+const never = (...res) => pageScriptsMatching(...res);
 ok(/nearBoundary:\s*p\s*=>/.test(planSrc),
   'the Plan page has wording for the near-boundary instruction');
 ok(/p\.items\.map\(\s*x\s*=>\s*x\.label\s*\)/.test(planSrc),
   'that wording renders the item names the engine carried');
 ok(/Forecast\.mission\(/.test(planSrc),
   'the page still reads the mission from Forecast');
-ok(!/nearBoundaryObligations/.test(planSrc),
-  'the page does not compute the boundary list itself');
+ok(never(/nearBoundaryObligations/).length === 0,
+  'the page does not compute the boundary list itself (no page script, classic or Stack)', never(/nearBoundaryObligations/).join(', ') || 'none');
 
 const appSrc = read('public/app.js');
 const grab = (src, re) => (re.exec(src) || [''])[0];

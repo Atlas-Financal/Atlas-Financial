@@ -356,6 +356,9 @@ console.log('\n=== 6. Live household December reconciles seattle-dec / christmas
   const periods = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/periods.json'), 'utf8'));
   ok(hashFile(DATA) === liveHash, 'live data.json was not written');
   const asOf = live.meta.asOf;
+  // Live owner date (Dale, 2026-11-21: "the Seattle trip is December 4th and 5th").
+  // The invented fixture above keeps its own Dec 9 date.
+  const LIVE_SEATTLE_DATE = '2026-12-04';
   const traj = F.baselineTrajectory(live.plan, live.debts, asOf, {
     periods,
     extraFacilities: live.revolvingExtra,
@@ -370,7 +373,7 @@ console.log('\n=== 6. Live household December reconciles seattle-dec / christmas
   const independentSeattle = expected.lines.find(r => r.id === SEATTLE_DEC.id);
   const independentXmas = expected.lines.find(r => r.id === CHRISTMAS_2026.id);
   const independentLinden = expected.lines.find(r => r.id === 'linden-birthday');
-  ok(independentSeattle && independentSeattle.date === SEATTLE_DEC.date
+  ok(independentSeattle && independentSeattle.date === LIVE_SEATTLE_DATE
     && independentXmas && independentXmas.date === CHRISTMAS_2026.date,
     'independent live December expandEvents includes seattle-dec / christmas-2026 with their dates');
   ok(independentLinden && independentLinden.date === '2026-12-09'
@@ -399,16 +402,16 @@ console.log('\n=== 6. Live household December reconciles seattle-dec / christmas
     'live December Stage 2 result remains Stage 1 minus commitments');
 
   const seattlePeriod = (traj.payPeriods || []).find(p =>
-    p && p.start <= SEATTLE_DEC.date && p.end >= SEATTLE_DEC.date);
+    p && p.start <= LIVE_SEATTLE_DATE && p.end >= LIVE_SEATTLE_DATE);
   ok(seattlePeriod && seattlePeriod.stage2 && seattlePeriod.stage2.status !== 'unavailable',
-    'live pay-period containing 9 Dec publishes Stage 2');
+    'live pay-period containing 4 Dec (and 9 Dec) publishes Stage 2');
   const periodExpected = independentSpanCommitments(
     live.plan, live.debts, seattlePeriod, asOf, periods, live.revolvingExtra);
   const periodLines = seattlePeriod.stage2.commitments.lines || [];
   const periodSeattle = lineById(periodLines, SEATTLE_DEC.id);
-  ok(periodExpected.lines.some(r => r.id === SEATTLE_DEC.id && r.date === SEATTLE_DEC.date),
-    'independent live 9 Dec pay-period includes seattle-dec on 2026-12-09');
-  ok(periodSeattle && periodSeattle.date === SEATTLE_DEC.date
+  ok(periodExpected.lines.some(r => r.id === SEATTLE_DEC.id && r.date === LIVE_SEATTLE_DATE),
+    'independent live Dec 4–17 pay-period includes seattle-dec on 2026-12-04');
+  ok(periodSeattle && periodSeattle.date === LIVE_SEATTLE_DATE
     && near(periodSeattle.amount, independentSeattle.amount),
     'live 9 Dec pay-period publishes seattle-dec with its date');
   const periodLinden = lineById(periodLines, 'linden-birthday');

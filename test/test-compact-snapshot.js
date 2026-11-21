@@ -148,17 +148,20 @@ ok(live && live.heloc && same(live.heloc.delta, LIVE_HELOC_DELTA)
 console.log('\n=== page is a renderer ===');
 const page = read('public/plan.js');
 const pageCode = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const { pageCodeMatching, pageScriptsMatching } = require('./lib/page-scripts');
+// Positive "the classic page reads Forecast.X" assertions stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md Q4);
+// the "never" assertions read every page script, the Stack page included.
+const never = (...res) => pageCodeMatching(...res);
 ok(/Forecast\.compactSnapshot\(d\.debts, d\.helocHistory\)/.test(page),
   'the Plan page reads the snapshot from Forecast.compactSnapshot');
 ok(/HELOC_TREND/.test(page),
   'the page looks the HELOC sentence and sign up from a wording map');
 ok(/still growing/.test(page) && /coming down/.test(page),
   'the published growing / falling sentences are unchanged');
-ok(!/helocDelta\s*>=\s*0/.test(pageCode),
-  'the page no longer decides the HELOC direction from helocDelta >= 0');
-ok(!/annualInterest[\s\S]{0,80}\/\s*12/.test(pageCode)
-  && !/\/\s*12[\s\S]{0,80}annualInterest/.test(pageCode),
-  'the page no longer converts annual interest / 12');
+ok(never(/helocDelta\s*>=\s*0/).length === 0,
+  'the page no longer decides the HELOC direction from helocDelta >= 0 (no page script, classic or Stack)', never(/helocDelta\s*>=\s*0/).join(', ') || 'none');
+ok(never(/annualInterest[\s\S]{0,80}\/\s*12/, /\/\s*12[\s\S]{0,80}annualInterest/).length === 0,
+  'the page no longer converts annual interest / 12 (no page script, classic or Stack)', never(/annualInterest[\s\S]{0,80}\/\s*12/, /\/\s*12[\s\S]{0,80}annualInterest/).join(', ') || 'none');
 const snapBlock = pageCode.slice(
   pageCode.indexOf('Forecast.compactSnapshot'),
   pageCode.indexOf('snapshot-tiles')

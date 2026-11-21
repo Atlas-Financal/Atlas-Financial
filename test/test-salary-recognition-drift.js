@@ -271,12 +271,12 @@ console.log('\n=== 5. Represented current paycheck adds $0; later-cycle salary i
 
 console.log('\n=== 6. Pay Periods do not own payroll cadence ===');
 {
-  const planSrc = read('public/plan.js');
   const forecastSrc = read('public/forecast.js');
-  const pages = [
-    ['public/plan.js', planSrc],
-    ['public/app.js', read('public/app.js')],
-  ];
+  // Every page script, the Stack page included, not plan.js and app.js alone (test/lib/page-scripts.js).
+  const pages = require('./lib/page-scripts').pageScripts().map(s => [s.file, s.source]);
+  ok(pages.some(([name]) => name === 'public/plan.js') && pages.some(([name]) => name === 'public/app.js')
+    && pages.some(([name]) => name === 'public/stack-waterfall.js'),
+    'the page scan covers the classic page, app.js and the Stack page');
   const forbidden = /one\s+(Dale|Amanda)\s+paycheck|one paycheck from each|one payroll per (half|period)|two salary deposits per (half|period)|paychecksPerHalf|PAYCHECKS_PER_(HALF|PERIOD)|each half gets two salaries/i;
   for (const [name, src] of pages) {
     ok(!forbidden.test(src), `${name} does not encode a fixed paycheck count per calendar half`);

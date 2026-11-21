@@ -96,11 +96,8 @@ console.log('Grok (3): a linked refund that shows a name today shows exactly the
     JSON.stringify(s.refund && s.refund.bankDescription));
   ok(s.names.includes('Bank description: ' + PLAIN), 'the Spent list prints it unchanged', JSON.stringify(s.names));
   ok(s.names.includes('Invented diner'), 'positive control: the purchase keeps its payee');
-  // DisplayName still wins over the bank text: a row that ever carried a display name keeps it.
-  const named = { ...s.recon.find(t => t.amount === -25), displayedPayee: 'Invented shop' };
-  const namedHtml = printer.householdBudgetMetric('Spent', 35, { recon: [named], id: 'restaurants' });
-  ok(payees(namedHtml).map(unescape).includes('Invented shop') && !/Bank description/.test(namedHtml),
-    'a refund with a display name shows that name, never the bank text', JSON.stringify(payees(namedHtml)));
+  // A refund that carries a display name showing that name, not the bank text, was a classic-page rule;
+  // it retired with the classic page (C1 S4 batch B1). The Stack sheet prints Lunch Money's own name only.
 }
 
 console.log('Grok (2): only invisible text-direction and zero-width characters are removed');

@@ -664,12 +664,16 @@ console.log('\n=== 13. the page consumes the result rather than rebuilding it ==
 const planSrc = read('public/plan.js');
 const planCode = planSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 {
-  ok(!/available:\s*Infinity/.test(planCode),
-    'no hypothetical funding source with infinite money is built in the page');
-  ok(!/fundingDebtId/.test(planCode),
-    'the page selects no alternative funding facility');
-  ok(!/fundingSources:\s*\[/.test(planCode),
-    'and constructs no funding-source array of its own');
+  // The "never" assertions read every page script; the call counts below are the classic page's own and stay on
+  // plan.js until it goes (C1 S7, docs/C1_TEST_DISPOSITIONS.md).
+  const { pageCodeMatching } = require('./lib/page-scripts');
+  const never = (...res) => pageCodeMatching(...res);
+  ok(never(/available:\s*Infinity/).length === 0,
+    'no hypothetical funding source with infinite money is built in the page (no page script, classic or Stack)', never(/available:\s*Infinity/).join(', ') || 'none');
+  ok(never(/fundingDebtId/).length === 0,
+    'the page selects no alternative funding facility (no page script, classic or Stack)', never(/fundingDebtId/).join(', ') || 'none');
+  ok(never(/fundingSources:\s*\[/).length === 0,
+    'and constructs no funding-source array of its own (no page script, classic or Stack)', never(/fundingSources:\s*\[/).join(', ') || 'none');
   // The page still calls recommend ONCE — for the real plan — and projectDebts
   // ONCE, for the real debt walk. Anything beyond that is a second scenario.
   const recommends = (planCode.match(/Forecast\.recommend\(/g) || []).length;
