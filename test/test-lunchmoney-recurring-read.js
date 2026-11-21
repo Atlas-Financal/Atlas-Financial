@@ -182,8 +182,14 @@ function serve(w, recurringItems) {
     try { packet = Assistant.buildPacket({ data: s.data, periods: [], questionsMarkdown: '' }); } catch (e) { error = e; }
     ok(packet && !error, 'positive control: the assistant packet builds from the same served data', error && error.message);
     const a = JSON.stringify(packet || {});
-    ok(!/lunchMoneyRecurring|recurringId|foundTransactionLocalIds/.test(a) && !a.includes(NAMED),
-      'the assistant packet carries no recurring block');
+    // The one place a recurring id is published is uncertainty.recurringScheduleRefusals.unnamed: the reviewed items no rule
+    // names (7123458 reads; 7123461 is malformed, so it is listed unavailable), and never the named item (see test-recurring-unnamed-list).
+    const unnamedList = packet && packet.uncertainty && packet.uncertainty.recurringScheduleRefusals
+      && packet.uncertainty.recurringScheduleRefusals.unnamed;
+    ok(!/lunchMoneyRecurring|foundTransactionLocalIds/.test(a) && !a.includes(NAMED)
+      && unnamedList && unnamedList.items.map(i => i.recurringId + ':' + i.status).join(',') === '7123458:read,7123461:unavailable'
+      && (a.match(/recurringId/g) || []).length === 2,
+      'the assistant packet carries no recurring block; a recurring id appears only in the unnamed list', JSON.stringify(unnamedList));
     const Snapshot = require('../scripts/figures-snapshot.js');
     let snap = null, snapError = null;
     try { snap = Snapshot.buildFiguresSnapshot(s.data, []); } catch (e) { snapError = e; }

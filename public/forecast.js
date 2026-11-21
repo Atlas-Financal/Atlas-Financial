@@ -95,9 +95,30 @@
     return records;
   }
 
+  // Owner rule (Dale, 2026-11-20, Triangle and Amazon): the planned minimum is one month's interest on a
+  // frozen statement balance at its purchase rate, rounded up to the whole dollar, and held every month
+  // (authored `fixedInterestMinimum: { balance, rate, asOf }`, rate in percent). A refreshed balance never
+  // moves it; only a re-authored snapshot does. A malformed snapshot fails closed.
+  function fixedInterestMinimum(row) {
+    const rule = row && row.fixedInterestMinimum;
+    if (rule == null) return null;
+    if (!paymentRow(row) || !rule || typeof rule !== 'object' || cents(rule.balance) == null || !(rule.balance > 0)
+        || typeof rule.rate !== 'number' || !Number.isFinite(rule.rate) || !(rule.rate > 0) || !(rule.rate < 100)
+        || !date(rule.asOf)) throw new Error('Invalid fixed interest minimum.');
+    // Whole cents first (balance × rate% / 12), then up to the whole dollar.
+    const interestCents = Math.round(cents(rule.balance) * rule.rate / 1200 * 1e6) / 1e6;
+    return Math.ceil(interestCents / 100);
+  }
+  // The planned amount of one occurrence: the fixed amount where the rule applies, never below the issuer's
+  // statement minimum (max of the two); otherwise the statement minimum or the row's estimate as before.
+  function plannedOccurrenceAmount(row, statement, fixed) {
+    if (fixed == null) return statement ? statement.minimum : row.amount;
+    return statement ? Math.max(fixed, statement.minimum) : fixed;
+  }
   function resolveOccurrences(row, start, end, occurrences, outflowDates) {
+    const fixed = fixedInterestMinimum(row);
     if (row.statementOccurrences == null) return outflowDates(row, start, end).map(scheduledDate => ({
-      scheduledDate, date: scheduledDate, amount: row.amount, confidence: row.confidence, statement: false }));
+      scheduledDate, date: scheduledDate, amount: plannedOccurrenceAmount(row, null, fixed), confidence: row.confidence, statement: false }));
     const statements = statementRows(row, occurrences);
     const byScheduled = new Map(statements.map(record => [record.scheduledDate, record]));
     const candidates = new Set(outflowDates(row, start, end));
@@ -116,8 +137,9 @@
         ? (Object.prototype.hasOwnProperty.call(statement, 'dateConfidence') ? statement.dateConfidence : 'confirmed')
         : null;
       return { scheduledDate, date: statement ? statement.dueDate : scheduledDate,
-        amount: statement ? statement.minimum : row.amount,
-        confidence: statement ? statement.confidence : row.confidence,
+        amount: plannedOccurrenceAmount(row, statement, fixed),
+        // A statement's confirmation covers the amount only when the statement minimum is the amount paid.
+        confidence: statement && (fixed == null || statement.minimum >= fixed) ? statement.confidence : row.confidence,
         ...(dateConfidence ? { dateConfidence } : {}),
         statement: !!statement };
     }).filter(record => record.date <= end && (record.date >= start || row.frequency === 'once'))
@@ -12829,8 +12851,10 @@
   //                    planned and counted amount), 'posted-differs' (a posted payment of
   //                    another amount: the plan stands until Grok Bot verifies
   //                    it, owner Dale 2026-11-20), 'pending' (seen paid, its
-  //                    amount not posted) or 'none'. A page shows the paid check
-  //                    only for 'posted-equal' (owner, Dale, on #1465 7046237901).
+  //                    amount not posted), 'posted-verified' (a posted payment Grok
+  //                    Bot verified with a "bill verified" note, counted at its own
+  //                    amount) or 'none'. A page shows the paid check only for
+  //                    'posted-equal' or 'posted-verified' (owner, Dale, on #1465 7046237901).
   //   stackBillAmountTrust  the counted amount's own trust: the posted payment's
   //                    for 'posted-equal', otherwise the plan's (billScheduleDisplayTrust);
   //                    absent when that has no word (never defaulted to calculated)
@@ -12846,9 +12870,17 @@
   function stackBillPaymentEvidence(row, cents) {
     if (row.displayAmountBasis === 'posted-actual' && typeof row.actual === 'number' && Number.isFinite(row.actual)) {
       const posted = Math.round(Math.abs(row.actual) * 100);
+      // Verified by Grok Bot's note: the counted amount is the posted payment (billAssignedAmount), so the check
+      // stands beside what was paid. Any disagreement with the count withholds the check rather than guess.
+      if (row.billPaymentVerified === true) return posted === cents ? 'posted-verified' : 'posted-differs';
       return posted === cents && posted === stackBillPlannedCents(row) ? 'posted-equal' : 'posted-differs';
     }
     return billPaidState(row) === 'paid' ? 'pending' : 'none';
+  }
+  // The one rule for "this evidence shows the paid check" (lead, 2026-11-20): the trust below, and later the Stack
+  // card's check and the paid figure, all read this predicate.
+  function stackBillPaidEvidence(evidence) {
+    return evidence === 'posted-equal' || evidence === 'posted-verified';
   }
   function publishStackBillParts(view, bills) {
     const rows = Array.isArray(view.bills) ? view.bills : [];
@@ -12863,7 +12895,8 @@
       if (mark.part === 'cardMinimum') mark.row.stackBillDebtId = mark.debtId;
       const evidence = stackBillPaymentEvidence(mark.row, mark.cents);
       mark.row.stackBillPaymentEvidence = evidence;
-      const trust = evidence === 'posted-equal' ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
+      const trust = stackBillPaidEvidence(evidence)
+        ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
       // Never more certain than the row's own word: no word stays no word.
       if (trust != null) mark.row.stackBillAmountTrust = trust;
     }
@@ -13092,8 +13125,9 @@
     // paidConfirmed: the payment is confirmed, so a page may show the check (owner, Dale 2026-11-20 on #1465,
     // 7046237901): paid, posted, and the posted amount is exactly the planned amount. Pending, unmatched or a
     // differing posted payment is not confirmed (until Grok Bot verifies it).
+    // Or verified by Grok Bot's "bill verified" note on that posted payment (billPaymentVerified), at any amount.
     const paidConfirmed = row.paidState === 'paid' && basis === 'posted-actual' && amount !== null
-      && Math.round(amount * 100) === stackBillPlannedCents(row);
+      && (Math.round(amount * 100) === stackBillPlannedCents(row) || row.billPaymentVerified === true);
     return { date: row.date, amount, amountBasis: actual ? basis : 'schedule', trust, paidState: row.paidState,
       occurrence: billOccurrenceIdentity(row), paidConfirmed };
   }
@@ -14561,12 +14595,25 @@
     if (asOf == null || !budgetBillHasPostedActual(row, asOf, opts)) return null;
     return Math.abs(row.actual);
   }
+  // Whether the occurrence's posted payment carries Grok Bot's "bill verified" marker (budgetBillPostedLink). Only a
+  // fully posted, uniquely linked payment can be verified: a partly posted occurrence, or one with a pending linked
+  // row, has no posted link at all.
+  function billPaymentVerified(row, asOf, opts) {
+    if (!row || row.status !== 'PAID' || row.settlement !== 'represented') return false;
+    if (typeof row.actual !== 'number' || !Number.isFinite(row.actual) || asOf == null) return false;
+    const link = budgetBillPostedLink(row, asOf, opts);
+    return !!(link && link.verified);
+  }
+  // The amount an assigned bill row deducts. A verified posted payment IS the occurrence's amount, above or below
+  // the plan (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot's "bill verified" marker; lead ruling (A)): the
+  // check then always stands beside what was paid. Otherwise unchanged: the plan, or a posted payment above it.
   function billAssignedAmount(row, asOf, opts) {
     if (!row) return 0;
     let planned = null;
     if (row.planned != null && isFinite(Number(row.planned))) planned = Math.abs(Number(row.planned));
     else if (row.amount != null && isFinite(Number(row.amount))) planned = Math.abs(Number(row.amount));
     const actual = billObservedPaidAmount(row, asOf, opts);
+    if (actual != null && billPaymentVerified(row, asOf, opts)) return actual;
     if (planned == null) return actual != null ? actual : 0;
     return actual != null && actual > planned ? actual : planned;
   }
@@ -21909,6 +21956,13 @@
   // an exact posted receipt can supply the displayed movement independently.
   // Never change settlement, observedActual, bill loads, or cash omission here.
   function budgetBillHasPostedActual(row, asOf, opts) {
+    return budgetBillPostedLink(row, asOf, opts) !== null;
+  }
+  // The posted link behind budgetBillHasPostedActual, or null when there is none. verified: at least one of the
+  // occurrence's own linked posted rows carries Grok Bot's "bill verified" marker (billVerifiedNote, stamped by the
+  // observer on posted rows only). A row also linked to another occurrence fails the link above, so its marker never
+  // verifies this one (one note, one occurrence). Rule 17: the marker is read, never matched or inferred.
+  function budgetBillPostedLink(row, asOf, opts) {
     const packet = currentPeriodActualsPacket(opts);
     // Legacy availability selectors accept absent/unrecognized coverage.
     // Exact actual display needs an explicit complete stamp, without changing
@@ -21926,7 +21980,7 @@
       || transactionCoverageStatus(packet) !== 'complete' || !complete(packet.transactionCoverage)
       || pendingCoverageStatus(packet) !== 'complete' || !complete(packet.pendingCoverage)
       || (Array.isArray(packet.currencyUnconfirmed) && packet.currencyUnconfirmed.length)
-      || !Array.isArray(packet.representedActuals) || !Array.isArray(packet.transactions)) return false;
+      || !Array.isArray(packet.representedActuals) || !Array.isArray(packet.transactions)) return null;
     const links = item => {
       if (item.transactionIds != null && !Array.isArray(item.transactionIds)) return null;
       const ids = item.transactionIds ? item.transactionIds.slice() : [];
@@ -21939,7 +21993,7 @@
     };
     const matches = packet.representedActuals.filter(item => item
       && item.id === row.id && item.date === row.date);
-    if (!matches.length) return false;
+    if (!matches.length) return null;
     const claim = matches[0], ids = links(claim);
     const signature = item => JSON.stringify([links(item), item.actual, item.postedOn]);
     if (!ids || typeof claim.actual !== 'number' || !isFinite(claim.actual)
@@ -21949,8 +22003,8 @@
       || packet.representedActuals.some(item => item
         && (item.id !== row.id || item.date !== row.date)
         && [item.transactionId, ...(Array.isArray(item.transactionIds) ? item.transactionIds : [])]
-          .some(id => ids.includes(id)))) return false;
-    let totalCents = 0, account = null, lastPosted = null;
+          .some(id => ids.includes(id)))) return null;
+    let totalCents = 0, account = null, lastPosted = null, verified = false;
     for (const id of ids) {
       const found = packet.transactions.filter(tx => tx && tx.id === id);
       const project = tx => {
@@ -21967,15 +22021,16 @@
       };
       const projected = found.map(project);
       if (!projected.length || projected.some(tx => !tx)
-        || projected.some(tx => JSON.stringify(tx) !== JSON.stringify(projected[0]))) return false;
+        || projected.some(tx => JSON.stringify(tx) !== JSON.stringify(projected[0]))) return null;
       const tx = projected[0];
-      if (account && account !== tx.account) return false;
+      if (account && account !== tx.account) return null;
+      if (found.some(row => row.billVerifiedNote === true)) verified = true;
       account = tx.account;
       totalCents += Math.round(tx.amount * 100);
       if (!lastPosted || tx.date > lastPosted) lastPosted = tx.date;
     }
     return lastPosted === claim.postedOn
-      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100));
+      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100)) ? { verified } : null;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -22206,6 +22261,10 @@
       const posted = observed && budgetBillHasPostedActual(row, asOf, opts);
       row.displayAmountBasis = posted ? 'posted-actual' : observed ? 'unconfirmed-actual' : 'schedule';
       row.displayAmountTrust = posted ? 'calculated' : observed ? 'estimated' : billScheduleDisplayTrust(row);
+      // Grok Bot's "bill verified" marker on the posted payment (billPaymentVerified): read by the payment evidence
+      // and paidConfirmed below. Presentation of the same link billAssignedAmount counts; the save boundary drops it.
+      if (posted && billPaymentVerified(row, asOf, opts)) row.billPaymentVerified = true;
+      else delete row.billPaymentVerified;
     }
   }
   // A scheduled amount's display trust from its row word. A supplied word

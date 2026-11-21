@@ -1515,8 +1515,15 @@ function heldCurrentPeriodProjection(data, advice) {
 // recurring item Atlas did not apply, from the one review provider-observe
 // ran (currentPeriodActuals.lunchMoneyRecurring.refused). Each closed reason
 // code reads as one fixed sentence; the Atlas row is re-checked against the
-// plan. No Lunch Money id, amount, payee or date is published. Read-only: it
-// builds no matching or reconciliation logic.
+// plan. A refusal publishes no Lunch Money id, amount, payee or date.
+// Read-only: it builds no matching or reconciliation logic.
+//
+// The `unnamed` list (lead dispatch, 2026-11-20) is the one place a Lunch Money
+// recurring id is published: the reviewed items no identity rule names, so the
+// links can be written. Each carries the numeric id (a string of digits),
+// granularity, quantity, anchor, start and end dates, the Atlas role of its
+// account and the dates of the transactions Lunch Money found for it, and
+// nothing else; an item that did not read is {recurringId, status:'unavailable'}.
 const RECURRING_REFUSALS = Object.freeze({
   'not-started': ['schedule', 'It has not started yet.'],
   'rule-names-no-event': ['link', 'The rule that names it points at no Atlas bill.'],
@@ -1537,6 +1544,43 @@ const RECURRING_REFUSALS = Object.freeze({
 });
 const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
 const RECURRING_REFUSALS_MAX = 50;
+// Closed fields only, copied one by one (never the entry object itself), and each value checked against its closed domain
+// again here (the observation-time sanitizer is the first line, this is the second): an enumerated cadence word, a positive
+// safe integer, real calendar days, an enumerated account role, strictly increasing found dates. An entry that fails is shown
+// as unavailable (its id only), never copied. Ordered by numeric id; a row whose id is not all digits is skipped.
+const UNNAMED_GRANULARITIES = Object.freeze(['day', 'week', 'month', 'year']);
+const UNNAMED_ROLES = Object.freeze(['household-cash', 'household-reserve', 'revolving-credit', 'heloc', 'mortgage',
+  'household-external', 'unmapped']);
+function unnamedRecurringProjection(rows) {
+  if (!Array.isArray(rows)) return unavailable('unnamed-list-unavailable');
+  const day = v => {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+    const d = new Date(v + 'T00:00:00Z');
+    return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  };
+  const closed = row => row.status === 'read'
+    && UNNAMED_GRANULARITIES.includes(row.granularity)
+    && Number.isSafeInteger(row.quantity) && row.quantity >= 1
+    && day(row.anchorDate)
+    && (row.startDate === null || day(row.startDate)) && (row.endDate === null || day(row.endDate))
+    && (row.accountRole === null || UNNAMED_ROLES.includes(row.accountRole))
+    && Array.isArray(row.foundDates) && row.foundDates.every(day)
+    && row.foundDates.every((d, i) => i === 0 || row.foundDates[i - 1] < d);
+  const entries = [];
+  for (const row of rows) {
+    if (!row || typeof row.recurringId !== 'string' || !/^\d+$/.test(row.recurringId)) continue;
+    if (!closed(row)) {
+      entries.push({ recurringId: row.recurringId, status: 'unavailable', reason: 'schedule-unreadable' }); continue;
+    }
+    entries.push({ recurringId: row.recurringId, status: 'read', granularity: row.granularity, quantity: row.quantity,
+      anchorDate: row.anchorDate, startDate: row.startDate, endDate: row.endDate, accountRole: row.accountRole,
+      foundDates: row.foundDates.slice() });
+  }
+  entries.sort((a, b) => (BigInt(a.recurringId) < BigInt(b.recurringId) ? -1 : BigInt(a.recurringId) > BigInt(b.recurringId) ? 1 : 0));
+  const items = entries.slice(0, RECURRING_REFUSALS_MAX);
+  return { status: 'ok', count: entries.length, listed: items.length, complete: items.length === entries.length, items,
+    note: 'Reviewed Lunch Money recurring items that no identity rule names, so a rule can name them by id. Schedule and the dates of the transactions Lunch Money found only; no payee, description, amount, notes or category. An item whose schedule did not read is listed as unavailable.' };
+}
 function recurringRefusalsProjection(data) {
   const actuals = data && data.liveOverlay && data.liveOverlay.currentPeriodActuals;
   const block = actuals && actuals.lunchMoneyRecurring;
@@ -1555,7 +1599,7 @@ function recurringRefusalsProjection(data) {
       reasonClass, reason };
   });
   const dropped = key => Number.isSafeInteger(block.dropped[key]) && block.dropped[key] >= 0 ? block.dropped[key] : null;
-  return { status: 'ok', source: 'provider-observe:lunchmoney',
+  return { status: 'ok', source: 'provider-observe:lunchmoney', unnamed: unnamedRecurringProjection(block.unnamed),
     count: block.refused.length, listed: items.length, complete: items.length === block.refused.length,
     items,
     notApplied: { notReviewed: dropped('not-reviewed'), notNamed: dropped('not-named'), scheduleInvalid: dropped('schedule-invalid') },
@@ -1753,6 +1797,8 @@ function tokenConfigured(env) {
 }
 
 module.exports = {
+  UNNAMED_GRANULARITIES,
+  UNNAMED_ROLES,
   recurringRefusalsProjection,
   RECURRING_REFUSALS,
   SCHEMA,
