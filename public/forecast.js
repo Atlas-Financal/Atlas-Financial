@@ -12923,6 +12923,7 @@
   //     with no trust word withholds paid, never defaulted to calculated.
   // Pending, differing and unmatched payments count 0 and do not enter its trust.
   const STACK_BILLS_PAID_UNAVAILABLE = 'The Bills paid figure is unavailable: this period\'s bills split, or a paid row\'s trust, is not published.';
+  const STACK_BILLS_PAID_UNREAD = 'The Bills paid figure is unavailable: this period\'s posted transaction evidence is not complete.';
   function stackBillsPaid(view, bills) {
     if (!bills || typeof bills !== 'object') return;
     const withhold = () => Object.assign(bills, { paid: null, paidTrust: 'unavailable', paidReason: STACK_BILLS_PAID_UNAVAILABLE });
@@ -12931,6 +12932,14 @@
         || rows.some(row => !isStackFigure(row.stackBillAmount) || typeof row.stackBillPaid !== 'boolean')
         // The marked rows must be the whole Bills part: unmarked rows are unknown, never paid 0.
         || rows.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0) !== stackCents(bills.other)) return withhold();
+    // A row with no payment seen is unpaid only where the ledger was read: the period's posted evidence must be
+    // complete under the one gate Budget's own actuals use (budgetProgress.coverage.complete). A later period
+    // cannot have been paid yet, so its zero stands without evidence.
+    const progress = view.budgetProgress;
+    if (!progress || typeof progress !== 'object' || (progress.role !== 'future'
+        && !(progress.coverage && progress.coverage.complete === true))) {
+      return Object.assign(bills, { paid: null, paidTrust: 'unavailable', paidReason: STACK_BILLS_PAID_UNREAD });
+    }
     const paid = rows.filter(row => row.stackBillPaid);
     if (paid.some(row => !Object.hasOwn(STACK_TRUST_RANK, row.stackBillAmountTrust))) return withhold();
     const cents = paid.reduce((sum, row) => sum + stackCents(row.stackBillAmount), 0);

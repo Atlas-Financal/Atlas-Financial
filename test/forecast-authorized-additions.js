@@ -93,6 +93,11 @@ function proveStackBillParts(view, bills) {
   for (const row of marked) assert.equal(row.stackBillPaid, STACK_BILL_PAID_EVIDENCE.has(row.stackBillPaymentEvidence),
     'authorized addition: a row is checked paid exactly where its payment evidence confirms it');
   const paidRows = marked.filter(row => row.stackBillPart === 'other' && row.stackBillPaid);
+  // Paid needs the period's ledger read: outside a later period, Budget's own actuals gate must be complete.
+  const progress = view.budgetProgress;
+  if (!(progress && (progress.role === 'future' || (progress.coverage && progress.coverage.complete === true)))) {
+    assert.equal(bills.paid, null, 'authorized addition: Bills paid is withheld where the period\'s posted evidence is not complete');
+  }
   if (bills.paid === null) {
     assert.ok(bills.paidTrust === 'unavailable' && typeof bills.paidReason === 'string', 'authorized addition: a withheld Bills paid is unavailable, with a reason');
   } else {
