@@ -589,7 +589,9 @@ test('state-equality invariant: every Budget state calls recommend with identica
     const capture = Capture.withPerturbations({ recommend: real => function (...args) {
       // The Stack page's own recommend (its shell, at boot; observed as a Stack read) is not one of the previous Budget
       // page's states.
-      if (!/public\/stack-[\w-]+\.js:\d+:\d+/.test(new Error().stack)) calls.push({ args: serial(args) });
+      // Decided as the capture decides it: by the first page frame (the file that called recommend).
+      const caller = /(public\/[\w.-]+\.js):\d+:\d+/.exec(String(new Error().stack).split('\n').slice(1).join('\n'));
+      if (!(caller && /^public\/stack-[\w-]+\.js$/.test(caller[1]))) calls.push({ args: serial(args) });
       return real.apply(this, args);
     } }, () => Capture.capturePages(input.doc.data, input.doc.periods, ROOT));
     // The previous Budget page's states: every other recommend call is one of its calls.

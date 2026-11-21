@@ -874,6 +874,15 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     if (page === 'budget' && options.instrument !== false && options.stack !== false) {
       stack = driveStack(context, observer);
       stackCalls = observer.stack;
+      // The Stack blocks register their listeners inside their render (container.addEventListener, the sheet's document
+      // listeners), so those registrations happen during the drive, after the copy above. Copy the Stack files' again, so
+      // the source guard sees them (callbacks the capture never invokes make a module whole-module pinned); the previous
+      // page's own registrations are still copied once, at load, exactly as before.
+      for (const [file, kinds] of pageDeferred) {
+        if (!STACK_FILE.test(file)) continue;
+        if (!deferred.has(file)) deferred.set(file, new Set());
+        for (const k of kinds) deferred.get(file).add(k);
+      }
     }
     for (const load of runtimeLoads) run.loadErrors.push('runtime load: ' + load);
   }

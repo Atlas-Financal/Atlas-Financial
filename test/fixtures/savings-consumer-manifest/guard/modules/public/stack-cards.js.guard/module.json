@@ -1,3 +1,9 @@
 {
- "mode": "functions"
+ "mode": "module",
+ "reason": "registers callbacks the capture never invokes, not modelled by the state matrix",
+ "sha256": "1d96d7618e990538b006c6b05fe69dc1be71a914132bf830d5aa978df743d689",
+ "deferred": [
+  "listener:keydown",
+  "listener:toggle"
+ ]
 }

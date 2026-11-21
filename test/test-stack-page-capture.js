@@ -127,6 +127,36 @@ console.log('6. driving the Stack page leaves the previous page\'s evidence unch
     `savings.capture.* identical with and without the Stack drive (${keys.length} keys)`);
 }
 
+console.log('6b. the shell\'s own recommend is not one of the previous page\'s advices');
+{
+  // Baseline: a copy whose shell is off (as ?view=classic) makes no recommend of its own, so the previous page's evidence
+  // is exactly what it was before the Stack page was the default. The default capture must equal it.
+  const dir = copyRoot({ 'stack-shell.js': ["new URLSearchParams(location.search).get('view') !== 'classic'", "new URLSearchParams(location.search).get('view') === 'stack'"] });
+  try {
+    const base = {}, now = {};
+    Snapshot.__putCaptureEvidence(base, '', capture('savings-fully-backed', dir));
+    Snapshot.__putCaptureEvidence(now, '', caps['savings-fully-backed']);
+    ok(Object.keys(base).length > 100 && JSON.stringify(base) === JSON.stringify(now),
+      'the previous page\'s evidence (its advices numbered in order) equals the shell-off baseline: the Stack shell\'s recommend is not numbered as one');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+console.log('6c. listeners the Stack blocks register during the drive reach the source guard');
+{
+  const BLOCK_FILES = ['stack-waterfall.js', 'stack-cards.js', 'stack-credit.js', 'stack-sheet.js'];
+  const withDrive = caps['stack-card-summary'], without = capture('stack-card-summary', undefined, { stack: false });
+  for (const file of BLOCK_FILES) {
+    const rel = 'public/' + file;
+    const registers = /addEventListener\s*\(/.test(fs.readFileSync(path.join(root, rel), 'utf8'));
+    const seen = withDrive.deferred.get(rel), seenWithout = without.deferred.get(rel);
+    ok(registers && seen && seen.size > 0, `${rel}: the capture's deferred registrations include the listeners it registers during the drive`, seen && [...seen].join(','));
+    ok(!seenWithout || seenWithout.size === 0, `${rel}: without the drive none were registered (the drive is what exposes them)`, seenWithout && [...seenWithout].join(','));
+    const guard = JSON.parse(fs.readFileSync(path.join(root, 'test/fixtures/savings-consumer-manifest/guard/modules', rel + '.guard', 'module.json'), 'utf8'));
+    ok(guard.mode === 'module' && /never invokes/.test(guard.reason || ''),
+      `${rel}: the guard pins it whole-module (it registers callbacks the capture never invokes)`, guard.mode + ' ' + guard.reason);
+  }
+}
+
 console.log('7. the evidence keys');
 {
   const ev = {};
