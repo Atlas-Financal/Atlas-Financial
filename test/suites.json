@@ -679,7 +679,7 @@
   ["card minimum occurrence history and early-paid publication","test-card-minimum-occurrence-boundaries.js"],
   ["Triangle and Amazon minimum: one month's interest on a frozen statement balance, up to the whole dollar, held every month, never below the statement minimum (owner, Dale 2026-11-20)","test-fixed-interest-minimum.js"],
   ["Triangle early recurring payment: three dated payments on the 3rd stand in for the minimum, which resumes after the last; the day before payday counts in its period (owner, Dale 2026-11-20)","test-card-early-recurring-payment.js"],
-  ["Triangle and Amazon successor rows keep their payment-alias identity: a categorized card payment links to triangle-td3, triangle-day8 and mbna-day12 (owner, Dale 2026-11-20)","test-card-successor-payment-identity.js"],
+  ["Triangle and Amazon successor rows keep their payment-alias identity: a categorized card payment links to triangle-td3, triangle-day8 and mbna-auto30 (owner, Dale 2026-11-20)","test-card-successor-payment-identity.js"],
   ["purchase backfills cannot confirm scheduled card minima","test-card-backfill-intent.js"],
   ["month-end bill settlement and unmatched fee visibility","test-month-end-bill-reconciliation.js"],
   ["Dale-gated Noble / HELOC / TDCC represented settles","test-dale-gated-represented-settles.js"],
@@ -712,5 +712,6 @@
   ["Stack card names come from the ledger: the Lunch Money display name, carried by provider account id, shown first on the waterfall and the Credit card","test-stack-card-ledger-names.js"],
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
   ["The figures page capture runs the previous Budget page by its explicit route (?view=classic), unchanged when the Stack page is the default","test-figures-capture-classic-view.js"],
-  ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"]
+  ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
+  ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"]
 ]

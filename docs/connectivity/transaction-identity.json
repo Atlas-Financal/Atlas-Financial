@@ -51,6 +51,7 @@
     },
     {
       "eventId": "fit4less",
+      "lunchMoneyRecurringIds": ["3722395"],
       "payeePattern": "Fit4less Msp",
       "payeePatterns": ["Fit4less Msp"],
       "atlasAccountId": "chequing-a",
@@ -81,6 +82,7 @@
     },
     {
       "eventId": "tdcc",
+      "lunchMoneyRecurringIds": ["3722415"],
       "payeePattern": "TFR-TO C/C",
       "payeePatterns": ["TFR-TO C/C", "PAYMENT-THANKYOU", "PAYMENT THANK YOU", "PAYMENT - THANK YOU"],
       "payeeExcludePatterns": ["REFUND", "REVERSAL"],
@@ -102,6 +104,7 @@
     },
     {
       "eventId": "triangle-td3",
+      "lunchMoneyRecurringIds": ["3722506"],
       "payeePattern": "CAN TIRE MC",
       "payeePatterns": ["CAN TIRE MC"],
       "atlasAccountId": "chequing-a",
@@ -131,7 +134,8 @@
       "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
     },
     {
-      "eventId": "mbna-day12",
+      "eventId": "mbna-auto30",
+      "lunchMoneyRecurringIds": ["3709492"],
       "payeePattern": "MBNA M/C",
       "payeePatterns": ["MBNA M/C"],
       "atlasAccountId": "chequing-a",
@@ -162,7 +166,7 @@
       "note": "Payment-movement alias retained for lookup metadata. Automatic minimum settlement is withheld by provider-observe.cardMinimumNeedsConfirmation: household backfill versus minimum intent is unconfirmed. Explicit exact occurrence confirmations remain on plan.opening.representedEvents."
     },
     {
-      "eventId": "mbna-day12",
+      "eventId": "mbna-auto30",
       "payeePattern": "payment",
       "payeePatterns": ["payment"],
       "payeeMatchMode": "exact",
@@ -200,6 +204,7 @@
     },
     {
       "eventId": "bcaa",
+      "lunchMoneyRecurringIds": ["3722144"],
       "payeePattern": "BCAA-AdvAutoIns",
       "payeePatterns": ["BCAA-AdvAutoIns", "Bcaa-adv"],
       "atlasAccountId": "chequing-a",
@@ -218,6 +223,7 @@
     },
     {
       "eventId": "icbc",
+      "lunchMoneyRecurringIds": ["3722145"],
       "payeePattern": "ICBC INS",
       "payeePatterns": ["ICBC INS", "Icbc"],
       "atlasAccountId": "chequing-a",
@@ -236,6 +242,7 @@
     },
     {
       "eventId": "resp",
+      "lunchMoneyRecurringIds": ["3722146"],
       "payeePattern": "TD WATERHOUSE I REP",
       "payeePatterns": ["TD WATERHOUSE I REP"],
       "atlasAccountId": "chequing-a",
@@ -272,6 +279,7 @@
     },
     {
       "eventId": "google-storage-100gb",
+      "lunchMoneyRecurringIds": ["3722157"],
       "requiredCurrency": "cad",
       "payeePattern": "Google",
       "payeePatterns": ["Google"],
@@ -353,6 +361,7 @@
     },
     {
       "eventId": "shaw",
+      "lunchMoneyRecurringIds": ["3722143"],
       "payeePattern": "SHAW CABLE TV BPY",
       "payeePatterns": ["SHAW CABLE TV BPY", "Shaw Cable"],
       "atlasAccountId": "chequing-a",
@@ -374,6 +383,7 @@
     },
     {
       "eventId": "noble-garbage",
+      "lunchMoneyRecurringIds": ["3722207"],
       "payeePattern": "Noble Dispo",
       "payeePatterns": ["Noble Dispo"],
       "atlasAccountId": "chequing-b",
@@ -391,6 +401,7 @@
     },
     {
       "eventId": "netflix",
+      "lunchMoneyRecurringIds": ["3722150"],
       "payeePattern": "Netflix",
       "payeePatterns": ["Netflix"],
       "atlasAccountId": "chequing-b",
@@ -426,6 +437,7 @@
     },
     {
       "eventId": "youtube-premium",
+      "lunchMoneyRecurringIds": ["3709406"],
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-09: standing schedule-trust paid on the scheduled due date via Apple Services / PayPal. Do not require an isolated YouTube bank transaction or monthly Dale proof. Do not invent Apple scrape or Gmail fetch. On or after the due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -437,6 +449,7 @@
     },
     {
       "eventId": "chatgpt-plus-dale",
+      "lunchMoneyRecurringIds": ["3722348"],
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-19: standing schedule-trust paid on the existing Forecast due date via PayPal merchant OpenAI OpCo, LLC ($28 CAD). Trust PayPal cadence. Owner 15th rails are cited for that trust; do not move chatgpt-plus-dale.day (incumbent Forecast due day 14 is already correct). Do not require a Lunch Money OpenAI/ChatGPT payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, or a card-paid identity. Do not settle chatgpt-plus-amanda (separate iOS $24.99 bill). On or after the scheduled due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -447,6 +460,7 @@
     },
     {
       "eventId": "icloud-storage",
+      "lunchMoneyRecurringIds": ["3722153"],
       "settlesWhen": "schedule-trust-on-due",
       "note": "Owner 2026-09-19: owner-confirmed Forecast day 14 / $13. Standing schedule-trust paid on the existing Forecast due date via Apple Services / PayPal. Do not require a Lunch Money iCloud payee or monthly Dale naming. Do not invent Apple scrape, Gmail fetch, or a card-paid identity. Do not move icloud-storage.day (incumbent Forecast due day 14 is already correct). On or after the scheduled due date, identity/settlement emits representedActuals from the schedule itself. Before the due date the bill stays still-due."
     },
@@ -484,6 +498,66 @@
       "earlyPayLookaheadDays": 2,
       "settlesWhen": "exact-scheduled-amount",
       "note": "Owner 2026-09-23: one posted Vancouver Warriors $895.00 debit on mapped Travel Visa settles the once Logan Warriors Elite Academy U13 commitment due 2026-09-23. Identity is that exact payee, Travel Visa, debit, and a posting no more than two days before the due (the observed 2026-09-21 charge) or within the incumbent once grace after the due. The exact scheduled $895 is a necessary guard after that identity, not identity by itself. The 2026-08-11 Vancouver Warriors $40 charge, another amount, another card, another merchant, and a posting more than two days early do not settle it. A savings transfer and a Travel Visa payment are not this expense and are not income. Not a generic rule that every Vancouver Warriors charge is this commitment. Not a prior-period versus current-period surplus split. Not schedule-trust. Do not invent a Lunch Money write."
+    },
+    {
+      "eventId": "microsoft",
+      "lunchMoneyRecurringIds": ["3722390"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): Microsoft is identified by its Lunch Money recurring link alone (item 3722390), as rehearsal-space is: a posted native-CAD BILLS ACCOUNT debit whose recurring_id is that item. The item leads the schedule; payee, notes and amount are not identity."
+    },
+    {
+      "eventId": "teamsnap-plus",
+      "lunchMoneyRecurringIds": ["3722391"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): TeamSnap+ is identified by its Lunch Money recurring link alone (item 3722391), as rehearsal-space is: a posted native-CAD BILLS ACCOUNT debit whose recurring_id is that item. The item leads the schedule; payee, notes and amount are not identity."
+    },
+    {
+      "eventId": "crave-standard-ads",
+      "lunchMoneyRecurringIds": ["3722235"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): Crave is paid from Bills per its Lunch Money item 3722235 and is identified by that recurring link alone, as rehearsal-space is. The item leads the schedule; payee, notes and amount are not identity."
+    },
+    {
+      "eventId": "paramount-plus",
+      "lunchMoneyRecurringIds": ["3722236"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): Paramount+ is paid from Bills per its Lunch Money item 3722236 and is identified by that recurring link alone, as rehearsal-space is. The item leads the schedule; payee, notes and amount are not identity."
+    },
+    {
+      "eventId": "stacktv",
+      "lunchMoneyRecurringIds": ["3722237"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): STACKTV is paid from Bills per its Lunch Money item 3722237 and is identified by that recurring link alone, as rehearsal-space is. The item leads the schedule; payee, notes and amount are not identity."
+    },
+    {
+      "eventId": "prime-video-ad-free",
+      "lunchMoneyRecurringIds": ["3722299"],
+      "atlasAccountId": "chequing-a",
+      "direction": "debit",
+      "requiredCurrency": "cad",
+      "requiredPostingEvidence": "posted",
+      "postingDateRule": "covers-early-or-due-on-or-before-posting",
+      "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): Prime Video ad-free is paid from Bills per its Lunch Money item 3722299 and is identified by that recurring link alone, as rehearsal-space is. The item leads the schedule; payee, notes and amount are not identity."
     },
     {
       "eventId": "rehearsal-space",
