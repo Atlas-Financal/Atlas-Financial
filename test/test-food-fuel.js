@@ -198,14 +198,18 @@ ok(liveB.cap && same(liveB.cap.foodFuelPlannedMonthly, LIVE_GROCERIES + LIVE_FUE
 console.log('\n=== page is a renderer; againstCap does not re-decide ===');
 const page = read('public/plan.js');
 const pageCode = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const { pageCodeMatching, pageScriptsMatching } = require('./lib/page-scripts');
+// Positive "the classic page reads Forecast.X" assertions stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md Q4);
+// the "never" assertions read every page script, the Stack page included.
+const never = (...res) => pageCodeMatching(...res);
 ok(/cap\.groceriesMonthly/.test(page) && /cap\.fuelMonthly/.test(page),
   'the Plan page reads the monthly figures from the cap block');
 ok(/cap\.groceriesHasOwnerTarget/.test(page),
   'and the owner-budget chip from the returned flag');
-ok(!/id === 'groceries'/.test(pageCode) && !/id === 'fuel'/.test(pageCode),
-  'the page no longer selects the grocery or fuel category');
-ok(!/target\s*\|\|\s*\w*\.?historical/.test(pageCode),
-  'the page no longer chooses target || historical');
+ok(never(/id === 'groceries'/, /id === 'fuel'/).length === 0,
+  'the page no longer selects the grocery or fuel category (no page script, classic or Stack)', never(/id === 'groceries'/, /id === 'fuel'/).join(', ') || 'none');
+ok(never(/target\s*\|\|\s*\w*\.?historical/).length === 0,
+  'the page no longer chooses target || historical (no page script, classic or Stack)', never(/target\s*\|\|\s*\w*\.?historical/).join(', ') || 'none');
 
 const FORECAST_SRC = read('public/forecast.js');
 const againstStart = FORECAST_SRC.indexOf('function againstCap(');

@@ -147,16 +147,20 @@ ok(live && ((live.amount > 0.005) === (live.id === 'leftover')),
 console.log('\n=== page is a renderer ===');
 const page = read('public/plan.js');
 const pageCode = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const { pageCodeMatching, pageScriptsMatching } = require('./lib/page-scripts');
+// Positive "the classic page reads Forecast.X" assertions stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md Q4);
+// the "never" assertions read every page script, the Stack page included.
+const never = (...res) => pageCodeMatching(...res);
 ok(/Forecast\.unallocatedCash\(/.test(page),
   'the Plan page reads the remainder from Forecast.unallocatedCash');
 ok(/UNALLOCATED_NOTE/.test(page),
   'the page looks the sentence up from a wording map');
-ok(!/windowDays\s*\/\s*\(\s*365\.25\s*\/\s*12\s*\)/.test(pageCode),
-  'the page no longer converts the monthly reserve over the window');
-ok(!/sim\.ending\s*-\s*sim\.buffer\s*-\s*reserves/.test(pageCode),
-  'the page no longer subtracts buffer and reserves from ending cash');
-ok(!/unallocated\s*<=\s*0/.test(pageCode) && !/unallocated\s*<\s*0/.test(pageCode),
-  'the page no longer picks the verdict or the negative class from the remainder');
+ok(never(/windowDays\s*\/\s*\(\s*365\.25\s*\/\s*12\s*\)/).length === 0,
+  'the page no longer converts the monthly reserve over the window (no page script, classic or Stack)', never(/windowDays\s*\/\s*\(\s*365\.25\s*\/\s*12\s*\)/).join(', ') || 'none');
+ok(never(/sim\.ending\s*-\s*sim\.buffer\s*-\s*reserves/).length === 0,
+  'the page no longer subtracts buffer and reserves from ending cash (no page script, classic or Stack)', never(/sim\.ending\s*-\s*sim\.buffer\s*-\s*reserves/).join(', ') || 'none');
+ok(never(/unallocated\s*<=\s*0/, /unallocated\s*<\s*0/).length === 0,
+  'the page no longer picks the verdict or the negative class from the remainder (no page script, classic or Stack)', never(/unallocated\s*<=\s*0/, /unallocated\s*<\s*0/).join(', ') || 'none');
 
 console.log('\n=== mutation: halving the window conversion now fails ===');
 const FORECAST_SRC = read('public/forecast.js');
