@@ -2292,7 +2292,7 @@ Amazon merchant identity **and** canonical `travelvisa`.
 | Available credit | Forecast-derived from posted+pending vs the $8,000 limit; never household cash. Dated: **$62.83** on 9 August; **$0.00** on the 2026-08-16 screenshot |
 | Pending transactions | **$0.00** on the 2026-08-19 opening; **$0.00** on the 2026-08-16 screenshot; **$82.05** on the 9 August opening |
 | Last statement balance | $7,855.12 |
-| Minimum payment | **$140.72** (estimated), Dale's automatic statement-minimum payment from Bills on the **30th**, first **30 Nov 2026** (owner fact 2026-11-21; the 31 Aug 2026 statement minimum was $158.27) |
+| Minimum payment | **$140.72** (estimated), Dale's automatic statement-minimum payment from Bills on the **30th**, first planned run **30 Dec 2026** (owner fact 2026-11-21; whether a 30 Nov 2026 run occurs is not confirmed: the owner declined that question on 2026-11-21, so the plan does not count it; the 31 Aug 2026 statement minimum was $158.27) |
 | Statement closing | **6th of the month** (June 2026 closed on the 8th) |
 | Lunch Money evidence cadence | **Owner-maintained monthly statement.** Atlas identity `mbna` only. Statement/update day **8** — the day Dale incorporates the arrived statement into Lunch Money, not a rewrite of the issuer close date above. Atlas must not demand daily MBNA refreshes between statements. A current-cycle observation remains acceptable after the 8th until the next 8th. Cadence never rewrites `evidenceDate`. Not a generic freshness default. |
 | **Rate — purchases** | **21.74%** |
