@@ -146,31 +146,40 @@ async function loadStackPage({ data, periods = null, history = null, globals = {
   const block = name => (root() ? root().querySelector(`[data-stack-block="${name}"]`) : null);
   const context = () => (sandbox.StackBlocks && sandbox.StackBlocks.context ? sandbox.StackBlocks.context() : null);
   const keyOf = v => `${v.start}`;
+  // The status is the only thing that says the page is usable. Each of its three lines is exercised by its own
+  // scenario in test/test-stack-page-harness.js, and that test removes each line from this file in turn and
+  // shows a scenario then fails: a harness that cannot tell a fall-back from a render would go green on nothing.
+  const status = () => {
+    if (errors.length) return 'fell-back';
+    if (!root()) return 'not-mounted';
+    const ctx = context();
+    if (!ctx || !ctx.recommendation) return 'no-recommendation';
+    return 'rendered';
+  };
+  // Nothing is read back from a page that is not rendered: after a fall-back on a later draw (the shell removes its
+  // root and hands back the classic page) the last block HTML is stale, so every read says nothing rather than that.
+  const live = () => status() === 'rendered';
   const page = {
-    context: sandbox, sandbox, errors, document,
-    context_: context,
-    status() {
-      if (errors.length) return 'fell-back';
-      if (!root()) return 'not-mounted';
-      const ctx = context();
-      if (!ctx || !ctx.recommendation) return 'no-recommendation';
-      return 'rendered';
-    },
-    blockHtml: name => (block(name) ? block(name).innerHTML : ''),
-    context: () => context(),
-    selectedKey: () => { const ctx = context(); return ctx ? ctx.selectedPeriodKey : null; },
+    sandbox, errors, document,
+    status,
+    blockHtml: name => (live() && block(name) ? block(name).innerHTML : ''),
+    context: () => (live() ? context() : null),
+    selectedKey: () => { const ctx = live() ? context() : null; return ctx ? ctx.selectedPeriodKey : null; },
     periodKeys() {
-      const ctx = context();
+      const ctx = live() ? context() : null;
       const views = ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews) ? ctx.recommendation.payPeriodViews : [];
       return views.filter(v => v && typeof v.start === 'string').map(keyOf);
     },
     // The household pressing a pay period chip: the shell's own delegated click handler, with the chip in the event.
+    // Returns the selected key, or null when the page was not rendered before the press or fell back during it.
     selectPeriod(key) {
+      if (!live()) return null;
       const handlers = (root() && root().listeners.click) || [];
       const chip = { getAttribute: name => (name === 'data-stack-period' ? key : null) };
       const event = { target: { closest: sel => (sel === '[data-stack-period]' ? chip : null) }, preventDefault() {} };
-      for (const fn of handlers) fn(event);
-      return page.selectedKey();
+      // An error out of the handler is an uncaught page error, as in a browser: it counts like any other.
+      for (const fn of handlers) { try { fn(event); } catch (error) { errors.push([error]); } }
+      return page.selectedKey();   // null once the press made the page fall back (selectedKey reads nothing then)
     },
   };
   return page;

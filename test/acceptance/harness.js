@@ -336,6 +336,9 @@ function contentType(file) {
 // periods / selectPeriod.
 const VIEW_ROUTE = { classic: '/?view=classic', stack: '/' };
 const READY = { classic: '[data-budget-surface]', stack: '#stack-root [data-stack-block="waterfall"] > *' };
+// The classic page waits for its surface to be visible, as before (the strictness every scenario was written against);
+// the Stack page waits for its waterfall to be attached (its blocks draw into containers the shell has laid out).
+const READY_STATE = { classic: 'visible', stack: 'attached' };
 async function openBudget(dataDocs, opts = {}) {
   const view = opts.view || 'classic';
   if (!VIEW_ROUTE[view]) throw new Error('openBudget: unknown view ' + view);
@@ -361,7 +364,7 @@ async function openBudget(dataDocs, opts = {}) {
   });
   if (opts.exposeData) await page.addInitScript(d => { window.__atlasAcceptanceData = d; }, docs[0]);
   await page.goto(ORIGIN + VIEW_ROUTE[view]);
-  await page.locator(READY[view]).first().waitFor({ state: 'attached', timeout: 20000 });
+  await page.locator(READY[view]).first().waitFor({ state: READY_STATE[view], timeout: 20000 });
   const api = {
     page, errors, view,
     async text(selector = '[data-budget-surface]') {
@@ -385,7 +388,7 @@ async function openBudget(dataDocs, opts = {}) {
     async range() { return page.locator('[data-budget-window-range]:visible').first().innerText().catch(() => ''); },
     async reload() {
       await page.reload();
-      await page.locator(READY[view]).first().waitFor({ state: 'attached', timeout: 20000 });
+      await page.locator(READY[view]).first().waitFor({ state: READY_STATE[view], timeout: 20000 });
     },
     // The Stack page (view 'stack'): the text of one block (waterfall, cards, credit, sheet) or of the whole page, the
     // textContent of every match inside it, the pay periods it offers, and the household pressing a period chip.
