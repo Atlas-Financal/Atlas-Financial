@@ -369,3 +369,43 @@ console.log('test-stack-cards: ok');
   assert(/\.sc-f>\[role=img\]\{font-size:\.6em/.test(css1) && /\.stack-credit-figure\[data-unpublished\] \{ font-size: 14\.4px/.test(cr),
     'a withheld head figure is a small soft dash like the "/ b" part, not a big minus');
 }
+
+// C1 S4 B2: a real recommendation whose operating plan is unavailable. Replaces the classic page's printed "unavailable
+// Plan surface lists no bills or Household Budget planned dollars" (test-plan-calendar-waterfalls.js section 18): with the
+// plan unavailable Forecast publishes no bills total and no budget figures for the current period, and the cards must
+// print no amount for it, never $0. The trusted control prints its published figures; a mutant printing $0 is caught.
+{
+  const H = require('./acceptance/harness.js');
+  const F = require('../public/forecast.js');
+  const w = H.baseWorld();
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  w.bills = [{ id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed' }];
+  const { data, packet, error } = H.dataOf(w);
+  if (error) throw error;
+  const base = { debts: data.debts, currentPeriodActuals: packet };
+  const trusted = F.recommend(data.plan, w.asOf, base);
+  const unavailable = F.recommend(data.plan, w.asOf, Object.assign({ operatingPlan: 'unavailable', operatingPlanNote: 'Current plan unavailable. The dated opening is stale.' }, base));
+  const active = rec => rec.payPeriodViews.find(v => v.role === 'active');
+  const cardsOf = (rec, view, builder) => (builder || buildCardsHTML)({ data, plan: data.plan, recommendation: rec, selectedPeriodKey: view.start, Forecast: F });
+  const aT = active(trusted), aU = active(unavailable);
+  assert(unavailable.operatingPlanUnavailable === true && aU.stackSummary.bills.other == null
+      && aU.budgetProgress.household.planned.amount == null && aU.budgetProgress.household.actual.amount == null
+      && aT.stackSummary.bills.other === 90 && aT.budgetProgress.household.planned.amount === 400,
+    'independent facts: the trusted current period publishes bills $90 and a $400 budget plan, the unavailable one publishes neither');
+  const htmlT = cardsOf(trusted, aT), htmlU = cardsOf(unavailable, aU);
+  assert(amounts(htmlT).includes('$90') && amounts(htmlT).includes('$400'), 'control: the trusted current period prints its $90 bills and $400 budget plan');
+  assert(amounts(htmlU).length === 0, 'the unavailable current period prints no amount on the cards: ' + JSON.stringify(amounts(htmlU)));
+  assert(!/[$]0(?![\d.,])/.test(htmlU), 'and nothing reads $0');
+  // Mutation: print an unpublished figure as $0; the unavailable period then prints money and the checks above fail.
+  const src = fs.readFileSync(file, 'utf8');
+  const target = 'return isNum(v) ? root.StackBlocks.money(v) : null;';
+  assert(src.split(target).length === 2, 'the mutation target appears once');
+  const Module = require('module');
+  const mm = new Module(file);
+  mm.filename = file;
+  mm.paths = Module._nodeModulePaths(path.dirname(file));
+  mm._compile(src.replace(target, 'return root.StackBlocks.money(isNum(v) ? v : 0);'), file);
+  const mutantHtml = cardsOf(unavailable, aU, mm.exports.buildCardsHTML);
+  assert(amounts(mutantHtml).length > 0, 'mutant: printing an unpublished figure as $0 shows money on the unavailable period and is caught');
+  console.log('PASS unavailable-plan period prints no amount on the cards (real recommendation, control, $0 mutant)');
+}

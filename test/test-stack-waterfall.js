@@ -322,5 +322,59 @@ console.log('9. The minimum\'s due date beside each Credit card name (Dale, 2026
   ok(mutantDues[1] === 'Oct 3', 'mutant: dropping the exactly-one rule prints a guessed date for the two-occurrence card and is caught', JSON.stringify(mutantDues));
 }
 
+console.log('11. A real Forecast recommendation whose operating plan is unavailable (C1 S4 B2)');
+{
+  // Replaces the classic page's printed "unavailable Plan surface lists no income, bills or budget dollars"
+  // (test-plan-calendar-waterfalls.js section 18): with the operating plan unavailable Forecast publishes no income
+  // or surplus for the current period, and the Stack waterfall must then print no amount for it, never $0.
+  const H = require('./acceptance/harness.js');
+  const F = require('../public/forecast.js');
+  const w = H.baseWorld();
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  const { data, packet, error } = H.dataOf(w);
+  if (error) throw error;
+  const base = { debts: data.debts, currentPeriodActuals: packet };
+  const trusted = F.recommend(data.plan, w.asOf, base);
+  const unavailable = F.recommend(data.plan, w.asOf, Object.assign({ operatingPlan: 'unavailable', operatingPlanNote: 'Current plan unavailable. The dated opening is stale.' }, base));
+  const render = (rec, view, mod) => {
+    const c = fakeContainer();
+    (mod || W).render(c, { data, plan: data.plan, recommendation: rec, selectedPeriodKey: view.start, Forecast: F });
+    return c.innerHTML;
+  };
+  const activeOf = rec => rec.payPeriodViews.find(v => v.role === 'active');
+  const aT = activeOf(trusted), aU = activeOf(unavailable);
+  ok(unavailable.operatingPlanUnavailable === true && aU.stackSummary.income.total.amount == null && aU.stackSummary.surplus.amount == null
+      && aT.stackSummary.income.total.amount === 1400,
+    'independent facts: the trusted current period publishes $1,400 income, the unavailable one publishes none');
+  const htmlT = render(trusted, aT), htmlU = render(unavailable, aU);
+  ok(/\$1,400/.test(htmlT), 'control: the trusted current period prints its $1,400 income');
+  ok(!MONEY.test(htmlU) && cells(htmlU).every(x => x.unpublished), 'the unavailable current period prints no amount at all (MONEY pattern, every cell blank)');
+  MONEY.lastIndex = 0;
+  ok(!/\$0(?![\d.,])/.test(htmlU), 'and nothing reads $0');
+  let periods = 0;
+  for (const view of unavailable.payPeriodViews) {
+    const html = render(unavailable, view);
+    const cs = cells(html);
+    const bad = cs.filter(x => !x.unpublished && x.text !== (x.source === W.LINE_SOURCES.surplus ? fmtSigned(readPath(view, x.source)) : fmt(readPath(view, x.source))));
+    const blankBad = cs.filter(x => x.unpublished && typeof readPath(view, x.source) === 'number');
+    if (!bad.length && !blankBad.length && (html.match(MONEY) || []).length === cs.filter(x => !x.unpublished).length) periods++;
+  }
+  ok(periods === unavailable.payPeriodViews.length, 'every period of the unavailable recommendation prints only its published values (' + periods + ' periods)');
+  // Mutation: print an unpublished amount as 0; the unavailable current period then shows money and the test above fails.
+  const src = fs.readFileSync(FILE, 'utf8');
+  const from = ["return isAmount(value)\n      ?", "sign ? signed(value) : money(value)"];
+  ok(from.every(f => src.split(f).length === 2), 'the mutation targets appear once');
+  const mutated = src.replace(from[0], 'return true\n      ?').replace(from[1], 'sign ? signed(value || 0) : money(value || 0)');
+  const Module = require('node:module');
+  const mm = new Module(FILE);
+  mm.filename = FILE;
+  mm.paths = Module._nodeModulePaths(path.dirname(FILE));
+  mm._compile(mutated, FILE);
+  const mutantHtml = render(unavailable, aU, mm.exports);
+  MONEY.lastIndex = 0;
+  ok(MONEY.test(mutantHtml), 'mutant: printing an unpublished amount as $0 shows money on the unavailable period and is caught');
+  MONEY.lastIndex = 0;
+}
+
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack waterfall checks passed`);
 process.exit(failures ? 1 : 0);

@@ -11,7 +11,7 @@
  *
  * `node test/test-plan-calendar-waterfalls.js`
  */
-const { loadBudgetPage, liveBudgetComposerSource } = require('./lib/budget-page-harness');
+const { liveBudgetComposerSource } = require('./lib/budget-page-harness');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -38,14 +38,6 @@ function independentHub(plan) {
   const row = rows.find(item => item && item.id === 'chequing-a');
   const value = row != null ? Number(row.value) : NaN;
   return Number.isFinite(value) ? Math.round(value * 100) / 100 : null;
-}
-
-function loadComposer() {
-  // The real Budget page (test/lib/budget-page-harness.js). operatingSurfaceHtml
-  // is the live composition: the Today card plus the compact pay-period content.
-  const page = loadBudgetPage({ Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
-  return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx),
-    money2: page.get('money2'), glanceLineLabel: page.get('glanceLineLabel') };
 }
 
 function period(view, id) {
@@ -343,35 +335,6 @@ const debts = [
   { id: 'mortgage', label: 'Mortgage', secured: true, structure: 'Amortising', balance: 5000, rate: 3.64, payment: 1600, pending: 0 },
 ];
 
-const composer = loadComposer();
-
-function defaultGlance(html) {
-  let out = String(html || '');
-  const openRe = /<details\b/i;
-  while (openRe.test(out)) {
-    const start = out.search(openRe);
-    const openMatch = out.slice(start).match(/<details\b[^>]*>/i);
-    if (!openMatch) break;
-    let i = start + openMatch[0].length;
-    let depth = 1;
-    while (i < out.length && depth > 0) {
-      const rest = out.slice(i);
-      const nextOpen = rest.search(/<details\b/i);
-      const nextClose = rest.search(/<\/details>/i);
-      if (nextClose < 0) { i = out.length; break; }
-      if (nextOpen >= 0 && nextOpen < nextClose) {
-        const nested = rest.slice(nextOpen).match(/<details\b[^>]*>/i);
-        depth++;
-        i += nextOpen + (nested ? nested[0].length : 8);
-      } else {
-        depth--;
-        i += nextClose + 10;
-      }
-    }
-    out = out.slice(0, start) + out.slice(i);
-  }
-  return out;
-}
 
 console.log('=== 1. Period 1 cash leftover flows into Period 2 opening ===');
 {
@@ -571,24 +534,7 @@ console.log('\n=== 7. Bell undated is visible, never dated, and leaves forward l
     ok(p.periodBillLoad == null && p.afterBills == null,
       `${p.label} bill load and after bills are unknown with undated Bell`);
   }
-  const html = composer.operatingSurfaceHtml({
-    advice: { defaultView: view, paydayAllocation: { available: (view.calendarPeriods.find(p => p.role === 'active') || view.calendarPeriods[0]).opening, cashBasis: { asOf: '2026-08-30' } } },
-    weekly: 0, recommended: 0,
-  });
-  const bellLine = /data-period-bill="bell"[^>]*>\s*<span>([^<]*)<\/span>\s*<span>([^<]*)<\/span>/.exec(html);
-  ok(bellLine && bellLine[1] === 'Bell · date unavailable'
-      && /about/.test(bellLine[2]) && /121/.test(bellLine[2])
-      && !/BILLS ACCOUNT/i.test(bellLine[1]),
-    'Needs a Date Bell is name · date unavailable, no paying account',
-    bellLine && `${bellLine[1]} | ${bellLine[2]}`);
-  ok(/date unavailable/i.test(html) && /bill totals and balances that depend on it are unknown/.test(html)
-      && /Needs a date/.test(html) && /data-bill-section="needs-date"/.test(html),
-    'page prints Bell outside the period lists and says its dependent totals are unknown');
-  ok(!/See how payday is reserved/.test(html)
-      && !/See later bills and big purchases/.test(html)
-      && !/Notes behind these numbers/.test(html)
-      && !/View full current-period worksheet/.test(html),
-    'Needs a Date remains without restoring secondary Plan clutter');
+  // The classic page's printed Needs-a-date Bell line and its "totals unknown" copy retired with the classic page (C1 S4 B2); the Forecast facts above (needsDate, no date, bill load and after-bills unknown) stay, and the Stack waterfall prints nothing for an unpublished value (test-stack-waterfall.js sections 3 and 11).
 }
 
 console.log('\n=== 8. Extra debt never takes leftover below the $500 floor ===');
@@ -663,23 +609,7 @@ console.log('\n=== 9. Live August 30 sheet: lookback P1, live P2, card mins, HEL
   const seattle = (p2.bigPurchases || []).filter(r => /seattle/i.test(r.id + r.label));
   ok(seattle.every(r => near(r.cost, 1500)),
     'any Seattle big purchase in this period is the owner-confirmed $1,500');
-  const html = composer.operatingSurfaceHtml({
-    advice, weekly: advice.weekly, recommended: advice.weekly,
-  });
-  const glance = defaultGlance(html);
-  // Live Budget prints one selected pay period at a time: Next Pay Period
-  // is named when it is the selected period.
-  const nextSelected = composer.operatingSurfaceHtml({
-    advice, weekly: advice.weekly, recommended: advice.weekly, planPayPeriodId: 'next-pay-period',
-  });
-  ok(/This Pay Period/.test(html) && /Next Pay Period/.test(nextSelected),
-    'page names the two payday waterfalls');
-  ok(/data-calendar-waterfall="this-pay-period"/.test(html),
-    'default print shows the active This Pay Period waterfall');
-  ok(!/\bForecast\b|\bAtlas\b|\brepresented\b|\bunverified\b|\basOf\b/.test(glance),
-    'default glance has no Forecast/Atlas jargon or settlement code words');
-  ok(!/CMAW|Pixieset|Mailchimp/i.test(glance),
-    'cancelled CMAW / Pixieset / Mailchimp are not tracked on the sheet');
+  // The classic page's printed waterfall names, glance wording and the cancelled-bill absence from the printed sheet retired (C1 S4 B2); the fixture here contains no cancelled CMAW / Pixieset / Mailchimp bill, so those printed absences were vacuous; the Forecast-side cancelled-bill drop is asserted in test-this-payday-already-paid.js.
 }
 
 console.log('\n=== 10. Household Budget uses the Seaspan payday cycle, not bill-calendar dates ===');
@@ -863,21 +793,7 @@ console.log('\n=== 12. subscriptions exist only under Bills, never as a househol
   }
   const ug = billsOf(p1).concat(billsOf(p2)).find(r => r.id === 'ultimate-guitar');
   ok(!ug, 'Ultimate Guitar yearly May 8 is not an August household-budget or August bill');
-  const html = composer.operatingSurfaceHtml({
-    advice, weekly: advice.weekly, recommended: advice.weekly,
-    planPayPeriodId: 'next-pay-period',
-  });
-  const budgetBlock = /data-payday-household-budget[\s\S]*?<\/div>\s*<\/div>/.exec(html);
-  ok(budgetBlock && !/Subscriptions/i.test(budgetBlock[0])
-      && !/included in Bills, remaining not deducted/.test(budgetBlock[0]),
-    'Household Budget block does not print a subscriptions line');
-  const netflixLine = /data-period-bill="netflix"[^>]*>\s*<span>([^<]*)<\/span>/.exec(html);
-  ok(netflixLine && /Netflix/.test(netflixLine[1]) && / · (PAID|pending|still due)$/.test(netflixLine[1])
-      && !/BILLS ACCOUNT/i.test(netflixLine[1]),
-    'page prints Netflix as a Bills row without paying account',
-    netflixLine && netflixLine[1]);
-  ok(!/Pixieset|Mailchimp|CMAW/i.test(html),
-    'Pixieset / Mailchimp / CMAW stay off the sheet');
+  // The classic page's printed Household Budget block (no subscriptions line), Netflix row without a paying account and the cancelled-bill absence from the printed sheet retired (C1 S4 B2); the fixture holds no cancelled bill (vacuous printed check; the Forecast-side drop is in test-this-payday-already-paid.js) and the Forecast absence assertions above stay.
 }
 
 console.log('\n=== 12b. Aug 14 and Aug 15 hold the Aug 14–27 cycle exactly once ===');
@@ -1116,16 +1032,7 @@ console.log('\n=== 13b. Dale/Amanda guilt-free actuals need explicit evidence in
   const nextDale = budgetRow(p2, 'dale-guilt-free');
   ok(!nextDale || near(nextDale.spent, 0),
     'Next Pay Period does not reuse this cycle\'s Dale/Amanda spent');
-  const html = composer.operatingSurfaceHtml({
-    advice: { defaultView: view, paydayAllocation: { available: p1.opening, cashBasis: { asOf } } },
-    weekly: 0, recommended: 0, planCalendarShow: 'this-pay-period',
-  });
-  ok(/Dale guilt-free spending/.test(html) && /Amanda guilt-free spending/.test(html)
-      && /Other spending/.test(html)
-      && /Not yet assigned to a budget category/.test(html)
-      && !/Spending outside the budget categories above/.test(html)
-      && !/Personal spending — needs confirmation/.test(html),
-    'page prints Dale/Amanda and unassigned Other spending, not a comprehensive outside-category total');
+  // The classic page's printed guilt-free row names and unassigned Other spending copy retired (C1 S4 B2, V1-only wording); the Forecast rows above stay.
 }
 
 console.log('\n=== 13c. classification: Surrey Meat, eating out, Canadian Tire, bills ===');
@@ -1278,23 +1185,7 @@ console.log('\n=== 14. page prints Forecast; leftover is not computed in plan.js
   const liveSrc = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'live-plan.js'), 'utf8');
   ok(!/fs\.writeFileSync/.test(liveSrc),
     'live-plan.js still does not write data.json');
-  const plan = syntheticPlan();
-  const advice = F.recommend(plan, '2026-08-30', { targetBuffer: 500, debts });
-  const html = composer.operatingSurfaceHtml({
-    advice, weekly: advice.weekly, recommended: advice.weekly,
-    planCalendarShow: 'this-pay-period',
-  });
-  ok(/Aug 28–Sep 10/.test(html) && !/Spending cycle:/.test(html),
-    'page prints Aug 28–Sep 10 without repeating Spending cycle:');
-  ok(/<dt>Planned<\/dt>/.test(html)
-      && /<dt>Remaining<\/dt>/.test(html)
-      && /household-budget-metrics/.test(html)
-      && !/\$450(?:\.00)?\/week/.test(html)
-      && !/planned this period/.test(html)
-      && !/spent this period/.test(html),
-    'page prints structured Planned / Remaining and does not print grocery $450/week');
-  ok(/Dale guilt-free spending/.test(html) && /Amanda guilt-free spending/.test(html),
-    'page always prints both guilt-free rows');
+  // The classic page's printed cycle label, Planned / Remaining rows and guilt-free rows retired (C1 S4 B2); the plan.js source-text checks above stay until S7.
 }
 
 function displayedAbs(row) {
@@ -1414,9 +1305,7 @@ console.log('\n=== 15. weekend posting keeps 15 August bills in Period 1, paid =
     ok(row && row.status === 'PAID' && row.date === '2026-08-16' && row.scheduledDue === '2026-08-15',
       `${id} is Period 1 PAID on its 16 August occurrence, scheduled 15 August`,
       row && `${row.status} ${row.date} ${row.scheduledDue}`);
-    ok(row && /· Aug 15 ·/.test(composer.glanceLineLabel(row, 'PAID')),
-      `${id} still prints its scheduled 15 August due`,
-      row && composer.glanceLineLabel(row, 'PAID'));
+  // The classic bill row's printed scheduled-due label retired (C1 S4 B2); row.scheduledDue is asserted above.
     ok(!billsOf(p2).some(r => r.id === id),
       `${id} is absent from Period 2`);
   }
@@ -1549,14 +1438,7 @@ console.log('\n=== 17. bills block totals: this period vs remaining to pay ===')
       }
     }
   }
-  const html = composer.operatingSurfaceHtml({
-    advice, weekly: advice.weekly, recommended: advice.weekly,
-    planCalendarShow: 'both',
-  });
-  ok(/Total bills this period/.test(html) && /Remaining bills to pay/.test(html),
-    'page prints both bill totals in plain language');
-  ok(!/>Remaining bills </.test(html),
-    'old remaining-only label is gone');
+  // The classic page's two printed bill-total labels retired (C1 S4 B2, V1-only wording); periodBillLoad, remainingBills and afterBills are asserted above, and the Stack waterfall prints the one published Bills total (test-stack-waterfall.js).
 }
 
 console.log('\n=== 16. payday cadence annualizes with the master plan; week views stay whole ===');
@@ -1780,37 +1662,7 @@ console.log('\n=== 18. unavailable current period: the next period is an estimat
       && !JSON.stringify(unP2).includes('"verified"'),
     'later half lists no Aug 28/31 income and carries no calculated or verified tag');
 
-  const unHtml = composer.operatingSurfaceHtml({
-    advice: unavailable,
-    weekly: unavailable.weekly,
-    recommended: unavailable.weekly,
-    planPayPeriodId: 'next-pay-period',
-  });
-  ok(/data-unavailable-primary/.test(unHtml)
-      && /data-current-operating="unavailable"/.test(unHtml)
-      && /data-operating-plan="unavailable"/.test(unHtml)
-      && /unavailable/.test(unHtml)
-      && /stale/.test(unHtml),
-    'printed unavailable Plan surface is one compact unavailable/stale state');
-  ok(!/data-calendar-waterfall/.test(unHtml)
-      && !/data-calendar-period-picker/.test(unHtml)
-      && !/Current Balance/i.test(unHtml),
-    'printed unavailable Plan surface does not render the current pay-period waterfall');
-  ok(!/arriving/.test(unHtml)
-      && !/Still arriving/.test(unHtml)
-      && !/data-income-status="arriving"/.test(unHtml)
-      && !/Payroll — Seaspan/.test(unHtml)
-      && !/Dale salary/.test(unHtml)
-      && !/Amanda salary month-end/.test(unHtml)
-      && !/Netflix/.test(unHtml)
-      && !/planned this period/.test(unHtml)
-      && !/household-budget-metrics/.test(unHtml)
-      && !/Spending cycle:/.test(unHtml),
-    'printed unavailable Plan surface does not list arriving income, Netflix, or Household Budget planned dollars');
-  ok(!unHtml.includes(composer.money2(laterIncomeSum))
-      && !unHtml.includes(composer.money2(netflix.amount)),
-    'printed unavailable Plan surface does not publish the independent later-half income total or Netflix amount');
-
+  // The classic page's printed unavailable surface retired (C1 S4 B2). Replacement: test-stack-waterfall.js section 11 (a real unavailable-plan recommendation prints no amount for the current period, never $0, and every period prints only published values; a mutant printing $0 is caught). The Forecast withholdings above stay.
   const trusted = F.recommend(plan, openingAsOf, { targetBuffer: 500, debts });
   const liveP1 = period(trusted.defaultView, 'this-pay-period');
   const liveP2 = period(trusted.defaultView, 'next-pay-period');
@@ -1827,22 +1679,7 @@ console.log('\n=== 18. unavailable current period: the next period is an estimat
       && (liveP2.householdBudget || []).length > 0
       && liveP2.budgetHold != null,
     'trusted next payday window lists independent Aug 14 Seaspan, Amanda 15th, Netflix, and Household Budget');
-  const liveHtml = composer.operatingSurfaceHtml({
-    advice: trusted,
-    weekly: trusted.weekly,
-    recommended: trusted.weekly,
-    planPayPeriodId: 'next-pay-period',
-  });
-  ok(/Dale salary/.test(liveHtml)
-      && /data-period-income="amanda15"/.test(liveHtml)
-      && !/data-period-income="amandaEnd"/.test(liveHtml)
-      && !/Payroll — Seaspan/.test(liveHtml)
-      && /Netflix/.test(liveHtml)
-      && /<dt>Planned<\/dt>/.test(liveHtml)
-      && /household-budget-metrics/.test(liveHtml)
-      && !/data-operating-plan="unavailable"/.test(liveHtml),
-    'trusted printed next payday window still publishes arriving Seaspan, Amanda 15th, bills, and Household Budget');
-
+  // The trusted control's printed next-payday window retired (C1 S4 B2); the Forecast control above stays, and test-stack-waterfall.js section 11 prints the trusted current period with its published income.
   const src = read('public/forecast.js');
   const waterfallFn = /function calendarPeriodWaterfalls\([\s\S]*?\n  \}/.exec(src);
   ok(waterfallFn && /unavailableOpeningLost/.test(waterfallFn[0])
