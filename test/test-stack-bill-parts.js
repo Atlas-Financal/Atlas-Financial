@@ -75,8 +75,8 @@ console.log('1. The invented household, mortgage as a mortgage payment (the answ
   ok(JSON.stringify(placed(v)) === JSON.stringify([['mortgage', 'mortgage', 1400, null], ['hydro', 'other', 120, null],
     ['card-minimum', 'cardMinimum', 60, 'travelvisa'], ['internet', 'other', 85, null]]), 'each row is placed once, with its amount', JSON.stringify(placed(v)));
   const bills = cardHtml(v, 'bills');
-  ok(headOf(bills) === 'Bills $0 / $205' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Hydro $120', 'Internet $85']),
-    'Bills card: head $0 paid / $205 over Hydro $120 and Internet $85, neither checked (the card minimum is not here)', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
+  ok(headOf(bills) === 'Bills —' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Hydro $120', 'Internet $85']),
+    'Bills card: no ledger packet in this world, so paid is withheld (a dash), over Hydro $120 and Internet $85 (the card minimum is not here)', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
   // There is no Mortgage card: Forecast still places the mortgage row (above), the page prints it only in the waterfall.
   ok(!pageHtml(v).includes('data-stack-card="mortgage"') && !/mortgage/i.test(text(pageHtml(v))), 'no Mortgage card on the page, and no mortgage row on any card');
 }
@@ -88,8 +88,8 @@ console.log('2. A plain bill named "mortgage" is not a mortgage payment');
   const v = current(F, {});
   ok(v.stackSummary.bills.mortgage === 0 && v.stackSummary.bills.other === 1605, 'split: mortgage 0, other 1,605');
   const bills = cardHtml(v, 'bills');
-  ok(headOf(bills) === 'Bills $0 / $1,605' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400', 'Hydro $120', 'Internet $85']),
-    'Bills card lists the lookalike with hydro and internet: 1,400 + 120 + 85 = its $1,605 head, none checked so $0 paid', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
+  ok(headOf(bills) === 'Bills —' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400', 'Hydro $120', 'Internet $85']),
+    'Bills card lists the lookalike with hydro and internet: 1,400 + 120 + 85 = 1,605 (other), paid withheld with no ledger packet', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
   ok(!pageHtml(v).includes('data-stack-card="mortgage"'), 'no Mortgage card to show a $0 head');
 }
 
