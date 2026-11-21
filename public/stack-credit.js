@@ -76,7 +76,9 @@
 
   // One line, read for the design's right-hand figure "X / minimum" (Dale, 2026-11-20: he approved the Credit Minimum
   // mock-up). Only published values are compared or printed; nothing is added or subtracted here:
-  //   * paid or spent unpublished (the HELOC): X is a dash, plain ink, no tick;
+  //   * paid or spent unpublished (a manual card, the HELOC): X is Forecast's published paidToward in normal type (a $0
+  //     when nothing was paid or the card cannot be seen, the HELOC's posted payments), the one figure the head also sums
+  //     (Dale, 2026-11-20); a dash only when Forecast withholds it (past period, failed sync), plain ink, no tick;
   //   * status 'to-go' (Forecast says spending is above payments): X is the published toGo, in red;
   //   * otherwise X is the published paid, in green with the filled ✓ only when minimumCovered is published true, a
   //     minimum is due, something was spent or paid and the period is not upcoming; plain ink when it is false or unknown;
@@ -100,6 +102,11 @@
     if (min != null && cv === true) {
       out.ok = true;
       out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid));
+    }
+    const toward = amountOf(line.paidToward);
+    if (paid == null || spent == null) {
+      // Not read from a card ledger: the published paidToward, in normal type (no soft styling), never a guess.
+      if (toward != null) { out.x = toward; out.xSoft = ''; }
     }
     if (paid != null && spent != null) {
       if (line.status === 'to-go') {
