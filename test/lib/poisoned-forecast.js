@@ -58,6 +58,12 @@ function install({ payload, skipSource, isoSource, wrapSource }) {
 
 module.exports = {
   PAYLOAD, SKIP_SOURCE, ISO_DATE,
-  poisonedForecast: real => wrap(real, PAYLOAD, SKIP_SOURCE, ISO_DATE),
+  // skipExtra: more key-name suffixes left clean (a pipe-separated alternation), for a page whose renderers branch on a
+  // discriminator the default list does not name (the Stack page's stackBillPart, stackBillPaymentEvidence).
+  poisonedForecast: (real, skipExtra) => wrap(real, PAYLOAD,
+    skipExtra ? SKIP_SOURCE.replace(/\)\$$/, '|' + skipExtra + ')$') : SKIP_SOURCE, ISO_DATE),
   browserInit: [install, { payload: PAYLOAD, skipSource: SKIP_SOURCE, isoSource: ISO_DATE, wrapSource: wrap.toString() }],
+  // The same, with more key-name suffixes left clean (see poisonedForecast's skipExtra).
+  browserInitWith: skipExtra => [install, { payload: PAYLOAD, skipSource: SKIP_SOURCE.replace(/\)\$$/, '|' + skipExtra + ')$'),
+    isoSource: ISO_DATE, wrapSource: wrap.toString() }],
 };

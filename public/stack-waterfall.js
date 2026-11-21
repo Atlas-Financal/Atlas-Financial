@@ -95,10 +95,12 @@
 
   // One amount cell: the published value, or nothing (F8).
   function amountCell(view, key, { sign = false } = {}) {
-    const value = readPath(view, LINE_SOURCES[key]);
+    // A fixed internal path from the table above (the keys are literals in this file; a key not in it prints no source).
+    const source = LINE_SOURCES[key];
+    const value = readPath(view, source);
     return isAmount(value)
-      ? `<span class="n${est(view, TRUST_SOURCES[key])}" data-source="${LINE_SOURCES[key]}">${escape(sign ? signed(value) : money(value))}</span>`
-      : `<span class="n" data-source="${LINE_SOURCES[key]}" data-unpublished="true"></span>`;
+      ? `<span class="n${est(view, TRUST_SOURCES[key])}" data-source="${source}">${escape(sign ? signed(value) : money(value))}</span>`
+      : `<span class="n" data-source="${source}" data-unpublished="true"></span>`;
   }
   // The design's marks before a label: a letter tile for each income line, a colour swatch for each deduction that
   // has its own card. Decoration only (aria-hidden); the label text is unchanged.
@@ -111,8 +113,10 @@
     mortgage: '<span class="wf-av wf-sw" style="--wf-k:var(--stack-mort)" aria-hidden="true"></span>',
     credit: '<span class="wf-av wf-sw" style="--wf-k:var(--stack-cards)" aria-hidden="true"></span>',
   });
+  // A mark is one of the constant strings above, chosen by a fixed internal row name; '' for any other name.
+  const mark = name => MARKS[name] || '';
   const line = (op, label, cell, cls = '', row = '') =>
-    `<li class="wf-line ${cls}" data-row="${row}"><span class="op" aria-hidden="true">${op}</span><span class="lab">${MARKS[row] || ''}${escape(label)}</span>${cell}</li>`;
+    `<li class="wf-line ${cls}" data-row="${row}"><span class="op" aria-hidden="true">${op}</span><span class="lab">${mark(row)}${escape(label)}</span>${cell}</li>`;
 
   // An unpublished amount the row still names: a dash, never $0, read by a screen reader as "not available".
   const DASH = '<span class="wf-dash" role="img" aria-label="not available">\u2014</span>';
@@ -192,12 +196,12 @@
     const cards = creditRows(ctx, view);
     const credit = `<li class="wf-line wf-credit ${open ? 'open' : ''}" data-row="credit">
       <button type="button" class="wf-toggle" data-wf-toggle="credit" aria-expanded="${open}"${cards ? '' : ' disabled'}>
-        <span class="op" aria-hidden="true">−</span><span class="lab">${MARKS.credit}Credit</span>${amountCell(view, 'credit')}</button>
+        <span class="op" aria-hidden="true">−</span><span class="lab">${mark('credit')}Credit</span>${amountCell(view, 'credit')}</button>
       <ul class="wf-cards"${open ? '' : ' hidden'}>${cards}</ul></li>`;
     const sheetKey = mortgageSheetKey(view);
     const mortgage = sheetKey
       ? `<li class="wf-line wf-tap" data-row="mortgage"><button type="button" class="wf-toggle" data-stack-sheet="${escape(sheetKey)}">
-        <span class="op" aria-hidden="true">−</span><span class="lab">${MARKS.mortgage}Mortgage</span>${amountCell(view, 'mortgage')}</button></li>`
+        <span class="op" aria-hidden="true">−</span><span class="lab">${mark('mortgage')}Mortgage</span>${amountCell(view, 'mortgage')}</button></li>`
       : line('−', 'Mortgage', amountCell(view, 'mortgage'), '', 'mortgage');
     // A withheld surplus shows its name and a dash, no sentence (owner, 2026-11-20: no explanatory text on the page).
     const dash = amount === null ? DASH : '';

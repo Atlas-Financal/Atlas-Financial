@@ -79,4 +79,15 @@ function hostile() {
   return d;
 }
 
-module.exports = { hostile, LABEL, ID, NOTE, CATEGORY, ORDINARY, PAYLOADS };
+// The hostile household for the Stack page proofs: hostile(), with its first card kept a real credit line (a card minimum the
+// waterfall lists and the Credit card reads). Its id, structure and minimum's debt id are the invented fixture's own; its
+// label stays hostile.
+function hostileStack() {
+  const d = hostile(), base = fx.served();
+  d.debts[0].id = base.debts[0].id;
+  d.debts[0].structure = base.debts[0].structure;
+  d.plan.obligations[0].debtId = base.plan.obligations[0].debtId;
+  return d;
+}
+
+module.exports = { hostile, hostileStack, LABEL, ID, NOTE, CATEGORY, ORDINARY, PAYLOADS };

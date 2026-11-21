@@ -148,3 +148,95 @@ test('a future-plan card prints an unrecognised flexibility value as text', () =
   assert.ok(!html.includes('<IMG SRC=X') && html.includes('&quot;&gt;&lt;IMG SRC=X ONERROR=ALERT(1)&gt;'),
     'the fallback chip escapes the upper-cased value');
 });
+
+// ---- The Stack page (the default Budget page; C1 S4 batch 1) -------------------------------------------------------------
+// The same proof against the Stack renderers: the hostile household and the poisoned Forecast (every string Forecast returns
+// carries a live <img onerror>) are driven through the REAL Stack shell's input step and the page's own four registered
+// blocks (waterfall, cards, credit, sheet) for every published pay period, then every sheet item each period lists, by the
+// figures page capture (scripts/figures-page-capture.js, recordHtml), which records the markup each one wrote. A raw payload
+// anywhere fails; each named Stack area must print its escaped payload (so a world that stops reaching it fails, rather than
+// passing vacuously); and mutants that stop escaping in each block fail. The poisoned text leaves clean the keys the Stack
+// blocks branch on (stackBillPart, stackBillPaymentEvidence, displayAmountBasis: 'part|evidence|basis'), as the default list
+// leaves the classic page's discriminators clean.
+const fs = require('node:fs');
+const os = require('node:os');
+const PageCapture = require('../scripts/figures-page-capture');
+
+const STACK_SKIP = 'part|evidence|basis';
+const stackWorld = H.hostileStack;
+function stackMarkup(rootDir) {
+  const perturb = {};
+  for (const [name, f] of Object.entries(REAL_FORECAST)) {
+    if (typeof f === 'function') perturb[name] = real => P.poisonedForecast({ f: real }, STACK_SKIP).f;
+  }
+  const cap = PageCapture.withPerturbations(perturb, () => PageCapture.capturePages(stackWorld(), null, rootDir || ROOT, { recordHtml: true }));
+  const chunks = [];
+  for (const state of cap.stack.states) {
+    for (const [name, html] of Object.entries(state.html.blocks)) chunks.push({ at: `${state.id} ${name}`, kind: name, html });
+    for (const [key, html] of Object.entries(state.html.sheets)) chunks.push({ at: `${state.id} sheet ${key}`, kind: 'sheet:' + key.slice(0, key.indexOf(':')), html: html || '' });
+  }
+  return { status: cap.stack.status, states: cap.stack.states, chunks };
+}
+const LABEL_ESC = '&quot;&gt;&lt;img src=x onerror=alert\\(1\\)&gt;';
+const POISON_ESC = '&lt;img src=z data-poisoned-forecast onerror=alert\\(9\\)&gt;';
+// Each named Stack area must print an escaped payload: the escaped text lands where the renderer writes that value.
+const STACK_AREAS = {
+  'the waterfall lists a card minimum under its (hostile) name': ['waterfall', new RegExp(`<li class="wf-card" data-row="card" data-debt-id="[^"]*"><span class="wf-name"><b>${LABEL_ESC}`)],
+  'the Bills card lists a bill by a hostile id in its sheet attribute': ['cards', /data-stack-sheet="bill:x&quot; onmouseover=&quot;alert\(1\)&quot; data-x=&quot;/],
+  'the Bills card lists a bill by its (hostile) label': ['cards', new RegExp(`<span class="sc-n">${LABEL_ESC}`)],
+  'the Budget card names a category': ['cards', new RegExp(`<b class="sc-n">Groceries${POISON_ESC}`)],
+  'the Credit card names a card': ['credit', new RegExp(`<b>Travel${POISON_ESC}`)],
+  'a bill sheet titles its bill': ['sheet:bill', new RegExp(`<h3 id="stack-sheet-title">${LABEL_ESC}`)],
+  'a budget sheet titles its category': ['sheet:budget', new RegExp(`<h3 id="stack-sheet-title">Groceries${POISON_ESC}`)],
+  'a card sheet titles its card': ['sheet:card', new RegExp(`<h3 id="stack-sheet-title">Travel${POISON_ESC}`)],
+};
+const STACK_RAW = [P.PAYLOAD, ...H.PAYLOADS];
+// What a Stack run proves: the raw payloads found, and the named areas that printed nothing escaped.
+function stackProblems(run) {
+  const raw = run.chunks.filter(c => STACK_RAW.some(p => c.html.includes(p))).map(c => c.at);
+  const missing = Object.entries(STACK_AREAS).filter(([, [kind, re]]) => !run.chunks.some(c => c.kind === kind && re.test(c.html))).map(([label]) => label);
+  return { raw, missing };
+}
+
+const stackBase = stackMarkup();
+test('Stack page: no Forecast text or hostile household text reaches it as markup', () => {
+  assert.equal(stackBase.status, 'rendered', 'the Stack page was really driven (every block ok)');
+  assert.ok(stackBase.states.length >= 8 && stackBase.chunks.length > 200, `every pay period's blocks and sheet items were captured (${stackBase.states.length} periods, ${stackBase.chunks.length} chunks)`);
+  const { raw, missing } = stackProblems(stackBase);
+  assert.deepEqual(raw, [], 'every Forecast and household string is escaped where the Stack page writes it');
+  assert.deepEqual(missing, [], 'each named Stack area printed its escaped payload, so its branch ran');
+});
+
+test('Stack page: ordinary text with an apostrophe and an ampersand still displays exactly', () => {
+  const html = stackBase.chunks.filter(c => c.kind === 'sheet:bill' || c.kind === 'cards').map(c => c.html).join('\n');
+  assert.ok(html.includes('Tim&#39;s Café &amp; Bakery'), 'escaped once, not double-escaped');
+  assert.ok(!html.includes('&amp;amp;') && !html.includes('&amp;#39;'), 'no double escaping');
+});
+
+// Mutants: a block that stops escaping a value fails, whether the hole is a property read (the static guard sees) or a call
+// the static guard cannot see (String(...)). Each runs the whole Stack drive on a copy of public/.
+function copyRoot(file, from, to) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'stack-escape-'));
+  fs.cpSync(path.join(ROOT, 'public'), path.join(dir, 'public'), { recursive: true });
+  const target = path.join(dir, 'public', file);
+  const text = fs.readFileSync(target, 'utf8');
+  assert.ok(text.includes(from), `${file} carries the text to mutate: ${from}`);
+  fs.writeFileSync(target, text.replace(from, to));
+  return dir;
+}
+const MUTANTS = [
+  ['the waterfall prints a card name unescaped', 'stack-waterfall.js', '<b>${escape(cardLabel(ctx, card && card.debtId))}</b>', '<b>${String(cardLabel(ctx, card && card.debtId))}</b>'],
+  ['the Credit card prints a card name unescaped', 'stack-credit.js', '<b>${esc(line.label)}</b>', '<b>${String(line.label)}</b>'],
+  ['the Bills card prints a bill id unescaped in its attribute', 'stack-cards.js', `' data-stack-sheet="' + esc(target) + '"`, `' data-stack-sheet="' + String(target) + '"`],
+  ['a sheet prints its title unescaped', 'stack-sheet.js', '<h3 id="stack-sheet-title">${esc(title)}</h3>', '<h3 id="stack-sheet-title">${String(title)}</h3>'],
+];
+for (const [label, file, from, to] of MUTANTS) {
+  test(`Stack page mutant: ${label}`, () => {
+    const dir = copyRoot(file, from, to);
+    try {
+      const { raw, missing } = stackProblems(stackMarkup(dir));
+      assert.ok(raw.length > 0 || missing.length > 0, 'the mutant is caught: a raw payload or an area that no longer prints its escaped payload');
+      assert.ok(raw.length > 0, 'and the unescaped value reaches the markup as a raw payload: ' + raw.slice(0, 2).join('; '));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+}

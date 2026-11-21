@@ -27,7 +27,10 @@ const root = process.env.ATLAS_TEST_APP_ROOT || path.resolve(__dirname, '..');
 // The renderers index.html loads (the legacy pages that shared the helper were deleted 2026-11-16).
 const COVERED = ['app', 'plan', 'balance-history', 'bill-detail', 'budget-blend', 'budget-card-movements',
   'budget-polish', 'budget-river', 'budget-sheet-motion', 'budget-surface', 'forecast-card-period',
-  'forecast-chequing', 'household-view', 'savings-inventory', 'aurora'];
+  'forecast-chequing', 'household-view', 'savings-inventory', 'aurora',
+  // The Stack page (the default Budget page since B7): the shell, its four blocks. Every stack-*.js index.html loads must be
+  // listed here (checked below), so a new Stack file cannot escape the guard.
+  'stack-shell', 'stack-waterfall', 'stack-cards', 'stack-credit', 'stack-sheet'];
 
 // Property reads that hold markup a renderer built on purpose (formatted
 // money with trust marks, a nested section). Each is pinned to its exact
@@ -43,6 +46,10 @@ const DELIBERATE_MARKUP = {
     'verdict.text(s, needed)': 1, // FUND_VERDICT: fixed wording around money() output
   },
   'savings-inventory': { 'members.html': 1 },
+  // The sheet's open(): item.html is built by find() in this file from its own escaping builders (billHtml, budgetHtml,
+  // cardHtml; the Credit line's sheetHtml in stack-credit.js escapes through the sheet's esc); proven end to end by the
+  // poisoned-Forecast Stack world in test/test-forecast-text-escaping.js.
+  'stack-sheet': { 'item.html': 1 },
 };
 
 // Skip a quoted string or regex-free code until the matching close. Returns
@@ -303,4 +310,18 @@ test('the predicate fails a raw property read and passes the escaped and formatt
     'const t = `${row.label} is plain text, escaped at its sink`;',
   ];
   for (const src of good) assert.deepEqual(check(src, 't'), [], src);
+});
+
+// The Stack files are covered, and the guard fails a raw read in each of them (so the coverage is not vacuous).
+test('every stack-*.js index.html loads is covered, and a raw property read in each fails the guard', () => {
+  const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  const stack = [...html.matchAll(/<script src="\/(stack-[\w-]+)\.js"><\/script>/g)].map(m => m[1]);
+  assert.ok(stack.length >= 5, 'index.html loads the Stack scripts: ' + stack.join(','));
+  assert.deepEqual(stack.filter(name => !COVERED.includes(name)), [], 'a Stack script index.html loads is not covered');
+  for (const name of stack) {
+    const src = fs.readFileSync(path.join(root, `public/${name}.js`), 'utf8');
+    const before = check(src, name).length;
+    const after = check(src + '\nconst mutantHtml = `<h2>${row.label}</h2>`;\n', name).length;
+    assert.equal(after, before + 1, `${name}.js: a raw \${row.label} in an HTML template is one more violation`);
+  }
 });

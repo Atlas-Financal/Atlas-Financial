@@ -672,7 +672,7 @@ const BUDGET_DEFAULTS = { planPayPeriodId: null, budgetFundingLens: 'today' };
 // outcome is recorded (ok, empty or the error), and the Forecast reads it made are in observer.stack. A page that
 // cannot be driven says why in `status`, so the evidence never reads as covered when it was not.
 const STACK_BLOCKS = Object.freeze(['waterfall', 'cards', 'credit', 'sheet']);
-function driveStack(context, observer) {
+function driveStack(context, observer, options = {}) {
   const result = { status: 'rendered', states: [] };
   const renderers = observer.stackRenderers;
   const base = vm.runInContext('typeof StackBlocks !== "undefined" && typeof StackBlocks.context === "function" ? StackBlocks.context() : null', context);
@@ -703,9 +703,15 @@ function driveStack(context, observer) {
     const before = observer.stack.length;
     const ctx = vm.runInContext('(base, key) => Object.assign({}, base, { selectedPeriodKey: key })', context)(base, view.start);
     const blocks = {};
+    // Test mode (options.recordHtml): the markup each block and each sheet item wrote, for the escaping proofs.
+    const html = options.recordHtml ? { blocks: {}, sheets: {} } : null;
     for (const name of STACK_BLOCKS) {
       const container = document.createElement('div');
-      try { call(renderers.get(name), container, ctx); blocks[name] = name === 'sheet' || String(container.innerHTML || '').length > 0 ? 'ok' : 'empty'; }
+      try {
+        call(renderers.get(name), container, ctx);
+        blocks[name] = name === 'sheet' || String(container.innerHTML || '').length > 0 ? 'ok' : 'empty';
+        if (html) html.blocks[name] = String(container.innerHTML || '');
+      }
       catch (error) { blocks[name] = 'error'; }
     }
     const sheets = {};
@@ -716,9 +722,13 @@ function driveStack(context, observer) {
       const kind = key.slice(0, key.indexOf(':'));
       sheets[kind] = sheets[kind] || [0, 0];
       sheets[kind][0]++;
-      try { if (typeof open(ctx, key) === 'string') sheets[kind][1]++; } catch (error) { sheets[kind].push('error'); }
+      try {
+        const markup = open(ctx, key);
+        if (typeof markup === 'string') sheets[kind][1]++;
+        if (html) html.sheets[key] = typeof markup === 'string' ? markup : null;
+      } catch (error) { sheets[kind].push('error'); }
     }
-    result.states.push({ id, blocks, sheets, calls: observer.stack.length - before });
+    result.states.push({ id, blocks, sheets, calls: observer.stack.length - before, ...(html ? { html } : {}) });
   }
   observer.stackStateId = 'done';
   if (result.states.some(s => Object.values(s.blocks).some(v => v !== 'ok'))) result.status = 'blocks-failed';
@@ -872,7 +882,7 @@ function capturePages(data, periods, root = ROOT, options = {}) {
     // The Stack page (the default page): its blocks driven per pay period, after the previous page's states so those
     // are numbered and observed exactly as before. Not run on the uninstrumented comparison run.
     if (page === 'budget' && options.instrument !== false && options.stack !== false) {
-      stack = driveStack(context, observer);
+      stack = driveStack(context, observer, options);
       stackCalls = observer.stack;
       // The Stack blocks register their listeners inside their render (container.addEventListener, the sheet's document
       // listeners), so those registrations happen during the drive, after the copy above. Copy the Stack files' again, so
