@@ -12769,30 +12769,40 @@
     const role = view.timelineRole;
     if (role !== 'current' && role !== 'next') return null;
     const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
-    // Owner rule (Dale, 2026-11-21): an item leaves the card starting with the
-    // pay period that contains its date (it is spent then); it stays on the
-    // card in every earlier period. The pour fills the items that remain. An
-    // item with no date stays. A row whose members have all left goes too.
+    // Owner rule (Dale, 2026-11-21) with the lead's ruling on its money
+    // (#1505, ATLAS REVIEWER 7056773000): an item leaves the card from the
+    // pay period that contains its date, but leaving the list does not hand
+    // its money onward. While it can still be unpaid it keeps its nearest-
+    // first share of the balance, hidden: in the period that holds its date,
+    // and in the next period's card too, because that card pours the same
+    // balance of today. Only an item dated before the current period is gone
+    // from the pour, because by then the balance reflects the spend. An item
+    // with no date stays on the card.
+    const current = role === 'current' ? view
+      : (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : []).find(v => v && v.timelineRole === 'current');
     const periodEnd = typeof view.end === 'string' ? view.end : null;
+    const pourStart = current && typeof current.start === 'string' ? current.start : null;
+    const bounded = periodEnd !== null && pourStart !== null;
     const allItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
       ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
-    const spent = new Set(periodEnd === null ? [] : allItems
-      .filter(item => item && typeof item.key === 'string' && typeof item.date === 'string' && item.date <= periodEnd)
-      .map(item => item.key));
-    const items = allItems.filter(item => !(item && spent.has(item.key)));
-    const rows = (funding && Array.isArray(funding.rows) ? funding.rows : [])
-      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid')
-      .map(row => !Array.isArray(row.members) ? row : { ...row, members: row.members.filter(key => !spent.has(key)) })
-      .filter(row => !Array.isArray(row.members) || row.members.length > 0);
-    const balance = periodEnd === null ? { cents: null, trust: 'unavailable', reason: 'period-end-unknown' } : stackSavingsBalance(funding);
-    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(spent.size ? ['items-due-this-period-left'] : [])];
+    const dated = item => item && typeof item.key === 'string' && typeof item.date === 'string';
+    const gone = new Set(!bounded ? [] : allItems.filter(item => dated(item) && item.date < pourStart).map(item => item.key));
+    const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));
+    const items = allItems.filter(item => !(item && gone.has(item.key)));
+    const allRows = (funding && Array.isArray(funding.rows) ? funding.rows : [])
+      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid');
+    const balance = !bounded ? { cents: null, trust: 'unavailable', reason: 'period-bounds-unknown' } : stackSavingsBalance(funding);
+    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(gone.size || hidden.size ? ['items-due-this-period-left'] : [])];
     // The rows must name every item exactly once, or the card would print
-    // goals that do not add up to the pour.
-    const members = rows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
-    const keys = items.map(item => item && item.key);
+    // goals that do not add up to the pour. Checked before anything leaves.
+    const members = allRows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
+    const keys = allItems.map(item => item && item.key);
     const coherent = members.length === keys.length && new Set(members).size === members.length
       && keys.every(key => typeof key === 'string' && members.includes(key));
     if (!coherent) reasons.push('rows-items-mismatch');
+    const rows = allRows
+      .map(row => !Array.isArray(row.members) ? row : { ...row, members: row.members.filter(key => !gone.has(key) && !hidden.has(key)) })
+      .filter(row => !Array.isArray(row.members) || row.members.length > 0);
     const order = items.map((item, rank) => ({ item, rank }))
       .sort((a, b) => {
         const da = a.item && typeof a.item.date === 'string' ? a.item.date : '\uffff';

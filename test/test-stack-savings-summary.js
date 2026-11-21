@@ -99,10 +99,16 @@ const copies = {
   paidKept: mutant("      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid')",
     "      .filter(row => row && typeof row.key === 'string')", 'paid kept'),
   noUnresolved: mutant("      ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];", '];', 'no unresolved'),
-  neverLeaves: mutant("      .filter(item => item && typeof item.key === 'string' && typeof item.date === 'string' && item.date <= periodEnd)",
-    "      .filter(() => false)", 'never leaves'),
-  leavesByStart: mutant("      .filter(item => item && typeof item.key === 'string' && typeof item.date === 'string' && item.date <= periodEnd)",
-    "      .filter(item => item && typeof item.key === 'string' && typeof item.date === 'string' && item.date < view.start)", 'leaves by start'),
+  neverLeaves: mutant("    const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));",
+    "    const hidden = new Set();", 'never leaves'),
+  leavesByStart: mutant("    const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));",
+    "    const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date < view.start).map(item => item.key));", 'leaves by start'),
+  // The repaired defect (ATLAS REVIEWER 7056773000): an item that has left hands its money onward.
+  handsOnward: mutant("    const items = allItems.filter(item => !(item && gone.has(item.key)));",
+    "    const items = allItems.filter(item => !(item && (gone.has(item.key) || hidden.has(item.key))));", 'hands onward'),
+  // The next card pours today's balance, so a current-period item must not count as gone there.
+  goneByOwnStart: mutant("    const pourStart = current && typeof current.start === 'string' ? current.start : null;",
+    "    const pourStart = typeof view.start === 'string' ? view.start : null;", 'gone by own start'),
   hiddenWhenWithheld: mutant('    return {\n      items: out,', '    if (balance.cents === null) return null;\n    return {\n      items: out,', 'hidden when withheld'),
 };
 const pour = shipped.pour;
@@ -272,7 +278,7 @@ for (const inp of INPUTS) for (const shift of [0, 3, 7, 14]) corpus.push(F => ru
 }
 const REASONS = new Set(['owner-rule:balance-poured-nearest-due-first', 'balance-current', 'balance-dated', 'balance-carried', 'balance-unavailable',
   'balance-negative', 'rows-items-mismatch',
-  'pour-stopped-at-unknown-need', 'no-savings-items', 'items-due-this-period-left', 'period-end-unknown']);
+  'pour-stopped-at-unknown-need', 'no-savings-items', 'items-due-this-period-left', 'period-bounds-unknown']);
 const TRUST = new Set(['calculated', 'estimated', 'unavailable']);
 const cents = v => Math.round(v * 100);
 function audit(F) {
@@ -286,9 +292,12 @@ function audit(F) {
       if (!['current', 'next'].includes(v.timelineRole)) { if (s !== null) r.roleFail++; continue; }
       if (!s) { r.roleFail++; continue; }
       r.cards++;
-      // An item leaves the card from the pay period that contains its date (independent of the page's filter).
-      const spent = new Set([...(funding && funding.backing ? funding.backing.items : []), ...((funding && funding.unresolved) || [])]
-        .filter(i => typeof i.date === 'string' && i.date <= v.end).map(i => i.key));
+      // An item leaves the card from the pay period that contains its date, but keeps its share of the balance
+      // until it is dated before the current period (independent of the page's filters).
+      const curStart = res.payPeriodViews.find(p => p.timelineRole === 'current').start;
+      const every = [...(funding && funding.backing ? funding.backing.items : []), ...((funding && funding.unresolved) || [])];
+      const gone = new Set(every.filter(i => typeof i.date === 'string' && i.date < curStart).map(i => i.key));
+      const spent = new Set(every.filter(i => typeof i.date === 'string' && i.date <= v.end).map(i => i.key));
       const rows = (funding && Array.isArray(funding.rows) ? funding.rows.filter(row => row.paymentStatus !== 'paid') : [])
         .map(row => ({ ...row, members: row.members.filter(m => !spent.has(m)) })).filter(row => row.members.length > 0);
       if (s.items.length !== rows.length || s.items.some(x => !rows.some(row => row.key === x.id && x.label === row.label))) r.nameFail++;
@@ -300,14 +309,14 @@ function audit(F) {
       if (t.saved !== null) {
         r.poured++;
         if (cents(t.saved) !== s.items.reduce((c, x) => c + cents(x.saved), 0) || cents(t.needed) !== s.items.reduce((c, x) => c + cents(x.needed), 0)
-            || cents(t.saved) + cents(t.unallocated) !== cents(t.balance)) r.sumFail++;
+            || cents(t.saved) + cents(t.unallocated) > cents(t.balance)) r.sumFail++;
         // The balance is the reported stock, both accounts summed, as published.
         const stock = funding.stock.reportedStock;
         if (t.balance !== stock.amount) r.balanceFail++;
         if (stock.freshness !== 'current' && t.trust !== 'estimated') r.trustFail++;
         // Nearest due first (independent of the page's order): a goal holds money only once every goal due
         // strictly earlier is full.
-        const items = [...funding.backing.items, ...(funding.unresolved || [])].filter(i => !spent.has(i.key));
+        const items = every.filter(i => !gone.has(i.key));
         const pours = new Map(items.map(i => [i.key, 0])), trusts = new Map();
         let left = cents(t.balance), trust = stock.freshness === 'current' ? 'calculated' : 'estimated';
         for (const i of [...items].sort((p, q) => (p.date < q.date ? -1 : p.date > q.date ? 1 : items.indexOf(p) - items.indexOf(q)))) {
@@ -315,6 +324,9 @@ function audit(F) {
           if (i.trust === 'estimated') trust = 'estimated';
           trusts.set(i.key, trust);
         }
+        // What the hidden items hold is not handed onward: shown + held + unallocated = balance.
+        const held = items.filter(i => spent.has(i.key)).reduce((c, i) => c + pours.get(i.key), 0);
+        if (cents(t.saved) + held + cents(t.unallocated) !== cents(t.balance) || left !== cents(t.unallocated)) r.sumFail++;
         for (const x of s.items) {
           const row = rows.find(rw => rw.key === x.id);
           if (!row) { r.nameFail++; continue; }
@@ -456,30 +468,50 @@ console.log('7. The card pours the reported total as is (owner ruling, Dale 2026
     'control: no purchase: trip 600 / 600, gift 400 / 600', JSON.stringify(pick(none.s)));
 }
 
-console.log('8. An item leaves the card from the pay period that contains its date (owner rule, Dale 2026-11-21)');
+console.log('8. An item leaves the card from the pay period that contains its date, and keeps its money until then (owner rule, Dale 2026-11-21; lead ruling on ATLAS REVIEWER 7056773000)');
 {
-  // Invented packet: balance 50; c 5 due 11-25, a 40 and b 40 due 12-01. Hand-derived per period.
-  const at = (copyOf, start, end, over = {}) => copyOf.pour({ timelineRole: 'next', start, end }, { savingsFunding: withAccounts(packet(over)) });
+  // Invented packet: balance 50; c 5 due 11-25, a 40 and b 40 due 12-01. Hand-derived per period. A current card
+  // pours from its own start; a next card pours today's balance, so it needs the current period beside it.
+  const at = (copyOf, start, end, over = {}) => copyOf.pour({ timelineRole: 'current', start, end }, { savingsFunding: withAccounts(packet(over)) });
+  const atNext = (copyOf, cur, start, end, over = {}) => copyOf.pour({ timelineRole: 'next', start, end },
+    { savingsFunding: withAccounts(packet(over)), payPeriodViews: cur ? [{ timelineRole: 'current', start: cur[0], end: cur[1] }] : [] });
   const before = at(shipped, '2026-11-12', '2026-11-24');
   ok(same(before, TIE), 'a period ending before every date: nothing leaves (c 5, a 40, b 5 of 50)', JSON.stringify(pick(before)));
-  // c's date is the period's last day: c leaves; 50 fills a 40, then b 10 of 40.
+  // c's date is the period's last day: c leaves the card but still holds its 5; a 40, b 5 of 40 (b does NOT rise to 10).
   const onEnd = at(shipped, '2026-11-12', '2026-11-25');
-  ok(same(onEnd, { items: [['row:a', 40, 40, 'calculated'], ['row:b', 10, 40, 'estimated']], totals: [50, 50, 80, 0, 'estimated'] })
+  ok(same(onEnd, { items: [['row:a', 40, 40, 'calculated'], ['row:b', 5, 40, 'estimated']], totals: [50, 45, 80, 0, 'estimated'] })
     && onEnd.totals.reasons.includes('items-due-this-period-left'),
-  'an item due on the period\'s last day leaves; the pour fills the rest (a 40, b 10 of 40)', JSON.stringify(pick(onEnd)));
-  const onStart = at(shipped, '2026-11-25', '2026-12-08');
-  ok(onStart.items.length === 0, 'a period starting on the items\' dates or after them: every item has left', JSON.stringify(pick(onStart)));
+  'an item due on the period\'s last day leaves the card but keeps its 5: a 40, b 5 of 40, not 10', JSON.stringify(pick(onEnd)));
   const middle = at(shipped, '2026-11-19', '2026-11-30');
-  ok(same(middle, { items: [['row:a', 40, 40, 'calculated'], ['row:b', 10, 40, 'estimated']], totals: [50, 50, 80, 0, 'estimated'] }),
-    'an item due inside the period leaves from that period on', JSON.stringify(pick(middle)));
-  // A grouped row loses only its members that have left.
+  ok(same(middle, { items: [['row:a', 40, 40, 'calculated'], ['row:b', 5, 40, 'estimated']], totals: [50, 45, 80, 0, 'estimated'] }),
+    'an item due inside the period leaves the card and keeps its share (b 5 of 40)', JSON.stringify(pick(middle)));
+  const onStart = at(shipped, '2026-11-25', '2026-12-08');
+  ok(onStart.items.length === 0, 'a period starting on the items\' dates: every item has left the card', JSON.stringify(pick(onStart)));
+  // Once an item is dated before the current period, it is gone from the pour too (the balance reflects the spend).
+  const GONE = { backing: { items: [
+    { key: 'c@2026-11-25', date: '2026-11-25', needed: 5, trust: 'calculated' },
+    { key: 'a@2026-12-01', date: '2026-12-01', needed: 40, trust: 'calculated' },
+    { key: 'd@2026-12-20', date: '2026-12-20', needed: 30, trust: 'calculated' }] },
+    rows: [{ key: 'row:c', label: 'C', members: ['c@2026-11-25'] }, { key: 'row:a', label: 'A', members: ['a@2026-12-01'] },
+      { key: 'row:d', label: 'D', members: ['d@2026-12-20'] }] };
+  const gone = at(shipped, '2026-11-26', '2026-12-09', GONE);
+  ok(same(gone, { items: [['row:d', 10, 30, 'calculated']], totals: [50, 10, 30, 0, 'calculated'] }),
+    'an item dated before the current period is gone from the pour; one in it holds its share: d 10 of 30', JSON.stringify(pick(gone)));
+  // A grouped row loses only its members that have left; the one that left still holds its 5.
   const GROUPED = { backing: { items: [
     { key: 'a@2026-12-01', date: '2026-12-01', needed: 40, trust: 'calculated' },
     { key: 'c@2026-11-25', date: '2026-11-25', needed: 5, trust: 'calculated' }] },
     rows: [{ key: 'row:ac', label: 'AC', members: ['a@2026-12-01', 'c@2026-11-25'] }] };
   const grouped = at(shipped, '2026-11-19', '2026-11-30', GROUPED);
-  ok(same(grouped, { items: [['row:ac', 40, 40, 'calculated']], totals: [50, 40, 40, 10, 'calculated'] }),
-    'a grouped row keeps only the members still to come (a 40 of 40, 10 left)', JSON.stringify(pick(grouped)));
+  ok(same(grouped, { items: [['row:ac', 40, 40, 'calculated']], totals: [50, 40, 40, 5, 'calculated'] }),
+    'a grouped row keeps only the members still to come (a 40 of 40; c holds 5; 5 left)', JSON.stringify(pick(grouped)));
+  // The next card pours today's balance: an item in the current period is not yet spent there, so it still holds its share.
+  const next = atNext(shipped, ['2026-11-12', '2026-11-25'], '2026-11-26', '2026-11-30');
+  ok(same(next, { items: [['row:a', 40, 40, 'calculated'], ['row:b', 5, 40, 'estimated']], totals: [50, 45, 80, 0, 'estimated'] }),
+    'next card: an item due in the current period still holds its 5 (a 40, b 5 of 40)', JSON.stringify(pick(next)));
+  const noCurrent = atNext(shipped, null, '2026-11-26', '2026-12-09');
+  ok(noCurrent.items.every(x => x.saved === null) && noCurrent.totals.reasons.includes('period-bounds-unknown'),
+    'a next card with no current period beside it withholds the figures');
   // An item with no date never leaves (it stops the pour where it is).
   const UNDATED = { backing: { items: [{ key: 'c@2026-11-25', date: '2026-11-25', needed: 5, trust: 'calculated' }] },
     unresolved: [{ key: 'roof', needed: null, trust: 'unknown' }],
@@ -487,12 +519,23 @@ console.log('8. An item leaves the card from the pay period that contains its da
   const undated = at(shipped, '2026-11-19', '2026-11-30', UNDATED);
   ok(undated.items.length === 1 && undated.items[0].id === 'row:roof' && undated.items[0].saved === null, 'an undated goal stays on the card');
   // No period end: the figures are withheld rather than guessed.
-  const noEnd = shipped.pour({ timelineRole: 'next', start: '2026-11-19' }, { savingsFunding: withAccounts(packet({})) });
-  ok(noEnd.items.every(x => x.saved === null) && noEnd.totals.reasons.includes('period-end-unknown'), 'a period with no end withholds the figures');
+  const noEnd = shipped.pour({ timelineRole: 'current', start: '2026-11-19' }, { savingsFunding: withAccounts(packet({})) });
+  ok(noEnd.items.every(x => x.saved === null) && noEnd.totals.reasons.includes('period-bounds-unknown'), 'a period with no end withholds the figures');
+  // The reviewer's case on the committed invented input: in the next period the three items that left are short, so the
+  // later trip does not read fully funded (hand: balance 119 covers near 60, home 24 and 35 of far 170; the trip gets 0).
+  const chained = r => sav(byRole(r, 'next')[0]);
+  const ch = chained(run(shipped.F, input('savings-chained-closes')));
+  ok(same(ch, { items: [['commitment:trip', 0, 37, 'calculated']], totals: [119, 0, 37, 0, 'calculated'] }),
+    'savings-chained-closes, next period: the trip reads 0 of 37, not 37 of 37', JSON.stringify(pick(ch)));
   // Mutants.
   ok(!same(at(copies.neverLeaves, '2026-11-12', '2026-11-25'), pick(onEnd)), 'mutant caught: an item never leaving the card');
   ok(!same(at(copies.leavesByStart, '2026-11-19', '2026-11-30'), pick(middle)), 'mutant caught: leaving only after the period that contains the date');
+  ok(!same(at(copies.handsOnward, '2026-11-12', '2026-11-25'), pick(onEnd)), 'mutant caught: an item that left hands its money onward (b 10)');
+  ok(!same(chained(run(copies.handsOnward.F, input('savings-chained-closes'))), pick(ch)), 'mutant caught on chained-closes: the trip reads 37 of 37');
+  ok(!same(atNext(copies.goneByOwnStart, ['2026-11-12', '2026-11-25'], '2026-11-26', '2026-11-30'), pick(next)),
+    'mutant caught: the next card dropping a current-period item from the pour');
   ok(audit(copies.neverLeaves.F).nameFail > 0, 'the corpus audit also catches: never leaves');
+  ok(audit(copies.handsOnward.F).sumFail > 0, 'the corpus audit also catches: an item that left hands its money onward');
 }
 
 console.log('9. The Travel Visa annual fee is not a savings item (owner fact, Dale 2026-11-21)');
