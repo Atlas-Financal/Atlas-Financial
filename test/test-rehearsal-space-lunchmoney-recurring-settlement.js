@@ -62,8 +62,10 @@ console.log('\n=== configuration ===');
       && rules[0].requiredPostingEvidence === 'posted' && rules[0].requiredCurrency === 'cad'
       && !rules[0].payeePattern && !rules[0].payeePatterns && !rules[0].originalNamePatterns && !rules[0].settlesWhen,
     'one rehearsal-space rule: recurring id only, BILLS debit, posted CAD; no payee, descriptor or amount identity');
+  // Other bills may name their own reviewed items (spotify, lead dispatch 2026-11-21); none may name this one.
   const others = identity.rules.filter(r => r && r.eventId !== ID && Object.hasOwn(r, 'lunchMoneyRecurringIds'));
-  ok(others.length === 0, 'no other rule is configured with a recurring id');
+  ok(others.every(r => !(r.lunchMoneyRecurringIds || []).map(String).includes(String(RECURRING))),
+    'no other rule names the rehearsal-space recurring item');
   ok(bill && bill.frequency === 'monthly' && bill.firstDue === DUE, 'rehearsal-space bill is monthly from 2026-11-01 (unchanged)');
 }
 
