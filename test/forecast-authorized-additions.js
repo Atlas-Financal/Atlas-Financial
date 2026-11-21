@@ -163,9 +163,11 @@ function proveStackIncome(view, income) {
 // the goals nearest due first, on the current and next periods only (null on
 // every other). Each goal's saved is between 0 and its needed, both published
 // or both null with trust unavailable; the head is the goals summed, and
-// saved + unallocated is the balance; reasons come from the closed set.
+// saved + unallocated is the balance (at most it, once items have left);
+// reasons come from the closed set.
 const SAVINGS_REASONS = new Set(['owner-rule:balance-poured-nearest-due-first', 'balance-current', 'balance-dated', 'balance-carried',
-  'balance-unavailable', 'balance-negative', 'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items']);
+  'balance-unavailable', 'balance-negative', 'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items',
+  'items-due-this-period-left', 'period-bounds-unknown']);
 const isFigure = v => typeof v === 'number' && Number.isFinite(v);
 function proveStackSavings(view, savings) {
   if (!['current', 'next'].includes(view.timelineRole)) {
@@ -183,7 +185,12 @@ function proveStackSavings(view, savings) {
     const cents = v => Math.round(v * 100);
     assert.equal(cents(t.saved), savings.items.reduce((c, item) => c + cents(item.saved), 0), 'authorized addition: the head\'s saved is the goals summed');
     assert.equal(cents(t.needed), savings.items.reduce((c, item) => c + cents(item.needed), 0), 'authorized addition: the head\'s needed is the goals summed');
-    assert.equal(cents(t.saved) + cents(t.unallocated), cents(t.balance), 'authorized addition: saved + unallocated is the balance');
+    // An item that left the card this period still holds its share of the balance (lead ruling on ATLAS
+    // REVIEWER 7056773000), so saved + unallocated is the balance exactly only when nothing has left; otherwise it
+    // is at most the balance (the held shares are proved in test-stack-savings-summary's audit).
+    if (t.reasons.includes('items-due-this-period-left')) assert.ok(cents(t.saved) + cents(t.unallocated) <= cents(t.balance),
+      'authorized addition: with items that left, saved + unallocated is at most the balance');
+    else assert.equal(cents(t.saved) + cents(t.unallocated), cents(t.balance), 'authorized addition: saved + unallocated is the balance');
   } else assert.ok(t.needed === null && t.unallocated === null && t.trust === 'unavailable', 'authorized addition: a withheld pour publishes no head');
   assert.ok(Array.isArray(t.reasons) && t.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings totals reasons are closed');
 }

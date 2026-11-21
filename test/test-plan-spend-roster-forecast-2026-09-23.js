@@ -120,13 +120,13 @@ ok(byId['seattle-nov'] && byId['seattle-nov'].amount === 1500
 ok(independentMonth15('Nov 2026') === '2026-11-15',
   'independent month-15 of Nov 2026 is 2026-11-15');
 ok(byId['seattle-dec'] && byId['seattle-dec'].amount === 1500
-    && byId['seattle-dec'].date === '2026-12-09'
+    && byId['seattle-dec'].date === '2026-12-04'
     && byId['seattle-dec'].when === 'Dec 2026'
     && priorById['seattle-dec'].date === '2026-12-09'
     && priorById['seattle-dec'].amount === 1200,
-  'Seattle December is $1,500 on the incumbent 2026-12-09');
+  'Seattle December is $1,500 on the owner date 2026-12-04 (Dale, 2026-11-21: "December 4th and 5th")');
 ok(byId['seattle-dec'].date !== independentMonth15('Dec 2026'),
-  'Seattle December keeps Dec 9 rather than the month-only 15th');
+  'Seattle December keeps its owner day rather than the month-only 15th');
 ok(byId['linden-birthday'] && byId['linden-birthday'].amount === 500
     && byId['linden-birthday'].date === '2026-12-09'
     && byId['linden-birthday'].when === 'Dec 2026'
@@ -140,21 +140,18 @@ ok(rows.filter(r => r.id === 'linden-birthday').length === 1
 ok(byId['seattle-dec'] && byId['linden-birthday']
     && byId['seattle-dec'].id !== byId['linden-birthday'].id
     && byId['seattle-dec'].amount !== byId['linden-birthday'].amount,
-  'Linden birthday stays distinct from seattle-dec on the same cash date');
+  'Linden birthday stays distinct from seattle-dec');
 ok(!priorById['linden-birthday'],
   'linden-birthday is new versus the frozen 2026-09-23 prior main');
 ok(independentMonth15('timing TBD') == null, 'timing TBD is not a cash date');
 ok(byId['san-diego'] && byId['san-diego'].amount === 3000
-    && byId['san-diego'].date === '2027-01-15'
+    && byId['san-diego'].date === '2027-01-09'
     && byId['san-diego'].when === 'Jan 2027'
     && byId['san-diego'].tripWindow === TRIP_WINDOW
     && byId['san-diego'].amountMin == null,
-  'San Diego is a $3,000 point on the clear-month 15th with the owner trip window');
-ok(independentMonth15('Jan 2027') === '2027-01-15'
-    && independentMonth15(TRIP_WINDOW) == null,
-  'January 2027 is the 15th; the trip window is not a cash date');
-ok(byId['san-diego'].date !== '2027-01-09' && byId['san-diego'].date !== '2027-01-10',
-  'San Diego envelope cash date stays separate from the trip endpoints and hotel checkout');
+  'San Diego is a $3,000 point on the owner date 2027-01-09 (Dale, 2026-11-21) with the trip window');
+ok(byId['san-diego'].date !== independentMonth15('Jan 2027'),
+  'San Diego no longer sits on the clear-month 15th (superseded by the owner date)');
 for (const hand of FUSION_REMAINING) {
   const row = byId[hand.id];
   ok(row && row.amount === hand.amount && row.date === hand.date && row.group === 'fusion-household',
@@ -195,16 +192,16 @@ function oneCash(id, date, amount) {
     hits.map(sig).join(', ') || 'missing');
 }
 oneCash('seattle-nov', '2026-11-15', -1500);
-oneCash('seattle-dec', '2026-12-09', -1500);
+oneCash('seattle-dec', '2026-12-04', -1500);
 oneCash('linden-birthday', '2026-12-09', -500);
-oneCash('san-diego', '2027-01-15', -3000);
+oneCash('san-diego', '2027-01-09', -3000);
 oneCash('burrards-logan-team-fee-oct', '2026-10-16', -202.88);
 oneCash('burrards-logan-team-fee-nov', '2026-11-01', -202.87);
 oneCash('burrards-linden-team-fee', '2026-10-20', -340);
 ok(!nowEvents.some(e => e.id === 'burrards-team-fees'),
   'the replaced aggregate emits no cash event; owner-dated Linden appears once');
-ok(!nowEvents.some(e => e.id === 'san-diego' && (e.date === '2027-01-09' || e.date === '2027-01-10')),
-  'San Diego envelope does not also emit on January 9 or January 10');
+ok(!nowEvents.some(e => e.id === 'san-diego' && (e.date === '2027-01-10' || e.date === '2027-01-15')),
+  'San Diego emits only on January 9, not also on January 10 or the old 15th');
 for (const hand of FUSION_REMAINING) {
   oneCash(hand.id, hand.date, -hand.amount);
 }
@@ -229,13 +226,17 @@ for (const key of keys) {
 }
 cashDeltas.sort();
 const expectedDeltas = [
+  'box-lacrosse-registration-2027@2027-01-25|null->-750.9',
+  'box-lacrosse-team-fees-2027@2027-05-01|null->-800',
   'burrards-linden-team-fee@2026-10-20|null->-340',
   'burrards-logan-team-fee-nov@2026-11-01|null->-202.87',
   'burrards-logan-team-fee-oct@2026-10-16|null->-202.88',
   'burrards-team-fees@2026-09-15|-700->null',
+  'fusion-west-spring-2027@2027-04-06|null->-3600',
   'linden-birthday@2026-12-09|null->-500',
-  'san-diego@2027-01-15|null->-3000',
-  'seattle-dec@2026-12-09|-1200->-1500',
+  'san-diego@2027-01-09|null->-3000',
+  'seattle-dec@2026-12-04|null->-1500',
+  'seattle-dec@2026-12-09|-1200->null',
   'seattle-nov@2026-11-15|-1200->-1500',
 ];
 ok(JSON.stringify(cashDeltas) === JSON.stringify(expectedDeltas),
@@ -329,7 +330,7 @@ ok(!settledFusion.some(m => m.id === FUSION_PAID.id) && settledCents !== (3300 +
   'the paid $1,200 is not added on top of the $3,300');
 const sanRows = settledPlans.filter(c => c.id === 'san-diego');
 ok(sanRows.length === 1 && sanRows[0].need === 3000
-    && sanRows[0].date === '2027-01-15' && sanRows[0].tripWindow === TRIP_WINDOW,
+    && sanRows[0].date === '2027-01-09' && sanRows[0].tripWindow === TRIP_WINDOW,
   'majorPlans has one San Diego row of Forecast need $3,000');
 const lindenRows = settledPlans.filter(c => c.id === 'linden-birthday');
 ok(lindenRows.length === 1 && lindenRows[0].need === 500
@@ -338,8 +339,8 @@ ok(lindenRows.length === 1 && lindenRows[0].need === 500
   'majorPlans has one Linden birthday row of Forecast need $500 on 2026-12-09');
 const seattleDecRows = settledPlans.filter(c => c.id === 'seattle-dec');
 ok(seattleDecRows.length === 1 && seattleDecRows[0].need === 1500
-    && seattleDecRows[0].date === '2026-12-09',
-  'majorPlans still has one seattle-dec row of $1,500 on 2026-12-09');
+    && seattleDecRows[0].date === '2026-12-04',
+  'majorPlans has one seattle-dec row of $1,500 on 2026-12-04');
 ok(!settledPlans.some(p => RETIRED.includes(p.id)), 'majorPlans omits every retired id');
 const squareRows = settledPlans.filter(c => c.id === 'square-one');
 ok(squareRows.length === 1
@@ -355,14 +356,14 @@ ok(!settledPlans.some(p => p.id === 'amazon-prime' || p.id === 'ultimate-guitar'
 console.log('\n=== Road Ahead Month and Seaspan Pay Period count San Diego once ===');
 const anchor = data.plan.income.find(r => r.id === 'payroll').anchor;
 ok(anchor === '2026-08-14', 'Seaspan anchor used for the independent walk is 2026-08-14');
-const period = independentPeriodContaining(anchor, '2027-01-15');
-ok(period && period.payday <= '2027-01-15' && '2027-01-15' <= period.cycleEnd,
-  'independent biweekly walk places 2027-01-15 in one Seaspan cycle',
+const period = independentPeriodContaining(anchor, '2027-01-09');
+ok(period && period.payday <= '2027-01-09' && '2027-01-09' <= period.cycleEnd,
+  'independent biweekly walk places 2027-01-09 in one Seaspan cycle',
   period && `${period.payday} through ${period.cycleEnd}`);
-const windowPeriod = independentPeriodContaining(anchor, '2027-01-09');
-ok(windowPeriod && (windowPeriod.payday !== period.payday),
-  'January 9 is a different Seaspan cycle from the modeled cash date, so that period does not prove trip funding',
-  windowPeriod && `${windowPeriod.payday} through ${windowPeriod.cycleEnd}`);
+const oldPeriod = independentPeriodContaining(anchor, '2027-01-15');
+ok(oldPeriod && (oldPeriod.payday !== period.payday),
+  'the old modeled date (Jan 15) is a different, later Seaspan cycle: San Diego moved one pay period earlier',
+  oldPeriod && `${oldPeriod.payday} through ${oldPeriod.cycleEnd}`);
 const traj = F.baselineTrajectory(data.plan, data.debts, OPENING, { periods });
 ok(traj.status === 'ready', 'baseline trajectory is ready', traj.reason || traj.status);
 function commitmentLines(node) {
@@ -371,7 +372,7 @@ function commitmentLines(node) {
 }
 const jan = (traj.months || []).find(m => m.month === '2027-01');
 const janSan = commitmentLines(jan).filter(l => l.id === 'san-diego');
-ok(jan && janSan.length === 1 && near(janSan[0].amount, 3000) && janSan[0].date === '2027-01-15',
+ok(jan && janSan.length === 1 && near(janSan[0].amount, 3000) && janSan[0].date === '2027-01-09',
   'January 2027 Month view contains San Diego $3,000 once',
   janSan.map(l => `${l.date} ${l.amount}`).join(', ') || 'missing');
 ok(!(traj.months || []).some(m => m.month !== '2027-01' && commitmentLines(m).some(l => l.id === 'san-diego')),
@@ -385,15 +386,15 @@ const paySan = commitmentLines(payHits[0]).filter(l => l.id === 'san-diego');
 ok(paySan.length === 1 && near(paySan[0].amount, 3000),
   'that pay period contains the same $3,000 once');
 ok(payHits[0].payday === period.payday
-    && payHits[0].start <= '2027-01-15' && payHits[0].end >= '2027-01-15',
-  'that pay period is the independent cycle that contains 2027-01-15',
+    && payHits[0].start <= '2027-01-09' && payHits[0].end >= '2027-01-09',
+  'that pay period is the independent cycle that contains 2027-01-09',
   payHits[0] && `${payHits[0].payday} ${payHits[0].start}–${payHits[0].end} vs ${period.payday}–${period.cycleEnd}`);
 const nov = (traj.months || []).find(m => m.month === '2026-11');
 const dec = (traj.months || []).find(m => m.month === '2026-12');
 ok(commitmentLines(nov).some(l => l.id === 'seattle-nov' && near(l.amount, 1500) && l.date === '2026-11-15'),
   'November Month view contains Seattle November $1,500 on Nov 15');
-ok(commitmentLines(dec).some(l => l.id === 'seattle-dec' && near(l.amount, 1500) && l.date === '2026-12-09'),
-  'December Month view contains Seattle December $1,500 on Dec 9');
+ok(commitmentLines(dec).some(l => l.id === 'seattle-dec' && near(l.amount, 1500) && l.date === '2026-12-04'),
+  'December Month view contains Seattle December $1,500 on Dec 4');
 ok(commitmentLines(dec).filter(l => l.id === 'linden-birthday').length === 1
     && commitmentLines(dec).some(l => l.id === 'linden-birthday' && near(l.amount, 500) && l.date === '2026-12-09'),
   'December Month view contains Linden birthday $500 once on Dec 9');
@@ -412,7 +413,7 @@ const payLinden = commitmentLines(lindenPayHits[0]).filter(l => l.id === 'linden
 ok(payLinden.length === 1 && near(payLinden[0].amount, 500) && payLinden[0].date === '2026-12-09',
   'that pay period contains Linden birthday $500 once');
 ok(commitmentLines(lindenPayHits[0]).some(l => l.id === 'seattle-dec' && near(l.amount, 1500)),
-  'the same 9 Dec pay period still contains seattle-dec $1,500');
+  'the pay period starting Dec 4 holds both seattle-dec $1,500 (Dec 4) and Linden (Dec 9)');
 ok(lindenPayHits[0].payday === lindenPeriod.payday
     && lindenPayHits[0].start <= '2026-12-09' && lindenPayHits[0].end >= '2026-12-09',
   'that pay period is the independent cycle that contains 2026-12-09',
@@ -487,8 +488,9 @@ const expectedLineDeltas = [
   '2026-11|burrards-logan-team-fee-nov|2026-11-01|null->202.87',
   '2026-11|seattle-nov|2026-11-15|1200->1500',
   '2026-12|linden-birthday|2026-12-09|null->500',
-  '2026-12|seattle-dec|2026-12-09|1200->1500',
-  '2027-01|san-diego|2027-01-15|null->3000',
+  '2026-12|seattle-dec|2026-12-04|null->1500',
+  '2026-12|seattle-dec|2026-12-09|1200->null',
+  '2027-01|san-diego|2027-01-09|null->3000',
   '2027-07|propertytax|2027-07-01|null->6000',
 ];
 const authorizedLineKeys = new Set();

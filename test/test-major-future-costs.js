@@ -61,13 +61,14 @@ const OWNER_EXPLICIT_DATES = {
   'burrards-logan-team-fee-oct': '2026-10-16',
   'burrards-logan-team-fee-nov': '2026-11-01',
   'burrards-linden-team-fee': '2026-10-20',
-  'seattle-dec': '2026-12-09',
+  'seattle-dec': '2026-12-04',
   'linden-birthday': '2026-12-09',
   'christmas-2026': '2026-12-25',
+  // Dale, 2026-11-21: "San Diego is January 9th and 10th" (supersedes day 15).
+  'san-diego': '2027-01-09',
 };
 const OWNER_DAY15_DATES = {
   'seattle-nov': '2026-11-15',
-  'san-diego': '2027-01-15',
 };
 const STILL_UNDATED = [];
 const RANGES = {};
@@ -180,23 +181,23 @@ ok(seq.some(c => c.id === 'warriors' && c.date === '2026-09-23' && near(c.need, 
 const later = F.expandEvents(plan, asOf, '2027-12-31', {});
 ok(!later.some(e => STILL_UNDATED.includes(e.id)),
   'a longer expander walk still invents no day for unclear-month rows');
-ok(later.some(e => e.id === 'seattle-dec' && e.date === '2026-12-09'
+ok(later.some(e => e.id === 'seattle-dec' && e.date === '2026-12-04'
     && near(e.amount, -1500)),
-  'longer walk includes seattle-dec on the owner Dec 9 date');
+  'longer walk includes seattle-dec on the owner Dec 4 date');
 ok(later.filter(e => e.id === 'linden-birthday').length === 1
     && later.some(e => e.id === 'linden-birthday' && e.date === '2026-12-09'
       && near(e.amount, -500)),
   'longer walk includes linden-birthday once on 2026-12-09 at −500');
 ok(later.filter(e => e.id === 'seattle-dec').length === 1,
-  'seattle-dec still emits once beside Linden on the longer walk');
+  'seattle-dec emits once, separate from Linden, on the longer walk');
 ok(later.some(e => e.id === 'christmas-2026' && e.date === '2026-12-25'
     && near(e.amount, -3500)),
   'longer walk includes christmas-2026 on the owner Dec 25 date');
 ok(!later.some(e => RETIRED_IDS.includes(e.id)),
   'retired commitments emit no cash event on the longer walk');
 ok(later.filter(e => e.id === 'san-diego').length === 1
-    && later.some(e => e.id === 'san-diego' && e.date === '2027-01-15' && near(e.amount, -3000)),
-  'san-diego emits exactly once, on 2027-01-15, at −3000');
+    && later.some(e => e.id === 'san-diego' && e.date === '2027-01-09' && near(e.amount, -3000)),
+  'san-diego emits exactly once, on 2027-01-09, at −3000');
 
 console.log('\n=== the approved target replaces the last undated principal hold ===');
 const recOpts = {
@@ -250,8 +251,10 @@ ok(near(fusionRemainingOnly, 3300),
   String(fusionRemainingOnly));
 const preexistingPoints = 895;
 const absorbedPoints = 202.88 + 202.87 + 340 + 1500 + 1500 + 500 + 3500 + 3000;
-const HAND_TOTAL = preexistingPoints + absorbedPoints + fusionHouseholdUnsettled;
-ok(near(absorbedPoints, 10745.75) && near(HAND_TOTAL, 16140.75),
+// 2027 lacrosse season rows added by owner request (2026-11-21), all estimated.
+const lacrosse2027Points = 750.90 + 3600 + 800;
+const HAND_TOTAL = preexistingPoints + absorbedPoints + lacrosse2027Points + fusionHouseholdUnsettled;
+ok(near(absorbedPoints, 10745.75) && near(HAND_TOTAL, 21291.65),
   'hand total at Aug. 19 opening includes Warriors $895 plus paid + remaining Fusion until each settledOn');
 ok(near(pub.commitmentsTotal, HAND_TOTAL),
   'publicationTotals matches that independent sum',
