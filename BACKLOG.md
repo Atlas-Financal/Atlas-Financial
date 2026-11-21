@@ -319,6 +319,14 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+<a id="linked-posted-bill-payment"></a>
+
+**A pending copy of a linked, posted bill payment blocks Stack's Paid check. Expected: the bill stays Paid.** · **ADDED TO BACKLOG — OPEN** (C1 Check 6.19)
+
+The defect is in Forecast. The observer links the posted debit to its bill occurrence and marks the posted member of the duplicate pair. In `public/forecast.js`, `budgetBillPostedLink` rejects that member on `pendingPostedDuplicate`. Forecast then publishes pending evidence and `stackBillPaid: false`; the Bills card renders that verdict. In the invented scenario, removing only the duplicate flag on the posted debit restores `posted-equal`, the Paid check and the posted amount in the paid total.
+
+The occurrence stays settled once. Collapse a pending copy into the posted payment. If the extra debit is a distinct charge in the already-settled cycle, send that charge to To confirm. Keep the classic Paid-row and settlement totals until Stack proves both cases. The lead owns the ledger-side disposition under OD-021.
+
 **Item notes split on ";" only, so an `item:` note followed by an appended line is misread** · *latent; ATLAS REVIEWER observation on #1497 (7053019186), lead 2026-11-20; ledger-side, rule 17*
 
 `noteItemNames` (`scripts/provider-observe.js`) splits a Lunch Money note on ";" only. A note that holds an `item:` line and then a newline-appended line (for example Grok Bot's appended "bill verified") reads the appended text as part of the item name. No figure or rule reads item names today, so nothing published moves. Decide with Grok Bot whether item notes are separated by ";", by lines, or by both, then split the same way the bill marker does. Proof would be an invented note `item: widget` followed by an appended line, which yields the item name `widget` alone.
