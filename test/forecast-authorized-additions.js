@@ -55,9 +55,11 @@ function proveStackBills(view, bills) {
     'authorized addition: a published bills split lists its parts');
   assert.ok(['calculated', 'estimated'].includes(bills.trust), 'authorized addition: a published bills split is calculated or estimated');
 }
-const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust'];
+const STACK_BILL_MARKS = ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust', 'stackBillPaid'];
 const STACK_BILL_PARTS = new Set(['mortgage', 'cardMinimum', 'other']);
 const STACK_BILL_EVIDENCE = new Set(['posted-equal', 'posted-differs', 'posted-verified', 'pending', 'none']);
+// The evidence the page's paid check shows (Forecast stackBillPaidEvidence).
+const STACK_BILL_PAID_EVIDENCE = new Set(['posted-equal', 'posted-verified']);
 function proveStackBillParts(view, bills) {
   const rows = Array.isArray(view.bills) ? view.bills : [];
   const marked = rows.filter(row => row && STACK_BILL_MARKS.some(key => Object.hasOwn(row, key)));
@@ -90,6 +92,29 @@ function proveStackBillParts(view, bills) {
     const byLine = new Map();
     for (const row of marked.filter(r => r.stackBillPart === 'cardMinimum')) byLine.set(row.stackBillDebtId, (byLine.get(row.stackBillDebtId) || 0) + cents(row.stackBillAmount));
     assert.deepEqual([...byLine].sort(), [...lines].sort(), 'authorized addition: each line\'s minimum rows add up to its cardMinimums amount');
+  }
+  // stackSummary.bills.paid (Dale, 2026-11-20 "bills needs the paid/owed"): the
+  // Bills part's checked rows (stackBillPaid, from the payment evidence),
+  // summed in cents; 0 and calculated with none checked; withheld (null,
+  // unavailable, a reason) when the split or a paid row's trust is unpublished.
+  for (const row of marked) assert.equal(row.stackBillPaid, STACK_BILL_PAID_EVIDENCE.has(row.stackBillPaymentEvidence),
+    'authorized addition: a row is checked paid exactly where its payment evidence confirms it');
+  const paidRows = marked.filter(row => row.stackBillPart === 'other' && row.stackBillPaid);
+  // Paid needs the period's ledger read: outside a later period, Budget's own actuals gate must be complete.
+  const progress = view.budgetProgress;
+  if (!(progress && (progress.role === 'future' || (progress.coverage && progress.coverage.complete === true)))) {
+    assert.equal(bills.paid, null, 'authorized addition: Bills paid is withheld where the period\'s posted evidence is not complete');
+  }
+  if (bills.paid === null) {
+    assert.ok(bills.paidTrust === 'unavailable' && typeof bills.paidReason === 'string', 'authorized addition: a withheld Bills paid is unavailable, with a reason');
+  } else {
+    assert.equal(cents(bills.paid), paidRows.reduce((total, row) => total + cents(row.stackBillAmount), 0),
+      'authorized addition: Bills paid is the sum of the checked Bills rows');
+    const rank = { calculated: 0, estimated: 1 };
+    assert.equal(bills.paidTrust, paidRows.length
+      ? paidRows.reduce((worst, row) => rank[row.stackBillAmountTrust] > rank[worst] ? row.stackBillAmountTrust : worst, 'calculated')
+      : bills.trust,
+      'authorized addition: Bills paid carries the weakest trust of its rows (the split\'s own trust with none)');
   }
   for (const row of marked) for (const key of STACK_BILL_MARKS) delete row[key];
 }
@@ -296,6 +321,8 @@ function withoutAuthorizedAdditions(advice) {
 // own tags, proved unavailable, are not main's fields.
 function authorizedTagKey(key, value) {
   if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)
+    // The Bills paid figure's trust (Dale, 2026-11-20 "bills needs the paid/owed"): proved in proveStackBillParts.
+    || /\.stackSummary\.bills\.paidTrust$/.test(key)
     || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
