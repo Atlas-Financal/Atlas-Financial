@@ -13,10 +13,22 @@
  * household date was observed it published the committed opening as status
  * ok while the page said unavailable.
  *
- * Each case boots the real page (app.js, forecast.js, budget-surface.js,
- * plan.js) on the served document against a stub DOM and builds the real
- * packet on the same document, spying on Forecast in both. Nothing rendered
- * or computed is printed: mismatches are reported by key name only.
+ * Each case boots the real page on the served document against a stub DOM
+ * and builds the real packet on the same document, spying on Forecast in
+ * both. Nothing rendered or computed is printed: mismatches are reported by
+ * key name only.
+ *
+ * The page is the Stack page (public/stack-shell.js, the default route since
+ * B7): the packet is compared with the Forecast.recommend call the shell makes
+ * and hands to its blocks (StackBlocks.context().recommendation), not with
+ * the classic page's. plan.js is still loaded because it holds
+ * planSettlementOutcome, the settlement gate the shell calls (it moves out of
+ * plan.js at C1 S5, and this load line changes with it), and the classic
+ * boot's budgetBreakdown call is still compared (the Stack page does not call
+ * budgetBreakdown): that one parity RETIRES AT C1 S7 with the classic page
+ * (docs/C1_TEST_DISPOSITIONS.md, lead ruling). Whether the packet's printed
+ * surplus equals the waterfall's "Surplus after deductions" is a separate,
+ * queued proof (Q1 in that file), not this one.
  */
 const fs = require('fs');
 const path = require('path');
@@ -38,34 +50,42 @@ function bootPage(data) {
   const els = new Map();
   const mk = id => {
     const el = { id, textContent: '', value: '', children: [], style: {}, attributes: {}, hidden: false, checked: false,
-      addEventListener() {}, setAttribute(k, v) { this.attributes[k] = v; }, removeAttribute() {},
-      appendChild(c) { return c; }, append() {}, remove() {}, insertAdjacentHTML() {}, querySelectorAll: () => [] };
+      classList: { add() {}, remove() {}, toggle() {}, contains: () => false }, addEventListener() {}, setAttribute(k, v) { this.attributes[k] = v; }, removeAttribute() {},
+      appendChild(c) { return c; }, append() {}, remove() {}, insertAdjacentHTML() {}, querySelector: () => mk('q'), querySelectorAll: () => [], getBoundingClientRect: () => ({ left: 0, width: 0, top: 0, height: 0 }), scrollTo() {}, dataset: {}, scrollLeft: 0, clientWidth: 0, scrollWidth: 0 };
     let h = ''; Object.defineProperty(el, 'innerHTML', { get: () => h, set(v) { h = String(v); } });
     return el;
   };
   const get = id => { if (!els.has(id)) els.set(id, mk(id)); return els.get(id); };
   const calls = {};
+  const errors = [];
   const sb = {
     document: { getElementById: get, createElement: () => mk('c'), createElementNS: () => mk('s'),
-      querySelector: () => null, querySelectorAll: () => [], documentElement: mk('html'), body: { scrollHeight: 0 } },
+      querySelector: () => null, querySelectorAll: () => [], documentElement: mk('html'), body: { scrollHeight: 0 },
+      head: { appendChild: c => c } },
+    location: { pathname: '/', search: '', hash: '', href: 'http://page.invalid/' },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     addEventListener() {}, matchMedia: () => ({ addEventListener() {} }),
     getComputedStyle: () => ({ getPropertyValue: () => '' }), requestAnimationFrame() {},
     innerWidth: 1200, innerHeight: 800, scrollY: 0,
-    console: { log() {}, warn() {}, error() {}, info() {} },
+    console: { log() {}, warn() {}, error: (...a) => errors.push(a), info() {} },
     fetch: url => Promise.resolve({ status: 200, ok: true, json: () => (String(url).includes('periods') ? periods
       : String(url).includes('balance-history') ? null : data) }),
   };
   sb.window = sb; sb.globalThis = sb;
-  Object.assign(sb, { AbortController, setTimeout, clearTimeout });
+  Object.assign(sb, { AbortController, URLSearchParams, setTimeout, clearTimeout });
   vm.createContext(sb);
   for (const f of ['public/app.js', 'public/forecast.js']) vm.runInContext(read(f), sb, { filename: f });
   for (const fn of SPIED) {
     const orig = sb.Forecast[fn];
-    sb.Forecast[fn] = function (...args) { const r = orig.apply(this, args); (calls[fn] = calls[fn] || []).push({ args, r }); return r; };
+    // origin: which page asked, read from the caller's file (the Stack shell, or the classic page's scripts).
+    sb.Forecast[fn] = function (...args) {
+      const r = orig.apply(this, args);
+      (calls[fn] = calls[fn] || []).push({ args, r, origin: /stack-shell\.js/.test(new Error().stack) ? 'shell' : 'classic' });
+      return r;
+    };
   }
-  for (const f of ['public/budget-surface.js', 'public/plan.js']) vm.runInContext(read(f), sb, { filename: f });
-  return new Promise(resolve => setTimeout(() => resolve({ calls, sb }), 60));
+  for (const f of ['public/budget-surface.js', 'public/plan.js', 'public/stack-shell.js']) vm.runInContext(read(f), sb, { filename: f });
+  return new Promise(resolve => setTimeout(() => resolve({ calls, sb, errors }), 60));
 }
 
 function buildPacket(data) {
@@ -148,7 +168,13 @@ function invented(extra) {
     console.log(`\n=== ${what} ===`);
     const page = await bootPage(JSON.parse(JSON.stringify(data)));
     const pkt = buildPacket(data);
-    const pRec = page.calls.recommend && page.calls.recommend[0];
+    const fromShell = list => (list || []).filter(c => c.origin === 'shell');
+    const pRec = fromShell(page.calls.recommend)[0];
+    ok(fromShell(page.calls.recommend).length === 1, 'the Stack shell calls Forecast.recommend once');
+    ok(page.errors.length === 0, 'the Stack shell ran without falling back to the classic page', String(page.errors.length));
+    const shellContext = page.sb.StackBlocks && page.sb.StackBlocks.context && page.sb.StackBlocks.context();
+    ok(!!pRec && !!shellContext && shellContext.recommendation === pRec.r,
+      'the call compared is the one the shell hands to its blocks');
     const aRec = pkt.calls.recommend && pkt.calls.recommend[0];
     ok(!!pRec && !!aRec, 'both the page and the packet call Forecast.recommend');
     if (!pRec || !aRec) continue;
@@ -176,6 +202,7 @@ function invented(extra) {
       'the page\'s advice carries no held-row list');
     ok(!('revolvingExtra' in aRec.args[2]) && 'extraFacilities' in aRec.args[2],
       'overdraft facilities reach recommend under the key the engine reads (extraFacilities)');
+    // RETIRES AT C1 S7: the Stack page does not call budgetBreakdown, so this parity is with the classic boot only.
     const pBud = page.calls.budgetBreakdown && page.calls.budgetBreakdown[0];
     const aBud = pkt.calls.budgetBreakdown && pkt.calls.budgetBreakdown[0];
     if (pBud && aBud) {
@@ -231,14 +258,32 @@ function invented(extra) {
     d.liveOverlay = { applied: false, operatingPlan: 'dated-opening', reason: 'provider-unavailable' };
     const page = await bootPage(JSON.parse(JSON.stringify(d)));
     const pkt = buildPacket(d);
-    const pageUnavailable = vm.runInContext('liveOperatingPlanUnavailable', page.sb)(page.calls.recommend[0].r, d.liveOverlay);
-    ok(pageUnavailable === true, 'the page reads the current plan unavailable (PA-5 #775)');
-    ok(page.calls.recommend[0].args[2].operatingPlan === 'unavailable'
+    const shellRec = page.calls.recommend.find(c => c.origin === 'shell');
+    ok(!!shellRec, 'the Stack shell asks Forecast for the plan');
+    const pageUnavailable = page.sb.Forecast.liveOperatingPlanUnavailable(shellRec.r, d.liveOverlay);
+    ok(pageUnavailable === true, 'the Stack page reads the current plan unavailable (PA-5 #775)');
+    ok(shellRec.args[2].operatingPlan === 'unavailable'
       && pkt.calls.recommend[0].args[2].operatingPlan === 'unavailable',
       'both tell Forecast the effective verdict, unavailable');
     const cash = pkt.packet.current && pkt.packet.current.spendableHouseholdCash;
     ok(cash && cash.status !== 'ok' && cash.current !== true,
       'the packet does not publish the committed opening as current, status ok', cash ? String(cash.status) : 'none');
+  }
+
+  console.log('\n=== a withheld settlement outcome publishes no plan on the Stack page and none in the packet (ATLAS-080) ===');
+  {
+    const d = invented();
+    d.settlementEvidenceStatus = { status: 'unavailable', reason: 'invalid-configuration' };
+    const page = await bootPage(JSON.parse(JSON.stringify(d)));
+    const pkt = buildPacket(d);
+    ok(page.errors.length === 0, 'the Stack shell ran without falling back to the classic page');
+    ok(!page.calls.recommend || !page.calls.recommend.some(c => c.origin === 'shell'),
+      'the Stack shell asks Forecast for no plan');
+    const ctx = page.sb.StackBlocks && page.sb.StackBlocks.context && page.sb.StackBlocks.context();
+    ok(!!ctx && ctx.recommendation === null, 'the Stack shell hands its blocks no recommendation');
+    const f = pkt.packet.forecast;
+    ok(f && f.status === 'unavailable' && f.recommendation && f.recommendation.status === 'unavailable',
+      'the packet prints the recommendation as unavailable', f ? String(f.status) : 'none');
   }
 
   console.log(`\n${checks} checks, ${failures} failed`);
