@@ -578,11 +578,11 @@ console.log('=== E. Existing different-payday packet is protected; $0 observatio
 
 console.log('=== F. Page does not calculate persist; Forecast remains authority ===');
 {
-  const planSrc = read('public/plan.js');
   const refreshSrc = read('scripts/canonical-refresh.js');
-  ok(!/paydayAccountObservations/.test(planSrc)
-      && !/approve-payday-observation/.test(planSrc),
-    'plan.js does not persist or reprint paydayAccountObservations');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/paydayAccountObservations/, /approve-payday-observation/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) persists or reprints paydayAccountObservations', hits.join(', ') || 'none');
   ok(/PAYDAY_OBSERVATION_SCHEMA = 'atlas-payday-account-observation-approval\/v1'/.test(refreshSrc)
       && /--preserve-payday-observation/.test(refreshSrc)
       && /existing-payday-observation-protected/.test(refreshSrc)

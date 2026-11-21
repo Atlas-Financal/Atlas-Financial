@@ -419,10 +419,10 @@ console.log('\n=== Lunch Money Dale/Amanda does not invent a second planner ==='
       && /lunchmoney-category-dale/.test(src)
       && /lunchmoney-category-amanda/.test(src),
     'Forecast owns the Lunch Money Dale/Amanda mapping');
-  const planSrc = fs.readFileSync(path.join(__dirname, '..', 'public/plan.js'), 'utf8');
-  ok(!/lunchMoneyGuiltFreeCategoryOwner/.test(planSrc)
-      && !/lunchmoney-category-dale/.test(planSrc),
-    'Plan page does not reimplement the Dale/Amanda category mapping');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/lunchMoneyGuiltFreeCategoryOwner/, /lunchmoney-category-dale/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) reimplements the Dale/Amanda category mapping', hits.join(', ') || 'none');
 }
 
 if (failures) {

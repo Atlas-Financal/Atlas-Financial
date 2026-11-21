@@ -714,5 +714,6 @@
   ["Stack card names come from the ledger: the Lunch Money display name, carried by provider account id, shown first on the waterfall and the Credit card","test-stack-card-ledger-names.js"],
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
   ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
-  ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"]
+  ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"],
+  ["The page-script scan behind the \"page only prints\" guards covers the Stack page and the classic page, leaves the engine out, and reports the script that contains a pattern (C1 S4 B3)","test-page-scripts.js"]
 ]
