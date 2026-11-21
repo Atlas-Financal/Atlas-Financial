@@ -829,24 +829,24 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - Source: ATLAS REVIEWER 2 on #1509 (7056807037) and the merge card's Additional findings; lead's ask, 2026-11-21.
 
 **Stack-arm boot: the "focus refused" checks still probe the hidden header** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Light lane (tests only).
-- **Why:** on the Stack arm the header the boot's "focus refused" checks look at is hidden, so those checks probe an element the household never sees and can pass or fail for the wrong reason.
-- **Closure:** the checks probe the element the Stack arm actually shows. Proof: a case where focus is refused on the visible Stack element fails the check.
-- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+- **Why:** on the Stack arm of `test/browser-boot-treatment.js`, the two during-load "focus is refused" checks (the inertness run and the static phase) still focus the hidden header theme button. They pass partly because it is hidden, not only because the page is inert.
+- **Closure:** those checks probe a Stack-page control that is drawn during a held load, or a test shows no Stack control exists to probe then.
+- Source: #1506 (merged), merge card Additional findings 1; lead's light-lane review 7055800787. DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
 
-**A yearly bill's explicit `goalRef` bypasses `savingsGoal: false`** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane if a savings figure moves.
-- **Why:** a bill marked `savingsGoal: false` should not become a savings goal, but an explicit yearly-bill `goalRef` still makes it one, so the flag is not the single authority.
-- **Closure:** one rule decides whether a bill is a savings goal, and `savingsGoal: false` wins over a `goalRef`. Proof on invented data: a yearly bill with both is not a goal, and removing the flag restores the goal.
-- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+**An explicit yearly-bill `goalRef` bypasses `savingsGoal: false`** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane if a savings figure moves.
+- **Why:** `savingsCombinedBacking` honours a bill's `savingsGoal: false`, but an explicit `savingsEarmarks` pool `goalRef` `{kind: 'yearly-bill'}` naming that flagged bill would still make it a goal. No such `goalRef` exists today.
+- **Closure:** a validator rejects that combination, or the `goalRef` path honours the flag, with a test.
+- Source: #1505 merge card Additional findings 6, raised from automated pre-review 7056673358 at c8c1f200. DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
 
-**When items are held, the Savings card's totals do not add up on their face** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane if a published figure or its trust changes.
-- **Why:** with held items, the Savings card's printed parts and its total do not sum as a reader adds them, so the card looks wrong even if each figure is right.
-- **Closure:** the card either shows parts that sum to its total or says plainly what the total includes. Proof on invented data: a held item, and the rendered parts and total reconcile as printed.
-- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+**When an item is held, the Savings card does not add up on its face** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane (a published figure).
+- **Why:** when an item has left the card but still holds its share, the card's saved plus unallocated is less than the balance, and the held amount is not a published figure, so the card does not add up as a reader adds it.
+- **Closure:** the held amount is published (or the card shows it), and the identity saved + held + unallocated = balance is checked on the published figures.
+- Source: the lead, after ATLAS REVIEWER's NO BLOCKERS FOUND 7057346617 on #1505 at 153a5bea. DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
 
 **An overdue unpaid savings item is treated as spent** · QUEUED (ATLAS LEAD 11, 2026-11-21): DISPLAY's one-liner. Full lane (a figure the household acts on).
-- **Why:** a savings item whose date has passed but which was not paid reads as spent, so the money still set aside for it looks gone.
-- **Closure:** an overdue unpaid item stays held (or reads unconfirmed), never spent, until a payment is seen. Proof on invented data: an item past its date with no payment keeps its money held, and a payment moves it to spent.
-- Source: DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+- **Why:** under the hold rule, an item dated before the current period is out of the pour as if paid, even when it is overdue and unpaid (not `paymentStatus` `'paid'`). Its money then flows to later goals.
+- **Closure:** an overdue unpaid item either keeps its share or is flagged, with a test on an invented overdue item.
+- Source: the lead, after ATLAS REVIEWER's NO BLOCKERS FOUND 7057346617 on #1505. DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
 
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
 - **Why:** on the 753-purchase invented harness world (main `311c6c7b`), building the hold set (`computeHeldOtherIncomeKeys` → `calendarIncomeSections`, which scans every packet transaction in its span) is 292 of 1,035 ms inside `recommend`. One `recommend` builds it 36 times. The payday and weekly searches already share it within a search (#980 follow-up, #1406); the other callers do not.
