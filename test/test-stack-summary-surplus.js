@@ -145,7 +145,8 @@ const views = (F, args) => F.recommend(...args()).payPeriodViews;
 const byStart = (vs, start) => vs.find(v => v.start === start);
 const surplusOf = v => v && v.stackSummary && v.stackSummary.surplus;
 const billsOf = v => v && v.stackSummary && v.stackSummary.bills;
-const NO_BILLS = { mortgage: 0, cardMinimums: [], other: 0, trust: 'calculated' };
+// No Bills row, so nothing is confirmed paid: Bills paid is a known 0 (stackSummary.bills.paid).
+const NO_BILLS = { mortgage: 0, cardMinimums: [], other: 0, trust: 'calculated', paid: 0, paidTrust: 'calculated' };
 
 console.log('1. Hand-derived invented worlds');
 {
@@ -184,7 +185,7 @@ console.log('1. Hand-derived invented worlds');
     ok(cur && cur.periodBillLoad === 445 && cur.balanceAfterDeductions === 555, 'bills world: the published load is 445 and BAD 555',
       JSON.stringify(cur && [cur.periodBillLoad, cur.balanceAfterDeductions]));
     ok(JSON.stringify(b) === JSON.stringify({ mortgage: 300, cardMinimums: [{ debtId: 'mbna', amount: 25 }, { debtId: 'triangle', amount: 10 }],
-      other: 110, trust: 'calculated' }), 'its split: mortgage 300, minimums mbna 25 + triangle 10, other 110 (card-paid bill included), no non-cash item',
+      other: 110, trust: 'calculated', paid: 0, paidTrust: 'calculated' }), 'its split: mortgage 300, minimums mbna 25 + triangle 10, other 110 (card-paid bill included), no non-cash item; no Bills payment posted, so paid 0',
       JSON.stringify(b));
     ok(s && s.amount === 555 && JSON.stringify(s.terms) === JSON.stringify({ income: 1400, bills: 110, household: 400, mortgage: 300, credit: 35 }),
       'its surplus is 555 = 1,400 − 110 − 400 − 300 − 35', JSON.stringify(s));
@@ -205,7 +206,7 @@ console.log('1. Hand-derived invented worlds');
   {
     const cur = byStart(views(copies.shipped, harnessArgs({ heloc: true })), '2026-10-09');
     ok(cur && cur.periodBillLoad === 82 && JSON.stringify(billsOf(cur)) === JSON.stringify({ mortgage: 0,
-      cardMinimums: [{ debtId: 'mbna', amount: 32 }, { debtId: 'heloc', amount: 50 }], other: 0, trust: 'calculated' }),
+      cardMinimums: [{ debtId: 'mbna', amount: 32 }, { debtId: 'heloc', amount: 50 }], other: 0, trust: 'calculated', paid: 0, paidTrust: 'calculated' }),
       'HELOC world: credit is mbna 32 (25 + 7, one row) and heloc 50; other 0', JSON.stringify(cur && [cur.periodBillLoad, billsOf(cur)]));
     ok(surplusOf(cur) && surplusOf(cur).amount === 918 && surplusOf(cur).terms.credit === 82 && surplusOf(cur).terms.bills === 0
       && cur.balanceAfterDeductions === 918, 'its surplus is 918 = BAD, with credit 82 and bills 0', JSON.stringify(surplusOf(cur)));
@@ -227,7 +228,8 @@ console.log('1. Hand-derived invented worlds');
     ok(s && s.amount === 825 && s.amount === paid.balanceAfterDeductions + 35
       && JSON.stringify(s.terms) === JSON.stringify({ income: 1000, bills: 0, household: 150, mortgage: 0, credit: 25 }),
       'its surplus is 825 (1,000 − 0 − 150 − 0 − 25) = BAD + the 35 beyond the minimum', JSON.stringify(s));
-    const minimum = JSON.stringify({ mortgage: 0, cardMinimums: [{ debtId: 'mbna', amount: 25 }], other: 0, trust: 'calculated' });
+    // A paid card minimum is Credit, never Bills paid: Bills paid stays 0 whether the minimum is paid, pending or unpaid.
+    const minimum = JSON.stringify({ mortgage: 0, cardMinimums: [{ debtId: 'mbna', amount: 25 }], other: 0, trust: 'calculated', paid: 0, paidTrust: 'calculated' });
     const pending = run([['bills', 25, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS', is_pending: true, status: 'pending' }]]);
     const unpaid = run([]);
     ok(paid.bills.some(row => row.id === 'mbna-minimum' && row.status === 'PAID') && [paid, pending, unpaid].every(p => JSON.stringify(billsOf(p)) === minimum)
@@ -357,7 +359,7 @@ console.log('4. Every existing field is byte-equal');
 {
   // stackSummary, and the per-row split marks publishStackSummary sets beside it (publishStackBillParts).
   const strip = advice => { for (const v of advice.payPeriodViews || []) { delete v.stackSummary;
-    for (const b of v.bills || []) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust']) delete b[k]; }
+    for (const b of v.bills || []) for (const k of ['stackBillPart', 'stackBillAmount', 'stackBillDebtId', 'stackBillPaymentEvidence', 'stackBillAmountTrust', 'stackBillPaid']) delete b[k]; }
   return JSON.stringify(advice); };
   let same = 0, total = 0;
   const all = corpus.concat([harnessArgs({}), harnessArgs({ held: true }), harnessArgs({ item: true }), harnessArgs({ bills: true, hydro: null }),
