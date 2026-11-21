@@ -187,12 +187,18 @@ ok(!live || live.date >= asOf,
 
 console.log('\n=== page is a renderer ===');
 const page = read('public/plan.js');
+const { pageScriptsMatching } = require('./lib/page-scripts');
+// Positive "the classic page reads Forecast.X" assertions stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md);
+// the "never" assertions read every page script, the Stack page included (test/lib/page-scripts.js).
+const never = (...res) => pageScriptsMatching(...res);
 ok(/Forecast\.nextPaymentOut\(/.test(page),
   'the Plan page reads the day total from Forecast.nextPaymentOut');
-ok(!/nextCritical/.test(page), 'the page no longer builds nextCritical');
-ok(!/nextOutDate/.test(page), 'the page no longer selects the next outflow date');
-ok(!/e\.kind !== 'noncash' && e\.date >= asOf/.test(page),
-  'the page no longer filters cash outflows for this tile');
+ok(never(/nextCritical/).length === 0,
+  'the page no longer builds nextCritical (no page script, classic or Stack)', never(/nextCritical/).join(', ') || 'none');
+ok(never(/nextOutDate/).length === 0,
+  'the page no longer selects the next outflow date (no page script, classic or Stack)', never(/nextOutDate/).join(', ') || 'none');
+ok(never(/e\.kind !== 'noncash' && e\.date >= asOf/).length === 0,
+  'the page no longer filters cash outflows for this tile (no page script, classic or Stack)', never(/e\.kind !== 'noncash' && e\.date >= asOf/).join(', ') || 'none');
 
 console.log('\n=== mutation: summing the day is what the suite now reaches ===');
 /* B73's recorded mutation, at its new home: replace the day sum with the

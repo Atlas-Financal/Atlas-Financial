@@ -1646,10 +1646,13 @@ console.log('\n=== overdue unsettled point commitments stay protected ===');
 console.log('\n=== existing consumers still derive from Forecast ===');
 {
   const planJs = read('public/plan.js');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  // The positive assertions stay on plan.js and retire with it (C1 S7); the "never" reads every page script.
   ok(/advice\.majorPlans|Forecast\.majorPlans/.test(planJs),
     'the Plan page renders Forecast.majorPlans and does not invent the verdicts');
-  ok(!/verdict\s*=\s*['"]ON TRACK['"]/.test(planJs),
-    'the Plan page does not assign ON TRACK itself');
+  const assignsOnTrack = pageScriptsMatching(/verdict\s*=\s*['"]ON TRACK['"]/);
+  ok(assignsOnTrack.length === 0,
+    'no page script (classic or Stack) assigns ON TRACK itself', assignsOnTrack.join(', ') || 'none');
   ok(/Forecast\.recommend\(/.test(planJs),
     'the Plan page still takes the weekly cap from Forecast.recommend');
 }
