@@ -59,6 +59,11 @@ const hashFile = p => crypto.createHash('sha256').update(fs.readFileSync(p)).dig
 const clone = x => JSON.parse(JSON.stringify(x));
 
 const liveData = JSON.parse(fs.readFileSync(DATA, 'utf8'));
+// The owner's own committed represented entries for one id (e.g. Travel, Dale's statement 2026-11-21): the overlay
+// carries them through and must add none of its own.
+const committedRepresented = id => ((liveData.plan.opening.representedEvents || []).filter(e => e.id === id)
+  .map(e => e.id + '@' + e.date).sort().join());
+const representedOf = (list, id) => (list || []).filter(e => e.id === id).map(e => e.id + '@' + e.date).sort().join();
 const accountMap = JSON.parse(fs.readFileSync(MAP, 'utf8'));
 const identity = JSON.parse(fs.readFileSync(IDENTITY, 'utf8'));
 const liveHash = hashFile(DATA);
@@ -1509,8 +1514,8 @@ console.log('\n=== 18. complete live cash plus missing same-day unposted bill st
     'Friday Fit4Less stays represented');
   ok(!represented.some(e => e.id === 'tdfees'),
     'unposted TD fees are not invented onto representedEvents');
-  ok(!represented.some(e => e.id === 'travel'),
-    'Travel Visa is not invented onto representedEvents');
+  ok(representedOf(represented, 'travel') === committedRepresented('travel'),
+    'Travel Visa is not invented onto representedEvents (only the owner\'s committed entries remain)');
 
   ok(near(cashValue(result.data, 'chequing-a'), SYNTHETIC_LIVE_A)
       && near(cashValue(result.data, 'chequing-b'), SYNTHETIC_LIVE_B)
@@ -1688,9 +1693,8 @@ console.log('\n=== 19. card and chequing payment movements leave minimum intent 
   const hit = (identified.report.representedEventCandidates || [])
     .find(c => c.id === 'travel');
   ok(!hit, 'Travel Visa credit proves a movement, not minimum-payment intent');
-  ok(!(identified.data.plan.opening.representedEvents || [])
-      .some(e => e.id === 'travel' && e.date === '2026-08-26'),
-    'in-memory opening does not name an unconfirmed card minimum');
+  ok(representedOf(identified.data.plan.opening.representedEvents, 'travel') === committedRepresented('travel'),
+    'in-memory opening does not name an unconfirmed card minimum (the card credit adds no Travel entry)');
 
   const advice = Forecast.recommend(identified.data.plan, NEXT_DAY_AS_OF, {
     currentPeriodActuals: identified.data.liveOverlay.currentPeriodActuals,
