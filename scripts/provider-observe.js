@@ -3505,12 +3505,14 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     // has to qualify against the current item price.
     const pricedBill = recurringSchedules.some(schedule => schedule.billId === rule.eventId
       && schedule.recurringId === id && schedule.amount > 0);
+    const opening = plan.opening;
     for (const pair of pairs) {
-      const opening = plan?.opening;
-      pair.recordedReceipt = pricedBill && (opening?.representedEvents || []).some(row =>
-        row && row.id === rule.eventId && row.date === pair.date
-        && Forecast.representedEventEffectiveBy(row, opening.asOf)
-        && pair.tx.date <= (row.effectiveAsOf || opening.asOf))
+      pair.recordedReceipt = pricedBill && String(pair.tx.recurringId) === id
+        && found.some(f => String(f.transactionId) === String(pair.tx.providerTransactionId) && f.date === pair.tx.date)
+        && Array.isArray(opening?.representedEvents) && opening.representedEvents.some(row =>
+          row && row.id === rule.eventId && row.date === pair.date
+          && Forecast.representedEventEffectiveBy(row, opening.asOf)
+          && pair.tx.date <= (row.effectiveAsOf || opening.asOf))
         && Forecast.representedOccurrence(plan, rule.eventId, pair.date, opening.asOf);
     }
     const consistent = pairs.every(({ tx, date, recordedReceipt }) => {

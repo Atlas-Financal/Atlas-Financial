@@ -155,6 +155,11 @@ console.log('5d. A recorded settlement retains its posted amount when the linked
   ok(row?.status === 'PAID' && row.amount === 40 && row.actual === 79.5 && row.remaining === 0
     && current.billsBalance.amount === 920.5, 'the recorded occurrence keeps its actual and reserves nothing twice',
     J([row?.status, row?.actual, row?.remaining, current.billsBalance.amount]));
+  const laterTx = posted(79.5, '2026-10-20');
+  const later = serve([pairedItem('40.00', laterTx)], { ...opts, asOf: '2026-10-21',
+    transactions: [laterTx], opening: JSON.parse(J(prior.opening)) });
+  ok(later.cur[0]?.status === 'PAID' && later.cur[0].actual == null && later.cur[0].remaining === 0,
+    'an opening records a settlement but cannot supply its actual from a later posted debit');
 }
 
 console.log('5e. Trusted-on-due settlements use the served price as their actual');
@@ -173,8 +178,8 @@ console.log('6. Card and obligation rows never take an item amount');
   const obl = src.slice(src.indexOf('function recurringObligationSchedule'), src.indexOf('function applyRecurringObligationSchedule'));
   ok(!/recurringBillAmount|amounts/.test(obl), 'the card/obligation schedule path reads no item amount');
 }
-// Standalone regression for review finding 1. Run with --verify-repeat-refresh
-// to exercise two complete provider reads against the same canonical opening.
+// Each fresh observation qualifies against the current price. A prior live view
+// never writes an opening or a close. Both reads use the same posted transaction.
 async function verifyRepeatRefresh() {
   const fs = require('node:fs');
   const { mock } = require('node:test');
@@ -204,7 +209,11 @@ async function verifyRepeatRefresh() {
         pendingCoverage: { ...raw.pendingCoverage, truncated: false },
         recurringItems: read([pairedItem(price, tx)]) };
     });
-    for (price of ['80.00', '40.00']) {
+    for (const [itemPrice, status, actual, remaining, balance] of [
+      ['80.00', 'PAID', 79.5, 0, 920.5],
+      ['40.00', 'still due', null, 40, 880.5],
+    ]) {
+      price = itemPrice;
       let observation;
       const data = await Live.applyForServer(canonical, { ATLAS_LIVE_OVERLAY: 'live' },
         { onObservation(value) { observation = value; } });
@@ -213,17 +222,38 @@ async function verifyRepeatRefresh() {
       const row = view.calendarPeriods.find(period => period.start === '2026-10-09').bills.find(b => b.id === 'band');
       ok(observation?.qualified === true && !!observation.evidence && data.liveOverlay.applied === true
         && J(canonical) === baseline, 'complete replay-proven provider refresh, same canonical opening');
-      ok(row.status === 'PAID' && row.amount === Number(price) && row.actual === 79.5
-        && row.remaining === 0 && view.billsAccountPeriodBalance.amount === 920.5,
-        `same posted debit stays paid at served price ${price} across refreshes`,
+      ok(row.status === status && row.amount === Number(price) && (row.actual ?? null) === actual
+        && row.remaining === remaining && view.billsAccountPeriodBalance.amount === balance,
+        `an unrecorded debit is judged at the current price ${price} on each fresh read`,
         J([row.status, row.actual, row.remaining, view.billsAccountPeriodBalance.amount]));
     }
+    // A saved close is read from its captured publication, even when the
+    // live rebuilt period would now withhold that debit at the lower price.
+    const History = require('../scripts/private-period-history');
+    const Pg = require('../scripts/private-period-history-postgres');
+    w.asOf = '2026-10-24';
+    price = '80.00';
+    const raw = await O.fetchLunchMoneyLive();
+    const captured = History.captureClosing({ data: canonical, payload: raw, accountMap: H.accountMapOf(w),
+      identity: H.identityOf(w), periods: [] }, { now: () => new Date('2026-10-24T18:01:00Z') });
+    const record = Pg.project(captured);
+    price = '40.00';
+    const current = await Live.applyForServer(canonical, { ATLAS_LIVE_OVERLAY: 'live' });
+    const views = F.recommend(current.plan, w.asOf, { currentPeriodActuals: current.liveOverlay.currentPeriodActuals,
+      debts: current.debts, periods: [], periodHistory: [record] }).payPeriodViews;
+    const closed = views.find(period => period.start === '2026-10-09');
+    const saved = closed?.bills.find(bill => bill.id === 'band');
+    ok(current.plan.bills.find(bill => bill.id === 'band')?.amount === 40
+      && closed?.capturedClose?.kind === 'closing' && saved?.status === 'PAID'
+      && saved.actual === 79.5 && saved.planned === 80 && saved.remaining === 0,
+      'the previous period prints the saved close and its original paid amount after the price drops',
+      J([closed?.capturedClose?.kind, saved?.status, saved?.planned, saved?.actual, saved?.remaining]));
   } finally {
     mock.restoreAll();
   }
 }
 async function finish() {
-  if (process.argv.includes('--verify-repeat-refresh')) await verifyRepeatRefresh();
+  await verifyRepeatRefresh();
   console.log(`\n${checks - failures}/${checks} passed`);
   if (failures) process.exitCode = 1;
 }
