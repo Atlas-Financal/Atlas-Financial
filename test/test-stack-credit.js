@@ -548,34 +548,4 @@ console.log('8. sheet head: the date range in the kicker, the 64px figure, the s
     'the close mark is a 14px × in a 36px dark circle (not stretched by the global svg rule)');
 }
 
-console.log('14. The minimum\'s due date beside the card name (Dale, 2026-11-21)');
-{
-  // Forecast's own marks on the view's bill rows (stackBillPart / stackBillDebtId), invented: one dated occurrence for the
-  // first card, two for the second (nothing shown), an undated one for the third, a malformed one for the HELOC.
-  const mark = (id, debt, date) => ({ id, date, label: id, amount: 10, stackBillPart: 'cardMinimum', stackBillDebtId: debt });
-  const bills = [mark('m1', 'travelvisa', '2031-03-03'), mark('m2a', 'cashback', '2031-03-04'), mark('m2b', 'cashback', '2031-03-11'),
-    mark('m3', 'tdcc', null), mark('m4', 'heloc', '03/05/2031'),
-    { id: 'other1', date: '2031-03-09', label: 'Water', amount: 5, stackBillPart: 'other' }];
-  const run = (view, src) => {
-    const { fns } = src ? load(src) : load();
-    const el = container();
-    const ctx = context(TOTALS.complete);
-    ctx.recommendation = { payPeriodViews: [view] };
-    fns.credit(el, ctx);
-    return el.innerHTML;
-  };
-  const html = run({ ...VIEW, bills });
-  const dues = [...html.matchAll(/<li>[\s\S]*?<\/li>/g)].map(m => (/class="stack-credit-due">([^<]*)</.exec(m[0]) || [])[1] || null);
-  ok(JSON.stringify(dues) === JSON.stringify(['Mar 3', null, null, null]),
-    'a date prints only on the row with exactly one dated occurrence; two occurrences, an undated row and a malformed date print none', JSON.stringify(dues));
-  ok(/<b>Blue Visa<\/b><span class="stack-credit-due">Mar 3<\/span>/.test(html), 'the date sits right beside the card name, in the muted class');
-  ok(!run({ ...VIEW, bills: undefined }).includes('stack-credit-due') && !run({ ...VIEW, bills: [{ ...mark('m1', 'travelvisa', '2031-03-03'), stackBillPart: 'other' }] }).includes('stack-credit-due'),
-    'no marked rows (the split withheld, or a row not marked a card minimum): no date, never a guess');
-  const css = read('public/stack-credit.css');
-  ok(/\.stack-credit-due \{[^}]*color: var\(--stack-on2\)/.test(css), 'the date is grey (the muted ink), small');
-  // Mutant: reading the first row whatever the count would print Mar 4 on the two-occurrence card.
-  const mutant = read('public/stack-credit.js').replace('rows.length === 1 &&', 'rows.length >= 1 &&');
-  ok(mutant !== read('public/stack-credit.js') && /Mar 4/.test(run({ ...VIEW, bills }, mutant)), 'mutant: dropping the exactly-one rule prints a guessed date and is caught');
-}
-
 console.log(`\nPASS Stack credit card and sheet (${checks})`);

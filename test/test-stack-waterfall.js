@@ -278,5 +278,38 @@ console.log('10. The Mortgage line opens the mortgage sheet (owner, Dale, 2026-1
   JSON.stringify({ published: view && view.stackSummary.bills.mortgage, row: mort && [mort.id, mort.date, mort.amount] }));
 }
 
+console.log('9. The minimum\'s due date beside each Credit card name (Dale, 2026-11-21)');
+{
+  // Forecast's own marks on the view's bill rows, invented: one dated occurrence for mbna, two for triangle, an undated
+  // one for a third card, a malformed date for a fourth, and a row not marked a card minimum.
+  const mark = (id, debt, date) => ({ id, date, label: id, amount: 10, stackBillPart: 'cardMinimum', stackBillDebtId: debt });
+  const view = fullView({
+    bills: [mark('a', 'mbna', '2026-10-12'), mark('t1', 'triangle', '2026-10-03'), mark('t2', 'triangle', '2026-10-17'),
+      mark('u', 'undated', null), mark('m', 'bad', '10/05/2026'), { ...mark('o', 'other', '2026-10-09'), stackBillPart: 'other' }],
+  });
+  view.stackSummary.bills.cardMinimums = [{ debtId: 'mbna', amount: 25 }, { debtId: 'triangle', amount: 10 }, { debtId: 'undated', amount: 5 }, { debtId: 'bad', amount: 5 }, { debtId: 'other', amount: 5 }];
+  const dues = src => {
+    const html = W.html(ctxOf([src]), { creditOpen: true });
+    return [...html.matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)].map(m => (/class="wf-due">([^<]*)</.exec(m[1]) || [])[1] || null);
+  };
+  ok(JSON.stringify(dues(view)) === JSON.stringify(['Oct 12', null, null, null, null]),
+    'a date prints only on the card with exactly one dated occurrence; two occurrences, an undated row, a malformed date and an unmarked row print none', JSON.stringify(dues(view)));
+  ok(/<b>Invented card A<\/b><span class="wf-due">Oct 12<\/span>/.test(W.html(ctxOf([view]), { creditOpen: true })), 'the date sits right beside the card name');
+  ok(dues({ ...view, bills: undefined }).every(d => d === null), 'no bill rows (the split withheld): no date, never a guess');
+  ok(/\.wf-card \.wf-due \{[^}]*color: var\(--stack-on2\)/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'stack-waterfall.css'), 'utf8')), 'the date is the muted ink, small');
+  // Mutant: reading the first row whatever the count prints a guessed date for the two-occurrence card.
+  const src = fs.readFileSync(FILE, 'utf8');
+  const mutated = src.replace('rows.length === 1 ?', 'rows.length >= 1 ?');
+  ok(mutated !== src, 'the mutation applies');
+  const Module = require('node:module');
+  const mm = new Module(FILE);
+  mm.filename = FILE;
+  mm.paths = Module._nodeModulePaths(path.dirname(FILE));
+  mm._compile(mutated, FILE);
+  const mutantDues = [...mm.exports.html(ctxOf([view]), { creditOpen: true }).matchAll(/<li class="wf-card"[^>]*>([\s\S]*?)<\/li>/g)]
+    .map(x => (/class="wf-due">([^<]*)</.exec(x[1]) || [])[1] || null);
+  ok(mutantDues[1] === 'Oct 3', 'mutant: dropping the exactly-one rule prints a guessed date for the two-occurrence card and is caught', JSON.stringify(mutantDues));
+}
+
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack waterfall checks passed`);
 process.exit(failures ? 1 : 0);

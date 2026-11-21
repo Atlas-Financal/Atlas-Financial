@@ -49,15 +49,8 @@
       // Each line's name: its Lunch Money account's (StackBlocks.cardName), else Forecast's label.
       const name = line => window.StackBlocks && typeof window.StackBlocks.cardName === 'function'
         ? window.StackBlocks.cardName(d, line.id, line.label) : line.label;
-      // Each line's due date (Dale, 2026-11-21): the date of the one minimum occurrence Forecast counted for that card in this
-      // period, read from the rows it marked (stackBillPart 'cardMinimum', stackBillDebtId). Exactly one dated row, else none:
-      // a card with several occurrences, or an undated one, shows no date rather than a guess.
-      const dueDate = line => {
-        const rows = (Array.isArray(view.bills) ? view.bills : []).filter(r => r && r.stackBillPart === 'cardMinimum' && String(r.stackBillDebtId) === String(line.id));
-        return rows.length === 1 && typeof rows[0].date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rows[0].date) ? rows[0].date : null;
-      };
       out = result && Array.isArray(result.lines) && result.totals
-        ? { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line), dueDate: dueDate(line) } : line)), totals: result.totals, view }
+        ? { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line) } : line)), totals: result.totals, view }
         : null;
     }
     readings.set(ctx, out);
@@ -148,15 +141,12 @@
   // estimated, $X" when soft. The visible text stays the number alone; role="img" makes the name the one announcement.
   const balanceAttrs = (line, soft) => `role="img" aria-label="Last balance${soft ? ', estimated,' : ''} ${esc(money(amountOf(line.balance)))}"`;
 
-  const dueFormat = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  const dueLabel = iso => (typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? dueFormat.format(new Date(iso + 'T12:00:00Z')) : '');
-
   function lineHtml(line, view) {
     const r = readLine(line, view);
     const tick = r.ok ? ` is-on${r.tickSoft}" role="img" aria-label="Minimum covered${r.tickSoft ? ', estimated' : ''}"` : '"';
     return `<li><button class="stack-credit-line" type="button" data-stack-sheet="card:${esc(line.id)}">`
       + `<span class="stack-credit-tick${tick}>${TICK}</span>`
-      + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b>${dueLabel(line.dueDate) ? `<span class="stack-credit-due">${esc(dueLabel(line.dueDate))}</span>` : ''}</span>`
+      + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b></span>`
       + (balanceShown(line) ? `<small class="stack-credit-bal stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${esc(money(amountOf(line.balance)))}</small>` : '')
       + '</span>'
       // The figure sits on the right, centred on the row, as in the design.

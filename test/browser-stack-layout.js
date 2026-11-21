@@ -190,6 +190,30 @@ const slabInk = (page, amount) => page.evaluate(value => {
       await page.close();
     }
 
+    console.log('the minimum\'s due date beside a waterfall Credit card name, at 390 (Dale, 2026-11-21)');
+    {
+      const { page, errors } = await open(browser, 390);
+      await openWaterfallCredit(page);
+      // Forecast marks the fixture's one card-minimum occurrence (a dated Travel card row): that row, and only that row, shows
+      // its date, small and grey, on the name's line, beside the name and clear of the amount.
+      const due = await page.$$eval('.stack-waterfall .wf-card', els => els.map(el => {
+        const d = el.querySelector('.wf-due'), b = el.querySelector('b'), a = el.querySelector('.wf-amt');
+        if (!d) return null;
+        const dr = d.getBoundingClientRect(), br = b.getBoundingClientRect(), ar = a.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(d);
+        return { text: d.textContent, sameLine: Math.abs(dr.top + dr.height / 2 - (br.top + br.height / 2)) < 8, rightOfName: dr.left >= br.right - 0.5,
+          clear: dr.right <= ar.left, size: getComputedStyle(d).fontSize, grey: getComputedStyle(d).color !== getComputedStyle(b).color,
+          lines: new Set([...range.getClientRects()].map(x => Math.round(x.top))).size };
+      }));
+      const dated = due.filter(Boolean);
+      ok(due.length >= 1 && dated.length === 1 && /^[A-Z][a-z]{2} \d{1,2}$/.test(dated[0].text) && dated[0].sameLine && dated[0].rightOfName && dated[0].clear
+        && dated[0].lines === 1 && dated[0].size === '13px' && dated[0].grey,
+      'the one dated card shows its date beside the name on one line, small and grey, clear of the amount; no other card row shows one', JSON.stringify(due));
+      ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'no horizontal page scroll at 390 with the date shown');
+      ok(errors.length === 0, 'no page errors', errors.join('; '));
+      await page.close();
+    }
+
     console.log('control: no check passes without measuring what it names');
     {
       const { page } = await open(browser, 320);
