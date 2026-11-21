@@ -431,8 +431,9 @@
     },
     {
       "eventId": "spotify",
+      "lunchMoneyRecurringIds": ["3709355"],
       "settlesWhen": "schedule-trust-on-due",
-      "note": "Owner 2026-09-23: standing schedule-trust on Forecast day 23 ($26.87 monthly), superseding day 17. On or after that due date, identity/settlement emits representedActuals from the schedule itself. The one 2026-09-22 PAYPAL MSP $26.87 debit on chequing-a is owner-confirmed evidence of spotify@2026-09-23 and may be attached to that one occurrence. PAYPAL MSP is not a payee alias. A different PayPal row, amount, day, or account does not settle Spotify. Do not require a Lunch Money Spotify payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, a card-paid identity, or a second September occurrence. Before the due date, with no such exact transaction attached, the bill stays still-due. Do not treat WEEKLY Netflix as this bill."
+      "note": "Owner 2026-09-23: standing schedule-trust on Forecast day 23 ($26.87 monthly), superseding day 17. On or after that due date, identity/settlement emits representedActuals from the schedule itself. The one 2026-09-22 PAYPAL MSP $26.87 debit on chequing-a is owner-confirmed evidence of spotify@2026-09-23 and may be attached to that one occurrence. PAYPAL MSP is not a payee alias. A different PayPal row, amount, day, or account does not settle Spotify. Do not require a Lunch Money Spotify payee. Do not require monthly Dale proof. Do not invent Apple scrape, Gmail fetch, a card-paid identity, or a second September occurrence. Before the due date, with no such exact transaction attached, the bill stays still-due. Do not treat WEEKLY Netflix as this bill. Lead dispatch 2026-11-21 (Dale's go-ahead for recurring ids on #1495, 7053045943; Grok Bot matched the item to the Nov. 18 Spotify payment): lunchMoneyRecurringIds names the reviewed Lunch Money item, which leads Spotify's schedule day (date tag confirmed) as rehearsal-space's does. The amount, firstDue and this owner-set schedule-trust settlement are unchanged; the link is schedule authority only."
     },
     {
       "eventId": "chatgpt-plus-dale",

@@ -55,7 +55,8 @@ const pageHtml = view => cards.buildCardsHTML({ data: {}, plan: {}, recommendati
 const text = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 // Each listed bill row's visible text (label and amount; a paid check shows as a check mark).
 const rowLabels = h => h.split('<li class="sc-row sc-bill').slice(1).map(x => { const li = x.split('</li>')[0]; return text(li.slice(li.indexOf('>') + 1)); });
-const headOf = h => { const sum = h.slice(h.indexOf('<summary'), h.indexOf('</summary>')); return text(sum.slice(sum.indexOf('>') + 1)); };
+// The head's visible text (screen-reader-only words, sc-sr, are not shown).
+const headOf = h => { const sum = h.slice(h.indexOf('<summary'), h.indexOf('</summary>')).replace(/<span class="sc-sr">[^<]*<\/span>/g, ''); return text(sum.slice(sum.indexOf('>') + 1)); };
 const CHECK = '\u2713';
 
 const current = (Forecast, opts) => {
@@ -74,8 +75,8 @@ console.log('1. The invented household, mortgage as a mortgage payment (the answ
   ok(JSON.stringify(placed(v)) === JSON.stringify([['mortgage', 'mortgage', 1400, null], ['hydro', 'other', 120, null],
     ['card-minimum', 'cardMinimum', 60, 'travelvisa'], ['internet', 'other', 85, null]]), 'each row is placed once, with its amount', JSON.stringify(placed(v)));
   const bills = cardHtml(v, 'bills');
-  ok(headOf(bills) === 'Bills $205' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Hydro $120', 'Internet $85']),
-    'Bills card: head $205 over Hydro $120 and Internet $85 (the card minimum is not here)', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
+  ok(headOf(bills) === 'Bills —' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Hydro $120', 'Internet $85']),
+    'Bills card: no ledger packet in this world, so paid is withheld (a dash), over Hydro $120 and Internet $85 (the card minimum is not here)', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
   // There is no Mortgage card: Forecast still places the mortgage row (above), the page prints it only in the waterfall.
   ok(!pageHtml(v).includes('data-stack-card="mortgage"') && !/mortgage/i.test(text(pageHtml(v))), 'no Mortgage card on the page, and no mortgage row on any card');
 }
@@ -87,8 +88,8 @@ console.log('2. A plain bill named "mortgage" is not a mortgage payment');
   const v = current(F, {});
   ok(v.stackSummary.bills.mortgage === 0 && v.stackSummary.bills.other === 1605, 'split: mortgage 0, other 1,605');
   const bills = cardHtml(v, 'bills');
-  ok(headOf(bills) === 'Bills $1,605' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400', 'Hydro $120', 'Internet $85']),
-    'Bills card lists the lookalike with hydro and internet: 1,400 + 120 + 85 = its $1,605 head', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
+  ok(headOf(bills) === 'Bills —' && JSON.stringify(rowLabels(bills)) === JSON.stringify(['Mortgage $1,400', 'Hydro $120', 'Internet $85']),
+    'Bills card lists the lookalike with hydro and internet: 1,400 + 120 + 85 = 1,605 (other), paid withheld with no ledger packet', headOf(bills) + ' | ' + rowLabels(bills).join(' | '));
   ok(!pageHtml(v).includes('data-stack-card="mortgage"'), 'no Mortgage card to show a $0 head');
 }
 
