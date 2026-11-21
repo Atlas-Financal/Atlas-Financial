@@ -2838,6 +2838,13 @@ function classifyOccurrenceHits(key, hits) {
   if (!hits || !hits.length) return empty;
   if (hits.every(hit => hit && hit.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM)) {
     if (twoLegSumAccepted(hits)) return { unique: combineTwoLegHits(hits), ambiguous: null };
+    // Owner 2026-11-21 (Dale): on a rule that opts in with singleLegSettles,
+    // one posted leg alone is that occurrence's payment. Two legs that are
+    // not an accepted pair, or three, still settle nothing.
+    if (hits.length === 1 && hits[0] && hits[0].singleLegSettles === true
+      && hits[0].singleLegDuplicateId !== true) {
+      return { unique: hits[0], ambiguous: null };
+    }
     if (hits.length > 2) {
       return {
         unique: null,
@@ -3597,7 +3604,13 @@ function representedEventHitGroups(input) {
         const list = eventHits.get(key) || [];
         // The stronger salary packet and its legacy same-day transfer are
         // one credit, not two compatible receipts for the same occurrence.
-        if (list.some(hit => String(hit.providerTransactionId) === String(tx.providerTransactionId))) continue;
+        const sameTx = list.find(hit => String(hit.providerTransactionId) === String(tx.providerTransactionId));
+        if (sameTx) {
+          // A provider id seen on two posted rows is not one clean single leg.
+          if (sameTx.singleLegSettles === true && sameTx.singleLegDuplicateId !== true
+            && rule.singleLegSettles === true) sameTx.singleLegDuplicateId = true;
+          continue;
+        }
         list.push({
           id: rule.eventId,
           date: scheduledDate,
@@ -3613,6 +3626,8 @@ function representedEventHitGroups(input) {
           atlasAccountId: mapping.canonical.id,
           settlesWhen: rule.settlesWhen || null,
           sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
+          ...(rule.singleLegSettles === true && rule.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM
+            ? { singleLegSettles: true } : {}),
         });
         eventHits.set(key, list);
       }
@@ -3668,9 +3683,9 @@ function representedEventHitGroups(input) {
     const otherHits = hits.filter(hit => !hit || hit.settlesWhen !== SETTLES_WHEN_TWO_LEG_SUM);
     // A pure shape keeps the incumbent decision. Standing bell is the
     // occurrence that can carry both a Travel Visa debit and a chequing-a
-    // two-leg pair. Those shapes are judged separately. A subset that is
-    // not an accepted pair does not veto the other shape. Two accepted
-    // shapes for one occurrence stay unresolved.
+    // two-leg pair (or, owner 2026-11-21, one posted leg). Those shapes are
+    // judged separately. A subset that is not accepted does not veto the
+    // other shape. Two accepted shapes for one occurrence stay unresolved.
     if (!twoLegHits.length || !otherHits.length) {
       const classified = classifyOccurrenceHits(key, hits);
       if (classified.unique) unique.push(classified.unique);

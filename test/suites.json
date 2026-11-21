@@ -440,6 +440,7 @@
   ["Bell Mobility Travel Visa Other-spending classification","test-bell-travelvisa-classification.js"],
   ["Bell Sep 15 2026 same-account BILLS split settlement","test-bell-same-account-split.js"],
   ["Bell standing BILLS two-leg settlement","test-bell-standing-bills-split.js"],
+  ["One posted Bills Bell payment settles that month's Bell bill (owner 2026-11-21); the $160 plan amount is unchanged","test-bell-single-payment-settle.js"],
   ["BC Hydro equal monthly payment $199 due day (30th, estimated) and account credit","test-hydro-equal-payment.js"],
   ["N1 cash balance evidence date: semantic balance date wins, invalid is unknown","test-cash-balance-evidence-date.js"],
   ["G1a occurrence-scoped amount change lands only in its own occurrence; missing reads Unknown; live Hydro due day","test-bill-regular-change-boundary.js"],
