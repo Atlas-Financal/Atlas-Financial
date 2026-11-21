@@ -312,10 +312,43 @@ test('the predicate fails a raw property read and passes the escaped and formatt
   for (const src of good) assert.deepEqual(check(src, 't'), [], src);
 });
 
+// The scripts index.html loads, read as a browser reads the tags: every <script ...> start tag, its attributes in any order,
+// double, single or no quotes, any extra attribute (defer, type, integrity ...), the src with or without a query or a fragment.
+// A tag naming a Stack file anywhere in its text but yielding no src (an inline body, a computed form) is returned as an
+// `unparsed` entry, so it fails loudly instead of slipping past the matcher.
+function pageScripts(html) {
+  const out = [], unparsed = [];
+  for (const tag of html.matchAll(/<script\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/gi)) {
+    const attrs = {};
+    for (const a of tag[1].matchAll(/([^\s=/"'>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g)) {
+      attrs[a[1].toLowerCase()] = a[2] !== undefined ? a[2] : a[3] !== undefined ? a[3] : a[4] !== undefined ? a[4] : '';
+    }
+    if (typeof attrs.src === 'string') out.push(attrs.src.replace(/[?#].*$/, '').replace(/^.*\//, ''));
+    else if (/stack-/i.test(tag[0])) unparsed.push(tag[0].slice(0, 80));
+  }
+  return { scripts: out, unparsed };
+}
+
+// The matcher itself, on the tag forms a page author might write.
+test('the script matcher reads every spelling of a script tag', () => {
+  const html = [
+    '<script src="/stack-a.js"></script>', "<script src='/stack-b.js'></script>", '<script defer src="/stack-c.js"></script>',
+    '<script type="text/javascript" src=/stack-d.js></script>', '<SCRIPT SRC="/stack-e.js?v=3"></SCRIPT>',
+    '<script\n  src="/stack-f.js#x"\n  integrity="sha384-abc"\n></script>', '<script data-x="a>b" src="/stack-g.js"></script>',
+    '<script src="https://example.test/assets/stack-h.js"></script>', '<script src="/plan.js"></script>',
+  ].join('\n');
+  const { scripts, unparsed } = pageScripts(html);
+  assert.deepEqual(scripts.filter(n => /^stack-/.test(n)), ['stack-a.js', 'stack-b.js', 'stack-c.js', 'stack-d.js', 'stack-e.js', 'stack-f.js', 'stack-g.js', 'stack-h.js']);
+  assert.ok(scripts.includes('plan.js') && unparsed.length === 0);
+  assert.deepEqual(pageScripts('<script>/* stack-inline */ load("stack-x.js")</script>').unparsed.length, 1, 'an inline script naming a Stack file is flagged, not ignored');
+});
+
 // The Stack files are covered, and the guard fails a raw read in each of them (so the coverage is not vacuous).
 test('every stack-*.js index.html loads is covered, and a raw property read in each fails the guard', () => {
   const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
-  const stack = [...html.matchAll(/<script src="\/(stack-[\w-]+)\.js"><\/script>/g)].map(m => m[1]);
+  const { scripts, unparsed } = pageScripts(html);
+  assert.deepEqual(unparsed, [], 'no script tag names a Stack file without a src the matcher can read');
+  const stack = scripts.filter(name => /^stack-[\w-]+\.js$/.test(name)).map(name => name.replace(/\.js$/, ''));
   assert.ok(stack.length >= 5, 'index.html loads the Stack scripts: ' + stack.join(','));
   assert.deepEqual(stack.filter(name => !COVERED.includes(name)), [], 'a Stack script index.html loads is not covered');
   for (const name of stack) {
