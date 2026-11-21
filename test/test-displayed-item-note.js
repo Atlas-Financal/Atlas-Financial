@@ -10,7 +10,6 @@
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
 const F = require('../public/forecast.js');
 const O = require('../scripts/provider-observe.js');
 
@@ -231,58 +230,10 @@ console.log('\n=== 5. Forecast carries the field display-only; figures and class
     'displayedNote is referenced only inside reconTxFrom in forecast.js');
 }
 
-console.log('\n=== 6. rendering under the payee, escaped ===');
-{
-  const appSrc = read('public/app.js');
-  const planSrc = read('public/plan.js');
-  const source = [
-    grab(appSrc, /^const money = .*$/m, 'money'),
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-    grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-    grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^function paydayBucketRow\([\s\S]*?\n\}$/m, 'paydayBucketRow'),
-    grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
-    grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-    grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml'),
-    grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
-    grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
-  ].join('\n');
-  const composer = vm.runInNewContext(`${source}\n({ calendarBudgetHtml });`, { Forecast: F, DisplayName: require('../public/display-name.js') });
-  const plan = { defaults: { targetBuffer: 500 }, budget: { categories: [
-    { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' } ] } };
-  const period = recon => ({
-    id: 'this-pay-period', role: 'active', start: '2026-08-28', end: '2026-09-10',
-    spendingCycle: { start: '2026-08-28', end: '2026-09-10', rangeLabel: '28 Aug – 10 Sep' },
-    householdBudget: [{ id: 'groceries', label: 'Groceries', planned: 900, spent: recon.reduce((s, t) => s + t.amount, 0),
-      remaining: 500, recon }],
-    budgetHold: 900,
-  });
-  const tx = (id, extra) => Object.assign({ id, date: '2026-08-29', amount: 20, pending: false,
-    categoryLabel: 'Groceries', displayedPayee: 'Disney', originalMerchant: 'Disney' }, extra);
-  const html = composer.calendarBudgetHtml(period([
-    tx('tx-note', { displayedNote: 'Disney+' }),
-    tx('tx-plain', {}),
-    tx('tx-xss', { displayedNote: '<img src=x onerror=alert(1)> & "q"' }),
-    tx('tx-nonstring', { displayedNote: { a: 1 } }),
-  ]), null, plan);
-  const li = id => { const at = html.indexOf(`data-tx-id="${id}"`); const end = html.indexOf('</li>', at); return html.slice(at, end); };
-  ok(/household-budget-tx-payee">Disney\+/.test(li('tx-note')) && !/Disney</.test(li('tx-note')),
-    'an item note is shown in place of the payee');
-  ok(!/data-tx-note|household-budget-tx-note/.test(li('tx-note')), 'no second line under the payee');
-  ok(/household-budget-tx-payee">Disney/.test(li('tx-plain')), 'a row without a note shows its payee');
-  ok(!/<img/.test(li('tx-xss')) && /&lt;img src=x onerror=alert\(1\)&gt; &amp; &quot;q&quot;/.test(li('tx-xss')),
-    'HTML in a note is escaped');
-  ok(/household-budget-tx-payee">Disney/.test(li('tx-nonstring')) && !/\[object/.test(li('tx-nonstring')),
-    'a non-string note falls back to the payee');
-  // overlay path (Forecast withheld Spent) lists the same packet rows
-  const overlayPeriod = period([]);
-  overlayPeriod.householdBudget[0].spent = null;
-  overlayPeriod.householdBudget[0].recon = [];
-  const overlayHtml = composer.calendarBudgetHtml(overlayPeriod,
-    { applied: true, currentPeriodActuals: { transactions: [tx('tx-ov', { displayedNote: 'Disney+' })] } }, plan);
-  ok(/household-budget-tx-payee">Disney\+/.test(overlayHtml), 'overlay Spent drill-down shows the item too');
-}
+// Section 6 (item note rendered under the payee, escaped; overlay list) retired with the classic page
+// (C1 S4 batch B1, owner ruling: V1-only behaviour retires). The Stack sheet prints Lunch Money's own name
+// (displayedPayee, else originalMerchant) through the sheet's own escaping, covered by test-stack-budget-transactions.js;
+// the Forecast-level carriage of displayedNote (sections 1-5) stays.
 
 if (failures) {
   console.log(`\n${failures} FAILED`);

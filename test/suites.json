@@ -716,6 +716,7 @@
   ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
   ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"],
   ["The page-script scan behind the \"page only prints\" guards covers the Stack page and the classic page, leaves the engine out, and reports the script that contains a pattern (C1 S4 B3)","test-page-scripts.js"],
+  ["Stack budget sheet: the printed Spent, budget and Left or Over equal independent whole-dollar arithmetic from the published row; a withheld Spent prints nothing and never an overlay sum; published zero prints $0 and unpublished never does; six mutants of the sheet are caught (C1 S4 B1)","test-stack-budget-sheet-figures.js"],
   ["The Stack page boots in a test beside the classic page (loadStackPage): the shell and its blocks draw, the period chips redraw them, a shell that falls back or a Forecast that publishes no periods is never a pass (C1 S4)","test-stack-page-harness.js"],
   ["The acceptance harness opens the classic page by default (/?view=classic) and the Stack page on request; skipped where Playwright is not installed (C1 S4)","test-acceptance-harness-views.js"]
 ]
