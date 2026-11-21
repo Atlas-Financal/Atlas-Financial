@@ -706,6 +706,7 @@
   ["Stack bill sheet history: each bill's published occurrences, newest first","test-stack-bill-history.js"],
   ["Stack bill cards: each card's rows are Forecast's own place in the bills split and add up to its head","test-stack-bill-parts.js"],
   ["Stack Bills card: Forecast publishes paid (the checked Bills rows, one rule) and the card prints paid / owed","test-stack-bills-paid.js"],
+  ["TD card statements (owner facts 2026-11-21): Cash Back due on the 4th from Dec 4 at the statement minimum; Travel Aug-Nov minimums represented","test-td-card-statement-facts.js"],
   ["Bill verified note: Grok Bot's note confirms a differing posted bill payment at what was paid (card check, bill history, BAD delta)","test-bill-verified-note.js"],
   ["The Stack Wallet page shell is inert without ?view=stack, scoped, and prints only published figures (B1)","test-stack-shell.js"],
   ["The Stack Credit card and bottom sheet print only published figures; a partial total names what it excludes (B4)","test-stack-credit.js"],
