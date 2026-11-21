@@ -310,20 +310,24 @@ ok(!liveMission.parts.find(p => p.id === 'helocLimit'),
 console.log('\n=== page is a renderer ===');
 const page = read('public/plan.js');
 const pageCode = page.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const { pageCodeMatching, pageScriptsMatching } = require('./lib/page-scripts');
+// Positive "the classic page reads Forecast.X" assertions stay on plan.js and retire with it (C1 S7, docs/C1_TEST_DISPOSITIONS.md Q4);
+// the "never" assertions read every page script, the Stack page included.
+const never = (...res) => pageCodeMatching(...res);
 ok(/Forecast\.planPhases\(/.test(page),
   'the Plan page reads phases and risks from Forecast.planPhases');
 ok(/PHASE_TITLE\[p\.titleId\]/.test(page) && /RISK_WHAT\[r\.id\]/.test(page),
   'the page looks titles and risk copy up from wording maps');
-ok(!/day90\.consumer\s*</.test(pageCode) && !/d60\.consumer\s*</.test(pageCode),
-  'the page no longer compares consumer marks to pick a title or direction');
-ok(!/transferMonthly\s*\*\s*3/.test(pageCode),
-  'the page no longer multiplies the transfer by 3');
-ok(!/helocDrawn\s*>\s*0/.test(pageCode),
-  'the page no longer decides whether this plan draws on the HELOC');
-ok(!/status\.id === 'unfunded'/.test(pageCode),
-  'the page no longer re-reads the status verdict to pick the opening body');
-ok(!/helocBreach && helocBreach\.day <= 60/.test(pageCode),
-  'the page no longer tests the HELOC day against 60');
+ok(never(/day90\.consumer\s*</, /d60\.consumer\s*</).length === 0,
+  'the page no longer compares consumer marks to pick a title or direction (no page script, classic or Stack)', never(/day90\.consumer\s*</, /d60\.consumer\s*</).join(', ') || 'none');
+ok(never(/transferMonthly\s*\*\s*3/).length === 0,
+  'the page no longer multiplies the transfer by 3 (no page script, classic or Stack)', never(/transferMonthly\s*\*\s*3/).join(', ') || 'none');
+ok(never(/helocDrawn\s*>\s*0/).length === 0,
+  'the page no longer decides whether this plan draws on the HELOC (no page script, classic or Stack)', never(/helocDrawn\s*>\s*0/).join(', ') || 'none');
+ok(never(/status\.id === 'unfunded'/).length === 0,
+  'the page no longer re-reads the status verdict to pick the opening body (no page script, classic or Stack)', never(/status\.id === 'unfunded'/).join(', ') || 'none');
+ok(never(/helocBreach && helocBreach\.day <= 60/).length === 0,
+  'the page no longer tests the HELOC day against 60 (no page script, classic or Stack)', never(/helocBreach && helocBreach\.day <= 60/).join(', ') || 'none');
 ok(/The cap assumes spending is paid in cash/.test(page),
   'the always-on cash-not-cards line stays on the page as copy');
 

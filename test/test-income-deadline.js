@@ -83,14 +83,17 @@ ok(moved.neededBy === (legacyFirstShort ? legacyFirstShort.date : null),
 
 console.log('\n=== page is a renderer ===');
 const page = fs.readFileSync('public/plan.js', 'utf8');
+const { pageScriptsMatching } = require('./lib/page-scripts');
+// The positive assertion stays on plan.js and retires with it (C1 S7, Q4); the "never" assertions read every page script.
+const never = (...res) => pageScriptsMatching(...res);
 ok(/Forecast\.amandaHouseholdIncomeDeadline\(/.test(page),
   'Plan reads the Amanda deadline from Forecast.amandaHouseholdIncomeDeadline');
-ok(!/Forecast\.incomeDeadline\(plan,\s*asOf,\s*'amandaTransfer'/.test(page),
-  'Plan no longer binds the deadline to the retired amandaTransfer stream');
-ok(!/const\s+noTransfer\s*=\s*Forecast\.simulate/.test(page),
-  'Plan no longer runs its own no-transfer simulation');
-ok(!/firstShort\s*=\s*noTransfer\.daily\.find/.test(page),
-  'Plan no longer selects the deadline day itself');
+ok(never(/Forecast\.incomeDeadline\(plan,\s*asOf,\s*'amandaTransfer'/).length === 0,
+  'no longer binds the deadline to the retired amandaTransfer stream (no page script, classic or Stack)', never(/Forecast\.incomeDeadline\(plan,\s*asOf,\s*'amandaTransfer'/).join(', ') || 'none');
+ok(never(/const\s+noTransfer\s*=\s*Forecast\.simulate/).length === 0,
+  'no longer runs its own no-transfer simulation (no page script, classic or Stack)', never(/const\s+noTransfer\s*=\s*Forecast\.simulate/).join(', ') || 'none');
+ok(never(/firstShort\s*=\s*noTransfer\.daily\.find/).length === 0,
+  'no longer selects the deadline day itself (no page script, classic or Stack)', never(/firstShort\s*=\s*noTransfer\.daily\.find/).join(', ') || 'none');
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);
