@@ -274,14 +274,15 @@ console.log('\n=== no second recurrence or calendar authority ===');
 {
   const forecastSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8'));
   const icsSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'scripts', 'calendar-ics.js'), 'utf8'));
-  const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8'));
   ok(/function quarterlyDates/.test(forecastSrc)
     && /item\.frequency === 'quarterly'/.test(forecastSrc),
     'the quarterly expander lives inside Forecast.occurrences');
   ok(/Forecast\.expandEvents/.test(icsSrc),
     'ICS cash VEVENTs still derive from expandEvents');
-  ok(!/function quarterlyDates/.test(icsSrc) && !/function quarterlyDates/.test(planSrc),
-    'plan.js and calendar-ics.js did not grow a second expander');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const pageExpanders = pageScriptsMatching(/function quarterlyDates/);
+  ok(!/function quarterlyDates/.test(icsSrc) && pageExpanders.length === 0,
+    'no page script (classic or Stack) and not calendar-ics.js grew a second expander', pageExpanders.join(', ') || 'none');
   ok(!/RRULE|rrule|luxon|rrule\.js|fullcalendar/i.test(forecastSrc),
     'no RRULE / generic calendar library was added to Forecast');
 }

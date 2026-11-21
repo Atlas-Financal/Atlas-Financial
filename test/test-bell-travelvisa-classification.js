@@ -457,11 +457,10 @@ console.log('\n=== 9. RECURRING Oct $159.03 settles standing bell, not the once,
 
 console.log('\n=== 10. pages render; no Plan merchant special case ===');
 {
-  const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8'));
-  ok(!/if\s*\(.*Bell Mobility/.test(planSrc)
-      && !/merchant\s*===\s*['"]Bell Mobility['"]/.test(planSrc)
-      && !/displayedPayee\s*===\s*['"]Bell Mobility['"]/.test(planSrc),
-    'plan.js does not special-case the Bell Mobility payee');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/if\s*\(.*Bell Mobility/, /merchant\s*===\s*['\"]Bell Mobility['\"]/, /displayedPayee\s*===\s*['\"]Bell Mobility['\"]/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) special-cases the Bell Mobility payee', hits.join(', ') || 'none');
   const forecastSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8'));
   ok(!/function isBellMobility|BELL MOBILITY \| FORTIS/.test(forecastSrc),
     'Forecast does not grow a second Bell Mobility merchant engine');

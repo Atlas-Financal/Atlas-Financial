@@ -385,11 +385,10 @@ console.log('\n=== 8. amount / account / payee are not guessed ===');
 
 console.log('\n=== 9. pages render; no Plan merchant special case ===');
 {
-  const planSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'plan.js'), 'utf8'));
-  ok(!/if\s*\(.*BC Hydro/.test(planSrc)
-      && !/merchant\s*===\s*['"]BC Hydro['"]/.test(planSrc)
-      && !/displayedPayee\s*===\s*['"]BC Hydro['"]/.test(planSrc),
-    'plan.js does not special-case the BC Hydro payee');
+  const { pageScriptsMatching } = require('./lib/page-scripts');
+  const hits = pageScriptsMatching(/if\s*\(.*BC Hydro/, /merchant\s*===\s*['\"]BC Hydro['\"]/, /displayedPayee\s*===\s*['\"]BC Hydro['\"]/);
+  ok(hits.length === 0,
+    'no page script (classic or Stack) special-cases the BC Hydro payee', hits.join(', ') || 'none');
   const forecastSrc = sourceText(fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8'));
   ok(!/function isBcHydro|BC HYDRO \| FORTIS/.test(forecastSrc),
     'Forecast does not grow a second BC Hydro merchant engine');
