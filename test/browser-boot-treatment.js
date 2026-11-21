@@ -605,17 +605,24 @@ async function waitContent(page, timeoutMs = 30000) {
         'Tab lands only on the notice or the body — containment is exact (' + zones.join(',') + ')');
       await waitContent(page);
       await assertShellRestored(page, 'inertness run, after arrival');
-      const probe = await page.evaluate(() => {
-        const btn = document.querySelector('[data-blend-theme], #theme-btn');
+      // The Stack page hides the site header (#1487); its own control is the
+      // refresh icon. The probe stops the click at the button so no refresh
+      // request is sent; it proves the control receives focus and the click.
+      const probe = await page.evaluate(stack => {
+        const btn = stack ? document.querySelector('#stack-root [data-stack-refresh]')
+          : document.querySelector('[data-blend-theme], #theme-btn');
         if (!btn) return { missing: true };
         let fired = false;
-        btn.addEventListener('click', () => { fired = true; }, { once: true });
+        btn.addEventListener('click', event => { fired = true; if (stack) event.stopPropagation(); }, { once: true });
         btn.focus();
         const focusedOk = document.activeElement === btn;
         btn.click();
         return { focusedOk, fired };
-      });
-      assert.ok(probe.focusedOk && probe.fired, 'header control is focusable and clickable again after arrival');
+      }, process.env.BOOT_VIEW === 'stack');
+      assert.ok(!probe.missing, (process.env.BOOT_VIEW === 'stack' ? 'the Stack refresh control' : 'the header control') + ' is present after arrival');
+      assert.ok(probe.focusedOk && probe.fired, process.env.BOOT_VIEW === 'stack'
+        ? 'the Stack refresh control is focusable and clickable again after arrival'
+        : 'header control is focusable and clickable again after arrival');
       results.inertFocus = { shellElementsProbed: probed, tabZonesSeen: zones, cancelReachableByTab: true, shellFocusDeniedDuringLoad: true, headerControlOperableAfterArrival: true, shellRestoredAfterArrival: true };
       await context.close();
     }
@@ -690,22 +697,40 @@ async function waitContent(page, timeoutMs = 30000) {
         'static phase handoff: every sample shows a layer until content renders — no gap between the static layer and the live notice');
       await waitContent(page);
       await assertShellRestored(page, 'static phase run, after arrival');
-      const after = await page.evaluate(() => {
-        const btn = document.querySelector('[data-blend-theme], #theme-btn');
-        btn.focus();
+      // On the Stack page the site header is hidden (#1487): its own control
+      // is the refresh icon, and the Stack page has no theme to cycle.
+      const stackArm = process.env.BOOT_VIEW === 'stack';
+      const controlSel = stackArm ? '#stack-root [data-stack-refresh]' : '[data-blend-theme], #theme-btn';
+      const after = await page.evaluate(sel => {
+        const btn = document.querySelector(sel);
+        if (btn) btn.focus();
         return {
+          present: !!btn,
           markersLeft: document.querySelectorAll('[data-boot-inert]').length,
-          focused: document.activeElement === btn,
+          focused: !!btn && document.activeElement === btn,
           staticLeft: !!document.querySelector('[data-boot-static]'),
           themeAttr: document.documentElement.getAttribute('data-theme'),
         };
-      });
+      }, controlSel);
       assert.equal(after.markersLeft, 0, 'static phase: no bake marker survives arrival');
       assert.ok(!after.staticLeft, 'static phase: the static layer is removed by boot');
-      assert.ok(after.focused, 'static phase: the header control is focusable after arrival');
-      await page.locator('[data-blend-theme], #theme-btn').first().click();
-      const themeAttrAfter = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-      assert.notEqual(themeAttrAfter, after.themeAttr, 'static phase: the header control is clickable after arrival (theme cycles)');
+      assert.ok(after.present, 'static phase: the ' + (stackArm ? 'Stack refresh' : 'header') + ' control is present after arrival');
+      assert.ok(after.focused, 'static phase: the ' + (stackArm ? 'Stack refresh' : 'header') + ' control is focusable after arrival');
+      if (stackArm) {
+        // A real pointer click, stopped at the button so no refresh request is sent.
+        await page.evaluate(sel => {
+          const btn = document.querySelector(sel);
+          window.__bootStackClick = false;
+          btn.addEventListener('click', event => { window.__bootStackClick = true; event.stopPropagation(); }, { once: true });
+        }, controlSel);
+        await page.locator(controlSel).first().click();
+        assert.ok(await page.evaluate(() => window.__bootStackClick === true),
+          'static phase: the Stack refresh control is clickable after arrival (the click reaches it)');
+      } else {
+        await page.locator(controlSel).first().click();
+        const themeAttrAfter = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+        assert.notEqual(themeAttrAfter, after.themeAttr, 'static phase: the header control is clickable after arrival (theme cycles)');
+      }
       results.staticPhaseHeldScript = { heldNoLiveNotice: true, bakedIsolationOnShell: true, staticPointerIntercept: true, hitLandsOnStaticLayer: true, focusDeniedPreScript: true, handoffGapSamples: 0, restoredAfterArrival: true, bakeMarkersRemaining: 0, headerControlFocusableAndClickable: true };
       await context.close();
     }
@@ -855,13 +880,17 @@ async function waitContent(page, timeoutMs = 30000) {
       assert.equal(state.bakedMarkersLeft, 0, 'early-ready: every baked data-boot-inert marker was consumed by boot');
       assert.ok(state.fixture.inert && state.fixture.ariaHidden === 'true',
         'early-ready: the pre-existing inert + aria-hidden state on #road-ahead is preserved exactly (prior-state restore)');
-      const probe = await page.evaluate(() => {
-        const btn = document.querySelector('[data-blend-theme], #theme-btn');
+      // The Stack page's own control is its refresh icon (the site header is hidden, #1487).
+      const probe = await page.evaluate(stack => {
+        const btn = stack ? document.querySelector('#stack-root [data-stack-refresh]')
+          : document.querySelector('[data-blend-theme], #theme-btn');
         if (!btn) return { missing: true };
         btn.focus();
         return { focusedOk: document.activeElement === btn };
-      });
-      assert.ok(probe.focusedOk, 'early-ready: header control focusable after the fast load');
+      }, process.env.BOOT_VIEW === 'stack');
+      assert.ok(!probe.missing && probe.focusedOk, process.env.BOOT_VIEW === 'stack'
+        ? 'early-ready: the Stack refresh control is focusable after the fast load'
+        : 'early-ready: header control focusable after the fast load');
       results.earlyReady = { delayMs: 0, noticeRemoved: true, residualInertOnTouchedShell: 0, bakedMarkersRemaining: 0, priorStatePreservedOnFixtureElement: '#road-ahead (an actual captured shell node; served with inert + aria-hidden="true" and no data-boot-inert for this run only — replaces the nested #risks fixture, which was never captured)', shellElementsProbed: probed, headerControlFocusable: true };
       const isolation = await page.evaluate(() => {
         const real = [...document.querySelectorAll('.note-box:not([data-boot-notice])')]

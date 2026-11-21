@@ -12923,8 +12923,11 @@
   // evidence confirms paid: the sum of the counted amounts of exactly the rows
   // the page checks (stackBillPaid), in cents. Trust (lead ruling, 2026-11-20):
   //   - the split unpublished, or its rows unmarked: paid null, 'unavailable';
-  //   - no Bills row confirmed paid: 0, 'calculated' (every marked row carries
-  //     a known evidence word, so nothing paid is a known zero);
+  //   - the period's posted evidence not complete (budgetProgress.coverage.complete,
+  //     the gate Budget's own actuals use) outside a later period: paid null,
+  //     'unavailable' (ATLAS REVIEWER 2, 7053664784): an unread ledger is not 0;
+  //   - no Bills row confirmed paid: 0 with the split's own trust ('estimated'
+  //     in an estimated later period, never more certain than the split);
   //   - otherwise the weakest of the paid rows' own amount trust; a paid row
   //     with no trust word withholds paid, never defaulted to calculated.
   // Pending, differing and unmatched payments count 0 and do not enter its trust.

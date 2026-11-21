@@ -408,6 +408,60 @@ console.log('5b. mutants: the checks above must catch each of these (a failing m
   ok(!ARITH.test(strip(src)) && ARITH.test(strip(arith)), 'the L-001 pattern passes the real source and flags the arithmetic mutant');
 }
 
+console.log('5b. a row without a card ledger reads the published paidToward in normal type (Dale, 2026-11-20)');
+{
+  const { fns } = load();
+  const none = fig(null, 'unavailable');
+  const tw = (amount, trust = 'estimated', reasons = []) => ({ amount, trust, reasons });
+  // Invented lines shaped like Forecast's: a tracked card, a manual card owing 900, a manual card with nothing due, the HELOC.
+  const LN = [
+    { id: 'tracked', label: 'Tracked Card', paid: fig(0), spent: fig(0), minimum: fig(17), toGo: fig(0), status: 'paid-back', paidToward: tw(0, 'calculated'),
+      minimumCovered: { value: false, trust: 'calculated' }, transactions: [] },
+    { id: 'manual', label: 'Manual Card', paid: none, spent: none, minimum: fig(900), toGo: none, status: null,
+      paidToward: tw(0, 'estimated', ['paid-unavailable-counted-as-zero']), minimumCovered: { value: 'unknown', trust: 'unavailable' }, transactions: [] },
+    { id: 'nodue', label: 'No Due Card', paid: none, spent: none, minimum: { amount: null, trust: 'unavailable', reasons: ['no-minimum-due-in-period'] }, toGo: none, status: null,
+      paidToward: tw(0, 'estimated', ['paid-unavailable-counted-as-zero']), minimumCovered: { value: 'unknown', trust: 'unavailable' }, transactions: [] },
+    { id: 'heloc', label: 'HELOC', paid: null, spent: null, minimum: fig(814), toGo: none, status: null, state: 'not-a-spend-card',
+      paidToward: tw(0), minimumCovered: { value: 'unknown', trust: 'unavailable' }, transactions: [] },
+    { id: 'helocpaid', label: 'HELOC Paid', paid: null, spent: null, minimum: fig(814), toGo: none, status: null, state: 'not-a-spend-card',
+      paidToward: tw(150), minimumCovered: { value: 'unknown', trust: 'unavailable' }, transactions: [] },
+    { id: 'past', label: 'Past Card', paid: none, spent: none, minimum: fig(40), toGo: none, status: null,
+      paidToward: { amount: null, trust: 'unavailable', reasons: ['paid-unavailable'] }, minimumCovered: { value: 'unknown', trust: 'unavailable' }, transactions: [] },
+    { id: 'legacy', label: 'Legacy Card', paid: none, spent: none, minimum: fig(25), toGo: none, status: null,
+      minimumCovered: { value: 'unknown', trust: 'unavailable' }, transactions: [] },
+  ];
+  const ctx = context({ ...TOTALS.complete, minimumsPaid: { amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'] },
+    minimumsDue: { amount: 917, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 0 });
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: LN, totals: { ...TOTALS.complete, minimumsPaid: { amount: 0, trust: 'estimated', reasons: [] },
+    minimumsDue: { amount: 917, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 0 } }) };
+  const el = container();
+  fns.credit(el, ctx);
+  const rows = el.innerHTML.split('<li>').slice(1);
+  const fig4 = r => (/<span class="stack-credit-fig stack-n">([\s\S]*?)<\/span><svg/.exec(r) || [, ''])[1];
+  ok(text(rows[1]) === 'Manual Card $0 / $900' && !/stack-est/.test(fig4(rows[1]).split('stack-credit-of')[0]),
+    'a manual card reads "$0 / $900" in normal type, not a dash (the head already counts it $0)', text(rows[1]));
+  ok(text(rows[2]) === 'No Due Card $0' && !/stack-est/.test(rows[2].split('stack-credit-of')[0].split('stack-credit-x')[1] || ''),
+    'a card with nothing due this period reads "$0" alone, like Emerald, in normal type', text(rows[2]));
+  ok(text(rows[3]) === 'HELOC $0 / $814', 'HELOC observed with nothing posted: "$0 / $814"', text(rows[3]));
+  ok(text(rows[4]) === 'HELOC Paid +$150 / $814', 'HELOC observed with a posted payment: "+$150 / $814", like a card row', text(rows[4]));
+  ok(text(rows[5]) === 'Past Card — / $40', 'missing history (a past period, a failed sync): the dash stays, with the minimum', text(rows[5]));
+  ok(text(rows[6]) === 'Legacy Card — / $25', 'a line with no published paidToward (an older publication) keeps the dash');
+  ok(text(rows[0]) === 'Tracked Card $0 / $17', 'a ledger-tracked card is read as before from its own paid and spent');
+  const names = rows.map(r => (/stack-credit-x[^"]*"( role="img" aria-label="([^"]*)")?/.exec(r) || [])[2]);
+  ok(names[1] === 'Paid $0' && names[4] === 'Paid $150', 'the figure is named for a screen reader without ", estimated" (normal type)', JSON.stringify(names));
+  // MUTANT: the row ignores paidToward (the old reading): the manual card is a dash again, caught by the checks above.
+  const src = read('public/stack-credit.js');
+  const old = src.replace("if (toward != null) { out.x = toward; out.xSoft = ''; }", '');
+  ok(old !== src, 'the row mutant targets the paidToward read');
+  const { fns: oldFns } = load(old);
+  const el2 = container(); oldFns.credit(el2, ctx);
+  ok(text(el2.innerHTML.split('<li>').slice(1)[1]) === 'Manual Card — / $900', 'MUTANT: a row that ignores paidToward reads a dash for the manual card, which the check above rejects');
+  const soft = src.replace("out.xSoft = ''; }", "out.xSoft = ' stack-est'; }");
+  const { fns: softFns } = load(soft);
+  const el3 = container(); softFns.credit(el3, ctx);
+  ok(soft !== src && /stack-est/.test(el3.innerHTML.split('<li>').slice(1)[1].split('stack-credit-of')[0]), 'MUTANT: soft styling on the paidToward figure is caught (Dale: normal font)');
+}
+
 console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale, 2026-11-20; lead ruling)');
 {
   // Invented lines shaped like #1447's stackCreditLines: line.balance is the card's last balance snapshot with its trust.
