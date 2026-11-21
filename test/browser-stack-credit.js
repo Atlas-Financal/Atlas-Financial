@@ -104,7 +104,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     ok(expanded === 'true' && !(await page.$eval('.stack-credit-exp', el => el.hasAttribute('inert'))), 'the list opens');
     const rows = await page.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
     if (stub) {
-      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa +$400 / $25',
+      ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa Aug 22 +$400 / $25',
         'Green Card −$160 / $30', 'Red Card \u2014 / $15', 'Gold Card $0 / $10',
         'Line of credit \u2014 / $210']), 'one row per published line, each "X / minimum"', JSON.stringify(rows));
       const coral = await page.$eval('.stack-credit-x.is-bad', el => getComputedStyle(el).color);
@@ -114,6 +114,20 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       const tick = await page.$eval('.stack-credit-tick.is-on', el => ({ bg: getComputedStyle(el).backgroundColor, w: el.getBoundingClientRect().width }));
       ok(tick.w === 24 && tick.bg !== 'rgba(0, 0, 0, 0)', 'the covered ✓ is a filled 24px circle', JSON.stringify(tick));
     } else ok(rows.length === 6, 'six lines', String(rows.length));
+    // The minimum's due date (Dale, 2026-11-21): Forecast marks the fixture's one card-minimum occurrence (the Travel card's);
+    // that row, and only that row, shows its date beside the name, in small grey text, on the name's line, clear of the figure.
+    const due = await page.$$eval('.stack-credit-line', els => els.map(el => {
+      const d = el.querySelector('.stack-credit-due'), b = el.querySelector('.stack-credit-name b'), f = el.querySelector('.stack-credit-fig');
+      if (!d) return null;
+      const dr = d.getBoundingClientRect(), br = b.getBoundingClientRect(), fr = f.getBoundingClientRect();
+      const range = document.createRange(); range.selectNodeContents(d);
+      return { text: d.textContent, sameLine: Math.abs(dr.top + dr.height / 2 - (br.top + br.height / 2)) < 8, rightOfName: dr.left >= br.right - 0.5,
+        clear: dr.right <= fr.left, size: getComputedStyle(d).fontSize, grey: getComputedStyle(d).color !== getComputedStyle(b).color,
+        lines: new Set([...range.getClientRects()].map(x => Math.round(x.top))).size };
+    }));
+    const dated = due.filter(Boolean);
+    ok(dated.length === 1 && dated[0].text === 'Aug 22' && dated[0].sameLine && dated[0].rightOfName && dated[0].clear && dated[0].lines === 1
+      && dated[0].size === '13px' && dated[0].grey, 'at 390 the one dated row shows "Aug 22" beside the name on one line, small and grey, clear of the figure; no other row shows a date', JSON.stringify(due));
     // Row layout (the shell's bare button reset must not zero a row's divider or padding), and the text keeps its lines at the
     // design's card width (a 414px viewport gives the 358px card the mock uses; the page gutter itself is DISPLAY's).
     const layout = await page.$$eval('.stack-credit-line', els => els.map(el => { const cs = getComputedStyle(el);
@@ -150,7 +164,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       await fp.click('[data-stack-credit-toggle]');
       await settle(fp);
       const frows = await fp.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
-      ok(JSON.stringify(frows) === JSON.stringify(['Blue Visa +$400 / $25', 'Green Card −$160 / $30',
+      ok(JSON.stringify(frows) === JSON.stringify(['Blue Visa Aug 22 +$400 / $25', 'Green Card −$160 / $30',
         'Red Card \u2014 / $15', 'Gold Card $0 / $10', 'Line of credit \u2014 / $210']), 'each row reads "X / minimum"', JSON.stringify(frows));
       const colour = sel => fp.$eval(sel, el => getComputedStyle(el).color);
       ok((await colour('.stack-credit-x.is-bad')) === 'rgb(200, 55, 45)' && (await colour('.stack-credit-x.is-good')) === 'rgb(15, 122, 67)',

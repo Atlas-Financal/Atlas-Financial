@@ -49,7 +49,9 @@ html.stack-view .stack-credit-tick svg { opacity: 0; }
 html.stack-view .stack-credit-tick.is-on { box-shadow: none; background: var(--stack-on); }
 html.stack-view .stack-credit-tick.is-on svg { opacity: 1; }
 html.stack-view .stack-credit-name { min-width: 0; }
-html.stack-view .stack-credit-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+html.stack-view .stack-credit-top { display: flex; justify-content: flex-start; align-items: baseline; gap: 8px; }
+/* The minimum's due date (Dale, 2026-11-21): small grey text beside the card name. */
+html.stack-view .stack-credit-due { font-size: 13px; font-weight: 500; color: var(--stack-on2); white-space: nowrap; }
 html.stack-view .stack-credit-name b { font-size: 17px; font-weight: 600; color: var(--stack-on); }
 html.stack-view .stack-credit-name small { display: block; font-size: 13.5px; color: var(--stack-on2); }
 html.stack-view .stack-credit-name .stack-credit-min { margin-top: 6px; }
