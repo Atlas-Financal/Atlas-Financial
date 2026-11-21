@@ -312,9 +312,12 @@ console.log('\n=== dated subtraction uses yearly amount/12, not $50/month ===');
   // requirements; membership remains card-paid and outside this fixture.
   const independentDated = 26.87 + 26.87 + 3.13 + 13 + 17 + 28 + 24.99 + (50 / 12)
     + 13.43 + 16.79 + 3.35 + 13.43
-    // Owner-provided bills added 2026-11-21 (Dale, lead session): their amounts live in data.json only.
-    + ['microsoft', 'teamsnap-plus', 'muse-meta'].reduce((sum, id) => {
-      const row = (plan.bills || []).find(b => b.id === id); return sum + (row ? row.amount : 0); }, 0);
+    // Owner-provided bills added 2026-11-21 (Dale, lead session): Microsoft, TeamSnap+ and Muse from Meta,
+    // each monthly, tax included, as Dale stated them (independent literals, not read from the plan).
+    + 2.24 + 2.23 + 31.36;
+  for (const id of ['microsoft', 'teamsnap-plus', 'muse-meta']) {
+    ok((plan.bills || []).filter(b => b.id === id).length === 1, `${id} is one plan bill (a missing or renamed bill fails)`);
+  }
   ok(subs && near(subs.dated, independentDated),
     'subscriptions dated total is the owner bills, yearly as amount/12',
     String(subs && subs.dated));
