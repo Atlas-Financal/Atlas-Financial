@@ -39,8 +39,7 @@ scaffolding. The rule numbers are kept so existing references (for example
   2026-11-22; OD-027 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md),
   which supersedes the reviewer part of OD-026). The Claude in-house reviewer
   sessions are stood down. The review contract, findings format and merge
-  gate are unchanged. Where this file says "the in-house reviewer", read the
-  reviewer of record named here.
+  gate are unchanged.
 - **ChatGPT (Atlas):** reviewer of record (OD-027), still the second builder,
   one item at a time, and gives desk rulings when the lead asks. It never
   merges.
@@ -253,11 +252,11 @@ their own build:** the builder hands back and a merger decides.
 
 ### Independent agent review — any agent that is not the active builder
 
-Any agent that is not the pull request's builder may review. The in-house
-reviewer is the default reviewer and reviews every figures-moved pull request,
-so money logic meets one consistent standard. Other pull requests may also be
-reviewed by Muse or another non-builder Claude Code session. When Muse reviewed
-a pull request, it does not also merge it; the backup merger does.
+The reviewers of record are ChatGPT (Atlas) and Muse, each only on a pull
+request it did not build (OD-027). One of them reviews every pull request,
+including every figures-moved one, so money logic meets one consistent
+standard. When Muse reviewed a pull request, it does not also merge it; the
+backup merger does.
 Every reviewer uses the same
 factual findings record (below).
 
@@ -269,9 +268,10 @@ status out of a bot's wording, its reactions, or its identity.
 
 Only the agents named here make and record merge decisions, and never on a pull
 request they built. Atlas reviews only and never merges. Muse (dispatcher) is
-the default merger. Claude Code is the backup merger under Dale's standing
-approval, for pull requests it did not build: when Muse asks, or through the
-10-minute **Merge fallback** below. Grok does not merge for now. If no eligible
+the default merger, except on a pull request Muse reviewed (OD-027). Claude
+Code is the backup merger under Dale's standing approval, for pull requests it
+neither built nor reviewed: when Muse reviewed the pull request, when Muse
+asks, or through the 10-minute **Merge fallback** below. Grok does not merge for now. If no eligible
 merger is available, the pull request waits. The merger decides under
 Dale's standing instructions and treats review findings as evidence, not as
 delegated permission — see **Merge gate**.
@@ -282,18 +282,21 @@ Routine review and merge run by rule; the dispatcher steps in only on
 exceptions. Extended 2026-10-30 (owner).
 
 - **Default reviewer, named by the builder in its REVIEW READY post:**
-  the in-house reviewer for every pull request (figures-moved or not). It
-  never builds, and its bounded re-review of its own `BLOCKERS FOUND` repairs
-  is expected.
+  ChatGPT (Atlas) or Muse, whichever did not build it (OD-027), for every
+  pull request (figures-moved or not). Its bounded re-review of its own
+  `BLOCKERS FOUND` repairs is expected.
 - **Claim before reviewing:** the reviewer posts `Reviewing #<n> at <full head
   SHA>` in the assignment thread before starting. The first claim owns the
   review. If no review is claimed within 30 minutes of REVIEW READY, the
   dispatcher assigns a reviewer.
-- **Merge fallback:** Muse merges by default. The 10-minute clock (Dale,
-  2026-11-09; previously 30) starts when
-  the exact head first has both green required checks and a `NO BLOCKERS FOUND`
-  review. If Muse has not merged by then, the backup merger (Claude Code, never for its own
-  build) may merge after the same **Merge gate** verification.
+- **Merge fallback:** Muse merges by default, unless Muse reviewed the pull
+  request; then a Claude Code lead that neither built nor reviewed it merges
+  after the full **Merge gate** verification, or the pull request waits
+  (OD-027). Otherwise the 10-minute clock (Dale, 2026-11-09; previously 30)
+  starts when the exact head first has both green required checks and a
+  `NO BLOCKERS FOUND` review. If Muse has not merged by then, the backup
+  merger (Claude Code, never for a pull request it built or reviewed) may
+  merge after the same **Merge gate** verification.
 - **The dispatcher still owns build-side coordination:** what is built, by
   whom, in what order, and file reservations. It handles unclaimed reviews,
   stalled merges and conflicts.
@@ -310,7 +313,7 @@ errored, timed out, cancelled or failed **is a failure**, not an absence of one.
 
 |  | Atlas Contract / Systems Review | Independent improvement audit |
 |---|---|---|
-| Performed by | The in-house reviewer by default (OD-026); another non-builder where allowed below | An agent that is not the active builder |
+| Performed by | ChatGPT (Atlas) or Muse, never the builder (OD-027) | An agent that is not the active builder |
 | Status | **Required only when a high-risk trigger fires** | Optional |
 | Question | Is this exact head unsafe or architecturally wrong to merge? | What could be improved? |
 | Result | Factual findings: `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, or `INCOMPLETE` | Findings with dispositions |
@@ -332,8 +335,7 @@ defect remains a blocker because the defect is real.
 default**, and always for a figures-moved pull request (Dale, 2026-11-22;
 OD-027, which supersedes the reviewer part of OD-026; historical records stay
 valid).
-Any other pull request, including one with a non-figures high-risk trigger, may
-instead be reviewed by Muse or another non-builder Claude Code session. When a high-risk trigger
+When a high-risk trigger
 fires, the review is required governance before merge. When no high-risk
 trigger fires, it is not required. The active implementation agent cannot
 satisfy its own architecture gate. The review is not a GitHub status check. It
@@ -433,8 +435,8 @@ attempt. Optional advisory suggestions need not all be fixed.
 Correct-but-improvable work may proceed to systems review.
 
 The builder must deliver the review request directly to the named reviewer —
-normally by routing REVIEW READY to the lead, who hands it to the in-house
-reviewer session — with the pull request number and current full head SHA.
+normally by routing REVIEW READY to the lead, who hands it to the
+reviewer of record — with the pull request number and current full head SHA.
 A GitHub review, comment, label, or workflow run is evidence only: it cannot
 wake a reviewer session and does not start or satisfy this review. Paid OpenAI reviewer
 workflows are retired. Do not wait for them.
@@ -507,7 +509,7 @@ The review block records five fields:
 
 - **Required** — opens `REQUIRED` or `NOT REQUIRED`;
 - **Exact reviewed head** — the current full SHA when required, else `N/A`;
-- **Reviewer** — the non-builder reviewer (for example `In-house reviewer`; historical records name `Atlas`) when required,
+- **Reviewer** — the non-builder reviewer (for example `ChatGPT (Atlas)` or `Muse`; historical records name `In-house reviewer` or `Atlas`) when required,
   else `N/A`;
 - **Review outcome** — `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, `INCOMPLETE`, or
   `PENDING` when required, else `N/A`; and
@@ -646,7 +648,7 @@ primary label is a projection of that row, not a second judgement.
   systems-review trigger fired. No approval click. A high-risk trigger still
   waits for Atlas Contract / Systems Review `NO BLOCKERS FOUND` on the current
   head.
-- **`figures-moved`** — the in-house reviewer reviews it, so money logic meets one standard.
+- **`figures-moved`** — the reviewer of record (ChatGPT (Atlas) or Muse, OD-027) reviews it, so money logic meets one standard.
   The owner sees the figures diff before the merge. That
   is a *look*, not a sign-off ritual: reconcile the bot's list against the card,
   and if they disagree, one of them is wrong.
