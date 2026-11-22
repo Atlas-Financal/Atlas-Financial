@@ -52,10 +52,10 @@ scaffolding. The rule numbers are kept so existing references (for example
 - **Codex, Astra:** paused; resuming either is Dale's call. The lead may call
   on Astra for a specific hard task, with Dale's okay.
 - Nobody reviews or merges their own build. Atlas never merges.
-- **Backup merger:** under the 10-minute Merge fallback and the full Merge
-  gate, a Claude Code session may merge a PR built by a different Claude Code
-  session, if it neither built the PR nor authored its review findings and the
-  exact-head review is by another agent or session. Dispatching a build is not
+- **Backup merger:** under the full Merge gate, a Claude Code session may
+  merge a PR it neither built nor reviewed, when Muse reviewed that PR
+  (OD-027) or under the 10-minute Merge fallback, if the exact-head review is
+  by another agent or session. Dispatching a build is not
   building it. Muse stays the default merger; Atlas never merges. (Muse itself
   merges as soon as the gate completes, #787 6630392842.)
 
