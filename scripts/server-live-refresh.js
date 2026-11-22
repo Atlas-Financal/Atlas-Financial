@@ -789,6 +789,8 @@ if (!isMainThread) {
       signal?.addEventListener('abort', waiter.cancelled, { once: true });
       if (signal?.aborted) waiter.cancelled();
       if (fresh) startJob(job, input, workerEnv);
+      // Timing only (scripts/request-timing.js): whether this caller started the job.
+      try { options.onJob?.(fresh); } catch (_) { /* Diagnostics only. */ }
     });
   }
   // Unserved private settlement acquisition. Memory-replay only: the
