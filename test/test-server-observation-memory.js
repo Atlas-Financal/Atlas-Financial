@@ -105,10 +105,14 @@ async function until(predicate, label) {
   const deadline = performance.now() + 15000;
   while (!(await predicate())) { if (performance.now() >= deadline) throw new Error('Synthetic deadline: ' + label); await pause(10); }
 }
-async function freePort() {
-  const server = http.createServer(); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const port = server.address().port; await new Promise(resolve => server.close(resolve)); return port;
-}
+// The child server binds PORT=0 itself and reports the port it bound in its
+// own start-up line. A port picked here, released, then handed to the child
+// could be taken by another process in between; the child then exits at
+// start-up ("Synthetic server startup failed") whatever the suite protects.
+const LISTENING = /^Household finance dashboard listening on (\d{1,5})$/m;
+// The OAuth resource is an identifier (the token audience), not the bound
+// address, so it does not need the port before the child starts.
+const MCP_RESOURCE = 'http://127.0.0.1/assistant/mcp';
 async function oauthIssuer() {
   const jose = await import('jose');
   const pair = await jose.generateKeyPair('RS256', { extractable: true });
@@ -122,16 +126,31 @@ async function oauthIssuer() {
     close: () => new Promise(resolve => server.close(resolve)) };
 }
 async function atlas(mock, { mcp = false, canonical = null } = {}) {
-  const port = await freePort();
-  const base = 'http://127.0.0.1:' + port, auth = mcp ? await oauthIssuer() : null;
+  const auth = mcp ? await oauthIssuer() : null;
   const child = spawn(process.execPath, ['--require', __filename, path.join(ROOT, 'server.js')], {
     cwd: ROOT, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...environment(mock.base),
-      PORT: String(port), SITE_PASSWORD: PASS, SESSION_SECRET: SECRET,
+      PORT: '0', SITE_PASSWORD: PASS, SESSION_SECRET: SECRET,
       ATLAS_ASSISTANT_TOKEN: TOKEN, ATLAS_SYNTHETIC_OBSERVATION_PRELOAD: '1',
       ...(canonical ? { ATLAS_SYNTHETIC_OBSERVATION_CANONICAL: JSON.stringify(canonical) } : {}),
-      ...(auth ? { ATLAS_MCP_RESOURCE_URL: base + '/assistant/mcp', ATLAS_OAUTH_ISSUER: auth.issuer, ATLAS_OAUTH_JWKS_URI: auth.jwks } : {}) } });
+      ...(auth ? { ATLAS_MCP_RESOURCE_URL: MCP_RESOURCE, ATLAS_OAUTH_ISSUER: auth.issuer, ATLAS_OAUTH_JWKS_URI: auth.jwks } : {}) } });
   // Capture privately; publish only the test's own closed counts/timings.
-  let exited = false; child.stdout.on('data', () => {});
+  // Readiness is the child's own start-up line, or its exit: an event, never a poll.
+  let exited = false, stdout = '';
+  const ready = new Promise((resolve, reject) => {
+    child.stdout.on('data', chunk => {
+      if (stdout === null) return;
+      stdout += chunk;
+      const match = LISTENING.exec(stdout);
+      if (match) { stdout = null; resolve(Number(match[1])); }
+      else if (stdout.length > 65536) stdout = stdout.slice(-4096);
+    });
+    child.once('exit', (code, signal) => reject(new Error('Synthetic server startup failed (exit '
+      + (signal || code) + ')')));
+  });
+  // A backstop only, for a child that neither starts nor exits: never the
+  // pass condition, which is the start-up line above.
+  const backstop = setTimeout(() => child.kill(), 120000); backstop.unref();
+  ready.then(() => clearTimeout(backstop), () => clearTimeout(backstop));
   child.stderr.on('data', () => {});
   child.once('exit', () => { exited = true; });
   const close = async () => {
@@ -141,15 +160,12 @@ async function atlas(mock, { mcp = false, canonical = null } = {}) {
     await auth?.close();
   };
   try {
-    await until(async () => {
-      if (exited) throw new Error('Synthetic server startup failed');
-      try { return (await fetch(base + '/login')).status === 200; } catch (_) { return false; }
-    }, 'server startup');
+    const base = 'http://127.0.0.1:' + await ready;
   const login = await fetch(base + '/login', { method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=' + encodeURIComponent(PASS) });
   const cookie = login.headers.get('set-cookie')?.split(';')[0];
   if (!cookie) throw new Error('Synthetic login failed');
-    return { base, cookie, close, mcpToken: auth ? await auth.token(base + '/assistant/mcp') : null };
+    return { base, cookie, close, mcpToken: auth ? await auth.token(MCP_RESOURCE) : null };
   } catch (error) { await close(); throw error; }
 }
 module.exports = { provider, atlas, environment, CLOCK, PASS, TOKEN, until, pause };
