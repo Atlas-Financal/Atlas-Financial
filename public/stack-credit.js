@@ -164,7 +164,7 @@
   let open = false;
   function cardHtml(reading) {
     const t = reading.totals, view = reading.view;
-    // Both sides are Forecast's published totals over exactly the cards whose minimums are due (the HELOC left out), never
+    // Both sides are Forecast's published totals over exactly the lines whose minimums are due (the HELOC included, so the due equals the waterfall's Credit), never
     // added up here: totals.minimumsPaid (paid toward them: $0 when nothing was paid, a due card Forecast cannot see counting
     // $0 by owner decision) over totals.minimumsDue. The paid figure prints in normal type, whatever its trust word (Dale,
     // 2026-11-20: no estimated distinction). A past period with incomplete posted coverage withholds minimumsPaid, so the paid

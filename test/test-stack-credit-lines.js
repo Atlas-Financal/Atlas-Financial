@@ -378,8 +378,9 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
     && pastMp.reasons[0] === 'paid-unavailable' && pastMp.reasons.includes('posted-coverage-incomplete'),
   'a past period with no posted coverage: withheld with posted-coverage-incomplete, never $0 (a $0 there could hide a real payment)', JSON.stringify(pastMp));
   const helocOnly = mp(due([{ debtId: 'heloc', amount: 50 }]));
-  ok(((helocOnly.amount === null && helocOnly.trust === 'unavailable') || (helocOnly.amount === 0 && helocOnly.trust === 'estimated')) && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 50,
-    'only the HELOC due: its 50 is due, and its paid side is withheld or an estimated 0, never more certain', JSON.stringify(helocOnly));
+  ok(helocOnly.amount === 0 && helocOnly.trust === 'estimated' && same(helocOnly.reasons, ['paid-unavailable-counted-as-zero', 'heloc-not-observed'])
+    && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 50,
+    'only the HELOC due (no HELOC publication card): its 50 is due, and its paid side is an estimated $0 with its reason, never more certain', JSON.stringify(helocOnly));
   const zeroMin = mp(due([{ debtId: 'tdcc', amount: 40 }, { debtId: 'triangle', amount: 0 }]));
   ok(zeroMin.amount === 0 && zeroMin.trust === 'calculated', 'a card with a $0 minimum is not due, so it does not soften the figure', JSON.stringify(zeroMin));
   const off = mp(null);
