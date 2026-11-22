@@ -2837,6 +2837,10 @@ function classifyOccurrenceHits(key, hits) {
   const empty = { unique: null, ambiguous: null };
   if (!hits || !hits.length) return empty;
   if (hits.every(hit => hit && hit.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM)) {
+    // On an opted-in rule, a leg whose provider id also names another posted
+    // row is not clean evidence: the occurrence settles nothing, as a pair or
+    // as a lone leg (ChatGPT (Atlas) blocker on #1533 at f050d614).
+    if (hits.some(hit => hit && hit.singleLegDuplicateId === true)) return empty;
     if (twoLegSumAccepted(hits)) return { unique: combineTwoLegHits(hits), ambiguous: null };
     // Owner 2026-11-21 (Dale): on a rule that opts in with singleLegSettles,
     // one posted leg alone is that occurrence's payment. Two legs that are
