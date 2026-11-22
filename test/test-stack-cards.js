@@ -275,6 +275,14 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
     const pc = buildCardsHTML(ctx(pb)).split('data-stack-card="bills"')[1].split('</details>')[0];
     assert(rowsOfBills(pc).every(r => !/stack-est/.test(r)) && /class="sc-f stack-est"/.test(pc),
       'a projected period: rows print plain, the head (a projected total) stays soft');
+    // A row with no sheet target (no date to name it) keeps its trust on the card: its only place.
+    const nt = JSON.parse(JSON.stringify(view));
+    nt.bills[1].stackBillAmountTrust = 'estimated'; delete nt.bills[1].date;
+    nt.bills[0].stackBillAmountTrust = 'estimated';
+    const ntRows = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
+    const noTarget = ntRows.filter(r => !/data-stack-sheet=/.test(r)), withTarget = ntRows.filter(r => /data-stack-sheet=/.test(r));
+    assert(noTarget.length === 1 && /class="sc-a stack-est"/.test(noTarget[0]), 'an estimated row with no sheet stays soft on the card');
+    assert(withTarget.length > 0 && withTarget.every(r => !/stack-est/.test(r)), 'an estimated row with a sheet prints plain');
     const calc = buildCardsHTML(ctx(view)).split('data-stack-card="bills"')[1].split('</details>')[0];
     assert(!/stack-est/.test(calc), 'a calculated Bills card carries no soft class at all');
   }

@@ -137,8 +137,12 @@
     // rule), so it is named from what it is, never "Planned".
     var name = amountText == null ? null : exact ? 'Paid ' + amountText
       : evidence === 'posted-differs' ? amountText + ', payment not confirmed' : 'Planned ' + amountText;
+    // A row's estimate is marked in its tap-in sheet, so the card prints it plain (owner decision, Dale, 2026-11-22). A row
+    // with no sheet (no id or date to name it) has nowhere else to show its trust, so it keeps the soft look here (lead
+    // ruling on pre-review 7075040773: every figure stays tagged).
+    var soft = !target && amountText != null && isEst(r.stackBillAmountTrust);
     return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
-      '<span class="sc-a"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
+      '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
       '<span class="sc-ck">' + (exact ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';
   }
 
