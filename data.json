@@ -810,7 +810,7 @@
                 "day": 15,
                 "firstDue": "2026-10-15",
                 "amount": 160,
-                "confidence": "confirmed",
+                "confidence": "estimated",
                 "budgetCategory": "telecom",
                 "payingAccount": "chequing-a",
                 "note": "Owner 2026-09-19 standing $160/month (rounded from ~$159.03 current charges) on the 15th. firstDue 2026-10-15 so September 2026 is the once row bell-sep15-2026 ($283.94 due 2026-09-15, owner 2026-09-19 catch-up / wife payment-mess total; supersedes $265.65) and is not also this series. Owner 2026-09-21: autopay is set, and the planned paying account is BILLS ACCOUNT (Chequing A). That is a joint-cash withdrawal, not Travel Visa reserved gravity. Historical June 2026 reconstruction $104.20 + second-watch CSV $16.80 = $121.00 is retired as the forward baseline. Live Lunch Money $250.00 (2026-07-17, 2026-08-14) and $69.15 (2026-08-16) remain catch-up / settlement-route evidence, not the recurring amount. July/August statement totals and roaming / late fees are not the baseline. Shaw $78.40 on BILLS ACCOUNT around the 14th is a separate dated chequing bill. A posted Travel Visa Bell debit can still settle one standing occurrence. Posted BILLS settlement is the proven same-day two-leg identity on chequing-a. One posted BILLS Bell debit does not settle. Amount is not identity. This does not change the $160 amount, the 15th cadence, or firstDue 2026-10-15."

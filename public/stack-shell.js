@@ -145,6 +145,22 @@ try {
   const views = () => (state.recommendation && Array.isArray(state.recommendation.payPeriodViews)
     ? state.recommendation.payPeriodViews.filter(v => v && typeof v.start === 'string') : []);
   const keyOf = view => view.start;
+  // A completed period whose saved close could not be read (Forecast's savedHistoryUnavailable marker, and no saved
+  // close) is a rebuild from today's plan, not the period. The Stack page prints no figure for it, never that rebuild
+  // (it would read one way on a first load and another after the saved close loads): the shell hands every block and chip
+  // the period's identity only, so each prints its unpublished form (a dash or nothing, F8). The classic page withholds
+  // on the same marker (plan.js budgetSavedHistoryUnavailableHtml). Nothing is computed here; no explanatory text (owner).
+  const HISTORY_IDENTITY_KEYS = ['id', 'label', 'rangeLabel', 'start', 'end', 'role', 'timelineRole', 'lookback', 'evidenceState',
+    'savedHistoryUnavailable'];
+  const historyUnavailable = view => !!view && (view.timelineRole === 'past' || view.lookback === true) && !view.capturedClose
+    && !!view.savedHistoryUnavailable && view.savedHistoryUnavailable.status === 'unavailable';
+  function withholdUnavailableHistory(recommendation) {
+    const list = recommendation && Array.isArray(recommendation.payPeriodViews) ? recommendation.payPeriodViews : null;
+    if (!list || !list.some(historyUnavailable)) return recommendation;
+    return Object.assign({}, recommendation, { payPeriodViews: list.map(view => (historyUnavailable(view)
+      ? Object.fromEntries(HISTORY_IDENTITY_KEYS.filter(key => Object.prototype.hasOwnProperty.call(view, key)).map(key => [key, view[key]]))
+      : view)) });
+  }
   const surplusOf = view => {
     const s = view && view.stackSummary && view.stackSummary.surplus;
     return s && typeof s.amount === 'number' && Number.isFinite(s.amount) ? s.amount : null;
@@ -364,6 +380,7 @@ try {
       : Forecast.recommend(d.plan, d.meta && d.meta.asOf, Forecast.budgetRecommendInputs(d, {
         periods, settlementEvidence: settlement.kind === 'qualified' ? settlement.evidence : null,
       }));
+    state.recommendation = withholdUnavailableHistory(state.recommendation);
     const list = views();
     if (!list.some(v => keyOf(v) === state.selectedPeriodKey)) {
       const active = list.find(v => v.role === 'active');
