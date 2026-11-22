@@ -34,6 +34,9 @@
     const cycle = savingsDate(window?.start) ? spendingCycle(plan, window.start) : null;
     const packet = currentPeriodActualsPacket(opts);
     const reconciliation = reconcileCardPurchases(packet?.transactions, { plan, debts, asOf, packet, paymentDiagnostics: true });
+    // The household budget's one pending/posted pairing (pendingPostedDuplicateIdSet): a pending row it calls a possible
+    // replacement of its posted twin is that same charge, so a card counts the posted side once (Dale, 2026-11-22).
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
     return CardPeriodMovement.publish({ plan, debts, asOf, window, packet,
       paymentAllocations: reconciliation.paymentAllocations,
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
@@ -44,6 +47,7 @@
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
+      replacedPending: tx => isPossibleReplacementPending(tx, duplicateIds),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
         Object.assign({}, opts, { currentPeriodActuals: packet, useActuals: true })),
     });

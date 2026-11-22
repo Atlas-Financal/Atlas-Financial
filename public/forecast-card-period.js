@@ -132,7 +132,14 @@
           || tx.accountRole !== (id === 'heloc' ? 'heloc' : 'revolving-credit')) continue;
         if (!date(tx.date)) { issues.push('transaction-date-unqualified'); continue; }
         if (tx.date < start || tx.date > through) continue;
-        if (tx.pendingPostedAmbiguous === true || tx.pendingPostedDuplicate === true || tx.contradictoryEvidence === true)
+        // A pending row Forecast's one pending/posted pairing calls replaced by its posted twin (the household budget's rule,
+        // `replacedPending`) is that same charge: it is never counted, and its posted twin counts once (Dale, 2026-11-22: "when
+        // the actual charge comes in, I don't want to have that doubled up"). On a spend card that pairing is not missing
+        // evidence, so the flag alone no longer withholds; an ambiguous pair or contradictory evidence still does, and the
+        // HELOC keeps the earlier rule.
+        const replaced = tx.pending === true && typeof primitives.replacedPending === 'function' && primitives.replacedPending(tx) === true;
+        if (tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true
+          || tx.pendingPostedDuplicate === true && (id === 'heloc' || typeof primitives.replacedPending !== 'function'))
           issues.push('transaction-evidence-unconfirmed');
         if (tx.isGroup === true) {
           if (skipParent(tx, packet)) continue;
@@ -161,7 +168,7 @@
           ...(DisplayName && DisplayName.itemName(tx) ? { displayName: DisplayName.itemName(tx) } : {}),
           amount: value == null ? null : value / 100, magnitude: value == null ? null : Math.abs(value) / 100,
           direction: value == null ? null : value > 0 ? 'up' : value < 0 ? 'down' : 'flat',
-          kind, pending: tx.pending === true };
+          kind, pending: tx.pending === true, ...(replaced ? { replacedByPosted: true } : {}) };
         const allocation = paymentAllocations?.get(tx.coverageRef);
         if (id !== 'heloc' && (allocation || kind === 'payment' || kind === 'credit-unconfirmed')) {
           // Diagnostic proof is local to these exact legs. Unknown legacy
@@ -271,11 +278,12 @@
   }
   // Stack Wallet A6 (lead dispatch, 2026-11-19): per card, in one pay period,
   // how much was paid onto the card against how much was spent on it. A pure
-  // reading of one publish() result: posted rows only (the card ledger is
-  // posted-only), the same kinds publish() assigns, no amount or date
-  // heuristic. A figure that cannot be stated is null with a reason, never 0.
-  // Each figure carries a trust word: 'calculated', 'estimated' (a payment
-  // whose source the card ledger has not reconciled), or 'unavailable'.
+  // reading of one publish() result: posted rows plus the pending rows not
+  // replaced by a posted twin (Dale, 2026-11-22), the same kinds publish()
+  // assigns, no amount or date heuristic. A figure that cannot be stated is
+  // null with a reason, never 0. Each figure carries a trust word:
+  // 'calculated', 'estimated' (a payment whose source the card ledger has not
+  // reconciled, or any figure a pending row adds to), or 'unavailable'.
   const STACK_TRUST_ORDER = ['calculated', 'estimated', 'unavailable'];
   // An unrecognised trust word is the weakest there is ('unavailable'), never silently dropped from the comparison.
   const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => (STACK_TRUST_ORDER.includes(w) ? STACK_TRUST_ORDER.indexOf(w) : STACK_TRUST_ORDER.length - 1)))];
@@ -291,8 +299,12 @@
       ? { amount: null, trust: 'unavailable', reasons: [...new Set(reasons)] }
       : { amount, trust, reasons: [...new Set(reasons)] };
     return pub.cards.filter(card => card && card.id !== 'heloc').map(card => {
+      // Pending rows count (Dale, 2026-11-22: "we know the actual charge is coming ... it can count towards the spend"), each
+      // exactly as the same row would if posted, except one Forecast's pairing calls replaced by its posted twin: that is the
+      // same charge, so it is neither counted nor listed and the posted twin counts once ("I don't want to have that doubled up").
+      const pendingRows = (Array.isArray(card.pending) ? card.pending : []).filter(row => row && row.replacedByPosted !== true);
       const rows = (Array.isArray(card.posted) ? card.posted : []).map(row => ({ ...row, pending: false }))
-        .concat((Array.isArray(card.pending) ? card.pending : []).map(row => ({ ...row, pending: true })));
+        .concat(pendingRows.map(row => ({ ...row, pending: true })));
       const transactions = rows.map(row => ({ date: row.date, name: row.displayName || row.payee,
         amount: row.amount, kind: row.kind, payment: row.kind === 'payment', pending: row.pending }))
         .sort((a, b) => a.date.localeCompare(b.date) || (a.pending === b.pending ? 0 : a.pending ? 1 : -1));
@@ -301,9 +313,14 @@
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
       let paidCents = 0, spentCents = 0;
       const paidReasons = [], spentReasons = [];
-      let paidTrust = 'calculated';
-      for (const row of card.posted || []) {
+      let paidTrust = 'calculated', spentTrust = 'calculated';
+      for (const row of rows) {
         const value = typeof row.amount === 'number' && Number.isFinite(row.amount) ? Math.round(row.amount * 100) : null;
+        // A figure a pending row adds to is an estimate until the row posts: never calculated.
+        if (row.pending && value != null) {
+          if (row.kind === 'payment') { paidTrust = 'estimated'; paidReasons.push('includes-pending'); }
+          else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') { spentTrust = 'estimated'; spentReasons.push('includes-pending'); }
+        }
         if (value == null) { paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified'); continue; }
         if (row.kind === 'payment') {
           paidCents += -value;
@@ -317,16 +334,16 @@
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
         } else spentReasons.push('card-movement-unconfirmed');
       }
-      const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed');
+      const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed' && r !== 'includes-pending');
       const paid = blocked(paidReasons) ? figure(null, null, gaps.concat(paidReasons))
         : figure(paidCents / 100, paidTrust, paidReasons);
       const spent = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
-        : figure(spentCents / 100, 'calculated', spentReasons);
+        : figure(spentCents / 100, spentTrust, spentReasons);
       const net = paid.amount == null || spent.amount == null
         ? figure(null, null, paid.reasons.concat(spent.reasons))
         : figure((paidCents - spentCents) / 100, weakest(paid.trust, spent.trust), paid.reasons.concat(spent.reasons));
       const state = net.amount == null ? null
-        : !(card.posted || []).length ? 'no-activity'
+        : !rows.length ? 'no-activity'
         : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
       return { id: card.id, label: card.label, paid, spent, net, state,
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
