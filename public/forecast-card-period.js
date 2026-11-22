@@ -325,7 +325,12 @@
   // estimated. 'unavailable' (or any other word) is not covered.
   const COVERED_TRUST = ['calculated', 'verified', 'estimated'];
   const coveredOn = line => line.minimumCovered.value === true && COVERED_TRUST.includes(line.minimumCovered.trust);
+  // The published card summary leaves out the internal posted-only paid (paidPosted), so its shape is unchanged.
   function stackCards(publication) {
+    const cards = stackCardFigures(publication);
+    return cards && cards.map(({ paidPosted, ...card }) => card);
+  }
+  function stackCardFigures(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
       && publication.currency === 'CAD' && Array.isArray(publication.cards) ? publication : null;
     if (!pub) return null;
@@ -382,6 +387,7 @@
         : figure(paidCents / 100, paidTrust, paidReasons);
       // Paid from posted payments only (lead ruling, ATLAS LEAD 12, 2026-11-22): a pending payment can fail or reverse, so
       // it counts in Paid (estimated) but never, by itself, makes a minimum covered or counts toward the minimums paid.
+      // Internal to this module: stackCreditLines reads it; neither stackCards nor a Credit line publishes it.
       const paidPosted = blocked(postedPaidReasons) ? figure(null, null, gaps.concat(postedPaidReasons))
         : figure(postedPaidCents / 100, postedPaidTrust, postedPaidReasons);
       const spent = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
@@ -449,7 +455,8 @@
   }
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
   function stackCreditLines(publication, bills) {
-    const cards = stackCards(publication);
+    // paidPosted is read here (paid toward the minimum, minimumsPaid, the covered check) and never published on a line.
+    const cards = stackCardFigures(publication);
     if (!cards) return null;
     const future = publication.role === 'future';
     const split = bills && Array.isArray(bills.cardMinimums) ? bills : null;
@@ -530,7 +537,8 @@
       const paidForMinimum = card.paidPosted || paid;
       const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
         : cents(paidForMinimum.amount) >= cents(minimum.amount);
-      return { ...card, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      const { paidPosted, ...shown } = card;
+      return { ...shown, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paidForMinimum.reasons.concat(minimum.reasons))] : [] } };

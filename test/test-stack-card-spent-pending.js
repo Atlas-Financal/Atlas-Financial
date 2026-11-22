@@ -260,4 +260,30 @@ console.log('10. A pending payment counts in Paid, never toward the minimum (lea
     'MUTANT: reading the pending-inclusive Paid makes the pending payment alone cover the minimum, which the check above rejects');
 }
 
+console.log('11. A matched pair beside a separate flagged row: only the pair is relieved, the card stays withheld');
+{
+  // Pair P/Q (matched by Forecast, both flagged) plus a lone flagged posted row L that nothing pairs. Each flagged row pushed
+  // one transaction-evidence-unconfirmed into the posted gaps; the pair's two are lifted for the Stack, L's one remains.
+  const pair = [row('m-pend', 30, { pending: true, pendingPostedDuplicate: true }), row('m-post', 30, { pendingPostedDuplicate: true })];
+  const lone = row('m-lone', 12, { pendingPostedDuplicate: true, payee: 'Example kiosk' });
+  const both = publish(world(pair.concat([lone]))).cards.find(c => c.id === 'travelvisa');
+  ok(Array.isArray(both.stackPendingGaps) && both.stackPendingGaps.includes('transaction-evidence-unconfirmed'),
+    'pair + lone flag: the Stack gate still carries the lone row\'s transaction-evidence-unconfirmed', JSON.stringify(both.stackPendingGaps));
+  const t = travel(world(pair.concat([lone])));
+  ok(t.spent.amount === null && t.paid.amount === null, 'pair + lone flag: Spent and Paid stay withheld', JSON.stringify(t.spent));
+  const alone = publish(world(pair)).cards.find(c => c.id === 'travelvisa');
+  ok(Array.isArray(alone.stackPendingGaps) && alone.stackPendingGaps.length === 0
+    && alone.postedMovement.reasons.includes('transaction-evidence-unconfirmed'),
+    'control: the pair alone lifts exactly its own flags (no Stack gaps left), while the posted movement keeps them', JSON.stringify([alone.stackPendingGaps, alone.postedMovement.reasons]));
+}
+
+console.log('12. The posted-only paid is internal: no published card or Credit line carries it');
+{
+  const pub = publish(world([row('pay-pend', -60, { pending: true, payee: 'Payment received', kindHint: 'payment' })]));
+  const cards = F.stackCardSummary(pub);
+  const lines = F.stackCreditLines(pub, { cardMinimums: [{ debtId: 'travelvisa', amount: 150 }], trust: 'calculated' }).lines;
+  ok(cards.every(c => !Object.hasOwn(c, 'paidPosted')) && lines.every(l => !Object.hasOwn(l, 'paidPosted')),
+    'stackCardSummary cards and stackCreditLines lines have no paidPosted field (their published shape is unchanged)');
+}
+
 console.log(`\nPASS Stack card Spent counts pending, never twice (${checks})`);
