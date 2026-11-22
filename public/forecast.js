@@ -973,6 +973,18 @@
   function trustWeakenedConfidence(event) {
     return event && event.confidence === 'confirmed' ? { confidence: 'estimated' } : {};
   }
+  // A linked bill with a cutover (timingBefore, #1511): an occurrence before
+  // the cutover keeps the plan's day and the plan's date tag (carried in
+  // timingBefore.dateConfidence); one on or after it takes the bill's served
+  // tag. Only a bill with a cutover carries a per-occurrence date tag, and
+  // only a closed word; a tag never becomes more certain than its timing.
+  function billCutoverDateTrust(bill, date) {
+    const prior = bill && bill.timingBefore;
+    if (!prior || typeof prior.from !== 'string') return {};
+    const word = date < prior.from ? prior.dateConfidence : bill.dateConfidence;
+    return word === 'confirmed' || word === 'estimated' ? { dateConfidence: word }
+      : date < prior.from ? { dateConfidence: 'estimated' } : {};
+  }
   function occurrenceTrustFields(event) {
     const fields = { confidence: suppliedConfidence(event && event.confidence) };
     if (event && (event.dateConfidence === 'confirmed' || event.dateConfidence === 'estimated')) {
@@ -4658,6 +4670,7 @@
         events.push({
           date, amount: -cash, kind: 'bill', label: b.label, id: b.id,
           confidence: priced ? priced.confidence : b.confidence,
+          ...billCutoverDateTrust(b, date),
           ...(priced ? { amountSource: priced.source } : {}),
           householdObligation: true,
           payingAccount: billCashPayingAccount(b, plan),

@@ -18,6 +18,10 @@
 // (Oct 3, Invented grocer C) against a plan of 300, and the internet bill
 // 60 paid on its Sep 28 due date. As-of is Oct 14 (period Oct 9 - 22).
 
+const assert = require('node:assert/strict');
+const CLOSED = '2026-09-25';
+const CURRENT = '2026-10-09';
+
 function historyWorld(H) {
   const w = H.baseWorld();
   w.bills = [{ id: 'net', label: 'Invented internet', amount: 60, frequency: 'monthly', day: 28, confidence: 'confirmed', payee: 'Invented net co' }];
@@ -36,14 +40,52 @@ async function closed(H, p) {
   return s;
 }
 
+async function stackGroceries(p, periodKey) {
+  if (await p.page.evaluate(() => window.StackBlocks.context().selectedPeriodKey) !== periodKey) {
+    await p.selectPeriod(periodKey);
+  }
+  const budget = p.page.locator('#stack-root [data-stack-card="budget"]');
+  if (!await budget.evaluate(node => node.open)) await budget.locator('summary').click();
+  const target = budget.locator('[data-stack-sheet="budget:groceries"]');
+  assert.ok(await target.isVisible(), 'the selected period has a visible Groceries row');
+  await target.click();
+  const sheet = p.page.locator('#stack-root [data-stack-block="sheet"] [role="dialog"]');
+  assert.equal(await sheet.locator('h3').innerText(), 'Groceries');
+  const result = await sheet.evaluate(dialog => {
+    const ctx = window.StackBlocks.context();
+    const view = ctx.recommendation.payPeriodViews.find(v => v.start === ctx.selectedPeriodKey);
+    const row = view.householdBudget.find(item => item.id === 'groceries');
+    return {
+      key: view.start, captured: view.capturedClose?.source === 'period-history',
+      spent: row.spent, planned: row.planned,
+      printedSpent: dialog.querySelector('.stack-sheet-big > span').textContent,
+      printedPlan: dialog.querySelector('.stack-sheet-big > i')?.textContent.trim() ?? null,
+    };
+  });
+  assert.equal(result.key, periodKey, 'the figures came from the selected pay period');
+  await p.page.keyboard.press('Escape');
+  return result;
+}
+
+function expectSpent(row, amount, printed) {
+  assert.deepEqual([row.spent, row.printedSpent], [amount, printed], 'published and printed category spend');
+}
+
+function expectPlan(row, amount, printed) {
+  assert.deepEqual([row.planned, row.printedPlan], [amount, printed], 'published and printed original target');
+}
+
 const scenarios = [
   {
     id: '5.1', basis: 'derived', name: 'a closed period shows the spending and bill payment it closed with',
     async run(H) {
-      await H.withBudget(historyWorld(H), async p => {
-        const s = await closed(H, p);
-        H.expectMatch(H.category(s, 'Groceries'), /Spent \$70\.00/, 'closed groceries spent is 70');
+      await H.withBudget(historyWorld(H), async (classic, packets, built) => {
+        const s = await closed(H, classic);
         H.expectMatch(H.bill(s, 'Invented internet'), /\$60\.00\s*Paid/, 'the Sep 28 bill shows Paid');
+        const stack = await H.openBudget(built[0].data, { view: 'stack' });
+        try {
+          expectSpent(await stackGroceries(stack, CLOSED), 70, '$70');
+        } finally { await stack.close(); }
       });
     },
   },
@@ -69,9 +111,11 @@ const scenarios = [
       // Given: the Sep 25 - Oct 8 close was captured before the plan changed.
       w.capturedHistory = [historyWorld(H)];
       await H.withBudget(w, async p => {
-        const s = await closed(H, p);
-        H.expectMatch(H.category(s, 'Groceries'), /of planned \$300\.00/, 'captured original plan is 300');
-      });
+        expectPlan(await stackGroceries(p, CURRENT), 350, '/ $350');
+        const past = await stackGroceries(p, CLOSED);
+        assert.equal(past.captured, true, 'the earlier plan was captured');
+        expectPlan(past, 300, '/ $300');
+      }, { view: 'stack' });
     },
   },
   {
@@ -84,10 +128,12 @@ const scenarios = [
       later.windowStart = '2026-10-09';
       later.transactions = later.transactions.filter(t => t.date >= '2026-10-09');
       await H.withBudget([first, later], async p => {
+        expectSpent(await stackGroceries(p, CLOSED), 70, '$70');
         await p.reload();
-        const s = await closed(H, p);
-        H.expectMatch(H.category(s, 'Groceries'), /Spent \$70\.00/, 'captured closed spending is retained');
-      });
+        const past = await stackGroceries(p, CLOSED);
+        assert.equal(past.captured, true, 'the second observation reads the saved close');
+        expectSpent(past, 70, '$70');
+      }, { view: 'stack' });
     },
   },
   {
@@ -98,10 +144,11 @@ const scenarios = [
       later.windowStart = '2026-10-09';
       later.transactions = later.transactions.filter(t => t.date >= '2026-10-09');
       await H.withBudget(later, async p => {
-        const s = await closed(H, p);
-        H.expect(H.category(s, 'Groceries'), 'the Groceries row is listed');
-        H.expectNoMatch(H.category(s, 'Groceries'), /Spent \$0\.00?/, 'uncovered history is never a zero');
-      });
+        const past = await stackGroceries(p, CLOSED);
+        assert.equal(past.captured, false, 'the uncovered period has no saved close');
+        expectSpent(past, null, '');
+        expectSpent(await stackGroceries(p, CURRENT), 0, '$0');
+      }, { view: 'stack' });
     },
   },
   {
@@ -115,11 +162,9 @@ const scenarios = [
       // arrives as one group-parent row, so the refund here is that linked form (is_group_parent).
       w.transactions.push(H.lm({ date: '2026-10-12', amount: -20, category: 'Groceries', payee: 'Invented grocer C', raw: { is_group_parent: true } }));
       await H.withBudget(w, async p => {
-        const now = await H.snap(p);
-        H.expectMatch(H.category(now, 'Groceries'), /Spent [−-]\$20\.00/, 'the refund is in the open period Groceries');
-        const s = await closed(H, p);
-        H.expectMatch(H.category(s, 'Groceries'), /Spent \$70\.00/, 'closed period keeps 70');
-      });
+        expectSpent(await stackGroceries(p, CURRENT), -20, '−$20');
+        expectSpent(await stackGroceries(p, CLOSED), 70, '$70');
+      }, { view: 'stack' });
     },
   },
   {
@@ -156,25 +201,35 @@ const scenarios = [
           'the first observation has a complete captured close');
         H.expect(JSON.stringify(captured(built[1].data)) === JSON.stringify(firstCapture),
           'the later refresh retains the exact original captured publication');
-        const before = await closed(H, p);
+        await closed(H, p);
         const figure = async () => ((await p.rows('[data-operating-question="07"]')).join(' ')
           .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
         H.expect(await figure() === '$1,270.00', 'captured close is income 1,400 minus bill 60 minus spending 70');
-        H.expectMatch(H.category(before, 'Groceries'), /of planned \$300\.00/, 'captured groceries plan is 300');
         const disclosure = (await p.rows('[data-budget-captured-close]')).join(' ');
         H.expectIncludes(disclosure, '2026-10-14', 'the close is shown as captured on Oct 14');
 
         // A reload keeps the selected period for the tab, so return to the
-        // current period first: the positive control below is about it.
+        // current period first so stepping back selects the same close after reload.
         await p.step(1);
         await p.reload();
-        H.expectMatch(H.category(await H.snap(p), 'Groceries'), /of planned \$350\.00/,
-          'positive control: the current period uses the changed 350 budget');
-        const after = await closed(H, p);
+        await closed(H, p);
         H.expect(await figure() === '$1,270.00', 'today\'s budget edit cannot change the captured 1,270 close');
-        H.expectMatch(H.category(after, 'Groceries'), /of planned \$300\.00/, 'captured groceries still uses its 300 plan');
         H.expect((await p.rows('[data-budget-captured-close]')).join(' ') === disclosure,
           'the original capture disclosure survives the budget edit');
+
+        // The stored close figure and its capture disclosure above still need their classic proof.
+        // Both pages receive the exact same pair of observed documents.
+        const stack = await H.openBudget(built.map(result => result.data), { view: 'stack' });
+        try {
+          const before = await stackGroceries(stack, CLOSED);
+          assert.equal(before.captured, true);
+          expectPlan(before, 300, '/ $300');
+          await stack.reload();
+          expectPlan(await stackGroceries(stack, CURRENT), 350, '/ $350');
+          const after = await stackGroceries(stack, CLOSED);
+          assert.equal(after.captured, true);
+          expectPlan(after, 300, '/ $300');
+        } finally { await stack.close(); }
       });
     },
   },

@@ -8,19 +8,17 @@
  *             the due date passed and nothing seen, Needs a date, Due, Not paid, Status unavailable;
  *   carried   Carried to this pay period: not listed.
  *
- * Proof, independent of Forecast.billPaidState: the expected word is written by hand against the label the CURRENT page
- * printer (plan.js budgetBillPresentation, lifted by name) prints for the same row. So every state today's Bills list can
- * show is mapped once, by hand, and Forecast must agree with it on every row, hand-built and real.
- *
- * Path for the real rows: invented raw Lunch Money payload -> provider observer -> Forecast.recommend pay period rows.
- * Presentation only: every other field of every row, and every period figure, is unchanged (checked against the same
- * world with the word removed). Invented numbers only.
+ * Each hand-written expected word comes from the bill's evidence. Real
+ * observed worlds also boot the Stack and select the occurrence on its Bills
+ * card. A row can have seen payment without its amount being confirmed in full.
+ * The card's Paid check and its paid total use the latter verdict.
+ * Invented inputs only. The posted-plus-pending-copy case is protected by 6.19.
  *
  * `node test/test-bill-paid-state.js`
  */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { loadStackPage } = require('./lib/budget-page-harness');
 const F = require('../public/forecast.js');
 const H = require('./acceptance/harness.js');
 
@@ -31,39 +29,7 @@ const ok = (cond, label, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
 };
 
-// the real page printer, lifted by name from public/
-const src = f => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
-const lift = (text, name) => {
-  const re = new RegExp(`^(?:const ${name} = |function ${name}\\()`, 'm');
-  const m = re.exec(text);
-  if (!m) throw new Error(`printer ${name} not found`);
-  const end = text.indexOf('\n\n', m.index);
-  const next = text.slice(m.index).search(/\n(?:function |const |\/\/)/);
-  return text.slice(m.index, m.index + Math.min(next > 0 ? next : Infinity, end > 0 ? end - m.index : Infinity));
-};
-const app = src('app.js'), plan = src('plan.js');
-const ctx = { console, Intl, Number, Math, String, Object, Array, JSON, Date, RegExp };
-vm.createContext(ctx);
-vm.runInContext([lift(app, 'money2'), lift(plan, 'isValidIsoCalendarDate'), lift(plan, 'budgetBillPresentation'),
-  'this.present = budgetBillPresentation;'].join('\n'), ctx);
-
-// Dale's table, by hand, keyed on what today's page prints (label · qualifier). A label the table does not name fails.
-function expectedFromPage(row) {
-  const p = ctx.present(row);
-  const q = p.qualifier || '';
-  if (p.label === 'Carried to this pay period') return 'carried';
-  if (p.label === 'Payment pending') return 'paid';
-  if (p.label === 'Partly paid') return 'paid';
-  if (p.label === 'Paid') return 'paid';
-  if (p.label === 'Planned' && q === 'Money sent') return 'paid';
-  if (p.label === 'To confirm' && (q === 'Payment allocation unconfirmed' || q === 'Money sent; minimum amount unconfirmed')) return 'paid';
-  if (p.label === 'To confirm' && (q === '' || q === 'Inside opening balance')) return 'not-paid';
-  if (p.label === 'Estimated' && q === 'Trusted on due date (not seen)') return 'not-paid';
-  if (['Needs a date', 'Due', 'Not paid', 'Status unavailable'].includes(p.label)) return 'not-paid';
-  return 'UNMAPPED ' + p.label + ' · ' + q;
-}
-
-console.log('every state the Bills list prints today, one row each (hand-built published rows)');
+console.log('hand-written grades for the published evidence states');
 const base = { id: 'x', label: 'Invented bill', kind: 'obligation', date: '2026-10-12', planned: 90, amount: 90 };
 const CASES = [
   ['Carried to this pay period', 'carried', { status: 'carried', settlement: 'carried' }],
@@ -99,8 +65,7 @@ const CASES = [
 ];
 for (const [name, want, fields] of CASES) {
   const row = { ...base, ...fields };
-  const page = expectedFromPage(row);
-  ok(page === want && F.billPaidState(row) === want, `${name}: ${want}`, `page ${page}, Forecast ${F.billPaidState(row)}`);
+  ok(F.billPaidState(row) === want, `${name}: ${want}`);
 }
 ok(F.billPaidState(null) === 'not-paid' && F.billPaidState({}) === 'not-paid', 'no row, or a row with nothing known: Not paid');
 
@@ -116,36 +81,64 @@ function rowsFor(bill, txs, asOf) {
 }
 const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
 const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro', ...extra });
+const DUE = '2026-10-12';
+const OCCURRENCE_PERIOD = '2026-10-09';
 const REAL = [
-  ['a 90 payment posted on the due date', 'paid', [pay(90)]],
-  ['a 40 payment posted on a 90 bill (Partly paid)', 'paid', [pay(40)]],
-  ['a 90 payment still pending (Payment pending)', 'paid', [pay(90, { pending: true })]],
-  ['due date passed, no payment seen', 'not-paid', []],
+  { name: 'posted in full', txs: [pay(90)], word: 'paid', evidence: 'posted-equal', checked: true, paid: 90 },
+  { name: 'posted in part', txs: [pay(40)], word: 'paid', evidence: 'posted-differs', checked: false, paid: 0 },
+  { name: 'a differing posted payment verified on its occurrence', txs: [pay(40, { notes: 'bill verified' })],
+    word: 'paid', evidence: 'posted-verified', checked: true, paid: 40, amount: 40 },
+  { name: 'one pending debit only', txs: [pay(90, { pending: true })], word: 'paid', evidence: 'pending', checked: false, paid: 0 },
+  { name: 'nothing received', txs: [], word: 'not-paid', evidence: 'none', checked: false, paid: 0 },
+  { name: 'before the due period', asOf: '2026-10-05', txs: [], word: 'not-paid', evidence: 'none', checked: false, paid: 0 },
 ];
-const worlds = [];
-for (const [name, want, txs] of REAL) {
-  const x = rowsFor(HYDRO, txs);
-  worlds.push(x);
-  ok(x.row && x.row.paidState === want && expectedFromPage(x.row) === want, `${name}: ${want}`,
-    x.row && `${x.row.status}/${x.row.settlement}, page ${expectedFromPage(x.row)}, published ${x.row.paidState}`);
-}
-{
-  const x = rowsFor(HYDRO, [], '2026-10-05');
-  worlds.push(x);
-  ok(x.row && x.row.paidState === 'not-paid' && x.row.settlement === 'upcoming', 'not yet due: Not paid', x.row && x.row.paidState);
-}
 
-console.log('every published bill row, in every pay period of every world above');
-let rows = 0;
-for (const { rec } of worlds) {
-  for (const v of rec.payPeriodViews) {
-    for (const b of v.bills || []) {
-      rows++;
-      if (b.paidState !== expectedFromPage(b)) ok(false, `${v.start} ${b.id}@${b.date}`, `${b.paidState} vs page ${expectedFromPage(b)}`);
+function assertOccurrences(views, word) {
+  let occurrences = 0;
+  for (const v of views) {
+    for (const bill of v.bills || []) {
+      const target = bill.id === HYDRO.id && bill.date === DUE;
+      assert.equal(bill.paidState, target ? word : 'not-paid', 'payment evidence belongs to its own occurrence');
+      if (target) {
+        assert.equal(v.start, OCCURRENCE_PERIOD);
+        occurrences++;
+      }
     }
   }
+  assert.equal(occurrences, 1, 'the target occurrence appears once across the timeline');
 }
-ok(rows > 0, `all ${rows} published rows carry the word the page table gives`);
+
+for (const expected of REAL) {
+  test('Bills on Stack: ' + expected.name, async () => {
+    const x = rowsFor(HYDRO, expected.txs, expected.asOf);
+    assertOccurrences(x.rec.payPeriodViews, expected.word);
+    if (expected.asOf) assert.equal(x.row.settlement, 'upcoming');
+
+    H.resetCaptures();
+    const { data, error } = H.dataOf(x.w);
+    if (error) throw error;
+    const page = await loadStackPage({ data });
+    assert.equal(page.status(), 'rendered');
+    assert.equal(page.selectPeriod(OCCURRENCE_PERIOD), OCCURRENCE_PERIOD);
+    assert.deepEqual(page.errors, []);
+    const views = page.context().recommendation.payPeriodViews;
+    assertOccurrences(views, expected.word);
+    const view = views.find(v => v.start === page.selectedKey());
+    const bill = view.bills.find(b => b.id === HYDRO.id && b.date === DUE);
+    const counted = expected.amount ?? 90;
+    assert.deepEqual([bill.stackBillPaymentEvidence, bill.stackBillPaid, bill.stackBillAmount, view.stackSummary.bills.paid],
+      [expected.evidence, expected.checked, counted, expected.paid], 'confirmed payment and the amount counted once');
+    const card = page.blockHtml('cards').match(/<details[^>]*data-stack-card="bills"[\s\S]*?<\/details>/)?.[0];
+    assert.ok(card, 'the selected period draws its Bills card');
+    const row = card.match(/<li[^>]*data-stack-sheet="bill:hydro@2026-10-12"[^>]*>[\s\S]*?<\/li>/)?.[0];
+    assert.ok(row && row.includes(HYDRO.label), 'the card opens this occurrence');
+    const printed = row.match(/class="sc-a[^"]*"[^>]*>([^<]*)<\/span>/);
+    assert.equal(printed?.[1], '$' + counted, 'the occurrence prints its counted amount');
+    assert.equal(row.includes('aria-label="Paid"'), expected.checked, 'the occurrence has its own Paid check');
+    const head = card.slice(0, card.indexOf('</summary>')).replace(/<[^>]*>/g, '');
+    assert.ok(head.includes('$' + expected.paid + ' / $' + counted), 'the card prints the confirmed payment total over the bill load');
+  });
+}
 
 console.log('presentation only: nothing else moves');
 {

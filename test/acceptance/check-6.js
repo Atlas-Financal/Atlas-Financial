@@ -10,6 +10,62 @@
 // 6.12-6.16 are the adopted spec scenarios on this calendar. 6.4 and 6.6
 // follow the spec numbers too; the rest are derived from the blueprint.
 
+const assert = require('node:assert/strict');
+
+async function openStackCard(p, kind) {
+  const card = p.page.locator('#stack-root [data-stack-card="' + kind + '"]');
+  assert.ok(await card.isVisible(), 'the selected period shows its ' + kind + ' card');
+  if (!await card.evaluate(node => node.open)) await card.locator('summary').click();
+  return card;
+}
+
+// Read the specific occurrence on the selected period, including the check a person sees.
+async function stackBillVerdict(p, id, due, amount, printed, evidence, checked) {
+  const card = await openStackCard(p, 'bills');
+  const item = card.locator('[data-stack-sheet="bill:' + id + '@' + due + '"]');
+  assert.ok(await item.isVisible(), 'the Bills card lists ' + id + ' on its own due date');
+  const row = await p.page.evaluate(({ id, due }) => {
+    const ctx = window.StackBlocks.context();
+    const view = ctx.recommendation.payPeriodViews.find(v => v.start === ctx.selectedPeriodKey);
+    return view.bills.find(b => b.id === id && b.date === due);
+  }, { id, due });
+  assert.deepEqual([row.stackBillAmount, row.stackBillPaymentEvidence, row.stackBillPaid],
+    [amount, evidence, checked], 'published bill amount and payment verdict for ' + id);
+  assert.equal(await item.locator('.sc-a').innerText(), printed, 'printed amount for ' + id);
+  assert.equal(await item.getByRole('img', { name: 'Paid', exact: true }).isVisible(), checked, 'visible Paid check for ' + id);
+  return row;
+}
+
+async function stackBillTotals(p, paid, load, remaining, printed) {
+  const totals = await p.page.evaluate(() => {
+    const ctx = window.StackBlocks.context();
+    const v = ctx.recommendation.payPeriodViews.find(v => v.start === ctx.selectedPeriodKey);
+    return [v.stackSummary.bills.paid, v.stackSummary.bills.other, v.remainingBills];
+  });
+  assert.deepEqual(totals, [paid, load, remaining], 'selected period paid, billed and remaining amounts');
+  const card = await openStackCard(p, 'bills');
+  assert.equal(await card.locator('summary .sc-f').innerText(), printed, 'Bills head prints the paid amount over the load');
+}
+
+async function stackCategoryPayments(p) {
+  const card = await openStackCard(p, 'budget');
+  const links = card.locator('[data-stack-sheet]');
+  const keys = await links.evaluateAll(nodes => nodes.map(n => n.getAttribute('data-stack-sheet')));
+  assert.ok(keys.includes('budget:groceries'), 'the Budget card lists the control category');
+  const rows = [];
+  for (const key of keys) {
+    await card.locator('[data-stack-sheet="' + key + '"]').click();
+    const sheet = p.page.locator('#stack-root [role="dialog"]');
+    assert.ok(await sheet.isVisible(), 'the category sheet opens');
+    const txs = await sheet.locator('.stack-sheet-tx > li').evaluateAll(nodes => nodes.map(n => [
+      n.querySelector('.stack-sheet-txl').textContent, n.querySelector('.stack-sheet-txa').textContent,
+    ]));
+    for (const tx of txs) rows.push([key, ...tx]);
+    await p.page.keyboard.press('Escape');
+  }
+  return rows;
+}
+
 function billsWorld(H) {
   const w = H.baseWorld();
   w.bills = [
@@ -57,12 +113,12 @@ const scenarios = [
     async run(H) {
       const w = billsWorld(H);
       w.transactions.push(pay(H, '2026-10-12', 90));
+      w.transactions.push(H.lm({ date: '2026-10-11', amount: 7.25, category: 'Groceries', payee: 'Invented market' }));
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.bill(s, 'Invented hydro'), /\$90\.00\s*Paid/, 'hydro is Paid for 90');
-        H.expectIncludes(s.household, 'Household Budget Total', 'positive control: the household budget is rendered');
-        H.expectExcludes(s.household, 'Invented hydro', 'a bill payment is not household spending');
-      });
+        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'posted-equal', true);
+        assert.deepEqual(await stackCategoryPayments(p), [['budget:groceries', 'Invented market', '$7.25']],
+          'only the grocery control appears as household spending');
+      }, { view: 'stack' });
     },
   },
   {
@@ -71,11 +127,10 @@ const scenarios = [
       const w = billsWorld(H);
       w.transactions.push(pay(H, '2026-10-12', 90));
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        const bills = H.section(s, 'Bills');
-        H.expectIncludes(bills, 'Paid bills this period$90.00', 'paid total is the one matched payment');
-        H.expectIncludes(bills, 'Remaining bills to pay$60.00', 'remaining is 150 - 90');
-      });
+        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'posted-equal', true);
+        await stackBillVerdict(p, 'net', '2026-10-20', 60, '$60', 'none', false);
+        await stackBillTotals(p, 90, 150, 60, '$90 / $150');
+      }, { view: 'stack' });
     },
   },
   {
@@ -85,11 +140,11 @@ const scenarios = [
       const w = billsWorld(H);
       w.transactions.push(H.lm({ date: '2026-10-12', amount: 90, category: 'Gifts', account: 'chequing-a', payee: 'Invented florist' }));
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expect(H.bill(s, 'Invented hydro'), 'hydro is listed');
-        H.expectNoMatch(H.bill(s, 'Invented hydro'), /Paid/, 'hydro is not Paid by an unrelated 90');
-        H.expectIncludes(s.household, 'Invented florist', 'the unrelated 90 stays visible as spending');
-      });
+        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'none', false);
+        await stackBillTotals(p, 0, 150, 150, '$0 / $150');
+        assert.deepEqual(await stackCategoryPayments(p), [['budget:other-spending', 'Invented florist', '$90']],
+          'the unrelated equal debit appears once in Other spending');
+      }, { view: 'stack' });
     },
   },
   {
@@ -101,12 +156,16 @@ const scenarios = [
       // payment may settle part of this bill, so the 40 is allocated, not guessed.
       w.bills[0].rule = { settlesWhen: 'partial' };
       w.transactions.push(pay(H, '2026-10-12', 40));
-      await H.withBudget(w, async p => {
-        const s = await H.snap(p);
+      await H.withBudget(w, async (classic, packets, built) => {
+        const s = await H.snap(classic);
         const row = H.bill(s, 'Invented hydro');
         H.expectMatch(row, /[Pp]art/, 'the bill reads as partly paid');
-        H.expectNoMatch(row, /\$100\.00\s*Paid\b/, 'not shown as fully paid');
-        H.expectIncludes(H.section(s, 'Bills'), '$60.00', 'the 60 still owed is shown');
+        H.expectIncludes(row, '$60.00', 'the partly paid bill shows its own shortfall');
+        const stack = await H.openBudget(built[0].data, { view: 'stack' });
+        try {
+          const payment = await stackBillVerdict(stack, 'hydro', '2026-10-12', 100, '$100', 'posted-differs', false);
+          assert.deepEqual([payment.actual, payment.shortfall], [40, 60], 'the partial payment and its own remaining amount');
+        } finally { await stack.close(); }
       });
     },
   },
@@ -136,14 +195,12 @@ const scenarios = [
       ];
       w.transactions.push(pay(H, '2026-10-12', 50, 'Invented city utility'));
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expect(H.bill(s, 'Invented water'), 'positive control: the water bill is listed');
-        H.expect(H.bill(s, 'Invented waste'), 'positive control: the waste bill is listed');
-        H.expectNoMatch(H.bill(s, 'Invented water'), /Paid/, 'water not guessed paid');
-        H.expectNoMatch(H.bill(s, 'Invented waste'), /Paid/, 'waste not guessed paid');
-        H.expectMatch(H.bill(s, 'Invented water'), /To confirm/, 'water stays to confirm');
-        H.expectMatch(H.bill(s, 'Invented waste'), /To confirm/, 'waste stays to confirm');
-      });
+        for (const id of ['water', 'waste']) {
+          const bill = await stackBillVerdict(p, id, '2026-10-12', 50, '$50', 'none', false);
+          assert.equal(bill.settlement, 'unverified', 'the ambiguous payment leaves each bill to confirm');
+        }
+        await stackBillTotals(p, 0, 100, 100, '$0 / $100');
+      }, { view: 'stack' });
     },
   },
   {
@@ -156,9 +213,9 @@ const scenarios = [
       w.bills[0].rule = { postingDateRule: 'due-or-up-to-two-days-after' };
       w.transactions.push(pay(H, '2026-10-14', 90));
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.bill(s, 'Invented hydro'), /\$90\.00\s*Paid/, 'two days late is inside the identity window');
-      });
+        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'posted-equal', true);
+        await stackBillTotals(p, 90, 150, 60, '$90 / $150');
+      }, { view: 'stack' });
     },
   },
   {
@@ -169,12 +226,10 @@ const scenarios = [
       const w = billsWorld(H);
       w.transactions.push(pay(H, '2026-10-12', 90));
       await H.withBudget(w, async p => {
-        await p.step(-2);
-        const s = await H.snap(p);
-        H.expectMatch(s.range, /Sep 11/, 'stepped back to the period holding Sep 12');
-        H.expect(H.bill(s, 'Invented hydro'), 'the September occurrence is listed');
-        H.expectNoMatch(H.bill(s, 'Invented hydro'), /Paid/, 'the Oct payment is consumed once, by Oct');
-      });
+        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'posted-equal', true);
+        await p.selectPeriod('2026-09-11');
+        await stackBillVerdict(p, 'hydro', '2026-09-12', 90, '$90', 'none', false);
+      }, { view: 'stack' });
     },
   },
   {
@@ -262,16 +317,17 @@ const scenarios = [
       }
       await H.withBudget(world(true, debit(false)), async (p, packets, built) => {
         opened(built);
-        const s = await H.snap(p);
-        H.expect(H.bill(s, 'Invented hydro') === hydro, 'paid: positive control, the current period lists hydro');
-        H.expectExcludes(s.bills.join(' '), 'Invented water', 'paid: the water bill is not asked for again');
-        H.expectIncludes(H.section(s, 'Bills'), 'of planned $90.00', 'paid: the period plans 90 only');
-        H.expect(await bad(p) === '$910.00', 'paid: 1,400 - 90 - 400 = 910');
-        await p.step(-1);
-        const previous = await H.snap(p);
-        H.expectMatch(previous.range, /Sep 25/, 'the closed period');
-        H.expectMatch(H.bill(previous, 'Invented water'), /^Oct\s*1\D[\s\S]*\$120\.00\s*Paid/, 'paid: its own period shows it Paid for 120');
-      });
+        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'none', false);
+        const card = await openStackCard(p, 'bills');
+        assert.equal(await card.locator('[data-stack-sheet^="bill:water@"]').count(), 0,
+          'the paid water bill is absent from the current period');
+        await stackBillTotals(p, 0, 90, 90, '$0 / $90');
+        const surplus = await p.stackRows('[data-block="waterfall"][data-period="2026-10-09"] [data-row="surplus"] .n');
+        assert.deepEqual(surplus, ['+$910'], 'the current surplus deducts only its own assigned bill');
+        await p.selectPeriod('2026-09-25');
+        await stackBillVerdict(p, 'water', '2026-10-01', 120, '$120', 'posted-equal', true);
+        await stackBillTotals(p, 120, 120, 0, '$120 / $120');
+      }, { view: 'stack' });
     },
   },
   {
@@ -293,11 +349,12 @@ const scenarios = [
       const w = billsWorld(H);
       w.coverage = { complete: false, hasMore: true };
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        const row = H.bill(s, 'Invented hydro');
-        H.expect(row, 'hydro is listed');
-        H.expectNoMatch(row, /Not paid|Missed|Overdue/, 'absence of evidence is not non-payment');
-      });
+        const bill = await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'none', false);
+        assert.equal(bill.settlement, 'unverified', 'incomplete coverage leaves the overdue occurrence unresolved');
+        await stackBillTotals(p, null, 150, 150, '—');
+        const card = await openStackCard(p, 'bills');
+        assert.doesNotMatch(await card.innerText(), /not paid|missed|overdue/i);
+      }, { view: 'stack' });
     },
   },
   {
@@ -331,12 +388,10 @@ const scenarios = [
       w.bills[0].rule = { postingDateRule: 'covers-early-or-due-on-or-before-posting', earlyPayLookaheadDays: 2 };
       w.transactions.push(pay(H, '2026-10-10', 90));
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        const row = H.bill(s, 'Invented hydro');
-        H.expectMatch(row, /^Oct\s*12/, 'keeps Oct 12 as the due date');
-        H.expectMatch(row, /\$90\.00\s*Paid/, 'paid by the early payment');
-        H.expectIncludes(H.section(s, 'Bills'), 'Paid bills this period$90.00', 'paid once, not twice');
-      });
+        const bill = await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'posted-equal', true);
+        assert.equal(bill.date, '2026-10-12', 'the early payment keeps the scheduled due date');
+        await stackBillTotals(p, 90, 150, 60, '$90 / $150');
+      }, { view: 'stack' });
     },
   },
   {
@@ -389,14 +444,19 @@ const scenarios = [
       w.bills[1].day = 11;
       w.transactions.push(pay(H, '2026-10-10', 90),
         H.lm({ date: '2026-10-13', amount: 60, category: 'Internet', account: 'chequing-a', payee: 'Invented net co' }));
-      await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.bill(s, 'Invented hydro'), /To confirm/, 'hydro stays to confirm (nothing settles)');
-        H.expectMatch(H.bill(s, 'Invented internet'), /To confirm/, 'internet stays to confirm (nothing settles)');
-        H.expectIncludes(s.household, 'Household budget', 'positive control: the household budget is rendered');
-        H.expectExcludes(s.household, 'Invented hydro', 'the hydro payment is not household spending');
-        H.expectExcludes(s.household, 'Invented net co', 'the internet payment is not household spending');
+      w.transactions.push(H.lm({ date: '2026-10-11', amount: 7.25, category: 'Groceries', payee: 'Invented market' }));
+      await H.withBudget(w, async (classic, packets, built) => {
+        const s = await H.snap(classic);
         H.expectMatch(H.section(s, 'Bills'), /Possible payment/, 'the held payment is named on its bill');
+        const stack = await H.openBudget(built[0].data, { view: 'stack' });
+        try {
+          for (const [id, due, amount, printed] of [['hydro', '2026-10-12', 90, '$90'], ['net', '2026-10-11', 60, '$60']]) {
+            const bill = await stackBillVerdict(stack, id, due, amount, printed, 'none', false);
+            assert.equal(bill.settlement, 'unverified', 'a held payment leaves its bill to confirm');
+          }
+          assert.deepEqual(await stackCategoryPayments(stack), [['budget:groceries', 'Invented market', '$7.25']],
+            'neither possible bill payment appears in household spending');
+        } finally { await stack.close(); }
       });
     },
   },
@@ -428,8 +488,11 @@ const scenarios = [
         if (!/to confirm/i.test(row)) {
           H.expectIncludes(row + ' ' + H.section(s, 'Bills'), '$60.00', 'D4: 100 - 40 = 60 remains owed');
         }
-        H.expect(!/Paid\b/.test(row) || /\b(?:partially|partly|part)\s+paid\b/i.test(row),
-          `D4: the partial payment must not read fully Paid (got "${row}")`);
+        const stack = await H.openBudget(data, { view: 'stack' });
+        try {
+          const payment = await stackBillVerdict(stack, 'phone', '2026-10-11', 100, '$100', 'posted-differs', false);
+          assert.deepEqual([payment.actual, payment.shortfall], [40, 60], 'partial payment keeps the unpaid shortfall');
+        } finally { await stack.close(); }
       });
     },
   },
