@@ -866,6 +866,16 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Closure:** when a statement is recorded on a `tdcc-auto17` occurrence, the fixed autopay is recorded as that occurrence's `sentPayments` entry (intent: fixed autopay), so the plan shows the payment made and the statement minimum stays visible as the floor. If a statement minimum ever exceeds the fixed amount, flag it to the lead for Dale.
 - Source: ATLAS REVIEWER 2 on #1514 (7058724201), lead ruling 2026-11-21.
 
+**`/assistant/mcp` spends about 7.8 s of main-thread work after its data read, outside every marked phase** · READY (ATLAS LEAD 12, 2026-11-22): low priority. Owner: unassigned. Not on the household page path.
+- **Why:** on prod `e5db93db` at 20:39Z, the request's `atlas-timing` line showed unattributed 7792 ms and `mainBusyMs` 7796. The likely cause is the assistant packet build or the MCP encoding, but no phase mark covers that span.
+- **Next action:** add phase marks inside the assistant route, then choose a fix from what they show.
+- Source: the lead, from the #1553/#1558 timing lines.
+
+**`test/browser-observation-memory.js` fails on plain main** · READY (ATLAS LEAD 12, 2026-11-22). Owner: unassigned. Light lane (tests).
+- **Why:** a boot-notice overlay (`[data-boot-notice]`) intercepts the test's Cancel click, so the click times out. The suite is not registered in `test/suites.json`, so CI never runs it and nothing catches the failure.
+- **Next action:** fix the test or retire it; if it is kept, register it.
+- Source: GUARDS, found while building #1561; the lead added it to the backlog.
+
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
 - **Why:** on the 753-purchase invented harness world (main `311c6c7b`), building the hold set (`computeHeldOtherIncomeKeys` → `calendarIncomeSections`, which scans every packet transaction in its span) is 292 of 1,035 ms inside `recommend`. One `recommend` builds it 36 times. The payday and weekly searches already share it within a search (#980 follow-up, #1406); the other callers do not.
 - **Measured (scratch prototype, not a proof):** sharing one holder per outermost `recommend`, matched with the 16 keys below ignored, cuts builds from 36 to 7 on that world (634 to 154 on the 60 invented figures evaluations). Advice was identical on 63 invented cases with 1,020 shared hits. One `recommend` on that world went 101.6 → 79.8 ms (about 21% lower). There was no measurable gain on the invented figures inputs, where the matching overhead eats it. Exact-match sharing alone removes only 7 of 36 builds.
