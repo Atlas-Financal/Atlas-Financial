@@ -40,7 +40,11 @@ const freePort = () => new Promise(resolve => {
 const captured = [];
 const captureOn = () => { console.log = (...args) => { captured.push(args.map(String).join(' ')); }; };
 const captureOff = () => { console.log = realLog; };
-const clientLines = () => captured.filter(line => line.includes('atlas-client-timing'));
+// Every stdout line counts, of any type (atlas-timing included): this route's
+// only write is its one closed line. Lines are counted after the response's
+// finish handlers have run.
+const settled = () => new Promise(resolve => setTimeout(resolve, 40));
+const count = async () => { await settled(); return captured.length; };
 const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compute: 95, render: 140, total: 1210 } });
 
 (async () => {
@@ -64,25 +68,25 @@ const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compu
   captureOn();
   try {
     await check('an unauthenticated beacon is refused by the existing gate and writes no line', async () => {
-      const before = clientLines().length;
+      const before = (await count());
       const r = await post(null, VALID());
       // The gate is unchanged: a non-data path without a session is sent to /login.
       assert.equal(r.status, 302);
       assert.equal(r.headers.get('location'), '/login');
-      assert.equal(clientLines().length, before);
+      assert.equal((await count()), before);
       const forged = await post('hfd_session=forged.' + CANARY.token, VALID());
       assert.equal(forged.status, 302);
-      assert.equal(clientLines().length, before);
+      assert.equal((await count()), before);
     });
 
     const cookie = await signIn();
     await check('a valid beacon from a session writes exactly one closed line and echoes nothing', async () => {
-      const before = clientLines().length;
+      const before = (await count());
       const r = await post(cookie, VALID());
       assert.equal(r.status, 204);
       assert.equal(await r.text(), '');
       assert.equal(r.headers.get('content-security-policy'), CSP, 'the CSP is unchanged');
-      const lines = clientLines().slice(before);
+      const lines = (await count(), captured.slice(before));
       assert.equal(lines.length, 1);
       const line = JSON.parse(lines[0]);
       assert.deepEqual(Object.keys(line), ['type', 'page', 'device', 'ms']);
@@ -109,19 +113,19 @@ const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compu
     };
     for (const [label, body] of Object.entries(refused)) {
       await check('refused, no line: ' + label, async () => {
-        const before = clientLines().length;
+        const before = (await count());
         const text = label === 'a __proto__ key'
           ? '{"page":"stack","device":"desktop","ms":{"fetch":1,"compute":1,"render":1,"total":1},"__proto__":{"x":1}}'
           : JSON.stringify(body);
         const r = await post(cookie, text);
         assert.equal(r.status, 400);
         assert.equal(await r.text(), '');
-        assert.equal(clientLines().length, before);
+        assert.equal((await count()), before);
       });
     }
 
     await check('an oversized body, a wrong content type, malformed JSON and a compressed body are refused with no line', async () => {
-      const before = clientLines().length;
+      const before = (await count());
       const big = { ...VALID(), pad: 'x'.repeat(2048) };
       const r1 = await post(cookie, big);
       assert.equal(r1.status, 400); assert.equal(await r1.text(), '');
@@ -133,7 +137,7 @@ const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compu
       assert.equal(r4.status, 400); assert.equal(await r4.text(), '');
       const r5 = await post(cookie, zlib.gzipSync(JSON.stringify(VALID())), { 'content-encoding': 'gzip' });
       assert.ok(r5.status === 400 || r5.status === 415, 'compressed body refused (' + r5.status + ')');
-      assert.equal(clientLines().length, before);
+      assert.equal((await count()), before);
     });
 
     await check('no canary reaches any log line', async () => {
@@ -144,6 +148,7 @@ const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compu
 
     await check('the per-session cap holds, per session', async () => {
       const capped = await signIn();
+      const before = await count();
       let accepted = 0, limited = 0;
       for (let i = 0; i < 25; i++) {
         const r = await post(capped, VALID());
@@ -151,9 +156,24 @@ const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compu
         assert.equal(await r.text(), '');
       }
       assert.equal(accepted, 20); assert.equal(limited, 5);
+      // 25 requests write exactly 20 lines, all closed client lines: a capped request writes nothing.
+      const written = (await count(), captured.slice(before));
+      assert.equal(written.length, 20);
+      assert.ok(written.every(line => line.startsWith('{"type":"atlas-client-timing"')));
       // Another session still has its own allowance.
       const other = await signIn();
       assert.equal((await post(other, VALID())).status, 204);
+    });
+
+    await check('the server timing line is unchanged for other routes and never written for this one', async () => {
+      const before = await count();
+      const page = await fetch(base + '/', { headers: { cookie } });
+      await page.text();
+      const pageLines = (await count(), captured.slice(before));
+      assert.equal(pageLines.length, 1, 'a page request still writes its one atlas-timing line');
+      assert.equal(JSON.parse(pageLines[0]).type, 'atlas-timing');
+      assert.ok(!captured.some(line => line.includes('"type":"atlas-timing"') && line.includes('"route":"other"')),
+        'no atlas-timing line for any beacon, accepted or refused');
     });
 
     await check('rateCap: the window resets, and the key table stays bounded', async () => {

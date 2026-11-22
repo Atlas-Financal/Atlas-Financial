@@ -74,7 +74,7 @@ function record(state, statusCode, method, outcome) {
 // session gate marks the request authenticated.
 function start(req, res, next) {
   const state = { start: now(), end: 0n, path: req.path, data: 0n, dataOpen: null, serialize: 0n,
-    served: 'none', authed: false, done: false, cold: false };
+    served: 'none', authed: false, excluded: false, done: false, cold: false };
   req[KEY] = state;
   const json = res.json.bind(res);
   res.json = body => {
@@ -86,7 +86,7 @@ function start(req, res, next) {
   const finish = outcome => {
     if (state.done) return;
     state.done = true;
-    if (!state.authed) return;
+    if (!state.authed || state.excluded) return;
     state.end = now();
     state.cold = cold;
     cold = false;
@@ -99,6 +99,10 @@ function start(req, res, next) {
 }
 const stateOf = req => (req && req[KEY]) || null;
 function markAuthed(req) { const s = stateOf(req); if (s) s.authed = true; }
+// A route that writes its own single diagnostic line (the browser timing
+// beacon, scripts/client-timing.js) opts out of this one, so each of its
+// requests writes at most that one line. It also leaves cold untouched.
+function exclude(req) { const s = stateOf(req); if (s) s.excluded = true; }
 // The data read: dataStart before it, dataEnd in its finally. After the
 // record is written (a client that closed first), nothing changes it.
 function dataStart(req) {
@@ -123,5 +127,5 @@ function startupRecord() {
   return { type: 'atlas-startup', ms: { bootToListen: Math.max(0, Math.round(performance.now())) } };
 }
 
-module.exports = { start, markAuthed, dataStart, dataEnd, noteServed, record, routeOf, startupRecord,
+module.exports = { start, markAuthed, exclude, dataStart, dataEnd, noteServed, record, routeOf, startupRecord,
   _resetColdForTests: () => { cold = true; } };

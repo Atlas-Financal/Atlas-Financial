@@ -536,6 +536,8 @@ app.use(ResponseCompression.compressAllowlisted);
 const clientTimingJson = express.json({ limit: ClientTiming.BODY_LIMIT, type: 'application/json', inflate: false, strict: true });
 const clientTimingAllow = ClientTiming.rateCap();
 app.post('/client-timing', (req, res) => {
+  // Its one closed line below is this route's only stdout write: no atlas-timing line, accepted or refused.
+  RequestTiming.exclude(req);
   return clientTimingJson(req, res, error => {
     const record = error ? null : ClientTiming.parse(req.body);
     if (!record) return res.status(400).end();
