@@ -21,7 +21,9 @@ function assertBillPeriod(page, start, bill, { paid, trust }) {
   const head = card.split('</summary>')[0];
   const figure = head.match(/<span class="sc-f([^"]*)">([^<]+)<i>([^<]+)<\/i>/);
   assert.deepEqual(figure && [figure[2], figure[3]], ['$' + paidAmount, ' / $' + total], 'printed paid and owed');
-  assert.equal(figure[1].includes('stack-est'), trust === 'estimated', 'the heading carries its trust');
+  // No greyed bill amounts on the card (owner decision, Dale, 2026-11-22): the heading prints plain whatever its
+  // trust; the estimate marking lives in the bill's tap-in sheet, checked below.
+  assert.equal(figure[1].includes('stack-est'), false, 'the Bills heading is never greyed');
   const rows = [...card.matchAll(/<li\b[^>]*>[\s\S]*?<\/li>/g)].map(match => match[0]);
   assert.equal(rows.length, bill ? 1 : 0, 'the period lists each counted bill once');
   if (!bill) return;
@@ -37,12 +39,15 @@ function assertBillPeriod(page, start, bill, { paid, trust }) {
   const amount = rows[0].match(/<span class="sc-a([^"]*)" aria-label="([^"]+)">([^<]+)<\/span>/);
   assert.deepEqual(amount && [amount[2], amount[3]], [(paid ? 'Paid $' : 'Planned $') + total, '$' + total],
     'the row states what its amount represents');
-  assert.equal(amount[1].includes('stack-est'), trust === 'estimated');
+  assert.equal(amount[1].includes('stack-est'), false, 'the row amount is never greyed on the card');
   assert.deepEqual([rows[0].includes('aria-label="Paid"'), rows[0].includes('✓')], [paid, paid],
     'the confirmed row carries an accessible, visible Paid check');
 
   const sheet = page.sandbox.StackSheet.html(ctx, target);
   assert.ok(sheet, 'the row target resolves to a bill sheet');
+  const big = sheet.match(/<div class="stack-sheet-big stack-n([^"]*)">/);
+  assert.ok(big, 'the sheet prints the occurrence amount');
+  assert.equal(big[1].includes('stack-est'), trust === 'estimated', 'the tap-in sheet carries the amount\'s trust');
   // An earlier occurrence can have its own check. Only the tapped bill's headline counts here.
   const headline = sheet.split('<ul class="stack-sheet-hist">')[0];
   assert.ok(headline.includes('>' + bill.label + '</h3>'), 'the sheet names the tapped bill');
