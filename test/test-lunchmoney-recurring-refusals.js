@@ -37,7 +37,7 @@ const item = ({ id = ID, granularity = 'month', quantity = 1, anchorDate = '2026
   matches: { expectedOccurrenceDates: expected, foundTransactions: [], missingTransactionDates: expected } });
 const read = items => ({ status: 'read', read: { unexpectedPaginationEvidence: false,
   requestedWindow: { startDate: '2026-09-30', endDate: '2026-11-14' }, items } });
-const rule = (eventId, ids) => ({ eventId, lunchMoneyRecurringIds: ids, atlasAccountId: 'chequing-a',
+const rule = (eventId, ids) => ({ eventId, linkedFrom: '2026-01-01', lunchMoneyRecurringIds: ids, atlasAccountId: 'chequing-a',
   direction: 'debit', requiredCurrency: 'cad', requiredPostingEvidence: 'posted',
   postingDateRule: 'covers-early-or-due-on-or-before-posting' });
 

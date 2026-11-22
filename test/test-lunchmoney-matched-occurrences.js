@@ -58,7 +58,7 @@ function serve({ asOf = '2026-10-14', payments = [], lm, optIn = true, firstDue 
   w.windowStart = '2026-08-02';
   w.bills = [{ id: 'band', label: 'Invented band room', amount: 80, frequency: 'monthly', day: 1, firstDue,
     confidence: 'estimated', dateConfidence: 'estimated', payingAccount: 'chequing-a', householdObligation: true }];
-  w.identityRules = w.identityRules.concat([{ eventId: 'band', lunchMoneyRecurringIds: [ID], atlasAccountId: 'chequing-a',
+  w.identityRules = w.identityRules.concat([{ eventId: 'band', linkedFrom: '2026-01-01', lunchMoneyRecurringIds: [ID], atlasAccountId: 'chequing-a',
     direction: 'debit', requiredCurrency: 'cad', requiredPostingEvidence: 'posted',
     postingDateRule: 'covers-early-or-due-on-or-before-posting', ...(optIn ? { settlementFrom: OPT_IN } : {}) }]);
   w.transactions = [H.lm({ id: 649999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',

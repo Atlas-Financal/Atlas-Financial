@@ -12,6 +12,8 @@
 // 7.4, 7.5, 7.8 and 7.10 are the adopted spec scenarios on this calendar;
 // the rest are derived from the blueprints, plus audit repros C1/C2.
 
+const assert = require('node:assert/strict');
+
 function txWorld(H) {
   const w = H.baseWorld();
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
@@ -26,6 +28,42 @@ async function detailDates(p, id) {
 // to the world's catalog (id 111), so its purchases carry that id explicitly.
 const HEALTH = { category_id: 111 };
 const dayOf = d => (d.startsWith('Sep') ? 900 : 1000) + Number(d.split(' ')[1]);
+
+// Follow the Budget card into the category sheet. The signed transaction
+// amounts stay at cent precision while the category headline uses whole dollars.
+async function checkLinkedRefund(p, { id, label, payee, purchase, refund, surplus, surplusText }) {
+  const card = p.page.locator('#stack-root [data-stack-card="budget"]');
+  await card.locator('summary').click();
+  const target = card.locator(`[data-stack-sheet="budget:${id}"]`);
+  assert.ok(await target.isVisible(), 'the category is visible in the open Budget card');
+  assert.equal(await target.locator('.sc-n').innerText(), label);
+  await target.click();
+  const sheet = p.page.locator('#stack-root [data-stack-block="sheet"] [role="dialog"]');
+  assert.equal(await sheet.locator('h3').innerText(), label);
+  assert.equal(await sheet.locator('.stack-sheet-big > span').innerText(), '$30', 'the sheet shows the net spend');
+  const transactions = await sheet.locator('.stack-sheet-tx li').evaluateAll(rows => rows.map(row =>
+    [row.querySelector('.stack-sheet-txl')?.textContent, row.querySelector('.stack-sheet-txa')?.textContent]));
+  assert.deepEqual(transactions, [['', refund], [payee, purchase]], 'only the linked refund and its purchase appear');
+  await p.page.keyboard.press('Escape');
+
+  const published = await p.page.evaluate(categoryId => {
+    const context = window.StackBlocks.context();
+    const view = context.recommendation.payPeriodViews.find(v => v.start === context.selectedPeriodKey);
+    const row = view.householdBudget.find(item => item.id === categoryId);
+    return [view.role, row?.spent, view.budgetProgress.household.actual.amount, view.stackSummary.income.other.amount,
+      view.stackSummary.income.total.amount, view.stackSummary.surplus.amount, view.unlinkedRefunds ?? null];
+  }, id);
+  assert.deepEqual(published, ['active', 30, 30, 0, 1400, surplus, null],
+    'the selected period counts the refund once in spending and excludes it from income and unlinked refunds');
+  const waterfall = p.page.locator('#stack-root [data-stack-block="waterfall"]');
+  assert.equal(await waterfall.locator('[data-row="total"] .n').innerText(), '$1,400');
+  assert.equal(await waterfall.locator('[data-row="other"] .n').innerText(), '$0');
+  assert.equal(await waterfall.locator('[data-row="surplus"] .n').innerText(), surplusText);
+  if (id !== 'other-spending') {
+    assert.equal(await card.locator('[data-stack-sheet="budget:other-spending"]').count(), 0,
+      'the linked grocery refund does not create an Other spending row');
+  }
+}
 
 const scenarios = [
   {
@@ -151,13 +189,10 @@ const scenarios = [
         H.lm({ date: '2026-10-10', amount: 40, category: 'Groceries', payee: 'Invented grocer A' }),
         // LEDGER A item 3 (Grok Bot, rule 17): only a ledger-linked refund nets (the group-parent form).
         H.lm({ date: '2026-10-12', amount: -10, category: 'Groceries', payee: 'Invented grocer A', raw: { is_group_parent: true } }));
-      await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.category(s, 'Groceries'), /Spent \$30\.00/, 'groceries spent is 40 - 10');
-        H.expectMatch(s.income, /^\W*Income/, 'positive control: the Income step is rendered');
-        H.expectExcludes(s.income, 'Invented grocer A', 'a refund is not income');
-        H.expectNoMatch(s.categories.join(' | '), /Other spending/, 'a refund is not Other');
-      });
+      await H.withBudget(w, p => checkLinkedRefund(p, {
+        id: 'groceries', label: 'Groceries', payee: 'Invented grocer A', purchase: '$40', refund: '−$10',
+        surplus: 1000, surplusText: '+$1,000',
+      }), { view: 'stack' });
     },
   },
   {
@@ -315,13 +350,10 @@ const scenarios = [
         H.lm({ date: '2026-10-12', amount: 45, category: 'Fuel', payee: 'Invented fuel stop' }),
         // LEDGER A item 3: the linked (group-parent) refund inherits its purchase's bucket.
         H.lm({ date: '2026-10-13', amount: -15, category: 'Fuel', payee: 'Invented fuel stop', raw: { is_group_parent: true } }));
-      await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$30\.00/, '7.15: Other spending nets 45 - 15 = 30');
-        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
-        const got = m ? m[1].replace('−', '-') : '';
-        H.expect(got === '$970.00', `7.15: 1,400 - 300 - 100 - 30 = 970 (got ${got || 'nothing'})`);
-      });
+      await H.withBudget(w, p => checkLinkedRefund(p, {
+        id: 'other-spending', label: 'Other spending', payee: 'Invented fuel stop', purchase: '$45', refund: '−$15',
+        surplus: 970, surplusText: '+$970',
+      }), { view: 'stack' });
     },
   },
   {
@@ -419,13 +451,11 @@ const scenarios = [
         H.lm({ date: '2026-10-12', amount: 40, payee: 'Invented clinic', raw: HEALTH }),
         // LEDGER A item 3: the linked (group-parent) refund inherits its purchase's bucket.
         H.lm({ date: '2026-10-13', amount: -10, payee: 'Invented clinic', raw: { ...HEALTH, is_group_parent: true } }));
-      await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.category(s, 'Other spending'), /Other spending\$30\.00/, '7.20: Other spending nets 40 - 10 = 30');
-        const m = s.all.match(/Balance After Deductions\s*(?:0\s*)?([−-]?\$[\d,]+\.\d\d)/);
-        const got = m ? m[1].replace('−', '-') : '';
-        H.expect(got === '$970.00', `7.20: 1,400 - 300 - 100 - 30 = 970 (got ${got || 'nothing'})`);
-      });
+      await H.withBudget(w, p => checkLinkedRefund(p, {
+        // The observer withholds the merchant for this non-calendar purchase. Both amounts still print.
+        id: 'other-spending', label: 'Other spending', payee: '', purchase: '$40', refund: '−$10',
+        surplus: 970, surplusText: '+$970',
+      }), { view: 'stack' });
     },
   },
   {

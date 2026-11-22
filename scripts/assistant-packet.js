@@ -1541,6 +1541,7 @@ const RECURRING_REFUSALS = Object.freeze({
   'day-after-statement-due': ['schedule', 'Its day would fall later than Atlas can confirm against the card statement.'],
   'cutover-unsafe': ['schedule', 'Moving to its day would skip or double a payment in one cycle.'],
   'expected-dates-mismatch': ['schedule', 'The dates Lunch Money expects do not fit how often it repeats.'],
+  'link-anchor-missing': ['link', 'The link has no recorded start month (linkedFrom), so Atlas keeps the plan\'s dates.'],
 });
 const RECURRING_REFUSAL_DEFAULT = ['other', 'Atlas did not apply its schedule.'];
 const RECURRING_REFUSALS_MAX = 50;

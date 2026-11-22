@@ -7,6 +7,7 @@
 // captured closing -> rendered Budget path.
 // Entirely invented finances and identities; no data.json, no credentials.
 const assert = require('node:assert/strict');
+const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -14,6 +15,8 @@ const History = require('../scripts/private-period-history');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+const { loadStackPage } = require('./lib/budget-page-harness');
+const { assertBillPeriod } = require('./lib/stack-bill-payment');
 
 // Biweekly payroll anchored 2030-02-01: cycle 02-01..02-14 closes on 02-15.
 // One invented monthly bill of 30.00 is due 02-05 inside that cycle. The
@@ -125,7 +128,7 @@ let passed = 0;
 const check = (name, fn) => { fn(); passed++; console.log('  PASS  ' + name); };
 
 console.log('\n=== control: a posted, identity-matched payment settles the completed bill ===');
-check('posted payee match: PAID 30.00, bills actual complete, closing complete-at-capture, page prints Paid', () => {
+check('posted payee match: PAID 30.00, bills actual complete, closing complete-at-capture', () => {
   const { row, view, packet } = closedView(input());
   const entry = packet.representedActuals.find(r => r.id === BILL_ID && r.date === BILL_DATE);
   assert.ok(entry && entry.transactionId, 'control: the observer linked the posted payment');
@@ -134,14 +137,25 @@ check('posted payee match: PAID 30.00, bills actual complete, closing complete-a
   assert.equal(row.settlementEvidence, undefined);
   assert.equal(view.budgetProgress.bills.actual.amount, BILL);
   assert.equal(view.budgetProgress.bills.actual.completeness, 'complete');
-  const html = PAGE.bills(view);
-  assert.equal(bucketOf(html), 'paid');
-  assert.match(billRowHtml(html), />Paid</);
   const candidate = capture(input());
   const captured = candidate.content.publication.bills.find(r => r.id === BILL_ID && r.date === BILL_DATE);
   assert.equal(captured.status, 'PAID');
   assert.equal(candidate.content.publication.budgetProgress.bills.actual.completeness, 'complete');
   assert.equal(candidate.content.closingState, 'complete-at-capture');
+});
+
+const stream = { id: BILL_ID, date: BILL_DATE, label: 'Invented stream', amount: BILL };
+test('Stack counts a linked, posted bill once in its closing period', async () => {
+  const { data } = Live.fromObservation(input());
+  const page = await loadStackPage({ data, periods: [] });
+  assertBillPeriod(page, START, stream, { paid: true, trust: 'calculated' });
+  assertBillPeriod(page, NEXT_START, null, { paid: false, trust: 'calculated' });
+});
+test('without the posting Stack carries the bill once, unchecked, into the next period', async () => {
+  const { data } = Live.fromObservation(input({ billTx: false }));
+  const page = await loadStackPage({ data, periods: [] });
+  assertBillPeriod(page, START, null, { paid: false, trust: 'calculated' });
+  assertBillPeriod(page, NEXT_START, stream, { paid: false, trust: 'calculated' });
 });
 
 console.log('\n=== owner schedule-trust provenance: PAID stays, the basis is recorded ===');
