@@ -8,6 +8,7 @@
 // rule's settling behaviour is unchanged.
 // Entirely invented finances and identities; no data.json, no credentials.
 const assert = require('node:assert/strict');
+const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -16,13 +17,15 @@ const Postgres = require('../scripts/private-period-history-postgres');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Operating = require('../scripts/operating-answer');
+const { loadStackPage } = require('./lib/budget-page-harness');
+const { assertBillPeriod } = require('./lib/stack-bill-payment');
 
 // Biweekly payroll anchored 2030-02-01: cycle 02-01..02-14 closes on 02-15.
 // Two invented monthly bills: 'invented-stream' 30.00 due 02-05 (closed
 // cycle) and 'invented-cloud' 7.00 due 02-15 (today, current cycle).
 const START = '2030-02-01', NEXT_START = '2030-02-15';
-const STREAM = { id: 'invented-stream', date: '2030-02-05', amount: 30 };
-const CLOUD = { id: 'invented-cloud', date: '2030-02-15', amount: 7 };
+const STREAM = { id: 'invented-stream', label: 'Invented stream', date: '2030-02-05', amount: 30 };
+const CLOUD = { id: 'invented-cloud', label: 'Invented cloud', date: '2030-02-15', amount: 7 };
 const BASIS = 'schedule-trust-on-due';
 const MARK = 'Trusted on due date (not seen)';
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -43,8 +46,8 @@ function input({ rules = [PAYROLL_RULE, trust(STREAM.id), trust(CLOUD.id)], extr
       defaults: { targetBuffer: 0, extraDebtMonthly: 0 },
       income: [{ id: 'payroll', label: 'Invented income', frequency: 'biweekly', anchor: START, amount: 200, confidence: 'confirmed' }],
       bills: [
-        { id: STREAM.id, label: 'Invented stream', frequency: 'monthly', day: 5, amount: STREAM.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
-        { id: CLOUD.id, label: 'Invented cloud', frequency: 'monthly', day: 15, amount: CLOUD.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
+        { id: STREAM.id, label: STREAM.label, frequency: 'monthly', day: 5, amount: STREAM.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
+        { id: CLOUD.id, label: CLOUD.label, frequency: 'monthly', day: 15, amount: CLOUD.amount, confidence: 'confirmed', payingAccount: 'chequing-a' },
       ],
       commitments: [], obligations: [], groups: [], funding: { options: [] },
       budget: { categories: [['groceries', 40]].map(([id, plannedPayday]) =>
@@ -76,7 +79,7 @@ function observed(source) {
   const view = start => advice.payPeriodViews.find(p => p.start === start);
   const bill = (start, want) => view(start).bills.find(r => r.id === want.id && r.date === want.date);
   const entry = want => (options.currentPeriodActuals.representedActuals || []).find(r => r.id === want.id && r.date === want.date);
-  return { advice, options, view, bill, entry };
+  return { data: refreshed.data, advice, options, view, bill, entry };
 }
 const capture = source => History.captureClosing(clone(source), { now: () => new Date(NEXT_START + 'T18:01:00Z') });
 
@@ -184,34 +187,21 @@ check('the week glance prints the trusted bill PAID with the marker', () => {
   assert.equal(row.settlementBasis, BASIS);
 });
 
-console.log('\n=== Grok ruling (b): trust-settled rows are their own Estimated group, never in the Paid count ===');
-const bucket = (html, key) => {
-  const start = html.indexOf('data-budget-bill-bucket="' + key + '"');
-  if (start < 0) return '';
-  const next = html.indexOf('data-budget-bill-bucket="', start + 10);
-  return html.slice(start, next < 0 ? undefined : next);
-};
-const filterCount = (html, key) => {
-  const m = html.match(new RegExp('data-budget-bill-filter="' + key + '"[^>]*>[^<]*<span>(\\d+)</span>'));
-  return m ? Number(m[1]) : 0;
-};
-for (const [name, day, bill] of [['current period', NEXT_START, CLOUD], ['completed period', START, STREAM]]) {
-  check(name + ': the trust-settled bill is in the Estimated group, not Paid, and the Paid filter excludes it', () => {
-    const { view } = observed(input());
-    const html = PAGE.bills(view(day));
-    assert.match(bucket(html, 'estimated'), new RegExp('data-budget-bill-open="' + bill.id + '"'), 'listed under Estimated');
-    assert.doesNotMatch(bucket(html, 'paid'), new RegExp('data-budget-bill-open="' + bill.id + '"'), 'not under Paid');
-    assert.ok(filterCount(html, 'estimated') >= 1, 'the Estimated filter counts it');
-    assert.equal(filterCount(html, 'paid'), (bucket(html, 'paid').match(/data-budget-bill-open=/g) || []).length,
-      'the Paid count equals the Paid rows printed');
-  });
-}
-check('a payment the observer saw stays in the Paid group', () => {
-  const { view } = observed(input({ rules: [PAYROLL_RULE, payee(STREAM.id, 'Invented Stream Co'), trust(CLOUD.id)],
-    extra: [['invented-stream-1', 'invented-account-0', STREAM.date, '30.00', 'Invented Stream Co']] }));
-  const html = PAGE.bills(view(START));
-  assert.match(bucket(html, 'paid'), new RegExp('data-budget-bill-open="' + STREAM.id + '"'));
-  assert.doesNotMatch(bucket(html, 'estimated'), new RegExp('data-budget-bill-open="' + STREAM.id + '"'));
+test('Stack shows a schedule-only bill as estimated in the current and completed periods', async () => {
+  const { data } = Live.fromObservation(input());
+  const page = await loadStackPage({ data, periods: [] });
+  assertBillPeriod(page, NEXT_START, CLOUD, { paid: false, trust: 'estimated' });
+  assertBillPeriod(page, START, STREAM, { paid: false, trust: 'estimated' });
+});
+
+test('a posted payment marks its occurrence while the other period stays schedule-only', async () => {
+  const { data } = Live.fromObservation(input({
+    rules: [PAYROLL_RULE, payee(STREAM.id, 'Invented Stream Co'), trust(CLOUD.id)],
+    extra: [['invented-stream-1', 'invented-account-0', STREAM.date, '30.00', 'Invented Stream Co']],
+  }));
+  const page = await loadStackPage({ data, periods: [] });
+  assertBillPeriod(page, START, STREAM, { paid: true, trust: 'calculated' });
+  assertBillPeriod(page, NEXT_START, CLOUD, { paid: false, trust: 'estimated' });
 });
 
 console.log('\n=== period history: the marker rides on the completed row and the captured closing ===');
@@ -252,17 +242,16 @@ check('the Bills page label drops only the repeated status word, never the marke
 });
 
 console.log('\n=== scope: a seen payment never carries the marker; a row that is not PAID drops it ===');
-check('a seen, linked payment prints Paid without the marker', () => {
-  const { view, bill } = observed(input({ rules: [PAYROLL_RULE, payee(STREAM.id, 'Invented Stream Co'), payee(CLOUD.id, 'Invented Cloud Co')],
+test('each posted occurrence carries its own Paid check and calculated amount on Stack', async () => {
+  const { data, bill } = observed(input({ rules: [PAYROLL_RULE, payee(STREAM.id, 'Invented Stream Co'), payee(CLOUD.id, 'Invented Cloud Co')],
     extra: [['invented-stream-1', 'invented-account-0', STREAM.date, '30.00', 'Invented Stream Co'],
       ['invented-cloud-1', 'invented-account-0', CLOUD.date, '7.00', 'Invented Cloud Co']] }));
+  const page = await loadStackPage({ data, periods: [] });
   for (const [start, want] of [[START, STREAM], [NEXT_START, CLOUD]]) {
     const row = bill(start, want);
     assert.equal(row.status, 'PAID');
     assert.equal(row.settlementBasis, undefined);
-    const html = rowHtml(PAGE.bills(view(start)), want.id);
-    assert.match(html, />Paid</);
-    assert.doesNotMatch(html, /Trusted on due date/);
+    assertBillPeriod(page, start, want, { paid: true, trust: 'calculated' });
   }
 });
 check('a forged basis on an unrelated field shape is ignored: only the exact value marks a row', () => {

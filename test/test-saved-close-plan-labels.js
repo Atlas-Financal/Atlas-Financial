@@ -5,7 +5,7 @@
 // groceries 40, fuel 15, income 200, plus an invented $30 bill). Every
 // expectation below is written by hand from those authored numbers.
 //
-// The bug on main: the saved close keeps each row's planned amount and its
+// Original regression: the saved close keeps each row's planned amount and its
 // period totals, but not the comparison of actual against plan. The page read
 // that missing comparison as the whole plan and printed "Historical original plan unavailable", "Original plan:
 // Unavailable" and "Actual and plan unknown" on the same screen that prints
@@ -13,12 +13,10 @@
 //
 //   L1 the saved close holds the planned amounts and its period totals, and
 //      no actual-against-plan comparison
-//   L2 Household sheet: every saved category prints its saved Planned amount,
-//      and none says the plan is unavailable
-//   L3 a tag is never upgraded: no saved trust word is said out loud, a saved
-//      "estimated" prints the estimate mark, a saved "confirmed" prints plain
-//   L4 a category whose planned amount the close did not keep says exactly
-//      that, for that category only
+//   L2 the Stack category sheets print the saved spend and original plan
+//   L3 only the saved estimate prints the estimate mark. Missing and unrecognised
+//      confidence never become confirmed.
+//   L4 a missing saved plan omits that category’s denominator. A saved zero prints.
 //   L5 Income, Bills and Household name the missing comparison, never the
 //      plan and never a total the close saved and prints, on the compact page,
 //      the closed-period page and the Household tile
@@ -27,6 +25,8 @@
 //      appears nowhere on it
 //   L7 control: an uncaptured completed period keeps its wording
 const assert = require('node:assert/strict');
+const test = require('node:test');
+const { loadStackPage } = require('./lib/budget-page-harness');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -49,7 +49,8 @@ delete closeRaw.kind; delete closeRaw.periodStart;
 const [late, lateNow] = at(closeRaw);
 const record = Pg.project(History.captureClosing(late, { now: lateNow }));
 const saved = record.content.publication;
-const today = input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT, bills: bill() }).data.plan;
+const todayData = input({ day: '2030-02-20', kind: 'first-observed', periodStart: NEXT, bills: bill() }).data;
+const today = todayData.plan;
 today.budget.categories.find(row => row.id === 'groceries').plannedPayday = 80;
 const advise = history => F.recommend(today, '2030-02-20', { debts: [], periods: [], ...(history ? { periodHistory: history } : {}) });
 const viewOf = advice => advice.payPeriodViews.find(row => row.start === START && row.end === END);
@@ -114,20 +115,6 @@ const EVERY_AMOUNT_UNAVAILABLE = /Exact-period amounts and their evidence are un
 const pages = { compact: compact(past), 'closed-period': closedPage(past) };
 
 for (const [name, html] of Object.entries(pages)) {
-  // L2 Household sheet.
-  const household = step(html, '06');
-  for (const [id, planned] of [['groceries', '$40.00'], ['fuel', '$15.00'], ['restaurants', '$10.00'], ['pets', '$5.00']]) {
-    const block = category(household, id);
-    ok(new RegExp('<dt>Planned</dt><dd>' + planned.replace('$', '\\$') + '</dd>').test(block),
-      'L2 ' + name + ': ' + id + ' prints its saved Planned ' + planned);
-    ok(!/unavailable/i.test(text(block)), 'L2 ' + name + ': ' + id + ' says nothing is unavailable');
-    // L3 the close kept no trust word for this row, and the row says so.
-    ok(/data-budget-saved-close-plan="tag-not-saved"/.test(block) && /Whether it was an estimate was not saved\./.test(block),
-      'L3 ' + name + ': ' + id + ' says its trust word was not saved');
-    ok(!/class="est"/.test(block), 'L3 ' + name + ': ' + id + ' invents no estimate mark');
-  }
-  ok(/<dt>Spent<\/dt><dd>\$12\.34<\/dd>/.test(category(household, 'groceries')), 'L2 ' + name + ': groceries still prints its saved Spent $12.34');
-  ok(!/data-budget-historical-original-plan/.test(html), 'L2 ' + name + ': no category is marked "historical original plan unavailable"');
   // L5 the whole page.
   ok(!WHOLE_PLAN_UNAVAILABLE.test(text(html)), 'L5 ' + name + ': the page never calls the plan unavailable or unknown');
   for (const number of ['02', '04', '06']) {
@@ -172,30 +159,60 @@ for (const [name, html] of Object.entries({ ...pages, tile: savedTile, 'Bills ca
   ok(!TOTAL_MISSING.test(text(html)), 'L5 ' + name + ': never says a total was not saved, or is unknown');
 }
 
-// L3 a saved trust word stands, and is never upgraded.
-const withRow = change => { const copy = JSON.parse(JSON.stringify(record));
-  change(copy.content.publication.householdBudget.find(row => row.id === 'groceries')); return compact(viewOf(advise([copy]))); };
-const estimated = step(withRow(row => { row.confidence = 'estimated'; }), '06');
-ok(/<dt>Planned<\/dt><dd><span class="est">≈ estimated<\/span> \$40\.00<\/dd>/.test(category(estimated, 'groceries')),
-  'L3 a plan saved as estimated prints the estimate mark');
-ok(/data-budget-saved-close-plan="saved"/.test(category(estimated, 'groceries')) && !/was not saved/.test(category(estimated, 'groceries')),
-  'L3 and is not said to lack its trust word');
-ok(/data-budget-saved-close-plan="tag-not-saved"/.test(category(estimated, 'fuel')), 'L3 while an untagged row beside it still says so');
-const confirmed = category(step(withRow(row => { row.confidence = 'confirmed'; }), '06'), 'groceries');
-ok(/<dt>Planned<\/dt><dd>\$40\.00<\/dd>/.test(confirmed) && /data-budget-saved-close-plan="saved"/.test(confirmed),
-  'L3 a plan saved as confirmed prints plain');
-const unrecognised = category(step(withRow(row => { row.confidence = 'invented-word'; }), '06'), 'groceries');
-ok(/data-budget-saved-close-plan="tag-not-saved"/.test(unrecognised) && !/data-budget-saved-close-plan="saved"/.test(unrecognised),
-  'L3 an unrecognised saved word is not treated as a tag');
+// L2–L4. Boot the Stack with a real projected archive record and select the
+// saved period. The current document deliberately has a different plan.
+async function savedStack(close) {
+  const page = await loadStackPage({ data: { ...todayData, periodHistory: [close] }, periods: [] });
+  assert.equal(page.status(), 'rendered', 'Stack rendered');
+  assert.equal(page.selectPeriod(START), START, 'the saved period chip selects the intended period');
+  assert.deepEqual(page.errors, [], 'Stack boot and selection have no errors');
+  const view = viewOf(page.context().recommendation);
+  assert.equal(view?.capturedClose?.source, 'period-history', 'the selected period is the saved close');
+  return function categoryFigures(id) {
+    const row = view.householdBudget.find(item => item.id === id);
+    assert.ok(row, 'the saved period publishes ' + id);
+    const key = 'budget:' + id;
+    assert.ok(page.blockHtml('cards').includes('data-stack-sheet="' + key + '"'), 'the Budget card opens ' + id);
+    const html = page.sandbox.StackSheet.html(page.context(), key);
+    const nums = /<div class="stack-sheet-big stack-n"><span[^>]*>([^<]*)<\/span>(?:<i([^>]*)> \/ ([^<]*)<\/i>)?<\/div>/.exec(html);
+    assert.ok(nums, 'the sheet has a spent headline for ' + id);
+    assert.doesNotMatch(html, /invented-word/, 'an unrecognised archived trust tag stays off the page');
+    return {
+      spent: row.spent, planned: row.planned, printedSpent: nums[1], printedPlan: nums[3] ?? null,
+      savedConfidence: ['estimated', 'confirmed'].includes(row.confidence) ? row.confidence : null,
+      estimatedPlan: /\bstack-est\b/.test(nums[2] || ''),
+    };
+  };
+}
 
-// L4 a planned amount the close did not keep.
-const missing = step(withRow(row => { row.planned = null; }), '06');
-ok(/data-budget-saved-close-plan="amount-not-saved"/.test(category(missing, 'groceries'))
-  && /Planned amount not saved with this close\./.test(category(missing, 'groceries'))
-  && !/<dt>Planned<\/dt>/.test(category(missing, 'groceries')), 'L4 groceries says its planned amount was not saved, and prints none');
-ok(/<dt>Spent<\/dt><dd>\$12\.34<\/dd>/.test(category(missing, 'groceries')), 'L4 its saved Spent still prints');
-ok(/<dt>Planned<\/dt><dd>\$15\.00<\/dd>/.test(category(missing, 'fuel')) && !/amount-not-saved/.test(category(missing, 'fuel')),
-  'L4 fuel, whose plan was saved, is untouched');
+test('Stack sheets retain each saved category amount, its own trust and missing values', async () => {
+  const figures = await savedStack(record);
+  const groceries = { spent: 12.34, planned: 40, printedSpent: '$12', printedPlan: '$40', savedConfidence: null, estimatedPlan: false };
+  assert.deepEqual(figures('groceries'), groceries, 'saved grocery spend and original target');
+  const others = [['fuel', 15, '$15'], ['restaurants', 10, '$10'], ['pets', 5, '$5']];
+  for (const [id, planned, printedPlan] of others) {
+    assert.deepEqual(figures(id), { spent: 0, planned, printedSpent: '$0', printedPlan, savedConfidence: null, estimatedPlan: false },
+      'the saved figures belong to ' + id);
+  }
+
+  for (const confidence of ['estimated', 'confirmed', 'invented-word']) {
+    const close = structuredClone(record);
+    close.content.publication.householdBudget.find(row => row.id === 'groceries').confidence = confidence;
+    const changed = await savedStack(close);
+    assert.deepEqual(changed('groceries'), { ...groceries,
+      savedConfidence: confidence === 'invented-word' ? null : confidence, estimatedPlan: confidence === 'estimated' },
+      'the saved plan has its own ' + confidence + ' treatment');
+    assert.deepEqual(changed('fuel'), figures('fuel'), 'the neighbouring row keeps its own trust');
+  }
+  for (const [planned, printedPlan] of [[null, null], [0, '$0']]) {
+    const close = structuredClone(record);
+    close.content.publication.householdBudget.find(row => row.id === 'groceries').planned = planned;
+    const changed = await savedStack(close);
+    assert.deepEqual(changed('groceries'), { ...groceries, planned, printedPlan },
+      'missing and zero plans preserve the independently known spend');
+    assert.deepEqual(changed('fuel'), figures('fuel'), 'a changed saved plan applies to its category alone');
+  }
+});
 
 // L6 no dollar amount changes: every amount on the saved-close page is a
 // number the close saved (walked from the stored record, not from the page).
@@ -223,4 +240,4 @@ ok(!/\$80\.00/.test(category(plainHousehold, 'groceries')), "L7 uncaptured: toda
 ok(/Original plan: \$200\.00\./.test(text(step(plainCompact, '02'))), 'L7 uncaptured: Income keeps its published original plan (200.00)');
 ok(/Actual and plan unknown/.test(tile(plain, plainAdvice)), 'L7 uncaptured tile: the household total keeps "Actual and plan unknown"');
 
-console.log('PASS saved close plan labels: ' + checks + ' checks');
+console.log('Saved-close archive and retained classic assertions: ' + checks);
