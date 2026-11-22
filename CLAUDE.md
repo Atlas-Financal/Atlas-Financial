@@ -34,16 +34,18 @@ scaffolding. The rule numbers are kept so existing references (for example
   tell him.
 - **Claude Code (lead):** owns the post-1.0 order, builds, coordinates, and picks
   models per task.
-- **In-house reviewer:** a separate Claude reviewer session, not a builder and
-  not the lead, at a high model or reasoning level, is the reviewer of
-  record, including for figures-moved changes, with one bounded review
-  (Dale, 2026-11-20; OD-026 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
-  It replaces ChatGPT (Atlas) in that role; the review contract, findings
-  format and merge gate are unchanged.
-- **ChatGPT (Atlas):** stands down from reviews (OD-026). Still the second
-  builder, one item at a time, and gives desk rulings when the lead asks.
-  Historical Atlas review records stay valid.
-- **Muse:** merger under the merge gate, plus routine monitoring. Planning and
+- **Reviewers of record:** ChatGPT (Atlas) and Muse, each on a PR it did
+  not build, including figures-moved changes, with one bounded review (Dale,
+  2026-11-22; OD-027 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md),
+  which supersedes the reviewer part of OD-026). The Claude in-house reviewer
+  sessions are stood down. The review contract, findings format and merge
+  gate are unchanged. Where this file says "the in-house reviewer", read the
+  reviewer of record named here.
+- **ChatGPT (Atlas):** reviewer of record (OD-027), still the second builder,
+  one item at a time, and gives desk rulings when the lead asks. It never
+  merges.
+- **Muse:** reviewer of record (OD-027) and merger under the merge gate,
+  plus routine monitoring. Muse does not merge a PR it reviewed. Planning and
   dispatch move to the lead.
 - **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
   Bot writes no code.
@@ -206,10 +208,9 @@ Two separate things, and they should not be confused.
    scope and trust forks. It never answers a household fact — those are
    questions for the household and live in `docs/01_OPEN_QUESTIONS.md` — and it
    never holds work items, which live in `BACKLOG.md`.
-2. **The Atlas Contract / Systems Review** — the in-house reviewer (a separate
-   Claude reviewer session, not a builder and not the lead; Roles, OD-026) is
-   the reviewer of record. ChatGPT no longer performs it; historical Atlas
-   records stay valid. It reads a pull request's exact head and publishes
+2. **The Atlas Contract / Systems Review** — the reviewer of record (ChatGPT
+   (Atlas) or Muse, never the PR's builder; Roles, OD-027) performs it.
+   Historical in-house reviewer and Atlas records stay valid. It reads a pull request's exact head and publishes
    factual findings, never a PASS, an approval, or merge permission. It reviews
    every figures-moved pull request. It does not make merge
    decisions. The review contract is defined below.
@@ -327,9 +328,10 @@ defect remains a blocker because the defect is real.
 > may review; Atlas reviews figures-moved PRs. Historical PASS records remain as
 > history.
 
-**The in-house reviewer performs this review by default**, and always for a
-figures-moved pull request (Dale, 2026-11-20; OD-026, which
-replaced ChatGPT / Atlas in this role; historical Atlas records stay valid).
+**The reviewer of record (ChatGPT (Atlas) or Muse) performs this review by
+default**, and always for a figures-moved pull request (Dale, 2026-11-22;
+OD-027, which supersedes the reviewer part of OD-026; historical records stay
+valid).
 Any other pull request, including one with a non-figures high-risk trigger, may
 instead be reviewed by Muse or another non-builder Claude Code session. When a high-risk trigger
 fires, the review is required governance before merge. When no high-risk
