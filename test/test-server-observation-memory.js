@@ -109,7 +109,9 @@ async function until(predicate, label) {
 // own start-up line. A port picked here, released, then handed to the child
 // could be taken by another process in between; the child then exits at
 // start-up ("Synthetic server startup failed") whatever the suite protects.
-const LISTENING = /^Household finance dashboard listening on (\d{1,5})$/m;
+// The whole line, newline included: a line split across chunks is read only
+// once it is complete, never as a truncated port.
+const LISTENING = /^Household finance dashboard listening on (\d{1,5})\r?\n/m;
 // The OAuth resource is an identifier (the token audience), not the bound
 // address, so it does not need the port before the child starts.
 const MCP_RESOURCE = 'http://127.0.0.1/assistant/mcp';
@@ -125,6 +127,23 @@ async function oauthIssuer() {
       .setIssuer(issuer).setAudience(resource).setSubject('synthetic-owner').setIssuedAt().setExpirationTime('5m').sign(pair.privateKey),
     close: () => new Promise(resolve => server.close(resolve)) };
 }
+// Readiness is the child's own start-up line, or its exit: an event, never a
+// poll. Resolves with the bound port; the exit listener is removed once known.
+function startupPort(child) {
+  let stdout = '';
+  return new Promise((resolve, reject) => {
+    const onExit = (code, signal) => reject(new Error('Synthetic server startup failed (exit '
+      + (signal || code) + ')'));
+    child.once('exit', onExit);
+    child.stdout.on('data', chunk => {
+      if (stdout === null) return;
+      stdout += chunk;
+      const match = LISTENING.exec(stdout);
+      if (match) { stdout = null; child.removeListener('exit', onExit); resolve(Number(match[1])); }
+      else if (stdout.length > 65536) stdout = stdout.slice(-4096);
+    });
+  });
+}
 async function atlas(mock, { mcp = false, canonical = null } = {}) {
   const auth = mcp ? await oauthIssuer() : null;
   const child = spawn(process.execPath, ['--require', __filename, path.join(ROOT, 'server.js')], {
@@ -134,19 +153,8 @@ async function atlas(mock, { mcp = false, canonical = null } = {}) {
       ...(canonical ? { ATLAS_SYNTHETIC_OBSERVATION_CANONICAL: JSON.stringify(canonical) } : {}),
       ...(auth ? { ATLAS_MCP_RESOURCE_URL: MCP_RESOURCE, ATLAS_OAUTH_ISSUER: auth.issuer, ATLAS_OAUTH_JWKS_URI: auth.jwks } : {}) } });
   // Capture privately; publish only the test's own closed counts/timings.
-  // Readiness is the child's own start-up line, or its exit: an event, never a poll.
-  let exited = false, stdout = '';
-  const ready = new Promise((resolve, reject) => {
-    child.stdout.on('data', chunk => {
-      if (stdout === null) return;
-      stdout += chunk;
-      const match = LISTENING.exec(stdout);
-      if (match) { stdout = null; resolve(Number(match[1])); }
-      else if (stdout.length > 65536) stdout = stdout.slice(-4096);
-    });
-    child.once('exit', (code, signal) => reject(new Error('Synthetic server startup failed (exit '
-      + (signal || code) + ')')));
-  });
+  let exited = false;
+  const ready = startupPort(child);
   // A backstop only, for a child that neither starts nor exits: never the
   // pass condition, which is the start-up line above.
   const backstop = setTimeout(() => child.kill(), 120000); backstop.unref();
@@ -200,6 +208,22 @@ if (require.main === module) (async () => {
   Date.now = () => Date.parse(now);
   const check = (a, b, label) => { assert.deepEqual(a, b, label); checks++; };
   const reject = async (promise, code) => { await assert.rejects(promise, error => error.code === code); checks++; };
+  {
+    // Start-up readiness: a line split mid-digit across chunks still yields
+    // the whole bound port; an exit before the line fails; a later exit after
+    // readiness is not a start-up failure (its listener is gone).
+    const { EventEmitter } = require('node:events');
+    const fake = () => { const child = new EventEmitter(); child.stdout = new EventEmitter(); return child; };
+    const split = fake(), port = startupPort(split);
+    split.stdout.emit('data', 'some earlier line\nHousehold finance dashboard listening on 41');
+    split.stdout.emit('data', '234\n');
+    check(await port, 41234, 'a start-up line split mid-digit yields the whole port');
+    check(split.listenerCount('exit'), 0, 'the start-up exit listener is removed once the port is known');
+    const early = fake(), failed = startupPort(early);
+    early.stdout.emit('data', 'Household finance dashboard listening on 5');
+    early.emit('exit', 1, null);
+    await assert.rejects(failed, /Synthetic server startup failed \(exit 1\)/); checks++;
+  }
   const drain = () => Promise.all(workerExits);
   const timings = [];
   console.log = (...args) => { if (typeof args[0] === 'string' && args[0].startsWith('{"type":"live-refresh-lifecycle"')) timings.push(JSON.parse(args[0])); else originalLog(...args); };
