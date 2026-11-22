@@ -443,6 +443,9 @@ if (!isMainThread) {
     clearTimeout(waiter.timer);
     waiter.signal?.removeEventListener('abort', waiter.cancelled);
     let displayCheck = job.displayCheck;
+    // Timing only: true where a retained display (not this job's own
+    // result, such as a dated evidence-day view) was selected to serve.
+    let servedRetained = job.servedRetained === true;
     if (error && !job.acquire && error.code !== 'live-refresh-cancelled' && job.contextInput) {
       // Error/timeout/exit publication needs the same obsolete-work fence as
       // normal results. An old waiter may read a compatible dated cohort but
@@ -457,7 +460,7 @@ if (!isMainThread) {
       const receipt = job.evidence ? { source: null, qualified: false, checkedAt: null,
         attemptedAt: new Date(Date.now()).toISOString(), reason: error.code } : failedAttempt(null, error.code);
       const retained = retainedDisplay(job.contextInput, job.contextEnv, job.householdAccountId, receipt, current);
-      if (retained) { data = retained.data; displayCheck = retained.check; error = null; }
+      if (retained) { data = retained.data; displayCheck = retained.check; servedRetained = true; error = null; }
     }
     if (!error && waiter.forceRefresh && job.check?.qualified !== true && !displayCheck) error = unavailable('live-refresh-unavailable');
     if (error) waiter.reject(error);
@@ -469,9 +472,11 @@ if (!isMainThread) {
         checkedAt: typeof checkedAt === 'string' && Number.isFinite(Date.parse(checkedAt)) ? checkedAt : null }); }
       catch (_) { /* Response closed; never change a financial result. */ }
       // Timing only (scripts/request-timing.js): the path that served this
-      // waiter, from the job's own state, not the browser-facing check.
+      // waiter, set where the served data was selected, never from the
+      // browser-facing check (a dated view of this job's own read carries
+      // a displayCheck too, and is not a retained display).
       try {
-        waiter.onServedPath?.(displayCheck ? 'retained' : job.reused ? 'replay'
+        waiter.onServedPath?.(servedRetained ? 'retained' : job.reused ? 'replay'
           : !waiter.started ? 'joined-job' : job.evidence ? 'replay' : 'provider-job');
       } catch (_) { /* Diagnostics only. */ }
       // Admission waiters receive their own acquisition clone plus their
@@ -610,7 +615,7 @@ if (!isMainThread) {
             if (dated) { job.displayCheck = dated.check; return finishJob(job, null, dated.data); }
             const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
               failedAttempt(result.check, result.data.liveOverlay?.reason), false);
-            if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
+            if (retained) { job.displayCheck = retained.check; job.servedRetained = true; return finishJob(job, null, retained.data); }
             return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
           }
           return finishJob(job, null, result.data);
@@ -686,7 +691,7 @@ if (!isMainThread) {
             || (result.data.liveOverlay?.currentPeriodActuals?.transactionCoverage === 'truncated' ? 'posted-window-truncated' : 'current-observation-unavailable'));
           if (job.evidence) attempt.source = null; // A replay is not a new provider check.
           const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt);
-          if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
+          if (retained) { job.displayCheck = retained.check; job.servedRetained = true; return finishJob(job, null, retained.data); }
           return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
         }
         // Remember a qualified replay result only after every barrier above
@@ -706,6 +711,7 @@ if (!isMainThread) {
           const clear = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt, false);
           if (clear && !ObservationMemory.planWithheld(clear.data)) {
             job.displayCheck = clear.check;
+            job.servedRetained = true;
             return finishJob(job, null, clear.data);
           }
         }

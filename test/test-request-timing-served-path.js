@@ -17,9 +17,13 @@
 // Invented fixture (test/fixtures/budget-surface-data) and a local synthetic
 // provider; no household data and no real provider.
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const Refresh = require('../scripts/server-live-refresh');
 const Fixture = require('./fixtures/budget-surface-data');
+const RequestTiming = require('../scripts/request-timing');
 
 const canonical = Fixture.canonical();
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -107,6 +111,107 @@ async function until(predicate, label) {
       const { paths, error } = await served(env, { forceRefresh: true, signal: AbortSignal.abort() });
       assert.ok(error, 'refused');
       assert.deepEqual(paths, []);
+    });
+
+    // Re-review on #1553 (7082888754): a dated evidence-day view is this
+    // job's own provider read, though it carries a displayCheck like a
+    // retained display. A new process holds no retained cohort, so nothing
+    // retained can serve it.
+    const DAY = '2026-08-19', BALANCE_AT = DAY + 'T17:55:00.000Z';
+    const lastSync = () => { // the provider's last sync was the day before
+      const p = { ...Fixture.payload(), tags: [] };
+      p.accounts = p.accounts.map(a => ({ ...a, balance_last_update: BALANCE_AT, updated_at: BALANCE_AT }));
+      return p;
+    };
+    const freshProcess = () => {
+      for (const key of Object.keys(require.cache)) {
+        if (/scripts[\\/](server-live-refresh|server-observation-memory)\.js$/.test(key)) delete require.cache[key];
+      }
+      return require('../scripts/server-live-refresh');
+    };
+    const servedBy = async (R, e, options = {}) => {
+      const paths = []; let check = null;
+      const data = await R.serve(structuredClone(canonical), e, { ...options, onServedPath: p => paths.push(p), onCheck: c => { check = c; } });
+      return { data, check, paths };
+    };
+    const cacheHitOf = served => RequestTiming.record({ start: 0n, end: 0n, path: '/data.json', data: 0n, serialize: 0n,
+      served, cold: false }, 200, 'GET', 'completed').cacheHit;
+    const laneB = { ...env, ATLAS_TIMING_TEST_LANE: 'b' }; // a second job context, the same display context
+
+    await check('a new process serving a dated evidence-day view from its own provider read: provider-job, cacheHit false', async () => {
+      mock.mode('ok'); mock.payload(lastSync());
+      const r = await servedBy(freshProcess(), env, { preferObservation: true });
+      assert.equal(r.data.meta.asOf, DAY, 'the dated evidence-day view served it');
+      assert.equal(r.check.qualified, false);
+      assert.deepEqual(r.paths, ['provider-job']);
+      assert.equal(cacheHitOf(r.paths[0]), false);
+    });
+
+    await check('an obsolete job serving a dated view of its own read: provider-job, and a joiner joined-job', async () => {
+      mock.mode('ok'); mock.payload(lastSync());
+      const R = freshProcess();
+      mock.hold();
+      const first = servedBy(R, env);
+      await pause(50);
+      const joiner = servedBy(R, env);
+      await pause(50);
+      // A newer live job in another context makes the first one obsolete.
+      const newer = servedBy(R, laneB);
+      await pause(50);
+      mock.release();
+      const [a, j, b] = await Promise.all([first, joiner, newer]);
+      assert.equal(a.data.meta.asOf, DAY); assert.equal(b.data.meta.asOf, DAY);
+      assert.deepEqual(a.paths, ['provider-job']);
+      assert.deepEqual(j.paths, ['joined-job']);
+      assert.deepEqual(b.paths, ['provider-job']);
+      assert.equal(cacheHitOf(a.paths[0]), false);
+    });
+
+    await check('an obsolete job whose failed read is served from the retained cohort: retained', async () => {
+      mock.mode('ok'); mock.payload({ ...Fixture.payload(), tags: [] });
+      const R = freshProcess();
+      const seed = await servedBy(R, env, { forceRefresh: true });
+      assert.equal(seed.check.qualified, true, 'a qualified read is retained');
+      mock.mode('failure'); mock.hold();
+      const first = servedBy(R, env);
+      await pause(50);
+      const newer = servedBy(R, laneB);
+      await pause(50);
+      mock.release();
+      const [a, b] = await Promise.all([first, newer]);
+      assert.ok(a.data.liveOverlay.retainedRefresh, 'a retained display served it');
+      assert.deepEqual(a.paths, ['retained']);
+      assert.deepEqual(b.paths, ['retained']);
+      assert.equal(cacheHitOf(a.paths[0]), true);
+      mock.mode('ok');
+    });
+
+    await check('a request that times out on its read and is served from the retained cohort: retained', async () => {
+      mock.mode('ok'); mock.payload({ ...Fixture.payload(), tags: [] });
+      const R = freshProcess();
+      assert.equal((await servedBy(R, env, { forceRefresh: true })).check.qualified, true);
+      mock.hold();
+      const r = await servedBy(R, env, { timeoutMs: 200 });
+      mock.release();
+      assert.ok(r.data.liveOverlay.retainedRefresh, 'a retained display served it');
+      assert.deepEqual(r.paths, ['retained']);
+    });
+
+    await check('a complete refresh whose plan is withheld, served the last full picture: retained', async () => {
+      // The worker-only preload of test-last-non-withheld-picture.js sets
+      // the whole-plan hold on a complete result while the flag file exists.
+      const flag = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-timing-withhold-')), 'withhold');
+      const preload = path.join(__dirname, 'test-last-non-withheld-picture.js').replace(/\\/g, '/');
+      const withhold = { ...env, ATLAS_SYNTHETIC_WITHHOLD_FLAG: flag, NODE_OPTIONS: '--require "' + preload + '"' };
+      mock.mode('ok'); mock.payload({ ...Fixture.payload(), tags: [] });
+      const R = freshProcess();
+      const clean = await servedBy(R, withhold, { forceRefresh: true });
+      assert.deepEqual(clean.paths, ['provider-job']);
+      fs.writeFileSync(flag, '1');
+      const held = await servedBy(R, withhold, { forceRefresh: true });
+      fs.rmSync(path.dirname(flag), { recursive: true, force: true });
+      assert.equal(held.data.liveOverlay.retainedRefresh?.attempt?.reason, 'current-plan-withheld', 'the last full picture served it');
+      assert.deepEqual(held.paths, ['retained']);
     });
   } finally {
     await mock.close();
