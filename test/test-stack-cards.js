@@ -257,18 +257,26 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
   assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
     'only the estimated amount (the first row\'s plan) is soft');
-  // No greyed bill amounts on the card (owner decision, Dale, queued 2026-11-22): an estimated Bills total, paid
-  // and row amount all print plain; the trust stays published and is drawn in the bill's tap-in sheet.
+  // No greyed bill amounts on the rows (owner decision, Dale, 2026-11-22): an estimated row amount prints plain (its
+  // trust is drawn in its tap-in sheet). The head and its bar have no sheet, so they stay soft when estimated (lead
+  // ruling on pre-review 7074755817): the only place that total's trust can show.
+  assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-bar stack-est"/.test(cardOf('bills')),
+    'an estimated Bills total keeps its soft head and bar');
   {
+    const rowsOfBills = h => (h.match(/<li class="sc-row sc-bill[\s\S]*?<\/li>/g) || []);
     const eb = JSON.parse(JSON.stringify(e));
     eb.stackSummary.bills.paidTrust = 'estimated';
     eb.bills.forEach(b => { if (b.stackBillAmount != null) b.stackBillAmountTrust = 'estimated'; });
     const bc = buildCardsHTML(ctx(eb)).split('data-stack-card="bills"')[1].split('</details>')[0];
-    assert(!/stack-est/.test(bc), 'an estimated Bills head, bar and row amounts are not greyed on the card');
+    const br = rowsOfBills(bc);
+    assert(br.length > 0 && br.every(r => !/stack-est/.test(r)), 'estimated bill row amounts are not greyed on the card');
+    assert(/class="sc-f stack-est"/.test(bc), 'an estimated paid keeps the head soft');
     const pb = JSON.parse(JSON.stringify(view)); pb.evidenceState = 'projected';
     const pc = buildCardsHTML(ctx(pb)).split('data-stack-card="bills"')[1].split('</details>')[0];
-    assert(!/stack-est/.test(pc) && /stack-est/.test(buildCardsHTML(ctx(pb)).split('data-stack-card="budget"')[1]),
-      'a projected period: bills print plain while the budget card keeps its soft treatment');
+    assert(rowsOfBills(pc).every(r => !/stack-est/.test(r)) && /class="sc-f stack-est"/.test(pc),
+      'a projected period: rows print plain, the head (a projected total) stays soft');
+    const calc = buildCardsHTML(ctx(view)).split('data-stack-card="bills"')[1].split('</details>')[0];
+    assert(!/stack-est/.test(calc), 'a calculated Bills card carries no soft class at all');
   }
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
   // the category mini bar is soft with its row's figures: an estimated amount, and a projected period (Codex on #1467)

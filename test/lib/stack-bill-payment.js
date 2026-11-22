@@ -21,9 +21,9 @@ function assertBillPeriod(page, start, bill, { paid, trust }) {
   const head = card.split('</summary>')[0];
   const figure = head.match(/<span class="sc-f([^"]*)">([^<]+)<i>([^<]+)<\/i>/);
   assert.deepEqual(figure && [figure[2], figure[3]], ['$' + paidAmount, ' / $' + total], 'printed paid and owed');
-  // No greyed bill amounts on the card (owner decision, Dale, 2026-11-22): the heading prints plain whatever its
-  // trust; the estimate marking lives in the bill's tap-in sheet, checked below.
-  assert.equal(figure[1].includes('stack-est'), false, 'the Bills heading is never greyed');
+  // The heading (paid / total) has no tap-in sheet, so it carries its trust on the card (lead ruling on pre-review
+  // 7074755817); a bill row prints plain and its trust is in its sheet, checked below.
+  assert.equal(figure[1].includes('stack-est'), trust === 'estimated', 'the heading carries its trust');
   const rows = [...card.matchAll(/<li\b[^>]*>[\s\S]*?<\/li>/g)].map(match => match[0]);
   assert.equal(rows.length, bill ? 1 : 0, 'the period lists each counted bill once');
   if (!bill) return;

@@ -152,10 +152,12 @@
     var body = '<ul class="sc-list">' + rows.map(function (r) {
       return stateRow(billName(r.label || r.name) || 'Bill', r, billTarget('bill', r));
     }).join('') + '</ul>';
-    // No greyed bill amounts on the card (owner decision, Dale, queued 2026-11-22): the head and rows print plain; an
-    // estimated bill amount keeps its published trust and is drawn soft in its tap-in sheet (stack-sheet.js).
+    // No greyed bill amounts on the rows (owner decision, Dale, 2026-11-22): an estimated bill amount keeps its published
+    // trust and is drawn soft in its tap-in sheet (stack-sheet.js). The head (paid / total) and its bar have no sheet, so
+    // they stay soft when estimated: the only place that total's trust can show (lead ruling, ATLAS LEAD 12, on
+    // pre-review 7074755817; every figure stays tagged).
     return strip('bills', 'Bills', '', paid, total, paid == null ? 0 : fill(split.paid, split.other), rows.length ? body : '', ' / ', null,
-      false, true);
+      isEst(split.paidTrust, split.trust), true);
   }
 
   function budgetCard(view) {
