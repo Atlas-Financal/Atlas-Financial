@@ -307,6 +307,16 @@ exceptions. Extended 2026-10-30 (owner).
 The deterministic hard gates. A required check that is missing, stale, skipped,
 errored, timed out, cancelled or failed **is a failure**, not an absence of one.
 
+**Never cancel a merge-queue run** (lead, 2026-11-22). No agent or routine
+cancels a `merge_group` workflow run, including one that looks stalled. Some
+suites run 15–20 minutes in a merge group and print nothing while they run (a
+privacy rule of the CI output). A cancelled shard fails the group, and the
+queue then ejects the PR and holds every entry behind it. A run that still
+seems stuck after 45 minutes is reported to the lead in the Plan #6 thread;
+only its own failure or timeout ends it. On 2026-11-22 a watcher's
+"cancel if over 15 minutes" step cancelled healthy runs four times and held
+up to eight PRs for over an hour.
+
 ---
 
 ## The two review lanes
