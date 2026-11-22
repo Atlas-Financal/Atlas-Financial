@@ -3549,6 +3549,16 @@ function representedEventHitGroups(input) {
     list.push(hit);
     eventHits.set(key, list);
   }
+  // Posted provider ids across the whole input, counted before any identity,
+  // account or date filter (Codex P2 on #1533): a single leg whose id also
+  // names another posted row is not one clean payment, even when that other
+  // row matches no rule.
+  const postedIdCount = new Map();
+  for (const tx of input.transactions || []) {
+    if (!hasPostedReceipt(tx) || tx.providerTransactionId == null) continue;
+    const id = String(tx.providerTransactionId);
+    postedIdCount.set(id, (postedIdCount.get(id) || 0) + 1);
+  }
   for (const tx of input.transactions || []) {
     if (!hasPostedReceipt(tx)) continue;
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
@@ -3627,7 +3637,9 @@ function representedEventHitGroups(input) {
           settlesWhen: rule.settlesWhen || null,
           sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
           ...(rule.singleLegSettles === true && rule.settlesWhen === SETTLES_WHEN_TWO_LEG_SUM
-            ? { singleLegSettles: true } : {}),
+            ? { singleLegSettles: true,
+              ...((postedIdCount.get(String(tx.providerTransactionId)) || 0) > 1 ? { singleLegDuplicateId: true } : {}) }
+            : {}),
         });
         eventHits.set(key, list);
       }

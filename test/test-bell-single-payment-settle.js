@@ -115,6 +115,10 @@ ok(J(bellKeys(observe([NOV18, bell(9411, '2026-11-18', 20)]))) === J(['bell@2026
   'a same-day second leg makes it the two-leg pair (both ids, one occurrence), never two settlements');
 ok(bellKeys(observe([NOV18, bell(9401, '2026-11-18', 20)])).length === 0,
   'two posted rows sharing one provider id are not a clean single payment and settle nothing');
+ok(bellKeys(observe([NOV18, bell(9401, '2026-11-18', 20, { payee: 'Dollarama', original_name: 'DOLLARAMA' })])).length === 0,
+  'a provider id shared with a posted non-Bell row is not a clean single payment either (Codex P2 on #1533)');
+ok(bellKeys(observe([NOV18, bell(9401, '2026-11-18', 20, { account_id: CHEQUING_B })])).length === 0,
+  'the same holds when the other row sharing the id is on another account');
 ok(J(bellKeys(observe([bell(9412, '2026-10-15', 118.06), NOV18]))) === J(['bell@2026-10-15<-9412', 'bell@2026-11-15<-9401']),
   'October and November single payments each settle their own month; ids are not shared');
 ok(bellKeys(observe([bell(9413, '2026-09-15', Number(data.plan.bills.find(bill => bill.id === 'bell-sep15-2026').amount))])).length === 0,
