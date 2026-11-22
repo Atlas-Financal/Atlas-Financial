@@ -376,10 +376,13 @@ try {
     // The same settlement gate the current page applies first (plan.js planSettlementOutcome, ATLAS-080):
     // an unavailable outcome publishes nothing, so the shell renders its title and no figure.
     const settlement = typeof planSettlementOutcome === 'function' ? planSettlementOutcome(d) : { kind: 'none' };
+    // Timing only (public/client-timing.js): brackets this call as Forecast compute during the first render.
+    const computeTimer = typeof AtlasClientTiming !== 'undefined' ? AtlasClientTiming.computeStart() : null;
     state.recommendation = settlement.kind === 'unavailable' || !d || !d.plan || typeof Forecast === 'undefined' ? null
       : Forecast.recommend(d.plan, d.meta && d.meta.asOf, Forecast.budgetRecommendInputs(d, {
         periods, settlementEvidence: settlement.kind === 'qualified' ? settlement.evidence : null,
       }));
+    if (computeTimer) AtlasClientTiming.computeEnd(computeTimer);
     state.recommendation = withholdUnavailableHistory(state.recommendation);
     const list = views();
     if (!list.some(v => keyOf(v) === state.selectedPeriodKey)) {

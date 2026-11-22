@@ -13,7 +13,9 @@
 // answered with anything but a bodyless refusal; an amount, payee, token or
 // query in a body reaching the log or the response; more than one line per
 // valid beacon; the per-session cap not holding; anything echoed back; the
-// CSP changed. Release decision: any failure blocks.
+// CSP changed; the browser module's compute split, its
+// once-only beacon, or its no-beacon paths (a throw, an open bracket, no
+// fetch timing) wrong. Release decision: any failure blocks.
 //
 // Invented values and canary strings only; no household data.
 const assert = require('node:assert/strict');
@@ -174,60 +176,61 @@ const VALID = () => ({ page: 'stack', device: 'desktop', ms: { fetch: 412, compu
     });
 
     // The browser module (public/client-timing.js) in a VM with a fake
-    // clock, a fake Forecast and a recording fetch: no browser needed.
+    // clock and a recording fetch: no browser needed.
     const browserModule = fs.readFileSync(path.join(__dirname, '..', 'public', 'client-timing.js'), 'utf8');
-    function loadBrowser({ forecast, page = 'stack-view' } = {}) {
+    function loadBrowser({ page = 'stack-view' } = {}) {
       const clock = { t: 0 }, sent = [];
-      const window = { performance: { now: () => clock.t }, Forecast: forecast,
+      const window = { performance: { now: () => clock.t },
         matchMedia: query => ({ matches: query === '(pointer: fine)' }),
         document: { documentElement: { classList: { contains: name => name === page } } },
         fetch: (url, init) => { sent.push({ url, init }); return Promise.resolve(); } };
-      vm.runInNewContext(browserModule, { window, Proxy, Reflect, Object, Math, JSON, Error, Promise });
+      vm.runInNewContext(browserModule, { window, Math, JSON, Error, Promise });
       return { T: window.AtlasClientTiming, clock, sent, window };
     }
-    await check('browser module: nested Forecast calls count once; compute and render split the render time', async () => {
-      const F = {};
-      const b = loadBrowser({ forecast: F });
-      F.inner = () => { b.clock.t += 5; return 'inner'; };
-      F.outer = () => { b.clock.t += 10; return F.inner() + '+outer'; };
-      const origOuter = F.outer, origInner = F.inner;
-      b.T.fetchStart(); b.clock.t += 300; b.T.fetchEnd();
+    await check('browser module: bracketed compute and the rest of the render split the render time', async () => {
+      const b = loadBrowser();
+      const T = b.T;
+      assert.equal(T.computeStart(), null, 'outside the first render a bracket does nothing');
+      T.fetchStart(); b.clock.t += 300; T.fetchEnd();
       let renders = 0;
-      b.T.firstRender(() => { renders++; b.clock.t += 20; assert.equal(F.outer(), 'inner+outer'); b.clock.t += 7; });
+      T.firstRender(() => {
+        renders++; b.clock.t += 20;
+        const one = T.computeStart(); b.clock.t += 10; T.computeEnd(one);
+        T.computeEnd(one); // a second end of the same bracket counts nothing
+        b.clock.t += 4;
+        const two = T.computeStart(); b.clock.t += 5; T.computeEnd(two);
+        b.clock.t += 3;
+      });
       assert.equal(renders, 1);
-      assert.equal(F.outer, origOuter); assert.equal(F.inner, origInner);
       assert.equal(b.sent.length, 1);
       assert.equal(b.sent[0].url, '/client-timing');
+      assert.equal(b.sent[0].init.method, 'POST');
       assert.equal(b.sent[0].init.credentials, 'same-origin');
       assert.deepEqual(JSON.parse(b.sent[0].init.body), { page: 'stack', device: 'desktop',
         ms: { fetch: 300, compute: 15, render: 27, total: 342 } });
-      // A later first-render call (a second load) renders, and sends nothing.
-      b.T.firstRender(() => { renders++; });
+      // A later first-render call (a second load) renders, and sends nothing; brackets do nothing.
+      T.firstRender(() => { renders++; assert.equal(T.computeStart(), null); });
       assert.equal(renders, 2); assert.equal(b.sent.length, 1);
     });
-    await check('browser module: a render that throws sends nothing and restores Forecast', async () => {
-      const F = { f: () => 1 };
-      const orig = F.f;
-      const b = loadBrowser({ forecast: F });
-      b.T.fetchStart(); b.T.fetchEnd();
-      assert.throws(() => b.T.firstRender(() => { F.f(); throw new Error('render failed'); }), /render failed/);
-      assert.equal(F.f, orig); assert.equal(b.sent.length, 0);
-    });
-    await check('browser module: an unwritable Forecast or no fetch timing renders once, untimed, with no beacon', async () => {
-      const frozen = Object.freeze({ f: () => 1, g: () => 2 });
-      const a = loadBrowser({ forecast: frozen, page: 'none' });
+    await check('browser module: a render that throws, or a bracket left open, sends nothing', async () => {
+      const a = loadBrowser();
       a.T.fetchStart(); a.T.fetchEnd();
+      assert.throws(() => a.T.firstRender(() => { a.T.computeStart(); throw new Error('render failed'); }), /render failed/);
+      assert.equal(a.sent.length, 0);
+      const b = loadBrowser({ page: 'none' });
+      b.T.fetchStart(); b.T.fetchEnd();
+      b.T.firstRender(() => { try { b.T.computeStart(); throw new Error('caught inside'); } catch (_) { /* a fail-safe */ } });
+      assert.equal(b.sent.length, 0, 'compute unknown: no beacon');
+    });
+    await check('browser module: no fetch timing renders once with no beacon; the page enum reads stack-view', async () => {
+      const a = loadBrowser();
       let renders = 0;
       a.T.firstRender(() => { renders++; });
       assert.equal(renders, 1); assert.equal(a.sent.length, 0);
-      const F = { f: () => 1 }; const orig = F.f;
-      const b = loadBrowser({ forecast: F });
-      b.T.firstRender(() => { renders++; });
-      assert.equal(renders, 2); assert.equal(b.sent.length, 0); assert.equal(F.f, orig);
-      const c = loadBrowser({ forecast: undefined });
-      c.T.fetchStart(); c.T.fetchEnd();
-      c.T.firstRender(() => { renders++; });
-      assert.equal(renders, 3); assert.equal(c.sent.length, 0);
+      const b = loadBrowser({ page: 'none' });
+      b.T.fetchStart(); b.T.fetchEnd();
+      b.T.firstRender(() => {});
+      assert.equal(JSON.parse(b.sent[0].init.body).page, 'budget');
     });
   } finally {
     captureOff();

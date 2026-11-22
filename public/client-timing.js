@@ -5,16 +5,18 @@
  * end of that render; a closed page enum; and a closed device class from a coarse media check (never the user-agent
  * string). Nothing else: no figure, no data, no URL, no query, no identifier. The server writes one closed log line.
  *
- * Forecast compute is measured without changing Forecast: for the duration of the first render only, each Forecast
- * function is replaced by a transparent Proxy that adds the time of top-level calls (a nested call is not counted
- * twice), and the originals are restored before anything else runs. A Proxy keeps a function's own properties
- * (bill-detail.js reads one). Any failure here drops the beacon; it never changes what the page shows.
+ * Forecast compute is the page's own Forecast.recommend call(s) during the first render: the Stack shell's
+ * (stack-shell.js prepare) and the classic page's (plan.js renderPlan). Each call site brackets its call with
+ * computeStart()/computeEnd() as plain statements in the same function, so no wrapper sits in any call stack and
+ * Forecast is never replaced. Forecast reads made outside those calls count as render. Outside the first render the
+ * brackets do nothing. Any failure here drops the beacon; it never changes what the page shows.
  */
 (function (root) {
   'use strict';
   const CAP_MS = 600000;
   const ENDPOINT = '/client-timing';
   let fetchStarted = null, fetchMs = null, done = false;
+  let measuring = false, computeMs = 0, openCompute = 0, broken = false;
   const now = () => root.performance.now();
   const whole = value => Math.max(0, Math.min(CAP_MS, Math.round(value)));
 
@@ -30,36 +32,6 @@
     const html = root.document && root.document.documentElement;
     return html && html.classList && html.classList.contains('stack-view') ? 'stack' : 'budget';
   }
-
-  // Wrap every Forecast function for one synchronous run; returns the run's result and the Forecast time.
-  function timedForecast(run) {
-    const F = root.Forecast;
-    if (!F || typeof F !== 'object') return null;
-    const originals = [];
-    let depth = 0, spent = 0;
-    try {
-      for (const key of Object.keys(F)) {
-        const fn = F[key];
-        if (typeof fn !== 'function') continue;
-        const timed = new Proxy(fn, { apply(target, self, args) {
-          if (depth > 0) return Reflect.apply(target, self, args);
-          depth++;
-          const started = now();
-          try { return Reflect.apply(target, self, args); } finally { spent += now() - started; depth--; }
-        } });
-        F[key] = timed;
-        if (F[key] !== timed) throw new Error('not writable');
-        originals.push([key, fn]);
-      }
-    } catch (_) {
-      for (const [key, fn] of originals) F[key] = fn;
-      return null;
-    }
-    const started = now();
-    try { run(); } finally { for (const [key, fn] of originals) F[key] = fn; }
-    return { renderMs: now() - started, forecastMs: spent };
-  }
-
   function send(record) {
     try {
       root.fetch(ENDPOINT, { method: 'POST', credentials: 'same-origin', keepalive: true, cache: 'no-store',
@@ -70,16 +42,32 @@
   root.AtlasClientTiming = {
     fetchStart() { if (!done && fetchStarted === null) fetchStarted = now(); },
     fetchEnd() { if (!done && fetchStarted !== null && fetchMs === null) fetchMs = now() - fetchStarted; },
+    // A Forecast compute bracket: a token while the first render is being measured, else null.
+    computeStart() {
+      if (!measuring) return null;
+      openCompute++;
+      return { at: now() };
+    },
+    computeEnd(token) {
+      if (!measuring || !token || typeof token.at !== 'number' || token.ended) return;
+      token.ended = true;
+      openCompute--;
+      computeMs += now() - token.at;
+    },
     // The first render: runs `render` (always exactly once) and, the first time only, sends the beacon.
     firstRender(render) {
       if (done || fetchMs === null) return render();
       done = true;
-      // Null means Forecast could not be timed and render has NOT run: run it untimed, with no beacon. A throw
-      // from render propagates unchanged (the originals are already restored), also with no beacon.
-      const timing = timedForecast(render);
-      if (!timing) return render();
-      send({ page: pageOf(), device: deviceClass(), ms: { fetch: whole(fetchMs), compute: whole(timing.forecastMs),
-        render: whole(Math.max(0, timing.renderMs - timing.forecastMs)), total: whole(now()) } });
+      measuring = true;
+      const started = now();
+      try { render(); }
+      catch (error) { broken = true; throw error; }
+      finally { measuring = false; }
+      // A bracket left open (a call that threw inside a caught render) means compute is unknown: no beacon.
+      if (broken || openCompute !== 0) return undefined;
+      const renderMs = now() - started;
+      send({ page: pageOf(), device: deviceClass(), ms: { fetch: whole(fetchMs), compute: whole(computeMs),
+        render: whole(Math.max(0, renderMs - computeMs)), total: whole(now()) } });
       return undefined;
     },
   };
