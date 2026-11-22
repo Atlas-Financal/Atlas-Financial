@@ -205,8 +205,8 @@ function checkShippedWorkflowsAndHandoff() {
   const claude = fs.readFileSync(path.join(ROOT, 'CLAUDE.md'), 'utf8');
   const chatgpt = fs.readFileSync(path.join(ROOT, 'CHATGPT.md'), 'utf8');
   const riskLabels = fs.readFileSync(path.join(ROOT, 'docs/RISK_LABELS.md'), 'utf8');
-  assert.ok(/deliver the review request directly to the named reviewer\s+—\s+normally by routing REVIEW READY to the lead, who hands it to the in-house\s+reviewer session/.test(claude),
-    'governance requires a direct handoff to the named reviewer (the in-house reviewer session, routed through the lead; OD-026)');
+  assert.ok(/deliver the review request directly to the named reviewer\s+—\s+normally by routing REVIEW READY to the lead, who hands it to the\s+reviewer of record/.test(claude),
+    'governance requires a direct handoff to the named reviewer (the reviewer of record, routed through the lead; OD-027)');
   assert.ok(/cannot\s+wake a reviewer session and does not start or satisfy this review/.test(claude),
     'governance says GitHub artifacts cannot wake or satisfy a review');
   assert.ok(/Paid OpenAI reviewer\s+workflows are retired\. Do not wait for them\./.test(claude),

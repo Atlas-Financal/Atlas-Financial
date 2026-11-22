@@ -247,8 +247,8 @@ console.log('\n=== 5. live plan encodes the owner amounts without a second plann
   ok(standing && standing.frequency === 'monthly' && standing.day === DAY
       && standing.firstDue === FIRST_DUE && near(standing.amount, STANDING_AMT)
       && standing.payingAccount === 'chequing-a' && standing.jointCash !== false
-      && standing.confidence === 'confirmed' && standing.budgetCategory === 'telecom',
-    'live bell is confirmed $160 monthly from 2026-10-15 on BILLS ACCOUNT');
+      && standing.confidence === 'estimated' && standing.budgetCategory === 'telecom',
+    'live bell is the standing monthly row from 2026-10-15 on BILLS ACCOUNT, its amount tagged estimated (a rounded budget figure; 2026-11-22 audit)');
   ok(!rows.some(b => b.id !== ONCE_ID && b.id !== STANDING_ID),
     'live Bell bills are exactly the Sep once and the standing series',
     rows.map(b => b.id).join(','));

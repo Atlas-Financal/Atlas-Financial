@@ -4,16 +4,16 @@
  * Forecast owns irregular household-resource inflows that are not Dale
  * payroll, Amanda salary, transfers, card payments, TENNIS INCOME staging,
  * spend-reversal refunds, or cash flows already represented by another
- * event. plan.js renders that Forecast group; it does not classify or total.
+ * event. The Stack waterfall prints the published Other and Total income.
  * Independent arithmetic / membership (L-002 / L-006).
  *
  * `node test/test-other-income.js` — 16 cases, including post-date
- * reconcile-once, received-over-estimated render, external ATM-deposit
+ * reconcile-once, expected and received income, external ATM-deposit
  * vs internal TFR identity, and the Lunch Money Income correction path.
  */
 const fs = require('fs');
 const path = require('path');
-const vm = require('vm');
+const { assertStackIncome } = require('./lib/assert-stack-income');
 const F = require('../public/forecast.js');
 const { sourceText } = require('./test-source-text');
 
@@ -30,46 +30,6 @@ function grab(src, re, label) {
   const match = re.exec(src);
   if (!match) throw new Error('missing ' + label);
   return match[0];
-}
-
-function loadComposer() {
-  const appSrc = read('public/app.js');
-  const planSrc = read('public/plan.js');
-  const source = [
-    grab(appSrc, /^const money = .*$/m, 'money'),
-    grab(appSrc, /^const money2 = .*$/m, 'money2'),
-    grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-    grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-    grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-    grab(planSrc, /^function liveOperatingPlanUnavailable\([\s\S]*?\n\}$/m, 'liveOperatingPlanUnavailable'),
-    grab(planSrc, /^function liveOperatingPlanNote\([\s\S]*?\n\}$/m, 'liveOperatingPlanNote'),
-    grab(planSrc, /^function paydayGlanceCashNote\([\s\S]*?\n\}$/m, 'paydayGlanceCashNote'),
-    grab(planSrc, /^function providerBalanceDate\([\s\S]*?\n\}$/m, 'providerBalanceDate'),
-    grab(planSrc, /^function glanceUpdatedNote\([\s\S]*?\n\}$/m, 'glanceUpdatedNote'),
-    grab(planSrc, /^function glanceSignedMoney\([\s\S]*?\n\}$/m, 'glanceSignedMoney'),
-    grab(planSrc, /^function glanceMoney\([\s\S]*?\n\}$/m, 'glanceMoney'),
-    grab(planSrc, /^function glanceLineLabel\([\s\S]*?\n\}$/m, 'glanceLineLabel'),
-    grab(planSrc, /^function cashGlanceHtml\([\s\S]*?\n\}$/m, 'cashGlanceHtml'),
-    grab(planSrc, /^function liveCurrentBalanceHtml\([\s\S]*?\n\}$/m, 'liveCurrentBalanceHtml'),
-    grab(planSrc, /^function runningLeftoverHtml\([\s\S]*?\n\}$/m, 'runningLeftoverHtml'),
-    grab(planSrc, /^function periodBillLine\([\s\S]*?\n\}$/m, 'periodBillLine'),
-    grab(planSrc, /^function calendarCurrentUnavailableHtml\([\s\S]*?\n\}$/m, 'calendarCurrentUnavailableHtml'),
-    grab(planSrc, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml'),
-    grab(planSrc, /^function householdBudgetCycleText\([\s\S]*?\n\}$/m, 'householdBudgetCycleText'),
-    grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-    grab(planSrc, /^function householdBudgetCategoryHtml\([\s\S]*?\n\}$/m, 'householdBudgetCategoryHtml'),
-    grab(planSrc, /^function calendarBudgetHtml\([\s\S]*?\n\}$/m, 'calendarBudgetHtml'),
-    grab(planSrc, /^function calendarPeriodBillsHtml\([\s\S]*?\n\}$/m, 'calendarPeriodBillsHtml'),
-    grab(planSrc, /^function extraRepaymentHtml\([\s\S]*?\n\}$/m, 'extraRepaymentHtml'),
-    grab(planSrc, /^function calendarFromTodayEvidenceHtml\([\s\S]*?\n\}$/m, 'calendarFromTodayEvidenceHtml'),
-    grab(planSrc, /^function calendarWaterfallHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallHtml'),
-    grab(planSrc, /^function calendarPickerHtml\([\s\S]*?\n\}$/m, 'calendarPickerHtml'),
-    grab(planSrc, /^function calendarWaterfallsHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallsHtml'),
-  ].join('\n');
-  return vm.runInNewContext(
-    `${source}\n({ calendarIncomeHtml, calendarWaterfallHtml, calendarWaterfallsHtml, money2 });`,
-    { Forecast: F }
-  );
 }
 
 const PAYDAY = '2026-09-11';
@@ -162,7 +122,9 @@ function recommend(plan, txs, extraOpts) {
   }, extraOpts || {}));
 }
 
-const composer = loadComposer();
+function checkStack(plan, transactions, amounts, estimatedRows) {
+  return assertStackIncome({ payday: PAYDAY, plan, debts, actuals: actualsPacket(transactions) }, amounts, estimatedRows);
+}
 const planSrc = read('public/plan.js');
 
 console.log('=== 1. A genuine irregular deposit is included once ===');
@@ -296,8 +258,8 @@ console.log('\n=== 4. Regular salary is not duplicated into Other Income ===');
     'incomeTotal is Dale + Amanda once, not duplicated');
 }
 
-console.log('\n=== 5. Expected income is not presented as already received ===');
-{
+async function checkExpectedRefund() {
+  console.log('\n=== 5. Expected income is not presented as already received ===');
   const expected = {
     id: 'expected-refund',
     label: 'Expected refund',
@@ -307,7 +269,8 @@ console.log('\n=== 5. Expected income is not presented as already received ===')
     confidence: 'estimated',
     incomeClass: 'other',
   };
-  const advice = recommend(paydayPlan([expected]), []);
+  const plan = paydayPlan([expected]);
+  const advice = recommend(plan, []);
   const active = period(advice.defaultView, 'this-pay-period');
   const items = (active.otherIncome && active.otherIncome.items) || [];
   const row = items.find(r => r && r.id === 'expected-refund');
@@ -320,15 +283,12 @@ console.log('\n=== 5. Expected income is not presented as already received ===')
   ok(near(active.otherIncome.amount, EXPECTED_REFUND)
       && near(active.incomeAdded, roundCent(DALE + AMANDA + EXPECTED_REFUND)),
     'expected refund is planned into Payday balance and is not treated as cash on hand');
-  const html = composer.calendarIncomeHtml(active);
-  ok(/Expected refund|Other income/.test(html)
-      && /arriving|Expected/.test(html)
-      && !/data-other-income-item="expected-refund"[^>]*data-income-status="received"/.test(html),
-    'page does not print the expected refund as received');
+  await checkStack(plan, [], { other: EXPECTED_REFUND, total: DALE + AMANDA + EXPECTED_REFUND },
+    ['other', 'total']);
 }
 
-console.log('\n=== 6. Reconciling expected to observed does not double-count ===');
-{
+async function checkReconciledRefund() {
+  console.log('\n=== 6. Reconciling expected to observed does not double-count ===');
   const expected = {
     id: 'expected-refund',
     label: 'Expected refund',
@@ -343,7 +303,8 @@ console.log('\n=== 6. Reconciling expected to observed does not double-count ===
     categoryLabel: 'Reimbursement', accountRole: 'household-cash',
     displayedPayee: 'Tax refund', originalMerchant: 'Tax refund',
   };
-  const advice = recommend(paydayPlan([expected]), [observed]);
+  const plan = paydayPlan([expected]);
+  const advice = recommend(plan, [observed]);
   const active = period(advice.defaultView, 'this-pay-period');
   const items = (active.otherIncome && active.otherIncome.items) || [];
   const expectedRows = items.filter(r => r && r.id === 'expected-refund');
@@ -355,17 +316,12 @@ console.log('\n=== 6. Reconciling expected to observed does not double-count ===
     'Other Income is the refund once');
   ok(near(active.incomeTotal, roundCent(DALE + AMANDA + EXPECTED_REFUND)),
     'incomeTotal counts the refund once');
-  ok(expectedRows[0].reconciledFrom
+  ok(near(expectedRows[0].amount, EXPECTED_REFUND) && expectedRows[0].reconciledFrom
       && expectedRows[0].status === 'received',
     'reconciled expected row is received',
     expectedRows[0] && `${expectedRows[0].reconciledFrom} / ${expectedRows[0].status}`);
-  const html = composer.calendarIncomeHtml(active);
-  const itemHtml = html.match(/data-other-income-item="expected-refund"[\s\S]*?<\/li>/);
-  ok(itemHtml && /other-income-tx-received">Received</.test(itemHtml[0])
-      && !/other-income-tx-pending">Expected</.test(itemHtml[0])
-      && !/about /.test(itemHtml[0])
-      && itemHtml[0].includes(composer.money2(EXPECTED_REFUND)),
-    'reconciled received row renders Received and an exact amount, not Expected/about');
+  await checkStack(plan, [observed], { other: EXPECTED_REFUND, total: DALE + AMANDA + EXPECTED_REFUND },
+    ['other', 'total']);
 }
 
 console.log('\n=== 8. After cashAsOf advances, expected Other Income still counts once ===');
@@ -421,8 +377,8 @@ console.log('\n=== 8. After cashAsOf advances, expected Other Income still count
     'Payday balance counts the refund once after cashAsOf advances');
 }
 
-console.log('\n=== 7. Displayed Other Income total reconciles to authoritative rows ===');
-{
+async function checkTwoReceipts() {
+  console.log('\n=== 7. Displayed Other Income total reconciles to authoritative rows ===');
   const gift = {
     id: 'tx-gift-3', date: PAYDAY, amount: -GIFT, pending: false,
     categoryLabel: 'Gifts', accountRole: 'household-cash', isIncome: true,
@@ -435,19 +391,15 @@ console.log('\n=== 7. Displayed Other Income total reconciles to authoritative r
   };
   const independentOther = roundCent(GIFT + REBATE);
   const independentTotal = roundCent(DALE + AMANDA + independentOther);
-  const advice = recommend(paydayPlan(), [gift, rebate]);
+  const plan = paydayPlan();
+  const advice = recommend(plan, [gift, rebate]);
   const active = period(advice.defaultView, 'this-pay-period');
-  const html = composer.calendarIncomeHtml(active);
   const itemSum = roundCent(((active.otherIncome && active.otherIncome.items) || [])
     .reduce((s, r) => s + (Number(r.amount) || 0), 0));
   ok(near(itemSum, independentOther) && near(active.otherIncome.amount, itemSum),
     'Forecast otherIncome.amount equals the independent item sum');
-  ok(/data-other-income/.test(html) && /other-income-detail/.test(html),
-    'page renders Other Income as an expandable disclosure');
-  ok(html.includes(composer.money2(independentOther)),
-    'page prints Forecast Other Income total; it does not invent a second total');
-  ok(/data-payday-balance/.test(html) && html.includes(composer.money2(independentTotal)),
-    'page prints Forecast Payday balance from period.available');
+  await checkStack(plan, [gift, rebate], { other: independentOther, total: independentTotal });
+  // Guard the classic renderer's source until it is removed at S7.
   const incomeFn = grab(planSrc, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml');
   ok(/period\.otherIncome/.test(incomeFn) && /period\.available/.test(incomeFn)
       && /Payday balance/i.test(incomeFn)
@@ -786,8 +738,11 @@ console.log('\n=== 16. An unflagged credit settles an expected one-off only at i
     'two equal candidate credits are ambiguous: the row stays expected, neither is income');
 }
 
-if (failures) {
-  console.log(`\n${failures} failure(s)`);
-  process.exit(1);
+async function finish() {
+  await checkExpectedRefund();
+  await checkReconciledRefund();
+  await checkTwoReceipts();
+  if (failures) throw new Error(failures + ' Other Income check(s) failed');
+  console.log('\nAll Other Income checks passed.');
 }
-console.log('\nAll Other Income checks passed.');
+finish().catch(error => { console.error(error); process.exitCode = 1; });

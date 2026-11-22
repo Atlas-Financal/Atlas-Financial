@@ -420,11 +420,49 @@ function projectCurrentPeriodBill(item) {
   return row;
 }
 
-// The packet carries at most CURRENT_PERIOD_BILLS_MAX rows. billsTotal is
-// Forecast's own row count and billsTruncated says the carried list is not
-// all of them (capped, or a row could not be projected), so Talk never
-// reads a short list as the whole pay period.
+// The packet carries at most CURRENT_PERIOD_BILLS_MAX rows of the pay period
+// it names (periodStart..periodEnd). Forecast's currentPeriodAction.bills is
+// expanded from the cash lookback origin, which can reach back across several
+// pay periods, so the rows are selected first and capped second: a long
+// lookback must not crowd the named period's own rows out of the list.
+// Selection is a projection of choices Forecast already made, not a rule of
+// the packet's own: a row dated inside the period is kept, whatever its kind;
+// a row dated before it is kept only when Forecast's current pay-period view
+// itself lists that occurrence (id@date) on this period (its carry of an
+// unproven earlier bill). Every other earlier row is lookback history the
+// page does not name on this period either. billsTotal counts the selected
+// rows and billsTruncated says the carried list is not all of them (capped,
+// or a row could not be projected), so Talk never reads a short list as the
+// whole pay period.
 const CURRENT_PERIOD_BILLS_MAX = 32;
+
+const billOccurrenceKey = item => (item.id || item.label || '') + '@' + item.date;
+
+function currentViewBillKeys(advice) {
+  const views = advice && Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
+  const current = views.find(view => view && view.timelineRole === 'current');
+  const keys = new Set();
+  for (const row of (current && Array.isArray(current.bills) ? current.bills : [])) {
+    if (row && typeof row === 'object' && typeof row.date === 'string') keys.add(billOccurrenceKey(row));
+  }
+  return keys;
+}
+
+function selectCurrentPeriodBills(action, advice) {
+  const items = action.bills;
+  if (!Array.isArray(items)) return null;
+  const start = typeof action.periodStart === 'string' ? action.periodStart : null;
+  const end = typeof action.periodEnd === 'string' ? action.periodEnd : null;
+  // Without both bounds there is no named period to select; the list is
+  // published as Forecast gives it (capped), as before.
+  if (!start || !end) return items;
+  const listed = currentViewBillKeys(advice);
+  return items.filter(item => {
+    if (!item || typeof item !== 'object' || typeof item.date !== 'string') return false;
+    if (item.date > end) return false;
+    return item.date >= start || listed.has(billOccurrenceKey(item));
+  });
+}
 
 function projectCurrentPeriodBills(items) {
   if (!Array.isArray(items)) return null;
@@ -445,10 +483,11 @@ function currentPeriodBillsCompleteness(items, listed) {
   };
 }
 
-function currentPeriodBillsSection(action) {
+function currentPeriodBillsSection(action, advice) {
   if (action.unavailable === true) return { bills: null };
-  const bills = projectCurrentPeriodBills(action.bills);
-  return { bills, ...currentPeriodBillsCompleteness(action.bills, bills) };
+  const selected = selectCurrentPeriodBills(action, advice);
+  const bills = projectCurrentPeriodBills(selected);
+  return { bills, ...currentPeriodBillsCompleteness(selected, bills) };
 }
 
 // Current-pay-period Balance After Deductions. Copies the active calendar
@@ -1308,7 +1347,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
         weeklyCap: money(action.weeklyCap),
         noMovementToday: action.noMovementToday === true,
         currentShortfall: action.currentShortfall === true,
-        ...currentPeriodBillsSection(action),
+        ...currentPeriodBillsSection(action, advice),
       }
       : unavailable('current-period-action-unavailable'),
     paydayAllocation: projectPaydayAllocation(advice),

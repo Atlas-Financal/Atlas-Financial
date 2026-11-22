@@ -35,7 +35,7 @@ const shell = (() => {
   return sandbox.window.StackBlocks;
 })();
 const STUB = globalThis.StackBlocks = { register: (n, f) => { registered[n] = f; }, isEstimated: shell.isEstimated, estClass: shell.estClass,
-  budgetTrust: shell.budgetTrust, barWidth: shell.barWidth, money: shell.money };
+  budgetTrust: shell.budgetTrust, barWidth: shell.barWidth, money: shell.money, billName: shell.billName };
 delete require.cache[require.resolve(file)];
 const mod = require(file);
 assert.strictEqual(typeof registered.cards, 'function', 'registers as cards');
@@ -257,7 +257,48 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
   assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
   assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
     'only the estimated amount (the first row\'s plan) is soft');
-  assert(/class="sc-f stack-est"/.test(cardOf('bills')));
+  // No greyed bill amounts on the rows (owner decision, Dale, 2026-11-22): an estimated row amount prints plain (its
+  // trust is drawn in its tap-in sheet). The head and its bar have no sheet, so they stay soft when estimated (lead
+  // ruling on pre-review 7074755817): the only place that total's trust can show.
+  assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-bar stack-est"/.test(cardOf('bills')),
+    'an estimated Bills total keeps its soft head and bar');
+  {
+    const rowsOfBills = h => (h.match(/<li class="sc-row sc-bill[\s\S]*?<\/li>/g) || []);
+    const eb = JSON.parse(JSON.stringify(e));
+    eb.stackSummary.bills.paidTrust = 'estimated';
+    eb.bills.forEach(b => { if (b.stackBillAmount != null) b.stackBillAmountTrust = 'estimated'; });
+    const bc = buildCardsHTML(ctx(eb)).split('data-stack-card="bills"')[1].split('</details>')[0];
+    const br = rowsOfBills(bc);
+    // This harness loads no sheet module, so no row's sheet can be shown to carry its estimate: every estimated row
+    // keeps its soft look (the safe default). The plain row with a marking sheet is proved in test-stack-trust, which
+    // loads the real sheet (StackSheet.billHeadline).
+    assert(br.length > 0 && br.every(r => /class="sc-a stack-est"/.test(r)), 'with no sheet module, estimated bill rows stay soft on the card');
+    assert(/class="sc-f stack-est"/.test(bc), 'an estimated paid keeps the head soft');
+    const pb = JSON.parse(JSON.stringify(view)); pb.evidenceState = 'projected';
+    const pc = buildCardsHTML(ctx(pb)).split('data-stack-card="bills"')[1].split('</details>')[0];
+    assert(/class="sc-f stack-est"/.test(pc), 'a projected period: the head (a projected total) stays soft');
+    // A row with no sheet target (no date to name it) keeps its trust on the card: its only place.
+    const nt = JSON.parse(JSON.stringify(view));
+    nt.bills[1].stackBillAmountTrust = 'estimated'; delete nt.bills[1].date;
+    nt.bills[0].stackBillAmountTrust = 'estimated';
+    const ntRows = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
+    const noTarget = ntRows.filter(r => !/data-stack-sheet=/.test(r));
+    assert(noTarget.length === 1 && /class="sc-a stack-est"/.test(noTarget[0]), 'an estimated row with no sheet stays soft on the card');
+    // With a sheet module present, the card asks it: a row is plain only when its sheet shows this amount marked.
+    {
+      const seen = [];
+      STUB.isEstimated = shell.isEstimated;
+      globalThis.StackSheet = { billHeadline: (c, row) => { seen.push(row.id); return row.id === 'phone' ? { amount: 222.22, trust: 'estimated' } : { amount: null, trust: null }; } };
+      try {
+        const sr = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
+        const byId = id => sr.find(r => r.includes('bill:' + id + '@')) || '';
+        assert(/class="sc-a stack-est"/.test(byId('hydro')), 'a sheet whose headline is a dash: the row stays soft');
+        assert(seen.includes('hydro'), 'the card asked the sheet');
+      } finally { delete globalThis.StackSheet; }
+    }
+    const calc = buildCardsHTML(ctx(view)).split('data-stack-card="bills"')[1].split('</details>')[0];
+    assert(!/stack-est/.test(calc), 'a calculated Bills card carries no soft class at all');
+  }
   assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
   // the category mini bar is soft with its row's figures: an estimated amount, and a projected period (Codex on #1467)
   const rowsOf = h => (h.match(/<li class="sc-row[^>]*data-stack-sheet="budget:[\s\S]*?<\/li>/g) || []);
@@ -409,3 +450,28 @@ console.log('test-stack-cards: ok');
   assert(amounts(mutantHtml).length > 0, 'mutant: printing an unpublished figure as $0 shows money on the unavailable period and is caught');
   console.log('PASS unavailable-plan period prints no amount on the cards (real recommendation, control, $0 mutant)');
 }
+
+// Bill names print without their timing qualifiers (owner decision, Dale, queued 2026-11-22): the shell's one rule,
+// StackBlocks.billName. Invented labels; the published label itself is unchanged.
+{
+  const n = shell.billName;
+  assert.strictEqual(n('Rehearsal room (estimated timing)'), 'Rehearsal room');
+  assert.strictEqual(n('Rehearsal room (Estimated Timing) '), 'Rehearsal room');
+  assert.strictEqual(n('Car insurance \u2014 15 August posting unknown'), 'Car insurance');
+  assert.strictEqual(n('Car insurance - 15 August posting unknown'), 'Car insurance');
+  assert.strictEqual(n('Car insurance posting unknown'), 'Car insurance');
+  assert.strictEqual(n('Hydro'), 'Hydro', 'a plain label is untouched');
+  assert.strictEqual(n('Mid-month top-up'), 'Mid-month top-up', 'a hyphen alone is not a qualifier');
+  assert.strictEqual(n('Car-insurance posting unknown'), 'Car-insurance', 'a hyphen inside a name is not the qualifier dash');
+  assert.strictEqual(n('Car-insurance \u2014 9 March posting unknown'), 'Car-insurance', 'a hyphenated name keeps its hyphen before the dash');
+  assert.strictEqual(n('(estimated timing)'), '(estimated timing)', 'an all-qualifier label prints as given, never empty');
+  assert.strictEqual(n(null), '');
+  const q = JSON.parse(JSON.stringify(view));
+  q.bills[1].label = 'Phone (estimated timing)';
+  q.bills[0].label = 'Hydro \u2014 15 August posting unknown';
+  const qh = buildCardsHTML(ctx(q));
+  assert(!/estimated timing|posting unknown/i.test(qh) && qh.includes('>Phone<') && qh.includes('>Hydro<'),
+    'the Bills card rows print the names without the qualifiers');
+  assert.strictEqual(q.bills[1].label, 'Phone (estimated timing)', 'the published label is not changed');
+}
+console.log('bill names and ungreyed bills: ok');
