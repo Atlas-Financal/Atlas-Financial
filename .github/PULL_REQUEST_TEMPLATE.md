@@ -69,17 +69,16 @@
   `CLAUDE.md` owns the narrow trigger list and review protocol.
 
   When a high-risk trigger fires, this review is REQUIRED governance before
-  merge. A non-builder reviewer performs it on the current exact head: the
-  in-house reviewer (a separate Claude reviewer session, OD-026) by default and
-  for every figures-moved PR; Muse or another non-builder Claude Code session
-  may review a lower-risk PR. The builder cannot satisfy it. Request it only
+  merge. A reviewer of record performs it on the current exact head:
+  ChatGPT (Atlas) or Muse, whichever did not build the PR (OD-027), including
+  for every figures-moved PR. The builder cannot satisfy it. Request it only
   on a stable merge candidate, not the first implementation attempt.
 
   The reviewer posts factual findings as a PR comment (Reviewed head /
   Findings) per CLAUDE.md. Outcome is BLOCKERS FOUND, NO BLOCKERS FOUND, or
   INCOMPLETE (PENDING until findings exist). Findings are not PR approval or
   merge authorization; a non-builder merger other than Atlas (Muse by
-  default) makes and records the merge decision.
+  default, unless Muse reviewed the PR) makes and records the merge decision.
 
   When no high-risk trigger fires, it is NOT REQUIRED.
 
@@ -94,7 +93,7 @@
 
 - **Required**: <!-- REQUIRED — trigger; or NOT REQUIRED — why no high-risk trigger fired -->
 - **Exact reviewed head**: <!-- 40-character SHA, or N/A -->
-- **Reviewer**: <!-- non-builder reviewer (e.g. In-house reviewer), or N/A -->
+- **Reviewer**: <!-- non-builder reviewer (ChatGPT (Atlas) or Muse), or N/A -->
 - **Review outcome**: <!-- BLOCKERS FOUND, NO BLOCKERS FOUND, INCOMPLETE, PENDING, or N/A -->
 - **Findings and fix verification**: <!-- link to findings comment; blockers and dispositions; follow-up verification; none; or N/A -->
 

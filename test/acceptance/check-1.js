@@ -36,6 +36,15 @@ const EXPECT = [
   { range: /Nov 20/, bills: '$60.00' },
 ];
 
+// Bind each income assertion to the waterfall drawn after that period's chip was pressed.
+async function expectStackIncome(H, page, start, other, total) {
+  await page.selectPeriod(start);
+  for (const [row, amount] of [['other', other], ['total', total]]) {
+    const cells = await page.stackRows(`[data-block="waterfall"][data-period="${start}"] [data-row="${row}"] .n`);
+    H.expect(cells.length === 1 && cells[0] === amount, `${start}: ${row} should print ${amount} (got ${cells})`);
+  }
+}
+
 const scenarios = [
   // Spec calendar mapping: the spec's "Jan 1-14" is the Oct 23 - Nov 5 pay
   // period here and "Jan 15" is the next payday, Nov 6.
@@ -63,15 +72,9 @@ const scenarios = [
       const w = futureWorld(H);
       w.income.push({ id: 'bonus', label: 'Invented bonus', frequency: 'once', date: '2026-11-06', amount: 300, confidence: 'confirmed' });
       await H.withBudget(w, async p => {
-        await p.step(1);
-        const a = await H.snap(p);
-        await p.step(1);
-        const b = await H.snap(p);
-        H.expectMatch(a.range, /Oct 23/, 'first period');
-        H.expectMatch(b.range, /Nov 6/, 'second period');
-        H.expect(planned(H.section(a, 'Income')) === '$1,400.00', `Oct 23 period income stays 1,400 (got ${planned(H.section(a, 'Income'))})`);
-        H.expect(planned(H.section(b, 'Income')) === '$1,700.00', `Nov 6 period income is 1,400 + 300 (got ${planned(H.section(b, 'Income'))})`);
-      });
+        await expectStackIncome(H, p, '2026-10-23', '$0', '$1,400');
+        await expectStackIncome(H, p, '2026-11-06', '$300', '$1,700');
+      }, { view: 'stack' });
     },
   },
   {
@@ -79,18 +82,14 @@ const scenarios = [
     async run(H) {
       const w = futureWorld(H);
       // The biweekly 1,400 payroll stays (it defines the pay periods); the two
-      // 1,000 payrolls are a second, invented employer on adjacent days.
+      // distinct deposits from another invented employer straddle the boundary.
       w.income.push(
         { id: 'pay-a', label: 'Invented pay A', frequency: 'once', date: '2026-11-05', amount: 1000, confidence: 'confirmed' },
-        { id: 'pay-b', label: 'Invented pay B', frequency: 'once', date: '2026-11-06', amount: 1000, confidence: 'confirmed' });
+        { id: 'pay-b', label: 'Invented pay B', frequency: 'once', date: '2026-11-06', amount: 1250, confidence: 'confirmed' });
       await H.withBudget(w, async p => {
-        await p.step(1);
-        const a = await H.snap(p);
-        await p.step(1);
-        const b = await H.snap(p);
-        H.expect(planned(H.section(a, 'Income')) === '$2,400.00', `Oct 23 - Nov 5 is 1,400 + its own Nov 5 1,000 (got ${planned(H.section(a, 'Income'))})`);
-        H.expect(planned(H.section(b, 'Income')) === '$2,400.00', `Nov 6 - Nov 19 is 1,400 + its own Nov 6 1,000 (got ${planned(H.section(b, 'Income'))})`);
-      });
+        await expectStackIncome(H, p, '2026-10-23', '$1,000', '$2,400');
+        await expectStackIncome(H, p, '2026-11-06', '$1,250', '$2,650');
+      }, { view: 'stack' });
     },
   },
   {

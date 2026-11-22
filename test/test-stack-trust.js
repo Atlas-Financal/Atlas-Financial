@@ -200,6 +200,16 @@ console.log('5. bill and budget sheets');
   const ctx = context(view('actual'));
   ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(ctx, 'bill:water@2031-03-05')), 'an estimated bill amount is soft');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'bill:power@2031-03-06')), 'a calculated bill amount is not');
+  // The marking moved here from the card (owner decision, Dale, queued 2026-11-22), and the sheet's title is the bill's
+  // name without its timing qualifiers (StackBlocks.billName); the published label is unchanged.
+  {
+    const v = view('actual');
+    v.bills[0].label = 'Water (estimated timing)';
+    const h = win.StackSheet.html(context(v), 'bill:water@2031-03-05');
+    ok(/<h3 id="stack-sheet-title">Water<\/h3>/.test(h) && !/estimated timing/i.test(h) && /stack-sheet-big stack-n stack-est/.test(h),
+      'a bill sheet titles the name without "(estimated timing)" and still draws its estimated amount soft');
+    ok(v.bills[0].label === 'Water (estimated timing)', 'the published label is unchanged');
+  }
   const g = win.StackSheet.html(ctx, 'budget:groceries');
   ok(/stack-sheet-big stack-n">/.test(g) && /<i class="stack-est"> \//.test(g) && !/Spent<\/dt>|Budget<\/dt>/.test(g)
     && /Left<\/dt><dd class="stack-n stack-est"/.test(g),
@@ -395,6 +405,37 @@ console.log('5e. producer to sheet: a statement-moved occurrence beside a saved 
   ok(/aria-label="not available">—/.test(headline(saved)) && !/\$4[37](?![\d.,])|47\.39|43\.21/.test(saved) && /Oct 7/.test(saved),
     "the saved Oct 7 copy: a dash, never the statement's 47.39 beside Oct 7 (a pair neither period publishes)", headline(saved));
   ok(/\$47$/.test(headline(current)) && /Oct 10/.test(current), 'control: the current Oct 10 copy shows its own 47.39', headline(current));
+}
+
+console.log('5a. a bill row prints plain only when its sheet shows the same amount marked (Atlas 7075134982)');
+{
+  // Invented estimated Bills rows, each with an id and a date (so each opens a sheet). The card prints a row plain only
+  // when its tap-in sheet headline shows this same amount drawn soft; otherwise the card is its only marking.
+  const { win, fns } = load();
+  const v = view('actual');
+  const row = (id, date, amount) => ({ id, date, label: id, amount, paidState: 'not-paid', stackBillPart: 'other', stackBillAmount: amount,
+    stackBillPaymentEvidence: 'none', stackBillAmountTrust: 'estimated', stackBillPaid: false, displayAmountTrust: 'estimated' });
+  v.bills = [row('match', '2031-03-05', 64), row('nohist', '2031-03-06', 70), row('unpub', '2031-03-07', 30), row('other', '2031-03-08', 41)];
+  v.stackSummary.bills.other = 205;
+  const c = context(v);
+  c.recommendation.billHistory = {
+    match: [{ date: '2031-03-05', amount: 64, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
+    unpub: [{ date: '2031-03-07', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
+    other: [{ date: '2031-03-08', amount: 45, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
+  };
+  const el = container(); fns.cards(el, c);
+  const rowOf = id => (el.innerHTML.match(new RegExp('<li class="sc-row sc-bill[^>]*bill:' + id + '@[\\s\\S]*?<\\/li>')) || [''])[0];
+  const sheetOf = (id, date) => win.StackSheet.html(c, 'bill:' + id + '@' + date);
+  ok(!/stack-est/.test(rowOf('match')) && /stack-sheet-big stack-n stack-est">\$64</.test(sheetOf('match', '2031-03-05')),
+    'control: a matching estimated entry: plain on the card, soft $64 in the sheet');
+  ok(/class="sc-a stack-est"/.test(rowOf('nohist')) && /stack-sheet-big stack-n"><span role="img" aria-label="not available">/.test(sheetOf('nohist', '2031-03-06')),
+    'no history entry: the sheet shows a dash, so the card keeps the row soft');
+  ok(/class="sc-a stack-est"/.test(rowOf('unpub')) && /stack-sheet-big stack-n"><span role="img" aria-label="not available">/.test(sheetOf('unpub', '2031-03-07')),
+    'an unpublished occurrence amount: the sheet shows a dash, so the card keeps the row soft');
+  ok(/class="sc-a stack-est"/.test(rowOf('other')) && /\$45/.test(sheetOf('other', '2031-03-08')),
+    'the sheet shows a different amount: the card keeps the row soft');
+  ok(win.StackSheet.billHeadline(c, v.bills[0]).amount === 64 && win.StackSheet.billHeadline(c, v.bills[1]).amount === null,
+    'StackSheet.billHeadline reports what the sheet headline shows');
 }
 
 console.log('5b. cards');

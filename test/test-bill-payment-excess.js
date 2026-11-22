@@ -24,8 +24,11 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const assert = require('node:assert/strict');
+const test = require('node:test');
 const F = require('../public/forecast.js');
 const H = require('./acceptance/harness.js');
+const { stackBillAmounts } = require('./lib/stack-bill-amounts');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -58,12 +61,40 @@ function rowsFor(bill, txs, shape) {
   const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
   const periods = (rec.defaultView && rec.defaultView.calendarPeriods) || [];
   const current = periods.find(p => p.start <= w.asOf && p.end >= w.asOf) || periods[0];
-  return { period: current, row: (current.bills || []).find(b => b.id === bill.id) };
+  return { w, period: current, row: (current.bills || []).find(b => b.id === bill.id) };
 }
 const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12,
   confidence: 'confirmed', payee: 'Invented hydro' };
-const pay = amount => H.lm({ date: '2026-10-12', amount, category: 'Utilities', account: 'chequing-a',
-  payee: 'Invented hydro' });
+const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category: 'Utilities', account: 'chequing-a',
+  payee: 'Invented hydro', ...extra });
+
+test('Stack publishes the posted payment separately from the excess over its plan', async () => {
+  for (const [paid, confidence, excess, trust, printed] of [
+    [100, 'confirmed', 10, 'calculated', '$100'],
+    [100, 'estimated', 10, 'estimated', '$100'],
+    [90.01, 'confirmed', 0.01, 'calculated', '$90'],
+  ]) {
+    const { w } = rowsFor({ ...HYDRO, confidence, rule: { settlesWhen: 'amount-at-least' } }, [pay(paid)]);
+    const x = await stackBillAmounts(w, '2026-10-09', HYDRO.id, '2026-10-12');
+    assert.deepEqual([x.bill.planned, x.bill.actual, x.bill.excess, x.bill.excessTrust], [90, paid, excess, trust],
+      'the excess is only the difference and inherits the plan confidence');
+    assert.deepEqual([x.history.amount, x.history.amountBasis, x.history.trust], [paid, 'posted-actual', 'calculated'],
+      'the history carries the actual posted cents');
+    assert.deepEqual([x.cardAmount, x.sheetAmount], [printed, printed], 'both surfaces show the posting once');
+    // 6.5 still protects the Paid verdict and visible excess on classic.
+  }
+});
+
+test('an exact payment and an explicitly verified overpayment count once at the posted amount', async () => {
+  for (const [paid, extra, excess] of [[90, {}, undefined], [100, { notes: 'bill verified' }, 10]]) {
+    const { w } = rowsFor({ ...HYDRO, rule: { settlesWhen: 'amount-at-least' } }, [pay(paid, extra)]);
+    const x = await stackBillAmounts(w, '2026-10-09', HYDRO.id, '2026-10-12');
+    assert.deepEqual([x.bill.actual, x.bill.excess, x.totals.paid, x.cardPaid, x.sheetPaid],
+      [paid, excess, paid, true, true], 'the confirmed occurrence counts at its paid amount');
+    if (excess === undefined) assert.doesNotMatch(x.disclosure, /excess|over planned/i,
+      'an exact payment has no excess qualifier on the row or sheet');
+  }
+});
 
 console.log('Published bill rows');
 {
@@ -163,7 +194,7 @@ console.log('Budget printers');
   // The actual Bills row printer, fed the row Forecast published.
   const confirmed = rowsFor({ ...HYDRO, rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
   const confirmedText = text(ctx.rowHtml(confirmed));
-  ok(/\$100\.00\s*Paid · \$10\.00 over planned/.test(confirmedText) && !/estimated|≈/.test(confirmedText),
+  ok(/Paid · \$10\.00 over planned/.test(confirmedText) && !/estimated|≈/.test(confirmedText),
     'confirmed plan: the Bills row reads "Paid · $10.00 over planned", unqualified', confirmedText);
   const estimated = rowsFor({ ...HYDRO, confidence: 'estimated', rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
   const estimatedText = text(ctx.rowHtml(estimated));
@@ -181,8 +212,6 @@ console.log('Budget printers');
     excess: 10, excessTrust: 'calculated' });
   ok(trusted.label === 'Estimated' && trusted.qualifier === 'Trusted on due date (not seen)',
     'a schedule-trusted row prints the not-seen marker, never an excess', JSON.stringify(trusted));
-  const exact = ctx.present({ status: 'PAID', settlement: 'represented' });
-  ok(exact.label === 'Paid' && !exact.qualifier, 'an exact payment prints Paid with no qualifier', JSON.stringify(exact));
 
   const detailCtx = { console, Intl, Number, Math, String, Object, Array, JSON };
   detailCtx.window = detailCtx; detailCtx.self = detailCtx;

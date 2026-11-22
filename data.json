@@ -782,14 +782,14 @@
                 "id": "phoenix-digital-health",
                 "label": "Phoenix Digital Health — Amanda",
                 "frequency": "monthly",
-                "day": 3,
-                "firstDue": "2026-10-03",
+                "day": 4,
+                "firstDue": "2026-10-04",
                 "amount": 174.99,
                 "confidence": "confirmed",
                 "budgetCategory": null,
                 "payingAccount": "travelvisa",
                 "jointCash": false,
-                "note": "Owner 2026-10-06 (Dale via Atlas Coordinator): $174.99 monthly, Amanda's, paid on the Travel Visa. Category is not stated (owner decision); budgetCategory null so it is not a category smear or a second household-budget hold. Day 3 is the posted 2026-09-03 Travel Visa charge; the 2026-10-03 occurrence fell on a Saturday and the charge is dated Monday 2026-10-05, the next business day. firstDue 2026-10-03 because the 2026-09-03 charge is already inside the observed Travel Visa balance and is not reserved again. Card-paid Travel Visa reserved gravity: jointCash false, not a BILLS ACCOUNT withdrawal. Settlement is the represented-event identity (exact payee, Travel Visa, debit, up to two days early or the latest due on or before posting, exact scheduled amount); observed charges are 2026-08-05 ($124.99, earlier price), 2026-09-03 and 2026-10-05. A later Bills to Travel Visa transfer is card backfill for this purchase, not a second bill or minimum."
+                "note": "Owner 2026-10-06 (Dale via Atlas Coordinator): $174.99 monthly, Amanda's, paid on the Travel Visa. Category is not stated (owner decision); budgetCategory null so it is not a category smear or a second household-budget hold. Day 3 is the posted 2026-09-03 Travel Visa charge; the 2026-10-03 occurrence fell on a Saturday and the charge is dated Monday 2026-10-05, the next business day. firstDue 2026-10-03 because the 2026-09-03 charge is already inside the observed Travel Visa balance and is not reserved again. Card-paid Travel Visa reserved gravity: jointCash false, not a BILLS ACCOUNT withdrawal. Settlement is the represented-event identity (exact payee, Travel Visa, debit, up to two days early or the latest due on or before posting, exact scheduled amount); observed charges are 2026-08-05 ($124.99, earlier price), 2026-09-03 and 2026-10-05. A later Bills to Travel Visa transfer is card backfill for this purchase, not a second bill or minimum. Owner fact 2026-11-21 (Dale, 7:10 a.m. MT, via Atlas Coordinator): the bill is due on the 4th of each month, not the 3rd; this supersedes the day 3 and firstDue 2026-10-03 wording above. day 4 with firstDue 2026-10-04 keeps the same first planned occurrence (October 2026, one day later): the 2026-09-03 charge stays inside the observed Travel Visa balance and is not reserved, no occurrence is added or dropped, and the Monday 2026-10-05 charge still covers the Sunday 2026-10-04 due (latest due on or before posting). Amount, card, category, jointCash and settlement identity are unchanged."
             },
             {
                 "id": "bell-sep15-2026",
@@ -810,10 +810,10 @@
                 "day": 15,
                 "firstDue": "2026-10-15",
                 "amount": 160,
-                "confidence": "confirmed",
+                "confidence": "estimated",
                 "budgetCategory": "telecom",
                 "payingAccount": "chequing-a",
-                "note": "Owner 2026-09-19 standing $160/month (rounded from ~$159.03 current charges) on the 15th. firstDue 2026-10-15 so September 2026 is the once row bell-sep15-2026 ($283.94 due 2026-09-15, owner 2026-09-19 catch-up / wife payment-mess total; supersedes $265.65) and is not also this series. Owner 2026-09-21: autopay is set, and the planned paying account is BILLS ACCOUNT (Chequing A). That is a joint-cash withdrawal, not Travel Visa reserved gravity. Historical June 2026 reconstruction $104.20 + second-watch CSV $16.80 = $121.00 is retired as the forward baseline. Live Lunch Money $250.00 (2026-07-17, 2026-08-14) and $69.15 (2026-08-16) remain catch-up / settlement-route evidence, not the recurring amount. July/August statement totals and roaming / late fees are not the baseline. Shaw $78.40 on BILLS ACCOUNT around the 14th is a separate dated chequing bill. A posted Travel Visa Bell debit can still settle one standing occurrence. Posted BILLS settlement is the proven same-day two-leg identity on chequing-a. One posted BILLS Bell debit does not settle. Amount is not identity. This does not change the $160 amount, the 15th cadence, or firstDue 2026-10-15."
+                "note": "Owner 2026-09-19 standing $160/month (rounded from ~$159.03 current charges) on the 15th. firstDue 2026-10-15 so September 2026 is the once row bell-sep15-2026 ($283.94 due 2026-09-15, owner 2026-09-19 catch-up / wife payment-mess total; supersedes $265.65) and is not also this series. Owner 2026-09-21: autopay is set, and the planned paying account is BILLS ACCOUNT (Chequing A). That is a joint-cash withdrawal, not Travel Visa reserved gravity. Historical June 2026 reconstruction $104.20 + second-watch CSV $16.80 = $121.00 is retired as the forward baseline. Live Lunch Money $250.00 (2026-07-17, 2026-08-14) and $69.15 (2026-08-16) remain catch-up / settlement-route evidence, not the recurring amount. July/August statement totals and roaming / late fees are not the baseline. Shaw $78.40 on BILLS ACCOUNT around the 14th is a separate dated chequing bill. A posted Travel Visa Bell debit can still settle one standing occurrence. Posted BILLS settlement is the proven same-day two-leg identity on chequing-a. Owner 2026-11-21 (Dale): a single posted BILLS Bell payment also settles that month's occurrence; the plan amount stays $160. Amount is not identity. This does not change the $160 amount, the 15th cadence, or firstDue 2026-10-15."
             },
             {
                 "id": "square-one",

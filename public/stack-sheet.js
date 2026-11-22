@@ -76,22 +76,29 @@
   // when it publishes one for this bill, else id@scheduledDate, else id@date. Never inferred from a similar date or amount.
   const rowOccurrence = bill => (typeof bill.occurrenceKey === 'string' && bill.occurrenceKey.startsWith(bill.id + '@')
     ? bill.occurrenceKey : `${bill.id}@${typeof bill.scheduledDate === 'string' && bill.scheduledDate ? bill.scheduledDate : bill.date}`);
-  function billHtml(bill, kicker, v) {
+  // The one rule for what a bill sheet's headline shows (the Bills card reads it, through StackSheet.billHeadline, to
+  // know whether the sheet carries a row's estimate): this occurrence's own entry and the amount printed for it, or a
+  // null amount (the dash).
+  function billHeadline(bill) {
     const paid = bill.paidState === 'paid';
     const list = occurrences(bill.id);
     const identity = rowOccurrence(bill);
+    const keyed = list.some(e => typeof e.occurrence === 'string');
+    const match = keyed ? list.find(e => e.occurrence === identity) : list.find(e => e.date === bill.date);
+    const entry = match && match.paidState === bill.paidState && match.date === bill.date ? match : null;
+    return { list, identity, keyed, match, entry, amount: shownAmount(entry, paid) };
+  }
+  function billHtml(bill, kicker, v) {
+    const paid = bill.paidState === 'paid';
     // This occurrence's entry, found by identity (a statement may have moved its date; a coinciding date never borrows
     // another occurrence). Only a history that publishes no identity at all falls back to the date. The entry is shown
     // only when it describes this same copy of the occurrence: the row's own date and paid state. A saved close's copy
     // (its old date, or its unpaid state) never shows the current copy's amount; the headline is a dash instead
     // (Atlas on #1455 and #1456).
-    const keyed = list.some(e => typeof e.occurrence === 'string');
-    const match = keyed ? list.find(e => e.occurrence === identity) : list.find(e => e.date === bill.date);
-    const entry = match && match.paidState === bill.paidState && match.date === bill.date ? match : null;
+    const { list, identity, keyed, match, entry, amount: headAmount } = billHeadline(bill);
     const asOf = ctx && ctx.data && ctx.data.meta && typeof ctx.data.meta.asOf === 'string' ? ctx.data.meta.asOf : null;
     const earlier = asOf ? list.filter(e => e !== match && (!keyed || e.occurrence !== identity) && e.date < bill.date && e.date <= asOf) : [];
-    const headAmount = shownAmount(entry, paid);
-    return head(kicker, bill.label || '')
+    return head(kicker, (window.StackBlocks.billName ? window.StackBlocks.billName(bill.label) : bill.label) || '')
       + `<div class="stack-sheet-big stack-n${headAmount === null ? '' : est(entry.trust, v)}">${amountHtml(headAmount)}</div>`
       + (paid ? (entry && entry.paidConfirmed === true ? CHECK : '') : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
       + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => {
@@ -220,7 +227,14 @@
   }
 
   // For tests and for keyboard openers: the sheet's markup for one item of a ctx, or null.
-  window.StackSheet = { html: (context, key) => { const saved = ctx; ctx = context; const item = find(key); ctx = saved; return item ? item.html : null; } };
+  // billHeadline: what this bill row's sheet headline shows ({ amount, trust }, amount null for the dash), for the Bills
+  // card's choice of where a row's estimate is marked. The same rule the sheet draws by; never a second matcher.
+  window.StackSheet = { html: (context, key) => { const saved = ctx; ctx = context; const item = find(key); ctx = saved; return item ? item.html : null; },
+    billHeadline: (context, bill) => {
+      if (!bill || typeof bill !== 'object' || bill.id == null) return null;
+      const saved = ctx; ctx = context;
+      try { const h = billHeadline(bill); return { amount: h.amount, trust: h.entry ? h.entry.trust : null }; } finally { ctx = saved; }
+    } };
 
   window.StackBlocks.register('sheet', (el, context) => {
     container = el;

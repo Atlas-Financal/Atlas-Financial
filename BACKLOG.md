@@ -319,6 +319,14 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+<a id="linked-posted-bill-payment"></a>
+
+**A pending copy of a linked, posted bill payment blocks Stack's Paid check. Expected: the bill stays Paid.** · **ADDED TO BACKLOG — OPEN** (C1 Check 6.19)
+
+The defect is in Forecast. The observer links the posted debit to its bill occurrence and marks the posted member of the duplicate pair. In `public/forecast.js`, `budgetBillPostedLink` rejects that member on `pendingPostedDuplicate`. Forecast then publishes pending evidence and `stackBillPaid: false`; the Bills card renders that verdict. In the invented scenario, removing only the duplicate flag on the posted debit restores `posted-equal`, the Paid check and the posted amount in the paid total.
+
+The occurrence stays settled once. Collapse a pending copy into the posted payment. If the extra debit is a distinct charge in the already-settled cycle, send that charge to To confirm. Keep the classic Paid-row and settlement totals until Stack proves both cases. The lead owns the ledger-side disposition under OD-021.
+
 **Item notes split on ";" only, so an `item:` note followed by an appended line is misread** · *latent; ATLAS REVIEWER observation on #1497 (7053019186), lead 2026-11-20; ledger-side, rule 17*
 
 `noteItemNames` (`scripts/provider-observe.js`) splits a Lunch Money note on ";" only. A note that holds an `item:` line and then a newline-appended line (for example Grok Bot's appended "bill verified") reads the appended text as part of the item name. No figure or rule reads item names today, so nothing published moves. Decide with Grok Bot whether item notes are separated by ";", by lines, or by both, then split the same way the bill marker does. Proof would be an invented note `item: widget` followed by an appended line, which yields the item name `widget` alone.
@@ -847,6 +855,16 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Why:** under the hold rule, an item dated before the current period is out of the pour as if paid, even when it is overdue and unpaid (not `paymentStatus` `'paid'`). Its money then flows to later goals.
 - **Closure:** an overdue unpaid item either keeps its share or is flagged, with a test on an invented overdue item.
 - Source: the lead, after ATLAS REVIEWER's NO BLOCKERS FOUND 7057346617 on #1505. DISPLAY, relayed by ATLAS LEAD 11, 2026-11-21.
+
+**A bill's own `dateConfidence` is not served on non-cutover bills (Shaw, Google storage)** · QUEUED (ATLAS LEAD 12, 2026-11-22): from the cautious-tags audit, after #1542 and #1510. Owner: the lead. Full lane (a trust tag on a decision surface).
+- **Why:** bill events take a date tag only through `billCutoverDateTrust`, which reads `bill.dateConfidence` only when the bill has a `timingBefore` cutover. A plan bill's own `dateConfidence: "estimated"` is inert. Shaw's 14th and Google storage's month-end are planning dates, but the audit's ask to tag them estimated cannot be met in `data.json` alone.
+- **Closure:** Forecast or the live path carries a bill's own `dateConfidence` onto its occurrences (never toward more certainty), then the two rows are tagged. Proof: the served row shows the date as estimated, and a bill with no `dateConfidence` is unchanged.
+- Source: independent audit relayed by ATLAS LEAD 12; builder finding on the cautious-tags PR (no inert tags shipped).
+
+**When a TD statement is recorded for a `tdcc-auto17` occurrence, record the fixed autopay as that occurrence's payment** · QUEUED (ATLAS LEAD 11 ruling, 2026-11-21): from #1514's reviewer observation 2. Full lane when a statement is recorded.
+- **Why:** a row with a recorded statement plans that statement's minimum. For the TD credit card's fixed automatic payment, the plan would then show the minimum, not the payment actually sent.
+- **Closure:** when a statement is recorded on a `tdcc-auto17` occurrence, the fixed autopay is recorded as that occurrence's `sentPayments` entry (intent: fixed autopay), so the plan shows the payment made and the statement minimum stays visible as the floor. If a statement minimum ever exceeds the fixed amount, flag it to the lead for Dale.
+- Source: ATLAS REVIEWER 2 on #1514 (7058724201), lead ruling 2026-11-21.
 
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
 - **Why:** on the 753-purchase invented harness world (main `311c6c7b`), building the hold set (`computeHeldOtherIncomeKeys` → `calendarIncomeSections`, which scans every packet transaction in its span) is 292 of 1,035 ms inside `recommend`. One `recommend` builds it 36 times. The payday and weekly searches already share it within a search (#980 follow-up, #1406); the other callers do not.

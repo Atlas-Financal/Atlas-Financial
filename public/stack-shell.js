@@ -57,6 +57,17 @@ try {
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // A bill's printed name (owner decision, Dale, queued 2026-11-22): the plan's label without its timing qualifiers,
+    // "(estimated timing)" and "— <date> posting unknown", as the classic page already drops "posting unknown"
+    // (plan.js glanceLineLabel). Display only: the label Forecast publishes is unchanged, and the trust of the amount is
+    // still published and still drawn, in the bill's tap-in sheet. Never empty: an all-qualifier label prints as given.
+    billName(label) {
+      const raw = typeof label === 'string' ? label.replace(/\s+/g, ' ').trim() : '';
+      const name = raw.replace(/\s*\(\s*estimated timing\s*\)/ig, '')
+        .replace(/(?:\s*[\u2014\u2013]|\s+-)\s*[^\u2014\u2013]*?posting unknown\s*$/i, '')
+        .replace(/\s*posting unknown\s*/ig, ' ').replace(/\s+/g, ' ').trim();
+      return name || raw;
+    },
     // The one way the Stack page prints a published amount (design: whole dollars). Display only: the published value
     // is rounded to the dollar for printing (half away from zero, so $2.50 prints $3 and −$2.50 prints −$3) and is
     // never used again; no sum, status or decision reads the printed text. A true minus sign; with signed, a plus on a
@@ -134,6 +145,22 @@ try {
   const views = () => (state.recommendation && Array.isArray(state.recommendation.payPeriodViews)
     ? state.recommendation.payPeriodViews.filter(v => v && typeof v.start === 'string') : []);
   const keyOf = view => view.start;
+  // A completed period whose saved close could not be read (Forecast's savedHistoryUnavailable marker, and no saved
+  // close) is a rebuild from today's plan, not the period. The Stack page prints no figure for it, never that rebuild
+  // (it would read one way on a first load and another after the saved close loads): the shell hands every block and chip
+  // the period's identity only, so each prints its unpublished form (a dash or nothing, F8). The classic page withholds
+  // on the same marker (plan.js budgetSavedHistoryUnavailableHtml). Nothing is computed here; no explanatory text (owner).
+  const HISTORY_IDENTITY_KEYS = ['id', 'label', 'rangeLabel', 'start', 'end', 'role', 'timelineRole', 'lookback', 'evidenceState',
+    'savedHistoryUnavailable'];
+  const historyUnavailable = view => !!view && (view.timelineRole === 'past' || view.lookback === true) && !view.capturedClose
+    && !!view.savedHistoryUnavailable && view.savedHistoryUnavailable.status === 'unavailable';
+  function withholdUnavailableHistory(recommendation) {
+    const list = recommendation && Array.isArray(recommendation.payPeriodViews) ? recommendation.payPeriodViews : null;
+    if (!list || !list.some(historyUnavailable)) return recommendation;
+    return Object.assign({}, recommendation, { payPeriodViews: list.map(view => (historyUnavailable(view)
+      ? Object.fromEntries(HISTORY_IDENTITY_KEYS.filter(key => Object.prototype.hasOwnProperty.call(view, key)).map(key => [key, view[key]]))
+      : view)) });
+  }
   const surplusOf = view => {
     const s = view && view.stackSummary && view.stackSummary.surplus;
     return s && typeof s.amount === 'number' && Number.isFinite(s.amount) ? s.amount : null;
@@ -353,6 +380,7 @@ try {
       : Forecast.recommend(d.plan, d.meta && d.meta.asOf, Forecast.budgetRecommendInputs(d, {
         periods, settlementEvidence: settlement.kind === 'qualified' ? settlement.evidence : null,
       }));
+    state.recommendation = withholdUnavailableHistory(state.recommendation);
     const list = views();
     if (!list.some(v => keyOf(v) === state.selectedPeriodKey)) {
       const active = list.find(v => v.role === 'active');

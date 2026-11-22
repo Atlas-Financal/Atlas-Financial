@@ -16,7 +16,7 @@ let suiteNames;
 const id = value => installGroup ? value === group
   : suiteNames.has(value);
 const number = value => Number.isSafeInteger(value) && value >= 0;
-let invalid = false, finished = false, summary = null, terminal = null, active = null, fd;
+let invalid = false, finished = false, summary = null, terminal = null, active = null, lastBeat = 0, fd;
 // A failure cannot describe success, and a signal cannot also be an exit code.
 const coherent = r => r.status === 'pass'
   ? r.category === 'none' && r.exitCode === 0 && r.signal === null
@@ -69,7 +69,14 @@ try {
       const r = JSON.parse(line);
       if (r.type === 'ci-suite-start' && !installGroup && !summary && active === null
           && id(r.identity) && !identities.has(r.identity) && !outcomes.has(r.identity)) {
-        active = r.identity; identities.add(r.identity); emit({ type: r.type, identity: r.identity });
+        active = r.identity; lastBeat = 0; identities.add(r.identity); emit({ type: r.type, identity: r.identity });
+      } else if (r.type === 'ci-suite-heartbeat' && !installGroup && !summary && active !== null
+          && r.identity === active && Number.isSafeInteger(r.elapsedSeconds) && r.elapsedSeconds >= 1
+          && r.elapsedSeconds <= 86400 && r.elapsedSeconds > (lastBeat || 0)) {
+        // Content-free progress for the running suite: rebuilt from its
+        // identity and whole seconds only; any other field is dropped.
+        lastBeat = r.elapsedSeconds;
+        emit({ type: r.type, identity: r.identity, elapsedSeconds: r.elapsedSeconds });
       } else if (r.type === 'ci-outcome' && !summary && id(r.identity) && !outcomes.has(r.identity)
           && ['pass', 'fail'].includes(r.status) && categories.includes(r.category)
           && (r.exitCode === null || (number(r.exitCode) && r.exitCode <= 255))

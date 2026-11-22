@@ -104,6 +104,13 @@ console.log('\n=== Phoenix historical discovery and later owner routing ===');
   ok(/Owner-stated planning assumption: monthly on the 3rd/.test(phoenixSection)
       && /renewal day is not invoice-verified/i.test(phoenixSection),
     'Phoenix planning cadence is attributed to the owner, not verified from merchant history');
+  ok(/Owner 2026-11-21[\s\S]{0,120}due on the 4th of each month/.test(phoenixSection)
+      && /supersedes the day-3 planning\s+assumption/.test(phoenixSection)
+      && /day 4,\s+firstDue 2026-10-04/.test(phoenixSection),
+    'Phoenix intake records the owner 2026-11-21 due day (the 4th) superseding the day-3 assumption, matching plan.bills');
+  const phoenixRow = bills.find(b => b.id === 'phoenix-digital-health') || {};
+  ok(phoenixRow.day === 4 && phoenixRow.firstDue === '2026-10-04',
+    'plan.bills phoenix-digital-health is day 4, firstDue 2026-10-04', JSON.stringify([phoenixRow.day, phoenixRow.firstDue]));
   ok(!/phoenix/i.test(questions),
     'this pack does not open a Phoenix purpose question');
 }
@@ -189,8 +196,8 @@ console.log('\n=== plan.bills was not extended from this discovery ===');
   const bell = bills.find(b => b.id === 'bell');
   ok(bell && bell.amount === 160 && bell.day === 15 && bell.needsDate !== true
       && bell.firstDue === '2026-10-15'
-      && bell.confidence === 'confirmed' && bell.payingAccount === 'chequing-a',
-    'Bell standing is confirmed $160, dated from BILLS ACCOUNT on the 15th from October');
+      && bell.confidence === 'estimated' && bell.payingAccount === 'chequing-a',
+    'Bell standing is dated from BILLS ACCOUNT on the 15th from October, its amount tagged estimated (a rounded budget figure; 2026-11-22 audit)');
   ok(/\$250/.test(bell.note) && /\$69\.15/.test(bell.note) && /settlement/i.test(bell.note),
     'Bell $250 / $69.15 stay settlement/route evidence on the existing row');
 

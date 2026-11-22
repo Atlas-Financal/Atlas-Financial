@@ -433,8 +433,8 @@ page-rendered snapshot over the same inputs supersedes it.
 ### Atlas Contract / Systems Review — trigger-based required governance
 
 This review is required governance when a high-risk trigger in `CLAUDE.md`
-fires, and it is not required otherwise. A non-builder reviewer — the
-in-house reviewer (a separate Claude reviewer session; OD-026) by default — performs it on the current exact PR head and records
+fires, and it is not required otherwise. A reviewer of record — ChatGPT
+(Atlas) or Muse, whichever did not build the PR (OD-027) — performs it on the current exact PR head and records
 factual findings: `BLOCKERS FOUND`, `NO BLOCKERS FOUND`, or `INCOMPLETE`. The
 findings are not merge authorization; a non-builder merger other than Atlas
 decides. The active builder cannot satisfy it.
@@ -458,9 +458,9 @@ blocker-after-blocker churn stops and returns to the decision desk.
 The paid OpenAI first-review and re-review workflows are retired. Their parked
 versions exited successfully without performing a review, so their green runs
 could be mistaken for progress. Required Atlas Contract / Systems Review is
-routed through the lead to the in-house reviewer session with the pull
-request number and exact head SHA. GitHub handoff artifacts are evidence only;
-they do not wake ChatGPT, satisfy the review, or add API spend (nor do they wake the in-house reviewer).
+routed through the lead to the reviewer of record (ChatGPT (Atlas) or Muse;
+OD-027) with the pull request number and exact head SHA. GitHub handoff
+artifacts are evidence only; they do not wake ChatGPT, satisfy the review, or add API spend (nor do they wake Muse).
 
 ### Repair of failed tests
 
