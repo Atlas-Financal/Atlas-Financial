@@ -201,4 +201,63 @@ console.log('8. Relief only for rows Forecast actually paired; anything else fai
   ok(cross.spent.amount === null, 'flagged rows on different merchants: withheld', JSON.stringify(cross.spent));
 }
 
+console.log('9. A pair counts as accounted for only when its partner falls inside the period (fails closed otherwise)');
+{
+  // Forecast's pairing key includes the date, so it cannot produce a pair across the period's edge; the guard makes
+  // failing closed independent of that key's shape. Inject the pairing directly: the pending P (dated in the period) is
+  // paired with a posted Q dated after `through` (2026-08-20), both flagged.
+  const Module = require('module'), fs = require('node:fs'), pathMod = require('node:path');
+  const CP = require('../public/forecast-card-period.js');
+  const x = world([row('edge-pend', 30, { pending: true, pendingPostedDuplicate: true }),
+    row('edge-post', 30, { pendingPostedDuplicate: true, date: '2026-08-21' })]);
+  // Capture the real call's input and primitives, then republish with the injected pairing.
+  let captured = null;
+  const original = CP.publish;
+  CP.publish = (input, primitives) => { captured = { input, primitives }; return original(input, primitives); };
+  try { publish(x); } finally { CP.publish = original; }
+  const injected = Object.assign({}, captured.primitives, {
+    replacedPending: tx => tx.id === 'edge-pend',
+    pendingPostedPartner: tx => ({ 'edge-pend': 'edge-post', 'edge-post': 'edge-pend' })[tx && tx.id] || null });
+  const spentWith = mod => mod.stackCards(mod.publish(captured.input, injected)).find(c => c.id === 'travelvisa').spent;
+  const guarded = spentWith(CP);
+  ok(guarded.amount === null && guarded.trust === 'unavailable', 'a partner dated after the period: not accounted for, Spent withheld', JSON.stringify(guarded));
+  const file = require.resolve('../public/forecast-card-period.js');
+  const src = fs.readFileSync(file, 'utf8');
+  const target = "!date(partner.date) || partner.date < start || !through || partner.date > through\n          || ";
+  ok(src.includes(target), 'the mutant targets the partner date guard');
+  const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file));
+  m._compile(src.replace(target, ''), file);
+  ok(spentWith(m.exports).amount !== null, 'MUTANT: without the date guard the out-of-period partner relieves the pair, which the check above rejects');
+}
+
+console.log('10. A pending payment counts in Paid, never toward the minimum (lead ruling, 2026-11-22)');
+{
+  // By hand: Travel has a posted 100.00 payment and a pending 60.00 payment, against a 150.00 minimum. Paid (all) is 160.00,
+  // estimated; paid toward the minimum is the posted 100.00 only, so the 150.00 minimum is not covered.
+  const pay = row('pay-pend', -60, { pending: true, payee: 'Payment received', kindHint: 'payment' });
+  const bills = min => ({ cardMinimums: [{ debtId: 'travelvisa', amount: min }], trust: 'calculated' });
+  const result = F.stackCreditLines(publish(world([pay])), bills(150));
+  const line = result.lines.find(l => l.id === 'travelvisa');
+  ok(cents(line.paid.amount) === 16000 && line.paid.trust === 'estimated', 'Paid counts the pending payment: 100 + 60 = 160, estimated', JSON.stringify(line.paid));
+  ok(cents(line.paidToward.amount) === 10000 && cents(result.totals.minimumsPaid.amount) === 10000,
+    'paid toward the minimum and minimumsPaid are the posted 100.00 only', JSON.stringify([line.paidToward, result.totals.minimumsPaid]));
+  ok(line.minimumCovered.value === false, 'posted 100 < 150: the minimum is not covered, though 160 including the pending payment would be', JSON.stringify(line.minimumCovered));
+  // A pending payment alone: the card's only payment is pending. By hand: paid toward the minimum is 0, not covered.
+  const alone = world([pay]);
+  alone.packet.transactions = alone.packet.transactions.filter(tx => tx.id !== 'payment-a' && tx.id !== 'cash-leg-a');
+  const aloneLine = F.stackCreditLines(publish(alone), bills(25)).lines.find(l => l.id === 'travelvisa');
+  ok(cents(aloneLine.paid.amount) === 6000 && cents(aloneLine.paidToward.amount) === 0 && aloneLine.minimumCovered.value === false,
+    'a pending 60 payment alone against a 25 minimum: Paid 60, paid toward the minimum 0, not covered', JSON.stringify([aloneLine.paid, aloneLine.paidToward, aloneLine.minimumCovered]));
+  // MUTANT: covered read from the pending-inclusive Paid turns the pending payment alone into a covered minimum.
+  const fs = require('node:fs'), Module = require('module'), pathMod = require('node:path');
+  const file = require.resolve('../public/forecast-card-period.js');
+  const src = fs.readFileSync(file, 'utf8');
+  const target = 'const paidForMinimum = card.paidPosted || paid;';
+  ok(src.includes(target), 'the mutant targets the posted-only minimum rule');
+  const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file));
+  m._compile(src.replace(target, 'const paidForMinimum = paid;'), file);
+  ok(m.exports.stackCreditLines(publish(alone), bills(25)).lines.find(l => l.id === 'travelvisa').minimumCovered.value === true,
+    'MUTANT: reading the pending-inclusive Paid makes the pending payment alone cover the minimum, which the check above rejects');
+}
+
 console.log(`\nPASS Stack card Spent counts pending, never twice (${checks})`);

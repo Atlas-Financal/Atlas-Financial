@@ -138,7 +138,11 @@
         if (id === 'heloc' || typeof primitives.pendingPostedPartner !== 'function') return false;
         const partnerId = primitives.pendingPostedPartner(tx);
         const partner = partnerId == null ? null : ownById.get(String(partnerId));
-        if (!partner || (partner.pending === true) === (tx.pending === true) || partner.pendingPostedAmbiguous === true
+        // The partner must fall inside this period too ([start, through]); otherwise the pair is not accounted for here.
+        // Forecast's pairing key includes the date, so a pair shares one date today; the guard keeps failing closed if
+        // the key ever changes.
+        if (!partner || !date(partner.date) || partner.date < start || !through || partner.date > through
+          || (partner.pending === true) === (tx.pending === true) || partner.pendingPostedAmbiguous === true
           || partner.contradictoryEvidence === true || String(primitives.pendingPostedPartner(partner)) !== String(tx.id)) return false;
         return replacedPending(tx.pending === true ? tx : partner);
       };
@@ -344,9 +348,9 @@
       const gaps = Array.isArray(card.stackPendingGaps) ? card.stackPendingGaps
         : movement && movement.trust === 'calculated' && movement.completeness === 'complete'
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
-      let paidCents = 0, spentCents = 0;
-      const paidReasons = [], spentReasons = [];
-      let paidTrust = 'calculated', spentTrust = 'calculated';
+      let paidCents = 0, spentCents = 0, postedPaidCents = 0;
+      const paidReasons = [], spentReasons = [], postedPaidReasons = [];
+      let paidTrust = 'calculated', spentTrust = 'calculated', postedPaidTrust = 'calculated';
       for (const row of rows) {
         const value = typeof row.amount === 'number' && Number.isFinite(row.amount) ? Math.round(row.amount * 100) : null;
         // A figure a pending row adds to is an estimate until the row posts: never calculated.
@@ -354,22 +358,32 @@
           if (row.kind === 'payment') { paidTrust = 'estimated'; paidReasons.push('includes-pending'); }
           else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') { spentTrust = 'estimated'; spentReasons.push('includes-pending'); }
         }
-        if (value == null) { paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified'); continue; }
+        if (value == null) {
+          paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified');
+          postedPaidReasons.push('transaction-amount-unqualified'); continue;
+        }
         if (row.kind === 'payment') {
           paidCents += -value;
           // A payment the card ledger has not reconciled (or carries no
           // allocation at all) is estimated; only a reconciled one is calculated.
           if (!row.paymentAllocation || row.paymentAllocation.status !== 'reconciled') {
             paidTrust = 'estimated'; paidReasons.push('card-payment-unconfirmed');
+            if (!row.pending) { postedPaidTrust = 'estimated'; postedPaidReasons.push('card-payment-unconfirmed'); }
           }
+          if (!row.pending) postedPaidCents += -value;
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
         else if (row.kind === 'credit-unconfirmed') {
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
+          postedPaidReasons.push('card-credit-purpose-unconfirmed');
         } else spentReasons.push('card-movement-unconfirmed');
       }
       const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed' && r !== 'includes-pending');
       const paid = blocked(paidReasons) ? figure(null, null, gaps.concat(paidReasons))
         : figure(paidCents / 100, paidTrust, paidReasons);
+      // Paid from posted payments only (lead ruling, ATLAS LEAD 12, 2026-11-22): a pending payment can fail or reverse, so
+      // it counts in Paid (estimated) but never, by itself, makes a minimum covered or counts toward the minimums paid.
+      const paidPosted = blocked(postedPaidReasons) ? figure(null, null, gaps.concat(postedPaidReasons))
+        : figure(postedPaidCents / 100, postedPaidTrust, postedPaidReasons);
       const spent = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
         : figure(spentCents / 100, spentTrust, spentReasons);
       const net = paid.amount == null || spent.amount == null
@@ -378,7 +392,7 @@
       const state = net.amount == null ? null
         : !rows.length ? 'no-activity'
         : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
-      return { id: card.id, label: card.label, paid, spent, net, state,
+      return { id: card.id, label: card.label, paid, paidPosted, spent, net, state,
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
     });
   }
@@ -473,9 +487,11 @@
     const withheldPaid = reasons => ({ amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(reasons) });
     const paidTowardOf = (card, pubCard) => {
       if (card.id !== 'heloc') {
-        if (card.paid.amount !== null) return { amount: card.paid.amount, trust: card.paid.trust, reasons: card.paid.reasons.slice() };
+        // Posted payments only: a pending payment never counts toward the minimums (lead ruling, 2026-11-22).
+        const posted = card.paidPosted || card.paid;
+        if (posted.amount !== null) return { amount: posted.amount, trust: posted.trust, reasons: posted.reasons.slice() };
         const manual = !!(pubCard && pubCard.manualStatement === true);
-        return future || (publication.role === 'current' && manual) ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);
+        return future || (publication.role === 'current' && manual) ? countedZero(posted.reasons) : withheldPaid(posted.reasons);
       }
       if (future) return countedZero(['future-not-observed']);
       if (publication.role !== 'current') return withheldPaid(['not-current-period']);
@@ -510,12 +526,14 @@
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
       const paidToward = paidTowardOf(card, published(card.id));
-      const covered = paid.amount === null || minimum.amount === null ? 'unknown'
-        : cents(paid.amount) >= cents(minimum.amount);
+      // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
+      const paidForMinimum = card.paidPosted || paid;
+      const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
+        : cents(paidForMinimum.amount) >= cents(minimum.amount);
       return { ...card, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
-          trust: covered === 'unknown' ? 'unavailable' : weakest(paid.trust, minimum.trust),
-          reasons: covered === 'unknown' ? [...new Set(paid.reasons.concat(minimum.reasons))] : [] } };
+          trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
+          reasons: covered === 'unknown' ? [...new Set(paidForMinimum.reasons.concat(minimum.reasons))] : [] } };
     });
     // Totals over the stated cards only (lead ruling, 2026-11-19): a partial
     // sum is incomplete, not an estimate, so its completeness is explicit and

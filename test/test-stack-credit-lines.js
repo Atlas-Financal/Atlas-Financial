@@ -393,14 +393,14 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
   const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
-  const guard = "return future || (publication.role === 'current' && manual) ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);";
+  const guard = "return future || (publication.role === 'current' && manual) ? countedZero(posted.reasons) : withheldPaid(posted.reasons);";
   ok(src.includes(guard), 'the mutants target the per-line unseen-card rule');
   const pastManual = mp(due([{ debtId: 'triangle', amount: 40 }]), past);
   ok(pastManual.amount === null && pastManual.reasons[0] === 'paid-unavailable', 'a manual card in a PAST period is missing history too: withheld', JSON.stringify(pastManual));
-  const noPast = load(src.replace(guard, "return future || manual ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);"));
+  const noPast = load(src.replace(guard, "return future || manual ? countedZero(posted.reasons) : withheldPaid(posted.reasons);"));
   ok(noPast.stackCreditLines(publish(past), due([{ debtId: 'triangle', amount: 40 }])).totals.minimumsPaid.amount === 0,
     'MUTANT: counting an unseen manual card as $0 in a past period too reads $0, which the past-period check above rejects');
-  const feedAsZero = load(src.replace(guard, "return countedZero(card.paid.reasons);"));
+  const feedAsZero = load(src.replace(guard, "return countedZero(posted.reasons);"));
   ok(feedAsZero.stackCreditLines(publish(failed), due([{ debtId: 'travelvisa', amount: 25 }])).totals.minimumsPaid.amount === 0,
     'MUTANT: treating every unseen card as a manual one reads $0 for a failed sync, which the failed-sync check above rejects');
   const dashEverywhere = load(src.replace(guard, "return withheldPaid(card.paid.reasons);"));
