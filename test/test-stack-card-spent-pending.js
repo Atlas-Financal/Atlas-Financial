@@ -73,6 +73,18 @@ console.log('1. One charge through its life: the same cost at every step, never 
   ok(spent['pending and its posted twin, flagged by the provider'].trust === 'calculated'
     && spent['pending and its posted twin, paired by the household budget\'s key (no flags)'].trust === 'calculated',
     'a replaced pending adds nothing, so with its posted twin in, Spent is calculated again');
+  // MUTANT: counting every pending row, replaced or not, doubles the charge once its posted twin lands.
+  {
+    const Module = require('module'), fs = require('node:fs'), pathMod = require('node:path');
+    const file = require.resolve('../public/forecast-card-period.js');
+    const src = fs.readFileSync(file, 'utf8');
+    const target = '.concat(allPending.filter(row => row.replacedByPosted !== true))';
+    ok(src.includes(target), 'the double-count mutant targets the replaced-pending rule');
+    const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file));
+    m._compile(src.replace(target, '.concat(allPending)'), file);
+    const doubled = m.exports.stackCards(publish(world(stages[1][1]))).find(c => c.id === 'travelvisa').spent;
+    ok(cents(doubled.amount) === cents(BASE_SPENT + 2 * X), 'MUTANT: without it the pair counts twice (207.40 + 2 x 48.50), which the invariant rejects', JSON.stringify(doubled));
+  }
   const both = travel(world(stages[1][1]));
   ok(both.transactions.filter(r => r.amount === X).length === 2 && both.transactions.filter(r => r.amount === X && r.pending).length === 1,
     'no row is dropped from view: the replaced pending row is still listed (marked pending) beside its posted twin');
