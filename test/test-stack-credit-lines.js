@@ -12,7 +12,7 @@
  *
  * Path: the invented card week (test/fixtures/card-posted-period-movement-data.js) -> Forecast.cardPeriodMovements ->
  * Forecast.stackCreditLines, with an invented bills split. By hand (posted rows only):
- *   Travel: paid 100.00, spent 207.40 -> to-go 107.40. Minimum 25 -> covered (100 >= 25).
+ *   Travel: paid 100.00, spent 236.00 (207.40 posted + the pending 28.60, Dale 2026-11-22) -> to-go 136.00. Minimum 25 -> covered (100 >= 25).
  *   Cash Back: paid 250.00, spent 114.20 -> paid-back, toGo 0. Minimum 300 -> not covered (250 < 300).
  *   Emerald: 0 / 0 -> paid-back. No minimum row -> minimum null, covered unknown.
  *   Triangle, Amazon Mastercard: paid / spent unavailable -> status null, covered unknown.
@@ -40,8 +40,8 @@ console.log('1. Hand-derived status, to go and minimum covered');
   const x = fx.fixture();
   ok(same(lines(x).map(c => c.id), ['travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna', 'heloc']), 'the six credit lines, HELOC included');
   const t = line(x, 'travelvisa');
-  ok(t.status === 'to-go' && t.toGo.amount === 107.4 && t.toGo.trust === 'estimated',
-    'Travel: to-go 207.40 - 100.00 = 107.40, estimated (its payment source is not reconciled)', JSON.stringify(t.toGo));
+  ok(t.status === 'to-go' && t.toGo.amount === 136 && t.toGo.trust === 'estimated',
+    'Travel: to-go 236.00 - 100.00 = 136.00, estimated (a pending charge and an unreconciled payment)', JSON.stringify(t.toGo));
   ok(same([t.minimum.amount, t.minimum.trust], [25, 'calculated']) && t.minimumCovered.value === true,
     'Travel: minimum 25 from the split, covered (100 >= 25)');
   const c = line(x, 'cashback');
@@ -100,18 +100,18 @@ console.log('5. Totals over stated cards, with completeness explicit');
 {
   const x = fx.fixture();
   const t = totals(x);
-  // Stated: Travel 100 / 207.40, Cash Back 250 / 114.20, Emerald 0 / 0. Triangle and Amazon are unavailable.
-  ok(t.paid === 350 && t.spent === 321.6 && t.completeness === 'partial' && same(t.excluded, ['triangle', 'mbna'])
+  // Stated: Travel 100 / 236.00 (its pending 28.60 counts), Cash Back 250 / 114.20, Emerald 0 / 0. Triangle and Amazon are unavailable.
+  ok(t.paid === 350 && t.spent === 350.2 && t.completeness === 'partial' && same(t.excluded, ['triangle', 'mbna'])
     && same(t.reasons, ['some-cards-unavailable']),
-  'partial: paid 100 + 250 + 0 = 350, spent 207.40 + 114.20 + 0 = 321.60, excluding Triangle and Amazon', JSON.stringify(t));
+  'partial: paid 100 + 250 + 0 = 350, spent 236.00 + 114.20 + 0 = 350.20, excluding Triangle and Amazon', JSON.stringify(t));
   ok(t.trust === 'estimated', 'trust is the weakest stated line (Travel and Cash Back payments are estimated), not relabelled');
   ok(!t.excluded.includes('heloc'), 'HELOC is never in the totals and never listed as excluded');
   const all = fx.fixture();
   all.packet.syncEvidence.forEach(r => { r.syncEvidence = 'proven'; r.fields.last_fetch = true; });
   const full = totals(all);
   ok(full.completeness === 'complete' && full.excluded.length === 0 && full.reasons.length === 0
-    && full.paid === 350 && full.spent === 416.9,
-  'complete when every card is stated: spent 321.60 + Triangle 51.30 + Amazon (89.00 - 45.00) = 416.90', JSON.stringify(full));
+    && full.paid === 350 && full.spent === 445.5,
+  'complete when every card is stated: spent 350.20 + Triangle 51.30 + Amazon (89.00 - 45.00) = 445.50', JSON.stringify(full));
   const none = fx.fixture(); none.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
   const n = totals(none);
   ok(n.paid === null && n.spent === null && n.completeness === 'none' && n.reasons.length > 0

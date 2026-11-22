@@ -309,11 +309,12 @@
     return pub.cards.filter(card => card && card.id !== 'heloc').map(card => {
       // Pending rows count (Dale, 2026-11-22: "we know the actual charge is coming ... it can count towards the spend"), each
       // exactly as the same row would if posted, except one Forecast's pairing calls replaced by its posted twin: that is the
-      // same charge, so it is neither counted nor listed and the posted twin counts once ("I don't want to have that doubled up").
-      const pendingRows = (Array.isArray(card.pending) ? card.pending : []).filter(row => row && row.replacedByPosted !== true);
-      const rows = (Array.isArray(card.posted) ? card.posted : []).map(row => ({ ...row, pending: false }))
-        .concat(pendingRows.map(row => ({ ...row, pending: true })));
-      const transactions = rows.map(row => ({ date: row.date, name: row.displayName || row.payee,
+      // same charge, so it is not counted and the posted twin counts once ("I don't want to have that doubled up"). Like the
+      // household budget's pairing, no row is dropped from view: a replaced pending row is still listed.
+      const allPending = (Array.isArray(card.pending) ? card.pending : []).map(row => ({ ...row, pending: true }));
+      const posted = (Array.isArray(card.posted) ? card.posted : []).map(row => ({ ...row, pending: false }));
+      const rows = posted.concat(allPending.filter(row => row.replacedByPosted !== true));
+      const transactions = posted.concat(allPending).map(row => ({ date: row.date, name: row.displayName || row.payee,
         amount: row.amount, kind: row.kind, payment: row.kind === 'payment', pending: row.pending }))
         .sort((a, b) => a.date.localeCompare(b.date) || (a.pending === b.pending ? 0 : a.pending ? 1 : -1));
       const movement = card.postedMovement;
