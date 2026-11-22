@@ -35,7 +35,7 @@ Not covered by this table: whether each Forecast function a `REPOINT` suite call
 
 ## Execution order (batches after this table)
 
-Each batch is one PR, one outcome, in the lane stated, with the in-house reviewer. Within a batch, suites move together by family so a reviewer can check the replacement proofs side by side.
+Each batch is one PR, one outcome, in the lane stated, reviewed by a reviewer of record (ChatGPT (Atlas) or Muse; OD-027). Within a batch, suites move together by family so a reviewer can check the replacement proofs side by side.
 
 | Batch | Content | Lane |
 |---|---|---|

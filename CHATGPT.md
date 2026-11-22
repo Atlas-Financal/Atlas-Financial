@@ -121,13 +121,13 @@ Reminders only. The governing documents remain the owners.
 
 When the current merge candidate is stable and `CLAUDE.md` says Atlas Contract
 / Systems Review is required, route the request to the lead, who hands it to
-the in-house reviewer session (OD-026). Include the pull request number, current full head SHA,
+the reviewer of record: ChatGPT (Atlas) or Muse, whichever did not build the pull request (OD-027). Include the pull request number, current full head SHA,
 deterministic gate state, and any prior blocking finding that bounds a
 re-review. Do not treat a GitHub review, comment, label, or successful workflow
 as a request to ChatGPT or to the reviewer; those artifacts cannot wake this session or a
 reviewer session.
 
-The in-house reviewer reviews that exact head independently of the active builder and posts
+The reviewer of record reviews that exact head independently of the active builder and posts
 factual findings as a PR comment in the `CLAUDE.md` form (`Reviewed head:` /
 `Findings: BLOCKERS FOUND | NO BLOCKERS FOUND | INCOMPLETE`), never a PASS,
 GitHub APPROVE, or merge permission; it does not make merge decisions. The Merge
