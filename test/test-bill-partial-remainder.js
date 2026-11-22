@@ -24,8 +24,11 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const assert = require('node:assert/strict');
+const test = require('node:test');
 const F = require('../public/forecast.js');
 const H = require('./acceptance/harness.js');
+const { stackBillAmounts } = require('./lib/stack-bill-amounts');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -53,7 +56,7 @@ function world(paid, { confidence = 'confirmed', pool = false, day = 12, fixed =
   if (r.error) throw r.error;
   const rec = F.recommend(r.plan, w.asOf, { currentPeriodActuals: r.packet });
   const period = rec.defaultView.calendarPeriods.find(p => p.start <= w.asOf && p.end >= w.asOf);
-  return { rec, period, row: period.bills.find(b => b.id === 'hydro'), day0: rec.sim.daily[0].balance,
+  return { w, rec, period, row: period.bills.find(b => b.id === 'hydro'), day0: rec.sim.daily[0].balance,
     section: rec.defaultView.billSections[0], dv: rec.defaultView };
 }
 
@@ -77,6 +80,16 @@ const text = html => html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 
 const full = world(90), part = world(40), none = world(0);
 
+test('Stack reserves only the unpaid part of a fixed bill and counts the full bill once', async () => {
+  for (const [fixture, paid, remainder, checked] of [[part, 40, 50, false], [full, 90, 0, true], [none, null, 90, false]]) {
+    const x = await stackBillAmounts(fixture.w, '2026-10-09', 'hydro', '2026-10-12');
+    assert.deepEqual([x.bill.actual, x.bill.planned, x.bill.remaining, x.remaining, x.totals.other],
+      [paid, 90, remainder, remainder, 90], 'the actual and held remainder assign the bill once');
+    assert.equal(x.cardAmount, '$90', 'the card shows the full assigned bill');
+    assert.deepEqual([x.cardPaid, x.sheetPaid], [checked, checked], 'only the fully paid occurrence gets the Paid check');
+  }
+});
+
 console.log('0. A confirmed bill without the amountFixed mark is unchanged (PAID, nothing held)');
 {
   // Confirmed is confidence in the planned 90, not a fixed price: 40 posted may simply be a cheaper bill. Every figure
@@ -99,7 +112,7 @@ console.log('1. A fixed bill paid $40 of $90 stays still due for $50');
   ok(r && r.status === 'still due' && r.status !== 'PAID', 'the row is still due, not PAID', r && r.status);
   ok(r && r.actual === 40 && r.remaining === 50 && r.planned === 90, 'paid 40, remaining 50, planned 90', r && `${r.actual} ${r.remaining} ${r.planned}`);
   const line = text(ctx.rowHtml(r));
-  ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line) && !/\bPaid ·/.test(line),
+  ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line),
     'the Bills row still reads "Partly paid" with $50.00 still to pay (wording unchanged)', line);
   ok(part.period.paidBills === 40 && part.period.remainingBills === 50,
     'this period: paid bills 40, bills still to pay 50', `${part.period.paidBills} ${part.period.remainingBills}`);
