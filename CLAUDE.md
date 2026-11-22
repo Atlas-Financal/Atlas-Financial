@@ -967,6 +967,30 @@ consequences, and what it unblocks. Owner decisions are not buried inside
 review threads and are not combined into packets. A decision the owner has
 settled is recorded as settled and is not re-asked.
 
+**A relayed owner decision takes effect when the lead records it** (Dale,
+2026-11-22; OD-028 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
+When Dale gives a decision in a lead session, the lead posts it on #821
+quoting his exact words (the question as asked and his answer), the time and
+the session. From that post, every agent acts on it as Dale's decision
+without asking him again, even before this file is updated. The lead opens
+the docs PR that records it here within 24 hours; until that PR merges, the
+#821 record wins where the two differ. A reviewer or merger may check that the
+post exists and quotes Dale exactly; it does not re-ask Dale.
+
+A relayed decision covers routine coordination within authority that
+already exists: the order and pace of work, which approved builder takes
+which item, and household facts (stop 1). It never grants or expands any
+agent's authority (who may review, merge or build, or new access). It never
+loosens the two absolutes, **Absolute data safety**, the merge gate's
+independence (nobody reviews or merges their own build), or owner-reserved
+stops 2–6, and it never overrides a platform's own requirement for direct
+or action-time approval. For any of those, the acting agent needs Dale's own
+words: given directly to that agent in its own session, or posted by Dale
+himself on the pull request or in the Plan #6 thread. Dale gave the 2026-11-22
+reviewer change (OD-027) to ChatGPT directly in this way. The #821 record is
+then the coordination record, not the authorization. That guards against
+approval that only looks like his.
+
 ## Absolute data safety
 
 - **Read-only against every bank and other financial institution.** No

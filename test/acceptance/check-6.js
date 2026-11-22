@@ -77,6 +77,36 @@ function billsWorld(H) {
 }
 const pay = (H, date, amount, payee = 'Invented hydro') => H.lm({ date, amount, category: 'Utilities', account: 'chequing-a', payee });
 
+// Read the selected period from the same Stack controls a viewer uses. Each
+// expected date below is assigned from the invented calendar before rendering.
+async function stackBillPeriod(H, page, start, occurrences, figures = {}) {
+  const root = page.page.locator('#stack-root');
+  const waterfall = root.locator('[data-block="waterfall"]');
+  if (await waterfall.getAttribute('data-period') !== start) await page.selectPeriod(start);
+  H.expect(await waterfall.getAttribute('data-period') === start, 'waterfall selected ' + start);
+  for (const [key, amount] of Object.entries(figures)) {
+    const cell = waterfall.locator(`[data-row="${key}"] .n`);
+    H.expect(await cell.count() === 1, start + ' has one ' + key + ' amount');
+    H.expect(await cell.textContent() === amount, start + ' ' + key + ' displays ' + amount);
+  }
+  const card = root.locator('[data-stack-card="bills"]');
+  H.expect(await card.count() === 1, 'selected Bills card');
+  const rows = await card.locator('li').evaluateAll(items => items.map(item => ({
+    key: item.getAttribute('data-stack-sheet'),
+    name: item.querySelector('.sc-n')?.textContent,
+    amount: item.querySelector('.sc-a')?.textContent,
+    paid: !!item.querySelector('[aria-label="Paid"]'),
+  })));
+  const keys = occurrences.map(([bill, date]) => 'bill:' + bill.id + '@' + date);
+  H.expect(JSON.stringify(rows.map(row => row.key).sort()) === JSON.stringify(keys.slice().sort()),
+    'exact bill occurrences on ' + start);
+  for (const [i, [bill]] of occurrences.entries()) {
+    const row = rows.find(item => item.key === keys[i]);
+    H.expect(row.name === bill.label && row.amount === '$' + bill.amount, 'item name and amount for ' + keys[i]);
+  }
+  return rows;
+}
+
 const scenarios = [
   {
     id: '6.1', basis: 'derived', name: 'bill paid on its due date by its own payee shows Paid and leaves Other',
@@ -305,13 +335,10 @@ const scenarios = [
     async run(H) {
       const w = billsWorld(H);
       w.bills.push({ id: 'rent', label: 'Invented storage', amount: 120, frequency: 'monthly', day: 31, confidence: 'confirmed', payee: 'Invented storage co' });
+      const [, internet, storage] = w.bills;
       await H.withBudget(w, async p => {
-        await p.step(3);
-        const s = await H.snap(p);
-        H.expectMatch(s.range, /Nov 20/, 'stepped to Nov 20 - Dec 3');
-        H.expectMatch(H.bill(s, 'Invented storage'), /^Nov\s*30/, 'dated Nov 30');
-        H.expectIncludes(H.bill(s, 'Invented storage'), '$120.00', 'for its planned 120');
-      });
+        await stackBillPeriod(H, p, '2026-11-20', [[internet, '2026-11-20'], [storage, '2026-11-30']]);
+      }, { view: 'stack' });
     },
   },
   {
@@ -373,16 +400,11 @@ const scenarios = [
       const w = billsWorld(H);
       w.bills.push({ id: 'water', label: 'Invented water', amount: 95, frequency: 'once', date: '2026-10-23', confidence: 'confirmed',
         note: 'Invented correction from 90' });
+      const [hydro, internet, corrected] = w.bills;
       await H.withBudget(w, async p => {
-        const now = await H.snap(p);
-        H.expect(H.bill(now, 'Invented hydro'), 'positive control: the current period lists its bills');
-        H.expectExcludes(now.bills.join(' '), 'Invented water', 'the current period does not hold it');
-        await p.step(1);
-        const s = await H.snap(p);
-        H.expectMatch(s.range, /Oct 23/, 'next period');
-        H.expectIncludes(H.bill(s, 'Invented water'), '$95.00', 'carried at the corrected 95');
-        H.expectExcludes(H.bill(s, 'Invented water'), '$90.00', 'never the old 90');
-      });
+        await stackBillPeriod(H, p, '2026-10-09', [[hydro, '2026-10-12'], [internet, '2026-10-20']]);
+        await stackBillPeriod(H, p, corrected.date, [[corrected, corrected.date]], { bills: '$95' });
+      }, { view: 'stack' });
     },
   },
   {
@@ -491,46 +513,21 @@ const scenarios = [
           date: '2026-10-16', confidence: 'confirmed', payee: 'Invented installer' });
         return w;
       };
-      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
-        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
-      let control;
-      await H.withBudget(world(false), async p => {
-        const s = await H.snap(p);
-        H.expectIncludes(H.section(s, 'Bills'), 'of planned $150.00', 'control: without the fee the period plans 150');
-        H.expect(await bad(p) === '$850.00', 'control: 1,400 - 150 - 400 = 850');
-        control = { hydro: H.bill(s, 'Invented hydro'), net: H.bill(s, 'Invented internet') };
-      });
-      await H.withBudget(world(true), async p => {
-        const s = await H.snap(p);
-        H.expectMatch(s.range, /Oct 9/, 'the current period');
-        const fee = s.bills.filter(t => t.includes('Invented install fee'));
-        H.expect(fee.length === 1, `the fee is listed exactly once in its own period (listed ${fee.length} times)`);
-        H.expectMatch(fee[0], /^Oct\s*16/, 'printed on its real date, Oct 16');
-        H.expectIncludes(fee[0], '$45.00', 'for its 45');
-        H.expectIncludes(H.section(s, 'Bills'), 'of planned $195.00', 'the bill load is 90 + 45 + 60 = 195');
-        H.expect(await bad(p) === '$805.00', `Balance After Deductions is 1,400 - 195 - 400 = 805 (got ${await bad(p)})`);
-        H.expect(H.bill(s, 'Invented hydro') === control.hydro && H.bill(s, 'Invented internet') === control.net,
-          'every other bill reads exactly as it does without the fee');
-        const blend = await p.rows('[data-blend-bill]');
-        H.expect(blend.filter(t => t.includes('Invented install fee')).length === 1
-          && /^Oct 16/.test(blend.find(t => t.includes('Invented install fee'))),
-          'the at-a-glance list names it once, on Oct 16');
-        await p.step(1);
-        const next = await H.snap(p);
-        H.expectMatch(next.range, /Oct 23/, 'next period');
-        H.expectIncludes(H.section(next, 'Bills'), 'of planned $0.00', 'the next period holds no copy');
-        H.expectExcludes(H.section(next, 'Bills'), 'Invented install fee', 'the fee is not in the next period');
-        await p.step(-2);
-        const prior = await H.snap(p);
-        H.expectMatch(prior.range, /Sep 25/, 'the period before');
-        H.expectIncludes(H.section(prior, 'Bills'), 'of planned $0.00', 'the period before holds no copy');
-        await p.step(-1);
-        const older = await H.snap(p);
-        H.expectMatch(older.range, /Sep 11/, 'the period holding Sep 20');
-        H.expect(H.bill(older, 'Invented internet'), 'positive control: September lists its internet bill');
-        H.expectIncludes(H.section(older, 'Bills'), 'of planned $150.00', 'September plans its own 90 + 60 only');
-        H.expectExcludes(older.bills.join(' '), 'Invented install fee', 'the fee is not moved back to September');
-      });
+      const without = world(false);
+      const withFee = world(true);
+      const [hydro, internet, fee] = withFee.bills;
+      const scheduled = [[hydro, '2026-10-12'], [internet, '2026-10-20']];
+      const control = await H.withBudget(without, async p =>
+        stackBillPeriod(H, p, '2026-10-09', scheduled, { bills: '$150', surplus: '+$850' }), { view: 'stack' });
+      await H.withBudget(withFee, async p => {
+        const rows = await stackBillPeriod(H, p, '2026-10-09', [...scheduled, [fee, fee.date]],
+          { bills: '$195', surplus: '+$805' });
+        H.expect(JSON.stringify(rows.filter(r => r.name !== fee.label)) === JSON.stringify(control),
+          'the other bill rows keep their identity, amount and paid verdict');
+        await stackBillPeriod(H, p, '2026-10-23', [], { bills: '$0' });
+        await stackBillPeriod(H, p, '2026-09-25', [], { bills: '$0' });
+        await stackBillPeriod(H, p, '2026-09-11', [[hydro, '2026-09-12'], [internet, '2026-09-20']], { bills: '$150' });
+      }, { view: 'stack' });
     },
   },
   {
@@ -560,52 +557,38 @@ const scenarios = [
           H.lm({ date: '2026-10-13', amount: 45, category: 'Utilities', account: 'chequing-a', payee: 'Invented dup co', pending: true }));
         return w;
       };
-      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
-        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
-      const read = async (prefix, timezoneId) => {
-        const out = {};
+      const check = async (prefix, timezoneId) => {
+        const w = world(prefix);
+        const [hydro, internet, setup, duplicate, last, next] = w.bills;
+        const opts = timezoneId ? { timezoneId } : {};
+        const result = await H.withBudget(w, async p => {
+          const rows = await stackBillPeriod(H, p, setup.date, [[hydro, '2026-10-12'], [internet, '2026-10-20'],
+            [setup, setup.date], [duplicate, duplicate.date], [last, last.date]], { bills: '$250', surplus: '+$750' });
+          H.expect(rows.find(row => row.name === setup.label).paid, 'the posted payday fee has a Paid check');
+          await stackBillPeriod(H, p, next.date, [[next, next.date]], { bills: '$15', surplus: '+$985' });
+          await stackBillPeriod(H, p, '2026-09-25', [], { bills: '$0' });
+          // Keys differ between the two fixtures. Both sets were checked against
+          // their own occurrence identities above. Compare the visible rows too.
+          return rows.map(({ name, amount, paid }) => ({ name, amount, paid }));
+        }, { ...opts, view: 'stack' });
+
+        // OPEN in the C1 ledger. The classic paid total includes the matched
+        // posted debit with a pending copy. Stack currently withholds its check.
+        // Keep the paid and remaining proof live until that difference is resolved.
         await H.withBudget(world(prefix), async p => {
-          const now = await H.snap(p);
-          out.now = { range: now.range, bills: now.bills.slice().sort(), section: H.section(now, 'Bills'), bad: await bad(p) };
-          await p.step(1);
-          const next = await H.snap(p);
-          out.next = { range: next.range, bills: next.bills.slice().sort(), section: H.section(next, 'Bills'), bad: await bad(p) };
-          await p.step(-2);
-          const prior = await H.snap(p);
-          out.prior = { range: prior.range, bills: prior.bills.slice().sort(), section: H.section(prior, 'Bills') };
-        }, timezoneId ? { timezoneId } : undefined);
-        return out;
+          const current = await H.snap(p);
+          H.expectMatch(H.bill(current, duplicate.label), /\$45\.00\s*Paid/, 'the posted debit pays the fee once');
+          const bills = H.section(current, 'Bills');
+          H.expectIncludes(bills, 'Paid bills this period$75.00', 'both posted fees count once');
+          H.expectIncludes(bills, 'Remaining bills to pay$175.00', 'known remainder after both payments');
+        }, { ...opts, view: 'classic' });
+        return result;
       };
-      const control = await read('solo-');
-      for (const zone of [null, 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
-        const got = await read('net-', zone);
-        const at = zone ? ` (${zone})` : '';
-        H.expectMatch(got.now.range, /Oct 9/, 'the current period' + at);
-        const one = (list, label) => list.filter(t => t.includes(label));
-        for (const [label, day] of [['Invented setup fee', 'Oct\\s*9'], ['Invented duplicate fee', 'Oct\\s*13'],
-          ['Invented last-day fee', 'Oct\\s*22']]) {
-          H.expect(one(got.now.bills, label).length === 1, `${label} is listed once in the current period${at}`);
-          H.expectMatch(one(got.now.bills, label)[0], new RegExp('^' + day + '\\D'), `${label} keeps its real date${at}`);
-          H.expect(one(got.next.bills, label).length === 0 && one(got.prior.bills, label).length === 0,
-            `${label} is in no other period${at}`);
-        }
-        H.expectMatch(one(got.now.bills, 'Invented setup fee')[0], /\$30\.00\s*Paid/, 'paid on payday: Paid for 30' + at);
-        H.expectMatch(one(got.now.bills, 'Invented duplicate fee')[0], /\$45\.00\s*Paid/,
-          'the posted debit pays it once; the pending copy adds nothing' + at);
-        H.expect(one(got.now.bills, 'Invented next-period fee').length === 0, 'the Oct 23 fee is not in the current period' + at);
-        H.expectIncludes(got.now.section, 'of planned $250.00', 'the period plans 30 + 90 + 45 + 60 + 25 = 250' + at);
-        H.expectIncludes(got.now.section, 'Paid bills this period$75.00', 'paid is 30 + 45 = 75, each once' + at);
-        H.expectIncludes(got.now.section, 'Remaining bills to pay$175.00', 'remaining is 250 - 75 = 175' + at);
-        H.expect(got.now.bad === '$750.00', `Balance After Deductions is 1,400 - 250 - 400 = 750${at} (got ${got.now.bad})`);
-        H.expectMatch(got.next.range, /Oct 23/, 'next period' + at);
-        H.expect(one(got.next.bills, 'Invented next-period fee').length === 1, 'the Oct 23 fee is listed once in the next period' + at);
-        H.expectMatch(one(got.next.bills, 'Invented next-period fee')[0], /^Oct\s*23\D/, 'on its real date, Oct 23' + at);
-        H.expectIncludes(got.next.section, 'of planned $15.00', 'the next period plans the 15 only' + at);
-        H.expect(got.next.bad === '$985.00', `next period: 1,400 - 15 - 400 = 985${at} (got ${got.next.bad})`);
-        H.expectMatch(got.prior.range, /Sep 25/, 'the period before' + at);
-        H.expectIncludes(got.prior.section, 'of planned $0.00', 'the period before holds none of them' + at);
-        H.expect(JSON.stringify(got) === JSON.stringify(control),
-          'filed beside the recurring bill, every period reads exactly as when filed standalone' + at);
+      const control = await check('solo-');
+      for (const zone of [undefined, 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+        const actual = await check('net-', zone);
+        H.expect(JSON.stringify(actual) === JSON.stringify(control),
+          'filing and viewer timezone preserve the bill roster and payment verdicts');
       }
     },
   },
