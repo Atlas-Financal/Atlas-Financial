@@ -963,6 +963,23 @@ consequences, and what it unblocks. Owner decisions are not buried inside
 review threads and are not combined into packets. A decision the owner has
 settled is recorded as settled and is not re-asked.
 
+**A relayed owner decision takes effect when the lead records it** (Dale,
+2026-11-22; OD-028 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
+When Dale gives a decision in a lead session, the lead posts it on #821 with
+his exact words, the time and the session it was given in. From that post,
+every agent acts on it as Dale's decision without asking him again, even
+before this file is updated. Where it conflicts with this file, the #821
+record wins until the lead's docs PR records it here; the lead opens that PR
+promptly. A reviewer or merger may check that the post exists and quotes Dale
+exactly; it does not re-ask Dale.
+
+The exception is owner-reserved stops 2–5 above (a tag toward more
+certainty; raw statements, credentials or secrets; security-relevant
+infrastructure; direction). For those, a relayed decision is not enough:
+the acting agent needs Dale's own words, posted by Dale himself in the Plan #6
+thread or on the pull request, or given in its own session. That guards
+against approval that only looks like his.
+
 ## Absolute data safety
 
 - **Read-only against every bank and other financial institution.** No

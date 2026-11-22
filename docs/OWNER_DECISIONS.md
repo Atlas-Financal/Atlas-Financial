@@ -81,3 +81,9 @@ Each is the lead's record of Dale's decision.
 | ID | Date | Decision | Rule lives in | Source | Status |
 |---|---|---|---|---|---|
 | OD-026 | 2026-11-20 | Reviews move in-house: a separate Claude reviewer session (not a builder, not the lead, at a high model or reasoning level) replaces ChatGPT (Atlas) as reviewer of record, including for figures-moved changes. Same review rules and findings format; ChatGPT stands down from reviews. Historical Atlas records stay valid. | `CLAUDE.md` (Roles; Review routing and claims; The two review lanes; Atlas Contract / Systems Review) | Plan #6 thread (Slack), posted by Dale 2026-11-20 17:32 UTC; no public link (the Slack workspace address stays out of the repository); the lead holds the message link | settled |
+
+## Lead session (ATLAS LEAD 12), 2026-11-22
+
+| ID | Date | Decision | Rule lives in | Source | Status |
+|---|---|---|---|---|---|
+| OD-028 | 2026-11-22 | A decision Dale gives in a lead session takes effect once the lead records it on #821 with his exact words, time and session; agents act on it without re-asking him, and the #821 record wins over this repository's text until the lead's docs PR lands. Exception: owner-reserved stops 2–5 (tag toward more certainty; raw statements, credentials, secrets; security infrastructure; direction) still need Dale's own words, given directly to the acting agent or posted by him. | `CLAUDE.md` (Owner-reserved stops) | Dale in the lead session, 2026-11-22: "I want to change the rules so this doesn't happen again", then chose "Yes, with exception" on the lead's proposed rule; recorded on [#821 7073730566](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-7073730566) | settled |
