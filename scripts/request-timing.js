@@ -56,6 +56,31 @@ function record(state, statusCode, method, outcome) {
   let other = total - data - serialize;
   if (other < 0n) other = 0n;
   const served = SERVED.has(state.served) ? state.served : 'none';
+  // Phase split (lead dispatch 2026-11-22, response-phase timing): where the
+  // time outside the existing data/serialize fields goes. Whole ms, labels
+  // only. preData: request start to the first data read. dataServe / dataAttach:
+  // the data read before and after its settlement attach mark. afterData: the
+  // last data read's end to the first serialize. write: the last serialize's
+  // end to the response finishing (compression and flush). unattributed is the
+  // remainder, so the phases always sum to total (before rounding).
+  const at = v => typeof v === 'bigint' ? v : null;
+  const span = (a, b) => (at(a) !== null && at(b) !== null && b >= a ? b - a : 0n);
+  const firstData = at(state.firstDataStart), lastDataEnd = at(state.lastDataEnd);
+  const attach = at(state.attachStart);
+  const firstSer = at(state.firstSerializeStart), lastSer = at(state.lastSerializeEnd);
+  const p = {
+    preData: firstData !== null ? span(state.start, firstData) : 0n,
+    dataServe: firstData !== null ? (attach !== null ? span(firstData, attach) : data) : 0n,
+    dataAttach: attach !== null && lastDataEnd !== null ? span(attach, lastDataEnd) : 0n,
+    afterData: lastDataEnd !== null && firstSer !== null ? span(lastDataEnd, firstSer) : 0n,
+    serialize,
+    write: lastSer !== null ? span(lastSer, state.end) : 0n,
+  };
+  let rest = total;
+  for (const v of Object.values(p)) rest -= v;
+  if (rest < 0n) rest = 0n;
+  const phases = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, toMs(v)]));
+  phases.unattributed = toMs(rest);
   return {
     type: 'atlas-timing',
     route: routeOf(state.path),
@@ -66,6 +91,7 @@ function record(state, statusCode, method, outcome) {
     ms: { total: toMs(total), data: toMs(data), serialize: toMs(serialize), other: toMs(other) },
     served,
     cacheHit: served === 'retained' || served === 'replay',
+    phases,
   };
 }
 
@@ -74,12 +100,14 @@ function record(state, statusCode, method, outcome) {
 // session gate marks the request authenticated.
 function start(req, res, next) {
   const state = { start: now(), end: 0n, path: req.path, data: 0n, dataOpen: null, serialize: 0n,
-    served: 'none', authed: false, excluded: false, done: false, cold: false };
+    served: 'none', authed: false, excluded: false, done: false, cold: false,
+    firstDataStart: null, lastDataEnd: null, attachStart: null, firstSerializeStart: null, lastSerializeEnd: null };
   req[KEY] = state;
   const json = res.json.bind(res);
   res.json = body => {
     const t = now();
-    try { return json(body); } finally { state.serialize += now() - t; }
+    if (state.firstSerializeStart === null) state.firstSerializeStart = t;
+    try { return json(body); } finally { const e = now(); state.serialize += e - t; state.lastSerializeEnd = e; }
   };
   // One record per request: 'finish' means the response was fully handed
   // off; a 'close' before it means the client went away first.
@@ -110,13 +138,21 @@ function dataStart(req) {
   if (!s || s.done) return null;
   const t = now();
   s.dataOpen = t;
+  if (s.firstDataStart === null) s.firstDataStart = t;
   return t;
 }
 function dataEnd(req, started) {
   const s = stateOf(req);
   if (!s || s.done || typeof started !== 'bigint') return;
-  s.data += now() - started;
+  const e = now();
+  s.data += e - started;
   s.dataOpen = null;
+  s.lastDataEnd = e;
+}
+// The settlement attach inside the data read starts (first mark only).
+function attachStart(req) {
+  const s = stateOf(req);
+  if (s && !s.done && s.attachStart === null && typeof s.dataOpen === 'bigint') s.attachStart = now();
 }
 function noteServed(req, served) {
   const s = stateOf(req);
@@ -127,5 +163,5 @@ function startupRecord() {
   return { type: 'atlas-startup', ms: { bootToListen: Math.max(0, Math.round(performance.now())) } };
 }
 
-module.exports = { start, markAuthed, exclude, dataStart, dataEnd, noteServed, record, routeOf, startupRecord,
+module.exports = { start, markAuthed, exclude, dataStart, dataEnd, attachStart, noteServed, record, routeOf, startupRecord,
   _resetColdForTests: () => { cold = true; } };

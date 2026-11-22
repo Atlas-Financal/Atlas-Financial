@@ -427,6 +427,7 @@ async function servedAtlasData(req, res, options = {}) {
         onServedPath('retained');
       }
     }
+    RequestTiming.attachStart(req);
     return await settlementEvidenceServing.attach(withRetainedSavingsEvidence(served));
   } finally {
     RequestTiming.dataEnd(req, dataTiming);

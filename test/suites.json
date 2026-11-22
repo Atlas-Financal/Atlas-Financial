@@ -640,6 +640,7 @@
   ["opening artifact recovery (B81)","test-b81-opening-recovery.js"],
   ["live plan overlay without rewriting openings","test-live-plan.js"],
   ["request-scoped exact-input refresh evaluation reuse","test-refresh-evaluation-reuse.js"],
+  ["complete invented live refresh and Forecast outputs match the pre-optimization snapshots","test-live-refresh-benchmark.js"],
   ["closed refresh stage timings with unchanged worker results","test-refresh-stage-timing.js"],
   ["current-period Savings planning and exact-once observed replacement","test-savings-current-period-projection.js"],
   ["live overlay unresolved same-day inbound","test-live-unresolved-inbound.js"],
@@ -732,5 +733,6 @@
   ["Stack budget sheet: the printed Spent, budget and Left or Over equal independent whole-dollar arithmetic from the published row; a withheld Spent prints nothing and never an overlay sum; published zero prints $0 and unpublished never does; six mutants of the sheet are caught (C1 S4 B1)","test-stack-budget-sheet-figures.js"],
   ["The Stack page boots in a test beside the classic page (loadStackPage): the shell and its blocks draw, the period chips redraw them, a shell that falls back or a Forecast that publishes no periods is never a pass (C1 S4)","test-stack-page-harness.js"],
   ["The acceptance harness opens the classic page by default (/?view=classic) and the Stack page on request; skipped where Playwright is not installed (C1 S4)","test-acceptance-harness-views.js"],
-  ["Stack page honours savedHistoryUnavailable: a completed period whose saved close could not be read prints no amount (a dash on its chip, nothing in the waterfall, cards or credit block), never the rebuild from today's plan; current and future periods are unaffected; two shell mutants are caught","test-stack-saved-history.js"]
+  ["Stack page honours savedHistoryUnavailable: a completed period whose saved close could not be read prints no amount (a dash on its chip, nothing in the waterfall, cards or credit block), never the rebuild from today's plan; current and future periods are unaffected; two shell mutants are caught","test-stack-saved-history.js"],
+  ["A live refresh resolves its waiter before worker cleanup: a slow stubbed teardown never delays the response, cleanup still completes, and the lifecycle line splits cleanupMs into resolve, main-thread busy and teardown (response-phase timing)","test-live-refresh-resolve-before-teardown.js"]
 ]

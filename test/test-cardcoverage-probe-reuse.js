@@ -39,15 +39,27 @@ function once(text, needle) {
   assert.strictEqual(n, 1, `expected exactly one "${needle.split('\n')[0]}" in public/forecast.js, found ${n}`);
 }
 
-function load({ reuse }) {
+function load({ reuse, recommendationReuse = reuse, searchMissingCoverage = false }) {
   once(SOURCE, ANCHOR_COVERAGE);
   once(SOURCE, ANCHOR_SIM);
   let src = SOURCE
     .replace(ANCHOR_COVERAGE, ANCHOR_COVERAGE + '\n    __counts.cardCoverageState++;')
     .replace(ANCHOR_SIM, ANCHOR_SIM + '\n    __counts.simulateModel++;');
+  if (searchMissingCoverage) {
+    for (const name of ['coverageUnavailable', 'fixedCoverageFailure']) {
+      const prefix = 'const ' + name + ' = ';
+      once(SOURCE, prefix);
+      src = src.replace(prefix, prefix + 'false && ');
+    }
+  }
   const hasReuse = SOURCE.includes(REUSE_SWITCH);
   if (hasReuse) { once(SOURCE, '  const Forecast = {'); src = src.replace('  const Forecast = {', '  __counts.probeCardCoverage = probeCardCoverage;\n  const Forecast = {'); }
   if (!reuse && hasReuse) src = src.replace(REUSE_SWITCH, 'const reuse = null;');
+  if (!recommendationReuse) {
+    const scope = 'recommendationReads = openRecommendationReads(plan, asOf, opts);';
+    once(SOURCE, scope);
+    src = src.replace(scope, 'recommendationReads = null;');
+  }
   const counts = { cardCoverageState: 0, simulateModel: 0 };
   const mod = { exports: {} };
   const req = id => require(path.join(path.dirname(SRC_PATH), id));
@@ -151,6 +163,47 @@ check('unknown card evidence stays unknown (no reuse converts unavailable into a
   assert.strictEqual(r.advice.sim.cardPurchaseCoverage.status, 'unavailable');
   assert.strictEqual(r.advice.weekly, null);
   assert.strictEqual(r.advice.paydayAllocation.protectedPath.status, 'unavailable');
+});
+
+check('missing card evidence fixes the search boundary, with side-effecting adjustments still evaluated', () => {
+  const exhaustive = load({ reuse: true, searchMissingCoverage: true });
+  for (const adjust of [false, true]) {
+    const run = engine => {
+      const input = clone(BASE);
+      delete input.plan.cardPurchaseCoverage;
+      let calls = 0;
+      if (adjust) input.opts.incomeOccurrenceAdjust = () => { calls++; };
+      const result = evaluate(engine, input);
+      return { result, calls };
+    };
+    const got = run(withReuse), expected = run(exhaustive);
+    assert.deepStrictEqual(JSON.parse(ser(got.result.advice)), JSON.parse(ser(expected.result.advice)));
+    if (adjust) {
+      assert.ok(expected.calls > 0);
+      assert.strictEqual(got.calls, expected.calls);
+      assert.strictEqual(got.result.simulateModel, expected.result.simulateModel);
+    } else {
+      assert.ok(got.result.simulateModel < expected.result.simulateModel);
+    }
+  }
+});
+
+check('a callback that changes a card purchase during the walk reads its new value', () => {
+  const uncached = load({ reuse: true, recommendationReuse: false });
+  const run = engine => {
+    const input = clone(BASE);
+    const purchase = input.opts.currentPeriodActuals.transactions.find(tx =>
+      tx.accountRole === 'revolving-credit' && tx.amount > 0);
+    assert.ok(purchase, 'invented card purchase');
+    let calls = 0;
+    input.opts.incomeOccurrenceAdjust = () => {
+      if (++calls === 10) purchase.amount += 31;
+    };
+    const advice = ser(evaluate(engine, input).advice);
+    assert.ok(calls > 10, 'purchase changed inside the walk');
+    return { advice, calls };
+  };
+  assert.deepStrictEqual(run(withReuse), run(uncached));
 });
 
 check('caller mutation of inputs and outputs between evaluations does not leak', () => {

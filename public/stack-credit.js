@@ -25,6 +25,8 @@
   const money = v => window.StackBlocks.money(v);
   const amountOf = figure => (figure && num(figure.amount) ? figure.amount : null);
   const TICK = '<svg width="13" height="13" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.6 6.3 5 8.6l4.5-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  // The pending-row marker in the card sheet: a hollow dot with the accessible name "pending" (no printed word, rule B5).
+  const PENDING_DOT = '<span class="stack-sheet-txp" role="img" aria-label="pending"></span>';
   const CHEV = '<svg class="stack-chev" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 2.5 9.5 7 5 11.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   // The one Forecast reading per render: memoised on the ctx object the shell passes to every block, so the sheet
@@ -222,8 +224,11 @@
           // A payment onto the card is published negative with payment: true; its printed value's minus sign becomes "+".
           const printed = txMoney(t.amount);
           const shown = t.payment ? printed.replace(/^−/, '+') : printed;
+          // A pending row is dimmed and carries a hollow dot named "pending" (no printed word, owner rule B5), so it reads as
+          // pending even when every row in the list is pending and there is no posted row to compare it with.
           return `<li class="${t.payment ? 'is-pay' : ''}${t.pending ? ' is-pending' : ''}">`
-            + `<span class="stack-sheet-txd">${escape(formatDate(t.date))}</span><span class="stack-sheet-txl">${escape(t.name || '')}</span>`
+            + `<span class="stack-sheet-txd">${escape(formatDate(t.date))}</span><span class="stack-sheet-txl">`
+            + `${t.pending ? PENDING_DOT : ''}${escape(t.name || '')}</span>`
             + `<span class="stack-sheet-txa stack-n">${escape(shown)}</span></li>`;
         }).join('') + '</ul>'
         : ''));
