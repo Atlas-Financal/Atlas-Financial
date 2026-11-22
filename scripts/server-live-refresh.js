@@ -443,6 +443,9 @@ if (!isMainThread) {
     clearTimeout(waiter.timer);
     waiter.signal?.removeEventListener('abort', waiter.cancelled);
     let displayCheck = job.displayCheck;
+    // Timing only: true where a retained display (not this job's own
+    // result, such as a dated evidence-day view) was selected to serve.
+    let servedRetained = job.servedRetained === true;
     if (error && !job.acquire && error.code !== 'live-refresh-cancelled' && job.contextInput) {
       // Error/timeout/exit publication needs the same obsolete-work fence as
       // normal results. An old waiter may read a compatible dated cohort but
@@ -457,7 +460,7 @@ if (!isMainThread) {
       const receipt = job.evidence ? { source: null, qualified: false, checkedAt: null,
         attemptedAt: new Date(Date.now()).toISOString(), reason: error.code } : failedAttempt(null, error.code);
       const retained = retainedDisplay(job.contextInput, job.contextEnv, job.householdAccountId, receipt, current);
-      if (retained) { data = retained.data; displayCheck = retained.check; error = null; }
+      if (retained) { data = retained.data; displayCheck = retained.check; servedRetained = true; error = null; }
     }
     if (!error && waiter.forceRefresh && job.check?.qualified !== true && !displayCheck) error = unavailable('live-refresh-unavailable');
     if (error) waiter.reject(error);
@@ -468,6 +471,14 @@ if (!isMainThread) {
         source: job.evidence ? 'memory' : 'provider', qualified: job.check?.qualified === true,
         checkedAt: typeof checkedAt === 'string' && Number.isFinite(Date.parse(checkedAt)) ? checkedAt : null }); }
       catch (_) { /* Response closed; never change a financial result. */ }
+      // Timing only (scripts/request-timing.js): the path that served this
+      // waiter, set where the served data was selected, never from the
+      // browser-facing check (a dated view of this job's own read carries
+      // a displayCheck too, and is not a retained display).
+      try {
+        waiter.onServedPath?.(servedRetained ? 'retained' : job.reused ? 'replay'
+          : !waiter.started ? 'joined-job' : job.evidence ? 'replay' : 'provider-job');
+      } catch (_) { /* Diagnostics only. */ }
       // Admission waiters receive their own acquisition clone plus their
       // own witness, minted now — inside the publication continuation,
       // after every barrier above has validated this exact job. The
@@ -604,7 +615,7 @@ if (!isMainThread) {
             if (dated) { job.displayCheck = dated.check; return finishJob(job, null, dated.data); }
             const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId,
               failedAttempt(result.check, result.data.liveOverlay?.reason), false);
-            if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
+            if (retained) { job.displayCheck = retained.check; job.servedRetained = true; return finishJob(job, null, retained.data); }
             return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
           }
           return finishJob(job, null, result.data);
@@ -680,7 +691,7 @@ if (!isMainThread) {
             || (result.data.liveOverlay?.currentPeriodActuals?.transactionCoverage === 'truncated' ? 'posted-window-truncated' : 'current-observation-unavailable'));
           if (job.evidence) attempt.source = null; // A replay is not a new provider check.
           const retained = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt);
-          if (retained) { job.displayCheck = retained.check; return finishJob(job, null, retained.data); }
+          if (retained) { job.displayCheck = retained.check; job.servedRetained = true; return finishJob(job, null, retained.data); }
           return finishJob(job, null, require('./live-plan').withoutCompleteRefresh(result.data));
         }
         // Remember a qualified replay result only after every barrier above
@@ -700,6 +711,7 @@ if (!isMainThread) {
           const clear = retainedDisplay(canonical, env, result.check?.householdAccountId || job.householdAccountId, attempt, false);
           if (clear && !ObservationMemory.planWithheld(clear.data)) {
             job.displayCheck = clear.check;
+            job.servedRetained = true;
             return finishJob(job, null, clear.data);
           }
         }
@@ -708,8 +720,13 @@ if (!isMainThread) {
   }
   function serve(canonical, env, options = {}) {
     const Live = require('./live-plan');
-    if (Live.overlayModeFromEnv(env) !== 'live') return options.forceRefresh
-      ? Promise.reject(unavailable('live-refresh-unavailable')) : Live.applyForServer(canonical, env);
+    // Timing only (scripts/request-timing.js): how this response is served.
+    const servedPath = path => { try { options.onServedPath?.(path); } catch (_) { /* Diagnostics only. */ } };
+    if (Live.overlayModeFromEnv(env) !== 'live') {
+      if (options.forceRefresh) return Promise.reject(unavailable('live-refresh-unavailable'));
+      servedPath('canonical');
+      return Live.applyForServer(canonical, env);
+    }
     const signal = options.signal;
     if (signal?.aborted) return Promise.reject(unavailable('live-refresh-cancelled'));
     const unavailableDisplay = code => {
@@ -717,12 +734,14 @@ if (!isMainThread) {
         checkedAt: null, attemptedAt: new Date(Date.now()).toISOString(), reason: code });
       if (!retained) return Promise.reject(unavailable(code));
       try { options.onCheck?.({ ...retained.check, retained: true }); } catch (_) { /* Closed response. */ }
+      servedPath('retained');
       return Promise.resolve(retained.data);
     };
     if (options.preferObservation === true && !options.forceRefresh) {
       const retained = retainedDisplay(canonical, env);
       if (retained && (activeWrites || recentFailedProviderCheck(retained.data.liveOverlay.retainedRefresh.attempt))) {
         if (retained.check.source === 'provider') options.onCheck?.({ ...retained.check, retained: true });
+        servedPath('retained');
         return Promise.resolve(retained.data);
       }
     }
@@ -766,7 +785,8 @@ if (!isMainThread) {
       jobs.set(key, job);
     }
     return new Promise((resolve, reject) => {
-      const waiter = { resolve, reject, signal, onCheck: options.onCheck, forceRefresh: options.forceRefresh === true };
+      const waiter = { resolve, reject, signal, onCheck: options.onCheck, forceRefresh: options.forceRefresh === true,
+        onServedPath: options.onServedPath, started: fresh };
       const leave = code => {
         if (!job.waiters.has(waiter)) return;
         if (code === 'live-refresh-cancelled') job.cancelledWaiters++;

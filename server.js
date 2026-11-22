@@ -33,6 +33,7 @@ const LunchMoneyAssistant = require('./scripts/assistant-lunchmoney.js');
 const StandingRuntime = require('./scripts/assistant-standing-runtime.js');
 const AssistantOAuth = require('./scripts/assistant-oauth.js');
 const ResponseCompression = require('./scripts/response-compression.js');
+const RequestTiming = require('./scripts/request-timing.js');
 
 const PREACTIVATION_BOOT = Symbol('sealed-preactivation-boot');
 const SESSION_REVOCATION = Symbol('composed-session-revocation');
@@ -103,6 +104,9 @@ if (ASSISTANT_TOKEN && sameSecret(ASSISTANT_TOKEN, SECRET)) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // Render terminates TLS in front of us
+// Per-request server timing (scripts/request-timing.js): starts every clock,
+// logs one closed line only for requests marked authenticated below.
+app.use(RequestTiming.start);
 const formParser = express.urlencoded({ extended: false, limit: '8kb', inflate: false });
 // Compressed request bodies are rejected before any parser runs: this surface
 // accepts only uncompressed input, the same refusal the settlement router
@@ -399,13 +403,18 @@ async function servedAtlasData(req, res, options = {}) {
   req?.once('aborted', cancel);
   res?.once('close', cancel);
   if (req?.aborted || res?.destroyed) controller.abort();
+  // Timing only (scripts/request-timing.js): the data phase and the closed
+  // path that served it (named by ServerLiveRefresh.serve, not by the
+  // browser-facing check metadata).
+  const dataTiming = RequestTiming.dataStart(req);
+  const onServedPath = served => RequestTiming.noteServed(req, served);
   try {
     let served;
-    if (baseSource) served = await baseSource();
+    if (baseSource) { served = await baseSource(); onServedPath('canonical'); }
     else {
       const canonical = loadCanonicalData();
       try {
-        served = await ServerLiveRefresh.serve(canonical, environment, { ...options, signal: controller.signal });
+        served = await ServerLiveRefresh.serve(canonical, environment, { ...options, onServedPath, signal: controller.signal });
       } catch (err) {
         // A failed refresh the controller rejects (Manual Refresh, timeout)
         // still keeps the dated Savings evidence when it is retained; with
@@ -414,10 +423,12 @@ async function servedAtlasData(req, res, options = {}) {
           ? LivePlan.failedRefreshWithCarriedSavings(canonical, err.code, lastGoodServed) : null;
         if (!carried) throw err;
         served = carried;
+        onServedPath('retained');
       }
     }
     return await settlementEvidenceServing.attach(withRetainedSavingsEvidence(served));
   } finally {
+    RequestTiming.dataEnd(req, dataTiming);
     req?.removeListener('aborted', cancel);
     res?.removeListener('close', cancel);
   }
@@ -430,6 +441,7 @@ function assistantUnauthorized(res) {
 }
 app.get('/assistant/current', async (req, res) => {
   if (assistantHttpGuard(req, res)) return;
+  RequestTiming.markAuthed(req);
   try {
     res.json(await buildCurrentAssistantPacket(req, res));
   } catch (err) {
@@ -453,6 +465,7 @@ function mcpOAuthGate(req, res, next) {
 }
 const mcpJson = express.json({ limit: '32kb', type: 'application/json', inflate: false });
 app.post('/assistant/mcp', mcpOAuthGate, (req, res, next) => {
+  RequestTiming.markAuthed(req);
   mcpJson(req, res, (err) => {
     if (!err) return next();
     return res.status(400).json({
@@ -505,6 +518,10 @@ app.use((req, res, next) => {
   }
   return res.redirect('/login');
 });
+
+// Past the gate: a session-authenticated request is timed (the gate itself
+// is unchanged; its public exceptions are not marked).
+app.use((req, _res, next) => { if (authed(req)) RequestTiming.markAuthed(req); next(); });
 
 // Response compression for the allowlisted page and data responses only
 // (scripts/response-compression.js). It runs after the gate, so the gate's
@@ -1066,6 +1083,7 @@ if (require.main === module) {
   starting.then(owner => {
     host.startContextAdapter();
     console.log(`Household finance dashboard listening on ${owner.server.address().port}`);
+    console.log(JSON.stringify(RequestTiming.startupRecord()));
     // Period-close capture at rollover (ARCHITECTURE.md "Period-close
     // capture"). Off unless both period-history switches are 'on'; it reads
     // data.json from disk and never touches what a page load is served.
