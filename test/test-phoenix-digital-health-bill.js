@@ -316,5 +316,34 @@ console.log('\n=== pending matching card-paid bill is reserved once ===');
     `protected=${protectedMatching(removedPlan, removedPacket, removedAsOf, SYNTH)}`);
 }
 
+console.log('\n=== a charge up to two days before the 4th settles that occurrence ===');
+{
+  // Owner fact 2026-11-21 moved the due day to the 4th; the rule (covers-early-or-due-on-or-before-posting,
+  // earlyPayLookaheadDays 2) is unchanged. Hand dates: due Sunday 4 Oct; the 2nd and 3rd are 2 and 1 days early
+  // (inside the lookahead); the 1st is 3 days early (outside it, and no earlier occurrence exists: firstDue is
+  // 2026-10-04). Invented transactions; the labels and details print dates and booleans only, never an amount.
+  ok(new Date('2026-10-02T00:00:00Z').getUTCDay() === 5 && new Date('2026-10-03T00:00:00Z').getUTCDay() === 6
+      && new Date('2026-10-01T00:00:00Z').getUTCDay() === 4, 'hand dates: 2 Oct is a Friday, 3 Oct a Saturday, 1 Oct a Thursday');
+  const settlesDue = date => {
+    const plan = live([tx(9801, AMOUNT, 'Phoenix Digital Health', { date })]).data.plan;
+    const represented = (plan.opening.representedEvents || []).filter(e => e.id === ID);
+    return { once: represented.length === 1 && represented[0].date === DUE, none: represented.length === 0,
+      carried: F.expandEvents(plan, LIVE, '2026-10-31').some(e => e.id === ID && e.date === DUE) };
+  };
+  for (const date of ['2026-10-02', '2026-10-03']) {
+    const r = settlesDue(date);
+    ok(r.once && !r.carried, `a posted exact-amount charge on ${date} represents the ${DUE} occurrence once`,
+      r.once && !r.carried ? '' : `once=${r.once} carried=${r.carried}`);
+  }
+  // Control: three days early is outside the lookahead, so nothing settles and the occurrence stays due.
+  const c = settlesDue('2026-10-01');
+  ok(c.none && c.carried, 'control: a charge on 2026-10-01 (three days early) settles nothing; the occurrence stays due',
+    c.none && c.carried ? '' : `none=${c.none} carried=${c.carried}`);
+  // Control: two days early but a different amount does not settle.
+  const plan = live([tx(9802, AMOUNT + 1, 'Phoenix Digital Health', { date: '2026-10-02' })]).data.plan;
+  const otherAmount = (plan.opening.representedEvents || []).filter(e => e.id === ID).length === 0;
+  ok(otherAmount, 'control: a different amount on 2026-10-02 settles nothing', otherAmount ? '' : 'represented');
+}
+
 if (failures) { console.log(`\n${failures} failure(s)`); process.exit(1); }
 console.log('\nAll proofs passed.');
