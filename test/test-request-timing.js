@@ -38,7 +38,8 @@ async function check(name, fn) { await fn(); passed += 1; console.log('  ok ' + 
 const freePort = () => new Promise(resolve => {
   const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
 });
-const TIMING_KEYS = ['type', 'route', 'method', 'outcome', 'status', 'cold', 'ms', 'served', 'cacheHit'];
+const TIMING_KEYS = ['type', 'route', 'method', 'outcome', 'status', 'cold', 'ms', 'served', 'cacheHit', 'phases'];
+const PHASE_KEYS = ['preData', 'dataServe', 'dataAttach', 'afterData', 'serialize', 'write', 'unattributed'];
 const MS_KEYS = ['total', 'data', 'serialize', 'other'];
 
 // Capture this process's console.log while the in-process app runs.
@@ -102,6 +103,12 @@ const timingLines = () => captured.filter(line => line.startsWith('{"type":"atla
         assert.deepEqual(Object.keys(line), TIMING_KEYS);
         assert.deepEqual(Object.keys(line.ms), MS_KEYS);
         for (const key of MS_KEYS) assert.ok(Number.isSafeInteger(line.ms[key]) && line.ms[key] >= 0, key + ' is a whole non-negative ms');
+        assert.deepEqual(Object.keys(line.phases), PHASE_KEYS);
+        for (const key of PHASE_KEYS) assert.ok(Number.isSafeInteger(line.phases[key]) && line.phases[key] >= 0, key + ' is a whole non-negative ms');
+        const sum = PHASE_KEYS.reduce((n, k) => n + line.phases[k], 0);
+        // Each phase is truncated to whole ms: the sum is total within one ms per phase.
+        assert.ok(sum <= line.ms.total && line.ms.total - sum < PHASE_KEYS.length, 'phases sum to total within rounding: ' + sum + ' vs ' + line.ms.total);
+        assert.equal(line.phases.serialize, line.ms.serialize, 'the serialize phase is the existing serialize field');
         assert.ok(['GET', 'HEAD', 'POST', 'other'].includes(line.method));
         assert.ok(/^[1-5]xx$|^other$/.test(line.status));
         assert.ok(['provider-job', 'joined-job', 'retained', 'replay', 'canonical', 'none'].includes(line.served));
@@ -193,7 +200,15 @@ const timingLines = () => captured.filter(line => line.startsWith('{"type":"atla
     const r = RequestTiming.record({ start: 0n, end: 5000000n, path: '/data.json?x=' + CANARY.query, data: 9000000n,
       serialize: -1n, served: CANARY.payee, cold: 'true' }, 999, 'DELETE', 'completed');
     assert.deepEqual(r, { type: 'atlas-timing', route: 'other', method: 'other', outcome: 'completed', status: 'other', cold: false,
-      ms: { total: 5, data: 9, serialize: 0, other: 0 }, served: 'none', cacheHit: false });
+      ms: { total: 5, data: 9, serialize: 0, other: 0 }, served: 'none', cacheHit: false,
+      phases: { preData: 0, dataServe: 0, dataAttach: 0, afterData: 0, serialize: 0, write: 0, unattributed: 5 } });
+    // Phase split from marks (invented ns): pre-data 1 ms, serve 4, attach 2, after-data 3, serialize 5, write 7.
+    const ms = n => BigInt(n) * 1000000n;
+    const phased = RequestTiming.record({ start: ms(0), end: ms(22), path: '/data.json', data: ms(6), serialize: ms(5),
+      served: 'provider-job', firstDataStart: ms(1), attachStart: ms(5), lastDataEnd: ms(7),
+      firstSerializeStart: ms(10), lastSerializeEnd: ms(15) }, 200, 'GET', 'completed');
+    assert.deepEqual(phased.phases, { preData: 1, dataServe: 4, dataAttach: 2, afterData: 3, serialize: 5, write: 7, unattributed: 0 });
+    assert.deepEqual(phased.ms, { total: 22, data: 6, serialize: 5, other: 11 }, 'the existing fields are unchanged');
     // An open read at close counts up to the close; a closed request never reads 2xx.
     const closed = RequestTiming.record({ start: 0n, end: 8000000n, path: '/data.json', data: 0n, dataOpen: 3000000n,
       serialize: 0n, served: 'provider-job', cold: false }, 200, 'GET', 'client-closed');

@@ -452,7 +452,7 @@ if (!threads.isMainThread && process.env.ATLAS_COALESCING_TEST_WORKER_MODE) {
       await until(() => mock.active === 0, 'hard deadline provider cleanup');
 
       const allowed = ['type', 'outcome', 'totalMs', 'workerStartupMs', 'workerRunMs', 'cleanupMs',
-        'waiterCount', 'peakWaiters', 'cancelledWaiters', 'timedOutWaiters'].sort();
+        'resolveMs', 'exitWaitMs', 'mainBusyMs', 'teardownMs', 'waiterCount', 'peakWaiters', 'cancelledWaiters', 'timedOutWaiters'].sort();
       for (const entry of timings) {
         check(Object.keys(entry).sort(), allowed, 'timing uses only closed sanitized fields');
         assert.ok(['completed', 'live-refresh-cancelled', 'live-refresh-timeout', 'live-refresh-unavailable', 'live-refresh-invalidated'].includes(entry.outcome)); checks++;
