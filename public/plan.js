@@ -7206,10 +7206,13 @@ function renderPlan(d, periods, history) {
   // audit finding 12): funding sources, periods, actuals, the PA-5 (#775)
   // effective operating verdict, observed cash, the note and the #818 period
   // history, on top of the worksheet knobs and the debt facts.
+  // Timing only (public/client-timing.js): brackets this call as Forecast compute during the first render.
+  const computeTimer = typeof AtlasClientTiming !== 'undefined' ? AtlasClientTiming.computeStart() : null;
   const advice = Forecast.recommend(plan, asOf, Forecast.budgetRecommendInputs(d, {
     knobs: state, periods,
     settlementEvidence: planSettlementEvidence,
   }));
+  if (computeTimer) AtlasClientTiming.computeEnd(computeTimer);
   const fundingPlan = advice.funding || null;
   const inventoryMount = $('savings-inventory');
   if (inventoryMount && typeof SavingsInventory !== 'undefined') inventoryMount.innerHTML = SavingsInventory.html(advice.savingsFunding || (d.plan.savingsEarmarks?.allocationPolicy == null ? advice.savingsInventory : null), { asOf: d.meta.asOf, advice, plan: d.plan });

@@ -18,7 +18,7 @@ const ok = (cond, label) => { assert.ok(cond, label); checks++; console.log('  P
 
 const PAGE_SCRIPTS = [
   'app.js', 'aurora.js', 'balance-history.js', 'bill-detail.js', 'budget-blend.js', 'budget-card-movements.js',
-  'budget-polish.js', 'budget-river.js', 'budget-sheet-motion.js', 'budget-surface.js', 'display-name.js',
+  'budget-polish.js', 'budget-river.js', 'budget-sheet-motion.js', 'budget-surface.js', 'client-timing.js', 'display-name.js',
   'household-view.js', 'plan.js', 'savings-inventory.js', 'stack-cards.js', 'stack-credit.js', 'stack-sheet.js',
   'stack-shell.js', 'stack-waterfall.js',
 ].map(name => 'public/' + name);
