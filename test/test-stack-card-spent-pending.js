@@ -260,6 +260,27 @@ console.log('10. A pending payment counts in Paid, never toward the minimum (lea
     'MUTANT: reading the pending-inclusive Paid makes the pending payment alone cover the minimum, which the check above rejects');
 }
 
+console.log('10b. A pending row never withholds the posted-only paid behind the minimums (Atlas re-review, ba677461)');
+{
+  // Complete posted evidence: Travel's posted 100.00 payment covers a 25.00 minimum. By hand: paid toward the minimum and
+  // minimumsPaid are 100.00 and the minimum is covered, exactly as on main, whatever a pending row does. An unrelated
+  // pending row that withholds the pending-inclusive Paid and Spent (an unlabelled credit; a row with no usable amount)
+  // must leave them so.
+  const bills = { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: 'calculated' };
+  for (const [label, pendingRow] of [
+    ['an unlabelled pending credit', row('pc-credit', -15, { pending: true, payee: 'Card transaction' })],
+    ['a pending row with no usable amount (USD)', row('pc-usd', 15, { pending: true, currency: 'usd' })],
+  ]) {
+    const result = F.stackCreditLines(publish(world([pendingRow])), bills);
+    const line = result.lines.find(l => l.id === 'travelvisa');
+    ok(cents(line.paidToward.amount) === 10000 && cents(result.totals.minimumsPaid.amount) === 10000 && line.minimumCovered.value === true,
+      label + ': paid toward the minimum and minimumsPaid stay 100.00 and the minimum stays covered (as on main)',
+      JSON.stringify([line.paidToward, result.totals.minimumsPaid, line.minimumCovered]));
+    ok(line.paid.amount === null && line.spent.amount === null,
+      label + ': the pending-inclusive Paid and Spent are withheld, as the same row would withhold them posted', JSON.stringify([line.paid, line.spent]));
+  }
+}
+
 console.log('11. A matched pair beside a separate flagged row: only the pair is relieved, the card stays withheld');
 {
   // Pair P/Q (matched by Forecast, both flagged) plus a lone flagged posted row L that nothing pairs. Each flagged row pushed

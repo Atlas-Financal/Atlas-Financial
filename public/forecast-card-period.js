@@ -365,7 +365,9 @@
         }
         if (value == null) {
           paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified');
-          postedPaidReasons.push('transaction-amount-unqualified'); continue;
+          // The posted-only paid reads posted rows only: a pending row's problem never withholds it.
+          if (!row.pending) postedPaidReasons.push('transaction-amount-unqualified');
+          continue;
         }
         if (row.kind === 'payment') {
           paidCents += -value;
@@ -379,7 +381,7 @@
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
         else if (row.kind === 'credit-unconfirmed') {
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
-          postedPaidReasons.push('card-credit-purpose-unconfirmed');
+          if (!row.pending) postedPaidReasons.push('card-credit-purpose-unconfirmed');
         } else spentReasons.push('card-movement-unconfirmed');
       }
       const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed' && r !== 'includes-pending');
