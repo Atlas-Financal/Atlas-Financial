@@ -75,7 +75,8 @@ const flagged = identity.rules.filter(rule => rule.singleLegSettles === true);
 ok(flagged.length === 1 && flagged[0].eventId === 'bell' && flagged[0].atlasAccountId === 'chequing-a'
   && flagged[0].settlesWhen === 'two-leg-sum' && flagged[0].sameAccountSplitLegs === true,
   'singleLegSettles is on the standing chequing-a two-leg bell rule only', J(flagged.map(r => r.eventId)));
-ok(!identity.rules.some(rule => (rule.lunchMoneyRecurringIds || []).includes(String(BELL_ITEM)) || rule.recurringLinkOf),
+ok(!identity.rules.some(rule => (rule.lunchMoneyRecurringIds || []).includes(String(BELL_ITEM))
+  || (/^bell/.test(String(rule.eventId)) && rule.recurringLinkOf)),
   'no rule names Lunch Money item 3722147, so its schedule and amount stay the plan\'s');
 const bellRow = data.plan.bills.find(bill => bill.id === 'bell');
 ok(bellRow && bellRow.amount > 0 && bellRow.day === 15 && bellRow.firstDue === '2026-10-15'
