@@ -34,6 +34,13 @@
     const cycle = savingsDate(window?.start) ? spendingCycle(plan, window.start) : null;
     const packet = currentPeriodActualsPacket(opts);
     const reconciliation = reconcileCardPurchases(packet?.transactions, { plan, debts, asOf, packet, paymentDiagnostics: true });
+    // The household budget's one pending/posted pairing (pendingPostedDuplicateIdSet): a pending row it calls a possible
+    // replacement of its posted twin is that same charge, so a card counts the posted side once (Dale, 2026-11-22). Its own
+    // exception carries through: a pending row the posting names as a distinct authorization (pendingEstimateIds) is a
+    // separate charge, counted as the household budget counts it (an estimate), never treated as replaced.
+    const pendingEstimateIds = new Set();
+    const pairs = new Map();
+    const duplicateIds = pendingPostedDuplicateIdSet(packet, pendingEstimateIds, pairs);
     return CardPeriodMovement.publish({ plan, debts, asOf, window, packet,
       paymentAllocations: reconciliation.paymentAllocations,
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
@@ -44,6 +51,9 @@
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
+      replacedPending: tx => isPossibleReplacementPending(tx, duplicateIds) && !(tx.id != null && pendingEstimateIds.has(String(tx.id))),
+      // The row this same pairing matched to tx one for one (its id), or null: never a second matcher.
+      pendingPostedPartner: tx => (tx && tx.id != null && pairs.get(String(tx.id))) || null,
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
         Object.assign({}, opts, { currentPeriodActuals: packet, useActuals: true })),
     });
@@ -7029,7 +7039,9 @@
   // collapse to one transaction. Confirmed household spend counts the
   // posted side once; the still-visible pending stays recon/pending
   // exposure and is not a second confirmed spend.
-  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds) {
+  // `pairs` (optional): filled with the 1:1 pending/posted pairs this function finds, both directions (id -> partner id),
+  // so a consumer can read which rows it paired without a second matcher.
+  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds, pairs) {
     const flagged = new Set();
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const pendingByKey = new Map();
@@ -7061,6 +7073,10 @@
       }
       for (const tx of pendings.concat(posted)) {
         if (tx && tx.id != null) flagged.add(String(tx.id));
+      }
+      if (pairs && pending.id != null && posting.id != null) {
+        pairs.set(String(pending.id), String(posting.id));
+        pairs.set(String(posting.id), String(pending.id));
       }
     }
     return flagged;
