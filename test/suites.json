@@ -178,6 +178,7 @@
   ["selected Seaspan card movement endpoints, coverage and conservation","test-card-period-movements.js"],
   ["posted card movement so far, independent of saved endpoints and gated by transaction evidence","test-card-posted-period-movement.js"],
   ["Stack Wallet A6: Forecast.stackCardSummary states, per card and pay period, paid onto against spent on, from one cardPeriodMovements publication: posted only, null with a reason and never 0, pending listed and moving nothing (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-card-summary.js"],
+  ["Stack Credit one membership: the Credit card head (minimums due and paid) spans every listed credit line, the HELOC included, so its due is the waterfall Credit for every published period; the HELOC paid side stays withheld or estimated (lead ruling, ATLAS LEAD 12, 2026-11-22)","test-stack-credit-one-membership.js"],
   ["Stack Wallet A6b: Forecast.stackCreditLines states per credit line the card's minimum (derived from the bills split), status, amount to go and minimum covered, with totals over stated cards and explicit completeness (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-credit-lines.js"],
   ["A1 own card observation date, age-neutral movement and missing evidence","test-a1-card-feed-evidence.js"],
   ["card detail panel lead and balance disclosure placement","test-card-panel-lead.js"],
