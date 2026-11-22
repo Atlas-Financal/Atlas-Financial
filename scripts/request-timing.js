@@ -6,15 +6,22 @@
 // browser.
 //
 // Closed fields only: route (a fixed allowlist, anything else 'other'),
-// method (GET/HEAD/POST/other), status class, cold (first logged request of
-// this process), whole-millisecond durations, the data source enum and two
-// booleans. No path beyond the allowlist, query string, header, cookie,
+// method (GET/HEAD/POST/other), outcome (completed, or client-closed when
+// the connection closed before the response finished: then the status is
+// 'none', never a 2xx), status class, cold (first logged request of this
+// process), whole-millisecond durations, the served-path enum and cacheHit. No path beyond the allowlist, query string, header, cookie,
 // token, body, payload, amount, id, payee, account or error text is read into
 // the record. The per-job Lunch Money / overlay / Forecast split already
 // logged by live-refresh-stages is not duplicated here: one provider job is
 // shared by every request that coalesces onto it, so a per-request split
-// would double-count it. jobStarted says whether this request started the
-// job whose stages line it can be matched with.
+// would double-count it. served names the path that actually served this
+// response, as ServerLiveRefresh.serve reports it from its own state (never
+// the browser-facing check metadata): provider-job (this request started the
+// provider job), joined-job (it waited on a job another request started),
+// retained (a retained display: the early return, an unavailable fallback or
+// a carried failure), replay (a memory replay, run or reused), canonical (no
+// live overlay) or none (no data read). A provider-job request matches the
+// live-refresh-stages line its job writes.
 const { performance } = require('node:perf_hooks');
 
 const ROUTES = Object.freeze({ '/': '/', '/index.html': '/', '/data.json': '/data.json',
@@ -22,7 +29,7 @@ const ROUTES = Object.freeze({ '/': '/', '/index.html': '/', '/data.json': '/dat
   '/assistant/mcp': '/assistant/mcp' });
 const STATIC_ASSET = /^\/[A-Za-z0-9_./-]+\.(?:js|css|png|svg|ico|webmanifest|woff2?|map)$/;
 const METHODS = new Set(['GET', 'HEAD', 'POST']);
-const SOURCES = new Set(['provider', 'memory', 'canonical', 'none']);
+const SERVED = new Set(['provider-job', 'joined-job', 'retained', 'replay', 'canonical', 'none']);
 const KEY = Symbol('atlasRequestTiming');
 
 let cold = true;
@@ -39,23 +46,26 @@ function statusClass(code) {
 }
 
 // Build the one record from closed inputs. Exported for the tests.
-function record(state, statusCode, method) {
+function record(state, statusCode, method, outcome) {
+  const completed = outcome === 'completed';
   const total = state.end - state.start;
-  const data = state.data < 0n ? 0n : state.data;
+  // A read still open when the connection closed counts up to that moment.
+  let data = state.data + (typeof state.dataOpen === 'bigint' ? state.end - state.dataOpen : 0n);
+  if (data < 0n) data = 0n;
   const serialize = state.serialize < 0n ? 0n : state.serialize;
   let other = total - data - serialize;
   if (other < 0n) other = 0n;
-  const source = SOURCES.has(state.source) ? state.source : 'none';
+  const served = SERVED.has(state.served) ? state.served : 'none';
   return {
     type: 'atlas-timing',
     route: routeOf(state.path),
     method: METHODS.has(method) ? method : 'other',
-    status: statusClass(statusCode),
+    outcome: completed ? 'completed' : 'client-closed',
+    status: completed ? statusClass(statusCode) : 'none',
     cold: state.cold === true,
     ms: { total: toMs(total), data: toMs(data), serialize: toMs(serialize), other: toMs(other) },
-    source,
-    cacheHit: source === 'memory',
-    jobStarted: state.jobStarted === true,
+    served,
+    cacheHit: served === 'retained' || served === 'replay',
   };
 }
 
@@ -63,15 +73,17 @@ function record(state, statusCode, method) {
 // its time is counted as serialize. Nothing is logged unless a handler or the
 // session gate marks the request authenticated.
 function start(req, res, next) {
-  const state = { start: now(), end: 0n, path: req.path, data: 0n, serialize: 0n,
-    source: 'none', jobStarted: false, authed: false, done: false, cold: false };
+  const state = { start: now(), end: 0n, path: req.path, data: 0n, dataOpen: null, serialize: 0n,
+    served: 'none', authed: false, done: false, cold: false };
   req[KEY] = state;
   const json = res.json.bind(res);
   res.json = body => {
     const t = now();
     try { return json(body); } finally { state.serialize += now() - t; }
   };
-  const finish = () => {
+  // One record per request: 'finish' means the response was fully handed
+  // off; a 'close' before it means the client went away first.
+  const finish = outcome => {
     if (state.done) return;
     state.done = true;
     if (!state.authed) return;
@@ -79,36 +91,37 @@ function start(req, res, next) {
     state.cold = cold;
     cold = false;
     // Diagnostics only: a logging failure never affects the response.
-    try { console.log(JSON.stringify(record(state, res.statusCode, req.method))); } catch (_) { /* closed */ }
+    try { console.log(JSON.stringify(record(state, res.statusCode, req.method, outcome))); } catch (_) { /* closed */ }
   };
-  res.once('finish', finish);
-  res.once('close', finish);
+  res.once('finish', () => finish('completed'));
+  res.once('close', () => finish(res.writableFinished ? 'completed' : 'client-closed'));
   next();
 }
 const stateOf = req => (req && req[KEY]) || null;
 function markAuthed(req) { const s = stateOf(req); if (s) s.authed = true; }
-// The data read: dataStart before it, dataEnd in its finally. A request that
-// reaches the read is counted as 'canonical' until a provider or memory
-// check names its source.
+// The data read: dataStart before it, dataEnd in its finally. After the
+// record is written (a client that closed first), nothing changes it.
 function dataStart(req) {
   const s = stateOf(req);
-  if (!s) return null;
-  if (s.source === 'none') s.source = 'canonical';
-  return now();
+  if (!s || s.done) return null;
+  const t = now();
+  s.dataOpen = t;
+  return t;
 }
 function dataEnd(req, started) {
   const s = stateOf(req);
-  if (s && typeof started === 'bigint') s.data += now() - started;
+  if (!s || s.done || typeof started !== 'bigint') return;
+  s.data += now() - started;
+  s.dataOpen = null;
 }
-function noteSource(req, source) {
+function noteServed(req, served) {
   const s = stateOf(req);
-  if (s && SOURCES.has(source) && (s.source === 'none' || s.source === 'canonical')) s.source = source;
+  if (s && !s.done && SERVED.has(served)) s.served = served;
 }
-function noteJobStarted(req, started) { const s = stateOf(req); if (s && started === true) s.jobStarted = true; }
 
 function startupRecord() {
   return { type: 'atlas-startup', ms: { bootToListen: Math.max(0, Math.round(performance.now())) } };
 }
 
-module.exports = { start, markAuthed, dataStart, dataEnd, noteSource, noteJobStarted, record, routeOf, startupRecord,
+module.exports = { start, markAuthed, dataStart, dataEnd, noteServed, record, routeOf, startupRecord,
   _resetColdForTests: () => { cold = true; } };

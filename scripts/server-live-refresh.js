@@ -468,6 +468,12 @@ if (!isMainThread) {
         source: job.evidence ? 'memory' : 'provider', qualified: job.check?.qualified === true,
         checkedAt: typeof checkedAt === 'string' && Number.isFinite(Date.parse(checkedAt)) ? checkedAt : null }); }
       catch (_) { /* Response closed; never change a financial result. */ }
+      // Timing only (scripts/request-timing.js): the path that served this
+      // waiter, from the job's own state, not the browser-facing check.
+      try {
+        waiter.onServedPath?.(displayCheck ? 'retained' : job.reused ? 'replay'
+          : !waiter.started ? 'joined-job' : job.evidence ? 'replay' : 'provider-job');
+      } catch (_) { /* Diagnostics only. */ }
       // Admission waiters receive their own acquisition clone plus their
       // own witness, minted now — inside the publication continuation,
       // after every barrier above has validated this exact job. The
@@ -708,8 +714,13 @@ if (!isMainThread) {
   }
   function serve(canonical, env, options = {}) {
     const Live = require('./live-plan');
-    if (Live.overlayModeFromEnv(env) !== 'live') return options.forceRefresh
-      ? Promise.reject(unavailable('live-refresh-unavailable')) : Live.applyForServer(canonical, env);
+    // Timing only (scripts/request-timing.js): how this response is served.
+    const servedPath = path => { try { options.onServedPath?.(path); } catch (_) { /* Diagnostics only. */ } };
+    if (Live.overlayModeFromEnv(env) !== 'live') {
+      if (options.forceRefresh) return Promise.reject(unavailable('live-refresh-unavailable'));
+      servedPath('canonical');
+      return Live.applyForServer(canonical, env);
+    }
     const signal = options.signal;
     if (signal?.aborted) return Promise.reject(unavailable('live-refresh-cancelled'));
     const unavailableDisplay = code => {
@@ -717,12 +728,14 @@ if (!isMainThread) {
         checkedAt: null, attemptedAt: new Date(Date.now()).toISOString(), reason: code });
       if (!retained) return Promise.reject(unavailable(code));
       try { options.onCheck?.({ ...retained.check, retained: true }); } catch (_) { /* Closed response. */ }
+      servedPath('retained');
       return Promise.resolve(retained.data);
     };
     if (options.preferObservation === true && !options.forceRefresh) {
       const retained = retainedDisplay(canonical, env);
       if (retained && (activeWrites || recentFailedProviderCheck(retained.data.liveOverlay.retainedRefresh.attempt))) {
         if (retained.check.source === 'provider') options.onCheck?.({ ...retained.check, retained: true });
+        servedPath('retained');
         return Promise.resolve(retained.data);
       }
     }
@@ -766,7 +779,8 @@ if (!isMainThread) {
       jobs.set(key, job);
     }
     return new Promise((resolve, reject) => {
-      const waiter = { resolve, reject, signal, onCheck: options.onCheck, forceRefresh: options.forceRefresh === true };
+      const waiter = { resolve, reject, signal, onCheck: options.onCheck, forceRefresh: options.forceRefresh === true,
+        onServedPath: options.onServedPath, started: fresh };
       const leave = code => {
         if (!job.waiters.has(waiter)) return;
         if (code === 'live-refresh-cancelled') job.cancelledWaiters++;
@@ -789,8 +803,6 @@ if (!isMainThread) {
       signal?.addEventListener('abort', waiter.cancelled, { once: true });
       if (signal?.aborted) waiter.cancelled();
       if (fresh) startJob(job, input, workerEnv);
-      // Timing only (scripts/request-timing.js): whether this caller started the job.
-      try { options.onJob?.(fresh); } catch (_) { /* Diagnostics only. */ }
     });
   }
   // Unserved private settlement acquisition. Memory-replay only: the

@@ -38,7 +38,7 @@ async function check(name, fn) { await fn(); passed += 1; console.log('  ok ' + 
 const freePort = () => new Promise(resolve => {
   const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
 });
-const TIMING_KEYS = ['type', 'route', 'method', 'status', 'cold', 'ms', 'source', 'cacheHit', 'jobStarted'];
+const TIMING_KEYS = ['type', 'route', 'method', 'outcome', 'status', 'cold', 'ms', 'served', 'cacheHit'];
 const MS_KEYS = ['total', 'data', 'serialize', 'other'];
 
 // Capture this process's console.log while the in-process app runs.
@@ -104,10 +104,10 @@ const timingLines = () => captured.filter(line => line.startsWith('{"type":"atla
         for (const key of MS_KEYS) assert.ok(Number.isSafeInteger(line.ms[key]) && line.ms[key] >= 0, key + ' is a whole non-negative ms');
         assert.ok(['GET', 'HEAD', 'POST', 'other'].includes(line.method));
         assert.ok(/^[1-5]xx$|^other$/.test(line.status));
-        assert.ok(['provider', 'memory', 'canonical', 'none'].includes(line.source));
+        assert.ok(['provider-job', 'joined-job', 'retained', 'replay', 'canonical', 'none'].includes(line.served));
+        assert.equal(line.outcome, 'completed');
         assert.equal(typeof line.cold, 'boolean');
         assert.equal(typeof line.cacheHit, 'boolean');
-        assert.equal(typeof line.jobStarted, 'boolean');
       }
       assert.deepEqual(lines.map(l => l.route), ['/data.json', '/', 'other'], 'routes normalised to the allowlist');
       assert.deepEqual(lines.map(l => l.status), ['2xx', '2xx', '4xx']);
@@ -115,12 +115,12 @@ const timingLines = () => captured.filter(line => line.startsWith('{"type":"atla
     await check('cold is true only on the first logged request of the process', () => {
       assert.deepEqual(lines.map(l => l.cold), [true, false, false]);
     });
-    await check('the data read is timed and its source named', () => {
-      assert.equal(lines[0].source, 'canonical', 'baseSource serves without a provider check');
+    await check('the data read is timed and its served path named', () => {
+      assert.equal(lines[0].served, 'canonical', 'baseSource serves without a live overlay');
       assert.ok(lines[0].ms.data >= 25, 'the 30 ms read is inside the data phase (' + lines[0].ms.data + ')');
       assert.ok(lines[0].ms.total >= lines[0].ms.data);
       assert.equal(lines[0].cacheHit, false);
-      assert.equal(lines[1].source, 'none', 'the static page reads no data');
+      assert.equal(lines[1].served, 'none', 'the static page reads no data');
     });
     await check('the phases add up to the total, within rounding', () => {
       for (const l of lines) {
@@ -144,6 +144,46 @@ const timingLines = () => captured.filter(line => line.startsWith('{"type":"atla
     await new Promise(resolve => server.close(resolve));
   }
 
+  await check('a client that disconnects during the data read never yields a completed 2xx line', async () => {
+    RequestTiming._resetColdForTests();
+    captured.length = 0;
+    let finishRead;
+    const slow = createApplication({ env: { SITE_PASSWORD: PASS, SESSION_SECRET: SECRET },
+      baseSource: () => new Promise(resolve => { finishRead = () => resolve(JSON.parse(JSON.stringify(served))); }) });
+    const slowPort = await freePort();
+    const slowServer = await new Promise(resolve => { const s = slow.listen(slowPort, '127.0.0.1', () => resolve(s)); });
+    const slowBase = 'http://127.0.0.1:' + slowPort;
+    try {
+      const login = await fetch(slowBase + '/login', { method: 'POST', redirect: 'manual',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'password=' + encodeURIComponent(PASS) });
+      const cookie = login.headers.get('set-cookie').split(';')[0];
+      captureOn();
+      const abort = new AbortController();
+      const pending = fetch(slowBase + '/data.json', { headers: { cookie }, signal: abort.signal }).catch(() => null);
+      // Wait until the read has started, then go away mid-read.
+      const deadline = Date.now() + 5000;
+      while (!finishRead && Date.now() < deadline) await new Promise(r => setTimeout(r, 10));
+      assert.ok(finishRead, 'the read started');
+      await new Promise(r => setTimeout(r, 40));
+      abort.abort();
+      await pending;
+      await new Promise(r => setTimeout(r, 80));
+      // The read then completes after the client is gone.
+      finishRead();
+      await new Promise(r => setTimeout(r, 80));
+      captureOff();
+      const got = timingLines();
+      assert.equal(got.length, 1, 'one line for the request');
+      assert.equal(got[0].outcome, 'client-closed');
+      assert.equal(got[0].status, 'none', 'never a 2xx');
+      assert.ok(got[0].ms.data >= 30, 'the open read counts up to the close');
+      assert.ok(!got.some(l => l.outcome === 'completed' && l.status === '2xx'));
+    } finally {
+      captureOff();
+      await new Promise(resolve => slowServer.close(resolve));
+    }
+  });
+
   await check('the record builder: allowlist, clamping and closed values', () => {
     assert.equal(RequestTiming.routeOf('/index.html'), '/');
     assert.equal(RequestTiming.routeOf('/app.js'), 'static');
@@ -151,9 +191,16 @@ const timingLines = () => captured.filter(line => line.startsWith('{"type":"atla
     assert.equal(RequestTiming.routeOf('/data.json/extra'), 'other');
     assert.equal(RequestTiming.routeOf(undefined), 'other');
     const r = RequestTiming.record({ start: 0n, end: 5000000n, path: '/data.json?x=' + CANARY.query, data: 9000000n,
-      serialize: -1n, source: CANARY.payee, jobStarted: 'yes', cold: 'true' }, 999, 'DELETE');
-    assert.deepEqual(r, { type: 'atlas-timing', route: 'other', method: 'other', status: 'other', cold: false,
-      ms: { total: 5, data: 9, serialize: 0, other: 0 }, source: 'none', cacheHit: false, jobStarted: false });
+      serialize: -1n, served: CANARY.payee, cold: 'true' }, 999, 'DELETE', 'completed');
+    assert.deepEqual(r, { type: 'atlas-timing', route: 'other', method: 'other', outcome: 'completed', status: 'other', cold: false,
+      ms: { total: 5, data: 9, serialize: 0, other: 0 }, served: 'none', cacheHit: false });
+    // An open read at close counts up to the close; a closed request never reads 2xx.
+    const closed = RequestTiming.record({ start: 0n, end: 8000000n, path: '/data.json', data: 0n, dataOpen: 3000000n,
+      serialize: 0n, served: 'provider-job', cold: false }, 200, 'GET', 'client-closed');
+    assert.equal(closed.outcome, 'client-closed');
+    assert.equal(closed.status, 'none');
+    assert.equal(closed.ms.data, 5);
+    assert.equal(RequestTiming.record({ start: 0n, end: 1n, path: '/', data: 0n, serialize: 0n, served: 'retained' }, 200, 'GET', 'completed').cacheHit, true);
   });
 
   await check('the real server writes one atlas-startup line when it is listening', async () => {

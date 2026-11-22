@@ -403,21 +403,18 @@ async function servedAtlasData(req, res, options = {}) {
   req?.once('aborted', cancel);
   res?.once('close', cancel);
   if (req?.aborted || res?.destroyed) controller.abort();
-  // Timing only (scripts/request-timing.js): the data phase, its source, and
-  // whether this request started a live-refresh job.
+  // Timing only (scripts/request-timing.js): the data phase and the closed
+  // path that served it (named by ServerLiveRefresh.serve, not by the
+  // browser-facing check metadata).
   const dataTiming = RequestTiming.dataStart(req);
-  const onCheck = check => {
-    RequestTiming.noteSource(req, check && check.source);
-    return options.onCheck?.(check);
-  };
-  const onJob = started => RequestTiming.noteJobStarted(req, started);
+  const onServedPath = served => RequestTiming.noteServed(req, served);
   try {
     let served;
-    if (baseSource) served = await baseSource();
+    if (baseSource) { served = await baseSource(); onServedPath('canonical'); }
     else {
       const canonical = loadCanonicalData();
       try {
-        served = await ServerLiveRefresh.serve(canonical, environment, { ...options, onCheck, onJob, signal: controller.signal });
+        served = await ServerLiveRefresh.serve(canonical, environment, { ...options, onServedPath, signal: controller.signal });
       } catch (err) {
         // A failed refresh the controller rejects (Manual Refresh, timeout)
         // still keeps the dated Savings evidence when it is retained; with
@@ -426,6 +423,7 @@ async function servedAtlasData(req, res, options = {}) {
           ? LivePlan.failedRefreshWithCarriedSavings(canonical, err.code, lastGoodServed) : null;
         if (!carried) throw err;
         served = carried;
+        onServedPath('retained');
       }
     }
     return await settlementEvidenceServing.attach(withRetainedSavingsEvidence(served));
