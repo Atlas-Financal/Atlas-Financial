@@ -482,16 +482,19 @@
         trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
         completeness: excluded.length ? 'partial' : 'complete', excluded,
         reasons: excluded.length ? ['some-cards-unavailable'] : [] };
-    // The minimums due, over exactly the spend cards the paid total is over (HELOC excluded: its minimum is part of the
-    // period's Credit line in the waterfall, a different figure by membership). minimumsDue is the sum of those cards'
-    // published minimum amounts, withheld (amount null) when any card's minimum is withheld for a reason other than
-    // no-minimum-due-in-period, never a partial sum. The counts say how many cards have a minimum due and how many of those
+    // The minimums due, over every listed credit line, the HELOC included: one membership for "Credit" (lead ruling,
+    // ATLAS LEAD 12, 2026-11-22, on Dale's walk of the Stack page). Each line's minimum is its rows of the period's bills
+    // split (stackSummary.bills.cardMinimums), the same rows the waterfall's Credit line sums (stackSurplus terms.credit),
+    // so the Credit head's due and the waterfall's Credit are one figure. minimumsDue is the sum of those lines' published
+    // minimum amounts, withheld (amount null) when any line's minimum is withheld for a reason other than
+    // no-minimum-due-in-period, never a partial sum. The counts say how many lines have a minimum due and how many of those
     // are published covered (minimumCovered.value === true), so a bar of covered over due is full only when every due
-    // minimum is covered; they are null when the minimums are withheld. Trust is the weakest input, as for the other totals.
+    // minimum is covered (a HELOC's coverage is not published, so it never counts covered); they are null when the minimums
+    // are withheld. Trust is the weakest input, as for the other totals.
     const minimumOff = line => line.minimum.amount === null && !line.minimum.reasons.includes('no-minimum-due-in-period');
-    const withheldMins = spendLines.filter(minimumOff);
+    const withheldMins = lines.filter(minimumOff);
     // A published $0 minimum is nothing owed: it is not due, so it is out of the sum and both counts.
-    const dueLines = spendLines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
+    const dueLines = lines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
     if (withheldMins.length) {
       totals.minimumsDue = { amount: null, trust: 'unavailable',
         reasons: [...new Set(withheldMins.flatMap(line => line.minimum.reasons))] };
@@ -502,7 +505,8 @@
     } else {
       totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
         trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
-      // The paid side of the Credit head: the sum of each due spend card's paidToward (the figure its row prints, one rule),
+      // The paid side of the Credit head: the sum of each due line's paidToward, the HELOC's included (the figure its row
+      // prints, one rule; the HELOC's is never more certain than estimated, and withheld when its observation has a gap),
       // uncapped (an overpaid card counts its full paid). A $0 when nothing was paid; withheld (null, unavailable, with its
       // reasons) when any due card's paidToward is withheld, never a partial sum. Trust is the weakest of the figures.
       const unseen = dueLines.filter(line => line.paidToward.amount === null);
