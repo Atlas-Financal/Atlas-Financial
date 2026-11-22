@@ -59,7 +59,7 @@ function views(x, F) {
   });
   const periods = result.payPeriodViews.filter(v => v.timelineRole !== 'past');
   assert.ok(periods.length >= 3, 'publish the current and adjacent projected periods');
-  return periods;
+  return result.payPeriodViews;
 }
 
 // Generate an independent calendar one day at a time starting at the input
@@ -78,19 +78,28 @@ function period(x, index, view) {
   const mortgage = amount(x.mortgage);
   const credit = amount(x.card) + amount(x.heloc);
   const assigned = other + mortgage + credit;
+  // With no posted household spending in history the completed period holds
+  // zero. A current or future period reserves the full planned budget.
+  const hold = index < 0 ? 0 : x.hold;
   return {
-    hasUnknown, other, mortgage, credit, assigned, surplus: x.pay - assigned - x.hold,
+    hasUnknown, other, mortgage, credit, assigned, hold, surplus: x.pay - assigned - hold,
     estimates: [...bills.map(b => [b, 'utility-' + x.bills.indexOf(b)]),
       [x.mortgage, 'mortgage-payment'], [x.card, 'mbna-payment'], [x.heloc, 'line']]
       .filter(([b]) => due(b) && b.confidence === 'estimated').map(([, id]) => id),
   };
 }
 
+function eachPeriod(x, F, check) {
+  const vs = views(x, F);
+  const current = vs.findIndex(v => v.timelineRole === 'current');
+  assert.ok(current > 0, 'published current and historical periods');
+  vs.forEach((v, i) => check(v, period(x, i - current, v)));
+}
+
 function deductions(x, F) {
-  views(x, F).forEach((v, i) => {
-    const e = period(x, i, v);
+  eachPeriod(x, F, (v, e) => {
     assert.equal(v.incomeTotal, money(x.pay), 'period payroll');
-    assert.equal(v.budgetHold, money(x.hold), 'pay-period household budget');
+    assert.equal(v.budgetHold, money(e.hold), 'pay-period household budget');
     assert.equal(v.periodBillLoad, e.hasUnknown ? null : money(e.assigned), 'assigned bill load');
     assert.equal(v.balanceAfterDeductions, e.hasUnknown ? null : money(e.surplus), 'balance after deductions');
   });
@@ -99,15 +108,14 @@ function deductions(x, F) {
 // No held debits, manual payments beyond the minimum, or spending against a
 // savings item in this domain. All three are distinct terms when present.
 function stack(x, F) {
-  views(x, F).forEach((v, i) => {
-    const e = period(x, i, v);
+  eachPeriod(x, F, (v, e) => {
     const { surplus, bills } = v.stackSummary;
     if (e.hasUnknown) {
       assert.deepEqual([surplus.amount, surplus.terms, bills.other, bills.mortgage, bills.cardMinimums],
         [null, null, null, null, null], 'an unknown cost withholds the split and surplus');
     } else {
       assert.deepEqual(surplus.terms, {
-        income: money(x.pay), bills: money(e.other), household: money(x.hold),
+        income: money(x.pay), bills: money(e.other), household: money(e.hold),
         mortgage: money(e.mortgage), credit: money(e.credit),
       }, 'each Stack term has the input-derived amount');
       assert.equal(surplus.amount, money(e.surplus), 'Stack surplus in exact cents');
@@ -118,7 +126,7 @@ function stack(x, F) {
 
 function carry(x, F) {
   let opening = x.opening;
-  const vs = views(x, F);
+  const vs = views(x, F).filter(v => v.timelineRole !== 'past');
   vs.forEach((v, i) => {
     const close = opening + period(x, i, v).surplus;
     assert.equal(v.opening, money(opening), 'opening from the invented cash ledger');
@@ -138,8 +146,7 @@ function carry(x, F) {
 
 function trust(x, F) {
   let cashDependsOnEstimate = false;
-  views(x, F).forEach((v, i) => {
-    const { estimates } = period(x, i, v);
+  eachPeriod(x, F, (v, { estimates }) => {
     const assertEstimated = (tag, label) => assert.equal(tag, 'estimated', label + ' at ' + v.start);
     if (x.incomeConfidence === 'estimated') {
       assertEstimated(v.incomeTrust, 'period income');
@@ -159,14 +166,14 @@ function trust(x, F) {
       assertEstimated(v.afterBillsTrust, 'balance after bills');
       assertEstimated(v.balanceAfterDeductionsTrust, 'balance after deductions');
       assertEstimated(v.stackSummary.surplus.trust, 'Stack surplus');
-      cashDependsOnEstimate = true;
+      if (v.timelineRole !== 'past') cashDependsOnEstimate = true;
     }
     // Once a cash flow is estimated, later period-end balances in this chain
     // inherit that uncertainty, even in a period with only confirmed bills.
     if (cashDependsOnEstimate && v.plannedPeriodClose !== null) {
       assertEstimated(v.plannedPeriodCloseTrust, 'closing cash');
     }
-    if (i === 0 && x.goal !== null) {
+    if (v.timelineRole === 'current' && x.goal !== null) {
       const { items, totals } = v.stackSummary.savings;
       assert.equal(items[0].needed, money(x.goal), 'goal cost');
       assertEstimated(items[0].trust, 'savings goal');
