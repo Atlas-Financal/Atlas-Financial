@@ -59,6 +59,11 @@
   }
   // No label: an estimated figure is drawn softer (class stack-est), never worded.
   function estCls(on) { return on ? ' stack-est' : ''; }
+  // A bill's printed name: the shell's one rule (StackBlocks.billName), or the label as given.
+  function billName(label) {
+    var sb = root.StackBlocks;
+    return sb && typeof sb.billName === 'function' ? sb.billName(label) : (typeof label === 'string' ? label : '');
+  }
 
   // A bar's fill as a CSS percentage, from the shell's one shared drawing ratio (StackBlocks.barWidth, 0 to 1,
   // or null for no bar). Drawing only; never printed.
@@ -128,13 +133,12 @@
     // Forecast's one paid rule (stackBillPaidEvidence): a posted payment of exactly the plan, or one Grok Bot verified
     // with a "bill verified" note (counted at its own amount). The same rows stackSummary.bills.paid sums.
     var exact = r.stackBillPaid === true;
-    var soft = isEst(r.stackBillAmountTrust);
     // A pending or unmatched payment counts the plan; a differing posted payment may count above it (the Bills total
     // rule), so it is named from what it is, never "Planned".
     var name = amountText == null ? null : exact ? 'Paid ' + amountText
       : evidence === 'posted-differs' ? amountText + ', payment not confirmed' : 'Planned ' + amountText;
     return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
-      '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
+      '<span class="sc-a"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
       '<span class="sc-ck">' + (exact ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';
   }
 
@@ -146,10 +150,12 @@
     // shared drawing ratio of the two, as Budget's. An unpublished paid is a dash and an empty bar, never $0.
     var paid = money(split.paid), total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(r.label || r.name || 'Bill', r, billTarget('bill', r));
+      return stateRow(billName(r.label || r.name) || 'Bill', r, billTarget('bill', r));
     }).join('') + '</ul>';
+    // No greyed bill amounts on the card (owner decision, Dale, queued 2026-11-22): the head and rows print plain; an
+    // estimated bill amount keeps its published trust and is drawn soft in its tap-in sheet (stack-sheet.js).
     return strip('bills', 'Bills', '', paid, total, paid == null ? 0 : fill(split.paid, split.other), rows.length ? body : '', ' / ', null,
-      isEst(split.paidTrust, split.trust), true);
+      false, true);
   }
 
   function budgetCard(view) {

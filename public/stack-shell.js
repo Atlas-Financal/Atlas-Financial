@@ -57,6 +57,17 @@ try {
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
     estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // A bill's printed name (owner decision, Dale, queued 2026-11-22): the plan's label without its timing qualifiers,
+    // "(estimated timing)" and "— <date> posting unknown", as the classic page already drops "posting unknown"
+    // (plan.js glanceLineLabel). Display only: the label Forecast publishes is unchanged, and the trust of the amount is
+    // still published and still drawn, in the bill's tap-in sheet. Never empty: an all-qualifier label prints as given.
+    billName(label) {
+      const raw = typeof label === 'string' ? label.replace(/\s+/g, ' ').trim() : '';
+      const name = raw.replace(/\s*\(\s*estimated timing\s*\)/ig, '')
+        .replace(/\s*[\u2014\u2013-]\s*[^\u2014\u2013-]*posting unknown\s*$/i, '')
+        .replace(/\s*posting unknown\s*/ig, ' ').replace(/\s+/g, ' ').trim();
+      return name || raw;
+    },
     // The one way the Stack page prints a published amount (design: whole dollars). Display only: the published value
     // is rounded to the dollar for printing (half away from zero, so $2.50 prints $3 and −$2.50 prints −$3) and is
     // never used again; no sum, status or decision reads the printed text. A true minus sign; with signed, a plus on a

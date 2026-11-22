@@ -91,7 +91,7 @@
     const asOf = ctx && ctx.data && ctx.data.meta && typeof ctx.data.meta.asOf === 'string' ? ctx.data.meta.asOf : null;
     const earlier = asOf ? list.filter(e => e !== match && (!keyed || e.occurrence !== identity) && e.date < bill.date && e.date <= asOf) : [];
     const headAmount = shownAmount(entry, paid);
-    return head(kicker, bill.label || '')
+    return head(kicker, (window.StackBlocks.billName ? window.StackBlocks.billName(bill.label) : bill.label) || '')
       + `<div class="stack-sheet-big stack-n${headAmount === null ? '' : est(entry.trust, v)}">${amountHtml(headAmount)}</div>`
       + (paid ? (entry && entry.paidConfirmed === true ? CHECK : '') : plain(date(bill.date), ' stack-n') + plain(bill.payerLabel || ''))
       + (earlier.length ? '<ul class="stack-sheet-hist">' + earlier.map(e => {

@@ -200,6 +200,16 @@ console.log('5. bill and budget sheets');
   const ctx = context(view('actual'));
   ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(ctx, 'bill:water@2031-03-05')), 'an estimated bill amount is soft');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'bill:power@2031-03-06')), 'a calculated bill amount is not');
+  // The marking moved here from the card (owner decision, Dale, queued 2026-11-22), and the sheet's title is the bill's
+  // name without its timing qualifiers (StackBlocks.billName); the published label is unchanged.
+  {
+    const v = view('actual');
+    v.bills[0].label = 'Water (estimated timing)';
+    const h = win.StackSheet.html(context(v), 'bill:water@2031-03-05');
+    ok(/<h3 id="stack-sheet-title">Water<\/h3>/.test(h) && !/estimated timing/i.test(h) && /stack-sheet-big stack-n stack-est/.test(h),
+      'a bill sheet titles the name without "(estimated timing)" and still draws its estimated amount soft');
+    ok(v.bills[0].label === 'Water (estimated timing)', 'the published label is unchanged');
+  }
   const g = win.StackSheet.html(ctx, 'budget:groceries');
   ok(/stack-sheet-big stack-n">/.test(g) && /<i class="stack-est"> \//.test(g) && !/Spent<\/dt>|Budget<\/dt>/.test(g)
     && /Left<\/dt><dd class="stack-n stack-est"/.test(g),
