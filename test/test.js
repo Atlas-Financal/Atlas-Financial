@@ -510,8 +510,12 @@ function outcomeFromWorker(file, { out, code, signal }) {
   return result;
 }
 
+// While a suite's outcome is awaited, a content-free heartbeat record (the
+// suite identity and whole seconds since its start record) every
+// HEARTBEAT_MS, so a long suite visibly makes progress in the public log.
+const HEARTBEAT_MS = 120000;
 async function runSuitesPooled(suites, { jobs, exists = fs.existsSync, log = console.log,
-  work = spawnOutcomeWorker } = {}) {
+  work = spawnOutcomeWorker, heartbeatMs = HEARTBEAT_MS } = {}) {
   validateSuites(suites);
   if (!Number.isInteger(jobs) || jobs < 1 || jobs > MAX_JOBS) throw new Error('Invalid job count');
   const plan = suites.map(([, file], index) => {
@@ -550,8 +554,18 @@ async function runSuitesPooled(suites, { jobs, exists = fs.existsSync, log = con
   const failed = [];
   for (let i = 0; i < plan.length; i++) {
     const { file, early } = plan[i];
-    if (!early) CiOutput.startSuite(plan[i].identity);
-    await finished[i];
+    let beat = null;
+    if (!early) {
+      CiOutput.startSuite(plan[i].identity);
+      const startedAt = Date.now(), identity = plan[i].identity;
+      let last = 0;
+      beat = setInterval(() => {
+        const seconds = Math.floor((Date.now() - startedAt) / 1000);
+        // Strictly increasing whole seconds, as ci-test-records.js requires.
+        if (seconds > last && seconds <= CiOutput.HEARTBEAT_MAX_SECONDS) { last = seconds; CiOutput.heartbeat(identity, seconds); }
+      }, heartbeatMs);
+    }
+    try { await finished[i]; } finally { if (beat) clearInterval(beat); }
     CiOutput.publish(done[i]);
     if (done[i].status !== 'pass') failed.push(file);
   }
@@ -583,6 +597,6 @@ if (require.main === module) {
 
 module.exports = { suites, GROUPS, selectSuites, selectionFromArgs, runSuites,
   NOT_SUITES, NOT_SUITE_PREFIXES, manifestCompleteness,
-  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST,
+  jobsFromArgs, runSuitesPooled, outcomeFromWorker, RUN_ALONE_FIRST, HEARTBEAT_MS,
   SHARD_COUNT, SHARD_SECONDS, DEFAULT_SHARD_SECONDS, shardSuites, shardFromArgs, shardedSelectionFromArgs,
   partFromArgs, selectionWithPartFromArgs };
