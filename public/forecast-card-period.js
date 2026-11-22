@@ -127,6 +127,14 @@
       const seen = new Set();
       const postingIssues = [];
       let total = 0;
+      // Forecast flags a pending/posted pair on both rows. On a spend card the pair is accounted for, never missing evidence,
+      // only when its flagged posted rows and its flagged replaced pending rows pair one for one; a lone flag still withholds.
+      const replacedPending = tx => tx.pending === true && typeof primitives.replacedPending === 'function' && primitives.replacedPending(tx) === true;
+      const ownDated = rows.filter(tx => tx && (tx.atlasAccountId || tx.account) === id && date(tx.date) && tx.date >= start
+        && through && tx.date <= through && tx.pendingPostedDuplicate === true && tx.pendingPostedAmbiguous !== true);
+      const pairsAccounted = id !== 'heloc' && typeof primitives.replacedPending === 'function'
+        && ownDated.filter(tx => tx.pending !== true).length === ownDated.filter(replacedPending).length
+        && ownDated.every(tx => tx.pending !== true || replacedPending(tx));
       for (const tx of rows) {
         if (!tx || (tx.atlasAccountId || tx.account) !== id
           || tx.accountRole !== (id === 'heloc' ? 'heloc' : 'revolving-credit')) continue;
@@ -136,10 +144,10 @@
         // `replacedPending`) is that same charge: it is never counted, and its posted twin counts once (Dale, 2026-11-22: "when
         // the actual charge comes in, I don't want to have that doubled up"). On a spend card that pairing is not missing
         // evidence, so the flag alone no longer withholds; an ambiguous pair or contradictory evidence still does, and the
-        // HELOC keeps the earlier rule.
-        const replaced = tx.pending === true && typeof primitives.replacedPending === 'function' && primitives.replacedPending(tx) === true;
+        // HELOC keeps the earlier rule (pairsAccounted, above).
+        const replaced = replacedPending(tx);
         if (tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true
-          || tx.pendingPostedDuplicate === true && (id === 'heloc' || typeof primitives.replacedPending !== 'function'))
+          || tx.pendingPostedDuplicate === true && !pairsAccounted)
           issues.push('transaction-evidence-unconfirmed');
         if (tx.isGroup === true) {
           if (skipParent(tx, packet)) continue;
