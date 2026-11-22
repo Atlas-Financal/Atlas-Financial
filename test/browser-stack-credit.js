@@ -169,6 +169,19 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       ok(big.size === '64px' && big.x === 'rgb(15, 122, 67)' && big.t === '+$400 / $25', 'the sheet\'s big figure is the same "X / min", 64px and green', JSON.stringify(big));
       const sh = await textOf(fp, '.stack-sheet');
       ok(/Paid onto it \$400 Spent on it \$400 Minimum \$25 ✓/.test(sh), 'the sheet rows: Paid onto it, Spent on it, Minimum with its ✓', sh);
+      // A pending row: dimmed, with a drawn hollow dot named "pending" (rule B5: no printed word); posted rows have none.
+      const dots = await fp.$$eval('.stack-sheet-tx li', els => els.map(li => {
+        const d = li.querySelector('.stack-sheet-txp');
+        const cs = d && getComputedStyle(d);
+        const box = d && d.getBoundingClientRect();
+        return { pending: li.classList.contains('is-pending'), dot: !!d, name: d ? d.getAttribute('aria-label') : null,
+          drawn: !!d && box.width >= 8 && box.height >= 8 && cs.borderTopStyle === 'solid' && cs.borderRadius === '50%',
+          oneLine: (() => { const r = document.createRange(); r.selectNodeContents(li.querySelector('.stack-sheet-txl').lastChild);
+            return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size <= 1; })(),
+          opacity: getComputedStyle(li).opacity };
+      }));
+      ok(dots.length === 4 && dots.every(r => r.pending === r.dot) && dots.filter(r => r.pending).every(r => r.name === 'pending' && r.drawn && r.oneLine && r.opacity === '0.62'),
+        'in the browser the pending row is dimmed and shows a drawn hollow dot named "pending", on one line; posted rows show none', JSON.stringify(dots));
       await fp.keyboard.press('Escape');
       await fp.click('[data-stack-sheet="card:tdcc"]');
       await fp.waitForSelector('.stack-sheet');

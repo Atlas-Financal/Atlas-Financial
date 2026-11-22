@@ -344,6 +344,35 @@ console.log('5. the sheet');
     + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you +$400 Mar 10 Pending Cafe $12.50', 'card sheet', visa);
   const tx = win.StackSheet.html(ctx, 'card:travelvisa');
   ok(/class="is-pay"><span class="stack-sheet-txd">Mar 9/.test(tx) && /class=" is-pending"/.test(tx), 'a payment row is marked bold and a pending row dimmed');
+  // A pending row also carries a hollow dot named "pending" (no printed word, rule B5); a posted row never does
+  // (lead ruling, ATLAS LEAD 12, 2026-11-22, on Dale's walk: four pending rows dimmed alike read as plain grey text).
+  const DOT = '<span class="stack-sheet-txp" role="img" aria-label="pending"></span>';
+  const rowsOf = html => (html.match(/<li class="[^"]*">.*?<\/li>/g) || []);
+  const pendingRows = rows => rows.filter(r => /^<li class="[^"]*is-pending/.test(r));
+  const txRows = rowsOf(tx.slice(tx.indexOf('stack-sheet-tx"')));
+  ok(txRows.length === 3 && pendingRows(txRows).length === 1 && pendingRows(txRows).every(r => r.includes(DOT))
+    && txRows.filter(r => !/is-pending/.test(r)).every(r => !r.includes('stack-sheet-txp') && !/aria-label="pending"/.test(r)),
+  'the pending row carries the hollow dot named "pending"; the posted rows carry none', JSON.stringify(txRows));
+  ok(!/pending/i.test(text(tx).replace('Pending Cafe', '')),
+    'no word "pending" is printed: the name is only the dot\'s accessible name');
+  // All pending: nothing posted to compare against, so each row must carry the marker on its own.
+  const saved = LINES[0].transactions;
+  LINES[0].transactions = [{ date: '2031-03-10', name: 'Shop A', amount: 22.5, kind: 'purchase', payment: false, pending: true },
+    { date: '2031-03-10', name: 'Shop B', amount: 230, kind: 'purchase', payment: false, pending: true },
+    { date: '2031-03-10', name: 'Card transaction', amount: -230, kind: 'refund', payment: false, pending: true },
+    { date: '2031-03-10', name: 'Shop B', amount: 230, kind: 'purchase', payment: false, pending: true }];
+  try {
+    const all = win.StackSheet.html(context(TOTALS.complete), 'card:travelvisa');
+    const rows = rowsOf(all.slice(all.indexOf('stack-sheet-tx"')));
+    ok(rows.length === 4 && rows.every(r => /^<li class="[^"]*is-pending/.test(r) && r.split(DOT).length === 2),
+      'every row pending: every row is dimmed and carries exactly one dot named "pending"', JSON.stringify(rows));
+    ok(text(all).includes('Paid onto it $400 Spent on it $400'), 'the marker moves no figure: Paid and Spent print as before');
+  } finally { LINES[0].transactions = saved; }
+  // MUTANT: a sheet that drops the dot leaves an all-pending list unmarked, which the checks above reject.
+  const src = read('public/stack-credit.js');
+  ok(src.includes('${t.pending ? PENDING_DOT : \'\'}'), 'the mutant targets the pending-dot rule');
+  const { win: mwin } = load(src.replace('${t.pending ? PENDING_DOT : \'\'}', ''));
+  ok(!mwin.StackSheet.html(ctx, 'card:travelvisa').includes(DOT), 'MUTANT: without the dot rule no pending row is marked (the checks above fail on it)');
   ok(!/estimated|calculated|verified|≈|stack-sheet-bar|stack-credit-pill/.test(visa + tx.replace(/class="[^"]*"/g, '')), 'no tag printed, no bar or pill in the sheet');
   const heloc = text(win.StackSheet.html(ctx, 'card:heloc'));
   ok(heloc === 'Credit · Mar 1 – 14 Line of credit — / $210 Minimum $210', 'HELOC sheet: "— / $210" and its minimum, no ✓', heloc);
