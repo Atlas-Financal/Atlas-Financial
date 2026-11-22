@@ -1506,6 +1506,13 @@ function overlayLiveState(input) {
   markUnknownPending(next, report, cutover.liveAsOf || liveAsOf);
   clearObservedBillsEstimate(next, report, liveAsOf);
   assertOwnerPolicyUntouched(data, next, scheduledBills, scheduledObligations);
+  // Amounts from Lunch Money (owner, Dale 2026-11-21): a scheduled bill takes its reviewed item's amount, applied
+  // after the owner-policy guard as the budget targets are (derived input, served plan only).
+  for (const schedule of Array.isArray(report.recurringBillSchedules) ? report.recurringBillSchedules : []) {
+    if (!schedule.billId || !scheduledBills.has(schedule.billId)) continue;
+    const i = bills.findIndex(row => row && row.id === schedule.billId);
+    if (i >= 0) bills[i] = O.applyRecurringAmount(bills[i], schedule);
+  }
   // Budget targets from Lunch Money budgets (owner decision #821, 2026-11-18).
   // Forecast derives the dated targets; a row Lunch Money does not resolve
   // keeps its plan target. Applied after the owner-policy guard, which checks
