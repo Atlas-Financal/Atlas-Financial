@@ -349,7 +349,7 @@ Not run by `npm test` (`test.js` lists the `browser-` prefix as not a node suite
 | `browser-app-release-resume.js` | `ADAPT-OR-KEEP` |
 | `browser-boot-treatment.js` | `ADAPT-OR-KEEP` |
 | `browser-latest-complete-refresh.js` | `ADAPT-OR-KEEP` |
-| `browser-observation-memory.js` | `ADAPT-OR-KEEP` |
+| `test-browser-observation-memory.js` (renamed from `browser-observation-memory.js` when registered, 2026-11-22) | `ADAPT-OR-KEEP` |
 | `browser-routes-render.js` | `ADAPT-OR-KEEP` |
 | `browser-stack-credit.js` | `ADAPT-OR-KEEP` |
 | `browser-stack-layout.js` | `ADAPT-OR-KEEP` |

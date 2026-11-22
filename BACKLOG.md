@@ -871,9 +871,10 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Next action:** add phase marks inside the assistant route, then choose a fix from what they show.
 - Source: the lead, from the #1553/#1558 timing lines.
 
-**`test/browser-observation-memory.js` fails on plain main** · READY (ATLAS LEAD 12, 2026-11-22). Owner: unassigned. Light lane (tests).
+**`test/browser-observation-memory.js` fails on plain main** · **DONE 2026-11-22** (fixed and registered; GUARDS). Light lane (tests).
 - **Why:** a boot-notice overlay (`[data-boot-notice]`) intercepts the test's Cancel click, so the click times out. The suite is not registered in `test/suites.json`, so CI never runs it and nothing catches the failure.
 - **Next action:** fix the test or retire it; if it is kept, register it.
+- **Resolution:** kept, because no registered suite proves in a real browser that a failed refresh leaves the header inert and hidden until a successful Retry. Its Cancel step now uses the keyboard (Tab to Cancel, then Enter), the only way a household can reach Cancel while loading: by design it takes no pointer input until focused. It is registered as `test/test-browser-observation-memory.js` (renamed, because the `browser-` prefix marks unregistered suites), and it skips where Playwright is absent.
 - Source: GUARDS, found while building #1561; the lead added it to the backlog.
 
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
