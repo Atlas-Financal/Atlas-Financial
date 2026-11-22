@@ -433,6 +433,8 @@ console.log('test-stack-cards: ok');
   assert.strictEqual(n('Car insurance posting unknown'), 'Car insurance');
   assert.strictEqual(n('Hydro'), 'Hydro', 'a plain label is untouched');
   assert.strictEqual(n('Mid-month top-up'), 'Mid-month top-up', 'a hyphen alone is not a qualifier');
+  assert.strictEqual(n('Car-insurance posting unknown'), 'Car-insurance', 'a hyphen inside a name is not the qualifier dash');
+  assert.strictEqual(n('Car-insurance \u2014 9 March posting unknown'), 'Car-insurance', 'a hyphenated name keeps its hyphen before the dash');
   assert.strictEqual(n('(estimated timing)'), '(estimated timing)', 'an all-qualifier label prints as given, never empty');
   assert.strictEqual(n(null), '');
   const q = JSON.parse(JSON.stringify(view));

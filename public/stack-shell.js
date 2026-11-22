@@ -64,7 +64,7 @@ try {
     billName(label) {
       const raw = typeof label === 'string' ? label.replace(/\s+/g, ' ').trim() : '';
       const name = raw.replace(/\s*\(\s*estimated timing\s*\)/ig, '')
-        .replace(/\s*[\u2014\u2013-]\s*[^\u2014\u2013-]*posting unknown\s*$/i, '')
+        .replace(/(?:\s*[\u2014\u2013]|\s+-)\s*[^\u2014\u2013]*?posting unknown\s*$/i, '')
         .replace(/\s*posting unknown\s*/ig, ' ').replace(/\s+/g, ' ').trim();
       return name || raw;
     },
