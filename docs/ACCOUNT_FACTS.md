@@ -322,15 +322,20 @@ Current evidenced active services:
   household posting date, debit, early-or-due, settle one standing
   `bell` occurrence from 2026-10-15. The standing rule opts into
   same-account split legs. Amount is not identity and the sum is not
-  identity; the planned **$160** stays the scheduled amount. One posted
-  BILLS Bell debit, including one posted plus one pending leg, does not
-  settle. Three legs, a duplicate id, a mixed merchant, a different
-  account, or two posting dates do not settle. The September once is not
+  identity; the planned **$160** stays the scheduled amount. Owner
+  2026-11-21 (Dale, 8:47 AM PT): a single posted BILLS Bell Mobility
+  payment also settles that month's standing occurrence (rule flag
+  `singleLegSettles`; e.g. the Nov 18 payment, Lunch Money recurring item
+  3722147, settles November's `bell`). The observed debit is the actual;
+  the plan amount stays $160. A pending leg alone, three legs, a provider
+  id seen on two rows, a different account, or two posting dates do not
+  settle. The September once keeps its two-leg-only rule. The September once is not
   reused, and one payment's transaction ids cannot settle both September
   and a standing occurrence. The Travel Visa single-debit rule remains.
-  A BILLS subset that is not an accepted pair does not block that debit.
-  An accepted BILLS pair and a Travel Visa debit for the same standing
-  occurrence stay unresolved. Planned paying account is BILLS ACCOUNT.
+  A BILLS subset that is not an accepted pair or one posted payment does
+  not block that debit. An accepted BILLS pair, or one posted BILLS
+  payment, and a Travel Visa debit for the same standing occurrence stay
+  unresolved. Planned paying account is BILLS ACCOUNT.
   This does not change the $160 amount, the 15th cadence, or
   `firstDue` 2026-10-15, and it does not close Q18.
 - **Main Bell Mobility (historical June 2026 reconstruction)** — June
