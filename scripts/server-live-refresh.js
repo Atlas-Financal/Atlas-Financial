@@ -328,13 +328,25 @@ if (!isMainThread) {
     if (job.logged) return;
     job.logged = true;
     const elapsed = (start, end) => start == null || end == null ? null : Math.max(0, Math.round(end - start));
+    const exitAt = performance.now();
+    let mainBusyMs = null;
+    try {
+      if (job.eluAtResolve) mainBusyMs = Math.max(0, Math.round(performance.eventLoopUtilization(job.eluAtResolve).active));
+    } catch (_) { mainBusyMs = null; }
+    const exitWaitMs = elapsed(job.resolved, exitAt);
     // Closed fields only: no payload, error text, provider identity or key.
     // completed means the worker returned, not that provider evidence qualified.
     console.log(JSON.stringify({ type: 'live-refresh-lifecycle', outcome: job.outcome,
       totalMs: elapsed(job.started, job.finished),
       workerStartupMs: elapsed(job.started, job.online),
       workerRunMs: elapsed(job.online, job.finished),
-      cleanupMs: elapsed(job.finished, performance.now()),
+      cleanupMs: elapsed(job.finished, exitAt),
+      // cleanupMs split (timing only): resolveMs is finished -> every waiter
+      // resolved; exitWaitMs is resolved -> this line; mainBusyMs is the main
+      // thread's active time within exitWaitMs; teardownMs is the rest.
+      resolveMs: elapsed(job.finished, job.resolved),
+      exitWaitMs, mainBusyMs,
+      teardownMs: exitWaitMs == null || mainBusyMs == null ? null : Math.max(0, exitWaitMs - mainBusyMs),
       waiterCount: job.waiterCount, peakWaiters: job.peakWaiters,
       cancelledWaiters: job.cancelledWaiters, timedOutWaiters: job.timedOutWaiters }));
     console.log(JSON.stringify(StageTiming.record(job.stages, job.evidence ? 'memory' : 'provider',
@@ -497,6 +509,11 @@ if (!isMainThread) {
     clearTimeout(job.timer);
     if (jobs.get(job.key) === job) jobs.delete(job.key);
     for (const waiter of [...job.waiters]) settleWaiter(job, waiter, error, data);
+    // Timing only: every waiter is resolved here, before any worker cleanup
+    // starts. The event-loop snapshot lets emitTiming split the wait for the
+    // worker's exit into main-thread busy time and the remainder (teardown).
+    job.resolved = performance.now();
+    try { job.eluAtResolve = performance.eventLoopUtilization(); } catch (_) { job.eluAtResolve = null; }
     if (!job.worker) return emitTiming(job);
     const terminate = () => job.worker.terminate().catch(() => {});
     try { job.worker.postMessage({ abort: true }); } catch (_) { /* Already exited. */ }
