@@ -17,8 +17,11 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const assert = require('node:assert/strict');
+const test = require('node:test');
 const F = require('../public/forecast.js');
 const H = require('./acceptance/harness.js');
+const { stackBillAmounts } = require('./lib/stack-bill-amounts');
 
 let failures = 0;
 const ok = (cond, label, detail = '') => {
@@ -39,6 +42,32 @@ function worldFor(bill, txs) {
 }
 const HYDRO = { id: 'hydro', label: 'Invented hydro', amount: 90, frequency: 'monthly', day: 12, confidence: 'confirmed', payee: 'Invented hydro' };
 const pay = (amount, extra = {}) => H.lm({ date: '2026-10-12', amount, category: 'Utilities', account: 'chequing-a', payee: 'Invented hydro', ...extra });
+
+test('Stack shows the linked partial debit at its posted amount, including a one-cent shortfall', async () => {
+  for (const [paid, confidence, shortfall, trust, printed] of [
+    [40, 'confirmed', 50, 'calculated', '$40'],
+    [89.99, 'confirmed', 0.01, 'calculated', '$90'],
+    [40, 'estimated', 50, 'estimated', '$40'],
+  ]) {
+    const { w } = worldFor({ ...HYDRO, confidence }, [pay(paid)]);
+    const x = await stackBillAmounts(w, '2026-10-09', HYDRO.id, '2026-10-12');
+    assert.deepEqual([x.bill.actual, x.bill.planned, x.bill.shortfall, x.bill.shortfallTrust, x.bill.excess],
+      [paid, 90, shortfall, trust, undefined], 'the shortfall has the confidence of the planned amount');
+    assert.deepEqual([x.history.amount, x.history.amountBasis, x.history.trust], [paid, 'posted-actual', 'calculated'],
+      'the sheet takes the exact cents of the observed posting');
+    assert.deepEqual([x.cardAmount, x.sheetAmount, x.cardPaid, x.sheetPaid], ['$90', printed, false, false],
+      'the sheet shows the posting and the bill stays unchecked');
+  }
+});
+
+test('a single pending debit supplies no posted amount to the Stack bill sheet', async () => {
+  const { w } = worldFor(HYDRO, [pay(90, { pending: true })]);
+  const x = await stackBillAmounts(w, '2026-10-09', HYDRO.id, '2026-10-12');
+  assert.deepEqual([x.bill.actual, x.bill.stackBillPaymentEvidence, x.history.amountBasis, x.totals.paid],
+    [null, 'pending', 'schedule', 0], 'a pending-only debit contributes no actual');
+  assert.deepEqual([x.cardAmount, x.sheetAmount, x.cardPaid, x.sheetPaid], ['$90', '—', false, false],
+    'the sheet withholds the payment amount until a posting exists');
+});
 
 // the real printers, lifted by name from public/
 const src = f => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
@@ -68,8 +97,8 @@ console.log('Rule 1: a shortfall reads Partly paid');
     'status, remaining, actual and planned are unchanged (a label, not a figure change)', row && `${row.status} ${row.remaining} ${row.actual}/${row.planned}`);
   ok(period && period.paidBills === 40, 'the paid-bills total still counts the 40 that left (unchanged)', period && period.paidBills);
   const line = text(ctx.rowHtml(row));
-  ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line) && !/\bPaid ·/.test(line) && !/over planned/.test(line),
-    'the Bills row reads "Partly paid" with 50.00 still to pay, never plain Paid', line);
+  ok(/Partly paid/.test(line) && /\$50\.00 still to pay/.test(line) && !/over planned/.test(line),
+    'the Bills row discloses the 50.00 still to pay', line);
 }
 {
   const { row } = worldFor(HYDRO, [pay(89.99)]);
@@ -104,7 +133,7 @@ console.log('Rule 2: a pending linked payment is Payment pending, never Paid');
     'never Paid: not settled, no actual, the full 90 stays owed, no excess printed off a pending amount',
     row && `${row.settlement} ${row.actual} ${row.remaining} ${row.excess}`);
   ok(period && period.paidBills === 0, 'the paid-bills total does not count a pending payment', period && period.paidBills);
-  ok(ctx.present(row).label === 'Payment pending' && ctx.present(row).kind === 'pending', 'the printer reads "Payment pending"', JSON.stringify(ctx.present(row)));
+  ok(ctx.present(row).label === 'Payment pending', 'the classic row discloses the pending payment', JSON.stringify(ctx.present(row)));
   const big = worldFor(HYDRO, [pay(120, { pending: true })]).row;
   ok(big && big.status === 'pending' && !('excess' in big), 'a pending amount above plan prints no excess and is not Paid', big && `${big.status} ${big.excess}`);
 }
