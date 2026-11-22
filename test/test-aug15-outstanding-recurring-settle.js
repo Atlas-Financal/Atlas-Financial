@@ -6,17 +6,19 @@
  * automatic payments, so the recurring-link veto (a link another rule names
  * outranks this rule's payee rule) stopped the payee-only once rules
  * icbc-aug15-outstanding / resp-aug15-outstanding from ever settling, and
- * Forecast kept reserving $99.91 + $100 in every later period. BCAA's August
+ * Forecast kept reserving both rows' scheduled amounts in every later period. BCAA's August
  * payment carries no link, so bcaa-aug15-outstanding still settled.
  *
  * The repair names recurringLinkOf on the two once rules. Shapes here follow the
  * real Lunch Money rows (payee, original name, Chequing A, debit, posting date,
- * recurring_id, amount already in data.json). Provider transaction ids are
- * synthetic: the repository is public and fixtures carry no real provider ids.
+ * recurring_id). Each posting's amount is the matching plan row's scheduled amount,
+ * read from data.json at run time; no household amount is written or printed here.
+ * Provider transaction ids are synthetic: the repository is public and fixtures
+ * carry no real provider ids.
  *
  * Independent proof of the figure: the expected Bills drop is the two once rows'
- * own scheduled amounts read straight from data.json ($99.91 + $100 = $199.91),
- * not a number the matcher computes. */
+ * own scheduled amounts read straight from data.json, not a number the matcher
+ * computes. */
 const fs = require('fs');
 const path = require('path');
 const O = require('../scripts/provider-observe.js');
@@ -47,9 +49,11 @@ const tx = (id, date, amount, payee, originalName, recurringId, extra) => Object
   id, account_id: CHEQUING_A, date, amount, is_pending: false, payee, original_name: originalName,
   currency: 'cad', recurring_id: recurringId == null ? null : recurringId,
 }, extra || {});
-const icbc = (id, date, extra) => tx(id, date, 99.91, 'Icbc', 'ICBC INS', ICBC_ITEM, extra);
-const resp = (id, date, extra) => tx(id, date, 100, 'TD WATERHOUSE I REP', 'TD WATERHOUSE I REP', RESP_ITEM, extra);
-const bcaaAug = tx(9301, '2026-08-17', 82.96, 'Bcaa-adv', 'BCAA-AdvAutoIns INS', null);
+// The scheduled amount of a plan bill row, from data.json (the posting pays exactly what the row plans).
+const billAmount = id => Number(data.plan.bills.find(bill => bill.id === id).amount);
+const icbc = (id, date, extra) => tx(id, date, billAmount(date < '2026-09-01' ? 'icbc-aug15-outstanding' : 'icbc'), 'Icbc', 'ICBC INS', ICBC_ITEM, extra);
+const resp = (id, date, extra) => tx(id, date, billAmount(date < '2026-09-01' ? 'resp-aug15-outstanding' : 'resp'), 'TD WATERHOUSE I REP', 'TD WATERHOUSE I REP', RESP_ITEM, extra);
+const bcaaAug = tx(9301, '2026-08-17', billAmount('bcaa-aug15-outstanding'), 'Bcaa-adv', 'BCAA-AdvAutoIns INS', null);
 const ICBC_AUG = icbc(9302, '2026-08-17');
 const RESP_AUG = resp(9303, '2026-08-17');
 // Monthly postings (Nov 15 fell on a Sunday; the bank posted Monday Nov 16).
@@ -115,10 +119,11 @@ const ids = (report.representedEventCandidates || []).filter(c => c.providerTran
   .map(c => String(c.providerTransactionId));
 ok(new Set(ids).size === ids.length, 'no payment settles two occurrences');
 ok(!(report.ambiguousRepresentedEvents || []).some(g => /^(icbc|resp|bcaa)/.test(String(g.id || ''))),
-  'no ICBC, RESP or BCAA occurrence is left ambiguous', J(report.ambiguousRepresentedEvents));
+  'no ICBC, RESP or BCAA occurrence is left ambiguous', J((report.ambiguousRepresentedEvents || []).map(g => g.id)));
 const aug = (report.representedEventCandidates || []).filter(c => /aug15/.test(c.id) && /^(icbc|resp)/.test(c.id));
 ok(aug.length === 2 && aug.every(c => c.postingDate === '2026-08-17' && c.postingDateRelation === 'weekend-next-business-day'
-  && c.direction === 'debit'), 'each August row settles on the weekend-to-next-business-day relation, debit', J(aug));
+  && c.direction === 'debit'), 'each August row settles on the weekend-to-next-business-day relation, debit',
+  J(aug.map(c => [c.id, c.postingDate, c.postingDateRelation, c.direction])));
 
 console.log('\n=== mutants and refusals (each must leave the August row unsettled) ===');
 const before = observe(ALL, withoutLinkOf());
@@ -137,7 +142,7 @@ ok(!settled(observe([icbc(9302, '2026-08-17', { is_pending: true })]), 'icbc-aug
   'pending evidence does not settle');
 ok(!settled(observe([icbc(9302, '2026-08-19')]), 'icbc-aug15-outstanding', '2026-08-16'),
   'a posting outside the weekend-to-next-business-day relation does not settle');
-ok(!settled(observe([tx(9302, '2026-08-17', 99.91, 'Some Other Payee', 'SOME OTHER PAYEE', ICBC_ITEM)]), 'icbc-aug15-outstanding', '2026-08-16'),
+ok(!settled(observe([tx(9302, '2026-08-17', billAmount('icbc-aug15-outstanding'), 'Some Other Payee', 'SOME OTHER PAYEE', ICBC_ITEM)]), 'icbc-aug15-outstanding', '2026-08-16'),
   'the link alone settles nothing: the once rule\'s own payee identity is still required');
 ok(!settled(observe([icbc(9311, '2026-09-15')]), 'icbc-aug15-outstanding', '2026-08-16')
   && settled(observe([icbc(9311, '2026-09-15')]), 'icbc', '2026-09-15'),
@@ -172,18 +177,19 @@ const old = viewFor(withoutLinkOf());
 const ROW_AMOUNTS = ['icbc-aug15-outstanding', 'resp-aug15-outstanding']
   .map(id => Number(data.plan.bills.find(bill => bill.id === id).amount));
 const DROP = ROW_AMOUNTS.reduce((a, b) => a + b, 0);
-ok(near(DROP, 199.91), 'independent expectation from data.json: $99.91 + $100 = $199.91', String(DROP));
+ok(ROW_AMOUNTS.length === 2 && ROW_AMOUNTS.every(n => n > 0), 'independent expectation: the two once rows\' own scheduled amounts, read from data.json');
 ok(!!fixed && !!old, 'both runs publish the Nov 20 – Dec 3 view');
 const rowKeys = view => (view.bills || []).map(row => `${row.id}@${row.date}:${row.amount}`);
 const removed = rowKeys(old).filter(k => !rowKeys(fixed).includes(k));
 const added = rowKeys(fixed).filter(k => !rowKeys(old).includes(k));
-ok(J(removed.sort()) === J(['icbc-aug15-outstanding@2026-08-16:99.91', 'resp-aug15-outstanding@2026-08-16:100']) && added.length === 0,
-  'the only bill rows that leave the period are the two August once rows; no row is added or changed', J({ removed, added }));
+const AUG_KEYS = ['icbc-aug15-outstanding', 'resp-aug15-outstanding'].map((id, i) => `${id}@2026-08-16:${ROW_AMOUNTS[i]}`).sort();
+ok(J(removed.sort()) === J(AUG_KEYS) && added.length === 0,
+  'the only bill rows that leave the period are the two August once rows; no row is added or changed', `${removed.length} removed, ${added.length} added`);
 ok(near(old.totalBillsThisPeriod - fixed.totalBillsThisPeriod, DROP) && near(old.periodBillLoad - fixed.periodBillLoad, DROP),
-  'Bills for the period drop by exactly $199.91', `${old.totalBillsThisPeriod} -> ${fixed.totalBillsThisPeriod}`);
+  'Bills for the period drop by exactly the two once rows\' scheduled amounts');
 ok(near(fixed.balanceAfterDeductions - old.balanceAfterDeductions, DROP)
   && near(fixed.plannedPeriodClose - old.plannedPeriodClose, DROP),
-  'the balance after deductions and the planned close rise by the same $199.91 (consequence, not a second change)');
+  'the balance after deductions and the planned close rise by the same amount (consequence, not a second change)');
 ok(['income', 'incomeTotal', 'householdBudget', 'budgetHold', 'opening', 'currentBalance']
   .every(key => J(fixed[key]) === J(old[key])),
   'income, opening, current balance, household budget and budget hold do not move');
