@@ -141,25 +141,37 @@ for (const [price, payment, expectedPaid, expectedRemaining, expectedBalance] of
   }
 }
 
-console.log('5d. A recorded settlement retains its posted amount when the linked price drops');
+console.log('5d. A recorded opening keeps its occurrence settled across a price drop; with no receipt bound to it, no actual is published (review 7073788253)');
 {
+  // An opening's representedEvents row names the bill and the date only (no receipt id, no actual), so no later
+  // receipt can claim the opening's settlement as its actual: one contract on both matching paths.
   const tx = posted(79.5, '2026-10-14');
-  const opts = { asOf: '2026-10-14', transactions: [tx], rules: [pairedRule], postedCash: 1320.5 };
-  const prior = serve([pairedItem('80.00', tx)], opts);
-  ok(prior.cur[0]?.status === 'PAID' && prior.cur[0].actual === 79.5
-    && prior.opening.representedEvents.some(r => r.id === 'band' && r.date === '2026-10-20'),
-    'prior observation settled the posted payment and represented its occurrence');
-  const current = serve([pairedItem('40.00', tx)], { ...opts, asOf: '2026-10-21',
-    opening: JSON.parse(J(prior.opening)) });
-  const row = current.cur[0];
-  ok(row?.status === 'PAID' && row.amount === 40 && row.actual === 79.5 && row.remaining === 0
-    && current.billsBalance.amount === 920.5, 'the recorded occurrence keeps its actual and reserves nothing twice',
-    J([row?.status, row?.actual, row?.remaining, current.billsBalance.amount]));
-  const laterTx = posted(79.5, '2026-10-20');
-  const later = serve([pairedItem('40.00', laterTx)], { ...opts, asOf: '2026-10-21',
-    transactions: [laterTx], opening: JSON.parse(J(prior.opening)) });
-  ok(later.cur[0]?.status === 'PAID' && later.cur[0].actual == null && later.cur[0].remaining === 0,
-    'an opening records a settlement but cannot supply its actual from a later posted debit');
+  for (const pairing of [false, true]) {
+    const route = pairing ? 'provider-paired' : 'date-qualified';
+    const r = pairing ? pairedRule : rule('band', ID);
+    const it = (price, payment) => pairing ? pairedItem(price, payment) : item(ID, price);
+    const prior = serve([it('80.00', tx)], { asOf: '2026-10-14', transactions: [tx], rules: [r], postedCash: 1320.5 });
+    ok(prior.cur[0]?.status === 'PAID' && prior.cur[0].actual === 79.5
+      && prior.opening.representedEvents.some(e => e.id === 'band' && e.date === '2026-10-20'),
+      `${route}: the prior observation settled the 79.50 payment and represented its occurrence`, J(prior.cur[0]));
+    const opening = JSON.parse(J(prior.opening));
+    ok(opening.representedEvents.every(e => J(Object.keys(e).sort()) === J(['date', 'id']) || J(Object.keys(e).sort()) === J(['date', 'effectiveAsOf', 'id'])),
+      `${route}: the opening row carries no receipt id or actual to bind`, J(opening.representedEvents));
+    for (const [label, receipt, cash] of [
+      ['unchanged receipt', tx, 1320.5],
+      ['same-date replacement with a different provider id', H.lm({ id: 78999, date: '2026-10-14', amount: 93.25, account: 'chequing-a',
+        payee: 'Invented band', raw: { recurring_id: Number(ID) } }), 1306.75],
+      ['edited amount on the same provider id', H.lm({ id: 78123, date: '2026-10-14', amount: 93.25, account: 'chequing-a',
+        payee: 'Invented band', raw: { recurring_id: Number(ID) } }), 1306.75],
+    ]) {
+      const s = serve([it('40.00', receipt)], { asOf: '2026-10-21', transactions: [receipt], rules: [r], postedCash: cash, opening });
+      const row = s.cur[0];
+      ok(row?.status === 'PAID' && row.amount === 40 && (row.actual ?? null) === null && row.remaining === 0
+        && s.billsBalance.remainingBills === 0 && s.billsBalance.amount === cash - 400,
+        `${route}, ${label}: still settled by the opening, nothing reserved twice, no actual published`,
+        J([row?.status, row?.actual, row?.remaining, s.billsBalance.amount]));
+    }
+  }
 }
 
 console.log('5e. Trusted-on-due settlements use the served price as their actual');

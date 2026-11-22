@@ -2919,8 +2919,6 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
 const BILL_IDENTITY_AMOUNT_SHARE = 1.5;
 function billDebitAmountConsistent(rule, amount, scheduledAmount, tx, date) {
   if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
-  const pair = tx && LM_MATCHED.get(tx);
-  if (pair?.recordedReceipt && pair.eventId === rule.eventId && pair.date === date) return true;
   const need = Math.abs(Number(scheduledAmount));
   if (!(Number.isFinite(need) && need > 0)) return true;
   return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
@@ -3499,25 +3497,15 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     const pairs = foundTx.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))
       || String(a.providerTransactionId).localeCompare(String(b.providerTransactionId)))
       .map((tx, i) => ({ tx, date: matched[i] }));
-    // A recorded opening proves an occurrence was already paid. Only restore the
-    // actual from the reviewed item's own posted pair, seen by that opening.
-    // An opening name alone supplies no amount, and a first-seen pair still
-    // has to qualify against the current item price.
-    const pricedBill = recurringSchedules.some(schedule => schedule.billId === rule.eventId
-      && schedule.recurringId === id && schedule.amount > 0);
-    const opening = plan.opening;
-    for (const pair of pairs) {
-      pair.recordedReceipt = pricedBill && String(pair.tx.recurringId) === id
-        && found.some(f => String(f.transactionId) === String(pair.tx.providerTransactionId) && f.date === pair.tx.date)
-        && Array.isArray(opening?.representedEvents) && opening.representedEvents.some(row =>
-          row && row.id === rule.eventId && row.date === pair.date
-          && Forecast.representedEventEffectiveBy(row, opening.asOf)
-          && pair.tx.date <= (row.effectiveAsOf || opening.asOf))
-        && Forecast.representedOccurrence(plan, rule.eventId, pair.date, opening.asOf);
-    }
-    const consistent = pairs.every(({ tx, date, recordedReceipt }) => {
+    // A recorded opening proves an occurrence was already paid; it does not
+    // identify the receipt or store its actual (representedEvents carries the
+    // bill, the date and effectiveAsOf only). So no pair is exempt from the
+    // amount check: an opening keeps its occurrence settled, while a pair that
+    // fails the served-price check supplies no actual (#1510 review
+    // 7073788253, blockers 1 and 2: one contract on both matching paths).
+    const consistent = pairs.every(({ tx, date }) => {
       const occ = scheduledOccurrence(plan, rule.eventId, date);
-      return occ.length === 1 && (rule.direction === 'credit' || recordedReceipt
+      return occ.length === 1 && (rule.direction === 'credit'
         || billDebitAmountConsistent(rule, lunchMoneyDebitAmount(tx.amount), occ[0].amount));
     });
     if (!consistent) continue;
@@ -3525,8 +3513,8 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     // E2: a card minimum is otherwise withheld by cardMinimumNeedsConfirmation;
     // the pairing marks only the narrow case that may settle it.
     const card = cardMinimumNeedsConfirmation(plan, rule.eventId, accountMap);
-    for (const { tx, date, recordedReceipt } of pairs) {
-      LM_MATCHED.set(tx, { eventId: rule.eventId, date, recordedReceipt,
+    for (const { tx, date } of pairs) {
+      LM_MATCHED.set(tx, { eventId: rule.eventId, date,
         ...(card ? { cardMinimum: lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) } : {}) });
     }
     applied.push({ eventId: rule.eventId, matchedDates: matched.length });
