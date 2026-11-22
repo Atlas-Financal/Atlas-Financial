@@ -103,8 +103,11 @@ const holds = s => completed(s).length >= 3
       fs.writeFileSync(path.join(tmp, 'public', 'stack-shell.js'), shell.replace(from, to));
       fs.writeFileSync(path.join(tmp, 'test', 'lib', 'budget-page-harness.js'), harnessSource);
       const mutated = require(path.join(tmp, 'test', 'lib', 'budget-page-harness.js'));
-      let caught;
-      try { caught = !holds(await scenario(mutated, { status: UNAVAILABLE })); } catch (e) { caught = true; }
+      // The mutated page must RENDER (scenario throws otherwise, which fails this test loudly: a broken harness is not a
+      // catch), and then the withholding checks must fail on what it printed.
+      const printed = await scenario(mutated, { status: UNAVAILABLE });
+      ok(completed(printed).length >= 3 && others(printed).some(([, p]) => MONEY.test(p.printed)), 'mutant: ' + what + ' still renders the page (so a catch below is the assertions, not a broken harness)');
+      const caught = !holds(printed);
       ok(caught, 'mutant: ' + what + ' fails a scenario');
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   }
