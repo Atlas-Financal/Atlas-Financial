@@ -157,7 +157,7 @@ console.log('3. The full $90 is assigned once');
   ok(part.period.totalBillsThisPeriod === 90, 'the period bills total is 90', part.period.totalBillsThisPeriod);
 }
 
-console.log('3b. One pay period later (as of Oct 24): the $50 carries, once');
+console.log('3b. One pay period later: a partial payment keeps its evidence in its own period');
 {
   const later = paid => {
     const w = H.baseWorld('2026-10-24');
@@ -173,17 +173,15 @@ console.log('3b. One pay period later (as of Oct 24): the $50 carries, once');
       closed: past && (past.bills || []).find(b => b.id === 'hydro'), day0: rec.sim.daily[0].balance };
   };
   const lFull = later(90), lPart = later(40), lNone = later(0);
-  ok(lPart.carried && lPart.carried.status === 'still due' && lPart.carried.remaining === 50,
-    'the Oct 12 bill is carried into this period still due for 50 (as unpaid carries 90)',
-    lPart.carried && `${lPart.carried.status} ${lPart.carried.remaining}`);
-  ok(lNone.carried && lNone.carried.remaining === 90 && !lFull.carried, 'controls: unpaid carries 90, paid in full carries nothing',
-    `${lNone.carried && lNone.carried.remaining} ${!!lFull.carried}`);
-  ok(lPart.current.remainingBills === 50, 'this period holds 50 still to pay for it', lPart.current.remainingBills);
-  ok(near(lPart.day0, lFull.day0 - 50) && near(lPart.day0, lNone.day0 + 40), 'the cash walk holds 50',
-    `${lPart.day0} ${lFull.day0} ${lNone.day0}`);
-  ok(lPart.closed && lPart.closed.actual === 40 && lPart.past.totalBillsThisPeriod === 40,
-    'the closed period keeps its record: 40 paid there (40 + 50 carried = 90, counted once)',
-    lPart.closed && `${lPart.closed.actual} ${lPart.past.totalBillsThisPeriod}`);
+  for (const result of [lPart, lNone, lFull]) {
+    ok(!result.carried && result.current.remainingBills === 0, 'no old bill reduces this period');
+    ok(near(result.day0, lFull.day0), 'the same observed cash opens the new period');
+  }
+  ok(lPart.closed && lPart.closed.status === 'still due' && lPart.closed.actual === 40 && lPart.closed.remaining === 50,
+    'the closed period retains both the 40 paid and the 50 shortfall');
+  ok(lPart.past.paidBills === 40 && lPart.past.unconfirmedBills === 50 && lPart.past.periodBillLoad === 90,
+    '40 paid + 50 unconfirmed = 90 assigned in the scheduled period');
+
 }
 
 console.log('3c. Only one linked posted instalment is a partial');
@@ -222,7 +220,7 @@ console.log('3d. The Bills account closing balance holds the 50 (Codex P1 on #13
     'remaining bills 50 (0 paid in full) and the closing balance 50 lower', bPart && `${bPart.remainingBills} ${bPart.amount} vs ${bFull && bFull.amount}`);
 }
 
-console.log('3e. A once bill paid in part stays listed after its pay period (Codex P1 on #1320)');
+console.log('3e. A once bill paid in part stays in its scheduled period');
 {
   // A once bill never has three payments, so the history never derives it fixed, and a hand mark is dropped from the
   // served plan (one authority). The Forecast mechanics #1320's P1 fixed are still pinned here by setting the flag on the
@@ -244,10 +242,10 @@ console.log('3e. A once bill paid in part stays listed after its pay period (Cod
   const oFull = onceLater(90), oPart = onceLater(40);
   const served = onceLater(40, { markInForecast: false });
   ok(served.servedMark === false, 'a hand amountFixed mark on a once bill is dropped from the served plan (derived only)');
-  ok(oPart.row && oPart.row.status === 'still due' && oPart.row.actual === 40 && oPart.row.remaining === 50 && oPart.current.remainingBills === 50,
-    'as of Oct 24: listed still due, 40 paid, 50 remaining; this period holds 50', oPart.row && `${oPart.row.status} ${oPart.row.actual} ${oPart.row.remaining} ${oPart.current.remainingBills}`);
-  ok(!oFull.row && oFull.current.remainingBills === 0 && near(oPart.day0, oFull.day0 - 50),
-    'paid in full is not listed; the cash walk holds the same 50 the list shows', `${!!oFull.row} ${oPart.day0} vs ${oFull.day0}`);
+  ok(!oPart.row && oPart.current.remainingBills === 0, 'the unpaid remainder of a past one-off stays in history');
+  ok(!oFull.row && oFull.current.remainingBills === 0 && near(oPart.day0, oFull.day0),
+    'both open on the observed cash without replaying a prior bill');
+
 }
 
 console.log('4. A variable bill (estimated amount) keeps today\'s behaviour');

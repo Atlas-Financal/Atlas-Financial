@@ -774,26 +774,20 @@
     return [];
   }
 
-  // Cadence occurrences() answers whether a declared once date sits inside
-  // the window. That is not settlement. A once cash outflow still on the
-  // plan remains owed if Forecast start later moves past that date: the
-  // event keeps its scheduled/reservation date, and the cash walk still
-  // deducts it at this opening. Advancing as-of is not a new due date.
-  // Received once income keeps window semantics — that cash is already
-  // inside the opening observation. Non-cash once charges keep window
-  // semantics so a historical capitalisation is not applied again.
-  // Settled once outflows are removed, named on representedEvents for
-  // this start, or encoded as firstDue on the recurring row.
-  function onceOutflowDates(item, start, end) {
+  // A once outflow due earlier in this pay period still binds its opening.
+  // Once rows retain their scheduled date for evidence and debt absorption.
+  // When a caller knows the governing payday, a prior period's scheduled
+  // outflow is history. An old non-cash charge is never reapplied.
+  function onceOutflowDates(item, start, end, periodStart) {
     if (!item || item.frequency !== 'once' || !item.date) return [];
-    if (item.date > end) return [];
+    if (item.date > end || (periodStart && item.date < periodStart)) return [];
     if (item.date >= start) return [item.date];
     if (item.nonCash) return [];
     return [item.date];
   }
-  function outflowDates(item, start, end) {
+  function outflowDates(item, start, end, periodStart) {
     return item && item.frequency === 'once'
-      ? onceOutflowDates(item, start, end)
+      ? onceOutflowDates(item, start, end, periodStart)
       : occurrences(item, start, end);
   }
 
@@ -952,8 +946,11 @@
     const due = statementOccurrenceDate(plan, id, original);
     return representedKeySet(plan, opts, asOf).has(id + '@' + due);
   }
-  function obligationOccurrences(row, start, end) {
-    return CardMinimumContract.resolveOccurrences(row, start, end, occurrences, outflowDates);
+  function obligationOccurrences(row, start, end, periodStart) {
+    const dates = CardMinimumContract.resolveOccurrences(row, start, end, occurrences, outflowDates);
+    // A statement can move a once minimum across payday in either direction.
+    // Apply the period boundary to its effective due date after replacement.
+    return periodStart && row.frequency === 'once' ? dates.filter(occ => occ.date >= periodStart) : dates;
   }
   // A supplied confidence value is carried as given — a blank or malformed
   // word ('' / 0 / false) stays visible so the period-term trust check can
@@ -3501,6 +3498,7 @@
     if (!plan || !start || !end) return unknowns;
     const disabled = new Set(opts.disabled || []);
     const represented = representedKeySet(plan, opts, start);
+    const periodStart = spendingCycle(plan, start)?.start;
     for (const b of plan.bills || []) {
       if (!b || !billIsHouseholdObligation(b)) continue;
       if (billNeedsDate(b)) {
@@ -3517,7 +3515,7 @@
       }
       const scheduled = billHasAmountSchedule(b);
       if (!scheduled && !scheduledInputState(b, 'bill').amountUnknown) continue;
-      for (const date of outflowDates(b, start, end)) {
+      for (const date of outflowDates(b, start, end, periodStart)) {
         if (Array.isArray(b.noPaymentRequiredOn)
           && b.noPaymentRequiredOn.includes(date)) continue;
         if (!opts.keepRepresented && date < start
@@ -3565,7 +3563,7 @@
           dateUnknown: true, reason: 'plan-frequency-invalid' });
         continue;
       }
-      for (const occurrence of obligationOccurrences(o, start, end)) {
+      for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
         if (scheduledAmountValue(occurrence.amount) != null) continue;
         if (!opts.keepRepresented && occurrence.date < start
           && represented.has(o.id + '@' + occurrence.date)) continue;
@@ -3627,27 +3625,8 @@
       unknowns.push({ carrier: 'commitment', id: c.id || null, date: cashDate,
         reason: 'scheduled-amount-unknown' });
     }
-    // ATLAS-077 (consolidated closure, family 1): the classification
-    // window must match the window the walk itself carries from.
-    // expandEvents appends carriedUnresolvedJointCashOutflows —
-    // recurring bills/obligations in (opening.priorAsOf, start) that
-    // are still unresolved — and cashWalkDate applies them at this
-    // opening, so a scan that starts at `start` misses an unknown
-    // the walk's figures depend on (a monthly Jan 31 payment
-    // vanishing from a Feb 1–3 scan while its finite twin carries).
-    // Classify those same occurrences here, with the carry's own
-    // exclusions: an exactly represented (settled) occurrence is
-    // omitted by the walk and is not classified; a noncash
-    // occurrence is never carried; a bill the walk would not carry
-    // as joint-cash or card-paid reserved gravity does not bind its
-    // figures. Occurrences are enumerated through the same helpers
-    // as the in-window scan, so statement replacement and the
-    // no-payment waiver apply unchanged, and each unknown keeps its
-    // real scheduled date. No priorAsOf (or one not before this
-    // opening) means the walk carries nothing and there is no
-    // lookback. Once rows need no second pass: outflowDates already
-    // carries them into the in-window scan above, and the seen-set
-    // keeps any overlap named exactly once.
+    // Unknown bill and minimum amounts follow the same lookback as finite
+    // ones. A missing amount in a closed period cannot hold a later period.
     const opening = plan.opening;
     if (opening && opening.asOf === start && opening.priorAsOf
       && opening.priorAsOf < start) {
@@ -3655,12 +3634,12 @@
       // The opening date itself is included: a bill dated on it has no
       // payment evidence in the opening cash, so it is carried like any other
       // unresolved occurrence (see carriedUnresolvedJointCashOutflows).
-      const from = prior;
+      const from = periodStart && periodStart > prior ? periodStart : prior;
       const to = addDays(start, -1);
       if (from && to && from <= to) {
         const seen = new Set(unknowns.map(u => u.carrier + '|' + u.id + '|' + u.date));
         const pushLookback = (carrier, id, date, scheduledDate) => {
-          if (!(date >= prior && date < start)) return;
+          if (!(date >= from && date < start)) return;
           if (represented.has(id + '@' + date)) return;
           const key = carrier + '|' + id + '|' + date;
           if (seen.has(key)) return;
@@ -4144,11 +4123,10 @@
     }, 0);
   }
 
-  // A later trusted posting may resolve an exact once outflow that remains
-  // deliberately carried after its scheduled date. Keep this predicate small
-  // and shared by Forecast and the live overlay: recurring events, income,
-  // non-cash obligations, held-elsewhere bills, and non-exact ids/dates all
-  // fail closed.
+  // A trusted posting can settle an exact historical once outflow, including
+  // one in a closed period. Forecast and the live overlay use this predicate
+  // for evidence eligibility. The walk separately limits scheduled deductions
+  // to the operating pay period.
   function carriedOnceJointCashOutflow(plan, id, date, start) {
     if (!plan || !id || !date || !start || date >= start) return false;
     const obligation = (plan.obligations || []).find(item => item && item.id === id
@@ -4229,25 +4207,12 @@
     return event && event.date;
   }
 
-  // Live overlay may advance as-of past scheduled recurring outflows.
-  // onceOutflowDates already keeps unresolved once cash on the plan.
-  // Recurring bills/obligations and dated commitments in
-  // (plan.opening.priorAsOf, start) are not in that helper; emit them
-  // here so cashWalkDate still reserves unrepresented joint-cash
-  // outflows at this opening. Unrepresented recurring card-paid
-  // reserved bills in the same interval stay reserved gravity; they
-  // do not become joint-cash withdrawals. Represented names are
-  // omitted. Income is not invented. Nested expandEvents does not
-  // re-enter: inner start is not opening.asOf.
-  //
-  // That inner start is the lookback origin, so commitmentSettledBy
-  // there uses the earlier cutoff rather than this Forecast opening.
-  // A dated commitment whose valid settledOn is on or before THIS
-  // opening is already satisfied for current/future funding and is
-  // not carried. Recurring joint-cash bills in the same interval stay
-  // reserved: priorAsOf is not weakened. This is not a date-wide or
-  // group-wide skip, and representedEvents is not the settler.
-  function carriedUnresolvedJointCashOutflows(plan, start, opts, already, trace) {
+  // Find unresolved outflows between the previous cash observation and
+  // this opening. A bill or minimum stays eligible only in its own pay
+  // period. Commitments still require their own settlement evidence at
+  // this opening, even when the previous observation was before payday.
+  // Nested expansion starts before opening.asOf, so it cannot re-enter.
+  function carriedUnresolvedJointCashOutflows(plan, start, opts, already, trace, periodStart) {
     const opening = plan && plan.opening;
     if (!opening || opening.asOf !== start || !opening.priorAsOf) return [];
     const prior = opening.priorAsOf;
@@ -4269,6 +4234,9 @@
       const cardPaidReserved = event && event.cardPaid === true
         && event.amount < 0 && event.kind !== 'noncash';
       if (!isJointCashOutflow(event) && !cardPaidReserved) continue;
+      // Commitments and dated reserves have their own funding rules. Only
+      // scheduled bills and debt payments stop at the payday boundary.
+      if (periodStart && event.date < periodStart && (event.kind === 'bill' || event.kind === 'obligation')) continue;
       if (event.date < from || event.date > to) continue;
       if (event.kind === 'commitment') {
         const row = (plan.commitments || []).find(c => c && c.id === event.id);
@@ -4291,46 +4259,10 @@
     if (trace) trace.items = (innerTrace.items || []).flatMap(item => {
       if (!item.omittedRepayment) return selected.has(item) ? [selected.get(item)] : [];
       const key = item.id + '@' + item.date;
-      return item.date >= from && item.date <= to && !represented.has(key)
+      return item.date >= from && (!periodStart || item.date >= periodStart) && item.date <= to && !represented.has(key)
         && !(already && already.has(key)) && !trace.already.has(key) ? [item] : [];
     });
     return extra;
-  }
-
-  // The immediately preceding closed pay period, relative to `start`.
-  function precedingPayPeriodSpan(plan, start) {
-    const current = spendingCycle(plan, start);
-    if (!current || !current.start) return null;
-    const to = addDays(current.start, -1);
-    const previous = to ? spendingCycle(plan, to) : null;
-    if (!previous || !previous.start || previous.start >= current.start) return null;
-    return { from: previous.start, to };
-  }
-
-  // The recurring plan bills from the immediately preceding closed pay
-  // period that the cash walk still carries, unresolved, at this opening
-  // (#953). This is the walk's own selection, narrowed: it decides no
-  // settlement and adds no deduction, so every occurrence the Budget bill
-  // list reads from it is one the walk deducts. Only an exact effective
-  // represented id+date removes an occurrence, as for the walk. No debit
-  // is held or reserved against a carried occurrence and none is taken to
-  // pay it: a late payment settles it only once it is on that represented
-  // set, and until then it is ordinary spending. Older occurrences the
-  // walk still deducts are not named: they stay history in the list. Once
-  // rows keep their own carry (carriedOnceJointCashOutflow). Card-paid,
-  // held-elsewhere, Savings-funded, undated and debt-linked bills are not
-  // listed by this rule; obligations and commitments never are.
-  function carriedRecurringBillEvents(plan, start, opts) {
-    const span = precedingPayPeriodSpan(plan, start);
-    if (!span) return [];
-    return carriedUnresolvedJointCashOutflows(plan, start, opts).filter(event => {
-      if (!event || event.kind !== 'bill' || event.cardPaid === true || !isJointCashOutflow(event)) return false;
-      if (event.date < span.from || event.date > span.to) return false;
-      const bill = ((plan && plan.bills) || []).find(item => item && item.id === event.id);
-      return !!(bill && bill.frequency && bill.frequency !== 'once' && !bill.debtId
-        && !billNeedsDate(bill) && billAffectsJointCash(bill, plan)
-        && !isSavingsFundedPaydayBill(bill, plan));
-    });
   }
 
   const INCOME_OVERRIDE_INVALID_REASON = 'An income override is not a real number, so this income is unknown.';
@@ -4527,6 +4459,7 @@
     opts = resolveDalePayrollWalk(callerOpts);
     const disabled = new Set(opts.disabled || []);
     const events = [];
+    const periodStart = spendingCycle(plan, start)?.start;
     // Private provenance for projectDebts only. An omitted repayment has
     // no amount and never enters the public numeric event stream. Its
     // insertion position is recorded where source selection omits it.
@@ -4573,7 +4506,7 @@
     }
     const obligationMinimumState = minimumStateForLoop(plan, start, opts);
     for (const o of plan.obligations) {
-      for (const occurrence of obligationOccurrences(o, start, end)) {
+      for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
         const date = occurrence.date;
         const evidenceEvent = { id: o.id, date, scheduledDate: occurrence.scheduledDate,
           kind: 'obligation', effect: o.effect };
@@ -4659,7 +4592,7 @@
       const fundingAccount = billFundingAccount(b, plan);
       if (!billIsHouseholdObligation(b)) continue;
       if (billNeedsDate(b)) continue;
-      for (const date of outflowDates(b, start, end)) {
+      for (const date of outflowDates(b, start, end, periodStart)) {
         const cash = billOccurrenceCashAmount(b, date);
         // An unknown amount (null from the classifier) emits no event:
         // scheduledAmountState names it and consumers withhold.
@@ -4851,7 +4784,7 @@
     const carryTrace = debtTrace ? {
       already: new Set(traceItems.map(e => e.id + '@' + e.date)),
     } : null;
-    const carried = carriedUnresolvedJointCashOutflows(plan, start, opts, already, carryTrace);
+    const carried = carriedUnresolvedJointCashOutflows(plan, start, opts, already, carryTrace, periodStart);
     const out = kept.concat(carried);
     out.sort(order);
     const annotated = applyPostedCardPurchaseProtection(
@@ -9308,6 +9241,7 @@
   function currentPeriodBills(plan, asOf, origin, periodLast, opts) {
     const represented = representedKeySet(plan, opts, asOf);
     const observed = representedActualMap(opts);
+    const cycle = spendingCycle(plan, asOf);
     const events = expandEvents(plan, origin, periodLast,
       Object.assign({}, opts || {}, { keepRepresented: true }));
     const items = [];
@@ -9315,6 +9249,10 @@
     for (const e of events) {
       if (!isJointCashOutflow(e)) continue;
       if (e.kind !== 'obligation' && e.kind !== 'bill' && e.kind !== 'commitment') continue;
+      // The evidence lookback can span several paydays. Keep its commitment
+      // history, but never list a prior bill or minimum as still due today.
+      if (e.kind !== 'commitment' && cycle && e.date < cycle.start
+          && !represented.has(e.id + '@' + e.date)) continue;
       // expandEvents checks settlement against its lookback start. This
       // action list instead answers what is still required at asOf. A
       // commitment satisfied since that earlier start must not reappear as
@@ -9351,6 +9289,7 @@
       // D2: the same owner as the Bills rows: a fixed bill paid in part is
       // still required at asOf for its remainder.
       const partPaid = paid ? fixedBillPartialPayment(e, amt, observed) : null;
+      if (partPaid && cycle && e.date < cycle.start) continue;
       let settlement;
       let actual;
       let remaining;
@@ -11391,21 +11330,7 @@
       && !(r.status === 'PAID' && r.actual != null && isFinite(Number(r.actual))));
   }
 
-  // Item 12: a completed period's copy of an occurrence the current period
-  // carries. It is listed as history ("Carried to this pay period") and is
-  // not a figure of that period: no remaining, no actual, no settlement
-  // claim. isCarriedBillRow is the one test every completed-period total
-  // reads to leave it out.
-  function carriedBillRow(row, carriedTo) {
-    const copy = Object.assign({}, row, {
-      status: 'carried', glanceKind: 'carried', settlement: 'carried',
-      carriedToCurrentPeriod: true, carriedTo: carriedTo || null,
-      actual: null, remaining: 0,
-    });
-    for (const key of ['settlementBasis', 'settlementEvidence', 'paymentState', 'shortfall', 'shortfallTrust',
-      'shortfallSource', 'excess', 'excessTrust', 'excessSource', 'excessReview', 'scheduledFeeAllowance']) delete copy[key];
-    return copy;
-  }
+  // Legacy saved closes may still contain a disclosure-only carried row.
   function isCarriedBillRow(row) {
     return !!(row && row.carriedToCurrentPeriod === true);
   }
@@ -11427,60 +11352,11 @@
     for (let i = 0; i < windows.length; i++) {
       buckets[windows[i].id] = [];
     }
-    // Item 12 (lead decision on #1156): an occurrence carried onto the
-    // current operating period is to confirm and counted there only. A
-    // completed (lookback) window printed for the same as-of still lists it,
-    // as history, but as carried (carriedBillRow): never To confirm, and
-    // outside that period's totals, Not confirmed paid and bill load. The
-    // carried occurrences are the same selections the active window lists
-    // below: the #953 recurring carry, and an unpaid overdue once row. A paid
-    // occurrence keeps its ordinary row in its own period.
-    const lookbackPrinted = windows.some(w => w && w.role === 'lookback');
-    const operatingStart = lookbackPrinted ? ((spendingCycle(plan, asOf) || {}).start || null) : null;
-    const carriedKeys = lookbackPrinted
-      ? new Set(carriedRecurringBillEvents(plan, asOf, opts)
-        .map(event => (event.id || event.label || '') + '@' + event.date))
-      : null;
-    // A completed period's own settlement evidence keeps its ordinary row,
-    // but only evidence that survives historical settlement qualification
-    // (qualifyHistoricalBillSettlement / sealHistoricalBillRow, the rule the
-    // completed period itself publishes): a posted, linked payment, the
-    // owner's mark or schedule-trust basis. A packet entry with neither
-    // posted backing nor provenance is no proof (#1156 lead verification,
-    // H2; Grok Bot's conditions on the Plan #6 thread), so that occurrence
-    // is carried like an unrepresented one and counted once, in the current
-    // period.
-    let closedBacked = null;
-    const settledInClosedPeriod = (row, due) => {
-      if (!calendarOccurrenceRepresented(represented, observed, row.id, due)) return false;
-      // The cash walk's own settled set (`represented`, which holds Dale's
-      // opening mark) wins: the walk deducts nothing for that occurrence, so
-      // it is never carried, whatever an unbacked packet entry also says
-      // (Astra's audit of #1215, #821 6934483625; Grok Bot's condition 1).
-      if (represented.has(row.id + '@' + due)) return true;
-      if (!closedBacked) closedBacked = historicalBillSettlementEvidence(opts);
-      return historicalSettlementProven(sealHistoricalBillRow(qualifyHistoricalBillSettlement(row, closedBacked)));
-    };
-    // The recurring carry (#953) and the overdue once carry both ignore an
-    // unbacked entry: the active loop below lists an overdue once row unless
-    // its settlement survives the same qualification (Codex P2 on #1215), so
-    // the closed copy, the current period and the cash walk agree.
-    const carriedToOperating = (row, due) => (carriedKeys.has((row.id || row.label || '') + '@' + due)
-        || !!(operatingStart && carriedOnceJointCashOutflow(plan, row.id, due, operatingStart)))
-      && !settledInClosedPeriod(row, due);
-    const withoutKey = (collection, key) => {
-      if (!collection || !collection.has(key)) return collection;
-      const copy = collection instanceof Map ? new Map(collection) : new Set(collection);
-      copy.delete(key);
-      return copy;
-    };
-    const pushRow = (due, row, hostWindow) => {
-      const window = hostWindow || windowContainingDate(windows, due);
+    // An occurrence belongs to its scheduled operating window, including
+    // when that window has closed without payment evidence.
+    const pushRow = (due, row) => {
+      const window = windowContainingDate(windows, due);
       if (!window || !row) return;
-      if (lookbackPrinted && window.role === 'lookback' && carriedToOperating(row, due)) {
-        buckets[window.id].push(carriedBillRow(row, operatingStart));
-        return;
-      }
       // Budget's next window and every further timeline window have role
       // future. An occurrence after the Forecast financial date stays in
       // this period and in the bill load, but every household-facing
@@ -11559,28 +11435,6 @@
       }
       buckets[window.id].push(row);
     };
-    const activeWindow = windows.find(w => w && w.role === 'active') || windows[0];
-    // #953: an unproven recurring bill from the immediately preceding closed
-    // pay period, which the cash walk still deducts at this opening, is
-    // listed once on the current operating period as to pay or confirm,
-    // like an overdue once row. The occurrences are the walk's own carry,
-    // so the list and the walk agree in every evidence state. The row is
-    // built with no packet actuals and no cash-opening date: a packet-only
-    // actual (a pending match) cannot mark it paid, and the inside-opening
-    // test cannot hide it. The seen key keeps the loop below from printing
-    // the same occurrence again; the closed period's own history is a
-    // separate lookback computation and is unchanged.
-    if (activeWindow && activeWindow.role === 'active'
-        && asOf >= activeWindow.start && asOf <= activeWindow.end) {
-      for (const event of carriedRecurringBillEvents(plan, asOf, opts)) {
-        if (event.date >= activeWindow.start) continue;
-        const key = (event.id || event.label || '') + '@' + event.date;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pushRow(event.date, calendarBillRowFromEvent(
-          plan, event, asOf, represented, new Map(), null, event.date, opts), activeWindow);
-      }
-    }
     for (const event of events || []) {
       if (!event || !event.date) continue;
       if (event.kind === 'income' || event.kind === 'noncash') continue;
@@ -11591,94 +11445,52 @@
       // and Stage 2 planned spending. Keep their native expense and reserve
       // draw, without also charging the paycheck Bills waterfall.
       if (isSavingsFundedPaydayBillEvent(event, plan)) continue;
-      // expandEvents may carry an unpaid once row into a later window. The
-      // real event date is the occurrence: it decides which window holds
-      // the row and whether it is dropped or carried, and it is the row's
-      // `date` that settlement, opening, progress and identity checks read,
-      // so the bill list agrees with the cash walk and the remaining-bills
-      // list. A scheduled due that differs (a 15 August bill reserved on the
-      // 16th) rides on the row as `scheduledDue` for the bill-row printers
-      // only: it still reads 15 August.
       const scheduleDate = calendarBillScheduleDate(plan, event);
       const due = event.date;
-      if (due > span.end) continue;
-      const overdueOnce = due < span.start
-        && carriedOnceJointCashOutflow(plan, event.id, event.date, span.start);
-      const paid = calendarOccurrenceRepresented(
-        represented, observed, event.id, event.date);
-      // Passing payday does not drop an unresolved once cash obligation, and
-      // does not rewrite its due date onto the new payday. Represented /
-      // settled once rows disappear rather than remaining reserved, but only
-      // when that settlement survives historical qualification: an entry with
-      // neither posted backing nor provenance is no proof, so the row stays
-      // owed here, built as if no entry named it (the cash walk owes it too).
-      if (due < span.start && !overdueOnce) continue;
-      const occurrenceKey = event.id + '@' + event.date;
-      let unbackedOnce = false;
-      if (overdueOnce && paid) {
-        const probe = calendarBillRowFromEvent(
-          plan, event, asOf, represented, observed, cashAsOf, due, opts);
-        // D2: a fixed once bill paid in part still owes its remainder, which
-        // the cash walk carries; it stays listed, built on its evidence.
-        if (!probe || (probe.partlyPaidRemainder !== true && settledInClosedPeriod(probe, due))) continue;
-        unbackedOnce = probe.partlyPaidRemainder !== true;
-      }
-      const key = (event.id || event.label || '') + '@' + event.date;
+      if (due < span.start || due > span.end) continue;
+      const key = (event.id || event.label || '') + '@' + due;
       if (seen.has(key)) continue;
       seen.add(key);
-      const row = calendarBillRowFromEvent(plan, event, asOf,
-        unbackedOnce ? withoutKey(represented, occurrenceKey) : represented,
-        unbackedOnce ? withoutKey(observed, occurrenceKey) : observed, cashAsOf, due, opts);
+      const row = calendarBillRowFromEvent(plan, event, asOf, represented, observed, cashAsOf, due, opts);
       // Written here and read by the bill-row printers only. Nothing in
       // Forecast reads it back: a guessed stand-in decides no window, no
       // amount, and whether no other row is listed.
       if (row && scheduleDate && scheduleDate !== due) row.scheduledDue = scheduleDate;
-      // Overdue once-rows stay reserved on the current operating period.
-      // Do not dump them onto a completed lookback window.
-      if (overdueOnce) {
-        if (activeWindow && activeWindow.role === 'active') {
-          pushRow(due, row, activeWindow);
-        }
-        continue;
-      }
       pushRow(due, row);
     }
     // A6 (#726): an occurrence whose amount the one authority
     // (scheduledAmountUnknowns) names unknown emits no event, so it is
     // listed here with every amount field null — never dropped, never $0.
-    // The same section filters as the event loop apply. Completed
-    // (lookback) windows are not rewritten.
+    // A closed period also retains a cash minimum with a missing price.
     const disabledBills = new Set(opts.disabled || []);
     const unknownInputs = scheduledAmountUnknowns(plan, span.start, span.end,
       Object.assign({}, opts, { keepRepresented: true }));
     for (const u of unknownInputs) {
-      if (!u || u.carrier !== 'bill' || u.dateUnknown || !u.date) continue;
-      const bill = ((plan && plan.bills) || []).find(b => b && b.id === u.id);
-      if (!bill || disabledBills.has(bill.id)) continue;
-      if (billAffectsJointCash(bill, plan) === false && !isCardPaidBill(bill, plan)) continue;
-      if (isSavingsFundedPaydayBill(bill, plan)) continue;
-      const key = (bill.id || bill.label || '') + '@' + u.date;
+      if (!u || u.dateUnknown || !u.date || disabledBills.has(u.id)) continue;
+      const host = windowContainingDate(windows, u.date);
+      if (!host) continue;
+      const bill = u.carrier === 'bill' && (plan.bills || []).find(b => b && b.id === u.id);
+      const minimum = u.carrier === 'obligation' && host.role === 'lookback'
+        && (plan.obligations || []).find(o => o && o.id === u.id && !o.nonCash
+          && o.effect !== 'capitalise' && o.jointCash !== false);
+      const source = bill || minimum;
+      if (!source || (bill && (billOffPaydayWaterfall(bill, plan) || isSavingsFundedPaydayBill(bill, plan)))) continue;
+      const key = (source.id || source.label || '') + '@' + u.date;
       if (seen.has(key)) continue;
-      const overdueOnce = u.date < span.start
-        && carriedOnceJointCashOutflow(plan, bill.id, u.date, span.start);
-      if (u.date < span.start && !overdueOnce) continue;
-      const host = overdueOnce ? activeWindow : windowContainingDate(windows, u.date);
-      if (!host || host.role === 'lookback') continue;
-      const paid = calendarOccurrenceRepresented(represented, observed, bill.id, u.date);
-      if (overdueOnce && paid) continue;
+      const paid = calendarOccurrenceRepresented(represented, observed, source.id, u.date);
       seen.add(key);
       // Opening inclusion is not payment proof. Keep the same disclosure
       // as calendarBillRowFromEvent without manufacturing its missing price.
       const inside = !paid && recurringInsideOpening(plan,
-        { id: bill.id, date: u.date, kind: 'bill' }, cashAsOf);
+        { id: source.id, date: u.date, kind: u.carrier }, cashAsOf);
       const settlement = paid ? 'represented' : inside ? 'opening'
         : u.date >= asOf ? 'upcoming' : 'unverified';
-      const actual = paid ? observedActual(observed, bill.id, u.date) : null;
-      const payingAccount = billCashPayingAccount(bill, plan);
-      pushRow(u.date, {
-        id: bill.id,
-        label: bill.label,
-        kind: 'bill',
+      const actual = paid ? observedActual(observed, source.id, u.date) : null;
+      const payingAccount = bill ? billCashPayingAccount(bill, plan) : minimum.payingAccount;
+      const row = {
+        id: source.id,
+        label: source.label,
+        kind: u.carrier,
         date: u.date,
         planned: null,
         amount: null,
@@ -11688,15 +11500,21 @@
         status: paid ? 'PAID' : inside ? OPENING_BILL_STATUS : glanceBillStatus(settlement, asOf, u.date),
         glanceKind: paid ? 'paid' : inside ? 'planned' : 'still-due',
         movement: null,
-        confidence: bill.confidence || 'estimated',
+        confidence: source.confidence || 'estimated',
         plannedTrust: 'unavailable',
         displayAmountTrust: 'unknown',
         amountUnknown: true,
         payingAccount,
         payerLabel: plannedPayerLabel(payingAccount, null, plan),
-        cardPaid: isCardPaidBill(bill, plan),
+        cardPaid: !!bill && isCardPaidBill(bill, plan),
         needsDate: false,
-      }, host);
+      };
+      if (observed.has(key)) {
+        billRowObservationKeys.set(row, key);
+        const basis = observedSettlementBasis(observed, source.id, u.date);
+        if (basis) Object.assign(row, { settlementBasis: basis }, trustWeakenedConfidence(row));
+      }
+      pushRow(u.date, row);
     }
     // Planned cash minimum for a capitalising obligation. expandEvents now
     // emits that cash as kind:obligation; the seen key de-dupes this print
@@ -11753,9 +11571,7 @@
       return Math.abs(Number(raw) || 0);
     };
     const sectionFor = window => {
-      const listed = sortRows(buckets[window.id] || []);
-      // A carried copy is listed, never counted (item 12).
-      const rows = listed.filter(row => !isCarriedBillRow(row));
+      const rows = sortRows(buckets[window.id] || []);
       // An undated bill could belong to every reachable forward window.
       // Its absence from the dated rows does not establish a zero total.
       const amountUnknown = billRowsAmountUnknown(rows) || window.role !== 'lookback'
@@ -11782,7 +11598,6 @@
         start: window.start,
         end: window.end,
         rows,
-        ...(rows.length !== listed.length ? { carriedRows: listed.filter(isCarriedBillRow) } : {}),
         total,
         remainingTotal,
         ...(amountUnknown ? { amountUnknown: true } : {}),
@@ -15362,7 +15177,7 @@
           }
           continue;
         }
-        for (const date of outflowDates(bill, cycle.start, cycle.end)) {
+        for (const date of occurrences(bill, cycle.start, cycle.end)) {
           if (settled(bill.id, date) || bill.noPaymentRequiredOn?.includes(date)) continue;
           // ATLAS-075: a scheduled bill is judged on this occurrence's price.
           const unknownHere = billOccurrenceRequirementUnknown(bill, date,
@@ -15375,7 +15190,7 @@
       }
       for (const obligation of plan.obligations || []) {
         if (obligation.nonCash) continue;
-        for (const occurrence of obligationOccurrences(obligation, cycle.start, cycle.end)) {
+        for (const occurrence of obligationOccurrences(obligation, cycle.start, cycle.end, cycle.start)) {
           if (settled(obligation.id, occurrence.date) || occurrence.amount === 0) continue;
           if (!billsCashScope(obligation)) continue;
           if (!finite(occurrence.amount) || occurrence.amount < 0) issue('remaining-cash-unknown', 'A remaining obligation amount is unknown.');
@@ -17576,7 +17391,7 @@
             : Math.abs(Number(r.amount) || 0));
         }, 0));
       const totalBillsThisPeriod = lookback
-        ? roundCent(bills.reduce((s, r) => s + periodDisplayedBillAbs(r), 0))
+        ? roundCent(bills.reduce((s, r) => s + periodDisplayedBillAbs(r) + partlyPaidRemainderAbs(r), 0))
         : billRowsUnknown ? null
         : section.total != null
         ? section.total
@@ -17908,8 +17723,7 @@
           && !billNeedsDate(b)
           // Both regular and selected prices use the same occurrence gate;
           // explicit no-payment evidence keeps precedence over a bad price.
-          && (role === 'active' ? outflowDates(b, window.start, window.end)
-            : occurrences(b, window.start, window.end))
+          && occurrences(b, window.start, window.end)
             .some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)));
       const planBillAmountUnknown = planBillAmountUnknownBills.length > 0;
       const unknownLoadRows = (assignedBillRows || []).filter(row =>
@@ -18429,7 +18243,7 @@
         available,
         // Item 12: carried copies are listed after the counted rows and are
         // read by no total above.
-        bills: planUnavailable ? [] : (section.carriedRows ? bills.concat(section.carriedRows) : bills),
+        bills: planUnavailable ? [] : bills,
         ...(visaPaymentBackfill.length ? { visaPaymentBackfill } : {}),
         // Listed once: the period's own held rows (below) are the authority.
         ...(role === 'active' && cardCoverageState(plan, asOf, opts).status !== 'incumbent'
@@ -19133,16 +18947,6 @@
       return;
     }
     const BASELINE_KINDS = ['original', 'first-observed', 'reconstructed', 'plan-amendment'];
-    // Occurrences the current period carries in from an earlier period (To
-    // confirm and counted there). A saved close captured before the #1156 /
-    // unbacked-entry carry rules may still count one of them in its saved
-    // total; that saved figure stays exactly as saved, and its row only
-    // discloses the carry (alsoCarriedToCurrent, display only; Grok Bot,
-    // Plan #6 thread). A close that already lists it as carried says nothing more.
-    const current = views.find(v => v && v.timelineRole === 'current') || null;
-    const carriedIntoCurrent = new Set(((current && current.bills) || [])
-      .filter(row => row && row.id && row.date && current.start && row.date < current.start && row.status !== 'PAID')
-      .map(row => row.id + '@' + row.date));
     for (const view of views) {
       if (!view || !(view.timelineRole === 'past' || view.lookback === true)) continue;
       const same = records.filter(record => record.content.period.start === view.start && record.content.period.end === view.end);
@@ -19183,10 +18987,6 @@
           // only. The reprint is unchanged by it: no trust word is re-raised
           // on a saved close's category rows.
           if (key === 'householdBudget') { delete copy.trust; delete copy.plannedTrust; }
-          if (key === 'bills' && row && row.id && row.date && row.status !== 'carried' && row.status !== 'PAID'
-              && row.carriedToCurrentPeriod !== true && carriedIntoCurrent.has(row.id + '@' + row.date)) {
-            copy.alsoCarriedToCurrent = true;
-          }
           // A close saved with the bill Paid on Dale's mark (no bank payment
           // amount on the saved row) is never overwritten. A ledger
           // entry that today's rebuild finds for the same occurrence, with no
@@ -19264,10 +19064,7 @@
           label: 'Spending cycle: ' + rangeLabel },
       };
     });
-    // The reprint reads the current period (never changes it) to disclose a
-    // bill the saved close left unpaid that the current period still carries.
-    const current = views.find(view => view && view.timelineRole === 'current');
-    applyCapturedPeriodHistory(current ? extra.concat(current) : extra, history, null);
+    applyCapturedPeriodHistory(extra, history, null);
     const composed = extra.filter(view => view.capturedClose);
     if (!composed.length) return;
     for (const view of composed) view.capturedClose.savedOnly = true;
@@ -19552,17 +19349,21 @@
       || copy.issuerMinimumStatus != null) return copy;
     if (backed(key)) return copy;
     const planned = copy.planned != null && isFinite(Number(copy.planned))
-      ? Math.abs(Number(copy.planned)) : Math.abs(Number(copy.amount) || 0);
+      ? Math.abs(Number(copy.planned)) : copy.amount != null ? Math.abs(Number(copy.amount)) : null;
     copy.actual = null;
     copy.settlement = 'unverified';
-    copy.amount = roundCent(planned);
-    copy.movement = householdMovement(planned, 'out');
+    copy.amount = planned == null ? null : roundCent(planned);
+    copy.movement = planned == null ? null : householdMovement(planned, 'out');
     copy.settlementEvidence = 'not-established';
     return copy;
   }
 
   function sealHistoricalBillRow(row) {
     if (!row) return row;
+    // A qualified partial payment establishes the paid part only. Keep the
+    // scheduled cost and the unconfirmed remainder together in this close.
+    if (row.partlyPaidRemainder === true && historicalSettlementProven(row)) return row;
+    delete row.partlyPaidRemainder;
     applyHistoricalObservedAmount(row, 'out');
     if (row.needsDate) return row;
     if (historicalSettlementProven(row)) {
@@ -19590,12 +19391,11 @@
   }
 
   // A completed period is settlement evidence, not an amount due: its
-  // actionable remainder stays 0 (an unproven bill's "still to pay" home is
-  // the current period's opening lookback, never a second copy here).
+  // actionable remainder stays 0. Unproven rows remain in that period's history.
   function historicalRemainingBills(bills) {
     return roundCent((bills || []).reduce((s, r) => {
       if (!r || r.needsDate) return s;
-      if (r.status === 'PAID' || r.status === 'planned' || r.status === 'unknown') {
+      if (r.status === 'PAID' || r.status === 'planned' || r.status === 'unknown' || r.partlyPaidRemainder === true) {
         return s;
       }
       const raw = r.remaining != null ? Math.abs(Number(r.remaining))
@@ -19864,7 +19664,7 @@
     const cal = opts.paydayCalendar || paydayCalendar(plan, asOf, opts);
     const obligationStates = currentPeriodObligationStates(
       plan, asOf, Object.assign({}, opts, { paydayCalendar: cal }));
-    // The cash opening lookback still protects unresolved earlier bills.
+    // The opening lookback can reach into a previous spending cycle.
     // Household target/actual comparison instead belongs to this Seaspan
     // cycle: priorAsOf may span several cycles and is not a spending period.
     const cycle = spendingCycle(plan, asOf);
@@ -21929,8 +21729,7 @@
     // has no known amount, including after the period closes. An empty row list
     // then must not read as a complete $0 original plan.
     const billLoadWithheld = !!period && Object.hasOwn(period, 'periodBillLoad') && period.periodBillLoad == null;
-    // Item 12: a carried copy is listed in its completed period but counted
-    // only in the current period.
+    // Preserve the counting basis of legacy saved closes.
     const countedBills = period && Array.isArray(period.bills) ? period.bills.filter(row => !isCarriedBillRow(row)) : period && period.bills;
     const bills = { planned: billLoadWithheld
         ? unknown('A bill due in this period has no known amount.')
@@ -28869,7 +28668,7 @@
       // resolvable occurrence in the timeline stays unavailable.
       ? ((dates) => (!dates.length && !billAmountScheduleTerms(b))
         || dates.some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))(
-        outflowDates(b, cycle.start, bound.through))
+        occurrences(b, cycle.start, bound.through))
       : b.amount == null || savingsCents(b.amount) == null)) return unknown('A required operating bill amount is unavailable.');
     if ((plan.obligations || []).some(o => o.amount == null || savingsCents(o.amount) == null)
         || (plan.commitments || []).some(c => !commitmentSettledBy(c, day) && !(opts.disabled || []).includes(c.id)

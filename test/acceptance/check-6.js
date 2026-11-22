@@ -233,16 +233,9 @@ const scenarios = [
     },
   },
   {
-    id: '6.20', basis: 'audit', name: 'an unproven recurring bill from the last closed pay period is listed once, to confirm, on the current period',
-    // #953. Production's opening shape: the plan is dated Sep 20 and the
-    // observation is Oct 14, so the cash walk still deducts every unproven
-    // bill since Sep 20. Water is 120 on the 1st: Oct 1 sits in the closed
-    // period Sep 25 - Oct 8. Hydro is 90 on the 12th. By hand, Oct 9 - Oct 22:
-    //   no water payment    90 + 120 carried = 210 planned, 210 remaining;
-    //                       Balance After Deductions 1,400 - 210 - 400 = 790
-    //   pending debit only  the same: a pending debit is not posted evidence
-    //   paid Oct 1          90 planned; 1,400 - 90 - 400 = 910; Paid in its own period
-    // Control: without the water bill the period plans 90 and leaves 910.
+    id: '6.20', basis: 'audit', name: 'an earlier recurring bill stays in its own pay period regardless of payment evidence',
+    // Water is 120 on the 1st. Hydro is 90 on the 12th. For Oct 9–22,
+    // 1,400 income less 90 hydro and 400 household spending leaves 910.
     async run(H) {
       const world = (water, extra) => {
         const w = billsWorld(H);
@@ -261,73 +254,38 @@ const scenarios = [
       };
       const debit = pending => H.lm({ date: '2026-10-01', amount: 120, category: 'Utilities', account: 'chequing-a',
         payee: 'Invented water co', pending });
-      const bad = async p => ((await p.rows('[data-operating-question="07"]')).join(' ')
-        .match(/Balance After Deductions[^$]*(\$[\d,]+\.\d\d)/) || [])[1];
       const opened = built => {
         const { data, error } = built[0];
         H.expect(!error, `the live overlay must succeed (${error && error.message})`);
         H.expect(data.plan.opening.asOf === '2026-10-14' && data.plan.opening.priorAsOf === '2026-09-20',
           'live-plan advances the opening from the dated Sep 20 plan');
       };
-      let hydro;
-      await H.withBudget(world(false), async (p, packets, built) => {
-        opened(built);
-        const s = await H.snap(p);
-        hydro = H.bill(s, 'Invented hydro');
-        H.expect(hydro, 'control: hydro is listed');
-        H.expectIncludes(H.section(s, 'Bills'), 'of planned $90.00', 'control: without water the period plans 90');
-        H.expect(await bad(p) === '$910.00', 'control: 1,400 - 90 - 400 = 910');
-      });
-      for (const [state, extra] of [['no payment', null], ['a pending debit', debit(true)]]) {
-        await H.withBudget(world(true, extra), async (p, packets, built) => {
+      for (const [state, water, payment] of [
+        ['no scheduled water', false, null], ['no payment', true, null],
+        ['pending water payment', true, debit(true)], ['posted water payment', true, debit(false)],
+      ]) {
+        await H.withBudget(world(water, payment), async (p, packets, built) => {
           opened(built);
-          const s = await H.snap(p);
-          H.expectMatch(s.range, /Oct 9/, 'the current period');
-          const water = s.bills.filter(t => t.includes('Invented water'));
-          H.expect(water.length === 1, `${state}: the water bill is listed exactly once on the current period (listed ${water.length} times)`);
-          H.expectMatch(water[0], /^Oct\s*1\D/, `${state}: it keeps its real due date, Oct 1`);
-          // Grok rule 2 (bill-payment confirmation): a pending linked debit reads Payment pending, not To confirm; every figure
-          // below is unchanged (a pending debit is still not posted evidence).
-          H.expectMatch(water[0], state === 'a pending debit' ? /\$120\.00\s*Payment pending/ : /\$120\.00\s*To confirm/,
-            `${state}: 120, ${state === 'a pending debit' ? 'payment pending' : 'to confirm'}`);
-          H.expectNoMatch(water[0], /Paid/, `${state}: never shown as paid`);
-          const bills = H.section(s, 'Bills');
-          H.expectIncludes(bills, 'of planned $210.00', `${state}: the period plans 90 + 120 = 210`);
-          H.expectIncludes(bills, 'Remaining bills to pay$210.00', `${state}: 210 is still to pay or confirm`);
-          H.expect(await bad(p) === '$790.00', `${state}: Balance After Deductions is 1,400 - 210 - 400 = 790 (got ${await bad(p)})`);
-          H.expect(H.bill(s, 'Invented hydro') === hydro, `${state}: the hydro row reads exactly as it does without water`);
-          await p.step(1);
-          const next = await H.snap(p);
-          H.expectMatch(next.range, /Oct 23/, 'next period');
-          const later = next.bills.filter(t => t.includes('Invented water'));
-          H.expect(later.length === 1 && /^Nov\s*1\D/.test(later[0]), `${state}: the next period holds only its own Nov 1 water bill`);
-          // Item 12 (#1156): the carried Oct 1 reads To confirm once, on the
-          // current period. Its closed period Sep 25 - Oct 8 still lists it,
-          // as carried, and counts none of it: with no other bill there,
-          // that period plans 0.
-          await p.step(-2);
-          const closed = await H.snap(p);
-          H.expectMatch(closed.range, /Sep 25/, 'the closed period');
-          const copy = closed.bills.filter(t => t.includes('Invented water'));
-          H.expect(copy.length === 1, `${state}: the closed period lists the carried bill once (listed ${copy.length} times)`);
-          H.expectMatch(copy[0], /Carried to this pay period/, `${state}: labelled carried`);
-          H.expectNoMatch(copy[0], /To confirm|Paid|Payment pending/, `${state}: never to confirm, paid or pending there`);
-          H.expectIncludes(H.section(closed, 'Bills'), 'of planned $0.00', `${state}: and does not count it`);
-        });
+          await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'none', false);
+          const card = await openStackCard(p, 'bills');
+          assert.equal(await card.locator('[data-stack-sheet^="bill:water@"]').count(), 0,
+            state + ': the current period contains no earlier water bill');
+          await stackBillTotals(p, 0, 90, 90, '$0 / $90');
+          const surplus = await p.stackRows('[data-block="waterfall"][data-period="2026-10-09"] [data-row="surplus"] .n');
+          assert.deepEqual(surplus, ['+$910'], state + ': 1,400 - 90 - 400 = 910');
+          if (!water) return;
+          await p.selectPeriod('2026-09-25');
+          const posted = state === 'posted water payment';
+          await stackBillVerdict(p, 'water', '2026-10-01', 120, '$120',
+            posted ? 'posted-equal' : 'none', posted);
+          await stackBillTotals(p, posted ? 120 : 0, 120, 0, posted ? '$120 / $120' : '$0 / $120');
+          await p.selectPeriod('2026-10-23');
+          await stackBillVerdict(p, 'water', '2026-11-01', 120, '$120', 'none', false);
+          const next = await openStackCard(p, 'bills');
+          assert.equal(await next.locator('[data-stack-sheet^="bill:water@"]').count(), 1,
+            state + ': the next period lists only its own occurrence');
+        }, { view: 'stack' });
       }
-      await H.withBudget(world(true, debit(false)), async (p, packets, built) => {
-        opened(built);
-        await stackBillVerdict(p, 'hydro', '2026-10-12', 90, '$90', 'none', false);
-        const card = await openStackCard(p, 'bills');
-        assert.equal(await card.locator('[data-stack-sheet^="bill:water@"]').count(), 0,
-          'the paid water bill is absent from the current period');
-        await stackBillTotals(p, 0, 90, 90, '$0 / $90');
-        const surplus = await p.stackRows('[data-block="waterfall"][data-period="2026-10-09"] [data-row="surplus"] .n');
-        assert.deepEqual(surplus, ['+$910'], 'the current surplus deducts only its own assigned bill');
-        await p.selectPeriod('2026-09-25');
-        await stackBillVerdict(p, 'water', '2026-10-01', 120, '$120', 'posted-equal', true);
-        await stackBillTotals(p, 120, 120, 0, '$120 / $120');
-      }, { view: 'stack' });
     },
   },
   {

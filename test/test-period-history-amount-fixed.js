@@ -102,13 +102,9 @@ for (const [label, day, kind, start] of [['current period (first-observed)', 12,
   const record = live.report.derivedAmountFixed;
   ok(record && record.status === 'complete' && same(record.billIds, ['hydro']), 'live: the history derives the invented hydro bill fixed',
     JSON.stringify(record));
-  if (kind === 'first-observed') {
-    ok(hydro(live.row).status === 'still due' && hydro(live.row).remaining === 50 && hydro(live.row).actual === 40,
-      'live: the part-paid fixed bill is still due for 90 - 40 = 50', JSON.stringify(hydro(live.row)));
-  } else {
-    ok(hydro(live.row).status === 'PAID' && hydro(live.row).partlyPaidRemainder === true,
-      'live close: the payment reads paid and the partly paid remainder is flagged', JSON.stringify(hydro(live.row)));
-  }
+  const bill = hydro(live.row);
+  ok(bill.status === 'still due' && bill.partlyPaidRemainder === true && bill.actual === 40 && bill.remaining === 50,
+    'the period keeps the 40 received and the 90 - 40 = 50 remainder', JSON.stringify(bill));
 
   // 1. Raw history in the caller's payload: capture derives the record and keeps only it.
   const fromRaw = capture(kind, input);

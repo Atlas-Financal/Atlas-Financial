@@ -148,14 +148,19 @@ const heldRows = selected(run(held), '2026-08-14').plannedCostFunding.unschedule
 assert.equal(heldRows.find(r => r.id === 'held').contribution, null);
 assert.equal(heldRows.find(r => r.id === 'held').date, null);
 
-// An old unresolved obligation still consumes the opening. It cannot be
-// silently released by the income-only Budget view's narrower window.
+// The Aug 10 one-off belongs to the period ending Aug 13. Only the new
+// recurring bill reduces the Aug 14 period's income available for funding.
 const prior = fixture(); prior.plan.bills.push({ id: 'prior', label: 'Earlier obligation',
   frequency: 'once', date: '2026-08-10', amount: 75, confidence: 'confirmed' });
-const priorFirst = selected(run(prior), '2026-08-14');
-assert.equal(priorFirst.periodBillLoad, 200 + 75);
-assert.equal(priorFirst.plannedCostFunding.capacity, 1000 - 200 - 75 - 300);
-assert.equal(priorFirst.plannedCostFunding.afterProposedFunding, 1000 - 200 - 75 - 300 - 250);
+const priorAdvice = run(prior);
+const priorPeriod = selected(priorAdvice, '2026-07-31');
+assert.equal(priorPeriod.periodBillLoad, 200 + 75);
+assert.deepEqual(priorAdvice.payPeriodViews.filter(p => p.bills.some(b => b.id === 'prior')).map(p => p.start),
+  ['2026-07-31'], 'the one-off remains visible only in its own period');
+const priorFirst = selected(priorAdvice, '2026-08-14');
+assert.equal(priorFirst.periodBillLoad, 200);
+assert.equal(priorFirst.plannedCostFunding.capacity, 1000 - 200 - 300);
+assert.equal(priorFirst.plannedCostFunding.afterProposedFunding, 1000 - 200 - 300 - 250);
 
 for (const amount of [null, false, '', '600', -1, NaN, Infinity]) {
   const invalid = fixture(); invalid.plan.commitments[0].amount = amount;
@@ -242,4 +247,4 @@ assert.equal(priorPendingFunding.status, 'unavailable');
 assert.equal(priorPendingFunding.contribution, null);
 assert.match(priorPendingFunding.reason, /pending/i);
 
-console.log('PASS Budget funding: independent capacity/contribution/gap arithmetic, payment conservation, original/actual unavailable, trust and old-obligation protection');
+console.log('PASS Budget funding: independent capacity/contribution/gap arithmetic, payment conservation, original/actual unavailable, trust, period ownership and pending-debit protection');

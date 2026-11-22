@@ -120,9 +120,8 @@ ok(controlPast.length === 6 && controlPast[0].start === '2030-03-15',
     'one view per period: the first closing, as in the reprint');
 }
 
-// T3b: a saved close that left a bill unpaid (saved before the carry rules)
-// still discloses that the current period carries it, as it does inside the
-// rebuilt lookback (Codex P2 on #1381). The saved figures are untouched.
+// T3b: a saved close that left a bill unpaid keeps its figures and does
+// not add a current-period claim, inside or beyond the rebuilt lookback.
 {
   const bill = { id: 'invented-oneoff', label: 'Invented one-off', frequency: 'once', date: '2030-02-10', amount: 30,
     confidence: 'confirmed', payingAccount: 'chequing-a' };
@@ -140,9 +139,10 @@ ok(controlPast.length === 6 && controlPast[0].start === '2030-03-15',
     return { row, currentCarries: (current.bills || []).some(r => r.id === bill.id && r.date === bill.date) };
   };
   const inside = carried('2030-02-20'), beyond = carried(AS_OF);
-  ok(inside.row?.alsoCarriedToCurrent === true && inside.currentCarries, 'control: inside the lookback the carry is disclosed');
-  ok(beyond.currentCarries && beyond.row?.alsoCarriedToCurrent === true,
-    'beyond the lookback the saved-only close discloses the same carry');
+  for (const result of [inside, beyond]) {
+    ok(result.row && !result.row.alsoCarriedToCurrent && !result.currentCarries,
+      'the unpaid bill is retained only on the saved close');
+  }
   ok(beyond.row.amount === stored.amount && beyond.row.status === 'unknown', 'the saved row stays as saved');
 }
 

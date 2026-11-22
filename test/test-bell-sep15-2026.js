@@ -172,9 +172,8 @@ console.log('\n=== 2. synthetic expandEvents: Sep is the once only ===');
       near(-e.amount, STANDING_AMT) && e.cardPaid !== true
       && e.jointCash !== false && e.payingAccount === 'chequing-a'),
     'Oct+ standing events are $160 joint-cash withdrawals from BILLS ACCOUNT');
-  ok(laterOnce.length === 1 && laterOnce[0].date === ONCE_DUE
-      && near(-laterOnce[0].amount, ONCE_AMT),
-    'unpaid Sep once remains a single carried $283.94 event, not rewritten as $160');
+  ok(laterOnce.length === 0,
+    'the September once stays in its owning period');
   const engineSum = roundCent(laterStanding.reduce((s, e) => s + (-e.amount), 0));
   ok(near(engineSum, 480) && near(engineSum, STANDING_AMT * 3),
     'expandEvents standing total agrees with 3 × $160',

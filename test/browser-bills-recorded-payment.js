@@ -33,7 +33,7 @@ const cases = [
   function ok(a, message) { assert.ok(a, message); checks++; }
   try {
     for (const [name, records, paid, qualifier] of cases) {
-      const x = fixture(records);
+      const x = fixture(records, true);
       const estimated = name === 'estimated-minimum' || name === 'estimated-settled';
       const settled = name.endsWith('-settled');
       if (estimated) delete x.data.plan.obligations[0].statementOccurrences;
@@ -72,9 +72,9 @@ const cases = [
           eq(await bills.locator('[data-budget-bill-bucket="paid"] [data-budget-bill-open="triangle"]').count(), paid ? 1 : 0, 'full posted action alone belongs in household Paid bucket');
           if (qualifier) ok(text.includes(qualifier));
           const amazon = bills.locator('[data-budget-bill-open="mbna"], [data-budget-bill-open="mbna-aug31"]');
-          eq(await amazon.count(), 2, 'distinct Amazon cycles retained');
+          eq(await amazon.count(), 1, 'current period lists its own Amazon cycle');
           const amazonText = (await amazon.allInnerTexts()).join('\n');
-          ok(amazonText.includes('earlier August statement'));
+          ok(!amazonText.includes('earlier August statement'));
           ok(amazonText.includes('September minimum'));
           await row.focus(); await page.keyboard.press('Enter');
           const info = await page.locator('[data-budget-detail-body]').innerText();
@@ -95,9 +95,9 @@ const cases = [
           // focus to the visible control that opened the sheet.
           eq(await billsOpen.evaluate(n => n === document.activeElement), true, 'Info returns keyboard focus to the Bills control');
           await openRoster();
-          // The two earlier statement cycles lack settlement evidence. The
+          // The current statement lacks settlement evidence. The
           // original paid flags and literal receipt scenarios classify Triangle.
-          const expected = { check: ['mbna-aug31@2026-08-31', 'mbna@2026-09-30'], due: [], paid: [], pending: [], unknown: [] };
+          const expected = { check: ['mbna@2026-09-30'], due: [], paid: [], pending: [], unknown: [] };
           expected[triangleState].push('triangle@' + due);
           await assertTypedBillFilters(page, bills, expected);
           const body = await page.locator('body').innerText();

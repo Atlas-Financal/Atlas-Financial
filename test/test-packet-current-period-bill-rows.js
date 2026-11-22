@@ -3,15 +3,11 @@
 // period the packet names, selected first and capped second.
 // `node test/test-packet-current-period-bill-rows.js`
 //
-// Forecast's currentPeriodAction.bills is expanded from the cash lookback
-// origin (plan.opening.priorAsOf), which can reach back across several pay
-// periods. The packet capped that list at CURRENT_PERIOD_BILLS_MAX before any
-// selection, so a long lookback filled every carried row with older history
-// and the named period's own bills never reached Talk. The packet now keeps a
-// row dated inside periodStart..periodEnd (any kind), plus an earlier row only
-// when Forecast's current pay-period view itself lists that occurrence
-// (id@date) on this period, then caps. billsTotal and billsTruncated describe
-// that selection.
+// The cash lookback may reach earlier periods, but an unverified bill or
+// minimum now stays in its scheduled period. The packet still selects from
+// its action list before capping: in-period rows plus any earlier occurrence
+// the selected period view explicitly lists. billsTotal and billsTruncated
+// describe the selected rows, not the unscreened list.
 //
 // Failure it detects: older lookback rows crowding out the named period's
 // rows; a carried earlier row the page lists going missing from Talk; an
@@ -56,7 +52,7 @@ function world(patch) {
   return w;
 }
 
-function run(patch) {
+function run(patch, packetAdviceFixture) {
   const { data, packet, error } = H.dataOf(world(patch));
   assert.equal(error, null, 'the observation is applied');
   const plan = data.plan;
@@ -65,7 +61,12 @@ function run(patch) {
   const advice = F.recommend(plan, plan.opening.asOf, { debts: data.debts, currentPeriodActuals: packet });
   const action = advice.currentPeriodAction;
   const view = advice.payPeriodViews.find(v => v && v.timelineRole === 'current');
-  const built = Assistant.buildPacket({ data, periods: null, questionsMarkdown: '' });
+  let built;
+  const recommend = F.recommend;
+  try {
+    if (packetAdviceFixture) F.recommend = (...args) => packetAdviceFixture(recommend(...args));
+    built = Assistant.buildPacket({ data, periods: null, questionsMarkdown: '' });
+  } finally { F.recommend = recommend; }
   const talk = (built.forecast || built).currentPeriodAction;
   return { action, view, talk };
 }
@@ -77,24 +78,35 @@ function check(name, fn) { fn(); passed += 1; console.log('  ok ' + name); }
 
 console.log('=== packet current-period bill rows: select the named period, then cap ===');
 
-check('a long lookback does not crowd the named period out of Talk', () => {
+const CURRENT = [
+  'b4@2026-10-09', 'b5@2026-10-11', 'b6@2026-10-13',
+  'b7@2026-10-15', 'b8@2026-10-17', 'b9@2026-10-19',
+];
+check('the real Forecast keeps prior unverified bills out of this period despite the long lookback', () => {
   const r = run();
   assert.equal(r.action.periodStart, '2026-10-09');
   assert.equal(r.action.periodEnd, '2026-10-22');
-  // Positive control: Forecast's own list is long and mostly older history.
-  assert.ok(r.action.bills.length > Assistant.CURRENT_PERIOD_BILLS_MAX, 'the lookback list exceeds the cap');
-  assert.ok(r.action.bills.filter(b => b.date < '2026-10-09').length > Assistant.CURRENT_PERIOD_BILLS_MAX,
-    'more than a cap of rows predate the period');
-  // b0..b3 (Oct 1-7) are the previous closed period's unproven recurring
-  // bills that the page carries on this period; b4..b9 are due in it.
-  assert.deepEqual(r.talk.bills.map(key), [
-    'b0@2026-10-01', 'b1@2026-10-03', 'b2@2026-10-05', 'b3@2026-10-07',
-    'b4@2026-10-09', 'b5@2026-10-11', 'b6@2026-10-13', 'b7@2026-10-15', 'b8@2026-10-17', 'b9@2026-10-19',
-  ]);
-  assert.equal(r.talk.billsTotal, 10, 'the count is the named period\'s');
-  assert.equal(r.talk.billsTruncated, false, 'nothing of the named period is left out');
-  assert.deepEqual(r.talk.bills.map(b => [b.date >= '2026-10-15' ? 'upcoming' : 'unverified', b.settlement]).filter(([a, b]) => a !== b), [],
-    'settlement is Forecast\'s own: due rows upcoming, earlier rows to confirm');
+  assert.deepEqual(r.action.bills.map(key), CURRENT);
+  assert.deepEqual(r.talk.bills.map(key), CURRENT);
+  assert.equal(r.talk.billsTotal, CURRENT.length);
+  assert.equal(r.talk.billsTruncated, false);
+  assert.deepEqual(r.talk.bills.map(b => b.settlement),
+    ['unverified', 'unverified', 'unverified', 'upcoming', 'upcoming', 'upcoming']);
+});
+
+check('the packet filters a synthetic over-cap history before the cap', () => {
+  let injected = 0;
+  const r = run(undefined, advice => {
+    const action = advice.currentPeriodAction;
+    const old = Array.from({ length: Assistant.CURRENT_PERIOD_BILLS_MAX + 2 }, (_, i) =>
+      ({ ...action.bills[0], id: 'old-' + i, date: '2026-09-30' }));
+    injected += old.length;
+    return { ...advice, currentPeriodAction: { ...action, bills: old.concat(action.bills) } };
+  });
+  assert.ok(injected > Assistant.CURRENT_PERIOD_BILLS_MAX, 'the cap-before-filter control actually ran');
+  assert.deepEqual(r.talk.bills.map(key), CURRENT);
+  assert.equal(r.talk.billsTotal, CURRENT.length);
+  assert.equal(r.talk.billsTruncated, false);
 });
 
 check('Talk lists exactly the page\'s current pay-period bill rows', () => {
@@ -115,13 +127,12 @@ check('commitments and obligations: in-period rows stay, earlier rows the page d
       { id: 'ob2', label: 'Invented loan two', amount: 65, frequency: 'monthly', day: 12, effect: 'payment', confidence: 'confirmed' },
     ];
   });
-  // Forecast still lists the earlier commitments and obligation as owed...
+  // Earlier commitments can remain in the cash lookback action list.
+  // The earlier scheduled loan payment no longer rolls into it.
   const owed = r.action.bills.map(key);
-  for (const k of ['c-old@2026-09-28', 'c-early@2026-10-03', 'ob@2026-10-05']) assert.ok(owed.includes(k), k + ' is on Forecast\'s list');
-  // ...but its current pay-period view does not name them on this period
-  // (it carries recurring bills only), so neither does Talk. This is the
-  // deliberate consequence: a prior-period item does not belong to the
-  // current period.
+  for (const k of ['c-old@2026-09-28', 'c-early@2026-10-03']) assert.ok(owed.includes(k), k + ' is on Forecast\'s list');
+  assert.ok(!owed.includes('ob@2026-10-05'), 'the old obligation does not roll into the action list');
+  // The page and Talk both exclude those earlier rows.
   const viewed = r.view.bills.map(key);
   for (const k of ['c-old@2026-09-28', 'c-early@2026-10-03', 'ob@2026-10-05']) {
     assert.ok(!viewed.includes(k), k + ' is not on the page\'s current period');
@@ -131,11 +142,10 @@ check('commitments and obligations: in-period rows stay, earlier rows the page d
   // not list among its bill rows.
   assert.ok(!viewed.includes('c-in@2026-10-16'), 'the view lists no commitment rows');
   assert.deepEqual(r.talk.bills.map(key), [
-    'b0@2026-10-01', 'b1@2026-10-03', 'b2@2026-10-05', 'b3@2026-10-07',
     'b4@2026-10-09', 'b5@2026-10-11', 'ob2@2026-10-12', 'b6@2026-10-13', 'b7@2026-10-15', 'c-in@2026-10-16',
     'b8@2026-10-17', 'b9@2026-10-19',
   ]);
-  assert.equal(r.talk.billsTotal, 12);
+  assert.equal(r.talk.billsTotal, 8);
   assert.equal(r.talk.billsTruncated, false);
 });
 
@@ -144,7 +154,7 @@ check('the cap applies to the named period, and the flag says so', () => {
   const extra = Array.from({ length: 34 }, (_, i) => ({ id: 'x' + i, label: 'Invented extra ' + i, amount: 5,
     frequency: 'monthly', day: 15, confidence: 'confirmed', payee: 'Invented extra payee ' + i }));
   const r = run(w => { w.bills = tenBills().concat(extra); });
-  assert.equal(r.talk.billsTotal, 44, '10 + 34 rows belong to the named period');
+  assert.equal(r.talk.billsTotal, 40, '6 + 34 rows belong to the named period');
   assert.equal(r.talk.bills.length, Assistant.CURRENT_PERIOD_BILLS_MAX, 'capped at the maximum');
   assert.equal(r.talk.billsTruncated, true, 'the carried list is not the whole period');
   const viewed = new Set(r.view.bills.map(key));

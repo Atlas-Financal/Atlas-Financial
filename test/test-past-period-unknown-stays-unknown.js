@@ -83,12 +83,15 @@ for (const compact of [true, false]) {
   if (compact) ok(/Original plan: Unavailable/.test(html.replace(/<[^>]+>/g, '')), 'after close (compact): the original plan is Unavailable');
   else ok(/Unavailable/.test(section(html, 'Bills').replace(/<[^>]+>/g, ' ')), 'after close (full): the Bills row says Unavailable');
 }
-// The completed-period Bills list itself (empty rows, withheld load) says Unavailable.
+// The completed period lists its dated occurrence with the amount withheld.
 context.p = closed.view;
-ok(/data-bills-unavailable/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context))
-  && /<p class="operating-lead">Unavailable\.<\/p>/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context))
-  && !/Forecast did not publish this period/.test(vm.runInContext('calendarPeriodBillsHtml(p)', context)),
-  'after close: the Bills list with no rows says Unavailable, not "No bills in this period"');
+const closedBills = vm.runInContext('calendarPeriodBillsHtml(p)', context);
+ok(/data-period-bill="invented-utility"/.test(closedBills) && /data-bill-date="2031-03-12"/.test(closedBills),
+  'the completed Bills list identifies the utility occurrence');
+ok(/<dt>Planned<\/dt><dd>Unavailable<\/dd>/.test(closedBills)
+  && /<dt>Remaining<\/dt><dd>Unavailable<\/dd>/.test(closedBills),
+  'the utility detail keeps both the plan and remainder unknown');
+ok(/data-total-bills="unknown"/.test(closedBills), 'the completed Bills list withholds its total');
 // Control: a known-amount bill is unchanged after close, and a period with no
 // bill at all still says so.
 const knownClosed = periodOn('2031-03-24', 80);

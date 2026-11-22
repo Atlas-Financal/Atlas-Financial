@@ -53,7 +53,8 @@ run('native settled unknown commitment', x => { x.plan.commitments[0].amount = n
 run('native named no-pay unknown bill', x => { x.plan.bills[0].amount = null; x.plan.bills[0].noPaymentRequiredOn = [x.plan.bills[0].date]; }, 976.85);
 run('native observed paid unknown bill', x => { x.plan.bills[0].amount = null; x.opts.currentPeriodActuals.representedActuals.push({ id: 'service', date: '2026-08-24', actual: 17.23, postedOn: fx.AS_OF }); }, 976.85);
 run('native overdue unknown commitment carry', x => { x.plan.commitments[0].amount = null; x.plan.commitments[0].date = '2026-08-18'; }, null, 'remaining-cash-unknown');
-run('native overdue unknown once bill carry', x => { x.plan.bills[0].amount = null; x.plan.bills[0].date = '2026-08-10'; }, null, 'remaining-cash-unknown');
+run('native current-period overdue unknown once bill', x => { x.plan.bills[0].amount = null; x.plan.bills[0].date = '2026-08-18'; }, null, 'remaining-cash-unknown');
+run('native prior-period unknown once bill', x => { x.plan.bills[0].amount = null; x.plan.bills[0].date = '2026-08-10'; }, 976.85);
 run('native omitted future income', x => { x.plan.income[1].amount = null; x.opts.incomeOccurrenceAdjust = stream => stream.id === 'partner' ? { omit: true } : null; }, 696.43);
 run('native adjusted future income establishes amount', x => { x.plan.income[1].amount = null; x.opts.incomeOccurrenceAdjust = stream => stream.id === 'partner' ? { amount: 263.19, confidence: 'confirmed' } : null; }, 959.62);
 run('native additional future income unknown', x => { x.opts.additionalIncomeEvents = [{ id: 'additional', kind: 'income', date: '2026-08-26', amount: null, confidence: 'confirmed' }]; }, null, 'income-unavailable');

@@ -344,26 +344,17 @@ function hasBrowser() {
     const r = lateEngine(lateMortgageWorld({ ownerMarked: true }));
     H.expect(r.lender && r.lender.mortgageDueToConfirm === undefined, `no line (got ${JSON.stringify(r.lender)})`);
   });
-  // KNOWN LIMITATION, recorded not fixed (BACKLOG, routed to Grok Bot): the
-  // master cash walk still deducts the unconfirmed Oct 22 mortgage occurrence
-  // at its start, although the Oct 23 Mortgage debit is already out of the
-  // observed 1,600. This is the same on main, whatever the debit's category.
-  // Atlas does not link the debit to Oct 22 (that would be date matching,
-  // which Grok ruled out); confirming the Oct 22 payment in the ledger
-  // (a linked represented actual) clears it. This check pins the behaviour so
-  // a change to it is seen.
-  await report('engine: known limitation: the cash walk still deducts the unconfirmed Oct 22 mortgage beside the late debit', async () => {
+  await report('engine: the next period cash walk excludes the Oct 22 mortgage with and without a late debit', async () => {
     const walk = w => {
       const { data, packet } = H.dataOf(w);
       return F.simulate(data.plan, '2026-10-24', { debts: data.debts, currentPeriodActuals: packet, weeklyVariable: 0 });
     };
     const paid = walk(lateMortgageWorld()), none = walk(lateMortgageWorld({ debit: false }));
     for (const s of [paid, none]) {
-      H.expect((s.events || []).some(e => /mortgage/.test(e.id || '') && e.date === '2026-10-22'),
-        'the walk deducts the unconfirmed Oct 22 occurrence in both worlds');
+      H.expect(!s.events.some(e => e.id === 'mortgage' && e.date === '2026-10-22'),
+        'the previous period owns the unconfirmed Oct 22 occurrence');
     }
-    // The debit is out of the opening (1,600 vs 2,000); both walks also deduct
-    // Oct 22, so the endings differ by exactly the 400 opening difference.
+    // Only the observed opening differs. It already includes the late debit.
     H.expect(Math.round((none.ending - paid.ending) * 100) === 40000,
       `ending differs by exactly 400 (${none.ending} vs ${paid.ending})`);
   });

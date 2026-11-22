@@ -15,7 +15,9 @@ const plan = {
   income: [{ id: 'payroll', label: 'Seaspan', frequency: 'biweekly',
     anchor: '2026-08-14', amount: 2000, confidence: 'confirmed' }],
   bills: [{ id: 'older-bill', label: 'Older required bill', frequency: 'once',
-    date: '2026-09-10', amount: 75, confidence: 'confirmed' }],
+    date: '2026-09-10', amount: 75, confidence: 'confirmed' },
+  { id: 'current-bill', label: 'Current required bill', frequency: 'once',
+    date: '2026-09-28', amount: 50, confidence: 'confirmed' }],
   obligations: [], commitments: [],
   budget: { categories: [{ id: 'groceries', label: 'Groceries', class: 'essential',
     from: ['Groceries'], plannedPayday: 500 },
@@ -47,8 +49,8 @@ function checkAction(action) {
     'monthly targets are scaled to 14 days, never the 51-day opening lookback');
   assert.equal(action.currentShortfall, false, 'older spending cannot fabricate current-cycle overspend');
   assert.equal(action.remainingClaim, 'precise');
-  // Correcting the comparison must not release an unresolved earlier bill.
-  assert.equal(action.bills.find(b => b.id === 'older-bill').remaining, 75);
+  assert.ok(!action.bills.some(b => b.id === 'older-bill'), 'the earlier bill belongs to its closed period');
+  assert.equal(action.bills.find(b => b.id === 'current-bill').remaining, 50);
 }
 function checkAllocation(alloc) {
   const groceries = alloc.essentials.items.find(c => c.id === 'groceries');
@@ -58,12 +60,13 @@ function checkAllocation(alloc) {
   assert.equal(groceries.required, 500 - (30 + 45));
   assert.equal(fuel.planned, 14 * 10, 'allocation monthly scaling uses the same 14 days as action');
   assert.equal(alloc.essentials.allocated, 500 - (30 + 45) + 14 * 10);
-  assert.equal(alloc.runningLeftover.afterHouseholdBudget, 10000 - 75 - (425 + 140),
-    'posted opening minus earlier bill and remaining consumption is independently $9360');
+  assert.equal(alloc.runningLeftover.afterHouseholdBudget, 10000 - 50 - (425 + 140),
+    'posted opening less this period’s bill and remaining household consumption');
   assert.equal(alloc.planPeriodStart, '2026-09-25');
   assert.equal(alloc.periodEnd, '2026-10-08');
   assert.equal(alloc.actualsCoverage.remainingClaim, 'precise');
-  assert.equal(alloc.obligations.items.find(b => b.id === 'older-bill').allocated, 75);
+  assert.ok(!alloc.obligations.items.some(b => b.id === 'older-bill'));
+  assert.equal(alloc.obligations.items.find(b => b.id === 'current-bill').allocated, 50);
   assert.equal(alloc.cashBasis.priorAsOf, '2026-08-19', 'cash-opening provenance is not the category window');
 }
 function assistantPacket(p, opts, day = asOf) {
@@ -82,8 +85,8 @@ function checkPacket(packet) {
   assert.equal(packet.actuals.currentPeriodCategories.find(c => c.id === 'groceries').remaining, 425);
   assert.equal(packet.actuals.currentPeriodCategories.find(c => c.id === 'fuel').planned, 140);
   assert.equal(packet.forecast.paydayAllocation.essentials.allocated, 425 + 140);
-  assert.equal(packet.forecast.paydayAllocation.obligations.allocated, 75);
-  assert.equal(packet.forecast.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 75 - 565);
+  assert.equal(packet.forecast.paydayAllocation.obligations.allocated, 50);
+  assert.equal(packet.forecast.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 50 - 565);
   assert.equal(Assistant.looksSanitized(packet), true);
   assert.equal(packet.writesCanonicalState, false);
 }
@@ -105,6 +108,9 @@ const absent = options({ currentPeriodActuals: null });
 assert.equal(F.currentPeriodAction(plan, asOf, absent).categories.find(c => c.id === 'groceries').remaining, null);
 
 const advice = F.recommend(plan, asOf, options());
+const olderOwners = advice.payPeriodViews.filter(p => p.bills.some(b => b.id === 'older-bill'));
+assert.deepEqual(olderOwners.map(p => p.start), ['2026-08-28'], 'only the period containing Sep 10 owns the older bill');
+assert.equal(olderOwners[0].bills.find(b => b.id === 'older-bill').remaining, 75);
 checkAction(advice.currentPeriodAction);
 checkAllocation(advice.paydayAllocation);
 checkPacket(assistantPacket(plan, options()));
@@ -119,9 +125,9 @@ const groceryAdvice = F.recommend(groceryOnly, asOf, options());
 assert.equal(groceryAdvice.currentPeriodAction.categories.find(c => c.id === 'groceries').remaining, 500 - 75);
 assert.equal(groceryAdvice.paydayAllocation.essentials.allocated, 500 - 75,
   'without fuel, the old comparison overstated leftover by the full $425 grocery hold');
-assert.equal(groceryAdvice.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 75 - 425);
+assert.equal(groceryAdvice.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 50 - 425);
 
-// Missing/stale/partial coverage does not invent actuals, nor release old bills.
+// Incomplete coverage withholds actuals while preserving this cycle’s scheduled bill.
 for (const opts of [incomplete, absent, (() => {
   const o = options(); o.currentPeriodActuals.coverageThrough = '2026-09-29'; return o;
 })()]) {
@@ -129,12 +135,13 @@ for (const opts of [incomplete, absent, (() => {
   assert.equal(rec.currentPeriodAction.remainingClaim, 'unavailable');
   assert.equal(rec.paydayAllocation.actualsCoverage.remainingClaim, 'unavailable');
   assert.equal(rec.paydayAllocation.essentials.items.find(c => c.id === 'groceries').posted, null);
-  assert.equal(rec.paydayAllocation.obligations.items.find(b => b.id === 'older-bill').allocated, 75);
+  assert.ok(!rec.paydayAllocation.obligations.items.some(b => b.id === 'older-bill'));
+  assert.equal(rec.paydayAllocation.obligations.items.find(b => b.id === 'current-bill').allocated, 50);
   const packet = assistantPacket(plan, opts);
   assert.equal(packet.forecast.currentPeriodAction.remainingClaim, 'unavailable');
   assert.equal(packet.forecast.currentPeriodAction.essentialRemaining, null);
   assert.equal(packet.actuals.currentPeriodCategories.find(c => c.id === 'groceries').posted, null);
-  assert.equal(packet.forecast.paydayAllocation.obligations.allocated, 75);
+  assert.equal(packet.forecast.paydayAllocation.obligations.allocated, 50);
 }
 const postedOnly = options();
 postedOnly.currentPeriodActuals.pendingCoverage = 'unknown';
@@ -142,7 +149,7 @@ const postedAdvice = F.recommend(plan, asOf, postedOnly);
 assert.equal(postedAdvice.currentPeriodAction.remainingClaim, 'posted-only');
 assert.equal(postedAdvice.paydayAllocation.actualsCoverage.remainingClaim, 'posted-only');
 assert.equal(postedAdvice.paydayAllocation.essentials.allocated, 425 + 140);
-assert.equal(postedAdvice.paydayAllocation.runningLeftover.afterHouseholdBudget, 9360);
+assert.equal(postedAdvice.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 50 - (425 + 140));
 
 // A debit from an earlier cycle still promises today's cash to the merchant.
 // It is not this cycle's consumption and must not be freed by the new origin.
@@ -179,7 +186,8 @@ for (const coverageStart of ['2026-08-19', '2026-09-25', '2026-09-26']) {
   assert.ok(rec.paydayAllocation.protectedPath.allocated >= 300, 'prior unresolved cash debit remains protected');
   assert.ok(rec.paydayAllocation.movable <= rec.paydayAllocation.runningLeftover.afterHouseholdBudget - 300,
     'the same pending principal cannot be released as movable cash');
-  assert.equal(rec.paydayAllocation.obligations.items.find(b => b.id === 'older-bill').allocated, 75);
+  assert.ok(!rec.paydayAllocation.obligations.items.some(b => b.id === 'older-bill'));
+  assert.equal(rec.paydayAllocation.obligations.items.find(b => b.id === 'current-bill').allocated, 50);
 }
 const pendingNow = options();
 pendingNow.currentPeriodActuals.transactions = transactions.concat([
@@ -190,9 +198,9 @@ const pendingAdvice = F.recommend(plan, asOf, pendingNow);
 assert.equal(pendingAdvice.currentPeriodAction.categories.find(c => c.id === 'groceries').pending, 20);
 assert.equal(pendingAdvice.paydayAllocation.essentials.items.find(c => c.id === 'groceries').pending, 20);
 assert.equal(pendingAdvice.paydayAllocation.essentials.allocated, 500 - 75 - 20 + 140);
-assert.equal(pendingAdvice.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 75 - 545);
+assert.equal(pendingAdvice.paydayAllocation.runningLeftover.afterHouseholdBudget, 10000 - 50 - 545);
 assert.ok(pendingAdvice.paydayAllocation.protectedPath.allocated >= 300 + 20);
-assert.ok(pendingAdvice.paydayAllocation.movable <= 9380 - (300 + 20));
+assert.ok(pendingAdvice.paydayAllocation.movable <= 10000 - 50 - 545 - (300 + 20));
 
 // Cycle transitions stay aligned across both month and year boundaries.
 for (const [day, start, end] of [

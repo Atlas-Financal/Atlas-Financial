@@ -332,7 +332,7 @@ ok(/data-budget-bills-remaining-scope="historical-unconfirmed"/.test(hydroBills)
   && !/left to pay or confirm/.test(hydroBills)
   && !/\$0\.00/.test(/id="budget-bills-heading"[\s\S]*?<\/h2>/.exec(hydroBills)?.[0] || '')
   && /To confirm<span>1<\/span>/.test(hydroBills)
-  && /data-budget-bill-bucket="check"[\s\S]*?data-budget-bill-open="hydro"[\s\S]*?120\.00[\s\S]*?To confirm/.test(hydroBills)
+  && /data-budget-bill-bucket="check"[\s\S]*?data-budget-bill-open="hydro"[\s\S]*?120\.00[\s\S]*?>Not paid</.test(hydroBills)
   && /data-period-bill="hydro"[\s\S]*?Missing evidence does not mean unpaid/.test(hydroLookback),
   'unverified historical Hydro withholds the actionable $0 heading and keeps original evidence');
 const paidHistory = hydroPage.rerender(`
@@ -454,26 +454,23 @@ for (const coverage of ['missing', 'partial', 'truncated', 'full', 'posted-only'
         && householdActualUnknown(spending),
       `${coverage}/${settlement}: completed label and historical amount agree with actual coverage, without invented zero spending`);
     const bill = historicalPeriod.bills.find(row => row.id === 'historical-service');
-    // Item 12 (#1156): the unverified once bill (Aug 7, 105) is overdue and
-    // carried to the current period, which counts it (370 below). Its
-    // completed period lists it as carried and counts none of it.
-    ok(bill?.status === (settlement === 'paid' ? 'PAID' : 'carried') && historicalPeriod.remainingBills === 0,
-      `${coverage}/${settlement}: Forecast historical actionable $0 is retained, with ${settlement} row identity`);
+    ok(bill?.status === (settlement === 'paid' ? 'PAID' : 'planned') && historicalPeriod.remainingBills === 0,
+      `${coverage}/${settlement}: the closed period records settlement without an actionable remainder`);
     if (settlement !== 'paid') {
-      ok(bill.carriedToCurrentPeriod === true && bill.remaining === 0 && historicalPeriod.totalBillsThisPeriod === 0
-        && historicalPeriod.periodBillLoad === 0,
-        `${coverage}/${settlement}: the carried 105 is listed but out of the completed totals and bill load`);
+      ok(bill.paidState === 'not-paid' && bill.remaining === 105 && historicalPeriod.totalBillsThisPeriod === 105
+        && historicalPeriod.periodBillLoad === 105,
+        `${coverage}/${settlement}: the historical service belongs in its own period's total and load`);
     }
     ok(/Completed-period bills/.test(bills) && !/left to pay or confirm|data-budget-browse-bills-remaining/.test(bills)
       && (settlement === 'paid' ? /data-budget-bill-bucket="paid"[\s\S]*?Synthetic historical service/.test(bills)
-        : /data-budget-bill-bucket="carried"[\s\S]*?Synthetic historical service[\s\S]*?Carried to this pay period/.test(bills)
-          && !/data-budget-bill-bucket="check"/.test(bills))
+        : /data-budget-bill-bucket="check"[\s\S]*?Synthetic historical service[\s\S]*?>Not paid</.test(bills)
+          && !/data-budget-bill-bucket="carried"/.test(bills))
       && /Historical settlement evidence, not an amount due now/.test(bills),
       `${coverage}/${settlement}: history is settlement evidence, never a zero due/confirmation all-clear`);
     ok(/data-period-bill="historical-service"/.test(out) && /data-budget-category-open="groceries"/.test(out),
       `${coverage}/${settlement}: native bill and transaction evidence stays reachable`);
     const currentOut = historyPage.rerender('__ctx.planPayPeriodId = null');
-    const currentRemaining = settlement === 'paid' ? 265 : 370; // 265 current + 105 unresolved earlier bill
+    const currentRemaining = 265; // Only this period's obligations.
     ok(browseSection(currentOut, 'bills').includes(`${money(currentRemaining)}</span> left to pay or confirm`)
       && /known categories over plan/.test(browseSection(currentOut, 'spending')),
       `${coverage}/${settlement}: current view keeps its own ${money(currentRemaining)} action and actual coverage`);
@@ -805,8 +802,8 @@ for (const coverage of ['missing', 'partial', 'truncated', 'full', 'posted-only'
   for (const settlement of ['unverified', 'paid']) {
     const hp = page(); hp.render(fx.fundingHistorical(coverage, settlement));
     const current = hp.context.__ctx.advice.payPeriodViews.find(row => row.timelineRole === 'current');
-    const bills = settlement === 'paid' ? 265 : 370;
-    const capacity = settlement === 'paid' ? 501.50 : 396.50;
+    const bills = 265;
+    const capacity = 501.50;
     const ready = !['truncated', 'posted-only'].includes(coverage);
     ok(current.remainingBills === bills, `${coverage}/${settlement}: actual observation settlement publishes ${bills} remaining bills`);
     ok(ready ? current.fromTodayFunding.operatingBills === bills && current.fromTodayFunding.availableNow === capacity

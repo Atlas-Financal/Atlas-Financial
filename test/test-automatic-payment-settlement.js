@@ -280,11 +280,11 @@ const syntheticIdentity = {
 };
 ok(Forecast.carriedOnceJointCashOutflow(
     historicalOpening.plan, SYNTHETIC_ID, SCHEDULED, LIVE_AS_OF),
-  'Forecast still carries the synthetic Aug 16 once bill on 1 Sep');
+  'the past synthetic once bill is eligible for exact historical settlement');
 ok(near(Forecast.expandEvents(historicalOpening.plan, LIVE_AS_OF, LIVE_AS_OF, {})
     .filter(event => event.id === SYNTHETIC_ID)
-    .reduce((sum, event) => sum - Number(event.amount), 0), SYNTHETIC_AMOUNT),
-  'the carried synthetic reserve on 1 Sep is $40');
+    .reduce((sum, event) => sum - Number(event.amount), 0), 0),
+  'the synthetic bill from a closed pay period has no current cash reserve');
 
 const helperDays = O.postedHistoryDaysForCarriedSettlement({
   now: NOW,
@@ -506,7 +506,7 @@ ok((agedResult.data.plan.opening.representedEvents || [])
     .some(item => item.id === SYNTHETIC_ID && item.date === SCHEDULED),
   'live overlay records the carried occurrence as represented in memory');
 ok(near(agedReserve, 0),
-  'the carried synthetic reserve becomes $0 after trusted settlement');
+  'trusted historical settlement leaves the current-period reserve at zero');
 ok(!Forecast.expandEvents(agedResult.data.plan, LIVE_AS_OF, LIVE_AS_OF, {})
     .some(event => event.id === SYNTHETIC_ID),
   'no second subtraction of the represented synthetic occurrence');

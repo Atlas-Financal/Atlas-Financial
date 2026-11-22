@@ -178,8 +178,8 @@ console.log('=== this-payday already-paid is the cheque date, not the whole peri
   ok(!(action.thisPaydayPaid.bills || []).some(r => r.id === 'bcaa-aug15-outstanding'),
     'Aug 16 BCAA is not this payday already paid');
   const dueIds = (action.thisPaydayDue || []).map(r => r.id).sort();
-  ok(dueIds.includes('travel') && dueIds.includes('tdfees'),
-    'Travel Visa min and TD fees stay still due',
+  ok(!dueIds.includes('travel') && dueIds.includes('tdfees'),
+    'TD fees are due in this period and the prior-period minimum is absent',
     dueIds.join(','));
   ok(!dueIds.includes('bcaa-aug15-outstanding') && !dueIds.includes('mortgage')
       && !dueIds.includes('fit4less'),
@@ -293,8 +293,9 @@ console.log('\n=== identified extra card payment on payday settles the min ===')
     targetBuffer: 0,
     representedEvents: syntheticPlan().opening.representedEvents,
   });
-  ok((control.thisPaydayDue || []).some(r => r.id === 'travel'),
-    'without an identified card payment the min stays still due');
+  ok(!(control.thisPaydayDue || []).some(r => r.id === 'travel')
+      && !(control.thisPaydayPaid.bills || []).some(r => r.id === 'travel'),
+    'without payment evidence the prior minimum is neither due nor marked paid on this payday');
 
   const composer = loadComposer();
   const advice = F.recommend(plan, AS_OF, opts);

@@ -314,8 +314,8 @@ console.log('\n=== 7. live listed ids: BILLS ACCOUNT; Aug once vs Sep monthly ==
     'August prints the once rows, not the September 15 monthly rows');
   ok(monthly.every(id => sepIds.includes(id)),
     'as-of Sep 10 still prints the September 15 monthly rows in the covering payday windows');
-  ok(once.every(id => sepIds.includes(id)),
-    'unpaid August once cash still reserved after the Aug 28 payday until represented');
+  ok(once.every(id => !sepIds.includes(id)),
+    'August one-off bills stay out of the later payday windows');
 }
 
 // The two windows are assigned from the fixture calendar. Bills, mortgage and

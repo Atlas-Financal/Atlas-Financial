@@ -1810,7 +1810,7 @@ function periodBillLine(row) {
     : row.status === 'pending' ? 'pending'
     : row.status === 'needs-date' ? 'needs confirmation'
     : row.status === 'in opening' || row.settlement === 'opening' ? 'in opening balance · to confirm'
-    : row.status === 'carried' || row.settlement === 'carried' ? 'carried to this pay period'
+    : row.status === 'carried' || row.settlement === 'carried' ? 'carried at close'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
   // A trust-settled row prints estimated, never PAID; the status attribute stays the closed value.
@@ -5047,7 +5047,7 @@ function budgetApplyBillFilter(section, choice) {
     estimated: 'Showing estimated bills: settled by your schedule-trust rule on the due date; no bank payment was seen.',
     pending: 'Showing pending bills. Settlement is not confirmed.',
     unknown: 'Showing bills with unavailable status.',
-    carried: 'Showing bills carried to the current pay period. They are counted there, not here.' })[selected];
+    carried: 'Showing bills recorded as carried when this period closed.' })[selected];
 }
 
 function wireBudgetBrowse(mount, ctx, sheet) {
@@ -6141,8 +6141,8 @@ function budgetSpendingSectionHtml(period, ctx) {
 }
 
 function budgetBillPresentation(row) {
-  // Item 12: a completed period's copy of an occurrence the current period carries. History only, never To confirm.
-  if (row.status === 'carried' || row.settlement === 'carried') return { kind: 'carried', label: 'Carried to this pay period' };
+  // Earlier saved closes may still contain this historical status.
+  if (row.status === 'carried' || row.settlement === 'carried') return { kind: 'carried', label: 'Carried at close' };
   if (row.status === 'pending' || row.settlement === 'pending') return { kind: 'pending', label: 'Payment pending' };
   // Forecast.billPaymentState published a shortfall: the linked payment is below the planned amount (a label, never Paid).
   // Only a settled row prints it: a row Forecast reset to unpaid keeps no shortfall claim.
@@ -6211,8 +6211,10 @@ function budgetBillDisplayLabel(row) {
   return row.label || 'Bill';
 }
 
-function budgetBillBrowseRowHtml(row) {
+function budgetBillBrowseRowHtml(row, historical = false) {
   const state = budgetBillPresentation(row);
+  const label = historical && row.paidState === 'not-paid' && row.status === 'planned'
+      && row.settlement === 'unverified' ? 'Not paid' : state.label;
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
   const knownDate = isValidIsoCalendarDate(row.date);
@@ -6226,8 +6228,8 @@ function budgetBillBrowseRowHtml(row) {
   const dateEstimated = row.dateConfidence === 'estimated';
   return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
     <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span>${row.alsoCarriedToCurrent === true ? '<span class="budget-bill-when" data-budget-bill-also-carried>This saved total includes this bill. It\'s also carried to the current pay period, where it is to confirm.</span>' : ''}${row.ledgerEntryUnbacked === true ? '<span class="budget-bill-when" data-budget-bill-ledger-unbacked>A ledger entry may be for this bill. It\'s already marked paid, and no bank payment backs it.</span>' : ''}</span>
-    <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${state.label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span>${row.ledgerEntryUnbacked === true ? '<span class="budget-bill-when" data-budget-bill-ledger-unbacked>A ledger entry may be for this bill. It\'s already marked paid, and no bank payment backs it.</span>' : ''}</span>
+    <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
 
@@ -6274,11 +6276,11 @@ function budgetUpcomingAnnualBillRowHtml(entry) {
 function budgetBillsSectionHtml(period, ctx) {
   const progress = budgetProgressFor(period, ctx.asOf)?.bills;
   const rows = (period.bills || []).filter(Boolean);
+  const historical = budgetBrowseHistorical(period);
   const groups = { due: [], pending: [], check: [], estimated: [], paid: [], unknown: [], carried: [] };
   rows.forEach(row => groups[budgetBillPresentation(row).kind].push(row));
-  const section = (key, title, list, note = '', render = budgetBillBrowseRowHtml) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
+  const section = (key, title, list, note = '', render = row => budgetBillBrowseRowHtml(row, historical)) => list.length ? `<div id="budget-bill-bucket-${key}" class="budget-bill-group${key === 'paid' ? ' budget-browse-paid' : ''}" data-budget-bill-bucket="${key}"><h3>${title}${key === 'upcoming' ? '' : ' <span aria-label="Group total unavailable">Unavailable</span>'}</h3>${list.map(render).join('')}${note ? `<p>${note}</p>` : ''}</div>` : '';
   const upcomingAnnualBill = budgetUpcomingAnnualBill(period, ctx);
-  const historical = budgetBrowseHistorical(period);
   const withholdActionableRemaining = historical
     && (groups.check.length > 0 || groups.unknown.length > 0);
   const remainingHeading = historical
@@ -6291,7 +6293,7 @@ function budgetBillsSectionHtml(period, ctx) {
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>
     ${section('check', 'To confirm', groups.check, 'The bill may already be paid. Check its evidence before paying again.')}
     ${section('due', 'Due', groups.due)}${section('pending', 'Pending', groups.pending)}
-    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}${section('carried', 'Carried to this pay period', groups.carried, 'Counted in the current pay period, where it is to confirm. Not counted in this period.')}
+    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}${section('carried', 'Carried at close', groups.carried, 'The saved total excluded these bills.')}
     ${section('upcoming', 'Upcoming annual bills', upcomingAnnualBill ? [upcomingAnnualBill] : [], '', budgetUpcomingAnnualBillRowHtml)}
     <p class="budget-browse-note" data-budget-bill-filter-empty hidden>No published bills in this filter.</p>
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>

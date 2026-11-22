@@ -16,9 +16,9 @@
  * Provider transaction ids are synthetic: the repository is public and fixtures
  * carry no real provider ids.
  *
- * Independent proof of the figure: the expected Bills drop is the two once rows'
- * own scheduled amounts read straight from data.json, not a number the matcher
- * computes. */
+ * The observer checks below still distinguish the repaired settlement from its
+ * unproven control. Under no rollover, neither can charge its old occurrence
+ * against the subsequent pay period. */
 const fs = require('fs');
 const path = require('path');
 const O = require('../scripts/provider-observe.js');
@@ -165,7 +165,7 @@ ok(ownIds(schedulesFor(named.rules)) === '',
   'naming the ids on the once rules would give each item two owners and refuse both monthly schedules (why that fix was not used)',
   J(schedulesFor(named.rules)));
 
-console.log('\n=== the Nov 20 – Dec 3 period: Bills drop by exactly the two once rows ===');
+console.log('\n=== the Nov 20 – Dec 3 period: the old occurrence does not roll over ===');
 const viewFor = rules => {
   const result = Live.overlayLiveState({ data, report: observe(ALL, rules) });
   const plan = result.data.plan;
@@ -174,22 +174,15 @@ const viewFor = rules => {
 };
 const fixed = viewFor(identity);
 const old = viewFor(withoutLinkOf());
-const ROW_AMOUNTS = ['icbc-aug15-outstanding', 'resp-aug15-outstanding']
-  .map(id => Number(data.plan.bills.find(bill => bill.id === id).amount));
-const DROP = ROW_AMOUNTS.reduce((a, b) => a + b, 0);
-ok(ROW_AMOUNTS.length === 2 && ROW_AMOUNTS.every(n => n > 0), 'independent expectation: the two once rows\' own scheduled amounts, read from data.json');
 ok(!!fixed && !!old, 'both runs publish the Nov 20 – Dec 3 view');
-const rowKeys = view => (view.bills || []).map(row => `${row.id}@${row.date}:${row.amount}`);
-const removed = rowKeys(old).filter(k => !rowKeys(fixed).includes(k));
-const added = rowKeys(fixed).filter(k => !rowKeys(old).includes(k));
-const AUG_KEYS = ['icbc-aug15-outstanding', 'resp-aug15-outstanding'].map((id, i) => `${id}@2026-08-16:${ROW_AMOUNTS[i]}`).sort();
-ok(J(removed.sort()) === J(AUG_KEYS) && added.length === 0,
-  'the only bill rows that leave the period are the two August once rows; no row is added or changed', `${removed.length} removed, ${added.length} added`);
-ok(near(old.totalBillsThisPeriod - fixed.totalBillsThisPeriod, DROP) && near(old.periodBillLoad - fixed.periodBillLoad, DROP),
-  'Bills for the period drop by exactly the two once rows\' scheduled amounts');
-ok(near(fixed.balanceAfterDeductions - old.balanceAfterDeductions, DROP)
-  && near(fixed.plannedPeriodClose - old.plannedPeriodClose, DROP),
-  'the balance after deductions and the planned close rise by the same amount (consequence, not a second change)');
+const oldOccurrence = row => ['icbc-aug15-outstanding', 'resp-aug15-outstanding'].includes(row.id);
+ok([fixed, old].every(view => !(view.bills || []).some(oldOccurrence)),
+  'neither the repaired nor the unproven old occurrence rolls into this period');
+const rowKeys = view => (view.bills || []).map(row => [row.id, row.date, row.amount]);
+ok(J(rowKeys(fixed)) === J(rowKeys(old)), 'the later period has the same bill rows in both runs');
+ok(['totalBillsThisPeriod', 'periodBillLoad', 'balanceAfterDeductions', 'plannedPeriodClose']
+  .every(key => J(fixed[key]) === J(old[key])),
+  'the old occurrence does not change the later period’s bills, balance or planned close');
 ok(['income', 'incomeTotal', 'householdBudget', 'budgetHold', 'opening', 'currentBalance']
   .every(key => J(fixed[key]) === J(old[key])),
   'income, opening, current balance, household budget and budget hold do not move');

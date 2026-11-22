@@ -14,9 +14,9 @@
  * from data.json at run time: the repository is public, so no household amount
  * is written or printed here. Provider transaction ids are synthetic.
  *
- * Independent proof of the figure: the expected Bills drop is the bell row's own
- * scheduled amount read straight from data.json, not a number the matcher
- * computes. */
+ * The observer checks below still distinguish the repaired settlement from its
+ * unproven control. Under no rollover, neither can charge its old occurrence
+ * against the subsequent pay period. */
 const fs = require('fs');
 const path = require('path');
 const O = require('../scripts/provider-observe.js');
@@ -131,7 +131,7 @@ ok(J(bellKeys(observe([bell(9412, '2026-10-15', 118.06), NOV18]))) === J(['bell@
 ok(bellKeys(observe([bell(9413, '2026-09-15', Number(data.plan.bills.find(bill => bill.id === 'bell-sep15-2026').amount))])).length === 0,
   'a single September Bills payment does not settle the September once (that rule keeps its two-leg shape) or reach October');
 
-console.log('\n=== the Nov 20 – Dec 3 period: Bills drop by exactly the bell row ===');
+console.log('\n=== the Nov 20 – Dec 3 period: the old occurrence does not roll over ===');
 const views = rules => {
   const result = Live.overlayLiveState({ data, report: observe([NOV18], rules) });
   const plan = result.data.plan;
@@ -142,19 +142,15 @@ const oldViews = views(withoutFlag());
 const pick = (list, start) => list.find(view => view.start === start);
 const fixed = pick(fixedViews, '2026-11-20');
 const old = pick(oldViews, '2026-11-20');
-const DROP = Number(bellRow.amount);
-ok(DROP > 0, 'independent expectation: the bell row\'s own scheduled amount, read from data.json');
-ok(!!fixed && !!old && fixed.end === '2026-12-03', 'both runs publish the Nov 20 – Dec 3 view');
-const rowKeys = view => (view.bills || []).map(row => `${row.id}@${row.date}:${row.amount}`);
-const removed = rowKeys(old).filter(k => !rowKeys(fixed).includes(k));
-const added = rowKeys(fixed).filter(k => !rowKeys(old).includes(k));
-ok(J(removed) === J([`bell@2026-11-15:${bellRow.amount}`]) && added.length === 0,
-  'the only bill row that leaves the period is bell@2026-11-15 at its plan amount; no row is added or changed', `${removed.length} removed, ${added.length} added`);
-ok(near(old.totalBillsThisPeriod - fixed.totalBillsThisPeriod, DROP) && near(old.periodBillLoad - fixed.periodBillLoad, DROP),
-  'Bills for the period drop by exactly the bell row\'s amount');
-ok(near(fixed.balanceAfterDeductions - old.balanceAfterDeductions, DROP)
-  && near(fixed.plannedPeriodClose - old.plannedPeriodClose, DROP),
-  'the balance after deductions and the planned close rise by the same amount (consequence, not a second change)');
+ok(!!fixed && !!old, 'both runs publish the Nov 20 – Dec 3 view');
+const oldOccurrence = row => row.id === 'bell' && row.date === '2026-11-15';
+ok([fixed, old].every(view => !(view.bills || []).some(oldOccurrence)),
+  'neither the repaired nor the unproven old occurrence rolls into this period');
+const rowKeys = view => (view.bills || []).map(row => [row.id, row.date, row.amount]);
+ok(J(rowKeys(fixed)) === J(rowKeys(old)), 'the later period has the same bill rows in both runs');
+ok(['totalBillsThisPeriod', 'periodBillLoad', 'balanceAfterDeductions', 'plannedPeriodClose']
+  .every(key => J(fixed[key]) === J(old[key])),
+  'the old occurrence does not change the later period’s bills, balance or planned close');
 ok(['income', 'incomeTotal', 'householdBudget', 'budgetHold', 'opening', 'currentBalance']
   .every(key => J(fixed[key]) === J(old[key])),
   'income, opening, current balance, household budget and budget hold do not move');

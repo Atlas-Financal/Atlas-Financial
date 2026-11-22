@@ -2,8 +2,8 @@
 /* A dated commitment whose valid settledOn is on or before the CURRENT
  * Forecast opening must not be reintroduced into current/future
  * trajectory funding merely because a live overlay named an earlier
- * priorAsOf. Recurring unresolved joint-cash bills in that lookback
- * stay reserved. Historical openings before settledOn still reserve.
+ * priorAsOf. Recurring joint-cash bills in that lookback belong
+ * to their own pay periods. Historical openings before settledOn still reserve.
  *
  * Independent of carriedUnresolvedJointCashOutflows: settlement is
  * YYYY-MM-DD comparison against the Forecast opening, then event
@@ -222,9 +222,8 @@ console.log('\n=== 2. Synthetic: settled commitment is not carried; history and 
   ok(events.some(e => e.id === 'future-unsettled' && e.date === '2026-09-20'
       && near(e.amount, -FUTURE_AMT)),
     'unsettled commitment after the opening still funds the walk');
-  ok(events.some(e => e.id === 'recurring-joint-cash' && e.date === '2026-08-20'
-      && near(e.amount, -BILL_AMT)),
-    'unresolved recurring joint-cash bill through the live-overlay boundary stays reserved');
+  ok(!events.some(e => e.id === 'recurring-joint-cash' && e.date === '2026-08-20'),
+    'a recurring bill due in the closed period is absent from the current walk');
   ok(events.filter(e => e.id === 'recurring-joint-cash' && e.date === '2026-09-20').length === 1,
     'the next recurring occurrence after the opening is still scheduled once');
 
@@ -241,7 +240,7 @@ console.log('\n=== 2. Synthetic: settled commitment is not carried; history and 
   ok(!noPriorEvents.some(e => e.id === 'settled-once'),
     'without priorAsOf the settled row is still omitted by opening-relative settlement');
   ok(!noPriorEvents.some(e => e.id === 'recurring-joint-cash' && e.date === '2026-08-20'),
-    'without priorAsOf the intervening recurring bill is not invented — priorAsOf still owns that carry');
+    'without priorAsOf the same closed-period occurrence is also absent');
 }
 
 console.log('\n=== 3. Synthetic trajectory: settled row contributes $0 to current funding ===');

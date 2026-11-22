@@ -38,7 +38,7 @@ const COVERED = ['app', 'plan', 'balance-history', 'bill-detail', 'budget-blend'
 const DELIBERATE_MARKUP = {
   plan: {
     'figures.saved': 2, 'figures.needed': 2, 'figures.proposed': 2, // budgetSavingsMoney / budgetV3Money markup
-    'state.label': 4, // budgetBrowseMoney markup in the Budget browse rows
+    'state.label': 3, // fulfillment evidence, category status and goal state
     'entry.amount': 1, // budgetDailyNeededHtml
     'item.label': 1, // pay-period wheel items: escaped where each label is built
     'stillToFund.html': 1, 'summary?.appendix': 1, 'options.attrs': 1,
