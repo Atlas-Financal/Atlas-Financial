@@ -1,53 +1,15 @@
 'use strict';
-/* #962 C1 (Grok Bot, rule 17; lead conditions 2026-11-16): a refund whose display
- * name gives nothing shows the bank's own description, marked as the bank's
- * text ("Bank description: …"). Blank too: "Merchant unavailable". Never the
- * category. Display only: nothing is written to the ledger and no figure moves.
- *
- * Lead conditions proved here:
- *   1. bankDescription is kept only on a refund Forecast identifies as one named category's refund (G3a):
- *      original_name as written, control characters stripped, 60-character
- *      cap, no payee or category fallback;
- *   2. it never reaches the assistant / MCP current-state packet or the
- *      figures snapshot;
- *   3. the sanitizer still rejects it on any other row.
- *
- * Path: invented raw Lunch Money payload -> scripts/live-plan.js (acceptance
- * harness) -> packet -> Forecast.recommend -> the real Spent printer
- * (plan.js householdBudgetMetric). Every expected value is hand-written.
- *
- * `node test/test-refund-bank-description.js`
- */
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
-const F = require('../public/forecast.js');
+/* Only a linked category refund may carry its bounded bank description in the
+ * observed packet. The Stack category sheet prints the signed refund amount
+ * and the published payee. The assistant and figures snapshot exclude bank text.
+ * All data in this suite is invented. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { loadRefundPeriod, assertRefundCategory } = require('./lib/stack-refund-period');
 const O = require('../scripts/provider-observe.js');
 const H = require('./acceptance/harness.js');
 
-let failures = 0;
-const ok = (cond, label, detail = '') => {
-  if (!cond) failures++;
-  console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
-};
-
-const read = rel => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
-const grab = (src, re, name) => {
-  const m = src.match(re);
-  if (!m) throw new Error('printer ' + name + ' not found');
-  return m[0];
-};
-const appSrc = read('public/app.js');
-const planSrc = read('public/plan.js');
-const printer = vm.runInNewContext([
-  grab(appSrc, /^const money = .*$/m, 'money'),
-  grab(appSrc, /^const money2 = .*$/m, 'money2'),
-  grab(appSrc, /^const escapeHtml = .*$/m, 'escapeHtml'),
-  grab(appSrc, /^const fmtDate = .*$/m, 'fmtDate'),
-  grab(appSrc, /^const fmtDateLong = .*$/m, 'fmtDateLong'),
-  grab(planSrc, /^function householdBudgetMetric\([\s\S]*?\n\}$/m, 'householdBudgetMetric'),
-].join('\n') + '\n({ householdBudgetMetric });', { Forecast: F });
-const payees = html => [...html.matchAll(/household-budget-tx-payee">([^<]*)/g)].map(m => m[1]);
+const ok = (condition, label, detail = '') => assert.ok(condition, label + (detail ? ' — ' + detail : ''));
 
 const DESC = 'INVENTED REFUND CO 4471';
 const payroll = () => H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a',
@@ -56,25 +18,19 @@ function run(refundRaw, extra = []) {
   const w = H.baseWorld();
   w.transactions = [payroll(),
     H.lm({ date: '2026-10-10', amount: 60, category: 'Restaurants', payee: 'Invented diner' }),
-    // The ledger-linked form (a Lunch Money group parent): since #1234 only a linked refund nets into its
-    // category and so prints in its Spent list; a standalone refund prints only on the "Refunds not linked" line.
+    // A Lunch Money group parent links the refund to the category purchase (#1234).
     H.lm({ date: '2026-10-12', amount: -25, category: 'Restaurants', raw: { is_group_parent: true, ...refundRaw } }),
     ...extra];
+  H.resetCaptures();
   const r = H.dataOf(w);
   if (r.error) throw r.error;
   const refund = r.packet.transactions.find(t => t.amount === -25);
   const spend = r.packet.transactions.find(t => t.amount === 60);
   const income = r.packet.transactions.find(t => t.amount === -1400);
-  const rec = F.recommend(r.data.plan, w.asOf, { currentPeriodActuals: r.packet, debts: r.data.debts });
-  const period = rec.defaultView.calendarPeriods.find(p => p.start <= w.asOf && p.end >= w.asOf);
-  const row = (period.householdBudget || []).find(b => b && b.id === 'restaurants');
-  const recon = (row && row.recon) || [];
-  const html = printer.householdBudgetMetric('Spent', 35, { recon, id: 'restaurants' });
-  return { w, r, refund, spend, income, recon, html, rec };
+  return { r, refund, spend, income };
 }
 
-console.log('A refund with no display name shows the bank description, marked as the bank\'s text');
-{
+test('Only the linked refund carries bank text, and its signed amount appears in the Stack sheet', async () => {
   const s = run({ payee: '', original_name: DESC });
   ok(s.refund && s.refund.bankDescription === DESC, 'the packet refund row carries the bank description as written',
     JSON.stringify(s.refund && s.refund.bankDescription));
@@ -82,13 +38,18 @@ console.log('A refund with no display name shows the bank description, marked as
     'the refund row still carries no payee or merchant identity');
   ok(s.spend && !('bankDescription' in s.spend), 'a spend row carries no bank description');
   ok(s.income && !('bankDescription' in s.income), 'an income row carries no bank description');
-  ok(s.recon.some(t => t.amount === -25 && t.bankDescription === DESC), 'Forecast passes it to the refund recon row only',
-    JSON.stringify(s.recon.map(t => [t.amount, t.bankDescription || null])));
-  ok(s.recon.filter(t => t.bankDescription).length === 1, 'no other recon row gains one');
-}
+  const stack = await loadRefundPeriod(s.r.data);
+  const recon = stack.category('restaurants').recon;
+  const html = assertRefundCategory(stack, 'restaurants', {
+    spent: 35, headline: '$35', transactions: [['', '−$25'], ['Invented diner', '$60']],
+  });
+  ok(!html.includes(DESC), 'the linked bank description stays out of the sheet');
+  ok(recon.some(t => t.amount === -25 && t.bankDescription === DESC), 'Forecast passes it to the refund recon row only',
+    JSON.stringify(recon.map(t => [t.amount, t.bankDescription || null])));
+  ok(recon.filter(t => t.bankDescription).length === 1, 'no other recon row gains one');
+});
 
-console.log('Only a category refund keeps it: other credits never carry the bank text');
-{
+test('Only a category refund keeps it: other credits never carry the bank text', () => {
   // An uncategorised deposit (an e-transfer from a person, say) and a credit in a non-budget category are
   // classified as refunds but are not a named category's refund: their bank text must never be published.
   const s = run({ payee: '', original_name: DESC }, [
@@ -103,28 +64,26 @@ console.log('Only a category refund keeps it: other credits never carry the bank
   ok(!blob.includes('INVENTED PERSON E-TRANSFER') && !blob.includes('INVENTED GIFT CREDIT'),
     'neither bank text appears anywhere in the packet');
   ok(s.refund && s.refund.bankDescription === DESC, 'positive control: the category refund still carries it');
-}
+});
 
-console.log('No bank description: Merchant unavailable, never the category');
-{
+test('A blank bank description leaves the refund name empty', async () => {
   const s = run({ payee: '', original_name: '   ' });
   ok(s.refund && !('bankDescription' in s.refund), 'a blank description is not kept');
-  const names = payees(s.html);
-  ok(names.includes('Merchant unavailable') && !names.includes('Restaurants') && !names.some(n => /Bank description/.test(n)),
-    'the refund reads Merchant unavailable', JSON.stringify(names));
-}
+  const stack = await loadRefundPeriod(s.r.data);
+  assertRefundCategory(stack, 'restaurants', {
+    spent: 35, headline: '$35', transactions: [['', '−$25'], ['Invented diner', '$60']],
+  });
+});
 
-console.log('Bounded: control characters stripped, 60-character cap');
-{
+test('Bounded: control characters stripped, 60-character cap', () => {
   const s = run({ payee: '', original_name: 'INVENTED\u0007 REFUND\n' + 'X'.repeat(80) });
   const text = s.refund && s.refund.bankDescription;
   ok(typeof text === 'string' && !/[\u0000-\u001f\u007f]/.test(text), 'no control characters', JSON.stringify(text));
   ok(typeof text === 'string' && Array.from(text).length === 60 && text.endsWith('…'), 'capped at 60 with an ellipsis',
     String(text && Array.from(text).length));
-}
+});
 
-console.log('The bank description stays on the Budget page only');
-{
+test('The assistant packet and the figures snapshot exclude bank descriptions', () => {
   const s = run({ payee: '', original_name: DESC });
   const Assistant = require('../scripts/assistant-packet.js');
   let packet = null, error = null;
@@ -138,10 +97,9 @@ console.log('The bank description stays on the Budget page only');
   ok(snap && !snapError, 'positive control: the figures snapshot builds from the same served data', snapError && snapError.message);
   const snapBlob = JSON.stringify(snap || {});
   ok(!/bankDescription/.test(snapBlob) && !snapBlob.includes(DESC), 'the figures snapshot carries no bank description');
-}
+});
 
-console.log('The sanitizer still rejects a bank description on any other row');
-{
+test('The sanitizer still rejects a bank description on any other row', () => {
   const s = run({ payee: '', original_name: DESC });
   ok(O.currentPeriodActualsLooksSanitized(s.r.packet), 'positive control: the observed packet is sanitized');
   const spendWith = { ...s.spend, bankDescription: 'INVENTED SHOP' };
@@ -150,10 +108,4 @@ console.log('The sanitizer still rejects a bank description on any other row');
   ok(!O.transactionLooksSanitized({ ...s.refund, bankDescription: 'X'.repeat(61) }), 'an over-long description is unsanitized');
   ok(!O.transactionLooksSanitized({ ...s.refund, bankDescription: 'A\u0007B' }), 'a control character is unsanitized');
   ok(!O.transactionLooksSanitized({ ...s.refund, bankDescription: 42 }), 'a non-string is unsanitized');
-}
-
-if (failures) {
-  console.log(`\n${failures} failure(s)`);
-  process.exit(1);
-}
-console.log('\nAll refund bank description checks passed.');
+});
