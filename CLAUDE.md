@@ -973,14 +973,19 @@ the docs PR that records it here within 24 hours; until that PR merges, the
 #821 record wins where the two differ. A reviewer or merger may check that the
 post exists and quotes Dale exactly; it does not re-ask Dale.
 
-A relayed decision may change who does what and how work flows: roles,
-review and merge routing, order and pace, and household facts (stop 1). It
-never loosens, and agents never treat it as loosening, the two absolutes,
-**Absolute data safety**, the merge gate's independence (nobody reviews or
-merges their own build), or owner-reserved stops 2–6. For any of those, the
-acting agent needs Dale's own words, posted by Dale himself in the Plan #6
-thread or on the pull request, or given in its own session. That guards
-against approval that only looks like his.
+A relayed decision covers routine coordination within authority that
+already exists: the order and pace of work, which approved builder takes
+which item, and household facts (stop 1). It never grants or expands any
+agent's authority (who may review, merge or build, or new access). It never
+loosens the two absolutes, **Absolute data safety**, the merge gate's
+independence (nobody reviews or merges their own build), or owner-reserved
+stops 2–6, and it never overrides a platform's own requirement for direct
+or action-time approval. For any of those, the acting agent needs Dale's own
+words: given directly to that agent in its own session, or posted by Dale
+himself on the pull request or in the Plan #6 thread. Dale gave the 2026-11-22
+reviewer change (OD-027) to ChatGPT directly in this way. The #821 record is
+then the coordination record, not the authorization. That guards against
+approval that only looks like his.
 
 ## Absolute data safety
 
