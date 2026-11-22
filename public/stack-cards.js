@@ -44,6 +44,8 @@
   // B5: the shell's one rule (StackBlocks.isEstimated): a figure is soft when its published trust is estimated, or
   // when the selected pay period is projected (estView, set for the duration of one build).
   var estView = null;
+  // The ctx of the build in progress (set for the duration of one build), so a bill row can ask its sheet what it shows.
+  var buildCtx = null;
   function isEst() {
     var sb = root.StackBlocks;
     if (!sb || typeof sb.isEstimated !== 'function') return false;
@@ -127,6 +129,14 @@
   // the item, the amount Forecast counted, and the check only for a confirmed payment, a posted payment exactly the
   // amount shown (stackBillPaymentEvidence 'posted-equal'). A pending, differing or unmatched payment shows no check and
   // the amount is named as the plan ("Planned $X"), or, for a differing posted payment, "$X, payment not confirmed". No status word is visible. An unpublished amount is a dash, never a zero.
+  // True when the row's tap-in sheet headline prints this row's amount and draws it soft: the sheet carries its estimate.
+  function sheetMarks(r, target) {
+    var sheet = root.StackSheet, sb = root.StackBlocks;
+    if (!target || !buildCtx || !sheet || typeof sheet.billHeadline !== 'function' || !sb || typeof sb.isEstimated !== 'function') return false;
+    var h = sheet.billHeadline(buildCtx, r);
+    return !!h && isNum(h.amount) && isNum(r.stackBillAmount) && Math.round(h.amount * 100) === Math.round(r.stackBillAmount * 100)
+      && sb.isEstimated(h.trust, estView);
+  }
   function stateRow(label, r, target) {
     var amountText = money(r.stackBillAmount);
     var evidence = r.stackBillPaymentEvidence;
@@ -137,10 +147,12 @@
     // rule), so it is named from what it is, never "Planned".
     var name = amountText == null ? null : exact ? 'Paid ' + amountText
       : evidence === 'posted-differs' ? amountText + ', payment not confirmed' : 'Planned ' + amountText;
-    // A row's estimate is marked in its tap-in sheet, so the card prints it plain (owner decision, Dale, 2026-11-22). A row
-    // with no sheet (no id or date to name it) has nowhere else to show its trust, so it keeps the soft look here (lead
-    // ruling on pre-review 7075040773: every figure stays tagged).
-    var soft = !target && amountText != null && isEst(r.stackBillAmountTrust);
+    // A row's estimate is marked in its tap-in sheet, so the card prints it plain (owner decision, Dale, 2026-11-22), but
+    // only when that sheet actually shows this same amount with its estimate marking (StackSheet.billHeadline, the
+    // sheet's own rule). A row with no sheet, a sheet whose headline is a dash (no or a mismatched history entry, an
+    // unpublished amount) or a different amount keeps the soft look here: its only place (lead rulings on pre-review
+    // 7075040773 and Atlas 7075134982: every figure stays tagged).
+    var soft = amountText != null && isEst(r.stackBillAmountTrust) && !sheetMarks(r, target);
     return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span class="sc-n">' + esc(label) + '</span>' +
       '<span class="sc-a' + estCls(soft) + '"' + (name ? ' aria-label="' + esc(name) + '"' : '') + '>' + (amountText == null ? DASH : esc(amountText)) + '</span>' +
       '<span class="sc-ck">' + (exact ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span>' + (target ? RCV : '') + '</li>';
@@ -223,10 +235,12 @@
     var view = selectView(ctx);
     if (!view) return '';
     estView = view;
+    buildCtx = ctx;
     try {
       return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + savingsCard(view) + '</div>';
     } finally {
       estView = null;
+      buildCtx = null;
     }
   }
 

@@ -269,20 +269,33 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
     eb.bills.forEach(b => { if (b.stackBillAmount != null) b.stackBillAmountTrust = 'estimated'; });
     const bc = buildCardsHTML(ctx(eb)).split('data-stack-card="bills"')[1].split('</details>')[0];
     const br = rowsOfBills(bc);
-    assert(br.length > 0 && br.every(r => !/stack-est/.test(r)), 'estimated bill row amounts are not greyed on the card');
+    // This harness loads no sheet module, so no row's sheet can be shown to carry its estimate: every estimated row
+    // keeps its soft look (the safe default). The plain row with a marking sheet is proved in test-stack-trust, which
+    // loads the real sheet (StackSheet.billHeadline).
+    assert(br.length > 0 && br.every(r => /class="sc-a stack-est"/.test(r)), 'with no sheet module, estimated bill rows stay soft on the card');
     assert(/class="sc-f stack-est"/.test(bc), 'an estimated paid keeps the head soft');
     const pb = JSON.parse(JSON.stringify(view)); pb.evidenceState = 'projected';
     const pc = buildCardsHTML(ctx(pb)).split('data-stack-card="bills"')[1].split('</details>')[0];
-    assert(rowsOfBills(pc).every(r => !/stack-est/.test(r)) && /class="sc-f stack-est"/.test(pc),
-      'a projected period: rows print plain, the head (a projected total) stays soft');
+    assert(/class="sc-f stack-est"/.test(pc), 'a projected period: the head (a projected total) stays soft');
     // A row with no sheet target (no date to name it) keeps its trust on the card: its only place.
     const nt = JSON.parse(JSON.stringify(view));
     nt.bills[1].stackBillAmountTrust = 'estimated'; delete nt.bills[1].date;
     nt.bills[0].stackBillAmountTrust = 'estimated';
     const ntRows = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
-    const noTarget = ntRows.filter(r => !/data-stack-sheet=/.test(r)), withTarget = ntRows.filter(r => /data-stack-sheet=/.test(r));
+    const noTarget = ntRows.filter(r => !/data-stack-sheet=/.test(r));
     assert(noTarget.length === 1 && /class="sc-a stack-est"/.test(noTarget[0]), 'an estimated row with no sheet stays soft on the card');
-    assert(withTarget.length > 0 && withTarget.every(r => !/stack-est/.test(r)), 'an estimated row with a sheet prints plain');
+    // With a sheet module present, the card asks it: a row is plain only when its sheet shows this amount marked.
+    {
+      const seen = [];
+      STUB.isEstimated = shell.isEstimated;
+      globalThis.StackSheet = { billHeadline: (c, row) => { seen.push(row.id); return row.id === 'phone' ? { amount: 222.22, trust: 'estimated' } : { amount: null, trust: null }; } };
+      try {
+        const sr = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
+        const byId = id => sr.find(r => r.includes('bill:' + id + '@')) || '';
+        assert(/class="sc-a stack-est"/.test(byId('hydro')), 'a sheet whose headline is a dash: the row stays soft');
+        assert(seen.includes('hydro'), 'the card asked the sheet');
+      } finally { delete globalThis.StackSheet; }
+    }
     const calc = buildCardsHTML(ctx(view)).split('data-stack-card="bills"')[1].split('</details>')[0];
     assert(!/stack-est/.test(calc), 'a calculated Bills card carries no soft class at all');
   }
