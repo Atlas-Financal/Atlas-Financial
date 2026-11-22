@@ -127,14 +127,22 @@
       const seen = new Set();
       const postingIssues = [];
       let total = 0;
-      // Forecast flags a pending/posted pair on both rows. On a spend card the pair is accounted for, never missing evidence,
-      // only when its flagged posted rows and its flagged replaced pending rows pair one for one; a lone flag still withholds.
-      const replacedPending = tx => tx.pending === true && typeof primitives.replacedPending === 'function' && primitives.replacedPending(tx) === true;
-      const ownDated = rows.filter(tx => tx && (tx.atlasAccountId || tx.account) === id && date(tx.date) && tx.date >= start
-        && through && tx.date <= through && tx.pendingPostedDuplicate === true && tx.pendingPostedAmbiguous !== true);
-      const pairsAccounted = id !== 'heloc' && typeof primitives.replacedPending === 'function'
-        && ownDated.filter(tx => tx.pending !== true).length === ownDated.filter(replacedPending).length
-        && ownDated.every(tx => tx.pending !== true || replacedPending(tx));
+      const replacedPending = tx => tx && tx.pending === true && typeof primitives.replacedPending === 'function' && primitives.replacedPending(tx) === true;
+      // The Stack's pending-inclusive Spent / Paid (stackCards) only: a flagged row whose partner, by Forecast's own pairing
+      // (pendingPostedPartner, the rows it matched one for one), is on this card, on the other side, with the pending side
+      // replaced, is that pair accounted for. Each such row's flag is counted here; the posted movement and the endpoint
+      // reconciliation keep every flag as before. Anything else fails closed.
+      const ownById = new Map(rows.filter(tx => tx && tx.id != null && (tx.atlasAccountId || tx.account) === id
+        && tx.accountRole === 'revolving-credit').map(tx => [String(tx.id), tx]));
+      const pairAccounted = tx => {
+        if (id === 'heloc' || typeof primitives.pendingPostedPartner !== 'function') return false;
+        const partnerId = primitives.pendingPostedPartner(tx);
+        const partner = partnerId == null ? null : ownById.get(String(partnerId));
+        if (!partner || (partner.pending === true) === (tx.pending === true) || partner.pendingPostedAmbiguous === true
+          || partner.contradictoryEvidence === true || String(primitives.pendingPostedPartner(partner)) !== String(tx.id)) return false;
+        return replacedPending(tx.pending === true ? tx : partner);
+      };
+      let pairRelief = 0;
       for (const tx of rows) {
         if (!tx || (tx.atlasAccountId || tx.account) !== id
           || tx.accountRole !== (id === 'heloc' ? 'heloc' : 'revolving-credit')) continue;
@@ -142,13 +150,15 @@
         if (tx.date < start || tx.date > through) continue;
         // A pending row Forecast's one pending/posted pairing calls replaced by its posted twin (the household budget's rule,
         // `replacedPending`) is that same charge: it is never counted, and its posted twin counts once (Dale, 2026-11-22: "when
-        // the actual charge comes in, I don't want to have that doubled up"). On a spend card that pairing is not missing
-        // evidence, so the flag alone no longer withholds; an ambiguous pair or contradictory evidence still does, and the
-        // HELOC keeps the earlier rule (pairsAccounted, above).
+        // the actual charge comes in, I don't want to have that doubled up"). Every flag still withholds the posted movement
+        // and the endpoint reconciliation, exactly as before; a pair Forecast itself matched is relieved for the Stack's
+        // Spent / Paid only (pairRelief, below).
         const replaced = replacedPending(tx);
-        if (tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true
-          || tx.pendingPostedDuplicate === true && !pairsAccounted)
+        if (tx.pendingPostedAmbiguous === true || tx.pendingPostedDuplicate === true || tx.contradictoryEvidence === true) {
           issues.push('transaction-evidence-unconfirmed');
+          if (tx.pendingPostedDuplicate === true && tx.pendingPostedAmbiguous !== true && tx.contradictoryEvidence !== true
+            && pairAccounted(tx)) pairRelief += 1;
+        }
         if (tx.isGroup === true) {
           if (skipParent(tx, packet)) continue;
           issues.push('parent-coverage-unqualified');
@@ -249,6 +259,18 @@
             gaps.push('transaction-identity-unqualified');
           refs.add(tx.coverageRef);
         }
+        // The Stack's own gate: the posted movement's gaps less exactly the flags of pairs Forecast matched (each such flag
+        // pushed one 'transaction-evidence-unconfirmed' above). Published only when a pair was relieved, so every other card
+        // is unchanged; stackCards reads it in place of the posted movement's verdict.
+        if (pairRelief > 0) {
+          const stackGaps = gaps.slice();
+          for (let n = 0; n < pairRelief; n++) {
+            const at = stackGaps.indexOf('transaction-evidence-unconfirmed');
+            if (at < 0) { stackGaps.push('transaction-evidence-unconfirmed'); break; }
+            stackGaps.splice(at, 1);
+          }
+          card.stackPendingGaps = [...new Set(stackGaps)];
+        }
         card.postedMovement = gaps.length ? { amount: null, magnitude: null, direction: null,
           trust: 'unavailable', completeness: 'unavailable', reasons: [...new Set(gaps)] }
           : { amount: total / 100, magnitude: Math.abs(total) / 100,
@@ -318,7 +340,9 @@
         amount: row.amount, kind: row.kind, payment: row.kind === 'payment', pending: row.pending }))
         .sort((a, b) => a.date.localeCompare(b.date) || (a.pending === b.pending ? 0 : a.pending ? 1 : -1));
       const movement = card.postedMovement;
-      const gaps = movement && movement.trust === 'calculated' && movement.completeness === 'complete'
+      // A card whose only withheld evidence is a pending/posted pair Forecast matched reads the Stack's own gate (publish).
+      const gaps = Array.isArray(card.stackPendingGaps) ? card.stackPendingGaps
+        : movement && movement.trust === 'calculated' && movement.completeness === 'complete'
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
       let paidCents = 0, spentCents = 0;
       const paidReasons = [], spentReasons = [];

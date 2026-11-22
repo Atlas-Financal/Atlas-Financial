@@ -132,6 +132,16 @@ console.log('4. A posted amount that differs from its pending is not paired, so 
     'pending 40 and posted 48 (a tip): the pairing does not match them, so Spent counts 207.40 + 40 + 48 = 295.40, estimated', JSON.stringify(t.spent));
 }
 
+console.log('4b. A pending row its posting names as a distinct authorization is a separate charge (the household budget\'s exception)');
+{
+  // Same date, account, amount and merchant, but the posted row names the pending one as a different authorization
+  // (distinctPendingId): two purchases. By hand: 207.40 + 48.50 (posted) + 48.50 (pending) = 304.40, estimated. The
+  // household budget counts the same pending row as an estimate (test-pending-lookalike).
+  const t = travel(world([row('d-pend', 48.5, { pending: true }), row('d-post', 48.5, { distinctPendingId: 'd-pend' })]));
+  ok(cents(t.spent.amount) === cents(BASE_SPENT + 97) && t.spent.trust === 'estimated',
+    'a distinct authorization counts beside its lookalike posting: Spent 304.40, estimated', JSON.stringify(t.spent));
+}
+
 console.log('5. A lone flag or an ambiguous pair still withholds');
 {
   const lone = travel(world([row('lone', 20, { pendingPostedDuplicate: true })]));
@@ -153,6 +163,42 @@ console.log('6. A pending payment counts in Paid; the posted movement and the HE
   ok(!F.stackCardSummary(pub).some(c => c.id === 'heloc'), 'the HELOC is not a stack card');
   const helocLine = F.stackCreditLines(pub, { cardMinimums: [{ debtId: 'heloc', amount: 50 }], trust: 'calculated' }).lines.find(l => l.id === 'heloc');
   ok(helocLine && helocLine.paidToward && helocLine.paidToward.trust !== 'calculated', 'the HELOC line keeps its own paid rule');
+}
+
+console.log('7. The posted-only contract is untouched: a flagged pair still withholds the posted movement and the endpoint check');
+{
+  // A genuine pair (pending and posted, same date, card, amount and merchant, flagged by the provider and paired by
+  // Forecast) on a week with complete balance endpoints. By hand: the posted rows move the liability 107.40 + 48.50 =
+  // 155.90, so the closing is 820.00 + 155.90 = 975.90. Main withholds both posted outputs for any flag; so must this.
+  const prev = require('./fixtures/card-period-movements-data');
+  const withEndpoints = rows => { const x = world(rows); x.balanceEvidence = prev.fixture().balanceEvidence;
+    x.balanceEvidence.cards.find(c => c.id === 'travelvisa').closing.amount = 975.90; return x; };
+  const flagged = withEndpoints([row('x-pend', 48.5, { pending: true, pendingPostedDuplicate: true }), row('x-post', 48.5, { pendingPostedDuplicate: true })]);
+  const pubCard = publish(flagged).cards.find(c => c.id === 'travelvisa');
+  ok(pubCard.postedMovement.amount === null && pubCard.postedMovement.trust === 'unavailable'
+    && pubCard.postedMovement.reasons.includes('transaction-evidence-unconfirmed'),
+    'flagged pair: the posted movement is withheld with transaction-evidence-unconfirmed, as on main', JSON.stringify(pubCard.postedMovement));
+  ok(pubCard.netChange.amount === null && pubCard.status === 'unavailable' && pubCard.reasons.includes('transaction-evidence-unconfirmed'),
+    'flagged pair: the endpoint netChange is withheld, as on main', JSON.stringify([pubCard.netChange, pubCard.status]));
+  const t = travel(flagged);
+  ok(cents(t.spent.amount) === cents(BASE_SPENT + 48.5) && t.spent.trust === 'calculated',
+    'while the Stack Spent counts the posted twin once: 255.90 (the replaced pending adds nothing, so it stays calculated)', JSON.stringify(t.spent));
+  // Control: the same pair with no provider flags (Forecast's key pairing only) withholds nothing: the endpoints reconcile.
+  const control = publish(withEndpoints([row('x-pend', 48.5, { pending: true }), row('x-post', 48.5)])).cards.find(c => c.id === 'travelvisa');
+  ok(cents(control.postedMovement.amount) === 15590 && control.netChange.amount === 155.9 && control.status === 'ready',
+    'control: unflagged, the posted movement is 155.90 and the endpoints reconcile (820.00 -> 975.90)', JSON.stringify([control.postedMovement.amount, control.netChange]));
+}
+
+console.log('8. Relief only for rows Forecast actually paired; anything else fails closed');
+{
+  // Flagged by the provider, but Forecast's pairing does not match them (the amounts differ): no partner, so withheld,
+  // even though the card has one flagged posted row and one flagged pending row.
+  const t = travel(world([row('u-pend', 40, { pending: true, pendingPostedDuplicate: true }), row('u-post', 48, { pendingPostedDuplicate: true })]));
+  ok(t.spent.amount === null && t.spent.trust === 'unavailable', 'flags Forecast did not pair: withheld (one-for-one counts are not proof)', JSON.stringify(t.spent));
+  // A flagged posted row beside an unrelated flagged pending on another merchant: also withheld.
+  const cross = travel(world([row('c-pend', 20, { pending: true, pendingPostedDuplicate: true, payee: 'Example kiosk' }),
+    row('c-post', 20, { pendingPostedDuplicate: true, payee: 'Example diner' })]));
+  ok(cross.spent.amount === null, 'flagged rows on different merchants: withheld', JSON.stringify(cross.spent));
 }
 
 console.log(`\nPASS Stack card Spent counts pending, never twice (${checks})`);
