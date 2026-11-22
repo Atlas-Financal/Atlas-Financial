@@ -552,6 +552,11 @@ const BAD_TERM_KEYS = ['periodIncome', 'assignedBills', 'householdBudgetHold',
 const SURPLUS_TERM_KEYS = ['income', 'bills', 'household', 'mortgage', 'credit', 'savingsItemSpending'];
 const BILLS_ENDING_TERM_KEYS = ['observedCash', 'futureIncome', 'remainingBills', 'householdRemaining',
   'otherOutflows', 'additionalCardCash'];
+// Lead ruling on PR 2: these rows are new packet paths, so they publish at
+// most 'estimated' (the stop-2 guard's ceiling for a new path), never more
+// certain than Forecast tags them. A calculated Forecast figure therefore
+// reads estimated here; an estimated one stays estimated.
+const capNewPathTrust = trust => (trust === 'calculated' ? 'estimated' : trust);
 const cents = value => Math.round(Number(value) * 100);
 // The identity each published total satisfies: sum of signed terms (absent = 0).
 const reproduces = (amount, terms, plus, minus) => cents(amount) === plus.reduce((s, k) => s + cents(terms[k] || 0), 0)
@@ -584,7 +589,7 @@ function periodBalanceAfterDeductions(view) {
       || !reproduces(amount, copied, ['periodIncome'], BAD_TERM_KEYS.slice(1))) {
     return unavailable('balance-after-deductions-terms-unavailable');
   }
-  return { status: 'ok', identity: 'balance-after-deductions', trust, amount, terms: copied };
+  return { status: 'ok', identity: 'balance-after-deductions', trust: capNewPathTrust(trust), amount, terms: copied };
 }
 
 function periodStackSurplus(view) {
@@ -600,7 +605,7 @@ function periodStackSurplus(view) {
       || !reproduces(amount, copied, ['income'], SURPLUS_TERM_KEYS.slice(1))) {
     return unavailable('stack-surplus-terms-unavailable');
   }
-  return { status: 'ok', identity: 'stack-surplus', trust, amount, terms: copied };
+  return { status: 'ok', identity: 'stack-surplus', trust: capNewPathTrust(trust), amount, terms: copied };
 }
 
 function periodBillsEndingBalance(view) {
@@ -624,7 +629,7 @@ function periodBillsEndingBalance(view) {
     return unavailable('bills-ending-balance-terms-unavailable');
   }
   return { status: 'ok', identity: 'bills-ending-balance', source: 'Forecast.billsAccountPeriodBalance',
-    trust, amount, terms };
+    trust: capNewPathTrust(trust), amount, terms };
 }
 
 function projectPayPeriodTotals(advice) {
@@ -648,17 +653,16 @@ function projectPayPeriodTotals(advice) {
   return { status: 'ok', source: 'Forecast.payPeriodViews', periods };
 }
 
-// Under a card coverage estimate every graded figure in the pay-period totals
-// reads estimated, as tagCardEstimate does for a whole section.
+// Under a card coverage estimate (lead ruling on PR 2): the Bills ending
+// balance is withheld with the estimate disclosure, because its deduction
+// terms can exceed the confirmed figure; Balance After Deductions and the
+// Stack surplus stay, already at most estimated.
 function tagPayPeriodTotalsEstimate(section, estimate) {
   if (!section || section.status !== 'ok') return section;
-  const tag = figure => (figure && figure.status === 'ok' && figure.trust === 'calculated'
-    ? { ...figure, trust: 'estimated' } : figure);
-  return { ...section, cardCoverageEstimate: estimate, periods: section.periods.map(period => ({
+  return { ...section, trust: 'estimated', cardCoverageEstimate: estimate, periods: section.periods.map(period => ({
     ...period,
-    balanceAfterDeductions: tag(period.balanceAfterDeductions),
-    stackSurplus: tag(period.stackSurplus),
-    billsEndingBalance: tag(period.billsEndingBalance),
+    billsEndingBalance: period.billsEndingBalance && period.billsEndingBalance.status === 'ok'
+      ? withheldForCardEstimate('Forecast.billsAccountPeriodBalance', estimate) : period.billsEndingBalance,
   })) };
 }
 
