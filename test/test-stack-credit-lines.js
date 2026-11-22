@@ -281,16 +281,16 @@ console.log('11. Trust is judged on the published snapshot date, never a separat
     'a snapshot with no Forecast verdict reads estimated, never calculated', JSON.stringify(n));
 }
 
-console.log('7. minimums due: over the spend cards the paid total is over (the HELOC is out), and covered over due');
+console.log('7. minimums due: over every listed credit line, the HELOC included (one membership for Credit, ATLAS LEAD 12, 2026-11-22), and covered over due');
 {
   const x = fx.fixture();
   const t = totals(x);
   // Travel 25 (covered) and Cash Back 300 (not covered) have a minimum due; Emerald, Triangle and Amazon Mastercard have none
-  // in the split (no-minimum-due-in-period); the HELOC's 50 is in the waterfall's Credit line, not here.
-  ok(t.minimumsDue.amount === 325 && t.minimumsDue.trust === 'calculated' && same(t.minimumsDue.reasons, []),
-    'minimumsDue is 325 (25 + 300): the spend cards\' published minimums, the HELOC\'s 50 left out', JSON.stringify(t.minimumsDue));
-  ok(t.minimumsDueCount === 2 && t.minimumsCoveredCount === 1 && t.minimumsCoveredTrust === 'estimated',
-    'two minimums are due and one is covered (Travel), so a covered / due bar is not full', JSON.stringify([t.minimumsDueCount, t.minimumsCoveredCount]));
+  // in the split (no-minimum-due-in-period); the HELOC's 50 is due too, the same rows the waterfall's Credit line sums.
+  ok(t.minimumsDue.amount === 375 && t.minimumsDue.trust === 'calculated' && same(t.minimumsDue.reasons, []),
+    'minimumsDue is 375 (25 + 300 + 50): every listed line\'s published minimum, the HELOC\'s included', JSON.stringify(t.minimumsDue));
+  ok(t.minimumsDueCount === 3 && t.minimumsCoveredCount === 1 && t.minimumsCoveredTrust === 'estimated',
+    'three minimums are due and one is covered (Travel; a HELOC\'s coverage is not published, so it never counts covered)', JSON.stringify([t.minimumsDueCount, t.minimumsCoveredCount]));
   const allCovered = totals(x, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: 'calculated' });
   ok(allCovered.minimumsDue.amount === 25 && allCovered.minimumsDueCount === 1 && allCovered.minimumsCoveredCount === 1,
     'one due minimum, covered: covered equals due (the only case a bar is full)');
@@ -298,8 +298,8 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
   ok(untracked.minimumsDue.amount === 425 && untracked.minimumsDueCount === 2 && untracked.minimumsCoveredCount === 1,
     'a card with a minimum due but no paid / spent evidence (unknown coverage) counts as due and not covered');
   const none = totals(x, { cardMinimums: [{ debtId: 'heloc', amount: 50 }], trust: 'calculated' });
-  ok(none.minimumsDue.amount === 0 && none.minimumsDueCount === 0 && none.minimumsCoveredCount === 0,
-    'only the HELOC has a minimum: none due on the spend cards (a published 0, 0 of 0)');
+  ok(none.minimumsDue.amount === 50 && none.minimumsDueCount === 1 && none.minimumsCoveredCount === 0,
+    'only the HELOC has a minimum: its 50 is due, and it never counts covered', JSON.stringify([none.minimumsDue.amount, none.minimumsDueCount, none.minimumsCoveredCount]));
   for (const [label, bills] of [['a withheld bills split', null], ['an unqualified minimum amount', { cardMinimums: [{ debtId: 'travelvisa', amount: 'x' }], trust: 'calculated' }]]) {
     const w = totals(x, bills);
     ok(w.minimumsDue.amount === null && w.minimumsDue.trust === 'unavailable' && w.minimumsDue.reasons.length > 0
@@ -320,8 +320,8 @@ console.log('7. minimums due: over the spend cards the paid total is over (the H
     ok(line(x, 'travelvisa', { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: word }).minimumCovered.trust === 'unavailable',
       'the covered check\'s trust is \'unavailable\' for a split trusted as \'' + word + '\' (an unrecognised word is the weakest, not dropped)');
   }
-  // membership: the paid total and the minimums due are over the same cards (the spend cards), never the HELOC
-  ok(!JSON.stringify(t.excluded).includes('heloc') && t.minimumsDue.amount !== 375, 'the HELOC is in neither total');
+  // membership: the minimums due span every listed line (the HELOC included); the HELOC is never listed as excluded
+  ok(!JSON.stringify(t.excluded).includes('heloc') && t.minimumsDue.amount === 375, 'the HELOC is in the minimums due and never listed as excluded');
 }
 
 console.log('12. minimums paid: the paid side of the Credit head, over exactly the cards whose minimums are due (Dale, 2026-11-20)');
@@ -336,8 +336,8 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   // By hand, on the invented card week: Travel paid 100 and Cash Back paid 250 (both payments unreconciled, so estimated), the Emerald
   // card (id tdcc) paid 0 on a calculated, empty week; Triangle and Amazon are manual cards with no card ledger (paid unavailable).
   const both = mp(split);
-  ok(both.amount === 350 && both.trust === 'estimated' && same(both.reasons, []),
-    'Travel (25 due) and Cash Back (300 due), both observed: 100 + 250 = 350 paid toward them, estimated because the payments are unreconciled', JSON.stringify(both));
+  ok(both.amount === 350 && both.trust === 'estimated' && same(both.reasons, ['paid-unavailable-counted-as-zero', 'heloc-not-observed']),
+    'Travel (25 due), Cash Back (300 due) and the HELOC (50 due): 100 + 250 + an unseen HELOC counted 0 = 350, estimated', JSON.stringify(both));
   ok(mp(due([{ debtId: 'travelvisa', amount: 25 }])).amount === 100,
     'an overpaid card counts its full paid, uncapped: Travel paid 100 against a 25 minimum reads 100, like its own row');
   const nothing = mp(due([{ debtId: 'tdcc', amount: 40 }]));
@@ -378,8 +378,9 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
     && pastMp.reasons[0] === 'paid-unavailable' && pastMp.reasons.includes('posted-coverage-incomplete'),
   'a past period with no posted coverage: withheld with posted-coverage-incomplete, never $0 (a $0 there could hide a real payment)', JSON.stringify(pastMp));
   const helocOnly = mp(due([{ debtId: 'heloc', amount: 50 }]));
-  ok(helocOnly.amount === 0 && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 0,
-    'the HELOC is in neither side: only its minimum is due, so 0 over 0');
+  ok(helocOnly.amount === 0 && helocOnly.trust === 'estimated' && same(helocOnly.reasons, ['paid-unavailable-counted-as-zero', 'heloc-not-observed'])
+    && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 50,
+    'only the HELOC due (no HELOC publication card): its 50 is due, and its paid side is an estimated $0 with its reason, never more certain', JSON.stringify(helocOnly));
   const zeroMin = mp(due([{ debtId: 'tdcc', amount: 40 }, { debtId: 'triangle', amount: 0 }]));
   ok(zeroMin.amount === 0 && zeroMin.trust === 'calculated', 'a card with a $0 minimum is not due, so it does not soften the figure', JSON.stringify(zeroMin));
   const off = mp(null);
@@ -463,16 +464,18 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   const past = helocWorld([]); past.window = F.spendingCycle(past.plan, '2026-07-20');
   ok(toward(future, 'heloc').amount === 0 && toward(past, 'heloc').amount === null && toward(past, 'heloc').reasons.includes('not-current-period'),
     'HELOC: an upcoming period reads $0; a past period is missing history and is withheld');
-  // The head is the sum of the due spend cards' paidToward, so the rows always add up to it (the HELOC is in the rows, not the head).
+  // The head is the sum of every due line's paidToward, the HELOC's included (one membership for Credit), so the rows always add up to it.
   const worlds = [['current', x], ['failed sync', failed], ['HELOC paid', helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])], ['past', past], ['upcoming', future]];
   const bills = { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }, { debtId: 'triangle', amount: 400 }, { debtId: 'heloc', amount: 50 }], trust: 'calculated' };
   for (const [label, w] of worlds) {
     const r = F.stackCreditLines(publish(w), bills);
-    const dueRows = r.lines.filter(l => l.id !== 'heloc' && l.minimum.amount !== null && l.minimum.amount > 0);
+    const dueRows = r.lines.filter(l => l.minimum.amount !== null && l.minimum.amount > 0);
     const sum = dueRows.every(l => l.paidToward.amount !== null) ? dueRows.reduce((a, l) => a + Math.round(l.paidToward.amount * 100), 0) / 100 : null;
-    ok(r.totals.minimumsPaid.amount === sum, label + ': the head\'s minimumsPaid is the sum of the due spend rows\' paidToward (' + sum + '), HELOC outside', JSON.stringify(r.totals.minimumsPaid));
+    ok(r.totals.minimumsPaid.amount === sum, label + ': the head\'s minimumsPaid is the sum of the due rows\' paidToward (' + sum + '), the HELOC\'s included', JSON.stringify(r.totals.minimumsPaid));
   }
-  ok(!JSON.stringify(F.stackCreditLines(publish(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])), bills).totals).includes('150'), 'a HELOC payment never enters the head (it is a different figure by membership)');
+  const helocPaidWorld = F.stackCreditLines(publish(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])), bills);
+  ok(helocPaidWorld.lines.find(l => l.id === 'heloc').paidToward.amount === 150 && helocPaidWorld.totals.minimumsPaid.trust === 'estimated',
+    'a HELOC payment enters the head with the HELOC\'s minimum (one membership), and the head stays estimated', JSON.stringify(helocPaidWorld.totals.minimumsPaid));
   // MUTANTS
   const Module = require('module'), fs = require('node:fs'), pathMod = require('node:path');
   const file = require.resolve('../public/forecast-card-period.js');
