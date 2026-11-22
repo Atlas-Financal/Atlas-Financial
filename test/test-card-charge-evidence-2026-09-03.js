@@ -196,8 +196,8 @@ console.log('\n=== plan.bills was not extended from this discovery ===');
   const bell = bills.find(b => b.id === 'bell');
   ok(bell && bell.amount === 160 && bell.day === 15 && bell.needsDate !== true
       && bell.firstDue === '2026-10-15'
-      && bell.confidence === 'confirmed' && bell.payingAccount === 'chequing-a',
-    'Bell standing is confirmed $160, dated from BILLS ACCOUNT on the 15th from October');
+      && bell.confidence === 'estimated' && bell.payingAccount === 'chequing-a',
+    'Bell standing is dated from BILLS ACCOUNT on the 15th from October, its amount tagged estimated (a rounded budget figure; 2026-11-22 audit)');
   ok(/\$250/.test(bell.note) && /\$69\.15/.test(bell.note) && /settlement/i.test(bell.note),
     'Bell $250 / $69.15 stay settlement/route evidence on the existing row');
 
