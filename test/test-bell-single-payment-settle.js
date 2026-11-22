@@ -1,20 +1,21 @@
 'use strict';
 /* Owner decision (Dale, Nov 21 2026, 8:47 AM PT): a single posted Bills Bell
- * Mobility payment settles that month's Bell bill. Example: the Nov 18 $137.53
- * payment (Lunch Money recurring item 3722147) settles November's bell. The
- * $160 plan amount is unchanged.
+ * Mobility payment settles that month's Bell bill. Example: the Nov 18 payment
+ * (Lunch Money recurring item 3722147) settles November's bell. The plan amount
+ * is unchanged.
  *
  * Before: the standing chequing-a Bell rule accepted only the same-day two-leg
  * shape (two-leg-sum + sameAccountSplitLegs), and a lone leg was never a
  * settlement, so bell@2026-11-15 stayed due and was carried into Nov 20 – Dec 3
- * at $160. The repair is singleLegSettles on that one rule.
+ * at its plan amount. The repair is singleLegSettles on that one rule.
  *
  * Shapes follow the real Lunch Money row (payee, Chequing A, debit, posting
- * date, recurring_id, amount). Provider transaction ids are synthetic: the
- * repository is public and fixtures carry no real provider ids.
+ * date, recurring_id). Payment amounts are invented, and plan amounts are read
+ * from data.json at run time: the repository is public, so no household amount
+ * is written or printed here. Provider transaction ids are synthetic.
  *
  * Independent proof of the figure: the expected Bills drop is the bell row's own
- * scheduled amount read straight from data.json ($160), not a number the matcher
+ * scheduled amount read straight from data.json, not a number the matcher
  * computes. */
 const fs = require('fs');
 const path = require('path');
@@ -42,7 +43,7 @@ const near = (a, b) => Math.abs(Number(a) - Number(b)) < 0.005;
 
 const BELL_ITEM = 3722147;
 const CHEQUING_A = 1001, CHEQUING_B = 1002;
-const NOV_PAID = 137.53;
+const NOV_PAID = 121.47; // invented
 const bell = (id, date, amount, extra) => Object.assign({
   id, account_id: CHEQUING_A, date, amount, is_pending: false, payee: 'Bell Mobility',
   original_name: 'BELL MOBILITY', currency: 'cad', recurring_id: BELL_ITEM,
@@ -77,17 +78,18 @@ ok(flagged.length === 1 && flagged[0].eventId === 'bell' && flagged[0].atlasAcco
 ok(!identity.rules.some(rule => (rule.lunchMoneyRecurringIds || []).includes(String(BELL_ITEM)) || rule.recurringLinkOf),
   'no rule names Lunch Money item 3722147, so its schedule and amount stay the plan\'s');
 const bellRow = data.plan.bills.find(bill => bill.id === 'bell');
-ok(bellRow && bellRow.amount === 160 && bellRow.day === 15 && bellRow.firstDue === '2026-10-15'
+ok(bellRow && bellRow.amount > 0 && bellRow.day === 15 && bellRow.firstDue === '2026-10-15'
   && bellRow.payingAccount === 'chequing-a' && bellRow.frequency === 'monthly',
-  'the bell plan row is unchanged: $160 monthly on the 15th from 2026-10-15, Bills account');
+  'the bell plan row: monthly on the 15th from 2026-10-15, Bills account');
 
 console.log('\n=== the Nov 18 single Bills payment settles November\'s bell ===');
 const report = observe([NOV18]);
 ok(J(bellKeys(report)) === J(['bell@2026-11-15<-9401']),
-  'the Nov 18 $137.53 Bills payment (recurring 3722147) settles bell@2026-11-15, and only that', J(bellKeys(report)));
+  'the Nov 18 Bills payment (recurring 3722147) settles bell@2026-11-15, and only that', J(bellKeys(report)));
 const hit = (report.representedEventCandidates || []).find(c => c.id === 'bell');
 ok(hit && near(hit.observedAmount, NOV_PAID) && hit.atlasAccountId === 'chequing-a' && hit.direction === 'debit'
-  && hit.postingDate === '2026-11-18', 'the settlement records the observed $137.53 debit on Chequing A', J(hit));
+  && hit.postingDate === '2026-11-18', 'the settlement records the observed debit on Chequing A',
+  J(hit && [hit.id, hit.atlasAccountId, hit.direction, hit.postingDate]));
 ok(!(report.ambiguousRepresentedEvents || []).some(g => /^bell/.test(String(g.id || ''))), 'no Bell occurrence is left ambiguous');
 ok(J(bellKeys(observe([bell(9401, '2026-11-18', NOV_PAID, { recurring_id: null })]))) === J(['bell@2026-11-15<-9401']),
   'the same payment without a recurring link settles the same occurrence (payee identity)');
@@ -105,20 +107,20 @@ ok(bellKeys(observe([bell(9405, '2026-11-18', NOV_PAID, { is_pending: true })]))
   'a pending Bell payment does not settle');
 ok(bellKeys(observe([bell(9406, '2026-11-18', -NOV_PAID)])).length === 0,
   'a Bell credit (refund) does not settle');
-ok(bellKeys(observe([bell(9407, '2026-11-18', 70), bell(9408, '2026-11-19', 67.53)])).length === 0,
+ok(bellKeys(observe([bell(9407, '2026-11-18', 60), bell(9408, '2026-11-19', 61.47)])).length === 0,
   'two Bills Bell payments on two dates for one occurrence settle nothing (fail closed)');
-ok(J(bellKeys(observe([bell(9409, '2026-11-18', 70), bell(9410, '2026-11-18', 67.53)]))) === J(['bell@2026-11-15<-9409+9410']),
+ok(J(bellKeys(observe([bell(9409, '2026-11-18', 60), bell(9410, '2026-11-18', 61.47)]))) === J(['bell@2026-11-15<-9409+9410']),
   'the proven same-day two-leg pair still settles one occurrence with both legs');
 ok(J(bellKeys(observe([NOV18, bell(9411, '2026-11-18', 20)]))) === J(['bell@2026-11-15<-9401+9411']),
   'a same-day second leg makes it the two-leg pair (both ids, one occurrence), never two settlements');
 ok(bellKeys(observe([NOV18, bell(9401, '2026-11-18', 20)])).length === 0,
   'two posted rows sharing one provider id are not a clean single payment and settle nothing');
-ok(J(bellKeys(observe([bell(9412, '2026-10-15', 141.2), NOV18]))) === J(['bell@2026-10-15<-9412', 'bell@2026-11-15<-9401']),
+ok(J(bellKeys(observe([bell(9412, '2026-10-15', 118.06), NOV18]))) === J(['bell@2026-10-15<-9412', 'bell@2026-11-15<-9401']),
   'October and November single payments each settle their own month; ids are not shared');
-ok(bellKeys(observe([bell(9413, '2026-09-15', 283.94)])).length === 0,
+ok(bellKeys(observe([bell(9413, '2026-09-15', Number(data.plan.bills.find(bill => bill.id === 'bell-sep15-2026').amount))])).length === 0,
   'a single September Bills payment does not settle the September once (that rule keeps its two-leg shape) or reach October');
 
-console.log('\n=== the Nov 20 – Dec 3 period: Bills drop by exactly the $160 bell row ===');
+console.log('\n=== the Nov 20 – Dec 3 period: Bills drop by exactly the bell row ===');
 const views = rules => {
   const result = Live.overlayLiveState({ data, report: observe([NOV18], rules) });
   const plan = result.data.plan;
@@ -130,27 +132,27 @@ const pick = (list, start) => list.find(view => view.start === start);
 const fixed = pick(fixedViews, '2026-11-20');
 const old = pick(oldViews, '2026-11-20');
 const DROP = Number(bellRow.amount);
-ok(near(DROP, 160), 'independent expectation from data.json: the bell row is $160', String(DROP));
+ok(DROP > 0, 'independent expectation: the bell row\'s own scheduled amount, read from data.json');
 ok(!!fixed && !!old && fixed.end === '2026-12-03', 'both runs publish the Nov 20 – Dec 3 view');
 const rowKeys = view => (view.bills || []).map(row => `${row.id}@${row.date}:${row.amount}`);
 const removed = rowKeys(old).filter(k => !rowKeys(fixed).includes(k));
 const added = rowKeys(fixed).filter(k => !rowKeys(old).includes(k));
-ok(J(removed) === J(['bell@2026-11-15:160']) && added.length === 0,
-  'the only bill row that leaves the period is bell@2026-11-15 at $160; no row is added or changed', J({ removed, added }));
+ok(J(removed) === J([`bell@2026-11-15:${bellRow.amount}`]) && added.length === 0,
+  'the only bill row that leaves the period is bell@2026-11-15 at its plan amount; no row is added or changed', `${removed.length} removed, ${added.length} added`);
 ok(near(old.totalBillsThisPeriod - fixed.totalBillsThisPeriod, DROP) && near(old.periodBillLoad - fixed.periodBillLoad, DROP),
-  'Bills for the period drop by exactly $160', `${old.totalBillsThisPeriod} -> ${fixed.totalBillsThisPeriod}`);
+  'Bills for the period drop by exactly the bell row\'s amount');
 ok(near(fixed.balanceAfterDeductions - old.balanceAfterDeductions, DROP)
   && near(fixed.plannedPeriodClose - old.plannedPeriodClose, DROP),
-  'the balance after deductions and the planned close rise by the same $160 (consequence, not a second change)');
+  'the balance after deductions and the planned close rise by the same amount (consequence, not a second change)');
 ok(['income', 'incomeTotal', 'householdBudget', 'budgetHold', 'opening', 'currentBalance']
   .every(key => J(fixed[key]) === J(old[key])),
   'income, opening, current balance, household budget and budget hold do not move');
 const dec = pick(fixedViews, '2026-12-04');
 ok(dec && J(dec) === J(pick(oldViews, '2026-12-04'))
-  && (dec.bills || []).some(row => row.id === 'bell' && row.date === '2026-12-15' && row.amount === 160),
-  'Dec 4 – Dec 17 is identical and bell@2026-12-15 is still planned at $160');
+  && (dec.bills || []).some(row => row.id === 'bell' && row.date === '2026-12-15' && row.amount === bellRow.amount),
+  'Dec 4 – Dec 17 is identical and bell@2026-12-15 is still planned at the plan amount');
 ok(fixedViews.filter(view => view.start > '2026-11-20').every(view => J(view) === J(pick(oldViews, view.start))),
-  'every later period is identical (future bell occurrences stay $160)');
+  'every later period is identical (future bell occurrences keep the plan amount)');
 
 ok(fs.readFileSync(DATA_PATH, 'utf8') === dataFileBefore, 'data.json is not written');
 

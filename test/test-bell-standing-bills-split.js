@@ -353,7 +353,7 @@ console.log('\n=== fail closed ===');
       && near(oneBell.remaining, 0)
       && near(oneBell.planned != null ? oneBell.planned : oneBell.amount, PLANNED)
       && near(oneBell.actual, LEG_A),
-    'one posted BILLS Bell debit: represented, remaining $0, planned $160 unchanged, actual is the debit');
+    'one posted BILLS Bell debit: represented, remaining $0, planned amount unchanged, actual is the debit');
   const oneBellRecon = ((oneOther && oneOther.recon) || []).filter(tx =>
     tx && /bell/i.test(String(tx.displayedPayee || tx.originalMerchant || '')));
   ok(oneBellRecon.length === 0 && oneOther && near(oneOther.spent, OTHER_TX),
