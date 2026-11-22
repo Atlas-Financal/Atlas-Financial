@@ -34,6 +34,7 @@ const StandingRuntime = require('./scripts/assistant-standing-runtime.js');
 const AssistantOAuth = require('./scripts/assistant-oauth.js');
 const ResponseCompression = require('./scripts/response-compression.js');
 const RequestTiming = require('./scripts/request-timing.js');
+const ClientTiming = require('./scripts/client-timing.js');
 
 const PREACTIVATION_BOOT = Symbol('sealed-preactivation-boot');
 const SESSION_REVOCATION = Symbol('composed-session-revocation');
@@ -527,6 +528,22 @@ app.use((req, _res, next) => { if (authed(req)) RequestTiming.markAuthed(req); n
 // (scripts/response-compression.js). It runs after the gate, so the gate's
 // 401 and redirect, and every route above, are never compressed.
 app.use(ResponseCompression.compressAllowlisted);
+
+// Browser-side page-load timing beacon (scripts/client-timing.js). Behind the
+// session gate above (unchanged). JSON only, 1 kB, no inflation; a strict
+// closed schema (another content type leaves no parsed body, so it is refused
+// by the schema); a per-session cap. One closed log line; nothing echoed back.
+const clientTimingJson = express.json({ limit: ClientTiming.BODY_LIMIT, type: 'application/json', inflate: false, strict: true });
+const clientTimingAllow = ClientTiming.rateCap();
+app.post('/client-timing', (req, res) => {
+  return clientTimingJson(req, res, error => {
+    const record = error ? null : ClientTiming.parse(req.body);
+    if (!record) return res.status(400).end();
+    if (!clientTimingAllow(sessionActor(req) || 'session-legacy')) return res.status(429).end();
+    try { console.log(JSON.stringify(record)); } catch (_) { /* diagnostics only */ }
+    return res.status(204).end();
+  });
+});
 
 // ---------------------------------------------------------------- data
 app.get('/data.json', async (req, res) => {
