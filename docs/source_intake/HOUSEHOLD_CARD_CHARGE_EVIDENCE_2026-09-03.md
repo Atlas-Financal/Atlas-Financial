@@ -70,6 +70,11 @@ The renewal day is not invoice-verified. The October invoice is dated
 2026-10-03; the bank charge followed on 2026-10-05 after retries. That
 bank date is not a renewal date. Combined merchant rows can belong to
 different household subscriptions and do not establish Amanda's cadence.
+**Owner 2026-11-21 — due day:** Dale (via Atlas Coordinator) states the
+bill is due on the 4th of each month. This supersedes the day-3 planning
+assumption above for planning; `plan.bills` `phoenix-digital-health` is day 4,
+firstDue 2026-10-04 (the same first planned occurrence, one day later). The
+dated observations above are unchanged.
 Routed to live `plan.bills` `phoenix-digital-health`; `CARD-002` is CONSUMED onto that
 named bill. The category remains unconfirmed. This later instruction
 does not change the dated observations above or infer a product or
