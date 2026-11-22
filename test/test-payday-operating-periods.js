@@ -437,44 +437,21 @@ console.log('\n=== 8. Unpaid once cash before periodStart stays reserved after p
   };
   const control = planWithOnce([monthly]);
   const unpaid = planWithOnce([monthly, onceRow]);
-  ok(F.carriedOnceJointCashOutflow(unpaid, onceRow.id, ONCE_POST, thisWindow.start),
-    'incumbent carry predicate still names the unresolved once outflow');
-  const carried = F.expandEvents(unpaid, thisWindow.start, thisWindow.end)
-    .filter(e => e && e.id === onceRow.id);
-  ok(carried.length === 1 && carried[0].date === ONCE_POST
-      && near(-carried[0].amount, ONCE_AMT),
-    'expandEvents still emits the once outflow at its reservation date');
-
   const controlView = F.recommend(control, ROLLOVER, { targetBuffer: 500, debts }).defaultView;
   const unpaidAdvice = F.recommend(unpaid, ROLLOVER, { targetBuffer: 500, debts });
-  const unpaidView = unpaidAdvice.defaultView;
   const controlActive = period(controlView, 'this-pay-period');
-  const unpaidActive = period(unpaidView, 'this-pay-period');
-  const unpaidNext = period(unpaidView, 'next-pay-period');
-  const row = (unpaidActive.bills || []).find(r => r.id === onceRow.id);
-  ok(unpaidActive && unpaidActive.start === thisWindow.start
-      && unpaidActive.end === thisWindow.end,
-    'active operating period is still Aug 28–Sep 10');
-  // #887 contract: row.date is the real reservation occurrence; the
-  // original scheduled due is the printed scheduledDue.
-  ok(row && row.date === ONCE_POST && row.scheduledDue === ONCE_DUE && row.status !== 'PAID'
-      && near(row.remaining, ONCE_AMT) && near(row.amount, ONCE_AMT),
-    'unpaid once stays in This Pay Period, printed on its original scheduled due, not the new payday');
-  ok(!(unpaidNext.bills || []).some(r => r.id === onceRow.id),
-    'overdue once is not moved into Next Pay Period');
-  ok(near(unpaidActive.remainingBills, roundCent(controlActive.remainingBills + ONCE_AMT)),
-    'remaining bills independently rise by the unpaid once amount');
-  ok(near(unpaidActive.available, controlActive.available),
-    'Current Balance is unchanged; the once row is not reconstructed cash');
-  ok(near(unpaidActive.periodBillLoad, roundCent(controlActive.periodBillLoad + ONCE_AMT)),
-    'unpaid overdue once is still in the assigned period load');
-  ok(unpaidActive.afterBills != null && controlActive.afterBills != null
-      && near(unpaidActive.afterBills, roundCent(
-        unpaidActive.incomeTotal - unpaidActive.periodBillLoad))
-      && !near(unpaidActive.periodBillLoad, controlActive.periodBillLoad)
-      && near(unpaidActive.afterBills, roundCent(
-        controlActive.afterBills - ONCE_AMT)),
-    'income-led afterBills publishes on mid-period cutover; dropping the overdue once shrinks the assigned load');
+  const unpaidActive = period(unpaidAdvice.defaultView, 'this-pay-period');
+  const owners = unpaidAdvice.payPeriodViews.filter(p => (p.bills || []).some(r => r.id === onceRow.id));
+  ok(owners.length === 1 && owners[0].start === '2026-08-14',
+    'the period containing the original due owns the outstanding occurrence');
+  const row = owners[0] && owners[0].bills.find(r => r.id === onceRow.id);
+  ok(row && row.date === ONCE_POST && row.scheduledDue === ONCE_DUE
+      && row.status !== 'PAID' && row.actual == null && row.remaining === ONCE_AMT,
+    'the historical row retains both reservation and scheduled dates and claims no payment');
+  ok(unpaidActive.remainingBills === controlActive.remainingBills
+      && unpaidActive.periodBillLoad === controlActive.periodBillLoad
+      && unpaidActive.afterBills != null && unpaidActive.afterBills === controlActive.afterBills,
+    'an unresolved stub from an earlier period changes neither the current load nor the surplus');
 
   const settled = F.recommend(unpaid, ROLLOVER, {
     targetBuffer: 500, debts,
@@ -482,7 +459,7 @@ console.log('\n=== 8. Unpaid once cash before periodStart stays reserved after p
   }).defaultView;
   const settledActive = period(settled, 'this-pay-period');
   ok(!(settledActive.bills || []).some(r => r.id === onceRow.id),
-    'the same once row disappears once represented/settled');
+    'the settled historical row is also absent from the active bill list');
   ok(near(settledActive.remainingBills, controlActive.remainingBills),
     'represented once no longer reduces remaining bills');
 }

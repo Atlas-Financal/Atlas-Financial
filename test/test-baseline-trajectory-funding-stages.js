@@ -521,7 +521,7 @@ console.log('\n=== 6. Month-boundary walk days, not a 30-day June smear ===');
 
 console.log('\n=== 7. Carried unresolved joint-cash outflow uses cashWalkDate at opening ===');
 {
-  const CARRY_DATE = '2026-06-10';
+  const CARRY_DATE = '2026-06-13'; // after the June 12 payday, before the clipped June 15 opening
   const CARRY = 237;
   const shared = {
     startingCash: { amount: 10000 },

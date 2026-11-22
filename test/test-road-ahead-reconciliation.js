@@ -206,11 +206,13 @@ const debt = [{ id: 'card', label: 'Synthetic card', balance: 100000, pending: 0
 // under test determines which entries the expected ledger includes.
 function syntheticLedger(p, end, fortnightCents) {
   const start = p.opening.asOf;
+  const anchor = day(p.income[0].anchor);
+  const payday = iso(anchor + 14 * Math.floor((day(start) - anchor) / 14));
   const out = spendingLedger(start, end, fortnightCents);
   for (const [kind, rows] of [['income', p.income], ['bills', p.bills.filter(r => !['card-paid', 'external'].includes(r.id))],
     ['obligations', p.obligations]]) {
     for (const r of rows) for (const d of dates(r, start, end)) {
-      if (kind === 'income' && d < start) continue;
+      if (d < (kind === 'income' ? start : payday)) continue;
       if ((p.opening.representedEvents || []).some(x => x.id === r.id && x.date === d
           && confirmedAtOpening(x, start))) continue;
       out.push(event(r, d, kind, start));
@@ -349,17 +351,21 @@ for (const start of ['2025-01-30', '2025-01-31', '2025-02-01', '2025-02-12', '20
   eq(held.start, '2026-02-14', 'first window is residual, not full payday');
   eq(held.end, '2026-02-26', 'residual ends day before next payday');
   eq(held.stage1.bills.amount, 0, 'represented Jan 31 is not replayed');
-  live.opening.representedEvents = [{ id: 'monthly', date: '2026-01-31', effectiveAsOf: '2026-02-20' }];
-  const deferred = ask(live, []);
-  eq(deferred.payPeriods[0].stage1.bills.amount, 19.09, 'future-qualified confirmation cannot erase an earlier opening debit');
-  eq(deferred.payPeriods[0].stage1.bills.lines[0].date, '2026-01-31', 'deferred confirmation retains the one original carried occurrence');
-  const qualified = clone(live); qualified.opening.asOf = '2026-02-20';
-  eq(ask(qualified, []).payPeriods[0].stage1.bills.amount, 0, 'qualification becomes effective only at its bounded opening');
   live.opening.representedEvents = [];
   const unresolved = ask(live, []);
-  eq(unresolved.payPeriods[0].stage1.bills.amount, 19.09, 'unresolved Jan 31 applies once at opening');
-  eq(unresolved.payPeriods[0].stage1.bills.lines[0].date, '2026-01-31', 'carry retains original date');
-  eq(cents(unresolved.months[0].stage1.bills.amount) - cents(lt.months[0].stage1.bills.amount), 1909, 'same carry in clipped month');
+  eq(unresolved.payPeriods[0].stage1.bills.amount, 0, 'unverified Jan 31 belongs to the prior pay period');
+  eq(unresolved.months[0].stage1.bills.amount, lt.months[0].stage1.bills.amount, 'no rolled bill in the clipped month');
+
+  // Feb 13 starts this pay period. Its still-unconfirmed bill binds this
+  // opening until the confirmation becomes effective on Feb 20.
+  live.bills.find(row => row.id === 'monthly').day = 13;
+  live.opening.representedEvents = [{ id: 'monthly', date: '2026-02-13', effectiveAsOf: '2026-02-20' }];
+  const deferred = ask(live, []);
+  eq(deferred.payPeriods[0].stage1.bills.amount, 19.09, 'future-qualified confirmation cannot erase a current-period debit');
+  eq(deferred.payPeriods[0].stage1.bills.lines[0].date, '2026-02-13', 'the same-period debit keeps its scheduled date');
+  const qualified = clone(live); qualified.opening.asOf = '2026-02-20';
+  eq(ask(qualified, []).payPeriods[0].stage1.bills.amount, 0, 'qualification becomes effective only at its bounded opening');
+
 }
 
 // Debt capacity is proved by a separate zero-interest principal ledger.

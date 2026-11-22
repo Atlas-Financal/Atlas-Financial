@@ -77,6 +77,38 @@ console.log('=== unknown amount ===');
   ok(walkState(p) === 'unavailable', 'forward walk is withheld');
 }
 
+console.log('=== unknown prices stay in their own closed period ===');
+{
+  const date = '2026-10-08';  // last day before the Oct 9 payday
+  const p = plan([{ id: 'repair', label: 'Invented repair', frequency: 'once', date, amount: null }]);
+  p.obligations.push({ id: 'minimum', debtId: 'card', label: 'Invented minimum', effect: 'payment',
+    frequency: 'once', date, amount: null });
+  const history = (linked, transactions) => F.recommend(p, AS_OF, {
+    targetBuffer: 0, debts: [], currentPeriodActuals: { representedActuals: linked, transactions },
+  }).payPeriodViews;
+  const claim = { id: 'repair', date, actual: 42, postedOn: date, transactionId: 'invented-posting' };
+  for (const linked of [[], [claim]]) {
+    const periods = history(linked, []);
+    const closed = periods.find(v => v.start === '2026-09-25');
+    const active = periods.find(v => v.start === '2026-10-09');
+    for (const id of ['repair', 'minimum']) {
+      const row = closed.bills.find(b => b.id === id && b.date === date);
+      ok(row && row.status === 'planned' && row.actual === null && row.amount === null
+        && row.planned === null && row.remaining === null && row.movement === null,
+      id + ': a closed-period missing price remains unconfirmed and unknown without a posted link');
+      ok(!active.bills.some(b => b.id === id), id + ': the next payday has no copy');
+    }
+    ok(closed.periodBillLoad === null && closed.totalBillsThisPeriod === null && closed.unconfirmedBills === null,
+      'the closed bill totals remain unknown');
+    ok(active.periodBillLoad === 90 && active.afterBills === 1310,
+      'the active period has only its own 90 bill against 1400 income');
+  }
+  const posted = history([claim], [{ id: 'invented-posting', date, amount: 42, pending: false }])
+    .find(v => v.start === '2026-09-25').bills.find(b => b.id === 'repair');
+  ok(posted && posted.status === 'PAID' && posted.actual === 42 && posted.planned === null,
+    'a posted linked amount settles the historical repair while its planned price stays unknown');
+}
+
 console.log('=== unknown amount inside the opening stays settled ===');
 {
   // An Oct 12 occurrence before the Oct 14 opening (no priorAsOf) is inside
@@ -457,16 +489,14 @@ console.log('=== Savings consumers retain invalid requirements without reallocat
   }
 }
 
-// A once bill older than the visible lookback remains an unresolved native
-// requirement. Invalid authored prices must follow the missing-price path.
+// An old one-off with an unknown price belongs to its original period.
 for (const amount of [null, 0, -40]) {
   const source = { id: 'old-once', label: 'Invented overdue once bill', frequency: 'once',
     date: '2026-08-01', amount, confidence: 'confirmed' };
   const { p, cur } = view([source]), row = cur.bills.find(r => r.id === 'old-once');
-  ok(row && row.date === '2026-08-01' && row.amount === null && row.remaining === null,
-    'overdue once invalid price remains a dated Unknown row');
-  ok(cur.periodBillLoad === null && cur.totalBillsThisPeriod === null && cur.remainingBills === null,
-    'overdue once invalid price holds every dependent active-period bill total');
+  ok(!row, 'the unknown-price bill is outside the active pay period');
+  ok(cur.periodBillLoad === 90 && cur.totalBillsThisPeriod === 90 && cur.remainingBills === 90,
+    'an unknown price in history cannot withhold current bill totals');
   ok(!F.expandEvents(p, AS_OF, '2026-11-05', {}).some(e => e.id === 'old-once'),
     'overdue once invalid price emits no fabricated cash event');
 }
@@ -474,8 +504,8 @@ for (const amount of [null, 0, -40]) {
   const source = { id: 'old-once', label: 'Invented overdue once bill', frequency: 'once',
     date: '2026-08-01', amount: 30, confidence: 'confirmed' };
   const positive = view([source]);
-  ok(positive.cur.periodBillLoad === 90 + 30 && positive.cur.bills.find(r => r.id === 'old-once').amount === 30,
-    'positive overdue once cost is carried once alongside the stated 90 current bill');
+  ok(positive.cur.periodBillLoad === 90 && !positive.cur.bills.some(r => r.id === 'old-once'),
+    'only the stated 90 current bill is due this period');
   for (const edit of [
     { amount: 0, noPaymentRequiredOn: ['2026-08-01'] },
     { utilityAccountCredit: 30, firstDue: '2026-08-01' },

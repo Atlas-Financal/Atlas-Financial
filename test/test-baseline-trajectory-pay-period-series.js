@@ -494,7 +494,7 @@ console.log('\n=== 5. Stage 3 extras stay extraDebtMonthly / walk kind:extra; mo
 
 console.log('\n=== 6. Carried unresolved joint-cash outflow uses cashWalkDate, not scheduled date ===');
 {
-  const CARRY_DATE = '2026-06-10';
+  const CARRY_DATE = '2026-06-13'; // after the June 12 payday, before the clipped June 15 opening
   const CARRY = 237;
   const LATER_DATE = '2026-06-28';
   const LATER = 41;

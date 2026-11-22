@@ -3,7 +3,6 @@ const { stripUnconfirmedBills } = require('./lib/unconfirmed-bills-addition');
 const { stripMissingDeposit } = require('./lib/missing-deposit-addition');
 const { stripPaydaySchedule: stripPayday } = require('./lib/payday-schedule-addition');
 const { stripBankCheck } = require('./lib/bank-check-addition');
-const { stripCarriedBills } = require('./lib/carried-bill-addition');
 const stripPaydaySchedule = advice => stripBankCheck(stripPayday(advice).advice);
 // Invented cents and explicit intent. Paid here records a complete household
 // send; issuer satisfaction, cash inclusion and all financial totals stay separate.
@@ -22,7 +21,7 @@ const BASE = 'ab4cd7ecbbdb776b21412f4cf255e8a8fb3c587c';
 let checks = 0;
 const eq = (actual, expected, message) => { assert.deepEqual(actual, expected, message); checks++; };
 const ok = (condition, message) => { assert.ok(condition, message); checks++; };
-function fixture(records) {
+function fixture(records, includeClosed = false) {
   const x = source('triangle', 'triangle');
   x.data.meta.asOf = x.asOf = NOW;
   const p = x.data.plan;
@@ -37,9 +36,9 @@ function fixture(records) {
       statementOccurrences: [{ scheduledDate: '2026-10-07', dueDate: '2026-10-08',
         minimum: 47.39, currency: 'cad', confidence: 'confirmed' }],
       ...(records ? { sentPayments: records } : {}) },
-    { id: 'mbna-aug31', label: 'Invented prior statement', debtId: 'mbna',
+    ...(includeClosed ? [{ id: 'mbna-aug31', label: 'Invented prior statement', debtId: 'mbna',
       effect: 'payment', frequency: 'once', date: '2026-08-31', amount: 31.17,
-      confidence: 'confirmed', payingAccount: 'chequing-a' },
+      confidence: 'confirmed', payingAccount: 'chequing-a' }] : []),
     { id: 'mbna', label: 'Invented recurring minimum', debtId: 'mbna',
       effect: 'payment', frequency: 'monthly', day: 31, firstDue: '2026-09-30',
       amount: 52.33, confidence: 'estimated', payingAccount: 'chequing-a' },
@@ -78,12 +77,9 @@ function numbers(value, path = '', out = {}) {
   else if (value && typeof value === 'object') Object.keys(value).forEach(k => numbers(value[k], path + '/' + k, out));
   return out;
 }
-// Item 12 (#1156): the overdue Aug 31 once row is carried; its completed
-// period lists it as carried and counts none of it (validated, then restored
-// to the frozen engine's numbers).
 // Fields main predates (categorySpendingTrends): proved empty, then removed.
 const { withoutAuthorizedAdditions: withoutCategoryTrends } = require('./forecast-authorized-additions');
-const incumbentNumbers = value => numbers(withoutCategoryTrends(stripMissingDeposit(stripPaydaySchedule(stripUnconfirmedBills(stripCarriedBills(incumbentAdvice(value, NOW)).advice).advice).advice).advice));
+const incumbentNumbers = value => numbers(withoutCategoryTrends(stripMissingDeposit(stripPaydaySchedule(stripUnconfirmedBills(incumbentAdvice(value, NOW)).advice).advice).advice));
 // PA-4a-2b C7 (Muse #812 6541501158): a card-held close feeds no numeric
 // dependent opening. In a card-held publication each projected period's
 // opening-dependent chain is null (the frozen engine carried numbers), its
@@ -188,8 +184,8 @@ for (const [name, records, action, paid] of cases) {
   eq(JSON.stringify(x.data), input, 'read/render does not mutate financial data');
   frozenEq(r, publication(x, oldF).r, 'every monetary/null publication unchanged ' + name);
   eq([row.date, row.occurrenceKey], ['2026-10-08', 'triangle@2026-10-07']);
-  // Independent cents sum: 3,117 prior + 5,233 recurring + 4,739 statement.
-  eq(Math.round(period.totalBillsThisPeriod * 100), 13089, 'three original requirements counted exactly once');
+  // Independent cents sum: 5,233 recurring + 4,739 statement.
+  eq(Math.round(period.totalBillsThisPeriod * 100), 9972, 'both in-period requirements counted exactly once');
   if (action) {
     eq([row.status, row.issuerMinimumStatus, row.cashInclusionStatus, row.remaining],
       ['unconfirmed', 'unconfirmed', 'unconfirmed', null], 'Paid display cannot satisfy the lender or cash opening');
@@ -210,7 +206,7 @@ for (const [name, records, action, paid] of cases) {
 }
 for (const reverse of [false, true]) {
   const x = fixture([sent()]);
-  x.data.plan.obligations[2].sentPayments = [sent({ scheduledDate: '2026-09-30' })];
+  x.data.plan.obligations[1].sentPayments = [sent({ scheduledDate: '2026-09-30' })];
   if (reverse) x.data.plan.obligations.reverse();
   const { r, period } = publication(x);
   eq(period.bills.filter(row => ['triangle', 'mbna'].includes(row.id))
@@ -242,7 +238,7 @@ for (const mode of ['partial', 'estimated']) for (const receipt of [false, true]
   if (conflict || !receipt || !inclusion) eq(r.sim.ending, null, name + ': unresolved funding remains unavailable');
   else {
     eq(Math.round(F.simulate(x.data.plan, NOW, { horizonDays: 10, weeklyVariable: 0 }).ending * 100),
-      170167, name + ': independent opening minus two other requirements plus one payroll, no repeated debit');
+      173284, name + ': independent opening minus one other requirement plus one payroll, no repeated debit');
     eq(F.projectDebts(x.data.plan, x.data.debts, NOW, { debtHorizonDays: 10 }).byId.triangle.paid, 0,
       name + ': no repeated principal payment');
   }
@@ -260,7 +256,7 @@ for (const receipt of [false, true]) for (const inclusion of [false, true]) {
   frozenEq(r, publication(x, oldF).r);
   if (receipt && inclusion) {
     const sim = F.simulate(x.data.plan, NOW, { horizonDays: 10, weeklyVariable: 0 });
-    eq(Math.round(sim.ending * 100), 170167, 'independent cash: 78517 - 3117 - 5233 + 100000, both unresolved Amazon cycles and no second Triangle debit');
+    eq(Math.round(sim.ending * 100), 173284, 'independent cash: 78517 - 5233 + 100000, only this Amazon cycle and no second Triangle debit');
   }
 }
 for (const receipt of [false, true]) for (const inclusion of [false, true]) {
@@ -282,30 +278,20 @@ for (const receipt of [false, true]) for (const inclusion of [false, true]) {
   ok(Detail.html(row, x.data, {}).includes('full required amount is not confirmed'));
   frozenEq(r, publication(x, oldF).r);
 }
-const { period } = publication(fixture([sent()]));
-const amazon = period.bills.filter(row => ['mbna-aug31', 'mbna'].includes(row.id));
-eq(amazon.map(row => [row.id, row.date]), [['mbna-aug31', '2026-08-31'], ['mbna', '2026-09-30']], 'distinct prior/current identities retained');
-eq(amazon.map(row => Math.round(row.planned * 100)), [3117, 5233]);
-ok(render.html(amazon[0]).includes('earlier August statement'));
-ok(render.html(amazon[1]).includes('September minimum'));
-eq(amazon.every(row => render.presentation(row).kind !== 'paid'), true, 'unattributed same-card transfers cannot mark either cycle Paid');
-// Item 12 (#1156): the unpaid Aug 31 once row is carried into the current
-// period. Its completed period still lists it, labelled carried, and counts
-// none of it; the current period counts it once.
+// The old engine deliberately rolled a prior statement into every comparison.
+// Exercise that policy change separately from the monetary parity matrix above.
 {
-  const { r } = publication(fixture());
-  const holders = r.payPeriodViews.filter(v => (v.bills || []).some(b => b.id === 'mbna-aug31' && b.date === '2026-08-31'));
-  eq(holders.map(v => v.timelineRole).sort(), ['current', 'past'], 'Aug 31 is listed in its completed period and the current period');
-  const past = holders.find(v => v.timelineRole === 'past'), current = holders.find(v => v.timelineRole === 'current');
-  const copy = past.bills.find(b => b.id === 'mbna-aug31');
-  eq([copy.status, copy.remaining, render.presentation(copy).label], ['carried', 0, 'Carried to this pay period'],
-    'the completed period lists it as carried, never to confirm');
-  const others = past.bills.filter(b => b !== copy && !b.needsDate);
-  const sum = rows => Math.round(rows.reduce((t, b) => t + Math.abs(Number(b.movement != null ? b.movement : b.amount) || 0), 0) * 100);
-  eq(Math.round(past.totalBillsThisPeriod * 100), sum(others), 'the completed total leaves the carried 31.17 out');
-  const owned = current.bills.find(b => b.id === 'mbna-aug31');
-  eq([owned.settlement, owned.remaining, render.presentation(owned).label], ['unverified', 31.17, 'To confirm'],
-    'the current period owns it: to confirm, 31.17');
+  const { r, period } = publication(fixture([sent()], true));
+  const holders = r.payPeriodViews.filter(v => v.bills.some(b => b.id === 'mbna-aug31'));
+  eq(holders.map(v => v.timelineRole), ['past'], 'the earlier statement stays in its own period');
+  const earlier = holders[0].bills.find(b => b.id === 'mbna-aug31');
+  eq([earlier.date, earlier.paidState, earlier.remaining], ['2026-08-31', 'not-paid', 31.17]);
+  ok(render.html(earlier).includes('earlier August statement'));
+  const current = period.bills.find(b => b.id === 'mbna');
+  eq([current.date, current.planned], ['2026-09-30', 52.33]);
+  ok(render.html(current).includes('September minimum'));
+  eq(render.presentation(current).kind === 'paid', false);
+  eq(Math.round(period.totalBillsThisPeriod * 100), 9972, 'only the two current minimums count');
 }
 console.log('Recorded Bills action: ' + checks + ' assertions passed.');
 module.exports = { fixture, sent, publication, NOW };
