@@ -161,12 +161,16 @@ console.log('\n=== owner fact 2026-11-21: due on the 4th; nothing else moves ===
   Object.assign(oldData.plan.bills.find(b => b.id === ID), { day: 3, firstDue: '2026-10-03' });
   const viewOf = (d, start) => F.recommend(d.plan, '2026-11-21', { debts: d.debts, periods: [] })
     .payPeriodViews.find(v => v.start === start);
-  for (const [start, delta] of [['2026-11-20', -AMOUNT], ['2026-12-04', AMOUNT], ['2026-12-18', 0]]) {
+  // The real plan is household data: labels and failure details name only the direction and
+  // which part failed, never a period total or the delta (the log is public).
+  for (const [start, delta, move] of [['2026-11-20', -AMOUNT, 'fall by the scheduled amount'],
+    ['2026-12-04', AMOUNT, 'rise by the scheduled amount'], ['2026-12-18', 0, 'are unchanged']]) {
     const a = viewOf(data, start), b = viewOf(oldData, start);
-    ok(!!a && !!b && near(a.totalBillsThisPeriod - b.totalBillsThisPeriod, delta)
-        && JSON.stringify(a.income) === JSON.stringify(b.income),
-      `period ${start}: Bills move by ${delta.toFixed(2)}, income unchanged`,
-      a && b ? `${b.totalBillsThisPeriod} -> ${a.totalBillsThisPeriod}` : 'missing view');
+    const views = !!a && !!b;
+    const billsOk = views && near(a.totalBillsThisPeriod - b.totalBillsThisPeriod, delta);
+    const incomeOk = views && JSON.stringify(a.income) === JSON.stringify(b.income);
+    ok(billsOk && incomeOk, `period ${start}: Bills ${move}, income unchanged`,
+      billsOk && incomeOk ? '' : `views=${views} bills=${billsOk} income=${incomeOk}`);
   }
 }
 
