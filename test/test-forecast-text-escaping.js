@@ -277,7 +277,7 @@ const MUTANTS = [
   ['the waterfall prints a card name unescaped', 'stack-waterfall.js', '<b>${escape(cardLabel(ctx, card && card.debtId))}</b>', '<b>${String(cardLabel(ctx, card && card.debtId))}</b>', ['household']],
   ['the waterfall prints a card row\'s debt id unescaped in its attribute', 'stack-waterfall.js', 'data-debt-id="${escape(card && card.debtId)}"', 'data-debt-id="${String(card && card.debtId)}"', ['hostile card ids (forced)']],
   ['the Credit card prints a card name unescaped', 'stack-credit.js', '<b>${esc(line.label)}</b>', '<b>${String(line.label)}</b>', ['household']],
-  ['a card sheet prints a transaction name unescaped', 'stack-credit.js', '<span class="stack-sheet-txl">${escape(t.name || \'\')}</span>', '<span class="stack-sheet-txl">${String(t.name || \'\')}</span>', ['cards']],
+  ['a card sheet prints a transaction name unescaped', 'stack-credit.js', '${t.pending ? PENDING_DOT : \'\'}${escape(t.name || \'\')}</span>', '${t.pending ? PENDING_DOT : \'\'}${String(t.name || \'\')}</span>', ['cards']],
   ['the Bills card prints a bill id unescaped in its attribute', 'stack-cards.js', `' data-stack-sheet="' + esc(target) + '"`, `' data-stack-sheet="' + String(target) + '"`, ['household']],
   ['the Savings card prints a goal label unescaped', 'stack-cards.js', `'<li class="sc-row sc-own"><span class="sc-n">' + esc(label) + '</span>'`, `'<li class="sc-row sc-own"><span class="sc-n">' + String(label) + '</span>'`, ['savings']],
   ['a sheet prints its title unescaped', 'stack-sheet.js', '<h3 id="stack-sheet-title">${esc(title)}</h3>', '<h3 id="stack-sheet-title">${String(title)}</h3>', ['household']],
