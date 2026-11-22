@@ -3690,16 +3690,16 @@ function representedEventHitGroups(input) {
     list.push(inherited);
     eventHits.set(key, list);
   }
-  const spotifyEvidence = soleOwnerConfirmedSpotifyTransaction(
-    input.transactions, input.accountMap
-  );
   for (const hit of scheduleTrustCandidates(input)) {
     if (cardMinimumNeedsConfirmation(input.plan, hit.id, input.accountMap)) continue;
     const key = hit.id + '@' + hit.date;
     if (eventHits.has(key)) continue;
-    if (spotifyEvidence && hit.id === 'spotify' && hit.date === '2026-09-23') {
-      hit.providerTransactionId = spotifyEvidence.providerTransactionId;
-      hit.postingDate = spotifyEvidence.date || hit.postingDate;
+    if (hit.id === 'spotify' && hit.date === '2026-09-23') {
+      const evidence = soleOwnerConfirmedSpotifyTransaction(input.transactions, input.accountMap);
+      if (evidence) {
+        hit.providerTransactionId = evidence.providerTransactionId;
+        hit.postingDate = evidence.date || hit.postingDate;
+      }
     }
     eventHits.set(key, [hit]);
   }
@@ -4071,9 +4071,7 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
 
 function sanitizedEvidenceFingerprint(providerTransactionId) {
   if (providerTransactionId == null || providerTransactionId === '') return null;
-  return crypto.createHash('sha256')
-    .update('atlas-evidence:lunchmoney:tx:' + String(providerTransactionId))
-    .digest('hex');
+  return crypto.hash('sha256', 'atlas-evidence:lunchmoney:tx:' + String(providerTransactionId));
 }
 
 function emptyReconciliationCounts() {
@@ -4282,7 +4280,7 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
     // Forecast is the classification authority. Stamp the CAN TIRE MC
     // card-payment identity here the same way the sanitized overlay does,
     // because this path does not pass merchant text into the classifier.
-    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({
+    const flags = Forecast.classifyCurrentPeriodTransaction.derivedCardFlags({
       payee: tx.payee,
       original_name: tx.originalName,
       originalName: tx.originalName,
@@ -4298,7 +4296,7 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
       categoryLabel: tx.categoryLabel,
       categoryId: tx.categoryId,
       recurringId: tx.recurringId,
-    }, plan);
+    });
     const cls = Forecast.classifyCurrentPeriodTransaction({
       date: tx.date,
       amount,
@@ -6478,8 +6476,7 @@ function cardCoverageReference(tx) {
   if (!tx || !tx.providerAccountId || !tx.providerTransactionId) return null;
   const native = plaidPendingTransactionIdOf(tx) || plaidTransactionIdOf(tx);
   const source = native ? 'plaid:' + native : 'lunchmoney:' + tx.providerTransactionId;
-  return 'pc-' + require('crypto').createHash('sha256')
-    .update('atlas-card-coverage/v1|' + tx.providerAccountId + '|' + source).digest('hex').slice(0, 24);
+  return 'pc-' + crypto.hash('sha256', 'atlas-card-coverage/v1|' + tx.providerAccountId + '|' + source).slice(0, 24);
 }
 
 // Reviewed Lunch Money recurring items (owner, #821 6956651970), reduced to
@@ -7137,14 +7134,14 @@ function cardMinimumOwnership(plan, evidence, asOf) {
   const sets = owned.status === 'available' ? {
     owned: new Set(owned.debitIds), unknown: new Set(owned.unknownDebitIds || []),
     disagreed: new Set(owned.disagreementDebitIds || []) } : null;
+  const hasMarks = sets && (sets.owned.size || sets.unknown.size || sets.disagreed.size);
   return {
     status: owned.status === 'available' ? 'available' : 'unavailable',
     unreadable: (owned.unreadable || []).map(item => ({ label: item.label || null, what: item.what })),
     // 'owned' | 'unknown' | 'disagreement' | null for one provider transaction id.
     mark(providerTransactionId) {
-      if (!sets || providerTransactionId == null || providerTransactionId === '') return null;
-      const id = require('crypto').createHash('sha256')
-        .update(MinimumCategory.SOURCE + ':' + providerTransactionId).digest('hex');
+      if (!hasMarks || providerTransactionId == null || providerTransactionId === '') return null;
+      const id = crypto.hash('sha256', MinimumCategory.SOURCE + ':' + providerTransactionId);
       return sets.owned.has(id) ? 'owned' : sets.unknown.has(id) ? 'unknown'
         : sets.disagreed.has(id) ? 'disagreement' : null;
     },
@@ -7825,7 +7822,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     for (const link of own) refs.add(link.ref);
     linkedChargeRefs.set(key, refs);
   }
-  for (const row of txs) {
+  for (let index = 0; index < txs.length; index++) {
+    let row = txs[index];
     if (!row) continue;
     const cls = Forecast.classifyCurrentPeriodTransaction(row, opts.plan, {
       packet: classifyPacket,
@@ -7880,9 +7878,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     // Other spending before, so it keeps the same identity fields).
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)
         && cls.kind !== 'savings-paid' && cls.kind !== 'held-outflow') {
-      delete row.displayedPayee;
-      delete row.originalMerchant;
-      delete row.displayedNote;
+      // Build the public shape directly. Deleting interior properties leaves
+      // dictionary-mode rows for every subsequent validation and Forecast read.
+      const { displayedPayee, originalMerchant, displayedNote, ...redacted } = row;
+      txs[index] = redacted;
+      row = redacted;
     }
     delete row.bankDescription;
     // Only a refund Forecast links to one named household category (#1234), the only refund the page lists
