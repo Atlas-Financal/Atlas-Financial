@@ -77,6 +77,21 @@ function startSuite(identity) {
   if (!validIdentity(identity)) throw new Error('invalid-ci-identity');
   fs.writeSync(1, JSON.stringify({ type: 'ci-suite-start', identity }) + '\n');
 }
+// A long suite prints nothing publicly until its outcome, so to a watcher it
+// can look hung (2026-11-22: a merge-group shard was cancelled by hand twice
+// mid-suite). The heartbeat says only that the named suite is still running
+// and for how many whole seconds: the manifest identity and one integer, no
+// child text, value or timing beyond that. ci-test-records.js rebuilds it
+// from those two fields alone.
+const HEARTBEAT_MAX_SECONDS = 86400;
+function heartbeatRecordOk(identity, elapsedSeconds) {
+  return SUITE_FILE.test(identity) && Number.isSafeInteger(elapsedSeconds)
+    && elapsedSeconds >= 1 && elapsedSeconds <= HEARTBEAT_MAX_SECONDS;
+}
+function heartbeat(identity, elapsedSeconds) {
+  if (!validIdentity(identity) || !heartbeatRecordOk(identity, elapsedSeconds)) throw new Error('invalid-ci-heartbeat');
+  fs.writeSync(1, JSON.stringify({ type: 'ci-suite-heartbeat', identity, elapsedSeconds }) + '\n');
+}
 function categoryFor(error, stderrFile) {
   if (error.signal) return 'signal-terminated';
   if (error.status == null) return 'spawn-failed';
@@ -194,4 +209,5 @@ if (require.main === module) {
   try { process.exitCode = main(process.argv); }
   catch { fs.writeSync(2, 'CI output capture failed.\n'); process.exitCode = 1; }
 }
-module.exports = { publicMode, suiteIdentity, startSuite, runCaptured, publish, main, failedSubtestNames };
+module.exports = { publicMode, suiteIdentity, startSuite, heartbeat, HEARTBEAT_MAX_SECONDS,
+  runCaptured, publish, main, failedSubtestNames };

@@ -13,6 +13,7 @@
   ["an undecodable session cookie is no session, not a 500 (A17)","test-malformed-session-cookie.js"],
   ["public CI output and synthetic privacy canaries","test-ci-output.js"],
   ["public CI names failing subtests only, never their output","test-ci-failing-subtest-names.js"],
+  ["Public CI heartbeat: while a long suite runs, the pooled runner writes a content-free record (suite identity and whole seconds only); the records sink accepts it only for the running suite with increasing seconds and drops every other field; the standard shard job times out at 45 minutes","test-ci-suite-heartbeat.js"],
   ["assistant packet lists held current-period rows, closed fields only","test-assistant-held-transactions.js"],
   ["dev preview binds 127.0.0.1 and stages invented data only","test-preview-localhost-synthetic.js"],
   ["serial runner, complete CI partition and aggregation contracts","test-ci-split.js"],

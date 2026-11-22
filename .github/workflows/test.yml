@@ -51,6 +51,9 @@ jobs:
   standard-shard:
     name: standard shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
+    # A truly hung shard fails on its own, with a reason, instead of waiting
+    # for a hand cancel. The slowest shard takes about 17 minutes.
+    timeout-minutes: 45
     strategy:
       # Every shard runs to completion, so one red shard never hides another.
       fail-fast: false
