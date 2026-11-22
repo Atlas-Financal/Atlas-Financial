@@ -42,7 +42,7 @@ const read = items => ({ status: 'read', read: { unexpectedPaginationEvidence: f
 function serve(recurringItems, { replay = false } = {}) {
   const w = H.baseWorld('2026-10-14');
   w.bills = [{ ...BILL }];
-  w.identityRules = w.identityRules.concat([{ eventId: 'band', lunchMoneyRecurringIds: [ID], atlasAccountId: 'chequing-a',
+  w.identityRules = w.identityRules.concat([{ eventId: 'band', linkedFrom: '2026-01-01', lunchMoneyRecurringIds: [ID], atlasAccountId: 'chequing-a',
     direction: 'debit', requiredCurrency: 'cad', requiredPostingEvidence: 'posted',
     postingDateRule: 'covers-early-or-due-on-or-before-posting' }]);
   w.transactions = [H.lm({ id: 659999, date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];

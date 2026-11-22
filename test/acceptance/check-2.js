@@ -20,6 +20,47 @@ function savingsWorld(H, savings = 1000) {
   return w;
 }
 
+const assert = require('node:assert/strict');
+
+async function readStackPool(p) {
+  const card = p.page.locator('#stack-root [data-stack-card="savings"]');
+  assert.equal(await card.count(), 1, 'one Savings card');
+  if (!await card.evaluate(node => node.open)) await card.locator('summary').click();
+  assert.ok(await card.locator('.sc-list').isVisible(), 'the Savings roster is open');
+  return card.evaluate(node => {
+    const ctx = window.StackBlocks.context();
+    const period = ctx.recommendation.payPeriodViews.find(v => v.start === ctx.selectedPeriodKey);
+    if (period?.role !== 'active') throw new Error('expected the current pay period');
+    const { items, totals } = period.stackSummary.savings;
+    return {
+      heading: node.querySelector('summary .sc-f')?.textContent,
+      rows: Array.from(node.querySelectorAll('li'), item =>
+        [item.querySelector('.sc-n')?.textContent, item.querySelector('.sc-a')?.textContent]),
+      // Stack prints saved and needed. The observed balance and the original
+      // Still to fund figures are also pinned at their published precision.
+      totals: { balance: totals.balance, saved: totals.saved, needed: totals.needed, unallocated: totals.unallocated, trust: totals.trust },
+      shares: items.map(item => [item.label, item.saved, item.needed]),
+      gaps: ctx.recommendation.savingsFunding.rows.map(row => [row.label, row.stillToFund]),
+    };
+  });
+}
+
+const dollars = amount => '$' + amount.toLocaleString('en-CA', { maximumFractionDigits: 0 });
+const partlyFunded = [['Invented trip', 600, 600], ['Invented gift', 400, 600]];
+
+function assertShares(pool, expected, unallocated = 0) {
+  assert.deepEqual(pool.shares, expected, 'published shares and needs to the cent in priority order');
+  const rows = expected.map(([label, saved, needed]) =>
+    [label, saved === null ? '—' : dollars(saved) + ' / ' + dollars(needed)]);
+  if (unallocated > 0) rows.push(['Unallocated', dollars(unallocated)]);
+  assert.deepEqual(pool.rows, rows, 'the open card displays the expected roster and amounts');
+}
+
+function assertTotals(pool, expected) {
+  assert.deepEqual(pool.totals, expected, 'observed balance, allocated savings, needs and excess to the cent');
+  assert.equal(pool.heading, expected.saved === null ? '—' : dollars(expected.saved) + ' / ' + dollars(expected.needed));
+}
+
 const { runSavedTrustBrowserProof } = require('../browser-savings-saved-trust');
 
 const scenarios = [
@@ -29,10 +70,14 @@ const scenarios = [
     // Then Saved shows 600 for the trip and 400 for the gift.
     async run(H) {
       await H.withBudget(savingsWorld(H), async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.goal(s, 'Invented trip'), /\$600\.00\s*Saved/, 'first need is fully backed');
-        H.expectMatch(H.goal(s, 'Invented gift'), /\$400\.00\s*Saved/, 'second need gets the remaining 400');
-      });
+        assertShares(await readStackPool(p), partlyFunded);
+      }, { view: 'stack' });
+      const reversedDates = savingsWorld(H);
+      const [trip, gift] = reversedDates.commitments;
+      [trip.date, gift.date] = [gift.date, trip.date];
+      await H.withBudget(reversedDates, async p => {
+        assertShares(await readStackPool(p), [['Invented gift', 600, 600], ['Invented trip', 400, 600]]);
+      }, { view: 'stack' });
     },
   },
   {
@@ -40,10 +85,10 @@ const scenarios = [
     // Still to fund = max(U - A, 0): gift 600 - 400 = 200; trip 600 - 600 = 0.
     async run(H) {
       await H.withBudget(savingsWorld(H), async p => {
-        const s = await H.snap(p);
-        H.expectFigure(H.goal(s, 'Invented gift'), 'Still to fund', '$200.00', 'gift gap is 200');
-        H.expectFigure(H.goal(s, 'Invented trip'), 'Still to fund', '$0.00', 'trip gap is 0');
-      });
+        const pool = await readStackPool(p);
+        assertShares(pool, partlyFunded);
+        assert.deepEqual(pool.gaps, [['Invented trip', 0], ['Invented gift', 200]], 'the published gaps are zero and the later shortfall');
+      }, { view: 'stack' });
     },
   },
   {
@@ -51,9 +96,17 @@ const scenarios = [
     // B + deficit = E + sum(A) + unallocated: 1,000 = 600 + 400 + 0.
     async run(H) {
       await H.withBudget(savingsWorld(H), async p => {
-        const s = await H.snap(p);
-        H.expectIncludes(s.savings, 'Reported combined savings: $1,000.00', 'one pool, one observed balance');
-      });
+        const pool = await readStackPool(p);
+        assertTotals(pool, { balance: 1000, saved: 1000, needed: 1200, unallocated: 0, trust: 'calculated' });
+        assertShares(pool, partlyFunded);
+      }, { view: 'stack' });
+      // With more cash than the two needs, the card must account for the rest
+      // separately. A heading that merely echoes the bank balance fails here.
+      await H.withBudget(savingsWorld(H, 1273.19), async p => {
+        const pool = await readStackPool(p);
+        assertTotals(pool, { balance: 1273.19, saved: 1200, needed: 1200, unallocated: 73.19, trust: 'calculated' });
+        assertShares(pool, [['Invented trip', 600, 600], ['Invented gift', 600, 600]], 73.19);
+      }, { view: 'stack' });
     },
   },
   {
@@ -62,11 +115,11 @@ const scenarios = [
     // every still-to-fund equals its need (600, 600).
     async run(H) {
       await H.withBudget(savingsWorld(H, 0), async p => {
-        const s = await H.snap(p);
-        H.expectMatch(H.goal(s, 'Invented trip'), /\$0\.00\s*Saved/, 'verified zero is a real zero');
-        H.expectFigure(H.goal(s, 'Invented trip'), 'Still to fund', '$600.00', 'whole trip need remains');
-        H.expectFigure(H.goal(s, 'Invented gift'), 'Still to fund', '$600.00', 'whole gift need remains');
-      });
+        const pool = await readStackPool(p);
+        assertTotals(pool, { balance: 0, saved: 0, needed: 1200, unallocated: 0, trust: 'calculated' });
+        assertShares(pool, [['Invented trip', 0, 600], ['Invented gift', 0, 600]]);
+        assert.deepEqual(pool.gaps, [['Invented trip', 600], ['Invented gift', 600]], 'both full needs remain');
+      }, { view: 'stack' });
     },
   },
   {
@@ -74,15 +127,14 @@ const scenarios = [
     // Given no dated Savings observation at all. Missing is never zero.
     async run(H) {
       const w = savingsWorld(H);
-      w.accounts.find(a => a.id === 'savings').unobserved = true; // provider returns no Savings account
+      w.accounts.find(a => a.id === 'savings').unobserved = true;
       w.planPatch = plan => { delete plan.savingsPoolObservation; };
       await H.withBudget(w, async p => {
-        const s = await H.snap(p);
-        H.expect(H.goal(s, 'Invented trip'), 'positive control: the trip goal row is listed');
-        H.expectNoMatch(H.goal(s, 'Invented trip'), /\$0\.00\s*Saved/, 'missing balance must not read as zero saved');
-        H.expectFigure(H.goal(s, 'Invented trip'), 'Still to fund', '$600.00', 'missing balance must not produce a precise gap', true);
-        H.expectMatch(H.goal(s, 'Invented trip'), /Unavailable|Unknown/, 'the dependent figure is Unknown');
-      });
+        const pool = await readStackPool(p);
+        assertTotals(pool, { balance: null, saved: null, needed: null, unallocated: null, trust: 'unavailable' });
+        assertShares(pool, [['Invented trip', null, null], ['Invented gift', null, null]]);
+        assert.deepEqual(pool.gaps, [['Invented trip', null], ['Invented gift', null]], 'no gap is inferred from missing savings');
+      }, { view: 'stack' });
     },
   },
   {
@@ -178,12 +230,13 @@ const scenarios = [
     async run(H) {
       const w = savingsWorld(H);
       await H.withBudget([w, w], async p => {
-        const a = await H.snap(p);
+        const before = await readStackPool(p);
+        assertShares(before, partlyFunded);
+        assertTotals(before, { balance: 1000, saved: 1000, needed: 1200, unallocated: 0, trust: 'calculated' });
         await p.reload();
-        const b = await H.snap(p);
-        H.expect(JSON.stringify(a.goals) === JSON.stringify(b.goals), 'goal rows changed across a reload');
-        H.expectMatch(H.goal(b, 'Invented gift'), /\$400\.00\s*Saved/, 'shares unchanged after reload');
-      });
+        const after = await readStackPool(p);
+        assert.deepEqual(after, before, 'the same observation preserves the displayed roster and the published pool');
+      }, { view: 'stack' });
     },
   },
   {
