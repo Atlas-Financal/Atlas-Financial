@@ -6,9 +6,10 @@
  * authority). provider-observe's live fetch calls fetchRecurringItems once
  * per observation for the transaction window, and its sanitizer keeps only
  * reviewed items a transaction-identity rule names (lunchMoneyRecurringIds),
- * reduced to schedule fields. Nothing reads that block yet (S2 waits on
- * Grok Bot, rule 17). It is not wired to any server route, assistant/MCP
- * surface or scheduler.
+ * reduced to schedule fields. provider-observe's schedule review (S2) reads
+ * that block to lead each linked bill's schedule, and its amount review uses
+ * each item's amount for the served bill amount (owner, 2026-11-21). It is not
+ * wired to any server route, assistant/MCP surface or scheduler.
  *
  * Official contract — pinned from the Lunch Money v2.11.1 OpenAPI (the spec
  * the capability audit in PR #562 cites; operationId getAllRecurring):

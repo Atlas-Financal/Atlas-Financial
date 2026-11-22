@@ -127,13 +127,42 @@
       const seen = new Set();
       const postingIssues = [];
       let total = 0;
+      const replacedPending = tx => tx && tx.pending === true && typeof primitives.replacedPending === 'function' && primitives.replacedPending(tx) === true;
+      // The Stack's pending-inclusive Spent / Paid (stackCards) only: a flagged row whose partner, by Forecast's own pairing
+      // (pendingPostedPartner, the rows it matched one for one), is on this card, on the other side, with the pending side
+      // replaced, is that pair accounted for. Each such row's flag is counted here; the posted movement and the endpoint
+      // reconciliation keep every flag as before. Anything else fails closed.
+      const ownById = new Map(rows.filter(tx => tx && tx.id != null && (tx.atlasAccountId || tx.account) === id
+        && tx.accountRole === 'revolving-credit').map(tx => [String(tx.id), tx]));
+      const pairAccounted = tx => {
+        if (id === 'heloc' || typeof primitives.pendingPostedPartner !== 'function') return false;
+        const partnerId = primitives.pendingPostedPartner(tx);
+        const partner = partnerId == null ? null : ownById.get(String(partnerId));
+        // The partner must fall inside this period too ([start, through]); otherwise the pair is not accounted for here.
+        // Forecast's pairing key includes the date, so a pair shares one date today; the guard keeps failing closed if
+        // the key ever changes.
+        if (!partner || !date(partner.date) || partner.date < start || !through || partner.date > through
+          || (partner.pending === true) === (tx.pending === true) || partner.pendingPostedAmbiguous === true
+          || partner.contradictoryEvidence === true || String(primitives.pendingPostedPartner(partner)) !== String(tx.id)) return false;
+        return replacedPending(tx.pending === true ? tx : partner);
+      };
+      let pairRelief = 0;
       for (const tx of rows) {
         if (!tx || (tx.atlasAccountId || tx.account) !== id
           || tx.accountRole !== (id === 'heloc' ? 'heloc' : 'revolving-credit')) continue;
         if (!date(tx.date)) { issues.push('transaction-date-unqualified'); continue; }
         if (tx.date < start || tx.date > through) continue;
-        if (tx.pendingPostedAmbiguous === true || tx.pendingPostedDuplicate === true || tx.contradictoryEvidence === true)
+        // A pending row Forecast's one pending/posted pairing calls replaced by its posted twin (the household budget's rule,
+        // `replacedPending`) is that same charge: it is never counted, and its posted twin counts once (Dale, 2026-11-22: "when
+        // the actual charge comes in, I don't want to have that doubled up"). Every flag still withholds the posted movement
+        // and the endpoint reconciliation, exactly as before; a pair Forecast itself matched is relieved for the Stack's
+        // Spent / Paid only (pairRelief, below).
+        const replaced = replacedPending(tx);
+        if (tx.pendingPostedAmbiguous === true || tx.pendingPostedDuplicate === true || tx.contradictoryEvidence === true) {
           issues.push('transaction-evidence-unconfirmed');
+          if (tx.pendingPostedDuplicate === true && tx.pendingPostedAmbiguous !== true && tx.contradictoryEvidence !== true
+            && pairAccounted(tx)) pairRelief += 1;
+        }
         if (tx.isGroup === true) {
           if (skipParent(tx, packet)) continue;
           issues.push('parent-coverage-unqualified');
@@ -161,7 +190,7 @@
           ...(DisplayName && DisplayName.itemName(tx) ? { displayName: DisplayName.itemName(tx) } : {}),
           amount: value == null ? null : value / 100, magnitude: value == null ? null : Math.abs(value) / 100,
           direction: value == null ? null : value > 0 ? 'up' : value < 0 ? 'down' : 'flat',
-          kind, pending: tx.pending === true };
+          kind, pending: tx.pending === true, ...(replaced ? { replacedByPosted: true } : {}) };
         const allocation = paymentAllocations?.get(tx.coverageRef);
         if (id !== 'heloc' && (allocation || kind === 'payment' || kind === 'credit-unconfirmed')) {
           // Diagnostic proof is local to these exact legs. Unknown legacy
@@ -234,6 +263,18 @@
             gaps.push('transaction-identity-unqualified');
           refs.add(tx.coverageRef);
         }
+        // The Stack's own gate: the posted movement's gaps less exactly the flags of pairs Forecast matched (each such flag
+        // pushed one 'transaction-evidence-unconfirmed' above). Published only when a pair was relieved, so every other card
+        // is unchanged; stackCards reads it in place of the posted movement's verdict.
+        if (pairRelief > 0) {
+          const stackGaps = gaps.slice();
+          for (let n = 0; n < pairRelief; n++) {
+            const at = stackGaps.indexOf('transaction-evidence-unconfirmed');
+            if (at < 0) { stackGaps.push('transaction-evidence-unconfirmed'); break; }
+            stackGaps.splice(at, 1);
+          }
+          card.stackPendingGaps = [...new Set(stackGaps)];
+        }
         card.postedMovement = gaps.length ? { amount: null, magnitude: null, direction: null,
           trust: 'unavailable', completeness: 'unavailable', reasons: [...new Set(gaps)] }
           : { amount: total / 100, magnitude: Math.abs(total) / 100,
@@ -271,11 +312,12 @@
   }
   // Stack Wallet A6 (lead dispatch, 2026-11-19): per card, in one pay period,
   // how much was paid onto the card against how much was spent on it. A pure
-  // reading of one publish() result: posted rows only (the card ledger is
-  // posted-only), the same kinds publish() assigns, no amount or date
-  // heuristic. A figure that cannot be stated is null with a reason, never 0.
-  // Each figure carries a trust word: 'calculated', 'estimated' (a payment
-  // whose source the card ledger has not reconciled), or 'unavailable'.
+  // reading of one publish() result: posted rows plus the pending rows not
+  // replaced by a posted twin (Dale, 2026-11-22), the same kinds publish()
+  // assigns, no amount or date heuristic. A figure that cannot be stated is
+  // null with a reason, never 0. Each figure carries a trust word:
+  // 'calculated', 'estimated' (a payment whose source the card ledger has not
+  // reconciled, or any figure a pending row adds to), or 'unavailable'.
   const STACK_TRUST_ORDER = ['calculated', 'estimated', 'unavailable'];
   // An unrecognised trust word is the weakest there is ('unavailable'), never silently dropped from the comparison.
   const weakest = (...words) => STACK_TRUST_ORDER[Math.max(...words.map(w => (STACK_TRUST_ORDER.includes(w) ? STACK_TRUST_ORDER.indexOf(w) : STACK_TRUST_ORDER.length - 1)))];
@@ -283,7 +325,12 @@
   // estimated. 'unavailable' (or any other word) is not covered.
   const COVERED_TRUST = ['calculated', 'verified', 'estimated'];
   const coveredOn = line => line.minimumCovered.value === true && COVERED_TRUST.includes(line.minimumCovered.trust);
+  // The published card summary leaves out the internal posted-only paid (paidPosted), so its shape is unchanged.
   function stackCards(publication) {
+    const cards = stackCardFigures(publication);
+    return cards && cards.map(({ paidPosted, ...card }) => card);
+  }
+  function stackCardFigures(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
       && publication.currency === 'CAD' && Array.isArray(publication.cards) ? publication : null;
     if (!pub) return null;
@@ -291,44 +338,69 @@
       ? { amount: null, trust: 'unavailable', reasons: [...new Set(reasons)] }
       : { amount, trust, reasons: [...new Set(reasons)] };
     return pub.cards.filter(card => card && card.id !== 'heloc').map(card => {
-      const rows = (Array.isArray(card.posted) ? card.posted : []).map(row => ({ ...row, pending: false }))
-        .concat((Array.isArray(card.pending) ? card.pending : []).map(row => ({ ...row, pending: true })));
-      const transactions = rows.map(row => ({ date: row.date, name: row.displayName || row.payee,
+      // Pending rows count (Dale, 2026-11-22: "we know the actual charge is coming ... it can count towards the spend"), each
+      // exactly as the same row would if posted, except one Forecast's pairing calls replaced by its posted twin: that is the
+      // same charge, so it is not counted and the posted twin counts once ("I don't want to have that doubled up"). Like the
+      // household budget's pairing, no row is dropped from view: a replaced pending row is still listed.
+      const allPending = (Array.isArray(card.pending) ? card.pending : []).map(row => ({ ...row, pending: true }));
+      const posted = (Array.isArray(card.posted) ? card.posted : []).map(row => ({ ...row, pending: false }));
+      const rows = posted.concat(allPending.filter(row => row.replacedByPosted !== true));
+      const transactions = posted.concat(allPending).map(row => ({ date: row.date, name: row.displayName || row.payee,
         amount: row.amount, kind: row.kind, payment: row.kind === 'payment', pending: row.pending }))
         .sort((a, b) => a.date.localeCompare(b.date) || (a.pending === b.pending ? 0 : a.pending ? 1 : -1));
       const movement = card.postedMovement;
-      const gaps = movement && movement.trust === 'calculated' && movement.completeness === 'complete'
+      // A card whose only withheld evidence is a pending/posted pair Forecast matched reads the Stack's own gate (publish).
+      const gaps = Array.isArray(card.stackPendingGaps) ? card.stackPendingGaps
+        : movement && movement.trust === 'calculated' && movement.completeness === 'complete'
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
-      let paidCents = 0, spentCents = 0;
-      const paidReasons = [], spentReasons = [];
-      let paidTrust = 'calculated';
-      for (const row of card.posted || []) {
+      let paidCents = 0, spentCents = 0, postedPaidCents = 0;
+      const paidReasons = [], spentReasons = [], postedPaidReasons = [];
+      let paidTrust = 'calculated', spentTrust = 'calculated', postedPaidTrust = 'calculated';
+      for (const row of rows) {
         const value = typeof row.amount === 'number' && Number.isFinite(row.amount) ? Math.round(row.amount * 100) : null;
-        if (value == null) { paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified'); continue; }
+        // A figure a pending row adds to is an estimate until the row posts: never calculated.
+        if (row.pending && value != null) {
+          if (row.kind === 'payment') { paidTrust = 'estimated'; paidReasons.push('includes-pending'); }
+          else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') { spentTrust = 'estimated'; spentReasons.push('includes-pending'); }
+        }
+        if (value == null) {
+          paidReasons.push('transaction-amount-unqualified'); spentReasons.push('transaction-amount-unqualified');
+          // The posted-only paid reads posted rows only: a pending row's problem never withholds it.
+          if (!row.pending) postedPaidReasons.push('transaction-amount-unqualified');
+          continue;
+        }
         if (row.kind === 'payment') {
           paidCents += -value;
           // A payment the card ledger has not reconciled (or carries no
           // allocation at all) is estimated; only a reconciled one is calculated.
           if (!row.paymentAllocation || row.paymentAllocation.status !== 'reconciled') {
             paidTrust = 'estimated'; paidReasons.push('card-payment-unconfirmed');
+            if (!row.pending) { postedPaidTrust = 'estimated'; postedPaidReasons.push('card-payment-unconfirmed'); }
           }
+          if (!row.pending) postedPaidCents += -value;
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
         else if (row.kind === 'credit-unconfirmed') {
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
+          if (!row.pending) postedPaidReasons.push('card-credit-purpose-unconfirmed');
         } else spentReasons.push('card-movement-unconfirmed');
       }
-      const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed');
+      const blocked = reasons => gaps.length || reasons.some(r => r !== 'card-payment-unconfirmed' && r !== 'includes-pending');
       const paid = blocked(paidReasons) ? figure(null, null, gaps.concat(paidReasons))
         : figure(paidCents / 100, paidTrust, paidReasons);
+      // Paid from posted payments only (lead ruling, ATLAS LEAD 12, 2026-11-22): a pending payment can fail or reverse, so
+      // it counts in Paid (estimated) but never, by itself, makes a minimum covered or counts toward the minimums paid.
+      // Internal to this module: stackCreditLines reads it; neither stackCards nor a Credit line publishes it.
+      const paidPosted = blocked(postedPaidReasons) ? figure(null, null, gaps.concat(postedPaidReasons))
+        : figure(postedPaidCents / 100, postedPaidTrust, postedPaidReasons);
       const spent = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
-        : figure(spentCents / 100, 'calculated', spentReasons);
+        : figure(spentCents / 100, spentTrust, spentReasons);
       const net = paid.amount == null || spent.amount == null
         ? figure(null, null, paid.reasons.concat(spent.reasons))
         : figure((paidCents - spentCents) / 100, weakest(paid.trust, spent.trust), paid.reasons.concat(spent.reasons));
       const state = net.amount == null ? null
-        : !(card.posted || []).length ? 'no-activity'
+        : !rows.length ? 'no-activity'
         : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
-      return { id: card.id, label: card.label, paid, spent, net, state,
+      return { id: card.id, label: card.label, paid, paidPosted, spent, net, state,
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
     });
   }
@@ -385,7 +457,8 @@
   }
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
   function stackCreditLines(publication, bills) {
-    const cards = stackCards(publication);
+    // paidPosted is read here (paid toward the minimum, minimumsPaid, the covered check) and never published on a line.
+    const cards = stackCardFigures(publication);
     if (!cards) return null;
     const future = publication.role === 'future';
     const split = bills && Array.isArray(bills.cardMinimums) ? bills : null;
@@ -423,9 +496,11 @@
     const withheldPaid = reasons => ({ amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(reasons) });
     const paidTowardOf = (card, pubCard) => {
       if (card.id !== 'heloc') {
-        if (card.paid.amount !== null) return { amount: card.paid.amount, trust: card.paid.trust, reasons: card.paid.reasons.slice() };
+        // Posted payments only: a pending payment never counts toward the minimums (lead ruling, 2026-11-22).
+        const posted = card.paidPosted || card.paid;
+        if (posted.amount !== null) return { amount: posted.amount, trust: posted.trust, reasons: posted.reasons.slice() };
         const manual = !!(pubCard && pubCard.manualStatement === true);
-        return future || (publication.role === 'current' && manual) ? countedZero(card.paid.reasons) : withheldPaid(card.paid.reasons);
+        return future || (publication.role === 'current' && manual) ? countedZero(posted.reasons) : withheldPaid(posted.reasons);
       }
       if (future) return countedZero(['future-not-observed']);
       if (publication.role !== 'current') return withheldPaid(['not-current-period']);
@@ -460,12 +535,15 @@
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
       const paidToward = paidTowardOf(card, published(card.id));
-      const covered = paid.amount === null || minimum.amount === null ? 'unknown'
-        : cents(paid.amount) >= cents(minimum.amount);
-      return { ...card, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
+      const paidForMinimum = card.paidPosted || paid;
+      const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
+        : cents(paidForMinimum.amount) >= cents(minimum.amount);
+      const { paidPosted, ...shown } = card;
+      return { ...shown, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
-          trust: covered === 'unknown' ? 'unavailable' : weakest(paid.trust, minimum.trust),
-          reasons: covered === 'unknown' ? [...new Set(paid.reasons.concat(minimum.reasons))] : [] } };
+          trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
+          reasons: covered === 'unknown' ? [...new Set(paidForMinimum.reasons.concat(minimum.reasons))] : [] } };
     });
     // Totals over the stated cards only (lead ruling, 2026-11-19): a partial
     // sum is incomplete, not an estimate, so its completeness is explicit and
@@ -482,16 +560,19 @@
         trust: weakest(...stated.flatMap(line => [line.paid.trust, line.spent.trust])),
         completeness: excluded.length ? 'partial' : 'complete', excluded,
         reasons: excluded.length ? ['some-cards-unavailable'] : [] };
-    // The minimums due, over exactly the spend cards the paid total is over (HELOC excluded: its minimum is part of the
-    // period's Credit line in the waterfall, a different figure by membership). minimumsDue is the sum of those cards'
-    // published minimum amounts, withheld (amount null) when any card's minimum is withheld for a reason other than
-    // no-minimum-due-in-period, never a partial sum. The counts say how many cards have a minimum due and how many of those
+    // The minimums due, over every listed credit line, the HELOC included: one membership for "Credit" (lead ruling,
+    // ATLAS LEAD 12, 2026-11-22, on Dale's walk of the Stack page). Each line's minimum is its rows of the period's bills
+    // split (stackSummary.bills.cardMinimums), the same rows the waterfall's Credit line sums (stackSurplus terms.credit),
+    // so the Credit head's due and the waterfall's Credit are one figure. minimumsDue is the sum of those lines' published
+    // minimum amounts, withheld (amount null) when any line's minimum is withheld for a reason other than
+    // no-minimum-due-in-period, never a partial sum. The counts say how many lines have a minimum due and how many of those
     // are published covered (minimumCovered.value === true), so a bar of covered over due is full only when every due
-    // minimum is covered; they are null when the minimums are withheld. Trust is the weakest input, as for the other totals.
+    // minimum is covered (a HELOC's coverage is not published, so it never counts covered); they are null when the minimums
+    // are withheld. Trust is the weakest input, as for the other totals.
     const minimumOff = line => line.minimum.amount === null && !line.minimum.reasons.includes('no-minimum-due-in-period');
-    const withheldMins = spendLines.filter(minimumOff);
+    const withheldMins = lines.filter(minimumOff);
     // A published $0 minimum is nothing owed: it is not due, so it is out of the sum and both counts.
-    const dueLines = spendLines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
+    const dueLines = lines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
     if (withheldMins.length) {
       totals.minimumsDue = { amount: null, trust: 'unavailable',
         reasons: [...new Set(withheldMins.flatMap(line => line.minimum.reasons))] };
@@ -502,7 +583,8 @@
     } else {
       totals.minimumsDue = { amount: dueLines.reduce((sum, line) => sum + cents(line.minimum.amount), 0) / 100,
         trust: dueLines.length ? weakest(...dueLines.map(line => line.minimum.trust)) : splitTrust, reasons: [] };
-      // The paid side of the Credit head: the sum of each due spend card's paidToward (the figure its row prints, one rule),
+      // The paid side of the Credit head: the sum of each due line's paidToward, the HELOC's included (the figure its row
+      // prints, one rule; the HELOC's is never more certain than estimated, and withheld when its observation has a gap),
       // uncapped (an overpaid card counts its full paid). A $0 when nothing was paid; withheld (null, unavailable, with its
       // reasons) when any due card's paidToward is withheld, never a partial sum. Trust is the weakest of the figures.
       const unseen = dueLines.filter(line => line.paidToward.amount === null);

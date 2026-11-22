@@ -2951,7 +2951,7 @@ function cardMinimumNeedsConfirmation(plan, eventId, accountMap) {
 // exact-scheduled-amount, two-leg-sum, schedule trust) keep them, and an
 // occurrence with no positive scheduled amount has nothing to compare.
 const BILL_IDENTITY_AMOUNT_SHARE = 1.5;
-function billDebitAmountConsistent(rule, amount, scheduledAmount) {
+function billDebitAmountConsistent(rule, amount, scheduledAmount, tx, date) {
   if (!rule || rule.direction !== 'debit' || rule.settlesWhen || rule.transactionKind === 'transfer') return true;
   const need = Math.abs(Number(scheduledAmount));
   if (!(Number.isFinite(need) && need > 0)) return true;
@@ -2992,7 +2992,7 @@ function collectIdentityHits(tx, input, rules) {
           continue;
         }
       }
-      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
+      if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount, tx, scheduledDate)) continue;
       if (rule.transactionKind === 'transfer') {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
@@ -3475,7 +3475,7 @@ function lmMatchedCardMinimum(tx, rule) {
 //     debit rule only). A credit rule's paired receipt settles at its actual
 //     amount: Lunch Money paired it, and Forecast publishes the represented
 //     actual, so no scheduled-amount guard is asked (Q1, lead 2026-11-18).
-function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow) {
+function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, rawRecurring, txWindow, recurringSchedules = []) {
   for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_MATCHED.delete(tx);
   const rules = (identityRules || []).filter(rule => rule && rule.settlementFrom === SETTLEMENT_FROM_LM_MATCHED
     && rule.eventId && (rule.direction === 'debit' || rule.direction === 'credit')
@@ -3531,6 +3531,12 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
     const pairs = foundTx.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))
       || String(a.providerTransactionId).localeCompare(String(b.providerTransactionId)))
       .map((tx, i) => ({ tx, date: matched[i] }));
+    // A recorded opening proves an occurrence was already paid; it does not
+    // identify the receipt or store its actual (representedEvents carries the
+    // bill, the date and effectiveAsOf only). So no pair is exempt from the
+    // amount check: an opening keeps its occurrence settled, while a pair that
+    // fails the served-price check supplies no actual (#1510 review
+    // 7073788253, blockers 1 and 2: one contract on both matching paths).
     const consistent = pairs.every(({ tx, date }) => {
       const occ = scheduledOccurrence(plan, rule.eventId, date);
       return occ.length === 1 && (rule.direction === 'credit'
@@ -3620,7 +3626,7 @@ function representedEventHitGroups(input) {
             continue;
           }
         }
-        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount)) continue;
+        if (!billDebitAmountConsistent(rule, amount, scheduled[0].amount, tx, scheduledDate)) continue;
         if (rule.transactionKind === 'transfer') {
           const counterpartCount = countTransferCounterparts(tx, rule, input, amount,
             diagnostic?.forDate(tx.date)?.forOccurrence(rule.eventId, scheduledDate));
@@ -3684,16 +3690,16 @@ function representedEventHitGroups(input) {
     list.push(inherited);
     eventHits.set(key, list);
   }
-  const spotifyEvidence = soleOwnerConfirmedSpotifyTransaction(
-    input.transactions, input.accountMap
-  );
   for (const hit of scheduleTrustCandidates(input)) {
     if (cardMinimumNeedsConfirmation(input.plan, hit.id, input.accountMap)) continue;
     const key = hit.id + '@' + hit.date;
     if (eventHits.has(key)) continue;
-    if (spotifyEvidence && hit.id === 'spotify' && hit.date === '2026-09-23') {
-      hit.providerTransactionId = spotifyEvidence.providerTransactionId;
-      hit.postingDate = spotifyEvidence.date || hit.postingDate;
+    if (hit.id === 'spotify' && hit.date === '2026-09-23') {
+      const evidence = soleOwnerConfirmedSpotifyTransaction(input.transactions, input.accountMap);
+      if (evidence) {
+        hit.providerTransactionId = evidence.providerTransactionId;
+        hit.postingDate = evidence.date || hit.postingDate;
+      }
     }
     eventHits.set(key, [hit]);
   }
@@ -4065,9 +4071,7 @@ function futureIncomeUncertainty(input, represented, ambiguous) {
 
 function sanitizedEvidenceFingerprint(providerTransactionId) {
   if (providerTransactionId == null || providerTransactionId === '') return null;
-  return crypto.createHash('sha256')
-    .update('atlas-evidence:lunchmoney:tx:' + String(providerTransactionId))
-    .digest('hex');
+  return crypto.hash('sha256', 'atlas-evidence:lunchmoney:tx:' + String(providerTransactionId));
 }
 
 function emptyReconciliationCounts() {
@@ -4276,7 +4280,7 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
     // Forecast is the classification authority. Stamp the CAN TIRE MC
     // card-payment identity here the same way the sanitized overlay does,
     // because this path does not pass merchant text into the classifier.
-    const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({
+    const flags = Forecast.classifyCurrentPeriodTransaction.derivedCardFlags({
       payee: tx.payee,
       original_name: tx.originalName,
       originalName: tx.originalName,
@@ -4292,7 +4296,7 @@ function unmatchedHouseholdCash(report, opts, consumedTxIds) {
       categoryLabel: tx.categoryLabel,
       categoryId: tx.categoryId,
       recurringId: tx.recurringId,
-    }, plan);
+    });
     const cls = Forecast.classifyCurrentPeriodTransaction({
       date: tx.date,
       amount,
@@ -4805,8 +4809,10 @@ function observeCore(input, capture) {
   }
   if (recurringSchedules.some(schedule => schedule.billId) && input.data && input.data.plan && Array.isArray(input.data.plan.bills)) {
     const byBill = new Map(recurringSchedules.filter(schedule => schedule.billId).map(schedule => [schedule.billId, schedule]));
-    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill =>
-      bill && byBill.has(bill.id) ? applyRecurringSchedule(bill, byBill.get(bill.id)) : bill) } } };
+    input = { ...input, data: { ...input.data, plan: { ...input.data.plan, bills: input.data.plan.bills.map(bill => {
+      const schedule = bill && byBill.get(bill.id);
+      return schedule ? applyRecurringAmount(applyRecurringSchedule(bill, schedule), schedule) : bill;
+    }) } } };
   }
   const mapped = [];
   const unmapped = [];
@@ -4918,7 +4924,7 @@ function observeCore(input, capture) {
     debts: (input.data && input.data.debts) || [],
   });
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
-    input.payload && input.payload.recurringItems, normalized.transactionWindow);
+    input.payload && input.payload.recurringItems, normalized.transactionWindow, recurringSchedules);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
@@ -6470,8 +6476,7 @@ function cardCoverageReference(tx) {
   if (!tx || !tx.providerAccountId || !tx.providerTransactionId) return null;
   const native = plaidPendingTransactionIdOf(tx) || plaidTransactionIdOf(tx);
   const source = native ? 'plaid:' + native : 'lunchmoney:' + tx.providerTransactionId;
-  return 'pc-' + require('crypto').createHash('sha256')
-    .update('atlas-card-coverage/v1|' + tx.providerAccountId + '|' + source).digest('hex').slice(0, 24);
+  return 'pc-' + crypto.hash('sha256', 'atlas-card-coverage/v1|' + tx.providerAccountId + '|' + source).slice(0, 24);
 }
 
 // Reviewed Lunch Money recurring items (owner, #821 6956651970), reduced to
@@ -6682,6 +6687,30 @@ function recurringItemTiming(item) {
 // Apply a schedule to one bill row (served plan only): its timing fields are
 // replaced by the schedule's, and its date tag becomes confirmed. Amount,
 // firstDue and the amount tag stay the plan's.
+// Amounts from Lunch Money (owner, Dale 2026-11-21: Lunch Money is where he manages his bills, amounts included). A
+// linked bill's served amount is its reviewed item's amount when that is a positive whole-cent CAD amount; the
+// plan's amount stands otherwise, with a closed reason. Served plan only (data.json is never written); settled and
+// represented occurrences keep their own amounts; the amount tag stays the plan's (no promotion). Card and
+// obligation rows never take an item amount (CardMinimumContract owns them); excluded bills keep the plan's.
+const RECURRING_AMOUNT_EXCLUDED_BILL_IDS = Object.freeze(new Set([
+  'bell', // Owner (Dale 2026-11-21): 160 a month arrives as two payments; its item covers one line only.
+]));
+function recurringBillAmount(item, bill, amounts) {
+  if (RECURRING_AMOUNT_EXCLUDED_BILL_IDS.has(bill.id)) return { reason: 'amount-excluded' };
+  if (bill.amountSchedule !== undefined) return { reason: 'amount-schedule-present' };
+  if (item.currency !== 'cad') return { reason: 'amount-currency' };
+  const value = amounts instanceof Map ? amounts.get(item.recurringId) : null;
+  const cents = typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
+  if (cents == null || !(cents > 0) || Math.abs(cents - value * 100) > 1e-6) return { reason: 'amount-unavailable' };
+  return { amount: cents / 100 };
+}
+// The served amount is applied separately (applyRecurringAmount), after the live overlay's owner-policy guard, as
+// Lunch Money budget targets are: the guard checks the overlay against the canonical plan, not this derived input.
+function applyRecurringAmount(bill, schedule) {
+  if (!bill || !schedule || schedule.billId !== bill.id) return bill;
+  if (!(typeof schedule.amount === 'number' && Number.isFinite(schedule.amount) && schedule.amount > 0)) return bill;
+  return { ...bill, amount: schedule.amount };
+}
 function applyRecurringSchedule(bill, schedule) {
   const out = { ...bill };
   for (const field of RECURRING_TIMING_FIELDS) delete out[field];
@@ -6776,7 +6805,9 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       timing.timingBefore = { from: linkedFrom, ...before,
         dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     }
-    out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
+    const amount = recurringBillAmount(item, bill, opts && opts.amounts);
+    out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
+      ...(amount.amount != null ? { amount: amount.amount } : { amountReason: amount.reason }) });
   }
   return done(out);
 }
@@ -7103,14 +7134,14 @@ function cardMinimumOwnership(plan, evidence, asOf) {
   const sets = owned.status === 'available' ? {
     owned: new Set(owned.debitIds), unknown: new Set(owned.unknownDebitIds || []),
     disagreed: new Set(owned.disagreementDebitIds || []) } : null;
+  const hasMarks = sets && (sets.owned.size || sets.unknown.size || sets.disagreed.size);
   return {
     status: owned.status === 'available' ? 'available' : 'unavailable',
     unreadable: (owned.unreadable || []).map(item => ({ label: item.label || null, what: item.what })),
     // 'owned' | 'unknown' | 'disagreement' | null for one provider transaction id.
     mark(providerTransactionId) {
-      if (!sets || providerTransactionId == null || providerTransactionId === '') return null;
-      const id = require('crypto').createHash('sha256')
-        .update(MinimumCategory.SOURCE + ':' + providerTransactionId).digest('hex');
+      if (!hasMarks || providerTransactionId == null || providerTransactionId === '') return null;
+      const id = crypto.hash('sha256', MinimumCategory.SOURCE + ':' + providerTransactionId);
       return sets.owned.has(id) ? 'owned' : sets.unknown.has(id) ? 'unknown'
         : sets.disagreed.has(id) ? 'disagreement' : null;
     },
@@ -7791,7 +7822,8 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     for (const link of own) refs.add(link.ref);
     linkedChargeRefs.set(key, refs);
   }
-  for (const row of txs) {
+  for (let index = 0; index < txs.length; index++) {
+    let row = txs[index];
     if (!row) continue;
     const cls = Forecast.classifyCurrentPeriodTransaction(row, opts.plan, {
       packet: classifyPacket,
@@ -7846,9 +7878,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     // Other spending before, so it keeps the same identity fields).
     if (!Forecast.classifyCurrentPeriodTransaction.householdBudgetSupportingSpendEligible(cls)
         && cls.kind !== 'savings-paid' && cls.kind !== 'held-outflow') {
-      delete row.displayedPayee;
-      delete row.originalMerchant;
-      delete row.displayedNote;
+      // Build the public shape directly. Deleting interior properties leaves
+      // dictionary-mode rows for every subsequent validation and Forecast read.
+      const { displayedPayee, originalMerchant, displayedNote, ...redacted } = row;
+      txs[index] = redacted;
+      row = redacted;
     }
     delete row.bankDescription;
     // Only a refund Forecast links to one named household category (#1234), the only refund the page lists
@@ -8339,6 +8373,8 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  RECURRING_AMOUNT_EXCLUDED_BILL_IDS,
+  applyRecurringAmount,
   recurringBillScheduleReview,
   derivedAmountFixedBills,
   billPaymentHistory,

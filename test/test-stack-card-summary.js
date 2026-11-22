@@ -9,10 +9,10 @@
  * Path: the invented card week (test/fixtures/card-posted-period-movement-data.js) -> Forecast.cardPeriodMovements (the
  * page's own call, with the applied overlay) -> Forecast.stackCardSummary.
  *
- * Invented week, 2026-08-14..08-20 (as of 08-20). By hand, posted rows only:
+ * Invented week, 2026-08-14..08-20 (as of 08-20). By hand, posted rows plus the pending rows (Dale, 2026-11-22):
  *   Travel:   charges 172.40 + 63.75, interest 6.25, refund -35.00, payment -100.00 (source not reconciled), and a
- *             pending 28.60 charge. spent = 172.40 + 63.75 + 6.25 - 35.00 = 207.40; paid = 100.00 (estimated);
- *             net = 100.00 - 207.40 = -107.40, behind.
+ *             pending 28.60 charge. spent = 172.40 + 63.75 + 6.25 - 35.00 + 28.60 = 236.00 (estimated: a pending row
+ *             adds to it); paid = 100.00 (estimated); net = 100.00 - 236.00 = -136.00, behind.
  *   Cash Back: charge 114.20, payment -250.00 (not reconciled). spent 114.20; paid 250.00 (estimated); net +135.80, ahead.
  *   Emerald:  no rows, with positive sync evidence: 0 / 0 / 0, calculated, no-activity.
  *   Triangle, Amazon Mastercard: manual cards with no positive sync evidence: null, unavailable, never 0.
@@ -39,8 +39,8 @@ console.log('1. Hand-derived figures on the invented week');
   const cards = summary(x);
   ok(same(cards.map(c => c.id), ['travelvisa', 'cashback', 'tdcc', 'triangle', 'mbna']), 'the five cards, HELOC excluded');
   const t = card(x, 'travelvisa');
-  ok(same([fig(t.paid), fig(t.spent), fig(t.net), t.state], [[100, 'estimated'], [207.4, 'calculated'], [-107.4, 'estimated'], 'behind']),
-    'Travel: paid 100.00 (estimated), spent 207.40, net -107.40, behind', JSON.stringify([t.paid, t.spent, t.net, t.state]));
+  ok(same([fig(t.paid), fig(t.spent), fig(t.net), t.state], [[100, 'estimated'], [236, 'estimated'], [-136, 'estimated'], 'behind']),
+    'Travel: paid 100.00 (estimated), spent 236.00 with the pending 28.60 (estimated), net -136.00, behind', JSON.stringify([t.paid, t.spent, t.net, t.state]));
   ok(same(t.paid.reasons, ['card-payment-unconfirmed']), 'Travel: the paid figure says why it is estimated');
   const c = card(x, 'cashback');
   ok(same([fig(c.paid), fig(c.spent), fig(c.net), c.state], [[250, 'estimated'], [114.2, 'calculated'], [135.8, 'estimated'], 'ahead']),
@@ -56,18 +56,22 @@ console.log('1. Hand-derived figures on the invented week');
   }
 }
 
-console.log('2. Independent identity: net is the opposite of the posted liability movement');
+console.log('2. Independent identity: net is the opposite of the posted liability movement plus the counted pending rows');
 {
   const x = fx.fixture(), pub = publish(x);
   for (const c of F.stackCardSummary(pub)) {
-    const movement = pub.cards.find(row => row.id === c.id).postedMovement;
+    const pubCard = pub.cards.find(row => row.id === c.id);
+    const movement = pubCard.postedMovement;
+    // The pending rows that count (Dale, 2026-11-22), summed from the publication's own rows, not from stackCards.
+    const pendingCents = (pubCard.pending || []).filter(row => row.replacedByPosted !== true)
+      .reduce((sum, row) => sum + Math.round(row.amount * 100), 0);
     if (c.net.amount === null) ok(movement.amount === null, c.id + ': net withheld exactly when the movement is');
-    else ok(Math.round(c.net.amount * 100) === -Math.round(movement.amount * 100), c.id + ': net = -(posted movement)',
-      JSON.stringify([c.net.amount, movement.amount]));
+    else ok(Math.round(c.net.amount * 100) === -(Math.round(movement.amount * 100) + pendingCents), c.id + ': net = -(posted movement + counted pending)',
+      JSON.stringify([c.net.amount, movement.amount, pendingCents / 100]));
   }
 }
 
-console.log('3. Pending rows are listed and move nothing');
+console.log('3. Pending rows are listed and count, as estimates (Dale, 2026-11-22)');
 {
   const x = fx.fixture(), t = card(x, 'travelvisa');
   const pend = t.transactions.filter(r => r.pending);
@@ -77,7 +81,8 @@ console.log('3. Pending rows are listed and move nothing');
   ok(t.transactions.every(r => typeof r.date === 'string' && typeof r.name === 'string' && 'amount' in r), 'rows carry date, name, amount');
   const y = copy(x); y.packet.transactions.find(r => r.pending).amount = 999;
   const t2 = card(y, 'travelvisa');
-  ok(same([t2.paid, t2.spent, t2.net, t2.state], [t.paid, t.spent, t.net, t.state]), 'changing the pending amount moves no figure');
+  ok(t2.spent.amount === 1206.4 && t2.spent.trust === 'estimated' && same([t2.paid, t2.state], [t.paid, t.state]),
+    'the pending amount counts in Spent like a posted charge (207.40 + 999.00), estimated; Paid is untouched', JSON.stringify(t2.spent));
 }
 
 console.log('4. Evidence gaps are null with reasons, per card');

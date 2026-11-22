@@ -34,6 +34,13 @@
     const cycle = savingsDate(window?.start) ? spendingCycle(plan, window.start) : null;
     const packet = currentPeriodActualsPacket(opts);
     const reconciliation = reconcileCardPurchases(packet?.transactions, { plan, debts, asOf, packet, paymentDiagnostics: true });
+    // The household budget's one pending/posted pairing (pendingPostedDuplicateIdSet): a pending row it calls a possible
+    // replacement of its posted twin is that same charge, so a card counts the posted side once (Dale, 2026-11-22). Its own
+    // exception carries through: a pending row the posting names as a distinct authorization (pendingEstimateIds) is a
+    // separate charge, counted as the household budget counts it (an estimate), never treated as replaced.
+    const pendingEstimateIds = new Set();
+    const pairs = new Map();
+    const duplicateIds = pendingPostedDuplicateIdSet(packet, pendingEstimateIds, pairs);
     return CardPeriodMovement.publish({ plan, debts, asOf, window, packet,
       paymentAllocations: reconciliation.paymentAllocations,
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
@@ -44,6 +51,9 @@
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
       // PA-4a-2a: the same strict evidence reading the reconciler used.
       coverageComplete: value => coverageEvidenceComplete(value, packet),
+      replacedPending: tx => isPossibleReplacementPending(tx, duplicateIds) && !(tx.id != null && pendingEstimateIds.has(String(tx.id))),
+      // The row this same pairing matched to tx one for one (its id), or null: never a second matcher.
+      pendingPostedPartner: tx => (tx && tx.id != null && pairs.get(String(tx.id))) || null,
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
         Object.assign({}, opts, { currentPeriodActuals: packet, useActuals: true })),
     });
@@ -1180,8 +1190,7 @@
       && Object.keys(value).every(key => allowed.includes(key));
   }
   function savingsDate(value) {
-    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
-      && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+    return typeof value === 'string' && realCalendarDate(value);
   }
   function savingsEarmarksEnabled(plan) {
     const block = plan && plan.savingsEarmarks;
@@ -3119,6 +3128,15 @@
     }
     const keys = new Set();
     if (!windows.length) return { keys, fromEvents };
+    // Both ways a calendar row can enter this hold set need an unlinked
+    // credit: an Other Income receipt or an expected-income settlement
+    // credit. If none exists the calendar cannot add a key. When one does
+    // exist, keep the original windows and the complete transaction packet.
+    if (typeof opts?.incomeOccurrenceAdjust !== 'function'
+        && !txs.some(tx => tx && (tx.accountRole === 'household-cash' || tx.accountRole === 'household-reserve')
+        && txInflowAmount(tx) > EPSILON && !(tx.id != null && linked.has(String(tx.id))))) {
+      return { keys, fromEvents };
+    }
     heldOtherIncomeDepth++;
     try {
       const sections = calendarIncomeSections(plan, start, windows, opts);
@@ -6970,12 +6988,25 @@
     return !/save-?on/i.test(txTextBlob(tx));
   }
 
+  // The flag stamp and the classifier each ask several independent merchant
+  // questions about one transaction. Reuse the last primitive input only
+  // during that synchronous call; a changed field is read and keyed afresh.
+  let merchantKeyMemo = null;
+  function withMerchantKeyMemo(evaluate, tx, plan, opts) {
+    if (merchantKeyMemo) return evaluate(tx, plan, opts);
+    merchantKeyMemo = {};
+    try { return evaluate(tx, plan, opts); }
+    finally { merchantKeyMemo = null; }
+  }
   function normalizeMerchantKey(value) {
-    return String(value == null ? '' : value)
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const text = String(value == null ? '' : value);
+    if (merchantKeyMemo && merchantKeyMemo.text === text) return merchantKeyMemo.key;
+    const key = text.toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+    if (merchantKeyMemo) {
+      merchantKeyMemo.text = text;
+      merchantKeyMemo.key = key;
+    }
+    return key;
   }
 
   function payeeLooksLikePets(tx) {
@@ -7008,7 +7039,9 @@
   // collapse to one transaction. Confirmed household spend counts the
   // posted side once; the still-visible pending stays recon/pending
   // exposure and is not a second confirmed spend.
-  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds) {
+  // `pairs` (optional): filled with the 1:1 pending/posted pairs this function finds, both directions (id -> partner id),
+  // so a consumer can read which rows it paired without a second matcher.
+  function pendingPostedDuplicateIdSet(packet, pendingEstimateIds, pairs) {
     const flagged = new Set();
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const pendingByKey = new Map();
@@ -7040,6 +7073,10 @@
       }
       for (const tx of pendings.concat(posted)) {
         if (tx && tx.id != null) flagged.add(String(tx.id));
+      }
+      if (pairs && pending.id != null && posting.id != null) {
+        pairs.set(String(pending.id), String(posting.id));
+        pairs.set(String(posting.id), String(pending.id));
       }
     }
     return flagged;
@@ -7634,6 +7671,25 @@
   // after the H1 label rule, so a Savings debit H1 sends to confirmation
   // (household spending) is still counted once.
   function classifyCurrentPeriodTransaction(tx, plan, opts) {
+    // Reprints of one observation classify the very same row repeatedly.
+    // The classifier reads the plan and these two packet options. Only index
+    // the original caller rows; synthetic adjusted rows take the ordinary path.
+    const scope = recommendationReads;
+    if (!scope || !tx || plan !== scope.plan || opts?.currentPeriodActuals !== scope.packet
+        || (opts.packet && opts.packet !== scope.packet) || !scope.classifications.has(tx)) {
+      return withMerchantKeyMemo(classifyTransaction, tx, plan, opts);
+    }
+    const known = scope.classifications.get(tx);
+    if (known) return { ...known };
+    const cls = withMerchantKeyMemo(classifyTransaction, tx, plan, opts);
+    // Keep independent return objects. A rare nested diagnostic can continue
+    // to build its fresh children on each call.
+    if (Object.values(cls).every(value => value == null || typeof value !== 'object')) {
+      scope.classifications.set(tx, { ...cls });
+    }
+    return cls;
+  }
+  function classifyTransaction(tx, plan, opts) {
     const cls = withMortgageDueNote(tx, plan, opts,
       merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts)));
     if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
@@ -12516,14 +12572,49 @@
     }
     return idCounts;
   }
+  // Ordinary server and Budget inputs are data. A custom callback or getter
+  // can change even an identically referenced packet in the middle of a walk.
+  // Check the caller's graph without invoking getters before reusing a ledger.
+  function plainRecommendationInputs(plan, asOf, opts) {
+    const pending = [plan, asOf, opts];
+    const seen = new Set();
+    while (pending.length) {
+      const value = pending.pop();
+      if (typeof value === 'function' || typeof value === 'symbol') return false;
+      if (!value || typeof value !== 'object' || seen.has(value)) continue;
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== null && proto !== Object.prototype && proto !== Array.prototype) return false;
+      seen.add(value);
+      for (const key of Reflect.ownKeys(value)) {
+        const desc = Object.getOwnPropertyDescriptor(value, key);
+        if (!desc || !Object.hasOwn(desc, 'value')) return false;
+        pending.push(desc.value);
+      }
+    }
+    return true;
+  }
+  let recommendationReads = null;
+  function openRecommendationReads(plan, asOf, opts) {
+    const packet = opts && Object.getOwnPropertyDescriptor(opts, 'currentPeriodActuals')?.value;
+    if (!packet || typeof structuredClone !== 'function' || !plainRecommendationInputs(plan, asOf, opts)
+        || !Array.isArray(packet.transactions)) return null;
+    const classifications = new WeakMap();
+    for (const tx of packet.transactions) {
+      if (tx && typeof tx === 'object') classifications.set(tx, null);
+    }
+    return { plan, packet, classifications, ledger: {} };
+  }
   // The exported recommend(): opens the scope above around one recommend()
   // call and drops it when the outermost call returns or throws.
   function recommendWithIncomeTxFacts(plan, asOf, opts) {
     if (incomeTxFactsDepth === 0) incomeTxFactsMemo = new WeakMap();
+    const outer = recommendationReads;
     incomeTxFactsDepth++;
     try {
+      recommendationReads = openRecommendationReads(plan, asOf, opts);
       return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))));
     } finally {
+      recommendationReads = outer;
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
     }
@@ -13316,6 +13407,7 @@
       if (!from || !to) return held;
       const credits = runUpCandidates.filter(tx => tx && tx.id != null && tx.date
         && !pairedTxIds.has(String(tx.id)) && txInflowAmount(tx) > EPSILON);
+      if (!credits.length && typeof opts?.incomeOccurrenceAdjust !== 'function') return held;
       // Each unproven salary occurrence's window: its run-up (the day after
       // the income's previous occurrence) to 3 days after its date.
       const windowsOf = [];
@@ -13820,6 +13912,15 @@
   // still carries these flags instead of raw payee, notes, or tags. Sanitized
   // displayedPayee / originalMerchant may also travel as household-facing
   // merchant identity; they do not reclassify spend.
+  function derivedCardFlags(tx) {
+    const tdCardPaymentIdentity = isTdCardPaymentIdentity(tx);
+    return {
+      cardPaymentIdentity: isCanadianTireMastercardPayment(tx) || tdCardPaymentIdentity,
+      tdCardPaymentIdentity,
+      cardFinanceChargeIdentity: isRevolvingCardAccount(tx) && revolvingCardFinanceChargeEvidence(tx),
+    };
+  }
+
   function derivedTransactionFlags(tx, plan) {
     const empty = {
       dogFood: false,
@@ -13855,7 +13956,7 @@
     const amandaAmazonTravelVisa = amazonMerchant && isTravelVisaAccount(tx);
     const parsedTfr = parseTdInternalTransferIdentity(tx);
     const internalTransferIdentity = isInternalTransferIdentity(tx);
-    const tdCardPaymentIdentity = isTdCardPaymentIdentity(tx);
+    const card = derivedCardFlags(tx);
     const cashWithdrawalIdentity = isCashWithdrawalIdentity(tx);
     const externalCashDeposit = isExternalCashDepositIdentity(tx);
     const dogFoodLunchMoneyLink = isLunchMoneyLinkedDogFood(tx, plan);
@@ -13872,13 +13973,12 @@
       confirmedFuel: isConfirmedFuelMerchant(tx),
       daleGuiltFreeMerchant,
       amazonMerchant,
-      cardPaymentIdentity: isCanadianTireMastercardPayment(tx) || tdCardPaymentIdentity,
-      tdCardPaymentIdentity,
+      cardPaymentIdentity: card.cardPaymentIdentity,
+      tdCardPaymentIdentity: card.tdCardPaymentIdentity,
       tdCardPaymentCredit: isTdCardPaymentCredit(tx),
       tdRewardsRedemptionCredit: isTdRewardsRedemptionCredit(tx),
       cardPaymentNoteDestination: cardPaymentNoteDestination(tx),
-      cardFinanceChargeIdentity: isRevolvingCardAccount(tx)
-        && revolvingCardFinanceChargeEvidence(tx),
+      cardFinanceChargeIdentity: card.cardFinanceChargeIdentity,
       helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
       internalTransferIdentity,
       externalCashDeposit,
@@ -13893,7 +13993,9 @@
   classifyCurrentPeriodTransaction.ownerConfirmedFuel = isOwnerConfirmedFuelTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedSpotify = isOwnerConfirmedSpotifyTransaction;
   classifyCurrentPeriodTransaction.ownerConfirmedNoble = isOwnerConfirmedNobleOccurrence;
-  classifyCurrentPeriodTransaction.derivedFlags = derivedTransactionFlags;
+  classifyCurrentPeriodTransaction.derivedFlags = (tx, plan) =>
+    withMerchantKeyMemo(derivedTransactionFlags, tx, plan);
+  classifyCurrentPeriodTransaction.derivedCardFlags = derivedCardFlags;
   classifyCurrentPeriodTransaction.spendDuplicateKey = spendDuplicateKey;
   // #965: the classifier's own near-due hold test, read by the bill detail.
   classifyCurrentPeriodTransaction.nearDueBillCandidateHeld = nearDueBillCandidateHeld;
@@ -17152,9 +17254,28 @@
     const cycle = spendingCycle(plan, asOf), held = budget && budget.spendingCycle;
     return cycle && held && held.start === cycle.start && held.end === cycle.end ? reserve : null;
   }
+  // The probes and period printers ask for the same card ledger. Keep one
+  // publication inside this synchronous recommend, keyed by every input to
+  // this call. Each consumer still owns its copy, including the private link
+  // from a To-confirm row to the transaction that also appears under Held.
+  function recommendationCardPublication(plan, asOf, packet, debts) {
+    const scope = recommendationReads?.ledger;
+    const txs = packet.transactions;
+    if (!scope || !Array.isArray(txs)) return visaPaymentReconciliation(txs, { plan, asOf, packet, debts });
+    if (!scope.publication || scope.plan !== plan || scope.asOf !== asOf || scope.packet !== packet
+        || scope.txs !== txs || scope.debts !== debts) {
+      const publication = visaPaymentReconciliation(txs, { plan, asOf, packet, debts });
+      Object.assign(scope, { plan, asOf, packet, txs, debts, publication });
+    }
+    const copy = structuredClone(scope.publication);
+    for (const [i, row] of (scope.publication.toConfirm || []).entries()) {
+      if (COVERAGE_ROW_TRANSACTION.has(row)) COVERAGE_ROW_TRANSACTION.set(copy.toConfirm[i], COVERAGE_ROW_TRANSACTION.get(row));
+    }
+    return copy;
+  }
   function cardCoverageState(plan, asOf, opts) {
     const packet = currentPeriodActualsPacket(opts) || {};
-    const coverage = visaPaymentReconciliation(packet.transactions, { plan, asOf, packet, debts: opts && opts.debts });
+    const coverage = recommendationCardPublication(plan, asOf, packet, opts && opts.debts);
     const minimums = cardMinimumState(plan, asOf, opts);
     // Existing operating-cash gates also withhold permission when minimum
     // funding is unknown. Purchase reconciliation itself is left untouched.
@@ -20019,12 +20140,19 @@
       }
       return result;
     };
-    const fits = cents => check(cents).feasible;
     let loC = Math.round(roundCent(loBound) * 100);
     let hiC = Math.round(roundCent(hiBound) * 100);
     if (hiC < loC) hiC = loC;
-    if (fits(hiC)) return roundCent(hiC / 100);
-    const guess = paydayBoundaryGuess(check(hiC), hiC);
+    const top = check(hiC);
+    if (top.feasible) return roundCent(hiC / 100);
+    // The unavailable-card failure is independent of the cash probe: every
+    // walk in this search has the same card coverage inputs. A numeric card
+    // shortfall can be repaired by an injection and must still be searched.
+    // A caller-supplied adjustment may have side effects on subsequent walks.
+    const coverageUnavailable = typeof masterOpts.incomeOccurrenceAdjust !== 'function'
+      && top.failures.some(failure => failure.kind === 'card-coverage' && failure.shortfall === null);
+    const fits = cents => !coverageUnavailable && check(cents).feasible;
+    const guess = paydayBoundaryGuess(top, hiC);
     if (guess != null && guess >= loC && guess < hiC && fits(guess)) {
       if (!fits(guess + 1)) return roundCent(guess / 100);
       if (guess + 1 < hiC && !fits(guess + 2)) return roundCent((guess + 1) / 100);
@@ -20693,9 +20821,13 @@
     });
     let currentDisabled = [];
     let currentDelta = deltaAll;
+    // Disabling a future commitment cannot supply missing card evidence.
+    // Every such search has the same bounds and no feasible probe.
+    const fixedCoverageFailure = cardCoverage.status === 'unavailable'
+      && typeof masterOpts.incomeOccurrenceAdjust !== 'function';
     for (const row of latestFirst) {
       currentDisabled = currentDisabled.concat([row.id]);
-      const deltaWithout = maxFeasiblePaydayRemoval(
+      const deltaWithout = fixedCoverageFailure ? deltaAll : maxFeasiblePaydayRemoval(
         plan, asOf, masterOpts, loBound, hiBound, currentDisabled);
       shares.set(row.id, {
         requiredNow: roundCent(Math.max(0, deltaWithout - currentDelta)),

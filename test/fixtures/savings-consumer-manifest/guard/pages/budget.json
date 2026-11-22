@@ -1,5 +1,6 @@
 {
  "scripts": [
+  "public/client-timing.js",
   "public/app.js",
   "public/display-name.js",
   "public/forecast-card-period.js",
@@ -23,5 +24,5 @@
   "public/stack-credit.js",
   "public/stack-sheet.js"
  ],
- "html": "2fbd0d1e7c25fc295d7a8be379ad96d66cb53569d525b39725e3e4e68cdc5df6"
+ "html": "354acccb263e4ae47c323441b136a9d55b553e28fbf82231014add455770e645"
 }

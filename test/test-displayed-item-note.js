@@ -28,11 +28,11 @@ function grab(src, re, label) {
 // ---- Observer fixture -------------------------------------------------
 const MAP = JSON.parse(read('docs/connectivity/fixtures/provider-account-map.json'));
 const DATA = JSON.parse(read('data.json'));
-function observeWithNotes(notesById) {
+function observeWithNotes(notesById, categoryId = 11) {
   const txs = Object.keys(notesById).map((key, i) => {
     const tx = {
       id: 100 + i, account_id: 1001, date: '2026-09-02', amount: 10 + i,
-      category_id: 11, is_pending: false,
+      category_id: categoryId, is_pending: false,
       payee: 'SYNTHETIC MERCHANT ' + key, original_name: 'SYNTHETIC MERCHANT ' + key,
     };
     if (notesById[key] !== undefined) tx.notes = notesById[key];
@@ -174,9 +174,9 @@ console.log('\n=== 4. note follows displayedPayee eligibility ===');
   const { byKey } = observeWithNotes({ keep: 'item: Disney+' });
   ok(noteOf(byKey.keep) === 'Disney+' && byKey.keep.displayedPayee,
     'an eligible spend row publishes payee and note together');
-  const src = read('scripts/provider-observe.js');
-  ok(/delete row\.displayedPayee;\s*delete row\.originalMerchant;\s*delete row\.displayedNote;/.test(src),
-    'displayedNote is deleted wherever displayedPayee is withheld');
+  const transfer = observeWithNotes({ transfer: 'item: invented detail' }, 82).byKey.transfer;
+  ok(transfer && ['displayedPayee', 'originalMerchant', 'displayedNote'].every(key => !Object.hasOwn(transfer, key)),
+    'a transfer with a marked note publishes neither the merchant fields nor the note');
 }
 
 console.log('\n=== 5. Forecast carries the field display-only; figures and classification do not move ===');

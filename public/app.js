@@ -897,11 +897,14 @@ const App = (() => {
       // textContent reset above wipes the notice's children; success
       // removes it with the notice.
       notice.append(buildBootTreatment());
-      const wants = [SettlementSave.initialData(() => fetch(forceRefresh ? '/data.json?refresh=force' : '/data.json', { credentials: 'same-origin', signal: controller.signal })
+      // Timing only (public/client-timing.js): the first ordinary load's data fetch, then its first render.
+      const timing = !forceRefresh && typeof window !== 'undefined' ? window.AtlasClientTiming : null;
+      const wants = [SettlementSave.initialData(() => (timing?.fetchStart(), fetch(forceRefresh ? '/data.json?refresh=force' : '/data.json', { credentials: 'same-origin', signal: controller.signal }))
         .then(async r => {
           if (r.status === 401) { location.href = '/login'; throw new Error('auth'); }
           if (!r.ok) throw new Error('data unavailable');
           const json = await r.json();
+          timing?.fetchEnd();
           return json;
         }), controller.signal, attempt)];
       wants.push(opts.periods
@@ -933,7 +936,7 @@ const App = (() => {
           const asof = $('asof');
           if (asof) asof.textContent = formatSiteAsOfChip(d, PERIODS);
           for (const fn of onceHooks) fn(DATA, PERIODS, HISTORY);
-          rerender();
+          if (timing) timing.firstRender(rerender); else rerender();
         });
         await SettlementSave.initialized(attempt);
         refresh.disabled = false;
