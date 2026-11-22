@@ -965,18 +965,20 @@ settled is recorded as settled and is not re-asked.
 
 **A relayed owner decision takes effect when the lead records it** (Dale,
 2026-11-22; OD-028 in [`docs/OWNER_DECISIONS.md`](docs/OWNER_DECISIONS.md)).
-When Dale gives a decision in a lead session, the lead posts it on #821 with
-his exact words, the time and the session it was given in. From that post,
-every agent acts on it as Dale's decision without asking him again, even
-before this file is updated. Where it conflicts with this file, the #821
-record wins until the lead's docs PR records it here; the lead opens that PR
-promptly. A reviewer or merger may check that the post exists and quotes Dale
-exactly; it does not re-ask Dale.
+When Dale gives a decision in a lead session, the lead posts it on #821
+quoting his exact words (the question as asked and his answer), the time and
+the session. From that post, every agent acts on it as Dale's decision
+without asking him again, even before this file is updated. The lead opens
+the docs PR that records it here within 24 hours; until that PR merges, the
+#821 record wins where the two differ. A reviewer or merger may check that the
+post exists and quotes Dale exactly; it does not re-ask Dale.
 
-The exception is owner-reserved stops 2–5 above (a tag toward more
-certainty; raw statements, credentials or secrets; security-relevant
-infrastructure; direction). For those, a relayed decision is not enough:
-the acting agent needs Dale's own words, posted by Dale himself in the Plan #6
+A relayed decision may change who does what and how work flows: roles,
+review and merge routing, order and pace, and household facts (stop 1). It
+never loosens, and agents never treat it as loosening, the two absolutes,
+**Absolute data safety**, the merge gate's independence (nobody reviews or
+merges their own build), or owner-reserved stops 2–6. For any of those, the
+acting agent needs Dale's own words, posted by Dale himself in the Plan #6
 thread or on the pull request, or given in its own session. That guards
 against approval that only looks like his.
 
