@@ -6465,7 +6465,7 @@ const RECURRING_SCHEDULE_FIELDS = new Set(['status', 'criteria', 'criteria.start
 const RECURRING_REFUSAL_CODES = Object.freeze(['not-started', 'rule-names-no-event', 'several-rules', 'several-items',
   'no-plan-row', 'plan-row-ambiguous', 'plan-row-unsupported', 'once-bill', 'account-mismatch', 'date-invalid',
   'item-ended', 'cadence-unmapped', 'cadence-amount-unconfirmed', 'day-after-statement-due', 'cutover-unsafe',
-  'expected-dates-mismatch']);
+  'expected-dates-mismatch', 'link-anchor-missing']);
 const RECURRING_REFUSAL_KEYS = Object.freeze(['billId', 'obligationId', 'reasonCode']);
 // The plan-id shape a served refusal may carry: lowercase, starting with a
 // letter, letters, digits and hyphens. An all-digit Lunch Money id never fits.
@@ -6626,7 +6626,9 @@ function recurringAmountConsistent(itemAmount, planAmount) {
 }
 // The bill-schedule fields a reviewed Lunch Money item may set on the served
 // plan (owner decision, Dale 2026-11-18: cadence also comes from Lunch Money).
-const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue'];
+const RECURRING_TIMING_FIELDS = ['frequency', 'day', 'month', 'anchor', 'lastDue', 'timingBefore'];
+// The bill's own cadence fields a cutover keeps for occurrences before it.
+const RECURRING_CUTOVER_FIELDS = ['frequency', 'day', 'month', 'anchor'];
 
 // Lunch Money cadence -> a Forecast cadence it can expand exactly; anything
 // else is null (the plan's cadence and day stand, estimated).
@@ -6670,10 +6672,14 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
   };
   const refuse = (eventId, reasonCode) => { refused.push({ ...rowOf(eventId), reasonCode }); };
   const byBill = new Map();
+  const linkedFromByBill = new Map();
   for (const item of block.items) {
     const eventIds = new Set();
     for (const rule of identityRules || []) {
-      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) eventIds.add(String(rule.eventId));
+      if (ruleLunchMoneyRecurringIds(rule).includes(item.recurringId) && rule.eventId) {
+        eventIds.add(String(rule.eventId));
+        if (typeof rule.linkedFrom === 'string') linkedFromByBill.set(String(rule.eventId), rule.linkedFrom);
+      }
     }
     const only = eventIds.size === 1 ? [...eventIds][0] : null;
     if (item.startDate && item.startDate > asOf) { refuse(only, 'not-started'); continue; }
@@ -6695,6 +6701,12 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       refuse(billId, matches.length || obligationMatches.length ? 'plan-row-ambiguous' : 'no-plan-row'); continue;
     }
     if (matches[0].frequency === 'once') { refuse(billId, 'once-bill'); continue; }
+    // A bill link without a recorded linkedFrom (an ISO first of a month)
+    // changes no timing: fail closed.
+    const linkedFrom = linkedFromByBill.get(billId);
+    if (!(typeof linkedFrom === 'string' && /^\d{4}-\d{2}-01$/.test(linkedFrom) && realIsoDay(linkedFrom))) {
+      refuse(billId, 'link-anchor-missing'); continue;
+    }
     const bill = matches[0];
     const cash = ['chequing-a', 'chequing-b'].includes(bill.payingAccount);
     if (!cash || item.accountRole !== 'household-cash') { refuse(billId, 'account-mismatch'); continue; }
@@ -6717,6 +6729,21 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     if (expected.length) {
       const dates = Forecast.occurrences(probe, expected[0], expected[expected.length - 1]);
       if (!expected.every(date => dates.includes(date))) { refuse(billId, 'expected-dates-mismatch'); continue; }
+    }
+    // Recorded history is never re-dated (#1508 live check; lead design
+    // ruling on the #1511 review): the cutover is the link's own recorded
+    // `linkedFrom` date (the first of a month, set when the link is written),
+    // never derived from the observation date, the pay period or the item's
+    // start, so it cannot move between observations. Occurrences before it
+    // keep the bill's own cadence and day (timingBefore); from it on, the
+    // item's timing applies.
+    if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
+      const before = {};
+      for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
+      // The plan's own date tag goes with the plan's own timing: occurrences
+      // before the cutover never take the item's confirmed tag (owner stop 2).
+      timing.timingBefore = { from: linkedFrom, ...before,
+        dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     }
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring' });
   }
@@ -8281,6 +8308,7 @@ const api = {
   paydayGapCompleteFromEvidence,
   currentPeriodActualsLooksSanitized,
   recurringBillSchedules,
+  recurringBillScheduleReview,
   derivedAmountFixedBills,
   billPaymentHistory,
   AMOUNT_HISTORY_DAYS,
@@ -8292,6 +8320,7 @@ const api = {
   sanitizedRecurringEvidence,
   RECURRING_UNNAMED_ROLES,
   RECURRING_TIMING_FIELDS,
+  RECURRING_CUTOVER_FIELDS,
   transactionLooksSanitized,
   DISPLAYED_NOTE_PREFIX,
   DISPLAYED_NOTE_MAX_CHARS,
