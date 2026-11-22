@@ -7,7 +7,9 @@
  *
  * `node test/test-plan-bill-calendar-periods.js`
  */
-const { loadBudgetPage } = require('./lib/budget-page-harness');
+const assert = require('node:assert/strict');
+const { loadStackPage } = require('./lib/budget-page-harness');
+const { assertStackBillPeriod } = require('./lib/assert-stack-bill-period');
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
@@ -20,16 +22,6 @@ const ok = (cond, label, detail = '') => {
 };
 const near = (a, b, eps = 0.005) => Math.abs(Number(a) - Number(b)) <= eps;
 const read = file => sourceText(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'));
-const clone = x => JSON.parse(JSON.stringify(x));
-
-function loadComposer() {
-  // The real Budget page (test/lib/budget-page-harness.js). operatingSurfaceHtml
-  // is the live composition: the Today card plus the compact pay-period content.
-  const page = loadBudgetPage({ Forecast: F, state: { scenario: null, targetBuffer: 500, extraDebtMonthly: 0, incomeOverrides: {}, disabled: [], debts: null, extraDebtTarget: null, extraFacilities: null } });
-  return { operatingSurfaceHtml: ctx => page.surfaceHtml(ctx),
-    money2: page.get('money2'), glanceLineLabel: page.get('glanceLineLabel') };
-}
-
 function section(view, id) {
   return ((view && view.billSections) || []).find(s => s.id === id);
 }
@@ -147,8 +139,6 @@ const debts = [
   { id: 'mortgage', label: 'Mortgage', secured: true, balance: 5000, rate: 3.64, payment: 1600, pending: 0 },
 ];
 
-const composer = loadComposer();
-
 console.log('=== 1. payday windows: due date lands in the Seaspan cycle that contains it ===');
 {
   const plan = syntheticPlan();
@@ -176,7 +166,7 @@ console.log('=== 1. payday windows: due date lands in the Seaspan cycle that con
     last && last.date);
 }
 
-console.log('\n=== 2. future payingAccount is BILLS ACCOUNT; page omits it from bill identity ===');
+console.log('\n=== 2. Forecast preserves the payer and the bill window ===');
 {
   const plan = syntheticPlanWithBell();
   const advice = F.recommend(plan, '2026-09-10', { targetBuffer: 0, debts });
@@ -193,52 +183,6 @@ console.log('\n=== 2. future payingAccount is BILLS ACCOUNT; page omits it from 
     'Travel Visa day 26 is Sep 26, which begins after Next (Sep 11–24) from as-of Sep 10');
   const cashback = (advice.defaultView.bills || []).find(r => r.id === 'cashback');
   ok(!cashback, 'Cash Back min firstDue 2026-10-01 is omitted from September');
-  ok(composer.glanceLineLabel({
-    label: 'Mortgage',
-    date: '2026-08-28',
-    payingAccount: 'chequing-a',
-    payerLabel: 'BILLS ACCOUNT (Chequing A)',
-  }, 'PAID') === 'Mortgage · Aug 28 · PAID',
-    'dated bill identity is name · date · status, omitting paying account');
-  ok(composer.glanceLineLabel({
-    label: 'Bell',
-    needsDate: true,
-    dateNote: 'needs confirmation',
-    payingAccount: 'chequing-a',
-    payerLabel: 'BILLS ACCOUNT (Chequing A)',
-  }, 'needs confirmation') === 'Bell · needs confirmation',
-    'needs-date identity is name · needs confirmation, omitting paying account');
-  // Live Budget prints one selected pay period at a time (no "show both"):
-  // render This and Next Pay Period as the page does when each is selected.
-  const both = (adv) => ['this-pay-period', 'next-pay-period'].map(id => composer.operatingSurfaceHtml({
-    advice: adv, weekly: adv.weekly, recommended: adv.weekly, planPayPeriodId: id,
-  })).join('');
-  const html = both(advice);
-  ok(/This Pay Period/.test(html) && /Next Pay Period/.test(html),
-    'plan.js prints the two Forecast payday-period labels');
-  const datedAdvice = F.recommend(syntheticPlan(), '2026-09-10', { targetBuffer: 0, debts });
-  const datedHtml = both(datedAdvice);
-  function billIdentity(id, source = html) {
-    const re = new RegExp('data-period-bill="' + id + '"[^>]*>\\s*<span>([^<]*)</span>');
-    const m = re.exec(source);
-    return m && m[1];
-  }
-  const mortgage = billIdentity('mortgage', datedHtml);
-  const netflix = billIdentity('netflix', datedHtml);
-  const bell = billIdentity('bell');
-  ok(mortgage && /^Mortgage · /.test(mortgage) && / · (PAID|pending|still due|in opening balance · to confirm)$/.test(mortgage)
-      && !/BILLS ACCOUNT/i.test(mortgage) && !/Chequing/i.test(mortgage),
-    'This/Next Pay Period mortgage line omits paying account',
-    mortgage);
-  ok(netflix && /^Netflix · /.test(netflix) && / · (PAID|pending|still due)$/.test(netflix)
-      && !/BILLS ACCOUNT/i.test(netflix),
-    'subscription bill line omits paying account',
-    netflix);
-  ok(bell === 'Bell · date unavailable',
-    'Needs a Date Bell is name · date unavailable',
-    bell);
-  ok(!/BILLS ACCOUNT \(Chequing A\)/.test(html) && !/BILLS ACCOUNT \(Chequing A\)/.test(datedHtml),
-    'plan.js does not print the Forecast payer label on the default Plan');
   const fn = /function periodBillsHtml\([\s\S]*?\n\}/.exec(read('public/plan.js'));
   ok(fn && !/\bForecast\.[A-Za-z]+\s*\(/.test(fn[0])
       && !/reduce\s*\(/.test(fn[0]),
@@ -374,8 +318,36 @@ console.log('\n=== 7. live listed ids: BILLS ACCOUNT; Aug once vs Sep monthly ==
     'unpaid August once cash still reserved after the Aug 28 payday until represented');
 }
 
-if (failures) {
-  console.error(`\n${failures} CHECK(S) FAILED`);
-  process.exit(1);
+// The two windows are assigned from the fixture calendar. Bills, mortgage and
+// card minima occupy separate waterfall rows. An undated bill withholds all
+// three, while a complete period with no card minimum publishes a genuine zero.
+async function checkStackCalendar() {
+  const asOf = '2026-09-10';
+  const active = '2026-08-28';
+  const next = '2026-09-11';
+  const load = plan => loadStackPage({ data: { meta: { asOf }, plan, debts, accounts: [], revolvingExtra: [] } });
+  const plan = syntheticPlan();
+  const [midMonth, followingDay, monthEnd, fortnightly, subscription] = plan.bills;
+  const [mortgage, creditLine] = plan.obligations;
+  const dated = await load(plan);
+  for (const [start, rows, credit] of [
+    [active, [[fortnightly, active], [monthEnd, '2026-08-31']], 0],
+    [next, [[fortnightly, next], [midMonth, '2026-09-15'], [followingDay, '2026-09-16'],
+      [subscription, '2026-09-17']], creditLine.cashPayment],
+  ]) {
+    const billCents = rows.reduce((sum, [bill]) => sum + Math.round(bill.amount * 100), 0);
+    assertStackBillPeriod(dated, start, { bills: billCents / 100, mortgage: mortgage.amount, credit }, rows);
+    assert.ok(dated.blockHtml('waterfall').includes(`data-stack-sheet="mortgage:${mortgage.id}@${start}"`),
+      'selected mortgage occurrence opens from the waterfall');
+  }
+
+  const undated = await load(syntheticPlanWithBell());
+  for (const start of [active, next]) {
+    assertStackBillPeriod(undated, start, { bills: null, mortgage: null, credit: null, surplus: null }, []);
+  }
 }
-console.log('\nALL CHECKS PASSED');
+
+checkStackCalendar().then(() => {
+  if (failures) throw new Error(failures + ' checks failed');
+  console.log('\nALL CHECKS PASSED');
+}).catch(error => { console.error(error); process.exitCode = 1; });
