@@ -108,10 +108,7 @@ const GROCERY = 75;
 const PERIOD_INCOME = roundCent(DALE + AMANDA);
 const INDEPENDENT_MORNING = roundCent(OPENING + CHILD);
 const INDEPENDENT_MORNING_WITH_GROCERY = roundCent(OPENING + CHILD - GROCERY);
-const REMAINING_UNPAID = roundCent(PRE_BILL + PERIOD_BILL);
 const AFTER_PAYDAY = PERIOD_INCOME;
-const AFTER_BILLS = roundCent(AFTER_PAYDAY - REMAINING_UNPAID);
-const AFTER_BUDGET = roundCent(AFTER_BILLS - BUDGET_HOLD);
 
 function hubStartingCash(amount) {
   return {
@@ -296,12 +293,13 @@ console.log('\n=== 3. Income is counted exactly once; paid bills are not deducte
   const paid = (active.bills || []).find(r => r && r.id === 'period-bill');
   ok(paid && paid.status === 'PAID' && near(paid.remaining, 0),
     'represented period bill stays listed as paid');
-  ok(near(active.remainingBills, PRE_BILL)
+  ok(!active.bills.some(r => r.id === 'pre-bill')
+      && active.remainingBills === 0
       && near(active.paidBills, PERIOD_BILL)
-      && near(active.periodBillLoad, REMAINING_UNPAID)
+      && near(active.periodBillLoad, PERIOD_BILL)
       && near(active.afterBills, roundCent(
         active.incomeTotal - active.periodBillLoad)),
-    'paid period bill still leaves the frozen snapshot; unpaid pre-payday once-bill stays reserved once; afterBills is incomeTotal − periodBillLoad');
+    'only the paid in-period bill counts toward the assigned load, leaving no actionable bills after payday');
 }
 
 console.log('\n=== 4. Represented pre-payday outflow is not a completeness substitute ===');

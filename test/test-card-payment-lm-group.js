@@ -174,12 +174,12 @@ for (const [name, opts] of [['a listed child is missing', { extraChild: true }],
 }
 // 8. Opening rollover with a grouped, noted TD payment (#1322 pre-review): one
 // date rule with ordinary pairing (#1298), so grouping never changes the figure.
-// Run B as of 10-03, confirmed opening 10-02, a new 75 purchase, the 09-20
-// minimum To confirm (25) in this invented opening; Bills 395.
+// Run B as of 10-03, confirmed opening 10-02, a new 75 purchase, Bills 395.
+// The 09-20 minimum belongs to the closed period.
 //  - debit 10-01 (noted Travel Visa), credit 10-02: the debit belongs to the old
-//    period, so no payment here; reserve 75; available 395 - 25 - 75 - 75 = 220.
+//    period, so no payment here; reserve 75; available 395 - 75 - 75 = 245.
 //  - mirror, credit 10-01, debit 10-02: one payment by the debit's date, the 75
-//    purchase then 30 to debt; reserve 0; available 395 - 25 - 75 - 0 = 295.
+//    purchase then 30 to debt; reserve 0; available 395 - 75 - 0 = 320.
 {
   const policy = { rule: 'aggregate-per-card-per-pay-period', opening: { asOf: '2026-10-02', confirmed: true,
     currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
@@ -187,8 +187,8 @@ for (const [name, opts] of [['a listed child is missing', { extraChild: true }],
     category_name: 'Transfer', notes: 'card payment: Travel Visa ...9999', ...extra }];
   const credit = (date, extra) => ['card', -105, date, 'credit', { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU',
     category_name: 'Transfer', ...extra }];
-  for (const [name, dDate, cDate, pays, reserve, avail] of [['debit before the rollover', '2026-10-01', '2026-10-02', 0, 75, 220],
-    ['mirror', '2026-10-02', '2026-10-01', 1, 0, 295]]) {
+  for (const [name, dDate, cDate, pays, reserve, avail] of [['debit before the rollover', '2026-10-01', '2026-10-02', 0, 75, 245],
+    ['mirror', '2026-10-02', '2026-10-01', 1, 0, 320]]) {
     for (const extra of [{}, group]) {
       const s = run(world([['card', 80, '2026-09-20', 'purchase'], debit(dDate, extra), credit(cDate, extra), ['card', 75, '2026-10-02', 'purchase']],
         { asOf: '2026-10-03', minimumDate: '2026-09-20', policy }));

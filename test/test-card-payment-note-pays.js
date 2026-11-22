@@ -146,9 +146,8 @@ for (const [name, extra] of [['no note', {}], ['unknown card', { notes: 'card pa
 // the 80; available now 395 - 0 - 70 - 0 = 325. Run B (as of 10-03, confirmed
 // opening 10-02, nothing carried): the credit lands 10-02 and a new 75 purchase
 // follows. The 10-01 debit belongs to run A's period: no payment in run B, the
-// 75 stays uncovered (reserve 75). Bills 395; the 09-20 minimum is not
-// represented in this invented opening, so it stays To confirm (25);
-// groceries left 150 - 75 = 75; available now 395 - 25 - 75 - 75 = 220.
+// 75 stays uncovered (reserve 75). Bills 395. The 09-20 minimum belongs to the closed period.
+// Groceries left 150 - 75 = 75. Available now is 395 - 75 - 75 = 245.
 // Counting the debit again would cover the 75 and overstate it by 75.
 {
   const debit = ['bills', 105, '2026-10-01', 'cash', { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C',
@@ -170,14 +169,14 @@ for (const [name, extra] of [['no note', {}], ['unknown card', { notes: 'card pa
     check(b.coverage.payments.length === 0, why + ': the 10-01 debit is not counted again (got '
       + b.coverage.payments.length + ')');
     check(b.coverage.reservedCash === 75, why + ': the new 75 purchase stays uncovered (got ' + b.coverage.reservedCash + ')');
-    check(b.period.fromTodayFunding.availableNow === 220, why + ': available now 395 - 25 - 75 - 75 = 220 (got '
+    check(b.period.fromTodayFunding.availableNow === 245, why + ': available now 395 - 75 - 75 = 245 (got '
       + b.period.fromTodayFunding.availableNow + ')');
   }
 }
 // 8b. The mirror: the credit posts 10-01, before the opening rolls; the noted
 // debit posts 10-02, after. It pays once, in run B's period, by the debit's
 // date: the 75 purchase first, 30 to debt; reserve 0; available now
-// 395 - 25 (the old minimum, To confirm) - 75 - 0 = 295.
+// 395 - 75 (groceries left) - 0 (reserve) = 320.
 {
   const policy = { rule: 'aggregate-per-card-per-pay-period', opening: { asOf: '2026-10-02', confirmed: true,
     currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] } };
@@ -188,7 +187,7 @@ for (const [name, extra] of [['no note', {}], ['unknown card', { notes: 'card pa
   check(b.coverage.payments.length === 1 && b.coverage.payments[0].backfill === 75 && b.coverage.payments[0].cardPayment === 30,
     'mirror rollover: one payment, the 75 purchase then 30 to debt ' + JSON.stringify(b.coverage.payments.map(p => [p.minimumPayment, p.backfill, p.cardPayment])));
   check(b.coverage.reservedCash === 0, 'mirror rollover: reserve 0');
-  check(b.period.fromTodayFunding.availableNow === 295, 'mirror rollover: available now 295 (got '
+  check(b.period.fromTodayFunding.availableNow === 320, 'mirror rollover: available now 320 (got '
     + b.period.fromTodayFunding.availableNow + ')');
 }
 // 9. A note naming a card the plan does not map as a revolving card pays

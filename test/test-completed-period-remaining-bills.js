@@ -1,8 +1,7 @@
 'use strict';
 /* A completed pay period never prints "Remaining bills to pay $0.00" beside
  * an unpaid bill. It is settlement evidence, not an amount due, so its
- * actionable remainder stays 0 (an unproven bill's "still to pay" home is
- * the current period, not a second copy here), and it publishes
+ * actionable remainder stays 0. The completed period owns the row and publishes
  * `unconfirmedBills`: the bills its evidence does not prove paid, printed
  * "Not confirmed paid". Invented case, hand-computed here:
  *
@@ -85,15 +84,18 @@ const eq = (a, b, m) => { assert.deepEqual(a, b, m); checks++; };
 }
 
 // Production path (Atlas #931 blocker 1): a dated bill in the completed
-// window whose amount is unknown is never emitted as a row. It still makes
-// the figure unknown, alone or beside a known unpaid bill; never 0 or 120.
+// window keeps its row when its amount is unknown. It withholds the total
+// both alone and beside a known unpaid bill.
 for (const extra of [[], [{ id: 'water2', label: 'Invented second water', amount: UNPAID, frequency: 'monthly',
   day: 3, confidence: 'confirmed', payee: 'Invented water two' }]]) {
   const w = world([{ id: 'mystery', label: 'Invented unknown bill', amount: null, frequency: 'monthly', day: 2,
     confidence: 'confirmed', payee: 'Invented mystery co' }, ...extra]);
   w.bills = w.bills.filter(b => b.id !== 'water');
   const p = closedPeriod(w);
-  eq(p.bills.some(b => b.id === 'mystery'), false, 'the unknown-amount bill emits no row (upstream)');
+  const mystery = p.bills.filter(b => b.id === 'mystery');
+  eq(mystery.map(b => [b.date, b.amount, b.remaining, b.settlement]), [
+    ['2026-10-02', null, null, 'unverified'],
+  ], 'the owning period retains one unpriced, unverified occurrence');
   eq(p.unconfirmedBills, null, 'an unknown in-window amount makes the figure unknown, never a smaller known sum');
   eq(p.unconfirmedBillsTrust, 'unavailable');
   eq(p.remainingBills, 0, 'the actionable remainder boundary is unchanged');
@@ -121,8 +123,7 @@ for (const mixed of [false, true]) {
 }
 
 // An unknown amount makes the remainder unknown, never a smaller known sum.
-// The sealed rows the remainder reads are fed directly: on current main an
-// amount-unknown bill does not yet reach a completed period's rows (#862).
+// Exercise the row reducer directly for mixed and undated inputs.
 {
   const fnSrc = s => { const m = fs.readFileSync(path.join(__dirname, '../public/forecast.js'), 'utf8')
     .match(new RegExp('^  function ' + s + '\\([\\s\\S]*?\\n  \\}$', 'm')); assert.ok(m, s); return m[0]; };

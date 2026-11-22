@@ -121,8 +121,11 @@ console.log('4. Each change does the work (removed, the old state comes back)');
   const oct = rows(period(noRep, '2026-10-23'), /^travel$/)[0];
   ok(oct && oct.settlement === 'unverified', 'without the represented entries the Oct 26 Travel minimum reads unverified again');
   const noCb = livePlan(p => { p.opening.representedEvents = p.opening.representedEvents.filter(e => !(e.id === 'cashback' && e.date === '2026-11-01')); });
-  ok(F.expandEvents(noCb, AS_OF, '2026-12-31', {}).some(e => e.id === 'cashback' && e.date === '2026-11-01'),
-    'without its represented entry the 2026-11-01 Cash Back minimum is carried again');
+  const historicalCb = rows(period(views(noCb), '2026-10-23'), /^cashback$/).find(r => r.date === '2026-11-01');
+  ok(historicalCb && historicalCb.settlement === 'unverified',
+    'without its represented entry the Nov 1 minimum is unverified in its own period');
+  ok(!F.expandEvents(noCb, AS_OF, '2026-12-31', {}).some(e => e.id === 'cashback' && e.date === '2026-11-01'),
+    'the unverified Nov 1 minimum stays out of the later cash walk');
   const noEnd = views(livePlan(p => { delete p.obligations.find(o => o.id === 'cashback').lastDue; }));
   ok(rows(period(noEnd, '2026-11-20'), /^cashback$/).some(r => r.date === '2026-12-01'),
     'without lastDue a Dec 1 Cash Back minimum returns to Nov 20-Dec 3 (beside the Dec 4 one)');

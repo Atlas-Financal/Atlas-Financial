@@ -117,22 +117,24 @@ assert.equal(cents(payday.opening), 54420, 'complete bank movements establish hi
 assert.deepEqual(payday, paydayWithoutNames,
   'historical payday opening cannot inherit later settlement through options');
 
-// The guard qualifies all incumbent occurrence paths without extending them.
+// Open one day into the pay period. Even an overdue once payment in this
+// period still binds cash until its represented evidence becomes effective.
 const guarded = { id: 'invented-outflow', date: '2030-09-07', effectiveAsOf: '2030-09-02' };
 for (const kind of ['bill', 'once', 'cash-minimum']) {
-  const p = plan(ORIGIN, 617.39, [guarded]);
+  const opening = '2030-08-20';
+  const due = kind === 'once' ? ORIGIN : guarded.date;
+  const p = plan(opening, 617.39, [{ ...guarded, date: due }]);
   p.obligations = [];
   if (kind === 'bill') p.bills = [{ id: guarded.id, label: 'Invented bill', frequency: 'once',
     date: guarded.date, amount: 73.19, confidence: 'confirmed' }];
   else if (kind === 'once') p.obligations = [{ id: guarded.id, label: 'Invented once payment',
-    frequency: 'once', date: '2030-08-10', amount: 73.19, effect: 'payment' }];
+    frequency: 'once', date: due, amount: 73.19, effect: 'payment' }];
   else p.obligations = [{ id: guarded.id, label: 'Invented capitalising line', nonCash: true,
     frequency: 'monthly', day: 31, amount: 0, effect: 'capitalise',
     cashPayment: 73.19, cashDay: 7, cashFirstDue: guarded.date }];
-  if (kind === 'once') p.opening.representedEvents[0].date = '2030-08-10';
-  const events = F.expandEvents(p, ORIGIN, '2030-09-08', {}).filter(row => row.kind !== 'noncash');
+  const events = F.expandEvents(p, opening, '2030-09-08', {}).filter(row => row.kind !== 'noncash');
   assert.equal(events.length, 1, `future-effective ${kind} does not omit cash`);
-  assert.equal(cents(F.simulate(p, ORIGIN, { weeklyVariable: 0, horizonDays: 21, viewDays: 21 }).ending),
+  assert.equal(cents(F.simulate(p, opening, { weeklyVariable: 0, horizonDays: 21, viewDays: 21 }).ending),
     54420, `independent one-debit cash oracle for ${kind}`);
 }
 const sameDayIncome = plan(ORIGIN, 617.39, [{ id: 'invented-receipt', date: ORIGIN,

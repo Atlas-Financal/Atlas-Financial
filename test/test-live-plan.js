@@ -1566,8 +1566,8 @@ console.log('\n=== 18. complete live cash plus missing same-day unposted bill st
   const paid = (advice.currentPeriodAction && advice.currentPeriodAction.thisPaydayPaid) || {};
   ok(due.some(row => row.id === 'tdfees' && row.date === FEE_DAY_AS_OF),
     'still due can list TD fees');
-  ok(due.some(row => row.id === 'travel' || /Travel Visa/i.test(String(row.label || ''))),
-    'Travel Visa min stays still due with no invented payee');
+  ok(!due.some(row => row.id === 'travel' && row.date === '2026-08-26'),
+    'the prior period owns its Travel Visa minimum after payday');
   ok((paid.inflows || []).some(row => row.id === 'payroll' && row.date === PAYDAY_AS_OF),
     'already paid keeps Friday Seaspan in');
   ok((paid.bills || []).some(row => row.id === 'mortgage' && row.date === PAYDAY_AS_OF),
@@ -1625,8 +1625,10 @@ console.log('\n=== 19. card and chequing payment movements leave minimum intent 
   const SYNTHETIC_CARD_PAY = 40.4;
   const SYNTHETIC_SHORT = 5.05;
   const canonical = clone(liveData);
-  const scheduledTravel = Number((canonical.plan.obligations || [])
-    .find(row => row && row.id === 'travel').amount);
+  const travel = canonical.plan.obligations.find(row => row.id === 'travel');
+  // Exercise minimum-payment intent with the minimum due in the transfer's period.
+  travel.day = 28;
+  const scheduledTravel = Number(travel.amount);
   ok(scheduledTravel > 0, 'plan still names the Travel Visa minimum');
   ok(SYNTHETIC_CARD_PAY + 0.005 >= scheduledTravel && !near(SYNTHETIC_CARD_PAY, scheduledTravel),
     'identified extra payment covers the min and is not the scheduled $');
@@ -1719,9 +1721,9 @@ console.log('\n=== 19. card and chequing payment movements leave minimum intent 
   ok(!(paid.bills || []).some(row => row.id === 'travel' && row.date === PAYDAY_AS_OF
       && near(row.movement, -SYNTHETIC_CARD_PAY)),
     'already paid this payday does not relabel a backfill as a minimum payment');
-  ok(due.some(row => row.id === 'travel'),
-    'Travel Visa minimum remains unconfirmed');
-  ok(controlDue.some(row => row.id === 'travel'),
+  ok(due.some(row => row.id === 'travel' && row.date === PAYDAY_AS_OF),
+    'the in-period Travel Visa minimum remains unconfirmed');
+  ok(controlDue.some(row => row.id === 'travel' && row.date === PAYDAY_AS_OF),
     'chequing TFR-TO C/C leaves the min still due');
   ok(due.some(row => row.id === 'tdfees') || controlDue.some(row => row.id === 'tdfees'),
     'TD fees are not invented away');
