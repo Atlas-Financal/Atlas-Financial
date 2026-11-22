@@ -1802,6 +1802,7 @@ function duplicatedRuleCategoryIds(rules) {
 // that never stamped it keeps its incumbent reading and links by no category
 // (fail closed). A rule's own usable category ids can only narrow.
 const RULE_SET_RECURRING_CLAIMS = Symbol('atlas.ruleSetRecurringClaims');
+const RULE_SET_RECURRING_OWNERS = Symbol('atlas.ruleSetRecurringOwners');
 const RULE_SET_ITEM_CLAIMS = Symbol('atlas.ruleSetItemClaims');
 const RULE_SET_CATEGORY_CLAIMS = Symbol('atlas.ruleSetCategoryClaims');
 const CATEGORY_CLAIMS = Symbol('atlas.categoryClaims');
@@ -1811,12 +1812,17 @@ function stampRuleSetClaims(rules) {
   if (rules == null) return [];
   if (!Array.isArray(rules)) return rules;
   const claimed = new Set();
+  const owners = new Map();
   const claimedItems = new Set();
   const claimedCategories = new Set();
   const duplicated = duplicatedRuleCategoryIds(rules.filter(rule => rule && typeof rule === 'object'));
   for (const rule of rules) {
     if (!rule || typeof rule !== 'object') continue;
-    ruleLunchMoneyRecurringIds(rule).forEach(id => claimed.add(id));
+    ruleLunchMoneyRecurringIds(rule).forEach(id => {
+      claimed.add(id);
+      if (!owners.has(id)) owners.set(id, new Set());
+      if (rule.eventId) owners.get(id).add(String(rule.eventId));
+    });
     ruleLunchMoneyItemNames(rule).forEach(name => claimedItems.add(name));
     ruleLunchMoneyCategoryIds(rule).forEach(id => { if (!duplicated.has(id)) claimedCategories.add(id); });
   }
@@ -1825,6 +1831,7 @@ function stampRuleSetClaims(rules) {
   for (const rule of rules) {
     if (!rule || typeof rule !== 'object') continue;
     set(rule, RULE_SET_RECURRING_CLAIMS, claimed);
+    set(rule, RULE_SET_RECURRING_OWNERS, owners);
     set(rule, RULE_SET_ITEM_CLAIMS, claimedItems);
     set(rule, RULE_SET_CATEGORY_CLAIMS, claimedCategories);
     // Only ever narrows: a later read of a subset cannot un-refuse a duplicate.
@@ -1854,7 +1861,23 @@ function itemNoteClaimedElsewhere(rule, items) {
 function recurringLinkClaimedElsewhere(rule, linkedTo) {
   const claimed = rule && rule[RULE_SET_RECURRING_CLAIMS];
   return !!(linkedTo && claimed instanceof Set && claimed.has(linkedTo)
-    && !ruleLunchMoneyRecurringIds(rule).includes(linkedTo));
+    && !ruleLunchMoneyRecurringIds(rule).includes(linkedTo)
+    && !recurringLinkOfOwnSeries(rule, linkedTo));
+}
+// recurringLinkOf (aug15 outstanding repair, after #1508): a once rule for one
+// past occurrence of a named recurring series (icbc-aug15-outstanding is the
+// 15 August icbc occurrence) is not vetoed by that series' own Lunch Money
+// recurring link. The row still has to pass this rule's own payee, account,
+// direction and posting-date gates; the link alone settles nothing here. The
+// once rule does not name the recurring id, so it is not a second owner of the
+// item (schedule review, linked-bill lines and LM-matched pairing are
+// unchanged). A link that any other event also names keeps the veto.
+function recurringLinkOfOwnSeries(rule, linkedTo) {
+  const series = rule && typeof rule.recurringLinkOf === 'string' ? rule.recurringLinkOf.trim() : '';
+  const owners = rule && rule[RULE_SET_RECURRING_OWNERS];
+  if (!series || !linkedTo || !(owners instanceof Map)) return false;
+  const named = owners.get(linkedTo);
+  return !!(named instanceof Set && named.size === 1 && named.has(series));
 }
 
 function ruleHasIdentity(rule, diagnostic) {

@@ -12,7 +12,7 @@
  * Payday balance. Other Income is fluid through Payday balance and
  * through Balance After Deductions. Forecast owns all arithmetic;
 
- * plan.js only renders Forecast output.
+ * The Stack waterfall prints the published income lines.
  *
  * This is synthetic independent arithmetic. No household cents are used as a
  * behaviour oracle.
@@ -20,6 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const F = require('../public/forecast.js');
+const { assertStackIncome } = require('./lib/assert-stack-income');
 const { sourceText } = require('./test-source-text');
 
 let failures = 0;
@@ -184,25 +185,17 @@ console.log('\n=== 3. Other Income is fluid through the whole waterfall ===');
     'Balance after household budget rises dollar-for-dollar with Other Income');
 }
 
-console.log('\n=== 4. Plan presents one simple income equation and renders Forecast values ===');
-{
-  const src = read('public/plan.js');
-  const incomeFn = grab(src, /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml');
-  const waterfallFn = grab(src, /^function calendarWaterfallHtml\([\s\S]*?\n\}$/m, 'calendarWaterfallHtml');
+// Keep the classic source binding until S7 (C1 Q4).
+const incomeFn = grab(read('public/plan.js'), /^function calendarIncomeHtml\([\s\S]*?\n\}$/m, 'calendarIncomeHtml');
+ok(/period\.available/.test(incomeFn), 'classic Payday balance reads the published available amount');
 
-  ok(/Payday balance/i.test(incomeFn),
-    'Income section labels the Forecast total as Payday balance');
-  ok(!/Assigned income/i.test(incomeFn) && !/Total income/i.test(incomeFn),
-    'Income section does not publish competing Assigned income / Total income totals');
-  ok(/period\.available/.test(incomeFn),
-    'Payday balance is rendered from Forecast period.available');
-  ok(!/Balance after payday/i.test(waterfallFn),
-    'waterfall does not publish a second competing Balance after payday row');
-  ok(/Balance after bills/i.test(waterfallFn)
-      && /Balance After Deductions/i.test(waterfallFn),
-    'downstream waterfall balances remain visible, ending at Balance After Deductions');
-
+async function checkStackPayday() {
+  // Changing only Other income moves the printed total by precisely the deposit delta.
+  for (const deposit of [OTHER, OTHER + 100]) {
+    await assertStackIncome({ payday: PAYDAY, plan: plan(), debts, actuals: actuals(deposit) },
+      { dale: DALE, amanda: AMANDA, other: deposit, total: DALE + AMANDA + deposit });
+  }
+  if (failures) throw new Error(failures + ' payday balance check(s) failed');
+  console.log('\nALL CHECKS PASSED');
 }
-
-console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
-process.exitCode = failures ? 1 : 0;
+checkStackPayday().catch(error => { console.error(error); process.exitCode = 1; });

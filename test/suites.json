@@ -672,6 +672,7 @@
   ["a pending card charge occupies a card-paid bill only at its exact amount (Budget audit)","test-pending-card-bill-exact-amount.js"],
   ["this-payday already-paid set and cancelled CMAW drop","test-this-payday-already-paid.js"],
   ["automatic-payment settlement reconciliation","test-automatic-payment-settlement.js"],
+  ["ICBC and RESP 15 August outstanding once rows settle again from their Lunch Money-linked 17 August payments (recurringLinkOf; after #1508); monthly icbc/resp and BCAA settlements unchanged; Nov 20 – Dec 3 Bills drop by exactly the two once rows' scheduled amounts","test-aug15-outstanding-recurring-settle.js"],
   ["Triangle and MBNA card-minimum settlement","test-card-minimum-settlement.js"],
   ["owner-authorized minimum category confirmation","test-card-minimum-category.js"],
   ["a card minimum whose household-categorized payment is pending reads Payment pending and stays fully owed (label plus reserve)","test-card-minimum-payment-pending.js"],
@@ -721,5 +722,6 @@
   ["The page-script scan behind the \"page only prints\" guards covers the Stack page and the classic page, leaves the engine out, and reports the script that contains a pattern (C1 S4 B3)","test-page-scripts.js"],
   ["Stack budget sheet: the printed Spent, budget and Left or Over equal independent whole-dollar arithmetic from the published row; a withheld Spent prints nothing and never an overlay sum; published zero prints $0 and unpublished never does; six mutants of the sheet are caught (C1 S4 B1)","test-stack-budget-sheet-figures.js"],
   ["The Stack page boots in a test beside the classic page (loadStackPage): the shell and its blocks draw, the period chips redraw them, a shell that falls back or a Forecast that publishes no periods is never a pass (C1 S4)","test-stack-page-harness.js"],
-  ["The acceptance harness opens the classic page by default (/?view=classic) and the Stack page on request; skipped where Playwright is not installed (C1 S4)","test-acceptance-harness-views.js"]
+  ["The acceptance harness opens the classic page by default (/?view=classic) and the Stack page on request; skipped where Playwright is not installed (C1 S4)","test-acceptance-harness-views.js"],
+  ["Stack page honours savedHistoryUnavailable: a completed period whose saved close could not be read prints no amount (a dash on its chip, nothing in the waterfall, cards or credit block), never the rebuild from today's plan; current and future periods are unaffected; two shell mutants are caught","test-stack-saved-history.js"]
 ]
