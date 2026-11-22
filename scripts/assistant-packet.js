@@ -297,6 +297,7 @@ function applyCardEstimate(packet, advice) {
         minReason: 'The projected low point waits until the card payment is confirmed.', cardCoverageEstimate: estimate };
     }
     if (forecast.facilityCrossings) forecast.facilityCrossings = withheldForCardEstimate('Forecast.projectDebts', estimate);
+    if (forecast.payPeriodTotals) forecast.payPeriodTotals = tagPayPeriodTotalsEstimate(forecast.payPeriodTotals, estimate);
     packet.forecast = { ...forecast, trust: 'estimated', cardCoverageEstimate: estimate };
   }
   if (packet.planning) packet.planning.trajectory = withheldForCardEstimate('Forecast.baselineTrajectory', estimate);
@@ -526,6 +527,144 @@ function projectPredictedEndingBalance(advice) {
   };
 }
 
+
+// The pay-period totals Talk prints for the current and the next two pay
+// periods, each with the terms Forecast already computed for it, so a reader
+// can reproduce every total to the cent from what is published beside it.
+// Copied from Forecast.payPeriodViews (timelineOffset 0, 1, 2); the packet
+// adds no calculation, does not re-derive a term, and never publishes a
+// figure more strongly than Forecast tags it.
+//   balanceAfterDeductions = periodIncome - assignedBills - householdBudgetHold
+//     - savingsItemSpending - heldOutflowSpending - manualCardPaymentBeyondMinimum
+//     (Forecast's predictedEndingBalanceTerms; an absent adjustment is 0)
+//   stackSurplus = income - bills - household - mortgage - credit
+//     - savingsItemSpending (Forecast's stackSummary.surplus terms)
+//   billsEndingBalance = observedCash + futureIncome - remainingBills
+//     - householdRemaining - otherOutflows - additionalCardCash
+//     (Forecast.billsAccountPeriodBalance, which Forecast publishes for the
+//     current pay period only; otherwise its reason)
+// Each figure is published only when its published terms reproduce it to the
+// cent (the packet checks that sum; it derives nothing from it), and is
+// otherwise withheld with a reason rather than shown without its terms.
+const PAY_PERIOD_TOTAL_OFFSETS = [0, 1, 2];
+const BAD_TERM_KEYS = ['periodIncome', 'assignedBills', 'householdBudgetHold',
+  'savingsItemSpending', 'heldOutflowSpending', 'manualCardPaymentBeyondMinimum'];
+const SURPLUS_TERM_KEYS = ['income', 'bills', 'household', 'mortgage', 'credit', 'savingsItemSpending'];
+const BILLS_ENDING_TERM_KEYS = ['observedCash', 'futureIncome', 'remainingBills', 'householdRemaining',
+  'otherOutflows', 'additionalCardCash'];
+// Lead ruling on PR 2: these rows are new packet paths, so they publish at
+// most 'estimated' (the stop-2 guard's ceiling for a new path), never more
+// certain than Forecast tags them. A calculated Forecast figure therefore
+// reads estimated here; an estimated one stays estimated.
+const capNewPathTrust = trust => (trust === 'calculated' ? 'estimated' : trust);
+const cents = value => Math.round(Number(value) * 100);
+// The identity each published total satisfies: sum of signed terms (absent = 0).
+const reproduces = (amount, terms, plus, minus) => cents(amount) === plus.reduce((s, k) => s + cents(terms[k] || 0), 0)
+  - minus.reduce((s, k) => s + cents(terms[k] || 0), 0);
+
+function copyTerms(terms, keys) {
+  if (!terms || typeof terms !== 'object' || Array.isArray(terms)) return null;
+  const out = {};
+  for (const key of keys) {
+    if (terms[key] == null) continue;
+    const value = money(terms[key]);
+    if (value == null) return null;
+    out[key] = value;
+  }
+  return out;
+}
+
+function periodBalanceAfterDeductions(view) {
+  const trust = view.balanceAfterDeductionsTrust == null ? 'calculated' : view.balanceAfterDeductionsTrust;
+  const terms = view.predictedEndingBalanceTerms;
+  const amount = money(view.balanceAfterDeductions);
+  if (amount == null || (trust !== 'calculated' && trust !== 'estimated') || !terms
+      || terms.identity !== 'balance-after-deductions' || terms.closes !== true
+      || money(terms.balanceAfterDeductions) !== amount) {
+    return unavailable('balance-after-deductions-unavailable');
+  }
+  const copied = copyTerms(terms, BAD_TERM_KEYS);
+  if (!copied || copied.periodIncome == null || copied.assignedBills == null
+      || copied.householdBudgetHold == null
+      || !reproduces(amount, copied, ['periodIncome'], BAD_TERM_KEYS.slice(1))) {
+    return unavailable('balance-after-deductions-terms-unavailable');
+  }
+  return { status: 'ok', identity: 'balance-after-deductions', trust: capNewPathTrust(trust), amount, terms: copied };
+}
+
+function periodStackSurplus(view) {
+  const surplus = view.stackSummary && view.stackSummary.surplus;
+  if (!surplus || typeof surplus !== 'object') return unavailable('stack-surplus-unavailable');
+  const amount = money(surplus.amount);
+  const trust = surplus.trust;
+  if (amount == null || (trust !== 'calculated' && trust !== 'estimated')) {
+    return unavailable('stack-surplus-unavailable');
+  }
+  const copied = copyTerms(surplus.terms, SURPLUS_TERM_KEYS);
+  if (!copied || ['income', 'bills', 'household', 'mortgage', 'credit'].some(key => copied[key] == null)
+      || !reproduces(amount, copied, ['income'], SURPLUS_TERM_KEYS.slice(1))) {
+    return unavailable('stack-surplus-terms-unavailable');
+  }
+  return { status: 'ok', identity: 'stack-surplus', trust: capNewPathTrust(trust), amount, terms: copied };
+}
+
+function periodBillsEndingBalance(view) {
+  const row = view.billsAccountPeriodBalance;
+  if (!row || typeof row !== 'object' || row.source !== 'Forecast.billsAccountPeriodBalance') {
+    return unavailable(view.timelineOffset === 0
+      ? 'bills-ending-balance-unavailable' : 'bills-ending-balance-current-period-only');
+  }
+  const amount = money(row.amount);
+  const trust = row.trust;
+  if (row.status !== 'ready' || amount == null || (trust !== 'calculated' && trust !== 'estimated')) {
+    return unavailable('bills-ending-balance-unavailable');
+  }
+  const terms = copyTerms({
+    observedCash: row.observedCash, futureIncome: row.futureIncome, remainingBills: row.remainingBills,
+    householdRemaining: row.household && row.household.remaining, otherOutflows: row.otherOutflows,
+    additionalCardCash: row.additionalCardCash,
+  }, BILLS_ENDING_TERM_KEYS);
+  if (!terms || BILLS_ENDING_TERM_KEYS.some(key => terms[key] == null)
+      || !reproduces(amount, terms, ['observedCash', 'futureIncome'], BILLS_ENDING_TERM_KEYS.slice(2))) {
+    return unavailable('bills-ending-balance-terms-unavailable');
+  }
+  return { status: 'ok', identity: 'bills-ending-balance', source: 'Forecast.billsAccountPeriodBalance',
+    trust: capNewPathTrust(trust), amount, terms };
+}
+
+function projectPayPeriodTotals(advice) {
+  const views = advice && Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
+  const periods = [];
+  for (const offset of PAY_PERIOD_TOTAL_OFFSETS) {
+    const view = views.find(row => row && row.timelineOffset === offset);
+    if (!view) continue;
+    periods.push({
+      offset,
+      role: clipPacketText(view.timelineRole, 16),
+      periodStart: clipPacketText(view.start, 40),
+      periodEnd: clipPacketText(view.end, 40),
+      projected: view.evidenceState === 'projected',
+      balanceAfterDeductions: periodBalanceAfterDeductions(view),
+      stackSurplus: periodStackSurplus(view),
+      billsEndingBalance: periodBillsEndingBalance(view),
+    });
+  }
+  if (!periods.length) return unavailable('pay-period-totals-unavailable');
+  return { status: 'ok', source: 'Forecast.payPeriodViews', periods };
+}
+
+// Under a card coverage estimate (lead ruling on PR 2): the Bills ending
+// balance is withheld with the estimate disclosure, because its deduction
+// terms can exceed the confirmed figure; Balance After Deductions and the
+// Stack surplus stay, already at most estimated.
+function tagPayPeriodTotalsEstimate(section, estimate) {
+  if (!section || section.status !== 'ok') return section;
+  return { ...section, trust: 'estimated', cardCoverageEstimate: estimate, periods: section.periods.map(period => ({
+    ...period,
+    billsEndingBalance: period.billsEndingBalance && period.billsEndingBalance.status === 'ok'
+      ? withheldForCardEstimate('Forecast.billsAccountPeriodBalance', estimate) : period.billsEndingBalance,
+  })) };
+}
 
 // Why Savings is or is not published (lead, 2026-11-20: read the live reason
 // privately next time). Statuses and reason codes only, copied from Forecast's
@@ -1198,6 +1337,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       budgetCap: unavailable(reason),
       paydayAllocation: unavailable(reason),
       predictedEndingBalance: unavailable(reason),
+      payPeriodTotals: unavailable(reason),
       savingsStatus: unavailable(reason),
     };
   }
@@ -1219,6 +1359,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       budgetCap: unavailable(reason),
       paydayAllocation: unavailable(reason),
       predictedEndingBalance: unavailable(reason),
+      payPeriodTotals: unavailable(reason),
       savingsStatus: unavailable(reason),
     };
   }
@@ -1352,6 +1493,7 @@ function forecastBlock(data, asOf, advice, debtProj, periods, settlement) {
       : unavailable('current-period-action-unavailable'),
     paydayAllocation: projectPaydayAllocation(advice),
     predictedEndingBalance: projectPredictedEndingBalance(advice),
+    payPeriodTotals: projectPayPeriodTotals(advice),
     savingsStatus: projectSavingsStatus(advice),
     budgetCap: budget && budget.cap
       ? {
