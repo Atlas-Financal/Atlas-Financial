@@ -93,6 +93,25 @@ to be visible, merchant strings needing normalising before matching).
 
 ---
 
+## Atlas v2 — path to complete
+
+**Finish line (owner, 2026-11-23, OD-032):** every figure on the Budget page is
+either correct or honestly marked unknown, stays so when a bank sync lags, and
+Dale has walked it once against the bank. Everything else in this file is
+after v2. Progress is reported as steps remaining on this path; a merged slice
+is not a finished step until its live check is done. The live list of PRs and
+heads is the Merge line on #821; this section names steps, not heads.
+
+| # | Step | Owner | Next action |
+|---|---|---|---|
+| 1 | Land the in-flight PRs: card repayment target (#1573, Dale's figures look), Fortis link (#1583, desk redesign), yearly dates (#1597, final design pass), HELOC end date (#1602), outside-account unknown (#1603), default-view null leftover | Lead (routing); DISPLAY, GUARDS, ENGINE (builds) | Per the Merge line |
+| 2 | Same-day cash freshness: a lagging account, stale savings dating or a loan dated by `updated_at` must withhold, not double-count (Gemini hunt 5 findings 1, 3, 5; #821 7103458019) | ENGINE | Open the PR |
+| 3 | Pre-cutover dates of a linked bill keep the plan's own confidence, never `confirmed` (hunt 5 finding 11) | GUARDS, after #1597 | Build from fresh main |
+| 4 | Remaining fail-open findings from Gemini hunt 4 (see its BACKLOG entry): finding 11's once-moved half, then 3/4/5 with #1597's yearly-bills NEXT PR | ENGINE / GUARDS | After step 2 |
+| 5 | Confirm the open card-payment destination in Lunch Money, so the plan's withheld parts return | Dale with Grok | Dale confirms Grok's prepared edit |
+| 6 | Dale walks the live Budget page against the bank once (rule 15); each mismatch becomes a fix | Dale; lead | After steps 1–5 land |
+| 7 | Fixes from that walk land and are re-checked on the live page | Lead | After step 6 |
+
 ## 🔴 The two that undercut everything else
 
 **B70 · The HELOC limit is a planning boundary: $0 headroom means $0 additional borrowing** · **DONE / RESOLVED 2026-08-18** · *owner planning invariant; engine already held it*
