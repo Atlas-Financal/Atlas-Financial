@@ -92,7 +92,31 @@ function record(state, statusCode, method, outcome) {
     served,
     cacheHit: served === 'retained' || served === 'replay',
     phases,
+    ...(state.marks && state.marks.length ? { assistant: assistantPhases(state) } : {}),
   };
+}
+
+// The assistant routes' post-data split (lead dispatch 2026-11-23, from the
+// BACKLOG item on /assistant/mcp's unattributed time). A breakdown of the time
+// after the last data read; it leaves phases, which still sum to the total,
+// unchanged. Whole ms, closed labels only, never payload content.
+// packetBuild: the data read's end to the packet built (Assistant.buildPacket).
+// packetCheck: to the packet's sanitization check passing (MCP only).
+// encode: the last mark to the body being handed to res.end (the tool
+// result's JSON, the MCP JSON-RPC envelope, or res.json's encoding).
+// write: res.end to the response finishing.
+const ASSISTANT_MARKS = new Set(['packetBuild', 'packetCheck']);
+function assistantPhases(state) {
+  const at = v => typeof v === 'bigint' ? v : null;
+  const span = (a, b) => (at(a) !== null && at(b) !== null && b >= a ? b - a : 0n);
+  const out = { packetBuild: 0n, packetCheck: 0n, encode: 0n, write: 0n };
+  // Each step runs from its own start (fixed when it was marked) to its mark.
+  for (const mark of state.marks) out[mark.label] += span(mark.from, mark.at);
+  const prev = state.marks[state.marks.length - 1].at;
+  const handed = at(state.endCalledAt);
+  out.encode = handed !== null ? span(prev, handed) : 0n;
+  out.write = handed !== null ? span(handed, state.end) : span(prev, state.end);
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, toMs(v)]));
 }
 
 // First middleware: starts the clock for every request and wraps res.json so
@@ -101,8 +125,16 @@ function record(state, statusCode, method, outcome) {
 function start(req, res, next) {
   const state = { start: now(), end: 0n, path: req.path, data: 0n, dataOpen: null, serialize: 0n,
     served: 'none', authed: false, excluded: false, done: false, cold: false,
-    firstDataStart: null, lastDataEnd: null, attachStart: null, firstSerializeStart: null, lastSerializeEnd: null };
+    firstDataStart: null, lastDataEnd: null, attachStart: null, firstSerializeStart: null, lastSerializeEnd: null,
+    marks: [], endCalledAt: null };
   req[KEY] = state;
+  // The moment the response body is handed to res.end (Express res.json, or
+  // the MCP transport's own write): before it is encoding, after it is write.
+  const end = res.end;
+  res.end = function (...args) {
+    if (state.endCalledAt === null) state.endCalledAt = now();
+    return end.apply(this, args);
+  };
   const json = res.json.bind(res);
   res.json = body => {
     const t = now();
@@ -154,6 +186,16 @@ function attachStart(req) {
   const s = stateOf(req);
   if (s && !s.done && s.attachStart === null && typeof s.dataOpen === 'bigint') s.attachStart = now();
 }
+// An assistant post-data checkpoint (ASSISTANT_MARKS): the named step ends now.
+function markPhase(req, label) {
+  const s = stateOf(req);
+  if (!s || s.done || !ASSISTANT_MARKS.has(label) || s.marks.length >= 64) return;
+  // The step started at the later of the last data read's end and the last
+  // mark, so a batch's repeated packet builds never overlap or go backwards.
+  const last = s.marks.length ? s.marks[s.marks.length - 1].at : null;
+  const dataEnd = typeof s.lastDataEnd === 'bigint' ? s.lastDataEnd : s.start;
+  s.marks.push({ label, from: last !== null && last > dataEnd ? last : dataEnd, at: now() });
+}
 function noteServed(req, served) {
   const s = stateOf(req);
   if (s && !s.done && SERVED.has(served)) s.served = served;
@@ -163,5 +205,5 @@ function startupRecord() {
   return { type: 'atlas-startup', ms: { bootToListen: Math.max(0, Math.round(performance.now())) } };
 }
 
-module.exports = { start, markAuthed, exclude, dataStart, dataEnd, attachStart, noteServed, record, routeOf, startupRecord,
+module.exports = { start, markAuthed, exclude, dataStart, dataEnd, attachStart, markPhase, noteServed, record, routeOf, startupRecord,
   _resetColdForTests: () => { cold = true; } };
