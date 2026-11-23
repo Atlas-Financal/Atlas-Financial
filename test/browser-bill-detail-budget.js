@@ -103,7 +103,7 @@ function servedFixture() {
       assert.equal(await bill().getAttribute('data-bill-status'), 'partly paid');
       assert.equal(await bill().getAttribute('data-bill-date'), '2026-08-19');
       assert.match(await bill().locator('[data-atlas-bill-state="to-pay"]').textContent(), /^Partly paid$/);
-      assert.match(await bill().locator('.blend-bill-summary-amount').innerText(), /about −\$97.50/);
+      assert.match(await bill().locator('.blend-bill-summary-amount').innerText(), /^−\$97\.50$/);
       assert.ok((await bill().boundingBox()).height >= 44);
       assert.equal(await details().evaluate(el => el.open), true,
         'the bill sheet opens with its payment evidence disclosed');

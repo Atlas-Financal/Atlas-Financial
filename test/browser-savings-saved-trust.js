@@ -27,8 +27,8 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
   };
   await run('an estimated earlier need makes both Saved figures estimated', () => H.withBudget(world(H, 'estimated'), async p => {
     const s = await H.snap(p);
-    H.expectMatch(H.goal(s, 'Invented trip'), /^Invented trip\s*≈\s*estimated\s*\$600\.00\s*Saved/, 'trip Saved 600 is estimated');
-    H.expectMatch(H.goal(s, 'Invented gift'), /^Invented gift\s*≈\s*estimated\s*\$400\.00\s*Saved/, 'gift Saved 400 is estimated');
+    H.expectMatch(H.goal(s, 'Invented trip'), /^Invented trip\s*\$600\.00\s*Saved/, 'trip Saved 600 prints plainly');
+    H.expectMatch(H.goal(s, 'Invented gift'), /^Invented gift\s*\$400\.00\s*Saved/, 'gift Saved 400 prints plainly');
     H.expectNoMatch(H.goal(s, 'Invented gift'), /calculated\s*\$400\.00\s*Saved/, 'gift Saved is not tagged calculated');
     // The old funding-proposal panel, which printed these Saved figures a
     // second time, left the live page (2026-11-11): nothing there to tag.
@@ -37,16 +37,16 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
   }));
   await run('both needs confirmed: both Saved figures stay calculated', () => H.withBudget(world(H, 'confirmed'), async p => {
     const s = await H.snap(p);
-    H.expectMatch(H.goal(s, 'Invented trip'), /calculated\s*\$600\.00\s*Saved/, 'trip Saved 600 calculated');
-    H.expectMatch(H.goal(s, 'Invented gift'), /calculated\s*\$400\.00\s*Saved/, 'gift Saved 400 calculated');
+    H.expectMatch(H.goal(s, 'Invented trip'), /^Invented trip\s*\$600\.00\s*Saved/, 'trip Saved 600 prints plainly');
+    H.expectMatch(H.goal(s, 'Invented gift'), /^Invented gift\s*\$400\.00\s*Saved/, 'gift Saved 400 prints plainly');
     H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
   }));
   // Atlas finding on 6c47dda: grouped members. One group, pool 1,000: earlier
   // need 550 estimated, later need 550 confirmed. By hand: 550 then
   // min(550, 1,000 - 550) = 450, and the later 450 depends on the earlier
   // estimate. Every surface that prints a member's Saved (goal member row and
-  // inventory "Currently backed") must say estimated, never calculated.
-  await run('grouped members: the later member Saved 450 is estimated on every surface', () => {
+  // inventory "Currently backed") prints the published amount without a trust label.
+  await run('grouped members: the later member Saved 450 prints plainly on every surface', () => {
     const w = H.baseWorld();
     w.savingsPool = {};
     w.commitments = [
@@ -57,10 +57,10 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
     w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
     return H.withBudget(w, async p => {
       const s = await H.snap(p);
-      H.expectMatch(H.goal(s, 'Invented club'), /^Invented club\s*≈\s*estimated\s*\$1,000\.00\s*Saved/, 'estimated group Saved total is shown on the goal');
+      H.expectMatch(H.goal(s, 'Invented club'), /^Invented club\s*\$1,000\.00\s*Saved/, 'estimated group Saved total is shown on the goal');
       const all = await p.page.evaluate(() => document.body.textContent.replace(/\s+/g, ' '));
-      H.expectMatch(all, /Invented late part Dec 10 ≈ estimated \$450\.00/, 'goal member row: the later Saved 450 is estimated');
-      H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00 estimated/, 'inventory member: Currently backed 450 is estimated');
+      H.expectMatch(all, /Invented late part Dec 10 \$450\.00/, 'goal member row: the later Saved 450 prints plainly');
+      H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00(?! estimated)/, 'inventory member: Currently backed 450 prints plainly');
       H.expectNoMatch(all, /calculated \$450\.00/, 'no member Saved 450 is tagged calculated');
       H.expectNoMatch(all, /\$450\.00 calculated/, 'no Currently backed 450 is tagged calculated');
       H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
@@ -77,10 +77,10 @@ async function runSavedTrustBrowserProof(H, report = () => {}) {
     w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
     return H.withBudget(w, async p => {
       const s = await H.snap(p);
-      H.expectMatch(H.goal(s, 'Invented club'), /^Invented club\s*calculated\s*\$1,000\.00\s*Saved/, 'confirmed group Saved total stays calculated');
+      H.expectMatch(H.goal(s, 'Invented club'), /^Invented club\s*\$1,000\.00\s*Saved/, 'confirmed group Saved total prints plainly');
       const all = await p.page.evaluate(() => document.body.textContent.replace(/\s+/g, ' '));
-      H.expectMatch(all, /Invented late part Dec 10 calculated \$450\.00/, 'confirmed goal member Saved 450 stays calculated');
-      H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00 calculated/, 'confirmed inventory member Saved 450 stays calculated');
+      H.expectMatch(all, /Invented late part Dec 10 \$450\.00/, 'confirmed goal member Saved 450 prints plainly');
+      H.expectMatch(all, /Invented late part 2026-12-10\s*Currently backed\s*\$450\.00(?! calculated)/, 'confirmed inventory member Saved 450 prints plainly');
       H.expectMatch(String((await p.rows('[data-budget-funding-saved]')).length), /^0$/, 'the removed funding-proposal panel prints no Saved figure');
     });
   });

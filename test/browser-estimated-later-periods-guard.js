@@ -7,12 +7,12 @@
  *
  * - the card appears only while today's plan is unavailable, and every period
  *   it lists starts after the as-of date;
- * - each of its figures is a dollar amount tagged "estimate", or reads Unavailable;
+ * - each of its figures is a plain dollar amount, or reads Unavailable;
  * - the card prints no other dollar figure;
  * - the rest of the page is read with the card left out, so the suite's own
  *   no-precise-figure scan still covers every opening-seeded figure.
  */
-const TERM = /^(?:[−-]?\$[\d,]+\.\d\d estimate|Unavailable(?: unavailable)?)$/;
+const TERM = /^(?:[−-]?\$[\d,]+\.\d\d|Unavailable)$/;
 const PRECISE = /[$]\s?\d/;
 
 // Run in the page: the card(s), read without changing the page.
@@ -42,7 +42,7 @@ function laterPeriodFailures(reading, asOf) {
     if (!box.starts.length) failures.push('the Later pay periods card lists no period');
     for (const start of box.starts) if (!(start > asOf)) failures.push(`a listed period (${start}) does not start after ${asOf}`);
     if (box.terms.length !== box.starts.length * 4) failures.push(`expected four figures per period, got ${box.terms.length} for ${box.starts.length}`);
-    for (const term of box.terms) if (!TERM.test(term)) failures.push(`a later-period figure is not an estimate: "${term}"`);
+    for (const term of box.terms) if (!TERM.test(term)) failures.push(`a later-period figure has an unexpected display: "${term}"`);
     if (PRECISE.test(box.otherText)) failures.push('the Later pay periods card prints a figure outside its terms');
   }
   return failures;

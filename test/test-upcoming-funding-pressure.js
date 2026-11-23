@@ -250,18 +250,17 @@ check('B4: $0 contribution still shows the future path — $0 today is not fully
   assert.doesNotMatch(section, /fully funded/i);
 });
 
-check('B5: estimated cost keeps the estimate tag — never promoted to calculated', () => {
+check('B5: estimated and confirmed costs show no trust tag', () => {
   // Forecast's fundingTrust is the weakest of every dated cost's confidence
   // (see A-part and C6 checks), so a schedule holding an estimated cost
   // publishes fundingTrust 'estimated'. The projected lines reprint it.
   const section = stillPlannedSection(shell({}, { fundingTrust: 'estimated' }));
-  assert.match(section, /Next scheduled contribution.*<span class="trust-tag trust-estimated">estimate<\/span>/s,
-    'next contribution carries the estimate tag');
-  assert.match(section, /Projected funded by.*<span class="trust-tag trust-estimated">estimate<\/span>/s,
-    'funded-by carries the estimate tag');
+  assert.match(section, /Next scheduled contribution<\/span><span>[^<]+<\/span>/);
+  assert.doesNotMatch(section, /trust-estimated|>estimate</);
+  assert.match(section, /Projected funded by<\/span><span>[^<]+<\/span>/);
   assert.doesNotMatch(section, /trust-tag">calculated</, 'no calculated tag on the estimated cost');
   // …while the confirmed nearer cost keeps its own confirmed tag.
-  assert.match(shell(), /Needed by.*<span class="trust-tag">confirmed<\/span>/s);
+  assert.match(shell(), /Needed by<\/span><span>[^<]+<\/span>/);
 });
 
 check('B5b (C6): confirmed cost on an estimated funding path — projections say estimate, never confirmed', () => {
@@ -278,9 +277,9 @@ check('B5b (C6): confirmed cost on an estimated funding path — projections say
     ],
   });
   const section = stillPlannedSection(html);
-  assert.match(section, /Next scheduled contribution<\/span><span>\$321\.45 <span class="trust-tag trust-estimated">estimate<\/span> on March 27/,
+  assert.match(section, /Next scheduled contribution<\/span><span>\$321\.45 on March 27/,
     'next contribution carries the funding trust');
-  assert.match(section, /Projected funded by<\/span><span>April 10 <span class="trust-tag trust-estimated">estimate<\/span>/,
+  assert.match(section, /Projected funded by<\/span><span>April 10<\/span>/,
     'funded-by carries the funding trust');
   assert.doesNotMatch(section, /confirmed/, 'no funding-path line is tagged confirmed');
 });
@@ -316,8 +315,9 @@ check('B5d (C6): real Forecast output — confirmed cost, estimated income — p
   const advice = Object.assign({}, adviceFixture(), alloc, { planSpendPaydayFunding: schedule });
   const html = P.paydayInstructionShellHtml(advice, currentPeriod, schedule);
   const section = stillPlannedSection(html);
-  assert.match(section, /Next scheduled contribution[\s\S]*trust-estimated">estimate/, 'contribution tagged estimate');
-  assert.match(section, /Projected funded by[\s\S]*trust-estimated">estimate/, 'funded-by tagged estimate');
+  assert.match(section, /Next scheduled contribution<\/span><span>[^<]+<\/span>/);
+  assert.doesNotMatch(section, /trust-estimated|>estimate</);
+  assert.match(section, /Projected funded by<\/span><span>[^<]+<\/span>/);
   assert.doesNotMatch(section, /Next scheduled contribution[^.]{0,80}confirmed/, 'contribution not tagged confirmed');
   assert.doesNotMatch(section, /Projected funded by[^.]{0,80}confirmed/, 'funded-by not tagged confirmed');
 });

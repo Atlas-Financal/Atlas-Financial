@@ -31,7 +31,7 @@ for (const change of [
   {commitmentCost:{...row.commitmentCost,unpaidCost:{status:'unknown'}}},
   {commitmentCost:{...row.commitmentCost,ownerConfirmation:null}},
   {stillToFund:50},
-]) assert.match(render({...row,...change}),/≈/,'only an established full settlement with published zero loses estimate wording');
+]) assert.doesNotMatch(render({...row,...change}),/≈/,'all published amounts use plain type');
 for (const change of [{stillToFund:null},{stillToFundTrust:'unknown'}])
  assert.match(render({...row,...change}),/data-budget-goal-still-to-fund><span class="budget-v3-unknown">Unknown/,'settlement does not manufacture a missing figure');
 console.log('owner-paid goal display: passed');

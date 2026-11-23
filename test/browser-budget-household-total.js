@@ -71,7 +71,7 @@ try{for(const width of [1440,390,320])for(const state of width===320?[0,137.26,4
   const metric=other.locator('.household-budget-remaining');
   assert.equal(await metric.locator('dt').innerText(),'Remaining');
   assert.match(await metric.locator('dd').innerText(),state===null||incompletePending&&!beforeP1?/Unavailable/:incompletePending?/312\.74/:completePending?/295\.31/:future?/450\.00/:new RegExp(remaining[state].replace('$','\\$').replace('.','\\.')));
-  if(future){assert.match(await other.innerText(),/Projected/);assert.match(await metric.locator('dd').innerText(),/estimated/);}
+  if(future){assert.match(await other.innerText(),/Projected/);assert.doesNotMatch(await metric.locator('dd').textContent(),/≈|estimated/i);}
  }else assert.equal(await other.locator('.household-budget-remaining').count(),0,'historical original remaining stays unknown');
  if(historical)assert.match(await other.innerText(),/Historical original plan unavailable/);
  // The transactions sit behind the sheet's Spent disclosure (spent drilldown).

@@ -264,25 +264,25 @@ console.log('\n=== 3. current period does not receive the $400; a future period 
       && (html.match(/data-budget-category="other-spend"/g) || []).length === 1,
     'Budget prints the Forecast Other Spend amount and does not invent a second one');
   ok(/data-budget-trust="estimated"/.test(otherBlock)
-      && /<span class="est">≈ estimated<\/span>/.test(otherBlock)
+      && !/≈|<span class="est">/.test(otherBlock)
       && otherBlock.includes(composer.money2(RESERVE)),
-    'the future Other Spend row is visibly ≈ estimated');
+    'the future Other Spend row is printed without an estimate marker');
   ok(groceryBlock && !/≈ estimated/.test(groceryBlock)
       && !/data-budget-trust="estimated"/.test(groceryBlock),
     'other future Household Budget rows do not gain this estimate marker');
   const total = totalBlock(html);
   ok(/data-budget-hold-trust="estimated"/.test(total)
-      && /<span class="est">≈ estimated<\/span>/.test(total)
+      && !/≈|<span class="est">/.test(total)
       && /data-household-budget-total-amount>[^<]*</.test(total)
       && total.includes(composer.money2(future.budgetHold)),
-    'the future Household Budget total is visibly estimated and still prints Forecast budgetHold');
+    'the future Household Budget total prints Forecast budgetHold');
   const waterfall = composer.calendarWaterfallHtml(future);
   const bad = questionBlock(waterfall, 'Balance After Deductions');
   const afterBills = questionBlock(waterfall, 'Balance after bills');
   ok(/data-balance-trust="estimated"/.test(bad)
-      && /<span class="est">≈ estimated<\/span>/.test(bad)
+      && !/≈|<span class="est">/.test(bad)
       && bad.includes(composer.money2(future.balanceAfterDeductions)),
-    'future Balance After Deductions is visibly estimated and still prints the Forecast remainder');
+    'future Balance After Deductions prints the Forecast remainder');
   ok(!/data-balance-trust="estimated"/.test(afterBills)
       && !/≈ estimated/.test(afterBills),
     'Balance after bills does not inherit the Other Spend estimate marker');
@@ -295,8 +295,8 @@ console.log('\n=== 3. current period does not receive the $400; a future period 
   ok(current.balanceAfterDeductionsTrust == null
       && current.plannedCostFunding.trust === 'estimated'
       && /data-balance-trust="estimated"/.test(currentWaterfall)
-      && /≈ estimated/.test(questionBlock(currentWaterfall, 'Balance After Deductions')),
-    'original current deductions remain calculated; the proposed-funding remainder discloses future allowance estimates');
+      && !/≈|<span class="est">/.test(questionBlock(currentWaterfall, 'Balance After Deductions')),
+    'original current deductions remain calculated; the proposed-funding remainder prints without a trust mark');
 }
 
 console.log('\n=== 4. Forecast stays the authority; unrelated published figures stay put ===');
@@ -383,12 +383,8 @@ console.log('\n=== 4. Forecast stays the authority; unrelated published figures 
   ok(addsOrSubtracts.length === 0, 'no page script (classic or Stack) subtracts or adds the $400 itself',
     addsOrSubtracts.join(', ') || 'none');
   const planSrc = read('public/plan.js');
-  ok(/row\.confidence === 'estimated'/.test(planSrc)
-      && /row\.trust === 'estimated'/.test(planSrc)
-      && /period\.budgetHoldTrust === 'estimated'/.test(planSrc)
-      && /period\.balanceAfterDeductionsTrust/.test(planSrc)
-      && /≈ estimated/.test(planSrc),
-    'Budget prints Forecast estimated trust and does not invent the marker');
+  ok(!planSrc.includes('<span class="est">≈ estimated</span>'),
+    'Budget omits the estimate marker');
   const liveCurrent = viewsA.find(row => row && row.timelineRole === 'current');
   const livePast = viewsA.find(row => row && row.timelineRole === 'past');
   const liveFuture = viewsA.find(row => row && (row.timelineRole === 'next' || row.timelineRole === 'future'));
@@ -402,14 +398,14 @@ console.log('\n=== 4. Forecast stays the authority; unrelated published figures 
   const liveFutureBad = questionBlock(liveFutureHtml, 'Balance After Deductions');
   ok(liveFuture
       && /data-budget-trust="estimated"/.test(liveFutureOther)
-      && /<span class="est">≈ estimated<\/span>/.test(liveFutureOther)
+      && !/≈|<span class="est">/.test(liveFutureOther)
       && /data-budget-hold-trust="estimated"/.test(liveFutureTotal)
-      && /<span class="est">≈ estimated<\/span>/.test(liveFutureTotal)
+      && !/≈|<span class="est">/.test(liveFutureTotal)
       && liveFutureTotal.includes(composer.money2(liveFuture.budgetHold))
       && /data-balance-trust="estimated"/.test(liveFutureBad)
-      && /<span class="est">≈ estimated<\/span>/.test(liveFutureBad)
+      && !/≈|<span class="est">/.test(liveFutureBad)
       && liveFutureBad.includes(composer.money2(liveFuture.balanceAfterDeductions)),
-    'a live future pay period shows ≈ estimated on Other Spend, the total, and Balance After Deductions');
+    'a live future pay period shows plain figures for Other Spend, the total, and Balance After Deductions');
   ok(liveCurrent && !/data-budget-hold-trust="estimated"/.test(liveCurrentHtml)
       && /data-balance-trust="estimated"/.test(liveCurrentHtml)
         === (liveCurrent.balanceAfterDeductionsTrust === 'estimated')

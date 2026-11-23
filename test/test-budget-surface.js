@@ -81,7 +81,7 @@ const householdActualUnknown = html => /data-budget-browse-hold[\s\S]*?data-budg
 const householdActualContains = (html, amount) => new RegExp('data-budget-browse-hold[\\s\\S]*?data-budget-ratio-actual>[^<]*\\$'+amount.replace('.', '\\.')+'<').test(html);
 const step = (html, n) => {
   const m = new RegExp(`data-operating-question="${n}"[\\s\\S]*?</summary>`).exec(html);
-  return m ? text(m[0]) : '';
+  return m ? text(m[0].slice(m[0].indexOf('>') + 1)) : '';
 };
 const section = (html, kind) => {
   if (kind === 'period') return html.slice(html.indexOf('<!--budget-current-position-end-->'));
@@ -135,9 +135,9 @@ ok(p.context.__retiredComposer === false, 'the retired operatingSurfaceHtml no l
 ok(!/data-budget-more-views|data-current-payday-details/.test(html),
   'the old "More Budget views" and "Current payday details" disclosures are not rendered');
 ok((html.match(/data-calendar-waterfall="/g) || []).length === 1, 'exactly one pay-period waterfall is printed');
-const hero = text(/data-budget-period-result[\s\S]*?<\/div>/.exec(html)?.[0] || '');
-ok(hero.includes(money(EXPECT.final)) && /estimated/.test(hero) && !/Before savings|After proposed funding/.test(step(html, '07')),
-  'the overview republishes the independently reconciled final balance and its estimate qualifier without a visible subtitle');
+const hero = text(/<[^<>]*data-budget-period-result[\s\S]*?<\/div>/.exec(html)?.[0] || '');
+ok(hero.includes(money(EXPECT.final)) && !/≈|estimated/i.test(hero) && !/Before savings|After proposed funding/.test(step(html, '07')),
+  'the overview republishes the independently reconciled final balance without an estimate qualifier or subtitle');
 const bar = id => /style="left:([^%]+)%;width:([^%]+)%"/.exec(
   html.split(`data-operating-question="${id}"`)[1]?.split('</summary>')[0] || '');
 ok(bar('02') && Number(bar('02')[1]) === 0 && Math.abs(Number(bar('02')[2]) - 2600 / 4050 * 100) < 1e-9,
@@ -372,14 +372,14 @@ ok(/data-budget-spending-evidence="projected"/.test(nextBrowse)
   'the next payday still uses projected spending wording and the published remaining scope');
 p.rerender('planPayPeriodId = null; __ctx.planPayPeriodId = null');
 
-ok(step(html, '02').includes(money(EXPECT.income)) && /≈ estimated/.test(step(html, '02')),
-  `Income is ${money(EXPECT.income)} with Forecast's estimated tag`, step(html, '02'));
+ok(step(html, '02').includes(money(EXPECT.income)) && !/≈ estimated/.test(step(html, '02')),
+  `Income is ${money(EXPECT.income)} without an estimate tag`, step(html, '02'));
 ok(step(html, '04').includes(money(EXPECT.bills)), `Bills deduction is ${money(EXPECT.bills)}`, step(html, '04'));
 ok(step(html, '05').includes(money(EXPECT.afterBills)), `Balance after bills is ${money(EXPECT.afterBills)}`, step(html, '05'));
 ok(step(html, '06').includes('$444.49') && step(html, '06').includes('$730.00'), 'Household actual/original plan is 444.49 / 730.00', step(html, '06'));
 ok(p.context.__ctx.advice.payPeriodViews.find(row=>row.timelineRole==='current').budgetHold === EXPECT.household, 'native financial reserve remains independently reconciled 752.99');
-ok(step(html, '07').includes(money(EXPECT.final)) && /≈ estimated/.test(step(html, '07')),
-  `Balance After Deductions is ${money(EXPECT.final)}, estimated`, step(html, '07'));
+ok(step(html, '07').includes(money(EXPECT.final)) && !/≈ estimated/.test(step(html, '07')),
+  `Balance After Deductions is ${money(EXPECT.final)} without an estimate mark`, step(html, '07'));
 ok(/Savings[\s\S]*?Unavailable/.test(text(html)) && !/Savings[^$]*\$0\.00/.test(step(html, 'savings')),
   'the period savings step with no funding snapshot reads Unavailable, never $0');
 
@@ -406,7 +406,7 @@ const deficitHtml = page().render(fx.served({ periodInternet: 1800 }));
 ok(step(deficitHtml, '04').includes(money(3380)) && step(deficitHtml, '05').includes(money(670)),
   'synthetic observations produce the independent 3,380 bill load and 670 after bills');
 ok(/data-sign="negative"/.test(summaryHtml(deficitHtml, '07')) && /82\.99/.test(step(deficitHtml, '07'))
-  && /estimated/.test(step(deficitHtml, '07')), 'the -82.99 final balance keeps its sign and Forecast estimate');
+  && !/≈|estimated/i.test(step(deficitHtml, '07')), 'the -82.99 final balance keeps its sign without a trust mark');
 for (const id of ['07']) ok(/data-budget-bar-state="deficit"/.test(summaryHtml(deficitHtml, id))
   && !/is-unknown/.test(summaryHtml(deficitHtml, id)), `${id}: a known negative start or amount is a deficit, never unknown`);
 const incomeSegments = segments(summaryHtml(deficitHtml, '02'));
@@ -546,7 +546,7 @@ for (const trust of ['calculated', 'estimated', null]) for (const amount of [100
           && (income !== 0 || /data-budget-bar-state="zero-income"/.test(row)),
       `${trust} amount ${amount}, income ${income}, row ${id}: known money survives scale availability`);
     }
-    const hero = text(/data-budget-period-result[\s\S]*?<\/div>/.exec(result)?.[0] || '');
+    const hero = text(/<[^<>]*data-budget-period-result[\s\S]*?<\/div>/.exec(result)?.[0] || '');
     ok(!/Unavailable/.test(hero) && hero.includes(Math.abs(amount).toFixed(2)),
       `${trust} amount ${amount}, income ${income}: result hero agrees with row trust`);
   }
@@ -571,7 +571,7 @@ for (const amount of [100, 0, -100, 'null', 'NaN', 'Infinity', '"100"']) {
     for (const id of ['05', '07']) ok(/is-unknown/.test(summaryHtml(result, id))
       && /Unavailable/.test(summaryHtml(result, id)) && segments(summaryHtml(result, id)).length === 0,
     `${amount}/${trust}, row ${id}: unpublished money is withheld with no numeric bar`);
-    ok(/Unavailable/.test(text(/data-budget-period-result[\s\S]*?<\/div>/.exec(result)?.[0] || '')),
+    ok(/Unavailable/.test(text(/<[^<>]*data-budget-period-result[\s\S]*?<\/div>/.exec(result)?.[0] || '')),
       `${amount}/${trust}: result hero also withholds unpublished money`);
   }
 }
@@ -584,9 +584,9 @@ for (const amount of ['NaN', 'Infinity', '"100"']) {
 console.log("\n=== today's money and the next-payday plan ===");
 const today = text(section(html, 'today'));
 const period = text(section(html, 'period'));
-ok(today.includes(`Money available ${money(EXPECT.available)} calculated`), `Money available is ${money(EXPECT.available)}, calculated`, today.slice(0, 200));
-ok(today.includes(`Keep at least ${money(EXPECT.floor)} calculated`), `the floor is Forecast's ${money(EXPECT.floor)}, calculated`);
-ok(today.includes(`Bills & required minimums ${money(EXPECT.remaining)} estimate`), 'bills still to pay today keep their estimate tag');
+ok(today.includes(`Money available ${money(EXPECT.available)}`), `Money available is ${money(EXPECT.available)}, calculated`, today.slice(0, 200));
+ok(today.includes(`Keep at least ${money(EXPECT.floor)}`), `the floor is Forecast's ${money(EXPECT.floor)}, calculated`);
+ok(today.includes(`Bills & required minimums ${money(EXPECT.remaining)}`), 'bills still to pay today print without an estimate tag');
 ok(/Nest Money funding plan — August 28 payday/.test(today), 'the next-payday plan is in the Today section, labelled with its payday');
 ok(/From today · 2026-08-20/.test(period) && !/From today ·/.test(today),
   "today's proposal sits with the period, separate from the next-payday plan");
@@ -642,7 +642,7 @@ for (const [accountId, amount, trust] of [['savings-a', 8000, 'posted'], ['chequ
 }
 const unconfirmedBalance = p.rerender("__ctx.advice.defaultView.currentBalancePublication = { accountId: 'chequing-a', amount: 1215, trust: 'planned-unconfirmed' }");
 ok(/payday receipt unconfirmed/.test(text(unconfirmedBalance))
-  && /budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(unconfirmedBalance)?.[0] || ''),
+  && !/budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(unconfirmedBalance)?.[0] || ''),
   'the published planned-unconfirmed Bills balance keeps a visible receipt qualifier');
 p.rerender("__ctx.advice.defaultView.currentBalancePublication = __ctx.advice.paydayAllocation.currentBalancePublication");
 
@@ -658,9 +658,9 @@ console.log('\n=== C5: an estimated Bills balance is never shown as provider-con
   ok(estPub && estPub.amount === 1357.91 && estPub.trust === 'estimated' && estPub.providerConfirmed === false
     && estPub.status !== 'provider-confirmed',
     'Forecast publishes the owner estimate as estimated, amount unchanged, never provider-confirmed');
-  ok(/\$1,357\.91/.test(hero(estHtml)) && /budget-cash-est/.test(hero(estHtml))
-    && /estimated, not provider-confirmed/.test(text(hero(estHtml))),
-    'the Current balance hero carries the ≈ mark and says estimated, not provider-confirmed');
+  ok(/\$1,357\.91/.test(hero(estHtml)) && !/budget-cash-est/.test(hero(estHtml))
+    && !/estimated, not provider-confirmed/.test(text(hero(estHtml))),
+    'the Current balance hero prints the amount without an estimate mark');
   ok(!/Posted cash currently in BILLS ACCOUNT/.test(estHtml) && !/Posted balance/.test(text(estHtml)),
     'no surface describes the estimated Bills balance as posted');
   const confPage = page();
@@ -691,9 +691,9 @@ console.log('\n=== C5 follow-up: a bank-observed Bills balance is not shown as a
     'the hero shows the observed balance bare, and no surface says the bank feed did not return it');
 }
 const estimatedBalance = p.rerender("__ctx.advice.defaultView.currentBalancePublication = { accountId: 'chequing-a', amount: 1215, trust: 'estimated' }");
-ok(/budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(estimatedBalance)?.[0] || '')
-  && /estimated, not provider-confirmed/.test(text(estimatedBalance)),
-  'a published estimated Bills balance renders with the estimate mark, never bare');
+ok(!/budget-cash-est/.test(/data-budget-cash-hero[\s\S]*?<\/p>/.exec(estimatedBalance)?.[0] || '')
+  && !/estimated, not provider-confirmed/.test(text(estimatedBalance)),
+  'a published estimated Bills balance renders without an estimate mark');
 p.rerender("__ctx.advice.defaultView.currentBalancePublication = __ctx.advice.paydayAllocation.currentBalancePublication");
 
 const overspendPage = page();
@@ -747,8 +747,8 @@ const exactHtml = fundingProof.rerender(`budgetMonthPlanSpendSchedule = () => ({
   paydays: [{ payday: '2026-08-28', contribution: 95, stillToFund: 305, trust: 'calculated', allocations: [{ id: 'fixture-cost', amount: 95 }] }],
   costs: [{ id: 'fixture-cost', label: 'Independent test cost', date: '2026-09-12', confidence: 'confirmed', baseRequirement: 400 }] })`);
 const exactPanel = exactHtml.split('data-budget-funding-panel="payday"')[1];
-ok(/data-budget-funding-proposal><span class="budget-v3-est">/.test(exactPanel) && /\$95\.00/.test(exactPanel),
-  'future exact-payday contribution carries schedule funding trust, not its calculated live-row stamp');
+ok(!/budget-v3-est|≈/.test(exactPanel) && /data-budget-funding-proposal>\$95\.00/.test(exactPanel),
+  'future exact-payday contribution prints its published amount without an estimate mark');
 ok(/style="width:23\.75%"/.test(exactPanel), 'independent geometry: 95 / 400 = 23.75%, with no new money total');
 const withheldExact = fundingProof.rerender(`budgetMonthPlanSpendSchedule = () => ({ status: 'ready', asOf: '2026-08-20', fundingTrust: 'unknown',
   paydays: [{ payday: '2026-08-28', contribution: 95, stillToFund: 305, trust: 'calculated', allocations: [{ id: 'fixture-cost', amount: 95 }] }],
@@ -873,7 +873,7 @@ const inventory = text(withheldPage.context.document.getElementById('savings-inv
 const poolA = inventory.slice(inventory.indexOf('Synthetic reserve A'), inventory.indexOf('Synthetic reserve B'));
 const poolB = inventory.slice(inventory.indexOf('Synthetic reserve B'));
 ok(poolA.length > 0 && poolB.length > 0, 'both configured savings accounts are listed by name', inventory.slice(0, 300));
-ok(/^Synthetic reserve A Assignments unknown/.test(poolA) && /Observed pool cash \$0\.00 verified/.test(poolA),
+ok(/^Synthetic reserve A Assignments unknown/.test(poolA) && /Observed pool cash \$0\.00/.test(poolA) && !/\bverified\b/i.test(poolA),
   'pool A: observed cash is known and shown as observed; its assignments are unknown', poolA.slice(0, 300));
 ok(/^Synthetic reserve B Cash unknown/.test(poolB) && /Observed pool cash Unknown/.test(poolB),
   'pool B: its cash is unknown, not $0', poolB.slice(0, 300));
@@ -920,14 +920,14 @@ console.log('\n=== known deficit is not unknown ===');
     `Forecast publishes independently derived − after-bills ${DEFICIT.afterBills} and final ${DEFICIT.final}, estimated`,
     published && `${published.afterBills} / ${published.afterHouseholdBudget} / ${published.balanceAfterDeductionsTrust}`);
   const summaryHtml = id => deficitHtml.split(`data-operating-question="${id}"`)[1]?.split('</summary>')[0] || '';
-  const heroText = text(/data-budget-period-result[\s\S]*?<\/div>/.exec(deficitHtml)?.[0] || '');
-  ok(heroText.includes(signed(DEFICIT.final)) && /estimated/.test(heroText),
-    'the hero keeps the published negative final and its estimate qualifier', heroText);
+  const heroText = text(/<[^<>]*data-budget-period-result[\s\S]*?<\/div>/.exec(deficitHtml)?.[0] || '');
+  ok(heroText.includes(signed(DEFICIT.final)) && !/≈|estimated/i.test(heroText),
+    'the hero keeps the published negative final without an estimate qualifier', heroText);
   ok(/data-budget-bar-state="known"/.test(summaryHtml('06')) && step(deficitHtml, '06').includes('$444.49')
     && step(deficitHtml, '06').includes('$730.00'), 'Household actual progress remains 444.49 / 730 independently of the known negative financial balance');
   ok(/budget-waterfall-track is-deficit/.test(summaryHtml('07')) && !/is-unknown/.test(summaryHtml('07'))
-    && step(deficitHtml, '07').includes(signed(DEFICIT.final)) && /≈ estimated/.test(step(deficitHtml, '07')),
-    'the final negative amount uses the deficit track and keeps its published dollars and estimate');
+    && step(deficitHtml, '07').includes(signed(DEFICIT.final)) && !/≈ estimated/.test(step(deficitHtml, '07')),
+    'the final negative amount uses the deficit track and keeps its published dollars');
   ok(/budget-waterfall-track is-deficit/.test(summaryHtml('05')) && step(deficitHtml, '05').includes(signed(DEFICIT.afterBills)),
     'the negative after-bills row keeps its published deficit and is not hatched unknown');
   ok(!/style="left:|budget-waterfall-track|budget-progress-track/.test(summaryHtml('savings'))
@@ -961,9 +961,9 @@ console.log('\n=== known zero income is not unknown ===');
     `Forecast publishes independently derived $0 income, after-bills ${ZERO.afterBills} and final ${ZERO.final}, estimated`,
     published && `${published.available} / ${published.afterBills} / ${published.afterHouseholdBudget} / ${published.incomeTrust}`);
   const summaryHtml = id => zeroHtml.split(`data-operating-question="${id}"`)[1]?.split('</summary>')[0] || '';
-  const heroText = text(/data-budget-period-result[\s\S]*?<\/div>/.exec(zeroHtml)?.[0] || '');
-  ok(heroText.includes(signed(ZERO.final)) && /estimated/.test(heroText),
-    'the hero keeps the published negative final and its estimate qualifier', heroText);
+  const heroText = text(/<[^<>]*data-budget-period-result[\s\S]*?<\/div>/.exec(zeroHtml)?.[0] || '');
+  ok(heroText.includes(signed(ZERO.final)) && !/≈|estimated/i.test(heroText),
+    'the hero keeps the published negative final without an estimate qualifier', heroText);
   ok(/budget-waterfall-track is-unknown/.test(summaryHtml('02')) && !/style="left:/.test(summaryHtml('02'))
     && /data-budget-ratio-plan>[\s\S]*?\$0\.00/.test(summaryHtml('02')), 'known zero original income plan survives while unobserved actual stays unavailable');
   ok(/budget-waterfall-track is-unknown/.test(summaryHtml('04')) && !/style="left:/.test(summaryHtml('04'))
@@ -975,8 +975,8 @@ console.log('\n=== known zero income is not unknown ===');
     && step(zeroHtml, '06').includes(money(ZERO.household)), 'original household plan survives while no observations cannot become zero actual spending');
   ok(/budget-waterfall-track is-deficit/.test(summaryHtml('07')) && !/is-unknown/.test(summaryHtml('07'))
     && !/style="left:/.test(summaryHtml('07'))
-    && step(zeroHtml, '07').includes(signed(ZERO.final)) && /≈ estimated/.test(step(zeroHtml, '07')),
-    'the final negative amount uses the deficit track and keeps its published dollars and estimate');
+    && step(zeroHtml, '07').includes(signed(ZERO.final)) && !/≈ estimated/.test(step(zeroHtml, '07')),
+    'the final negative amount uses the deficit track and keeps its published dollars');
   ok(!/style="left:|budget-waterfall-track|budget-progress-track/.test(summaryHtml('savings'))
     && /Savings[\s\S]*?Unavailable/.test(text(zeroHtml)),
     'unavailable savings stock has no deduction geometry and is never invented zero');

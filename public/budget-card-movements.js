@@ -54,9 +54,7 @@
   // same-day statement and an undated one print exactly as before.
   const staleManual = (card, asOf) => card.manualStatement === true && typeof asOf === 'string'
     && typeof card.reportedBalance?.date === 'string' && card.reportedBalance.date < asOf;
-  // A stale card balance (Forecast.cardBalanceFreshness, passed in by the
-  // page as format.cardFreshness[id]) prints Forecast's verdict instead:
-  // "estimate · as of <date>" (or "estimate · undated"). Copied, not decided.
+  // For a stale balance use the observation date from Forecast's freshness verdict.
   const staleEstimate = (card, format) => {
     const verdict = format && format.cardFreshness && card && card.id != null ? format.cardFreshness[card.id] : null;
     return verdict && verdict.trust === 'estimated' ? verdict : null;
@@ -66,9 +64,9 @@
     if (!reported || typeof reported.amount !== 'number' || !Number.isFinite(reported.amount))
       return '<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance is-unavailable">Unavailable</span>';
     const stale = staleEstimate(card, format);
-    const note = stale
-      ? ` <small class="card-movement-estimate" data-card-movement-estimate>estimate · ${stale.balanceAsOf ? 'as of ' + day(stale.balanceAsOf) : 'undated'}</small>`
-      : staleManual(card, asOf) ? ` <small class="card-movement-asof" data-card-movement-asof>as of ${day(reported.date)}</small>` : '';
+    const date = stale ? stale.balanceAsOf : reported.date;
+    const note = stale || staleManual(card, asOf)
+      ? ` <small class="card-movement-asof" data-card-movement-asof>${date ? 'as of ' + day(date) : 'undated'}</small>` : '';
     return `<span class="card-movement-sr">Reported balance </span><span class="card-movement-balance">${money(reported.amount)}${note}</span>`;
   };
   const movement = (card, money, day) => {
@@ -87,7 +85,7 @@
     const text = (row.direction === 'flat' ? 'No change this period'
       : (row.direction === 'up' ? '+' : '−') + money(row.magnitude) + ' this period')
       + (row.observation.showDate ? ' · balance as of ' + day(row.observation.date) : '');
-    return `<small class="card-movement-net is-${escape(row.direction)}" data-card-posted-movement="${escape(row.direction)}" data-trust="calculated" aria-label="Calculated: ${text}">${text}</small>`;
+    return `<small class="card-movement-net is-${escape(row.direction)}" data-card-posted-movement="${escape(row.direction)}" data-trust="calculated">${text}</small>`;
   };
   function html(pub, format) {
     if (!pub || pub.schema !== 'atlas-card-period-movements/v1'
@@ -158,8 +156,9 @@
     // balance is never printed as $0.00, and a published $0 stays $0.00.
     const lead = card => {
       const stock = reported(card);
+      const stale = staleEstimate(card, format);
       return stock
-        ? `<p class="card-movement-lead">Reported balance ${money(stock.amount)} · ${day(stock.date)}${card.manualStatement ? ' · Manual statement observation' : ''}${staleEstimate(card, format) ? ` · <span data-card-movement-estimate>${escape(staleEstimate(card, format).reason || 'estimate — balance older than this statement cycle')}</span>` : ''}</p>`
+        ? `<p class="card-movement-lead">Reported balance ${money(stock.amount)} · ${day(stock.date)}${card.manualStatement ? ' · Manual statement observation' : ''}${stale ? ' · ' + escape((stale.reason || 'Balance older than this statement cycle').replace(/^estimate — /i, '')) : ''}</p>`
         : '<p class="card-movement-lead">Reported balance Unavailable</p>';
     };
     // The period endpoints and their remnant evidence sit behind one

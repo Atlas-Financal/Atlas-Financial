@@ -28,10 +28,10 @@ const reportLine = '[data-budget-savings-goals] > [data-savings-reported-balance
             await line.waitFor({ state: 'visible' });
             const actual = (await line.textContent()).replace(/\s+/g, ' ').trim();
             assert.match(actual, mode === 'missing-date' ? /Unavailable/ : /Reported combined savings: \$119\.00/);
-            if (mode !== 'missing-date') assert.match(actual, /calculated.*provider-reported.*Balance dates [A-Z][a-z]{2} \d{1,2}/s);
+            if (mode !== 'missing-date') assert.match(actual, /provider-reported.*Balance dates [A-Z][a-z]{2} \d{1,2}/s);
             if (mode === 'stale-date') assert.match(actual, /Oct 4 - Oct 5.*not current/);
             if (mode === 'pending-movement') assert.match(actual, /Pending movement evidence is unresolved/);
-            assert.doesNotMatch(actual, /9,876|spendable|available to spend|verified/i);
+            assert.doesNotMatch(actual, /9,876|spendable|available to spend|verified|calculated/i);
             assert.equal(await line.evaluate(el => !!el.closest('[data-operating-question="01"], .blend-hero')), false);
             assert.equal(await line.evaluate(el => el.previousElementSibling?.classList.contains('blend-tile-head')), true);
             // The existing three-tap evidence route prints the exact same line.
@@ -77,7 +77,7 @@ const reportLine = '[data-budget-savings-goals] > [data-savings-reported-balance
           await p.reload();
           const line = p.page.locator(reportLine);
           await line.waitFor({ state: 'visible' });
-          assert.match(await line.innerText(), /calculated.*provider-reported.*Dated balance — not current/s);
+          assert.match(await line.innerText(), /provider-reported.*Dated balance — not current/s);
           assert.ok(await p.page.locator('[data-operating-question="savings"][data-savings-evidence="carried"]').count());
           assert.deepEqual(p.errors, []);
         }, { width: 390 });

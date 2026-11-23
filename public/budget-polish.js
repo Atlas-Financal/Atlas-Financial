@@ -77,8 +77,11 @@
     const dueDate = line.getAttribute('data-bill-date');
     const meta = planningBillChrome(status, dueDate, householdAsOf(line), line.getAttribute('data-bill-settlement'));
     if (!meta) return false;
-    // A trust-settled bill saw no payment: its badge reads Estimated, never Paid.
-    if (meta.label === 'Paid' && line.getAttribute('data-bill-basis') === 'schedule-trust-on-due') meta.label = 'Estimated';
+    const scheduled = meta.label === 'Paid' && line.getAttribute('data-bill-basis') === 'schedule-trust-on-due';
+    if (scheduled) {
+      meta.label = 'Settled by schedule';
+      meta.kind = 'scheduled';
+    }
     const children = directElementChildren(line);
     const label = children[0] || null;
     const amount = children.length > 1 ? children[children.length - 1] : null;
@@ -89,7 +92,9 @@
     badge.className = `atlas-bill-state atlas-bill-state-${meta.kind}`;
     badge.setAttribute('data-atlas-bill-state', meta.kind);
     badge.textContent = meta.label;
-    if (meta.kind === 'check' || meta.kind === 'unknown') {
+    if (scheduled) {
+      badge.setAttribute('aria-label', 'Settled by schedule, payment not observed');
+    } else if (meta.kind === 'check' || meta.kind === 'unknown') {
       badge.setAttribute('title', 'Payment is not confirmed. Missing evidence does not mean unpaid.');
     }
     line.insertBefore(badge, amount);

@@ -39,7 +39,7 @@ const states=[],errors=[],external=[],writes=[];
    await page.locator('[data-budget-surface]').waitFor();
    // The Budget page prints this bill as a funding item with its estimate mark and planning date.
    const item=page.locator('[data-budget-funding-item="invented-card-fee"]').first();await item.waitFor({state:'attached'});
-   const text=await item.textContent();assert.match(text,/73\.41/);assert.match(text,/estimated/i);
+   const text=await item.textContent();assert.match(text,/73\.41/);assert.doesNotMatch(text,/≈|\bestimated\b/i);
    assert.match(text,/2031-04-23/);assert.doesNotMatch(text,/payment due|issuer minimum/i);
    const event=await page.evaluate(()=>Forecast.expandEvents(App.data.plan,'2031-04-01','2031-04-30').find(r=>r.id==='invented-card-fee'));
    assert.equal(event.amount,-73.41);assert.equal(event.confidence,'estimated');assert.equal(event.cardPaid,true);

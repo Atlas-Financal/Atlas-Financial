@@ -175,10 +175,10 @@ console.log('=== Forecast 2027 payroll keeps its estimate on the real timeline =
   for (const [name, html] of surfaces) {
     const line = payrollLine(html);
     ok(line && /data-income-status="estimated"/.test(line)
-        && /<span class="est">≈ estimated<\/span>/.test(line)
+        && !/≈|class="est"|>\s*estimated\s*</i.test(line)
         && line.includes(printed)
         && /Dale salary/.test(line),
-      name + ' shows the estimate marker, preserved status, and Forecast amount',
+      name + ' shows the Forecast amount and preserves internal status without an estimate marker',
       line);
     ok(!/data-income-status="arriving"/.test(line),
       name + ' does not relabel the estimate as arriving');

@@ -197,7 +197,8 @@ const count = (html, needle) => html.split(needle).length - 1;
   assert.match(seg, /Travel Visa annual fee/, 'the published label prints');
   assert.match(seg, /149\.00/, 'the published amount prints');
   assert.match(seg, /October 6, 2027/, 'the published occurrence date prints with its year');
-  assert.match(seg, /estimated/i, 'the estimated qualification prints');
+  assert.equal(p.backing.items.find(item => item.id === FEE_ID).trust, 'estimated', 'the fee keeps its published trust');
+  assert.doesNotMatch(seg, /≈|\bestimate(?:d)?\b|budget-v3-est/i, 'the amount and date have no estimate marker');
   assert.ok(!seg.includes('data-budget-bill-open'), 'the row is plain markup: it never opens the bill sheet');
   assert.ok(!/Currently backed|Saved/.test(seg.replace('Travel Visa annual fee', '')), 'the published saved figure never prints under Bills');
   assert.equal(count(html, 'data-budget-annual-bill="travelvisa-annual-fee-2027"'), 1, 'the entry prints exactly once');
@@ -427,5 +428,5 @@ const count = (html, needle) => html.split(needle).length - 1;
 
 console.log('PASS travel-visa-annual-fee: Savings exclusion + one neutral note on all three surfaces across normal, '
   + 'unavailable-fallback (bare + prefixed), historical and own-occurrence states, publication untouched, '
-  + 'Upcoming annual bills under All with label/amount/date/trust, historical omit, contained-period native single print, '
+  + 'Upcoming annual bills under All with label/amount/date and retained internal trust, historical omit, contained-period native single print, '
   + 'unresolved and duplicate identities fail closed');

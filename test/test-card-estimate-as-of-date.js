@@ -49,8 +49,8 @@ const cashLeg = (amount, extra = {}) => ['bills', amount, null, 'cash',
 const unknownCredit = ['card', -30, null, 'credit', { payee: 'Invented credit', original_name: 'Invented credit', category_name: 'Payment, Transfer' }];
 const TRAVEL = 'card payment: Travel Visa ...9999';
 const AS_OF = 'as of September 20';
-// Option A: the date first, then the small muted mark, inside the one tag.
-const DATE_THEN_MARK = /data-card-estimate-as-of[^>]*>as of September 20 <small class="trust-as-of-mark" data-card-estimate-mark>≈ estimate<\/small><\/span>/;
+const dateOnly = /data-card-estimate-as-of[^>]*>as of September 20<\/span>/;
+const neutral = html => !/≈|trust-estimated|class="est"|<small[^>]*>[^<]*estimate|(?:aria-label|title)="[^"]*estimat|>\s*estimated?\s*</i.test(html);
 
 // The two Budget surfaces whose figures carry a card-coverage estimate.
 function render(s, overlay = s.observed.data.liveOverlay) {
@@ -98,20 +98,18 @@ check(resolved.coverage.trust === undefined && resolved.period.fromTodayFunding.
     'a payment To confirm beside an estimated income: estimated, and no card cause');
 }
 
-console.log('2. The page leads with the date, then a small "≈ estimate" mark, for this cause');
+console.log('2. The page shows the observation date without a trust marker, for this cause');
 for (const [why, s] of [['payment To confirm', degraded], ['credit To confirm', credit], ['both', both]]) {
   const r = render(s);
   for (const title of ['Money available', 'Current household spending']) {
     const b = block(r.shell, title);
-    check(DATE_THEN_MARK.test(b), `${why}: ${title} shows "${AS_OF}" then the small "≈ estimate" mark`);
-    check(!/trust-estimated/.test(b) && (b.match(/estimate</g) || []).length === 1,
-      `${why}: ${title}: the old estimate tag is gone; the word appears once, in the small mark`);
-    check(/data-trust="estimated"/.test(b) && /aria-label="as of September 20, estimate: card payment to confirm"/.test(b)
-      && /title="estimate: card payment to confirm"/.test(b), `${why}: ${title} keeps data-trust and the accessible estimate label`);
+    check(dateOnly.test(b), why + ': ' + title + ' preserves the dated observation');
+    check(neutral(b), why + ': ' + title + ' has no visible or accessible estimate marker');
+    check(/data-trust="estimated"/.test(b), why + ': ' + title + ' keeps internal trust');
   }
   const cell = stillPlanned(r.spending);
-  check(DATE_THEN_MARK.test(cell) && !/class="est"|budget-cash-sr/.test(cell),
-    `${why}: Still planned shows the date then the small mark, not the ≈ estimated mark (${cell.replace(/<[^>]+>/g, '')})`);
+  check(dateOnly.test(cell) && neutral(cell),
+    `${why}: Still planned shows the observation date without a trust mark (${cell.replace(/<[^>]+>/g, '')})`);
   check(cell.indexOf('$70.00') < cell.indexOf(AS_OF), `${why}: Still planned: the amount, then the date`);
   check(/data-trust="estimated"/.test(cell), `${why}: Still planned keeps data-trust="estimated"`);
 }
@@ -121,13 +119,13 @@ console.log('3. A confirmed world shows no card-payment date tag');
   const r = render(resolved);
   check(count(r.html, /data-card-estimate-as-of/g) === 0 && !r.html.includes('card payment to confirm'),
     'confirmed: no date tag and no card-payment wording');
-  // #1573 (lead, 2026-11-23): this world's card targets are fall-backs (no card ledger evidence), so the figures carry
-  // the ordinary estimate mark. Toward caution only.
-  check(/trust-estimated/.test(block(r.shell, 'Money available')) || /≈/.test(stillPlanned(r.spending)),
-    'confirmed coverage, fall-back card targets: the ordinary estimate mark');
+  // #1573: this world's card targets are fall-backs (no card ledger evidence), so Forecast publishes these figures estimated
+  // (section 1). Since #1613 (Dale, 2026-11-23) the page prints no estimate styling on them either way.
+  check(!/trust-estimated/.test(block(r.shell, 'Money available')) && !/≈/.test(stillPlanned(r.spending)),
+    'confirmed coverage, fall-back card targets: published estimated, printed without estimate styling (#1613)');
 }
 
-console.log('4. Other estimate causes keep their wording');
+console.log('4. Other estimate causes print amounts without a qualifier');
 {
   // The cause is published only when the figure would be calculated without
   // the card term. Here the shell's own trust is already estimated for another
@@ -136,13 +134,13 @@ console.log('4. Other estimate causes keep their wording');
   const advice = JSON.parse(JSON.stringify(degraded.advice));
   delete advice.paydayShellEstimateCause;
   const shell = page('paydayInstructionShellHtml')(advice, degraded.period, null, degraded.observed.data.liveOverlay);
-  check(/trust-estimated">estimate</.test(block(shell, 'Money available')) && !block(shell, 'Money available').includes('data-card-estimate-as-of'),
-    'no published cause: the estimate word stays');
+  check(neutral(block(shell, 'Money available')) && !block(shell, 'Money available').includes('data-card-estimate-as-of'),
+    'no published cause: the amount has no trust qualifier');
   const period = JSON.parse(JSON.stringify(degraded.period));
   delete period.fromTodayFunding.estimateCause;
   const cell = stillPlanned(page('budgetSpendingSectionHtml')(period, { advice: degraded.advice, asOf: '2026-09-20',
     liveOverlay: degraded.observed.data.liveOverlay }));
-  check(/≈/.test(cell) && /estimated/.test(cell) && !cell.includes('data-card-estimate-as-of'), 'no published cause: Still planned keeps ≈ estimated');
+  check(neutral(cell) && /\$/.test(cell) && !cell.includes('data-card-estimate-as-of'), 'no published cause: Still planned prints a plain amount');
   // Forecast's own rule: estimated for another reason as well publishes no cause.
   const F = require('../public/forecast');
   check(typeof F.recommend === 'function', 'Forecast loads');
@@ -191,8 +189,8 @@ console.log('4. Other estimate causes keep their wording');
     'a forward-funding estimate with no card estimate: no card cause is published');
   const fwdCell = stillPlanned(page('budgetSpendingSectionHtml')(fwdPeriod, { advice: fwdAdvice, asOf: '2026-09-20',
     liveOverlay: fwd.data.liveOverlay }));
-  check(/≈/.test(fwdCell) && /estimated/.test(fwdCell) && !fwdCell.includes('data-card-estimate-as-of'),
-    'a forward-funding estimate with no card estimate: Still planned keeps the plain estimate wording, no as-of tag');
+  check(neutral(fwdCell) && /\$/.test(fwdCell) && !fwdCell.includes('data-card-estimate-as-of'),
+    'a forward-funding estimate with no card estimate: Still planned prints the unqualified amount, no as-of tag');
 }
 
 console.log('4b. One home for the card-estimate cause, basis and reasons');
@@ -258,8 +256,8 @@ console.log('4c. The payday shell under a card estimate and an income estimate (
     'an income landing today is part of available');
   check(est.advice.paydayShellTrust.available === 'estimated' && est.advice.paydayShellEstimateCause === undefined,
     'today\'s income estimated as well: still estimated, and no card cause');
-  check(/trust-estimated">estimate</.test(block(est.html, 'Money available')) && !est.html.includes('data-card-estimate-as-of'),
-    'today\'s income estimated as well: the plain estimate wording, no as-of tag');
+  check(neutral(block(est.html, 'Money available')) && !est.html.includes('data-card-estimate-as-of'),
+    'today\'s income estimated as well: no estimate wording or as-of tag');
   // 3. The same income confirmed: the card is again the only cause.
   const conf = shellOf(todayIncome('confirmed'));
   check(conf.advice.paydayShellEstimateCause?.available === F.CARD_ESTIMATE_CAUSE
@@ -267,7 +265,7 @@ console.log('4c. The payday shell under a card estimate and an income estimate (
     'today\'s income confirmed: the card cause and its as-of tag stand');
 }
 
-console.log('5. No single bank date: the estimate word stays (never an undated or guessed date)');
+console.log('5. No single bank date: the amount has no trust qualifier (never an undated or guessed date)');
 {
   const overlay = JSON.parse(JSON.stringify(degraded.observed.data.liveOverlay));
   const accounts = overlay.observedCash && overlay.observedCash.accounts;
@@ -275,8 +273,8 @@ console.log('5. No single bank date: the estimate word stays (never an undated o
   accounts[0].evidenceDate = '2026-09-19'; accounts[0].observedAsOf = '2026-09-19';
   const r = render(degraded, overlay);
   check(count(r.html, /data-card-estimate-as-of/g) === 0, 'mixed dates: no date tag');
-  check(/trust-estimated">estimate</.test(block(r.shell, 'Money available')) && /≈/.test(stillPlanned(r.spending)),
-    'mixed dates: the estimate word stays');
+  check(neutral(block(r.shell, 'Money available')) && neutral(stillPlanned(r.spending)),
+    'mixed dates: the amount has no trust qualifier');
   const untrusted = { ...degraded.observed.data.liveOverlay, applied: false };
   check(count(render(degraded, untrusted).html, /data-card-estimate-as-of/g) === 0, 'an overlay not applied: no date tag');
 }
@@ -289,8 +287,8 @@ console.log('6. Hostile text never reaches the page raw');
   const r = render(degraded, overlay);
   check(!/<img|<script/.test(r.html) && count(r.html, /data-card-estimate-as-of/g) === 0, 'a hostile date is not a date: no tag, nothing raw');
   const tag = page('cardEstimateAsOfHtml')({ applied: true, operatingPlan: 'live', observedAsOf: '2026-09-20', observedCash: { accounts: [] } });
-  check(tag && /^<span class="trust-tag trust-as-of" data-trust="estimated"/.test(tag) && DATE_THEN_MARK.test(tag),
-    'a valid date renders the tag: the date, then the small mark');
+  check(tag && /data-trust="estimated"/.test(tag) && dateOnly.test(tag) && neutral(tag),
+    'a valid date renders the tag: only the observation date');
   check(page('cardEstimateAsOfHtml')(null) === null && page('cardEstimateAsOfHtml')({}) === null, 'no overlay: null');
 }
 

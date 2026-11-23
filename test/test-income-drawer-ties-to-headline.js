@@ -158,20 +158,18 @@ assertTies(pageContext(planSource.replace(DECISION, 'const PRINT_UNQUALIFIED_REC
   ok(!/not verified|not counted|≈/.test(html), 'no new not-verified, not-counted or ≈ wording anywhere in the drawer');
 }
 
-// The closing Payday balance carries the Income headline's published tag
-// (rule 17 condition 3): estimated prints "≈ estimated" beside the label,
-// calculated or no tag prints nothing, and the amount and rows are unchanged.
+// Changing only the published Income trust does not change the rendered drawer.
 {
   const plain = head(period(named, otherItems));
   const tagged = head({ ...period(named, otherItems), incomeTrust: 'estimated' });
   const calc = head({ ...period(named, otherItems), incomeTrust: 'calculated' });
   const paydayLabel = html => strip((html.match(/<p class="payday-qual[^>]*data-payday-balance>[\s\S]*?<\/p>/) || [''])[0]);
-  ok(/Payday balance ≈ estimated \$/.test(paydayLabel(tagged)) && /data-payday-balance-trust>≈ estimated</.test(tagged),
-    `an estimated income tag prints on the Payday balance total (${paydayLabel(tagged)})`);
+  ok(/Payday balance \$/.test(paydayLabel(tagged)) && !/data-payday-balance-trust|≈/.test(tagged),
+    `the Payday balance total prints without its trust tag (${paydayLabel(tagged)})`);
   ok(!/data-payday-balance-trust|≈/.test(calc) && !/data-payday-balance-trust|≈/.test(plain),
     'a calculated income tag, or none, prints no estimate mark on the total');
-  ok(tagged.replace(/ <span class="est" data-payday-balance-trust>≈ estimated<\/span>/, '') === plain,
-    'the tag is the only difference: amount, rows and every other line are byte-identical');
+  ok(tagged === plain,
+    'the drawer amount, rows and every other line are byte-identical');
 }
 
 // Every row shape Forecast holds To confirm prints "To confirm $X" with its

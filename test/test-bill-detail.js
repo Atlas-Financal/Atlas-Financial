@@ -184,9 +184,10 @@ function run() {
   }
   for (const expected of ['<details', '<summary class="operating-line"', 'data-period-bill="bill"',
     'data-bill-status="PAID"', 'data-bill-date="2026-08-19"', 'Due date', '2026-08-19', '$100.00', '$97.50',
-    '$0.00', row.payerLabel, 'Synthetic bills account', 'estimated', 'Posted', '2026-08-18']) {
+    '$0.00', row.payerLabel, 'Synthetic bills account', 'Posted', '2026-08-18']) {
     assert.ok(html.includes(expected), expected);
   }
+  assert.doesNotMatch(html, /Published confidence|estimated|≈/i);
   assert.ok(!html.includes('open='), 'disclosure starts closed');
   const multi = clone(data), mp = multi.liveOverlay.currentPeriodActuals;
   mp.representedActuals[0].transactionIds = ['tx-1', 'tx-2', 'tx-1'];

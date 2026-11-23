@@ -226,8 +226,9 @@ console.log('7. The Budget payment section shows the To-confirm row');
   check((html.match(/data-card-payment-to-confirm-row/g) || []).length === 1, 'one To-confirm row on the page');
   check(html.includes(QUESTION) && html.includes('2026-09-20') && html.includes('$30.00') && / · on [^<]+</.test(html)
     && !html.includes(' · from '), 'it shows the question, date, amount and the card, not a household account');
-  check(/counts toward no card/.test(html) && /estimates/.test(html), 'it says the row counts toward no card and the figures are estimates');
-  check(/data-card-payment-to-confirm data-trust="estimated"/.test(html), 'the block is tagged as an estimate');
+  check(html.includes('it counts toward no card, so card purchases stay set aside.'), 'the row explains why card purchases stay set aside');
+  check(!/≈|\bestimat(?:e|ed|es)\b/i.test(html.replace(/<[^>]*>/g, ' ')), 'the row prints no estimate mark or wording');
+  check(/data-card-payment-to-confirm data-trust="estimated"/.test(html), 'the block retains its internal trust');
   const planted = { ...degraded.period.cardPurchaseCoverage, toConfirm: [{ basis: BASIS, question: '<img src=x onerror=alert(1)>',
     date: '2026-09-20', amount: 30, onCard: '<b>x</b>' }] };
   const escaped = Detail.visaPaymentsHtml([], planted);

@@ -81,9 +81,9 @@ const TOTAL_MISSING = /Total not saved|no period totals|Plan total: Not saved|Ac
         // The saved planned amounts print, each beside its saved spending.
         assert.match(household, /GROCERIES[\s\S]*Planned \$40\.00 Spent \$12\.34[\s\S]*FUEL[\s\S]*Planned \$15\.00 Spent \$0\.00/i,
           `${tag}: the Household sheet prints the saved plan (groceries 40.00, fuel 15.00)`);
-        assert.match(household, /Whether it was an estimate was not saved\./, `${tag}: an untagged saved plan says its trust word was not saved`);
+        assert.doesNotMatch(household, /Whether it was an estimate was not saved/i, `${tag}: no estimate qualification on the saved amount`);
         assert.match(household, /Household Budget Total Actual \/ Planned Comparison not saved/i, `${tag}: the Household total names the missing comparison`);
-        assert.match(income, /\+\$200\.00[\s\S]*Payday balance (?:≈ estimated )?\$200\.00[\s\S]*Actual against plan Comparison: Not saved with this close\./i,
+        assert.match(income, /\+\$200\.00[\s\S]*Payday balance \$200\.00[\s\S]*Actual against plan Comparison: Not saved with this close\./i,
           `${tag}: the Income sheet names the missing comparison beside the saved 200.00`);
         assert.match(bills, /Comparison not saved[\s\S]*\$30\.00 this period/, `${tag}: the Bills sheet says "Comparison not saved" beside the saved $30.00 this period`);
         assert.match(tile, /Comparison not saved/, `${tag}: the Household tile reads "Comparison not saved"`);

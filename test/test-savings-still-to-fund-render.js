@@ -46,10 +46,10 @@ test('current period: the row-owned figure prints ESTIMATED with the Decision 2 
   const { html } = render(null, '2026-10-02');
   const shown = cells(html).map(text);
   // Hand-derived: 1,500 needed - 119 saved; 1,000 needed - 0 saved.
-  assert.deepEqual(shown.map(s => s.split(' Estimate')[0]), ['≈ estimated $1,381.00', '≈ estimated $1,000.00']);
+  assert.deepEqual(shown.map(s => s.split(' Needed minus Saved')[0]), ['$1,381.00', '$1,000.00']);
   for (const cell of cells(html)) {
-    assert.match(cell, /class="budget-v3-est">≈/, 'the estimated mark sits on the figure');
-    assert.match(text(cell), /Estimate: Needed minus Saved\. It is a planning gap, not an unpaid balance\./);
+    assert.doesNotMatch(cell, /budget-v3-est|≈|>estimated</, 'the figure prints without an estimate mark');
+    assert.match(text(cell), /Needed minus Saved\. It is a planning gap, not an unpaid balance\./);
   }
   assert.match(html, /data-budget-goal-still-to-fund-amount="1381"/);
 });
@@ -61,7 +61,7 @@ test('projected period: prints that period-close figure, estimated, not today\'s
   const published = close.rows.map(r => r.stillToFund);
   const shown = cells(html).map(c => Number(text(c).split('$')[1].split(' ')[0].replace(/,/g, '')));
   assert.deepEqual(shown, published, 'printed amounts are exactly the published period-close row figures');
-  for (const cell of cells(html)) assert.match(cell, /class="budget-v3-est">≈/, 'projected figure carries the estimated mark');
+  for (const cell of cells(html)) assert.doesNotMatch(cell, /budget-v3-est|≈|>estimated</, 'projected figure prints without an estimate mark');
   assert.notDeepEqual(shown, [1381, 1000], 'not today\'s current-period gap');
 });
 

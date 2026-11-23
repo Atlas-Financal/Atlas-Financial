@@ -96,8 +96,8 @@ const expected = [
         assert.match(row.status, status, `${tag}: ${id} status in words: ${row.status}`);
         assert.equal(row.visible, true, `${tag}: ${id} all four parts visible`);
       });
-      // The estimated hydro amount keeps its estimate mark from the roster.
-      assert.match(printed[1].amount, /≈|est/i, `${tag}: estimate mark kept`);
+      // The estimated hydro amount prints without a trust mark.
+      assert.doesNotMatch(printed[1].amount, /≈|est/i, `${tag}: amount has no estimate mark`);
 
       // Status is in words and also carried by the row state for colour.
       assert.equal(await rows.nth(0).getAttribute('data-s'), 'paid');

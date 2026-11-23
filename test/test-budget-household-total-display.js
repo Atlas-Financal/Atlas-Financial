@@ -74,7 +74,8 @@ const future=fx.build(),fp=publish(future).payPeriodViews.find(p=>p.timelineRole
 assert.match(total(fh),/data-budget-ratio-actual><span class="budget-v3-unknown">Unknown/);
 assert.ok(total(fh).includes(money(925)));assert.match(fh,/data-budget-hold-trust="estimated"/);
 const futureOther=fh.split('data-budget-category="other-spending"')[1].split('</dl>')[0];
-assert.match(futureOther,/<dt>Remaining<\/dt>[\s\S]*estimated[\s\S]*450\.00/);
+assert.doesNotMatch(futureOther.replace(/^[^>]*>/, '').replace(/<[^>]+>/g, ''), /≈|estimated/);
+assert.match(futureOther,/<dt>Remaining<\/dt>[\s\S]*450\.00/);
 assert.match(fh,/Projected\./,'future remaining remains explicitly projected, never observed');
 context.pair={planned:{amount:925,completeness:'complete',trust:'calculated'},actual:{amount:247.63,completeness:'partial',trust:'estimated',includesPending:true,reason:'Invented pending coverage is partial.'}};
 const partial=vm.runInContext("budgetProgressEvidenceHtml(pair,'household')",context);

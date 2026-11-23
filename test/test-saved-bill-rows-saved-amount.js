@@ -78,12 +78,12 @@ ok(billOf(pastConfirmed).movement === -30 && billOf(pastConfirmed).displayAmount
   && billOf(pastConfirmed).displayAmountTrust === 'calculated', 'the display amount is the saved 30, tagged calculated');
 ok(text(listAmount(billOf(pastConfirmed))) === '$30.00', 'the Bills list prints the saved $30.00, not Unavailable, not today\'s $45.00');
 
-// S1 scheduled, estimated: the saved word is estimated, so the print is marked.
+// S1 scheduled: the saved trust stays estimated and both amounts use the same presentation.
 const estimated = saveClose(30, 'estimated');
 const pastEstimated = replay([estimated]);
 ok(billOf(pastEstimated).displayAmountTrust === 'estimated'
-  && /≈/.test(listAmount(billOf(pastEstimated))) && /30\.00/.test(listAmount(billOf(pastEstimated))),
-  'an estimated saved bill prints its saved amount marked estimated');
+  && listAmount(billOf(pastEstimated)) === '$30.00',
+  'an estimated saved bill prints the same plain $30.00 as a confirmed bill');
 
 // S1 a saved row is not today's row: today's plan amount (45) never prints.
 for (const past of [pastConfirmed, pastEstimated]) ok(!/45\.00/.test(listAmount(billOf(past))), "today's $45.00 does not print on a saved bill");
@@ -93,8 +93,8 @@ const paid = withRow(confirmed, { status: 'PAID', settlement: 'represented', act
 const pastPaid = replay([paid]);
 ok(billOf(pastPaid).movement === -52.67 && billOf(pastPaid).displayAmountBasis === 'unconfirmed-actual'
   && billOf(pastPaid).displayAmountTrust === 'estimated', 'a paid saved row displays its observed actual, tagged estimated');
-ok(/≈/.test(listAmount(billOf(pastPaid))) && /52\.67/.test(listAmount(billOf(pastPaid))),
-  'the Bills list prints 52.67 marked estimated, never as a bare confirmed figure');
+ok(listAmount(billOf(pastPaid)) === '$52.67',
+  'the Bills list prints the saved $52.67 actual without a trust marker');
 ok(billOf(pastPaid).displayAmountTrust !== 'calculated' && billOf(pastPaid).displayAmountBasis !== 'posted-actual',
   'a saved row is never claimed as a posted actual (it carries no posting evidence)');
 // Paid with no observed actual displays the planned amount, as the live builder does.
@@ -112,8 +112,7 @@ ok(billOf(guessed).displayAmountTrust === 'unknown' && /Unavailable/.test(listAm
   'an unrecognised saved confidence word prints Unavailable, never a bare amount');
 
 // S4 never more certain than the saved tag, over every saved combination.
-// How certain a tag reads on the page: unknown prints Unavailable, estimated prints marked,
-// and calculated or no word at all prints a bare figure.
+// The rank checks the published trust, independently of how the amount is printed.
 const RANK = { unknown: 0, estimated: 2, calculated: 3, null: 3 };
 const savedRank = row => row.confidence === 'confirmed' ? (row.settlementBasis ? RANK.estimated : RANK.calculated) : row.confidence === 'estimated' ? RANK.estimated
   : row.confidence == null ? RANK.null : RANK.unknown;
@@ -134,12 +133,12 @@ for (const settlementBasis of [null, 'schedule-trust-on-due']) for (const confid
 ok(combos === 40, 'every saved combination was checked');
 
 // S4b a saved trust-settled row (paid on schedule trust, no transaction, no actual)
-// reads estimated, as the live path does; it was never confirmed paid.
+// retains estimated trust, as the live path does.
 const trusted = replay([withRow(confirmed, { status: 'PAID', settlement: 'represented', actual: null, remaining: 0,
   settlementBasis: 'schedule-trust-on-due' })]);
 ok(billOf(trusted).movement === -30 && billOf(trusted).displayAmountTrust === 'estimated'
-  && /≈/.test(listAmount(billOf(trusted))) && /30\.00/.test(listAmount(billOf(trusted))),
-  'a saved trust-settled confirmed row prints its $30.00 marked estimated, never a bare figure');
+  && listAmount(billOf(trusted)) === '$30.00',
+  'settlement by schedule keeps estimated trust and prints the saved $30.00 without a marker');
 
 // S5 what the capture carries stands.
 const carrying = withRow(confirmed, { movement: -12.34, displayAmountTrust: 'estimated', displayAmountBasis: 'schedule' });

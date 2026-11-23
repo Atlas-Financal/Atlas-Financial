@@ -322,8 +322,7 @@ const scenarios = [
     // stale opening without a fresh provider reading of the Bills account
     // (missing-live-cash-evidence), so no reachable path shows an estimated
     // Bills figure through it: the cautious outcome is that the hero shows
-    // Unavailable. If a figure is ever shown, it must carry the estimate
-    // mark; a bare dollar figure is never allowed.
+    // Unavailable until an eligible opening is published.
     async run(H) {
       const w = billsWorld(H);
       const a = w.accounts.find(x => x.id === 'chequing-a');
@@ -332,8 +331,7 @@ const scenarios = [
       await H.withBudget(w, async p => {
         const hero = (await p.text('[data-budget-cash-hero]')).replace(/\s+/g, ' ').trim();
         H.expect(hero.length > 0, 'the hero balance is rendered');
-        H.expect(/^Unavailable$/.test(hero) || /(≈|estimated)/i.test(hero),
-          'the hero shows Unavailable or an estimate-marked figure, never a bare confirmed number: ' + (/\d/.test(hero) ? '[a figure]' : hero));
+        H.expect(hero === 'Unavailable', 'the missing observed Bills opening withholds the hero amount');
       });
     },
   },

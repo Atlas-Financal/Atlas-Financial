@@ -86,8 +86,8 @@ fs.mkdirSync(output, { recursive: true });
         assert.equal(await proposalText(), 'Unavailable');
       }
       if (!known.has(mode) || mode === 'pending-movement') assert.equal(await proposalText(), 'Unavailable');
-      if (mode === 'valid-v2') assert.match(await proposalText(), /^calculated\s+\$80\.00$/,
-        'independent preexisting ledger entitlement retains calculated trust');
+      if (mode === 'valid-v2') assert.equal(await proposalText(), '$80.00',
+        'independent preexisting ledger entitlement prints its published amount');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'no horizontal overflow');
       await summary.focus(); await page.keyboard.press('Enter');
       const dialog = page.locator('[data-budget-detail-sheet]');

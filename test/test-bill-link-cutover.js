@@ -103,12 +103,13 @@ for (const [label, rule] of [['missing', (({ linkedFrom, ...r }) => r)(RULE)], [
 }
 ok(O.RECURRING_REFUSAL_CODES.includes('link-anchor-missing'), 'link-anchor-missing is a closed refusal code');
 
-console.log('4. Every committed bill link records linkedFrom: 2026-12-01 for the #1508 links; spotify and rehearsal-space, live before #1508, from their first month');
+console.log('4. Every committed bill link records linkedFrom: 2026-12-01 for the #1508 links; spotify and rehearsal-space, live before #1508, from their first month; STACKTV from November per the owner receipt');
 const EARLIER = { spotify: '2026-09-01', 'rehearsal-space': '2026-11-01' };
+const STACKTV_CUTOVER = '2026-11-01';
 {
   const billIds = new Set(data.plan.bills.map(b => b.id));
   const links = identity.rules.filter(r => (r.lunchMoneyRecurringIds || []).length && billIds.has(r.eventId));
-  const bad = links.filter(r => r.linkedFrom !== (EARLIER[r.eventId] || '2026-12-01')).map(r => [r.eventId, r.linkedFrom]);
+  const bad = links.filter(r => r.linkedFrom !== (r.eventId === 'stacktv' ? STACKTV_CUTOVER : EARLIER[r.eventId] || '2026-12-01')).map(r => [r.eventId, r.linkedFrom]);
   ok(links.length > 0 && bad.length === 0, `${links.length} bill links, each with its linkedFrom`, J(bad));
   for (const id of Object.keys(EARLIER)) {
     const b = data.plan.bills.find(x => x.id === id);
@@ -116,7 +117,7 @@ const EARLIER = { spotify: '2026-09-01', 'rehearsal-space': '2026-11-01' };
   }
 }
 
-console.log('5. Every 2026-12-01 link, any item start, any observation date: nothing before Dec 1 is re-dated and the cutover never moves');
+console.log('5. The committed cutovers preserve history before their own dates and are independent of item start and observation date');
 {
   const ids = {};
   for (const r of identity.rules) for (const x of r.lunchMoneyRecurringIds || []) ids[x] = r.eventId;
@@ -137,14 +138,17 @@ console.log('5. Every 2026-12-01 link, any item start, any observation date: not
       const b = bills.find(x => x.id === s.billId);
       const served = O.applyRecurringSchedule(b, s);
       const other = b2.find(x => x.billId === s.billId);
-      const was = F.occurrences(b, '2025-01-01', '2026-11-30');
-      const now = F.occurrences(served, '2025-01-01', '2026-11-30');
+      const cutoff = b.id === 'stacktv' ? STACKTV_CUTOVER : '2026-12-01';
+      const historyEnd = b.id === 'stacktv' ? '2026-10-31' : '2026-11-30';
+      const was = F.occurrences(b, '2025-01-01', historyEnd);
+      const now = F.occurrences(served, '2025-01-01', historyEnd);
       if (served.day !== b.day || served.anchor !== b.anchor) moved++;
       const months = {};
       for (const d of F.occurrences(served, '2026-06-01', '2027-06-30')) months[d.slice(0, 7)] = (months[d.slice(0, 7)] || 0) + 1;
       const monthly = served.frequency === 'monthly';
-      ok(J(was) === J(now) && J(s.timing) === J(other && other.timing) && (!monthly || Object.values(months).every(n => n === 1)),
-        `${b.id}, start ${startDate}, item day ${day}: history through Nov unchanged, same cutover on Nov 21 and Nov 28${monthly ? ', one a month' : ''}`,
+      ok(J(was) === J(now) && (!s.timing.timingBefore || s.timing.timingBefore.from === cutoff)
+        && J(s.timing) === J(other && other.timing) && (!monthly || Object.values(months).every(n => n === 1)),
+        `${b.id}, start ${startDate}, item day ${day}: history through ${historyEnd} unchanged, same cutover on Nov 21 and Nov 28${monthly ? ', one a month' : ''}`,
         J({ was: was.slice(-2), now: now.slice(-2), before: s.timing.timingBefore }));
     }
   }
