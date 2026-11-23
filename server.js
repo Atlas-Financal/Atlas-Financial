@@ -254,12 +254,15 @@ async function buildCurrentAssistantPacket(req, res) {
   const served = await servedAtlasData(req, res, {
     onCheck(check) { capturedCheck = check; },
   });
-  return Assistant.buildPacket({
+  const packet = Assistant.buildPacket({
     data: served,
     env: environment,
     now: new Date().toISOString(),
     sourceCheck: { check: capturedCheck, attemptedAt: capturedCheck?.retained ? capturedCheck.attemptedAt : new Date().toISOString() },
   });
+  // Timing only (scripts/request-timing.js): the packet build ends here.
+  RequestTiming.markPhase(req, 'packetBuild');
+  return packet;
 }
 // Install the opted-in awaited append before the incumbent synchronous logout
 // handler. A failed append still reaches that handler's cookie cleanup,
@@ -485,6 +488,7 @@ app.post('/assistant/mcp', mcpOAuthGate, (req, res, next) => {
   try {
     await AssistantMcp.handleHttp(req, res, {
       getPacket: () => buildCurrentAssistantPacket(req, res),
+      markPhase: label => RequestTiming.markPhase(req, label),
       lunchMoney: lunchMoneyAssistant,
       auth: { principal: req.auth && req.auth.extra && req.auth.extra.subject,
         scopes: req.auth && req.auth.scopes || [] },

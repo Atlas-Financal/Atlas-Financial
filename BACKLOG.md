@@ -866,9 +866,9 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Closure:** when a statement is recorded on a `tdcc-auto17` occurrence, the fixed autopay is recorded as that occurrence's `sentPayments` entry (intent: fixed autopay), so the plan shows the payment made and the statement minimum stays visible as the floor. If a statement minimum ever exceeds the fixed amount, flag it to the lead for Dale.
 - Source: ATLAS REVIEWER 2 on #1514 (7058724201), lead ruling 2026-11-21.
 
-**`/assistant/mcp` spends about 7.8 s of main-thread work after its data read, outside every marked phase** · READY (ATLAS LEAD 12, 2026-11-22): low priority. Owner: unassigned. Not on the household page path.
+**`/assistant/mcp` spends about 7.8 s of main-thread work after its data read, outside every marked phase** · IN PROGRESS (ATLAS LEAD 12, 2026-11-23): phase marks added (GUARDS). Owner: the lead, for the prod reading. Not on the household page path.
 - **Why:** on prod `e5db93db` at 20:39Z, the request's `atlas-timing` line showed unattributed 7792 ms and `mainBusyMs` 7796. The likely cause is the assistant packet build or the MCP encoding, but no phase mark covers that span.
-- **Next action:** add phase marks inside the assistant route, then choose a fix from what they show.
+- **Next action:** ~~add phase marks inside the assistant route~~ done: each assistant `atlas-timing` line now carries `assistant: { packetBuild, packetCheck, encode, write }`. Next, one prod call names the 7.8 s; then choose a fix from what it shows.
 - Source: the lead, from the #1553/#1558 timing lines.
 
 **`test/browser-observation-memory.js` fails on plain main** · **DONE 2026-11-22** (fixed and registered; GUARDS). Light lane (tests).
