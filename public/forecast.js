@@ -3658,7 +3658,7 @@
         }
         continue;
       }
-      const scheduled = billHasAmountSchedule(b);
+      const scheduled = billPricedPerOccurrence(b);
       if (!scheduled && !scheduledInputState(b, 'bill').amountUnknown) continue;
       for (const date of outflowDates(b, start, end, periodStart)) {
         if (Array.isArray(b.noPaymentRequiredOn)
@@ -3827,7 +3827,7 @@
         };
         for (const b of plan.bills || []) {
           if (!b || !billIsHouseholdObligation(b) || billNeedsDate(b)) continue;
-          const scheduled = billHasAmountSchedule(b);
+          const scheduled = billPricedPerOccurrence(b);
           if (!scheduled && !scheduledInputState(b, 'bill').amountUnknown) continue;
           if (billAffectsJointCash(b, plan) === false
             && !isCardPaidBill(b, plan)) continue;
@@ -4346,7 +4346,7 @@
         .some(occ => occ && occ.date === date);
     }
     const bill = (plan.bills || []).find(item => item && item.id === id
-      && (billHasAmountSchedule(item)
+      && (billPricedPerOccurrence(item)
         ? billOccurrenceAmount(item, date).amount > 0
         : Number(item.amount) > 0));
     if (!bill || !billAffectsJointCash(bill, plan) || billNeedsDate(bill)) return false;
@@ -4546,6 +4546,30 @@
   }
   function amountScheduleDay(value) {
     return typeof value === 'string' && ISO_CALENDAR_DATE.test(value) && savingsDate(value);
+  }
+  // #1583 (desk ruling (b)): a provider price cutover, set only on the served plan from a reviewed Lunch Money item that
+  // is linked from a date (scripts/provider-observe.js applyRecurringAmount). `bill.amount` is the item's price, which
+  // applies from `from` on; `amountBefore` is the plan's own price for an occurrence before `from`. It is separate from the
+  // owner's authored amountSchedule, which keeps precedence: a bill with one ignores the cutover. A malformed cutover
+  // fails closed (every occurrence unknown). It never changes confidence: each occurrence keeps the bill's own tag.
+  const PRICE_CUTOVER_KEYS = ['from', 'amountBefore'];
+  function billPriceCutover(bill) {
+    if (!bill || bill.providerPriceCutover === undefined || bill.amountSchedule !== undefined || billNeedsDate(bill)) return null;
+    const cut = bill.providerPriceCutover;
+    if (!cut || typeof cut !== 'object' || Array.isArray(cut) || Object.getPrototypeOf(cut) !== Object.prototype
+        || !Object.keys(cut).every(key => PRICE_CUTOVER_KEYS.includes(key)) || !Object.hasOwn(cut, 'amountBefore')
+        || !amountScheduleDay(cut.from)) return { invalid: true };
+    return { from: cut.from, amountBefore: cut.amountBefore };
+  }
+  // A bill priced per occurrence: an owner amountSchedule (ATLAS-075) or a provider price cutover.
+  function billPricedPerOccurrence(bill) {
+    return billHasAmountSchedule(bill) || !!billPriceCutover(bill);
+  }
+  // Whether the occurrence pricing itself is well formed (a malformed one leaves every occurrence unknown).
+  function billOccurrencePricingValid(bill) {
+    if (billHasAmountSchedule(bill)) return !!billAmountScheduleTerms(bill);
+    const cut = billPriceCutover(bill);
+    return !cut || !cut.invalid;
   }
   // The ONE interval validator (desk ruling on dated obligation amounts):
   // bills and obligations share shape, key allow-list, real calendar dates,
@@ -4748,7 +4772,14 @@
   }
   // { invalid } | { term } | { regular } for one occurrence date.
   function billAmountScheduleSelect(bill, date) {
-    if (!billHasAmountSchedule(bill)) return { regular: true };
+    if (!billHasAmountSchedule(bill)) {
+      // The provider cutover (#1583): an occurrence before `from` takes the plan's own price.
+      const cut = billPriceCutover(bill);
+      if (!cut) return { regular: true };
+      if (cut.invalid) return { invalid: true, cutover: true };
+      const day = String(date || '');
+      return day && day < cut.from ? { term: { amount: cut.amountBefore }, cutover: true } : { regular: true };
+    }
     const terms = billAmountScheduleTerms(bill);
     if (!terms) return { invalid: true };
     const day = String(date || '');
@@ -4764,13 +4795,14 @@
     const confidence = bill ? bill.confidence : undefined;
     const sel = billAmountScheduleSelect(bill, date);
     if (sel.invalid) {
-      return { amount: null, source: 'schedule', confidence, reason: 'amount-schedule-invalid' };
+      return { amount: null, source: sel.cutover ? 'cutover-before' : 'schedule', confidence,
+        reason: sel.cutover ? 'price-cutover-invalid' : 'amount-schedule-invalid' };
     }
     if (sel.term) {
       const v = scheduledInputState(bill, 'bill', sel.term.amount).amount;
       return {
         amount: v == null || v < 0 ? null : v,
-        source: 'schedule',
+        source: sel.cutover ? 'cutover-before' : 'schedule',
         confidence: sel.term.confidence === 'estimated' ? 'estimated' : confidence,
         reason: v == null || v < 0 ? 'scheduled-amount-unknown' : null,
       };
@@ -4821,7 +4853,7 @@
     // unknown (null), never Number()-coerced into a fabricated figure
     // (true -> 1, [475] -> 475, Infinity -> Infinity).
     // ATLAS-075: a scheduled bill's selected occurrence price is the source.
-    const scheduled = billHasAmountSchedule(bill)
+    const scheduled = billPricedPerOccurrence(bill)
       ? billOccurrenceAmount(bill, date).amount
       : scheduledInputState(bill, 'bill').amount;
     if (scheduled == null || scheduled <= 0) return scheduled;
@@ -5008,7 +5040,7 @@
         if (cash == null || !(cash > 0)) continue;
         const jointCash = billAffectsJointCash(b, plan);
         const cardPaid = isCardPaidBill(b, plan);
-        const priced = billHasAmountSchedule(b) ? billOccurrenceAmount(b, date) : null;
+        const priced = billPricedPerOccurrence(b) ? billOccurrenceAmount(b, date) : null;
         events.push({
           date, amount: -cash, kind: 'bill', label: b.label, id: b.id,
           confidence: priced ? priced.confidence : b.confidence,
@@ -5751,7 +5783,7 @@
   // is invented when every in-window occurrence is ineligible.
   function firstEligibleYearlyCardPaidOccurrence(bill, plan, asOf, end) {
     if (!bill || !asOf || !isYearlyCardPaidBill(bill, plan)) return null;
-    if (billHasAmountSchedule(bill)) {
+    if (billPricedPerOccurrence(bill)) {
       // ATLAS-075: requirement knowledge and need come from each occurrence.
       const through = end || yearlyCardPaidSearchEnd(bill, asOf);
       for (const date of outflowDates(bill, asOf, through)) {
@@ -17987,7 +18019,7 @@
     // Read the same native expenses from today's opening so only earned
     // reserve backing offsets them; keepRepresented is deliberately absent.
     const annualSavingsBills = (plan.bills || []).filter(b => isSavingsFundedPaydayBill(b, plan));
-    const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billHasAmountSchedule(b)
+    const annualSavingsUnknown = annualSavingsBills.some(b => billNeedsDate(b) || (billPricedPerOccurrence(b)
       ? outflowDates(b, asOf, coveringSpan(windows).end)
         .some(date => billOccurrenceRequirementUnknown(b, date, value => savingsCents(value) != null))
       : scheduledInputState(b, 'bill').amountUnknown || savingsCents(scheduledAmountValue(b.amount)) == null));
@@ -24762,6 +24794,40 @@
       ? addDays(scheduleAsOf, (plan.windowDays || 91) - 1) : null;
     const billMonthlyRefused = b => billHasAmountSchedule(b)
       && billScheduleBlocksNormalization(b, scheduleAsOf, scheduleLastIncluded);
+    // #1583 (desk ruling (b)): a provider price cutover is never refused for being dated. A window wholly on one side of
+    // it takes that side's monthly equivalent (before it: the plan's own price and, under a timing cutover, its own
+    // cadence); a window that straddles it, or in which the bill ends, takes its own date-priced occurrences divided by
+    // the window's months. A malformed cutover, an unknown window start or an unknown price on either side is unknown.
+    const cutoverMonthly = b => {
+      const cut = billPriceCutover(b);
+      if (!cut) return null;
+      if (cut.invalid || !scheduleAsOf) return { amount: null, reason: cut.invalid ? 'price-cutover-invalid' : 'bill-date-unknown' };
+      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue) ? b.lastDue : null;
+      const endsInWindow = !!(last && last < scheduleLastIncluded);
+      if (!endsInWindow && scheduleAsOf >= cut.from) return { amount: billMonthly(b) };
+      if (!endsInWindow && scheduleLastIncluded < cut.from) {
+        const before = { ...b, amount: cut.amountBefore };
+        const prior = b.timingBefore;
+        if (prior && typeof prior.from === 'string' && scheduleLastIncluded < prior.from) {
+          for (const field of ['frequency', 'day', 'month', 'anchor']) {
+            delete before[field];
+            if (Object.hasOwn(prior, field)) before[field] = prior[field];
+          }
+        }
+        const price = scheduledInputState(before, 'bill');
+        return price.amountUnknown ? { amount: null, reason: 'scheduled-amount-unknown' }
+          : { amount: billMonthly({ ...before, amount: price.amount }) };
+      }
+      // An undated bill never reaches here (billPriceCutover is null for it); the guard keeps the date authority explicit.
+      if (billNeedsDate(b)) return { amount: null, reason: 'bill-date-unknown' };
+      let total = 0;
+      for (const date of occurrences(b, scheduleAsOf, scheduleLastIncluded)) {
+        const priced = billOccurrenceAmount(b, date).amount;
+        if (priced == null) return { amount: null, reason: 'scheduled-amount-unknown' };
+        total += priced;
+      }
+      return { amount: total / monthsInWindow };
+    };
     for (const b of plan.bills || []) {
       if (!billAffectsJointCash(b, plan) && !isCardPaidBill(b, plan)) continue;
       // A6 (#726): an undated bill is not dropped as $0 from its category;
@@ -24777,6 +24843,17 @@
         continue;
       }
       if (undated) continue;
+      const cutover = cutoverMonthly(b);
+      if (cutover) {
+        if (!b.budgetCategory) continue;
+        if (cutover.amount == null) {
+          addDated(b.budgetCategory, 0, b.label, 'bill');
+          const acc = datedByCategory[b.budgetCategory];
+          acc.items[acc.items.length - 1] = { label: b.label, amount: null, kind: 'bill', reason: cutover.reason };
+          acc.unknown = true;
+        } else addDated(b.budgetCategory, cutover.amount, b.label, 'bill');
+        continue;
+      }
       // An ended schedule (lastDue, from an ended reviewed Lunch Money item)
       // is normalised from its own occurrences in the window, so a bill that
       // stops does not keep drawing its full monthly equivalent from the
@@ -24900,7 +24977,10 @@
         if (!b || b.budgetCategory !== c.id) return sum;
         if (!isCardPaidBill(b, plan)) return sum;
         if (billNeedsDate(b) || scheduledInputState(b, 'bill').amountUnknown || billMonthlyRefused(b)) { cardPaidRefused = true; return sum; }
-        return sum + billMonthly(b);
+        // A provider price cutover (#1583) takes the same window rule as the dated figure.
+        const cutover = cutoverMonthly(b);
+        if (cutover && cutover.amount == null) { cardPaidRefused = true; return sum; }
+        return sum + (cutover ? cutover.amount : billMonthly(b));
       }, 0);
       // ATLAS-075: a refused card-paid scheduled bill keeps the regime
       // (so gross withholds via the unknown dated total) without a
@@ -29536,14 +29616,14 @@
     if (!periods.every(p => savingsCents(p.incomeTotal, true) != null && savingsCents(p.periodBillLoad) != null
       && savingsCents(p.budgetHold) != null && p.householdBudget.every(r => (p.start > day || savingsCents(r.spent, true) != null)
         && savingsCents(r.hold) != null))) return unknown('Native Budget deductions or household spending are unavailable.');
-    if ((plan.bills || []).some(b => billHasAmountSchedule(b)
+    if ((plan.bills || []).some(b => billPricedPerOccurrence(b)
       // ATLAS-075: a scheduled bill blocks only on an unknown occurrence
       // price inside the supported funding timeline. noPaymentRequiredOn
       // keeps precedence inside billOccurrenceRequirementUnknown, so a
       // waived occurrence of a malformed schedule is a known zero while a
       // non-waived one stays unknown. A malformed schedule with no
       // resolvable occurrence in the timeline stays unavailable.
-      ? ((dates) => (!dates.length && !billAmountScheduleTerms(b))
+      ? ((dates) => (!dates.length && !billOccurrencePricingValid(b))
         || dates.some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))(
         occurrences(b, cycle.start, bound.through))
       : b.amount == null || savingsCents(b.amount) == null)) return unknown('A required operating bill amount is unavailable.');

@@ -5969,6 +5969,8 @@ function derivedAmountFixedBills(history, opts) {
     const { row: bill, kind } = bills.get(id);
     const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
     if (found.ambiguous.has(id) || found.unsupported.has(id) || found.duplicated.has(id) || !interval || bill.amountSchedule !== undefined
+      // A provider price cutover (#1583) changes the price at a date: one fixed price across it is not derived.
+      || bill.providerPriceCutover !== undefined
       || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
     // Two payments on one day are legs or a duplicate, not one fixed price.
     if (rows.some((row, i) => i > 0 && rows[i - 1].date === row.date)) continue;
@@ -6809,9 +6811,23 @@ function recurringBillAmount(item, bill, amounts) {
 }
 // The served amount is applied separately (applyRecurringAmount), after the live overlay's owner-policy guard, as
 // Lunch Money budget targets are: the guard checks the overlay against the canonical plan, not this derived input.
+// A link's cutover (#1583 reviews 7100673283, 7102068014; desk ruling (b)): the item's amount applies only from the link's
+// `linkedFrom` (the schedule's amountFrom), as its timing does, whether or not the timing changed. The served bill's
+// scalar amount is the item's; `providerPriceCutover` { from, amountBefore } keeps the plan's own amount for an occurrence
+// before the cutover. Forecast prices each occurrence from it (billOccurrenceAmount, the occurrence-price owner), and it
+// is separate from the owner's authored amountSchedule. A bill that already has an amountSchedule never takes an item
+// amount (recurringBillAmount refuses it with `amount-schedule-present`, and this function checks again so the owner's
+// schedule is never overwritten).
 function applyRecurringAmount(bill, schedule) {
   if (!bill || !schedule || schedule.billId !== bill.id) return bill;
   if (!(typeof schedule.amount === 'number' && Number.isFinite(schedule.amount) && schedule.amount > 0)) return bill;
+  if (bill.amountSchedule !== undefined) return bill;
+  // The cutover is the link's validated linkedFrom (amountFrom), carried with the amount whether or not the timing changed.
+  const from = schedule.amountFrom;
+  const cutover = typeof from === 'string' && realIsoDay(from) ? from : null;
+  if (cutover && bill.amount !== schedule.amount) {
+    return { ...bill, amount: schedule.amount, providerPriceCutover: { from: cutover, amountBefore: bill.amount } };
+  }
   return { ...bill, amount: schedule.amount };
 }
 function applyRecurringSchedule(bill, schedule) {
@@ -6909,7 +6925,9 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
       dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     const amount = recurringBillAmount(item, bill, opts && opts.amounts);
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
-      ...(amount.amount != null ? { amount: amount.amount } : { amountReason: amount.reason }) });
+      // The item's amount applies from the link's own validated linkedFrom, whether or not the timing changed (#1583 review
+      // 7102068014: a price-only change has no timingBefore).
+      ...(amount.amount != null ? { amount: amount.amount, amountFrom: linkedFrom } : { amountReason: amount.reason }) });
   }
   return done(out);
 }

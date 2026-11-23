@@ -743,6 +743,7 @@
   ["One visual trust treatment on the Stack page: exactly the estimated or projected figures are drawn softer, with no word (B5)","test-stack-trust.js"],
   ["Spotify's schedule follows its reviewed Lunch Money recurring item (lunchMoneyRecurringIds), schedule only; schedule-trust settlement unchanged (lead dispatch 2026-11-21)","test-spotify-recurring-link.js"],
   ["Owner-provided Lunch Money recurring ids link each named bill and card row's schedule (schedule only); the Triangle TD payment runs seven months, then the minimum returns in July (Dale, 2026-11-21)","test-lunchmoney-bill-links.js"],
+  ["A linked bill's Lunch Money amount applies from the link's cutover, as its timing does; the plan amount stands before it","test-recurring-amount-cutover.js"],
   ["Amounts from Lunch Money: a linked bill is served at its reviewed item's whole-cent CAD amount; otherwise the plan's amount with a reason; Bell and card rows excluded; no tag promotion (Dale, 2026-11-21)","test-lunchmoney-bill-amounts.js"],
   ["A linked bill whose Lunch Money item is on another day keeps its recorded history: the item timing applies from the link's recorded linkedFrom month, earlier occurrences keep the bill day and date tag (timingBefore), so past payments stay settled (#1508 live check, #1511)","test-bill-link-cutover.js"],
   ["The page-script scan behind the \"page only prints\" guards covers the Stack page and the classic page, leaves the engine out, and reports the script that contains a pattern (C1 S4 B3)","test-page-scripts.js"],

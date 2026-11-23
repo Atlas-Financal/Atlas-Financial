@@ -308,14 +308,15 @@ console.log('=== every plan-bill date-expander call site is behind the date auth
 {
   // A call to outflowDates/occurrences on a plan bill (b / bill) must have
   // billNeedsDate in its guard (within the 25 lines above it), or sit only in
-  // the true branch of billHasAmountSchedule (false for every undated bill).
+  // the true branch of billHasAmountSchedule or billPricedPerOccurrence (both false for every undated bill: a schedule and
+  // a provider price cutover (#1583) are each ignored on an undated bill).
   // The schedule-only sites are named by enclosing function and each is
   // checked for that schedule guard, so a new unguarded site fails here.
   const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'forecast.js'), 'utf8').split('\n');
   const SCHEDULE_ONLY = {
     billScheduleBlocksNormalization: /if \(!billHasAmountSchedule\(bill\)\) return false;/,
-    firstEligibleYearlyCardPaidOccurrence: /if \(billHasAmountSchedule\(bill\)\) \{/,
-    savingsDailyFunding: /billHasAmountSchedule\(b\)\s*$/,
+    firstEligibleYearlyCardPaidOccurrence: /if \(billPricedPerOccurrence\(bill\)\) \{/,
+    savingsDailyFunding: /billPricedPerOccurrence\(b\)\s*$/,
   };
   const enclosing = (lines, i) => { for (let j = i; j >= 0; j--) { const m = /^  function ([A-Za-z0-9_]+)\(/.exec(lines[j]); if (m) return m[1]; } return null; };
   const window = (lines, i, span = 25) => lines.slice(Math.max(0, i - span), i + 1);
@@ -326,7 +327,7 @@ console.log('=== every plan-bill date-expander call site is behind the date auth
   const found = sites(src);
   const unguarded = found.filter(([, i]) => !guarded(src, i)).map(([, i]) => 'forecast.js:' + (i + 1));
   ok(found.length >= 12, `the guard sees the plan-bill expander call sites (${found.length})`);
-  ok(unguarded.length === 0, 'every plan-bill expander call site is behind billNeedsDate or a billHasAmountSchedule true branch', unguarded.join(', '));
+  ok(unguarded.length === 0, 'every plan-bill expander call site is behind billNeedsDate or a billHasAmountSchedule / billPricedPerOccurrence true branch', unguarded.join(', '));
   // Negative controls: the checker rejects an unguarded call, and a schedule
   // guard does not excuse a call outside the three named functions.
   const bad = ['  function anyNewConsumer(plan) {', '    for (const b of plan.bills || []) {', '      for (const date of outflowDates(b, start, end)) {'];
