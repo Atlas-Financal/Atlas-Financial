@@ -17678,7 +17678,11 @@
     if (heldCards.size) for (const o of (plan && plan.obligations) || []) {
       if (!o || !(o.effect === 'payment' || o.debtId != null)) continue;
       if (o.debtId != null && !heldCards.has(String(o.debtId))) continue;
-      if (o.frequency === 'once' && savingsDate(o.date) && o.date < financialDate(opts && opts.asOf || coverage.asOf)) continue;
+      const asOf = financialDate(opts && opts.asOf || coverage.asOf);
+      if (o.frequency === 'once' && savingsDate(o.date) && o.date < asOf) continue;
+      // lastDue bounds the original cadence, not an issuer's statement replacement.
+      if (o.frequency !== 'once' && asOf && savingsDate(o.lastDue) && o.lastDue < asOf
+        && !CardMinimumContract.statementRows(o, occurrences).some(record => record.dueDate >= asOf)) continue;
       return unknown('card-payment-overlap-unresolved');
     }
     // Atlas 6538656590 (1) on the consuming basis: a deducted held-card (or

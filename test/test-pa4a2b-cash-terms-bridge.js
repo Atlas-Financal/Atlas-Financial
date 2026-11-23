@@ -242,6 +242,24 @@ test('Q3: a same-card payment due in a later period holds the seed and the close
   assert.equal(estimated(other.next), 3750);
 });
 
+test('Q3 skips an ended recurrence only when there is no live statement replacement', () => {
+  const expired = { ...cardMinimum('tdcc'), day: 1, firstDue: '2026-09-01', lastDue: '2026-10-01' };
+  const ended = seedCase({ obligation: expired });
+  assert.deepEqual(closeOf(ended.active), [3750, 'estimated']);
+  assert.equal(estimated(ended.next), 3750);
+  for (const obligation of [
+    { ...expired, day: 7, lastDue: '2026-10-07' },
+    { ...expired, lastDue: undefined },
+    { ...expired, statementOccurrences: [{ scheduledDate: '2026-10-01', dueDate: '2026-10-20',
+      minimum: 10, currency: 'cad', confidence: 'confirmed' }] },
+  ]) {
+    const { active, next } = seedCase({ obligation });
+    assert.equal(active.plannedPeriodClose, null);
+    assert.match(active.plannedPeriodCloseReason, /scheduled card payment/);
+    assert.equal(estimated(next), null);
+  }
+});
+
 test('early-paid future-dated bill represented by the settlement holds both bases', () => {
   const { active, seed } = b2Case({ obligations: [onceMin({ date: '2026-10-10', firstDue: '2026-10-10' })],
     represented: repBy('card-min', '2026-10-10') });
