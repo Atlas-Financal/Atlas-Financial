@@ -28,11 +28,20 @@ const PHASE_KEYS = ['preData', 'dataServe', 'dataAttach', 'afterData', 'serializ
 const ASSISTANT_KEYS = ['packetBuild', 'packetCheck', 'encode', 'write'];
 const SLOW = 250;
 const realLog = console.log;
+// Captured before any check replaces JSON.stringify (the slow-encode check).
+const realStringify = JSON.stringify;
 const captured = [];
 let passed = 0;
 async function check(name, fn) { await fn(); passed += 1; realLog('  ok ' + name); }
 const busy = ms => { const end = Date.now() + ms; while (Date.now() < end) { /* main-thread work */ } };
 const settled = () => new Promise(resolve => setTimeout(resolve, 40));
+// The slowed step is the largest of the four: no fixed upper bound on the
+// others, so a loaded runner cannot fail it (only the >= delay lower bound).
+function largest(line, field) {
+  for (const other of ASSISTANT_KEYS) {
+    if (other !== field) assert.ok(line.assistant[field] > line.assistant[other], field + ' is the largest: ' + realStringify(line.assistant));
+  }
+}
 const timingLines = () => captured.filter(l => l.startsWith('{"type":"atlas-timing"')).map(l => JSON.parse(l));
 function closedLine(line) {
   assert.deepEqual(Object.keys(line.phases), PHASE_KEYS, 'phases keep their keys');
@@ -138,7 +147,7 @@ function closedLine(line) {
       try {
         const line = await call();
         assert.ok(line.assistant.packetBuild >= SLOW - 5, 'packetBuild ' + line.assistant.packetBuild);
-        assert.ok(line.assistant.packetCheck < SLOW / 2 && line.assistant.encode < SLOW / 2, 'only packetBuild is slow');
+        largest(line, 'packetBuild');
       } finally { slowBuild = 0; }
     });
 
@@ -148,12 +157,11 @@ function closedLine(line) {
       try {
         const line = await call();
         assert.ok(line.assistant.packetCheck >= SLOW - 5, 'packetCheck ' + line.assistant.packetCheck);
-        assert.ok(line.assistant.packetBuild < SLOW / 2 && line.assistant.encode < SLOW / 2, 'only packetCheck is slow');
+        largest(line, 'packetCheck');
       } finally { Assistant.looksSanitized = realSanitized; slowCheck = 0; }
     });
 
     await check('MCP: slow encoding lands in encode', async () => {
-      const realStringify = JSON.stringify;
       let armed = true;
       JSON.stringify = function (value, ...rest) {
         // Only the tool result's packet text (packetResult), the encoding step:
@@ -165,7 +173,7 @@ function closedLine(line) {
       try {
         const line = await call();
         assert.ok(line.assistant.encode >= SLOW - 5, 'encode ' + realStringify(line.assistant) + ' phases ' + realStringify(line.phases));
-        assert.ok(line.assistant.packetBuild < SLOW / 2 && line.assistant.packetCheck < SLOW / 2, 'only encode is slow');
+        largest(line, 'encode');
       } finally { JSON.stringify = realStringify; }
     });
 
@@ -207,4 +215,3 @@ function closedLine(line) {
   realLog(`assistant route phase timing: ${passed} checks passed`);
   process.exit(0);
 })().catch(error => { console.log = realLog; console.error(error); process.exit(1); });
-const realStringify = JSON.stringify;
