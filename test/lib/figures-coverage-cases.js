@@ -298,6 +298,8 @@ test('page options mirror the Budget page call as an engine-input parity subset'
   assert.match(recommendInputs, /currentPeriodActuals: budgetCurrentActuals\(data\),/);
   assert.match(recommendInputs, /observedCash: overlay && overlay\.observedCash,/);
   assert.match(recommendInputs, /operatingPlanNote: overlay && overlay\.operatingPlanNote,/);
+  assert.match(recommendInputs, /cardPeriodBalanceEvidence: overlay && overlay\.applied === true \? overlay\.cardPeriodBalanceEvidence \|\| null : null,/);
+  assert.match(recommendInputs, /cardLiveOverlay: overlay && overlay\.applied === true \? \{ applied: true, overlays: overlay\.overlays \} : null,/);
 });
 
 test('collector-to-publication mapping: every input copies the page-equivalent recommend() publication', () => {
@@ -309,6 +311,9 @@ test('collector-to-publication mapping: every input copies the page-equivalent r
       extraDebtTarget: priority.target && priority.target.id, extraFacilities: data.revolvingExtra,
       fundingSources: plan.funding && plan.funding.options, periods,
       currentPeriodActuals: overlay && overlay.applied === true ? overlay.currentPeriodActuals : null,
+      // The card-target publication's evidence (desk ruling (E), #1573), as budgetRecommendInputs passes it.
+      cardPeriodBalanceEvidence: overlay && overlay.applied === true ? overlay.cardPeriodBalanceEvidence || null : null,
+      cardLiveOverlay: overlay && overlay.applied === true ? { applied: true, overlays: overlay.overlays } : null,
       operatingPlan: overlay && overlay.operatingPlan, observedCash: overlay && overlay.observedCash,
       operatingPlanNote: overlay && overlay.operatingPlanNote });
   };

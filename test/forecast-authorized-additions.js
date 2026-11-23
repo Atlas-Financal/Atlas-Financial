@@ -21,6 +21,8 @@
 //     held outflows and card payments beyond the minimum;
 //     savings (A5): each goal's planned amount beside what moved, proved by
 //     proveStackSavings below.
+//     credit and creditBreakdown (desk ruling (E), #1573): the view's card-target publication
+//     and the waterfall's Credit rows, proved by proveStackCredit below.
 //   reconMatchesSpent (budget rows): whether a row's listed transactions
 //   reconcile to its Spent to the cent, proved by withoutReconMatchesSpent.
 //   billHistory (Stack Wallet bill sheet): each bill's past and current
@@ -130,13 +132,36 @@ function proveStackSurplus(view, surplus, bills) {
   const t = surplus.terms;
   assert.ok(t && finite(t.income) && finite(t.bills) && finite(t.household) && finite(t.mortgage) && finite(t.credit),
     'authorized addition: a published surplus lists its terms');
-  assert.ok(bills.other === t.bills && bills.mortgage === t.mortgage
-    && bills.cardMinimums.reduce((sum, card) => sum + cents(card.amount), 0) === cents(t.credit),
-    'authorized addition: the surplus\'s bills, mortgage and credit terms are the bills split');
+  // Desk ruling (E) (#1573): where a Credit breakdown is published, the credit term is its total (the targets less what is
+  // already counted above); otherwise the minimums of the bills split, as before.
+  const breakdown = view.stackSummary && view.stackSummary.creditBreakdown;
+  const creditCents = breakdown ? cents(breakdown.total) : bills.cardMinimums.reduce((sum, card) => sum + cents(card.amount), 0);
+  assert.ok(bills.other === t.bills && bills.mortgage === t.mortgage && creditCents === cents(t.credit),
+    'authorized addition: the surplus\'s bills and mortgage terms are the bills split, and its credit term the Credit breakdown (else the minimums)');
   const item = finite(t.savingsItemSpending) ? t.savingsItemSpending : 0;
   assert.equal(cents(surplus.amount), cents(t.income) - cents(t.bills) - cents(t.household) - cents(t.mortgage) - cents(t.credit) - cents(item),
     'authorized addition: surplus = income - bills - household - mortgage - credit - item spending, its own terms');
   assert.ok(['calculated', 'estimated'].includes(surplus.trust), 'authorized addition: a published surplus is calculated or estimated');
+}
+
+// stackSummary.credit (desk ruling (E), #1573): the view's one card-target publication (Forecast.stackCreditLines), each line
+// with its target and its deduction; creditBreakdown: the waterfall's Credit rows, proved to sum to the credit term.
+function proveStackCredit(view, credit, breakdown, surplus) {
+  if (credit !== null) {
+    assert.ok(credit && Array.isArray(credit.lines) && credit.totals, 'authorized addition: stackSummary.credit lists lines and totals');
+    for (const line of credit.lines) {
+      assert.ok(line.target && line.deduction, 'authorized addition: each Credit line carries its target and deduction');
+      if (line.deduction.amount !== null) assert.ok(line.deduction.amount >= 0, 'authorized addition: a deduction is never negative');
+      else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
+    }
+  }
+  if (breakdown === null) return;
+  assert.ok(breakdown && Array.isArray(breakdown.rows) && breakdown.alreadyCounted, 'authorized addition: a Credit breakdown lists rows');
+  assert.equal(breakdown.rows.reduce((sum, row) => sum + cents(row.amount), 0) + cents(breakdown.alreadyCounted.amount),
+    cents(breakdown.total), 'authorized addition: the Credit rows and the already-counted row sum to the Credit term');
+  assert.ok(breakdown.alreadyCounted.amount <= 0, 'authorized addition: the already-counted row only takes off');
+  if (surplus && surplus.amount !== null) assert.equal(cents(surplus.terms.credit), cents(breakdown.total),
+    'authorized addition: the breakdown total is the surplus\'s credit term');
 }
 
 const INCOME_LINES = ['dale', 'amanda', 'other'];
@@ -198,12 +223,13 @@ function withoutStackSummary(node, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return;
   seen.add(node);
   if (Object.hasOwn(node, 'stackSummary') && Object.hasOwn(node, 'incomeTotal')) {
-    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus', 'savings'], 'authorized addition: stackSummary carries only proved keys');
+    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus', 'savings', 'credit', 'creditBreakdown'], 'authorized addition: stackSummary carries only proved keys');
     proveStackIncome(node, node.stackSummary.income);
     proveStackBills(node, node.stackSummary.bills);
     proveStackBillParts(node, node.stackSummary.bills);
     proveStackSurplus(node, node.stackSummary.surplus, node.stackSummary.bills);
     proveStackSavings(node, node.stackSummary.savings);
+    proveStackCredit(node, node.stackSummary.credit, node.stackSummary.creditBreakdown, node.stackSummary.surplus);
     delete node.stackSummary;
   }
   for (const value of Object.values(node)) withoutStackSummary(value, seen);

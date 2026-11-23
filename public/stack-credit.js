@@ -1,8 +1,7 @@
 /* Stack Wallet block 'credit' (B4): the Credit card. Design: the Stack Wallet artifact (invented data).
  *
- * Reads Forecast.stackCreditLines (A6b, LEDGER A) for the selected pay period:
- *   Forecast.stackCreditLines(Forecast.cardPeriodMovements(plan, debts, asOf, {start, end},
- *     {currentPeriodActuals, cardPeriodBalanceEvidence, liveOverlay}), view.stackSummary.bills)
+ * Reads the selected pay period's view.stackSummary.credit: Forecast's one card-target publication for the view (desk
+ * ruling (E), #1573), Forecast.stackCreditLines on the view's own cardPeriodMovements and bills split, built with the period:
  *   -> { lines: [{ id, label, paid, spent, net, minimum, toGo (figures {amount|null, trust, reasons}), status,
  *                  minimumCovered: {value: true|false|'unknown'}, transactions }],
  *        totals: { paid, spent, trust, completeness: 'complete'|'partial'|'none', excluded: [ids], reasons } }
@@ -36,26 +35,17 @@
     if (!ctx || typeof ctx !== 'object') return null;
     if (readings.has(ctx)) return readings.get(ctx);
     let out = null;
-    const F = ctx.Forecast;
     const views = ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews) ? ctx.recommendation.payPeriodViews : [];
     const view = views.find(v => v && v.start === ctx.selectedPeriodKey);
     const d = ctx.data;
-    if (F && typeof F.stackCreditLines === 'function' && typeof F.cardPeriodMovements === 'function' && view && d) {
-      const overlay = d.liveOverlay && d.liveOverlay.applied === true ? d.liveOverlay : null;
-      const publication = F.cardPeriodMovements(ctx.plan, d.debts, d.meta && d.meta.asOf, { start: view.start, end: view.end }, {
-        currentPeriodActuals: overlay ? overlay.currentPeriodActuals : null,
-        cardPeriodBalanceEvidence: overlay ? overlay.cardPeriodBalanceEvidence : null,
-        liveOverlay: overlay,
-      });
-      // The debts and extra facilities go to Forecast for each card's over-limit amount (the repayment target, OD-028).
-      const result = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null,
-        { debts: d.debts, extra: d.revolvingExtra, plan: ctx.plan });
+    // The view's one card-target publication (desk ruling (E), #1573): Forecast builds it with the period and publishes it
+    // as stackSummary.credit; the page never recomputes it.
+    const result = view && view.stackSummary ? view.stackSummary.credit : null;
+    if (result && Array.isArray(result.lines) && result.totals && d) {
       // Each line's name: its Lunch Money account's (StackBlocks.cardName), else Forecast's label.
       const name = line => window.StackBlocks && typeof window.StackBlocks.cardName === 'function'
         ? window.StackBlocks.cardName(d, line.id, line.label) : line.label;
-      out = result && Array.isArray(result.lines) && result.totals
-        ? { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line) } : line)), totals: result.totals, view }
-        : null;
+      out = { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line) } : line)), totals: result.totals, view };
     }
     readings.set(ctx, out);
     return out;

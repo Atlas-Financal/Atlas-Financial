@@ -20,7 +20,10 @@
  *   Budget         budgetHold (the Household budget hold the surplus deducts)
  *   Mortgage       stackSummary.bills.mortgage
  *   Credit         stackSummary.surplus.terms.credit, opening in place to one
- *                  row per card: stackSummary.bills.cardMinimums[i].amount
+ *                  row per card: stackSummary.creditBreakdown.rows[i].amount (its
+ *                  target) and the creditBreakdown.alreadyCounted row (desk ruling
+ *                  (E)); where Forecast publishes no breakdown (a completed or saved
+ *                  period), stackSummary.bills.cardMinimums[i].amount
  *   Surplus        stackSummary.surplus.amount
  *
  * Registered with the Stack shell as StackBlocks.register('waterfall', render),
@@ -93,13 +96,16 @@
     return blocks && typeof blocks.cardName === 'function' ? blocks.cardName(ctx && ctx.data, debtId, own) : own;
   };
 
+  // The Credit line's trust is its breakdown's where Forecast publishes one (the targets), else the bills split's.
+  const trustSource = (view, key) => key === 'credit' && view.stackSummary && view.stackSummary.creditBreakdown
+    ? 'stackSummary.creditBreakdown.trust' : TRUST_SOURCES[key];
   // One amount cell: the published value, or nothing (F8).
   function amountCell(view, key, { sign = false } = {}) {
     // A fixed internal path from the table above (the keys are literals in this file; a key not in it prints no source).
     const source = LINE_SOURCES[key];
     const value = readPath(view, source);
     return isAmount(value)
-      ? `<span class="n${est(view, TRUST_SOURCES[key])}" data-source="${source}">${escape(sign ? signed(value) : money(value))}</span>`
+      ? `<span class="n${est(view, trustSource(view, key))}" data-source="${source}">${escape(sign ? signed(value) : money(value))}</span>`
       : `<span class="n" data-source="${source}" data-unpublished="true"></span>`;
   }
   // The design's marks before a label: a letter tile for each income line, a colour swatch for each deduction that
@@ -161,6 +167,8 @@
   // The minimums due in the selected pay period, exactly Forecast's cardMinimums: a card with no minimum due in the
   // period has no row (owner, Dale, 2026-11-20).
   function creditRows(ctx, view) {
+    const breakdown = view.stackSummary ? view.stackSummary.creditBreakdown : null;
+    if (breakdown && Array.isArray(breakdown.rows)) return targetRows(ctx, view, breakdown);
     const cards = view.stackSummary && view.stackSummary.bills ? view.stackSummary.bills.cardMinimums : null;
     if (!Array.isArray(cards)) return '';
     return cards.map((card, i) => {
@@ -172,6 +180,24 @@
       return `<li class="wf-card" data-row="card" data-debt-id="${escape(card && card.debtId)}"><span class="wf-name"><b>${escape(cardLabel(ctx, card && card.debtId))}</b>${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
         + `<span class="wf-amt">${cell}${minimumCheck(ctx, view, card && card.debtId)}</span></li>`;
     }).join('');
+  }
+
+  // Desk ruling (E): each card at its repayment target (the figure its Credit tile row prints after the slash), then one
+  // "Already counted above" row; Forecast publishes the rows so they sum to the Credit line, and none is added up here.
+  function targetRows(ctx, view, breakdown) {
+    const cell = (amount, source, trustPath) => isAmount(amount)
+      ? `<span class="n${est(view, trustPath)}" data-source="${source}">${escape(money(amount))}</span>`
+      : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
+    const cards = breakdown.rows.map((row, i) => {
+      const due = row ? dueLabel(view, row.debtId) : '';
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(row && row.debtId)}"><span class="wf-name"><b>${escape(cardLabel(ctx, row && row.debtId))}</b>${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
+        + `<span class="wf-amt">${cell(row && row.amount, `stackSummary.creditBreakdown.rows.${i}.amount`, `stackSummary.creditBreakdown.rows.${i}.trust`)}${minimumCheck(ctx, view, row && row.debtId)}</span></li>`;
+    }).join('');
+    const counted = breakdown.alreadyCounted;
+    const countedRow = counted && isAmount(counted.amount) && counted.amount !== 0
+      ? `<li class="wf-card" data-row="already-counted"><span class="wf-name"><b>Already counted above</b></span>`
+        + `<span class="wf-amt">${cell(counted.amount, 'stackSummary.creditBreakdown.alreadyCounted.amount', 'stackSummary.creditBreakdown.alreadyCounted.trust')}</span></li>` : '';
+    return cards + countedRow;
   }
 
   // The waterfall's Mortgage line opens the mortgage sheet (owner, Dale, 2026-11-20: no Mortgage card; the line stays
