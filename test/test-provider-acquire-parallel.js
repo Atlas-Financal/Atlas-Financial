@@ -121,16 +121,20 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await m.close();
   }
 
-  console.log('5. The earliest-listed genuine failure is reported');
+  console.log('5. The reported failure is the earliest-listed read that genuinely failed, never a cancellation');
   {
     const m = await mock({ delay: { '/v2/categories': 300, '/v2/tags': 20 }, status: { '/v2/categories': 503, '/v2/tags': 503 } });
     await assert.rejects(fetchLive(m), error => /failed with HTTP 503/.test(error.message)); checks++;
     await m.close();
-    // Both fail at about the same time: the earlier-listed read (categories, before tags) is the one reported,
-    // as a sequential read would report it.
-    const m2 = await mock({ delay: { '/v2/categories': 20, '/v2/tags': 20 }, status: { '/v2/categories': 503, '/v2/tags': 503 } });
-    await assert.rejects(fetchLive(m2), error => /\/v2\/categories failed with HTTP 503/.test(error.message)); checks++;
-    await m2.close();
+    // A failure aborts the reads still in flight, so a later read's own error may never arrive: the reported
+    // failure is the earliest-listed read that genuinely failed. Each order below is deterministic; when both
+    // fail together, it is one of the two genuine 503s, never a cancellation.
+    for (const [cat, tag, want] of [[10, 80, /\/v2\/categories failed with HTTP 503/], [80, 10, /\/v2\/tags failed with HTTP 503/],
+      [20, 20, /\/v2\/(categories|tags) failed with HTTP 503/]]) {
+      const m2 = await mock({ delay: { '/v2/categories': cat, '/v2/tags': tag }, status: { '/v2/categories': 503, '/v2/tags': 503 } });
+      await assert.rejects(fetchLive(m2), error => want.test(error.message)); checks++;
+      await m2.close();
+    }
   }
 
   console.log('6. An outer abort mid-flight cancels every read');

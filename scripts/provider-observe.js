@@ -952,7 +952,10 @@ async function liveParallelReads(tasks, outerSignal) {
     const started = performance.now();
     try { results[name] = await run(controller.signal); }
     catch (error) {
-      const casualty = controller.signal.aborted && !(outerSignal && outerSignal.aborted) && firstFailure !== null;
+      // Only the shared abort's own cancellation is a casualty of a sibling's failure; any other error
+      // (an HTTP failure, a timeout) is genuine, so near-simultaneous failures report deterministically.
+      const casualty = controller.signal.aborted && !(outerSignal && outerSignal.aborted)
+        && error && error.message === 'Live refresh cancelled.';
       if (!casualty) failures.push({ index, error });
       if (firstFailure === null) firstFailure = error;
       controller.abort();
