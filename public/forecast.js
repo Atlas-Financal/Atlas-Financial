@@ -29246,7 +29246,20 @@
             || !(plan.income || []).some(stream => stream.id === row.id)) {
           return unknown('Current income inclusion in the opening or reported Savings is unproved.');
         }
-        unreceivedCents += amount;
+        // H2-1b: a held early credit is this occurrence's cash (calendarIncomeSections, earlyReceiptLegs). The part
+        // its legs provably hold inside current Bills stock (the stock seed the period close reads) is already in the
+        // walk's cash, so it is not unreceived again; an unproven leg withholds the basis, as it withholds the close
+        // (earlyReceiptLegMembership). The same membership reader as the close (earlyReceiptSeedOverlap), so the
+        // boundary credit and the close agree.
+        let held = 0;
+        if (Array.isArray(row.earlyReceiptLegs) && row.earlyReceiptLegs.length) {
+          const overlap = earlyReceiptSeedOverlap(row, { kind: 'stock', asOf: day, accounts: [BILLS_ACCOUNT_ID],
+            reconciled: false });
+          if (overlap.unproven) return unknown('A held early income credit is not proven inside current cash.');
+          held = savingsCents(overlap.inside);
+          if (held == null || held < 0 || held > amount) return unknown('A held early income credit does not reconcile.');
+        }
+        unreceivedCents += amount - held;
         if (row.alreadyInCash === true || ['represented', 'opening'].includes(row.settlement))
           calendarReceivedWithoutReceipt += amount;
       }
