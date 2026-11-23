@@ -1441,7 +1441,10 @@ function overlayLiveState(input) {
   const { proposed, refused } = proposeOverlay(report, historicalOpeningAsOf, liveAsOf);
   const postingRefused = refuseNonLiveRepresented(
     report, historicalOpeningAsOf, liveAsOf, data.plan);
-  if (historicalOpeningAsOf && liveAsOf && liveAsOf > historicalOpeningAsOf) {
+  // One freshness rule for every refresh on or after the opening: a
+  // same-day refresh with a lagging required balance is withheld exactly
+  // as an advancing one is, never published with a caution.
+  if (historicalOpeningAsOf && liveAsOf && liveAsOf >= historicalOpeningAsOf) {
     assertFreshLivePacket(data, report, liveAsOf);
   }
   const next = clone(data);
