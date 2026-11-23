@@ -19,6 +19,7 @@ const household = fc.record({
   payday: fc.constantFrom('2028-02-29', '2027-02-28', '2028-02-16', '2028-06-30',
     '2028-07-01', '2027-12-25', '2028-12-31', '2027-01-01', '2028-03-10'),
   semiMonthlyOnly: fc.oneof({ weight: 5, arbitrary: fc.constant(false) }, fc.constant(true)),
+  anchorCycles: fc.oneof(fc.constantFrom(-4, 0, 4), fc.integer({ min: -12, max: 12 })),
   elapsed: fc.oneof(fc.constant(0), fc.integer({ min: 0, max: 13 })),
   horizonDays: fc.oneof(fc.constantFrom(1, 7, 13, 14, 15, 28, 32, 42), fc.integer({ min: 1, max: 42 })),
   cash: signed, weeklyCash: signed, pay: positive, secondPay: optional(positive),
@@ -58,7 +59,9 @@ function makeHousehold(input) {
   const asOf = dateOffset(input.payday, input.elapsed);
   const row = (id, cents, fields) => ({ id, label: 'Invented ' + id, amount: money(cents),
     confidence: cents === null ? 'unknown' : 'confirmed', ...fields });
-  const income = input.semiMonthlyOnly ? [] : [row('payroll', input.pay, { frequency: 'biweekly', anchor: input.payday })];
+  // A recurrence anchor may be many complete cycles before or after this period.
+  const anchor = dateOffset(input.payday, 14 * (input.anchorCycles ?? 0));
+  const income = input.semiMonthlyOnly ? [] : [row('payroll', input.pay, { frequency: 'biweekly', anchor })];
   const secondPay = input.semiMonthlyOnly ? input.pay : input.secondPay;
   if (secondPay !== null) {
     for (const day of [15, 31]) income.push(row('second-pay-' + day, secondPay, { frequency: 'monthly', day }));
