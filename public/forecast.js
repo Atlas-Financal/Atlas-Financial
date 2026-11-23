@@ -1091,13 +1091,25 @@
   // pays (capitalisingCashLegAmount); an invalid schedule or an unresolvable
   // cycle emits nothing for the row, and capitalisingCashMinimumUnknowns
   // names it so dependent answers withhold.
-  function capitalisingCashMinimumDates(o, start, end) {
-    return outflowDates({
+  // The cash leg's own schedule: the row's cadence and bounds (lastDue,
+  // month, anchor) with the cash day and cash first due. An ended row's
+  // cash minimum stops at its last cash date on or before lastDue, the same
+  // filter every other recurring schedule applies.
+  function capitalisingCashSchedule(o) {
+    const schedule = {
       frequency: o.frequency,
       day: o.cashDay,
       firstDue: o.cashFirstDue || o.firstDue || null,
+      // E1 cutover for the cash leg: earlier cash days stay on their own day.
       ...(o.cashTimingBefore ? { timingBefore: o.cashTimingBefore } : {}),
-    }, start, end);
+    };
+    for (const field of ['lastDue', 'month', 'anchor']) {
+      if (Object.prototype.hasOwnProperty.call(o, field)) schedule[field] = o[field];
+    }
+    return schedule;
+  }
+  function capitalisingCashMinimumDates(o, start, end) {
+    return outflowDates(capitalisingCashSchedule(o), start, end);
   }
   function capitalisingCashMinimumUnknowns(o, start, end) {
     // Gated on applicability (a scheduled capitalising row with a cash day),
@@ -1127,13 +1139,7 @@
     }
     const cashAmt = capitalisingCashLegAmount(o, null).amount;
     if (!o || !o.nonCash || !(cashAmt > EPSILON) || o.cashDay == null) return [];
-    const dates = outflowDates({
-      frequency: o.frequency,
-      day: o.cashDay,
-      firstDue: o.cashFirstDue || o.firstDue || null,
-      // E1 cutover for the cash leg: earlier cash days stay on their own day.
-      ...(o.cashTimingBefore ? { timingBefore: o.cashTimingBefore } : {}),
-    }, start, end);
+    const dates = capitalisingCashMinimumDates(o, start, end);
     return dates.map(date => ({
       date,
       amount: roundCent(cashAmt),
