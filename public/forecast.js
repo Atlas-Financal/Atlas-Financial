@@ -9588,6 +9588,26 @@
     return row && row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS ? row.settlementBasis : null;
   }
 
+  // The posting date of the one transaction the ledger ties to this
+  // occurrence, only when that transaction carries native posted evidence
+  // (pending false and posting evidence 'posted', as #1578's finals read it).
+  // Anything else (pending, unknown evidence, no tie, several ties or
+  // transactions) is null.
+  function nativePostedTieDate(opts, id, date) {
+    const packet = currentPeriodActualsPacket(opts);
+    const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
+      .filter(row => row && row.id === id && row.date === date);
+    if (ties.length !== 1 || ties[0].transactionId == null || Array.isArray(ties[0].transactionIds)) return null;
+    const txId = String(ties[0].transactionId);
+    const rows = (Array.isArray(packet.transactions) ? packet.transactions : [])
+      .filter(tx => tx && tx.id != null && String(tx.id) === txId);
+    if (rows.length !== 1) return null;
+    const tx = rows[0];
+    if (tx.pending !== false || tx.savingsPostingEvidence !== 'posted') return null;
+    const postedOn = financialDate(ties[0].postedOn) ? ties[0].postedOn : null;
+    return postedOn && financialDate(tx.date) && tx.date === postedOn ? postedOn : null;
+  }
+
   function observedPostedOn(observed, id, date, fallback) {
     const row = observed && id && date ? observed.get(id + '@' + date) : null;
     return (row && row.postedOn) || fallback || null;
@@ -11902,6 +11922,19 @@
         && row.partlyPaidRemainder === true && row.settlement === 'represented'
         && represented && represented.has(row.id + '@' + row.date);
       if (prepaidByWalk || prepaidPartial) prepaidBillSettledBy.set(row, asOf);
+      // H2-7: an active-period row paid in an earlier period. The walk's own
+      // settled set holds it and the ledger ties it to one natively posted
+      // transaction dated before this period's payday opening, so that
+      // opening already holds the payment. Record the posting date; the one
+      // decision, paidBillAlreadyInPaydayOpening, then leaves it out of the
+      // close. Paid state is unchanged; a pending or unknown posting records
+      // nothing and the row is deducted as before.
+      if (window.role === 'active' && window.start && row.date && row.date >= window.start
+          && row.status === 'PAID' && row.settlement === 'represented'
+          && represented && represented.has(row.id + '@' + row.date)) {
+        const postedOn = nativePostedTieDate(opts, row.id, row.date);
+        if (postedOn && postedOn < window.start) prepaidBillSettledBy.set(row, postedOn);
+      }
       if (!prepaidByWalk && !prepaidPartial && window.role === 'future' && row.date && asOf && row.date > asOf
           && row.settlement !== 'opening' && row.settledInOpening !== true
           && (row.status === 'PAID' || row.glanceKind === 'paid'
