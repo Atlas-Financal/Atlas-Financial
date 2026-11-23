@@ -11782,9 +11782,18 @@
       const coversOccurrence = row.actual != null && Number.isFinite(Number(row.actual))
         && row.planned != null && Number.isFinite(Number(row.planned)) && Number(row.planned) !== 0
         && Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
+      // Settled in full by the payment's own evidence, as Grok Bot agreed
+      // (Plan #6, H2-4): a VERIFIED posted payment, already tied to this bill
+      // by billPaymentVerified (posted, linked to this one occurrence only,
+      // "bill verified"), settles it at the verified amount even below plan.
+      // A pending, unlinked, shared or inferred payment does not, and
+      // unverified and partial underpayments stay owed. A sent card minimum is
+      // NOT carried here: future minimums keep their planned publication with
+      // money sent shown separately (465464bf; H2-5 goes to the desk).
+      const verifiedSettles = !coversOccurrence && billPaymentVerified(row, asOf, opts);
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
-        && coversOccurrence;
+        && (coversOccurrence || verifiedSettles);
       // D2: a fixed bill paid in part early, on the walk's own settled set:
       // the paid part left cash on or before asOf, so the row keeps it as
       // paid in its planned period and owes only its remainder there; a

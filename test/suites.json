@@ -744,5 +744,6 @@
   ["The live Lunch Money acquisition runs its independent reads in parallel (at most four in flight): the same requests and payload, acquire near the slowest read, manual_accounts -> /assets fallback kept, a late required failure and an outer abort fail closed and cancel every read","test-provider-acquire-parallel.js"],
   ["Forecast pay-period invariants over seeded invented households","test-forecast-invariants.js"],
   ["Dated obligation amounts: an obligation amountSchedule term selects by original scheduled date (inclusive from, exclusive until), the capitalising cash minimum takes the term of the cycle it pays, statements and sent payments still win, and a malformed schedule fails closed","test-obligation-amount-schedule.js"],
-  ["Obligation .amount / .cashPayment are read only through the dated-schedule resolver (static guard; catches direct, destructured and aliased reads)","test-obligation-amount-read-guard.js"]
+  ["Obligation .amount / .cashPayment are read only through the dated-schedule resolver (static guard; catches direct, destructured and aliased reads)","test-obligation-amount-read-guard.js"],
+  ["An early payment that settles its occurrence in full (a covering actual or a verified posted payment below plan) stays PAID in its planned period; pending, unlinked, shared, unverified and partial payments stay owed, and a sent minimum keeps its planned publication (H2-4, as Grok agreed)","test-early-payment-settles-occurrence.js"]
 ]

@@ -6,10 +6,15 @@
  * pay period it is planned in. Settled-in-full evidence is any of:
  *   1. an observed actual at or above plan (incumbent);
  *   2. a verified posted payment ("bill verified", Dale 2026-11-20), at the
- *      verified amount even below plan (billAssignedAmount);
- *   3. a sent card minimum whose own state is cashPaymentStatus 'sent' and
- *      issuerMinimumStatus 'satisfied' (the row carries actual null by design).
+ *      verified amount even below plan (billAssignedAmount).
+ * A sent card minimum keeps its planned publication in a future period
+ * (465464bf); Gemini H2-5 conflicts with that rule and is with the desk.
  * An unverified underpayment and a partial stay demoted (#1301).
+ *
+ * As Grok Bot agreed (Plan #6): verified = a posted payment already tied to that
+ * bill; a minimum is satisfied only when the issuer shows that same
+ * occurrence; one payment settles one occurrence; unverified and partial
+ * underpayments stay owed.
  *
  * Invented values only (Gemini hunt 2, H2-4 / H2-5, #821 7091239076),
  * read through Forecast.recommend payPeriodViews.
@@ -25,7 +30,7 @@ const ok = (cond, label, detail = '') => {
 };
 const show = x => JSON.stringify(x);
 
-function verifiedBillWorld(note, actual) {
+function verifiedBillWorld(note, actual, txExtra, claimExtra, extraClaims) {
   const plan = {
     opening: { asOf: '2026-10-09', paydaySnapshot: { periodStart: '2026-10-09', asOf: '2026-10-09', opening: 1000 } },
     startingCash: { asOf: '2026-10-09', breakdown: [
@@ -40,9 +45,12 @@ function verifiedBillWorld(note, actual) {
     schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-21',
     coverageStart: '2026-10-09', coverageThrough: '2026-10-21',
     transactionCoverage: 'complete', pendingCoverage: 'complete',
-    transactions: [{ id: 'tx-net', date: '2026-10-20', amount: actual, currency: 'CAD', accountId: 'chequing-a',
-      accountRole: 'household-cash', pending: false, ...(note ? { notes: note } : {}) }],
-    representedActuals: [{ id: 'internet', date: '2026-10-28', actual, postedOn: '2026-10-20', transactionId: 'tx-net' }],
+    transactions: [{ id: 'tx-net', date: '2026-10-20', amount: actual, currency: 'CAD', accountId: 'chequing-a', atlasAccountId: 'chequing-a',
+      accountRole: 'household-cash', pending: false,
+      // The observer marks a Grok Bot "bill verified" note as billVerifiedNote (its published shape).
+      ...(note ? { notes: note, billVerifiedNote: true } : {}), ...(txExtra || {}) }],
+    representedActuals: [Object.assign({ id: 'internet', date: '2026-10-28', actual, postedOn: '2026-10-20', transactionId: 'tx-net' }, claimExtra || {}),
+      ...(extraClaims || [])],
   };
   const a = F.recommend(plan, '2026-10-21', {
     weeklyVariable: 0, debts: [], currentPeriodActuals: pkt,
@@ -78,10 +86,10 @@ console.log('\n=== 3. control: a covering early payment (incumbent) stays PAID =
     show({ status: row.status, remaining: row.remaining }));
 }
 
-function sentMinimumWorld(sent) {
+function sentMinimumWorld(sent, noIssuer) {
   const plan = {
     opening: { asOf: '2026-10-14', paydaySnapshot: { periodStart: '2026-10-09', asOf: '2026-10-09', opening: 1000 },
-      representedEvents: [{ id: 'card-min', date: '2026-10-25', effectiveAsOf: '2026-10-12' }] },
+      representedEvents: noIssuer ? [] : [{ id: 'card-min', date: '2026-10-25', effectiveAsOf: '2026-10-12' }] },
     startingCash: { asOf: '2026-10-14', breakdown: [
       { id: 'chequing-a', value: 1000, confidence: 'confirmed', evidenceDate: '2026-10-14' },
       { id: 'chequing-b', value: 0, confidence: 'confirmed', evidenceDate: '2026-10-14' },
@@ -103,24 +111,36 @@ function sentMinimumWorld(sent) {
   return { next, row: next.bills.find(b => b.id === 'card-min') };
 }
 
-console.log('\n=== 4. H2-5: a sent, satisfied card minimum paid early settles its occurrence ===');
+console.log('\n=== 4. a sent, satisfied card minimum keeps its planned publication (465464bf; H2-5 is with the desk) ===');
 {
-  // 120 minimum due Oct 25 (next period) sent Oct 12, cash included Oct 12. Next period opens at 3000,
-  // gets 2000 payroll; the 120 already left cash, so the planned close is 3000 + 2000 = 5000.
-  const { next, row } = sentMinimumWorld({});
-  ok(row.status === 'PAID' && row.remaining === 0 && row.stackBillPaid === true,
-    'next period: PAID, nothing remaining', show({ status: row.status, remaining: row.remaining, stackBillPaid: row.stackBillPaid, paidState: row.paidState }));
-  ok(row.paidState === 'paid' && row.status === 'PAID', 'the row does not contradict itself (status agrees with paidState)');
-  ok(next.remainingBills === 0 && next.plannedPeriodCloseTerms.periodBillLoad === 0 && next.plannedPeriodClose === 5000,
-    'next period: remaining bills 0, close bill load 0, planned close 5000',
-    show({ remaining: next.remainingBills, load: next.plannedPeriodCloseTerms.periodBillLoad, close: next.plannedPeriodClose }));
+  // Future minimums keep Planned with money sent shown separately; this PR does not change that rule.
+  const { row } = sentMinimumWorld({});
+  ok(row.status === 'planned' && row.cashPaymentStatus === 'sent', 'future minimum: Planned, money sent kept separately',
+    show({ status: row.status, cashPaymentStatus: row.cashPaymentStatus }));
 }
 
-console.log('\n=== 5. control: an unsent minimum stays owed in its planned period ===');
+console.log('\n=== 6. Grok condition 1: only a POSTED payment already TIED to this bill is verified ===');
 {
-  const { next, row } = sentMinimumWorld(null);
-  ok(row.status !== 'PAID' && row.remaining === 120, 'no sent payment: still owes 120', show({ status: row.status, remaining: row.remaining }));
-  ok(next.remainingBills === 120, 'remaining bills 120', show(next.remainingBills));
+  // A pending payment, or a claim with no linked transaction, stays owed in the planned period.
+  const pending = verifiedBillWorld('bill verified', 80, { pending: true }).row;
+  ok(pending.status !== 'PAID' && pending.remaining === 100, 'a pending "verified" 80: still owes 100', show({ status: pending.status, remaining: pending.remaining }));
+  const unlinked = verifiedBillWorld('bill verified', 80, {}, { transactionId: undefined }).row;
+  ok(unlinked.status !== 'PAID' && unlinked.remaining === 100, 'an unlinked "verified" 80: still owes 100', show({ status: unlinked.status, remaining: unlinked.remaining }));
+}
+
+console.log('\n=== 8. Grok condition 3: one payment settles one occurrence, never two ===');
+{
+  // The same 80 transaction also claimed by a second occurrence: the link is not exclusive, so not verified.
+  const shared = verifiedBillWorld('bill verified', 80, {}, {}, [{ id: 'internet', date: '2026-11-28', actual: 80, postedOn: '2026-10-20', transactionId: 'tx-net' }]).row;
+  ok(shared.status !== 'PAID' && shared.remaining === 100, 'a payment shared by two occurrences settles neither early', show({ status: shared.status, remaining: shared.remaining }));
+}
+
+console.log('\n=== 9. Grok condition 4: unverified and partial underpayments stay owed ===');
+{
+  const unverified = verifiedBillWorld(null, 80).row;
+  ok(unverified.status !== 'PAID' && unverified.remaining === 100, 'unverified 80 of 100: owes 100');
+  const partial = verifiedBillWorld(null, 40).row;
+  ok(partial.status !== 'PAID' && partial.remaining === 100, 'unverified 40 of 100: owes 100', show({ status: partial.status, remaining: partial.remaining }));
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
