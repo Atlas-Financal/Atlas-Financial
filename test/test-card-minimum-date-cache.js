@@ -10,11 +10,11 @@ const maps = [];
 class ObservedMap extends Map { constructor(...args) { super(...args); maps.push(this); } }
 class ObservedDate extends Date { static parse(value) { parseCalls++; return Date.parse(value); } }
 // Expose the private validator in this VM only; production exports stay intact.
-const anchor = 'return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits };';
+const anchor = 'return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits, statementRows };';
 assert.equal(source.split(anchor).length, 2);
 const exportAnchor = 'const Forecast = {';
 assert.equal(source.split(exportAnchor).length, 2, 'private test hook has one export object target');
-const testSource = source.replace(anchor, 'return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits, date };')
+const testSource = source.replace(anchor, 'return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits, statementRows, date };')
   .replace(exportAnchor, exportAnchor + ' privateDate: CardMinimumContract.date,');
 const context = { module: { exports: {} }, Date: ObservedDate, Map: ObservedMap };
 vm.runInNewContext(testSource, context, { filename: 'forecast-date-test.js' });

@@ -279,6 +279,8 @@ console.log('8. The assistant packet: forward walks withheld, the rest estimated
   check(graded >= 3, `the packet audit reached the newly published sections (${graded})`);
   for (const [k, v] of Object.entries(fd)) {
     if (typeof v !== 'number' || typeof ft[k] !== 'number' || /At$|asOf|Count$|days|Days/i.test(k)) continue;
+    // What a bill row still owes may only be overstated (H2-9: a covered minimum owes 0 in the truth).
+    if (/^forecast\.currentPeriodAction\.bills\.\d+\.remaining$/.test(k)) { check(v >= ft[k] - 0.005, `packet ${k}: ${v} >= truth ${ft[k]}`); continue; }
     check(v <= ft[k] + 0.005, `packet ${k}: ${v} <= truth ${ft[k]}`);
   }
 }
@@ -292,7 +294,7 @@ console.log('9. Every published figure, never above the truth, whichever card it
   // Debt owed is cautious when higher too. (Where the truth world adds the
   // second card's own payment credit, that card's provider balance itself
   // differs: an input difference, not card coverage.)
-  const CAUTIOUS = [/^totals\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
+  const CAUTIOUS = [/^totals\.obligations$/, /^payday\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
     /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/,
     // The Stack credit lines' balance snapshot is the same card stock as
     // revolving.<id>.posted (the debt's balance, #1447), and its total is a sum of it.

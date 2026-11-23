@@ -59,13 +59,15 @@ function toolDescriptor() {
   };
 }
 
-function packetResult(packet) {
+// markPhase (optional, timing only) names the end of the sanitization check.
+function packetResult(packet, markPhase) {
   if (!packet || packet.schema !== Assistant.SCHEMA || !Assistant.looksSanitized(packet)) {
     return {
       content: [{ type: 'text', text: 'Assistant packet unavailable.' }],
       isError: true,
     };
   }
+  if (typeof markPhase === 'function') markPhase('packetCheck');
   return {
     content: [{ type: 'text', text: JSON.stringify(packet) }],
     structuredContent: packet,
@@ -92,7 +94,7 @@ function createServer(getPacket, opts = {}) {
     inputSchema: z.object({}).strict(),
     annotations: descriptor.annotations,
     _meta: descriptor._meta,
-  }, async () => packetResult(await getPacket()));
+  }, async () => packetResult(await getPacket(), opts.markPhase));
   const definitions = [
     ['get_lunchmoney_catalog', 'catalog', 'Read all Lunch Money synced and manual account balances, including savings, plus account/category references. Set includeTags=true to also read existing tag references and names for cleanup. Returns provider decimal balances, currency, account type/status, semantic balance date and separate sync timestamps. Show missing, old or future balance dates; a fresh GET is not a fresh bank balance. No combined cash/debt or mixed-currency total; savings/business funds are not automatically spendable. Call before filtering or editing; references expire after 10 minutes.'],
     ['get_lunchmoney_transactions', 'query', 'Read Lunch Money transactions for an explicit date range (maximum 366 days), including displayed payee, preserved original bank description, amount, currency, source account, category, notes, tag references and pending status. Tag names require a prior includeTags=true catalog; missing tags/descriptions are unknown. Filter by catalog references or merchant. Follow nextOffset for all matches. Provider ledger evidence, not Atlas budget classification; never sum different currencies or pending/posted duplicates blindly.'],
