@@ -60,7 +60,7 @@ const sandbox = { document: { getElementById: get, createElement: () => makeEl('
   fetch: url => Promise.resolve({ status: 200, ok: true, json: () => (String(url).includes('periods') ? periods : data) }) };
 sandbox.window = sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
-for (const file of ['public/app.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) vm.runInContext(read(file), sandbox, { filename: file });
+for (const file of ['public/app.js', 'public/display-name.js', 'public/forecast-card-period.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) vm.runInContext(read(file), sandbox, { filename: file });
 const Fp = sandbox.Forecast, recommend = Fp.recommend;
 const paint = transform => { Fp.recommend = (...a) => transform(recommend(...a)); try { sandbox.renderPlan(data, periods); } finally { Fp.recommend = recommend; } };
 setTimeout(() => {

@@ -13152,12 +13152,21 @@
       stackBillsPaid(view, bills);
       // The view's one card-target publication (desk ruling (E)): built in the period loop; a view composed after it (a
       // saved close) gets its lines here, from its own bills split, for display only (its remainder is the saved one).
-      if (!periodCardCreditByPeriod.has(view) && opts && view.start && view.end) {
+      if (!periodCardCreditByPeriod.has(view) && opts && view.start && view.end && view.operatingPlanUnavailable !== true) {
         const own = periodCardCredit(plan, opts.debts, asOf, { start: view.start, end: view.end }, opts,
           bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : null, bills && bills.trust, null);
         if (own) periodCardCreditByPeriod.set(view, { credit: own.credit, displayOnly: true });
       }
-      const cardCredit = periodCardCreditByPeriod.get(view) || null;
+      let cardCredit = periodCardCreditByPeriod.get(view) || null;
+      // A later period estimated because today's cash is unconfirmed (estimateUnconfirmedOpeningPeriod, OD-022): its card
+      // publication is capped the same way, so no figure in it reads more certain than the period allows.
+      if (cardCredit && view.currentCashUnconfirmed && view.currentCashUnconfirmed.status === 'estimated') {
+        const cap = node => Array.isArray(node) ? node.map(cap) : node && typeof node === 'object'
+          ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, typeof v === 'string' && /trust$/i.test(k)
+            && (v === 'calculated' || v === 'verified') ? 'estimated' : cap(v)])) : node;
+        cardCredit = { ...cardCredit, credit: cap(cardCredit.credit), trust: cardCredit.trust === 'unavailable' ? 'unavailable' : 'estimated' };
+        periodCardCreditByPeriod.set(view, cardCredit);
+      }
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result),
           credit: cardCredit ? cardCredit.credit : null, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
@@ -15489,7 +15498,9 @@
     return window ? manualCardBeyondMinimumCycle(cardCoverage, { start: window.start, end: window.end }, asOf) : null;
   }
   function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum) {
-    if (!Array.isArray(debts) || !window) return null;
+    // The card module is loaded with Forecast on every page (index.html) and in node (require); a harness that evaluates
+    // this file alone publishes no card target and keeps the minimums, as before this ruling.
+    if (!CardPeriodMovement || !Array.isArray(debts) || !window) return null;
     const minimums = Array.isArray(cardMinimums) ? cardMinimums : null;
     const publication = cardPeriodMovements(plan, debts, asOf, { start: window.start, end: window.end }, {
       currentPeriodActuals: opts.currentPeriodActuals,

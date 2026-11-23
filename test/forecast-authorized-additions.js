@@ -360,6 +360,13 @@ function authorizedTagKey(key, value) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
+  // Desk ruling (E) (#1573): the view's card-target publication and the Credit breakdown, each figure with its own trust
+  // word (a card line's figures, totals and deduction; a breakdown row), proved in proveStackCredit.
+  if (/\.stackSummary\.credit\.(lines\.\d+|totals)(\.[A-Za-z]+)*\.(trust|[a-zA-Z]+Trust)$/.test(key)
+    || /\.stackSummary\.creditBreakdown\.(rows\.\d+\.trust|alreadyCounted\.trust|trust)$/.test(key)) {
+    assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
+    return true;
+  }
   // The Stack bill cards' per-row amount trust (#1465): the row's own posted or plan word, never a new certainty.
   if (/\.bills\.\d+\.stackBillAmountTrust$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unknown'].includes(value), `authorized addition tag ${key} is a trust word`);

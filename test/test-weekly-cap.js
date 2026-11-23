@@ -570,7 +570,7 @@ function bootPage(storedKnobs, payload, periodsOverride) {
   sandbox.window = sandbox; sandbox.globalThis = sandbox;
   Object.assign(sandbox, { AbortController, setTimeout, clearTimeout });
   vm.createContext(sandbox);
-  for (const file of ['public/app.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) {
+  for (const file of ['public/app.js', 'public/display-name.js', 'public/forecast-card-period.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) {
     vm.runInContext(read(file), sandbox, { filename: file });
   }
   // Queued before any caller's timer, so it runs first, after boot's

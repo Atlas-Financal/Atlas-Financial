@@ -75,6 +75,8 @@ const LOAD_PARTS = [
 const PERIOD_BILL_LOAD = roundCent(LOAD_PARTS.reduce((sum, row) => sum + row[3], 0));
 const BAD_BEFORE_FULL = roundCent(INCOME - PERIOD_BILL_LOAD - AUDITED_HOLD_BEFORE);
 const HOLD_AFTER = roundCent(PLANNED_HOLD + UNRELATED);
+// The named card term Balance After Deductions takes (desk ruling (E)): 0 where the targets are the minimums.
+const cardAdjustment = view => (view && view.predictedEndingBalanceTerms && view.predictedEndingBalanceTerms.cardRepaymentAdjustment) || 0;
 const BAD_AFTER = roundCent(INCOME - PERIOD_BILL_LOAD - HOLD_AFTER);
 
 const ALREADY = [
@@ -333,7 +335,9 @@ console.log('\n=== BEFORE: without the split opt-in the two BILLS legs do not se
   ok(active && near(active.budgetHold, AUDITED_HOLD_BEFORE),
     'Household Budget hold includes the duplicate Bell spending',
     String(active && active.budgetHold));
-  ok(active && near(active.balanceAfterDeductions, BAD_BEFORE_FULL),
+  // Desk ruling (E) (#1573): Balance After Deductions also takes its published, named card term (the card targets less
+  // the minimums the bills hold); this audit's own arithmetic is unchanged beside it.
+  ok(active && near(active.balanceAfterDeductions, roundCent(BAD_BEFORE_FULL - cardAdjustment(active))),
     'Balance After Deductions subtracts the Prime bill',
     String(active && active.balanceAfterDeductions));
 }
@@ -398,8 +402,8 @@ console.log('\n=== AFTER: the explicit split settles Bell once ===');
       && near(roundCent(AUDITED_HOLD_BEFORE - active.budgetHold), LEG_SUM),
     'Household Budget hold falls exactly $283.94',
     String(active && active.budgetHold));
-  ok(active && near(active.balanceAfterDeductions, BAD_AFTER)
-      && near(roundCent(active.balanceAfterDeductions - BAD_BEFORE_FULL), LEG_SUM),
+  ok(active && near(active.balanceAfterDeductions, roundCent(BAD_AFTER - cardAdjustment(active)))
+      && near(roundCent(active.balanceAfterDeductions + cardAdjustment(active) - BAD_BEFORE_FULL), LEG_SUM),
     'Balance After Deductions rises exactly $283.94 when Bell settles',
     String(active && active.balanceAfterDeductions));
 }
