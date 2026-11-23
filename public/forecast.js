@@ -26,8 +26,12 @@
   }
   // Stack Wallet A6b: the Credit lines (paid back of spent, status, the card's
   // minimum from the period's published bills split, minimum covered).
-  function stackCreditLines(publication, bills) {
-    return CardPeriodMovement.stackCreditLines(publication, bills);
+  // `facilities` (optional): { debts, extra, plan }, read through utilisation for each card's over-limit amount (the
+  // repayment target, OD-028). The same debts the publication was built from.
+  function stackCreditLines(publication, bills, facilities) {
+    const util = facilities && Array.isArray(facilities.debts)
+      ? utilisation(facilities.debts, facilities.extra, facilities.plan) : null;
+    return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null);
   }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
