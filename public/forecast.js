@@ -736,6 +736,22 @@
   // cadence, the same way monthly uses only `day`. Missing or non-integer
   // month/day fails closed rather than inventing 1 January or the caller's
   // start. `firstDue` is a filter, not a rewrite of the calendar day.
+  // H2-12: a yearly month and day must name a real calendar day in some year. February 29 is real (it recurs on
+  // Feb 28 in common years). April 31, February 30 or 31 and the like never exist: a yearly income or obligation on
+  // one is a scheduled-amount unknown (plan-date-invalid) for any window its own schedule would have reached.
+  function yearlyMonthDayReal(month, day) {
+    const m = Number(month), d = Number(day);
+    return Number.isInteger(m) && m >= 1 && m <= 12 && Number.isInteger(d) && d >= 1 && d <= daysInMonth(2000, m);
+  }
+  // The dates in this window that a yearly term on an impossible day produced. A row with a `timingBefore` cutover
+  // has two terms (the prior one before `from`, its own from `from` on); each date is judged by the term that
+  // produced it, through the same split `occurrences` uses (termOccurrences), bounded by firstDue and lastDue.
+  function impossibleYearlyTerm(term) {
+    return !!term && term.frequency === 'yearly' && !yearlyMonthDayReal(term.month, term.day);
+  }
+  function impossibleYearlyDates(row, start, end) {
+    return new Set(row ? termOccurrences(row, start, end).filter(x => impossibleYearlyTerm(x.term)).map(x => x.date) : []);
+  }
   function yearlyDates(month, day, start, end, firstDue) {
     const m = Number(month);
     const requestedDay = Number(day);
@@ -765,10 +781,14 @@
   // `from` keep that earlier timing, so recorded statements and payments stay
   // on their own dates; occurrences on or after `from` follow the row.
   function occurrences(item, start, end) {
+    return termOccurrences(item, start, end).map(x => x.date);
+  }
+  // Each date with the cadence (`term`) that produced it: the row itself, or the prior timing before a cutover.
+  function termOccurrences(item, start, end) {
     const prior = item && item.timingBefore && typeof item.timingBefore.from === 'string'
       && /^\d{4}-\d{2}-\d{2}$/.test(item.timingBefore.from) ? item.timingBefore : null;
-    let dates;
-    if (!prior) dates = cadenceOccurrences(item, start, end);
+    let dated;
+    if (!prior) dated = cadenceOccurrences(item, start, end).map(date => ({ date, term: item }));
     else {
       const before = { ...item };
       for (const field of ['frequency', 'day', 'month', 'anchor']) {
@@ -776,12 +796,12 @@
         if (Object.prototype.hasOwnProperty.call(prior, field)) before[field] = prior[field];
       }
       const cut = addDays(prior.from, -1);
-      dates = (start <= cut ? cadenceOccurrences(before, start, end < cut ? end : cut) : [])
-        .concat(end >= prior.from ? cadenceOccurrences(item, start > prior.from ? start : prior.from, end) : []);
+      dated = (start <= cut ? cadenceOccurrences(before, start, end < cut ? end : cut).map(date => ({ date, term: before })) : [])
+        .concat(end >= prior.from ? cadenceOccurrences(item, start > prior.from ? start : prior.from, end).map(date => ({ date, term: item })) : []);
     }
     const last = item && item.frequency !== 'once' && typeof item.lastDue === 'string'
       && /^\d{4}-\d{2}-\d{2}$/.test(item.lastDue) ? item.lastDue : null;
-    return last ? dates.filter(d => d <= last) : dates;
+    return last ? dated.filter(x => x.date <= last) : dated;
   }
   function cadenceOccurrences(item, start, end) {
     if (item.frequency === 'once') {
@@ -3598,6 +3618,8 @@
   // scenario monthly figure takes precedence over it.
   function planIncomeInvalidReason(stream, start, end, opts) {
     if (!PLAN_FREQUENCIES.has(stream.frequency)) return 'plan-frequency-invalid';
+    // H2-12: a yearly income stream on a day its month never has is unknown, not silently dropped.
+    if (impossibleYearlyDates(stream, start, end).size > 0) return 'plan-date-invalid';
     const override = incomeOverrideState(opts || {}, stream.id);
     const monthly = stream.scenarioMonthly ? stream.scenarioMonthly[(opts && opts.scenario) || 'expected'] : null;
     const ownAmountUsed = !override.present && !override.invalid && monthly == null;
@@ -3686,7 +3708,20 @@
           dateUnknown: true, reason: 'plan-frequency-invalid' });
         continue;
       }
+      // H2-12: a yearly obligation on a day its month never has (April 31) has no real date. An occurrence in this
+      // window that still falls back to that day (no statement replaces it) is unknown, never quietly paid on another
+      // day. A statement-replaced occurrence keeps the statement's own date and amount, and an ended or not yet
+      // started row has no occurrence here, so neither withholds. Each date is judged by the term that produced it, so a
+      // timing cutover is read date by date (ChatGPT 7098708528, 7099423097, 7100106374).
+      const impossibleDates = impossibleYearlyDates(o, start, end);
+      let impossibleDayReported = false;
       for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
+        if (occurrence.statement !== true && !impossibleDayReported
+          && impossibleDates.has(occurrence.scheduledDate || occurrence.date)) {
+          unknowns.push({ carrier: 'obligation', id: o.id || null, date: occurrence.date,
+            scheduledDate: occurrence.scheduledDate || null, dateUnknown: true, reason: 'plan-date-invalid' });
+          impossibleDayReported = true;
+        }
         if (scheduledAmountValue(occurrence.amount) != null) continue;
         if (!opts.keepRepresented && occurrence.date < start
           && represented.has(o.id + '@' + occurrence.date)) continue;
@@ -3910,6 +3945,8 @@
         ? 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.reason === 'plan-frequency-invalid' || u.reason === 'plan-amount-invalid')
         ? 'An income or obligation has a frequency or amount Forecast cannot read, so the totals and plan verdicts that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-date-invalid')
+        ? 'An income or obligation is scheduled on a day its month never has (such as April 31), so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
         : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };
