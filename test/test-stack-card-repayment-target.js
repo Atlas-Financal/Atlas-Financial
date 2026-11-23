@@ -155,6 +155,18 @@ console.log('9. Every card, minimum due or not: $0 only with no minimum, no new 
   ok(cents(d.spent.amount) === 10000 && cents(d.target.overLimitBy) === 5000 && cents(d.target.amount) === 15000,
     'the desk\'s case: 50.00 over after a posted 100.00 payment, 100.00 charged: total 150.00 (50.00 still to pay), not 100.00',
     JSON.stringify(d.target));
+  // Neon REPORT 6 (#1607 7113958210) section 4 case 7: the target holds as a mid-period payment posts. (h1) Started 50.00
+  // over, 100.00 charged, then 50.00 paid: published 1100.00 over a 1000.00 limit = 100.00 over; before the payment 150.00;
+  // target max(0, 100.00, 150.00) = 150.00 (not 100.00). (h2) Started 50.00 over, nothing charged, then 50.00 paid: published
+  // 1100.00 at a 1100.00 limit = 0 over; before the payment 50.00; target 50.00 (not 0).
+  const h1 = withLimit(fx.fixture(), 'tdcc', 1000); h1.packet.transactions.push(charge(100), payment(50));
+  const h1l = lineOf(h1, 'tdcc', noMin);
+  ok(cents(h1l.target.amount) === 15000 && cents(h1l.target.overLimitBy) === 10000,
+    'mid-period payment (h1): 100.00 over after paying 50.00, 100.00 charged: the target holds at 150.00', JSON.stringify(h1l.target));
+  const h2 = withLimit(fx.fixture(), 'tdcc', 1100); h2.packet.transactions.push(payment(50));
+  const h2l = lineOf(h2, 'tdcc', noMin);
+  ok(cents(h2l.target.amount) === 5000 && h2l.target.overLimitBy === 0,
+    'mid-period payment (h2): at the limit after paying 50.00, nothing charged: the target holds at 50.00', JSON.stringify(h2l.target));
   // Controls. No payment: 50.00 over and 100.00 charged, the charges are the larger: 100.00.
   const nopay = withLimit(fx.fixture(), 'tdcc', 1050); nopay.packet.transactions.push(charge(100));
   ok(cents(lineOf(nopay, 'tdcc', noMin).target.amount) === 10000, 'the same card with no payment: max(0, 100.00, 50.00) = 100.00');
