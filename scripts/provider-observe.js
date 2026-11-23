@@ -2065,12 +2065,18 @@ function statementCloseDayForEvent(plan, event) {
   return Number(day);
 }
 
+// H2-3: a statement closes at least STATEMENT_MIN_GRACE_DAYS before its own
+// due date, so a due date moved later by a weekend or holiday keeps its own
+// statement instead of borrowing a close day a few days earlier. A week is
+// well inside every modelled card's grace gap (about 15 to 27 days).
+const STATEMENT_MIN_GRACE_DAYS = 7;
 function statementCloseDateForDue(dueDate, closeDay) {
   const due = parseIsoDate(dueDate);
   if (!due || !isFinite(Number(closeDay))) return null;
   const [year, month] = due.split('-').map(Number);
   const thisMonth = dateWithClampedDay(year, month, closeDay);
-  if (thisMonth && thisMonth < due) return thisMonth;
+  const gap = thisMonth ? calendarDaysBetween(thisMonth, due) : null;
+  if (thisMonth && gap != null && gap >= STATEMENT_MIN_GRACE_DAYS) return thisMonth;
   let priorYear = year;
   let priorMonth = month - 1;
   if (priorMonth < 1) {
@@ -7776,6 +7782,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
       for (const localId of localIds) linkedLocalIds.add(localId);
+      // H2-6 (Grok Bot, Plan #6, 2026-11-23; desk adoption): a closed provenance label, set only when this tie is
+      // the provider's own matched occurrence: the candidate's relation is Lunch Money's unique, qualified match for
+      // this exact occurrence (stampLunchMoneyMatched, LM_MATCHED_RELATION) with exactly one payment. Never on a rule
+      // opt-in, a recurring item id alone, or Atlas's payee or date inference. It carries no provider id.
+      if (candidate.postingDateRelation === LM_MATCHED_RELATION && localIds.length === 1) row.occurrenceLink = 'provider-matched';
     } else if (candidate.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
       // The owner's rule settles this occurrence on its due date at the
       // scheduled amount; no bank transaction was seen. Say so on the

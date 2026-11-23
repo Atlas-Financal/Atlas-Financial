@@ -2955,6 +2955,20 @@
     // occurrence after this opening, the posting is already in opening cash:
     // the walk must not add it again. Derived keys are tagged so the Budget
     // pairing can still attach its observed actual to that occurrence.
+    // H2-6: a card-paid bill's future occurrence that the ledger already ties to one early card posting
+    // (currentPeriodActuals.representedActuals) is settled from that tie itself. Its postedOn is the posting proof, on
+    // or before this start and before the scheduled date, and it counts only against the current opening (the opening
+    // dated this start), the one proven to include that posting; a stale or missing opening credits nothing. No plan
+    // receipt is added for a future card purchase (the overlay adds no cash-omit receipt,
+    // test-card-bill-protection-lifecycle); prepaidCardPaidBill holds every check.
+    const tiePacket = opening && opening.asOf === start ? currentPeriodActualsPacket(opts) : null;
+    for (const row of (tiePacket && Array.isArray(tiePacket.representedActuals) ? tiePacket.representedActuals : [])) {
+      if (!row || !row.id || !row.date || !start || row.date <= start) continue;
+      const proof = { id: row.id, date: row.date, postedOn: row.postedOn, effectiveAsOf: start };
+      if (earlyIncomeReceiptProven(proof, start) && prepaidCardPaidBill(plan, row.id, row.date, start, opts)) {
+        keys.add(row.id + '@' + row.date);
+      }
+    }
     const earlyChildBenefit = childBenefitPrepaidKeys(plan, opts, start, keys);
     if (earlyChildBenefit.size) {
       for (const key of earlyChildBenefit) keys.add(key);
@@ -3684,6 +3698,14 @@
         unknowns.push({ carrier: 'obligation', id: o.id || null, date,
           scheduledDate: null, cashMinimum: true, reason: 'scheduled-amount-unknown' });
       }
+      // A dated principal-share schedule that fails closed: from the first
+      // payment whose split is unknown, that debt's remaining balance is
+      // unknown, so how much each later payment can absorb is unknown too.
+      // Only a debt that authors a principalShareSchedule can reach this.
+      for (const date of principalShareUnknownPaymentDates(o, start, end, periodStart, opts)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date,
+          scheduledDate: null, principalShareUnknown: true, reason: 'scheduled-amount-unknown' });
+      }
     }
     // Phase 2 (ATLAS-080): the settlement relief index is judged at this
     // scan's own start — the same pin expandEvents applies to the walk
@@ -4287,6 +4309,46 @@
     return outflowDates(bill, date, date).some(d => d === date);
   }
 
+  // H2-6 (Grok Bot's answer, Plan #6, relayed by the lead 2026-11-23): an early card posting of a card-paid bill settles
+  // that bill's next scheduled occurrence only when every condition holds. Nothing is matched here: the ledger's own
+  // link (currentPeriodActuals.representedActuals) names the occurrence and its posting.
+  //   1. The tied row is posted (not pending) on the bill's own card, and the ledger already ties it to this occurrence.
+  //      Posted means the native posting evidence, as #1578's finals read it: pending false and
+  //      savingsPostingEvidence 'posted'.
+  //   2. One posting settles one occurrence: its transaction is tied to no other occurrence. A refund or reversal
+  //      un-settles it when the ledger removes or changes that tie; Atlas never infers a refund of this charge from an
+  //      amount (ChatGPT review 7094928044; the ledger names no refund-to-charge link).
+  //   3. Only the card charge settles it: a card-payment transfer from chequing is not a row on the bill's card, so it
+  //      never does.
+  //   4. Exact means the occurrence's identity: the tie names this bill and this occurrence date. A key at any other
+  //      date matches no scheduled occurrence, so a nearby date settles nothing.
+  // It settles the occurrence (Paid, nothing remaining) only; the Stack "confirmed paid" check is unchanged.
+  function prepaidCardPaidBill(plan, id, date, start, opts) {
+    if (!plan || !id || !date || !start || date <= start) return false;
+    const bill = (plan.bills || []).find(item => item && item.id === id && Number(item.amount) > 0);
+    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return false;
+    const packet = currentPeriodActualsPacket(opts);
+    const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
+      .filter(row => row && row.id === id && row.date === date);
+    // Only the provider's own matched occurrence (the observer's closed occurrenceLink label) is the ledger's tie;
+    // an Atlas payee or early-date inference shares the row shape and never settles it (ChatGPT 7095651061).
+    if (ties.length !== 1 || ties[0].occurrenceLink !== 'provider-matched' || ties[0].transactionId == null
+      || Array.isArray(ties[0].transactionIds)) return false;
+    const txId = String(ties[0].transactionId);
+    const transactions = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const rows = transactions.filter(tx => tx && tx.id != null && String(tx.id) === txId);
+    if (rows.length !== 1) return false;
+    const tx = rows[0];
+    const account = tx.atlasAccountId || tx.accountId || tx.account;
+    if (tx.pending !== false || tx.savingsPostingEvidence !== 'posted' || !isRevolvingCardAccount(tx)
+      || !account || String(account) !== String(bill.payingAccount)) return false;
+    const cents = savingsCents(Number(tx.amount), true);
+    if (cents == null || cents <= 0 || !savingsDate(tx.date) || tx.date > start) return false;
+    const elsewhere = (packet.representedActuals || []).filter(row => row && (String(row.transactionId) === txId
+      || (Array.isArray(row.transactionIds) && row.transactionIds.map(String).includes(txId))));
+    return elsewhere.length === 1;
+  }
+
   // Early receipt of a still-upcoming scheduled income occurrence: the
   // income mirror of prepaidJointCashOutflow. The scheduled date is after
   // this Forecast start and settlement evidence (an identity-linked
@@ -4445,14 +4507,18 @@
   // bills and obligations share shape, key allow-list, real calendar dates,
   // inclusive `from` / exclusive `until`, the size bound, sort and the
   // non-overlap rule. Null means invalid; callers fail closed.
-  function amountScheduleTermsFrom(raw, allowedKeys) {
+  // `valueKey` names the one required value key of a term: 'amount' for
+  // bills and obligations (the default), 'principalShare' for a debt's
+  // dated principal-share terms. The interval rules are identical.
+  function amountScheduleTermsFrom(raw, allowedKeys, valueKey) {
+    const requiredKey = valueKey === undefined ? 'amount' : valueKey;
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > AMOUNT_SCHEDULE_MAX_TERMS) return null;
     const terms = [];
     for (const term of raw) {
       if (!term || typeof term !== 'object' || Array.isArray(term)
           || Object.getPrototypeOf(term) !== Object.prototype) return null;
       if (!Object.keys(term).every(key => allowedKeys.includes(key))) return null;
-      if (!Object.hasOwn(term, 'amount')) return null;
+      if (!Object.hasOwn(term, requiredKey)) return null;
       if (!amountScheduleDay(term.from) || !amountScheduleDay(term.until) || !(term.from < term.until)) return null;
       if (Object.hasOwn(term, 'confidence')
           && term.confidence !== 'confirmed' && term.confidence !== 'estimated') return null;
@@ -4501,6 +4567,60 @@
   // a string or a negative is unknown, never silently zero or rounded.
   function obligationTermValue(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && savingsCents(value) != null ? value : null;
+  }
+  // Dated principal share (the ONE home for dated principal-share terms).
+  // An `interestByEvent` debt's payment is part interest, part principal;
+  // debt.principalShare is the REGULAR split. debt.principalShareSchedule is
+  // 1..24 terms { from, until, principalShare, confidence? } validated by the
+  // shared interval validator above (from inclusive, until exclusive, real
+  // dates, non-overlap, size bound). The PAYMENT EVENT's date selects the
+  // term: for a blended amortising payment the lender sets the split per
+  // payment, so the date of payment chooses the term (desk ruling: only
+  // where the lender contract says so; a schedule is authored only then).
+  // Outside every term the regular share applies. Fail closed: a malformed
+  // schedule, a term share that is not a finite number in [0, 1], or a
+  // schedule on a debt that is not interestByEvent makes that payment's
+  // split UNKNOWN, never the regular share. No share is ever inferred from
+  // `rate`. An 'estimated' term lowers trust; it never promotes.
+  const PRINCIPAL_SHARE_SCHEDULE_TERM_KEYS = ['from', 'until', 'principalShare', 'confidence'];
+  // { share, estimated } | { unknown: true }. share null = no split (the
+  // whole payment is principal), exactly the incumbent unscheduled rule.
+  // Payment dates of obligation `o` from the first one whose dated split is
+  // unknown. Empty unless the debt it pays (in opts.debts) authors a
+  // principalShareSchedule, so unscheduled households are untouched.
+  // Payment dates of obligation `o` whose absorbed amount the debt walk
+  // published as UNKNOWN (an explicit null in opts.obligationAbsorbed, from a
+  // dated principal split that failed closed). This reads the walk's own
+  // qualified result, so a debt the walk proves paid off (a known zero) is
+  // never withheld, and a household with no schedule has no null caps.
+  function principalShareUnknownPaymentDates(o, start, end, periodStart, opts) {
+    const caps = opts && opts.obligationAbsorbed;
+    if (!caps || !o || o.nonCash || !o.debtId) return [];
+    return obligationOccurrences(o, start, end, periodStart).map(occ => occ.date)
+      .filter(date => date && Object.prototype.hasOwnProperty.call(caps, date + ':' + o.id) && caps[date + ':' + o.id] === null);
+  }
+  function debtPrincipalShareFor(debt, date) {
+    const regular = debt ? debt.principalShare : undefined;
+    const regularShare = regular != null ? regular : null;
+    if (!debt || debt.principalShareSchedule === undefined) return { share: regularShare, estimated: false };
+    if (!debt.interestByEvent) return { unknown: true };
+    const terms = amountScheduleTermsFrom(debt.principalShareSchedule,
+      PRINCIPAL_SHARE_SCHEDULE_TERM_KEYS, 'principalShare');
+    if (!terms) return { unknown: true };
+    const day = String(date || '');
+    if (!ISO_CALENDAR_DATE.test(day)) return { unknown: true };
+    const term = terms.find(t => t.from <= day && day < t.until);
+    if (!term) {
+      // An authored schedule never falls back to an invalid regular share:
+      // outside every term the regular split must itself be null (no split)
+      // or a finite number in [0, 1]. Unscheduled rows keep the incumbent rule.
+      if (regularShare != null && (typeof regularShare !== 'number' || !Number.isFinite(regularShare)
+          || regularShare < 0 || regularShare > 1)) return { unknown: true };
+      return { share: regularShare, estimated: false };
+    }
+    const share = term.principalShare;
+    if (typeof share !== 'number' || !Number.isFinite(share) || share < 0 || share > 1) return { unknown: true };
+    return { share, estimated: term.confidence === 'estimated' };
   }
   // The base (pre-statement) amount and confidence of one occurrence. With no
   // schedule this is exactly the row's regular amount and confidence.
@@ -4757,6 +4877,12 @@
         // there is one rule for "a payment cannot exceed the debt it pays"
         // rather than two that can drift apart.
         const cap = opts.obligationAbsorbed;
+        // An explicit null cap is UNKNOWN (a dated principal split failed
+        // closed upstream), never zero: the occurrence goes on the same
+        // omission path as an unknown amount, and scheduledAmountState names
+        // it, so only its dependent claims are withheld.
+        const capUnknown = !sent && !!cap && Object.prototype.hasOwnProperty.call(cap, date + ':' + o.id)
+          && cap[date + ':' + o.id] === null;
         const amount = sent ? 0 : cap ? (cap[date + ':' + o.id] || 0) : occurrence.amount;
         // The effective amount at source selection: the occurrence amount
         // after statement replacement, before coercion or caps (ATLAS-077).
@@ -4779,7 +4905,7 @@
         // excluded loudly via scheduledAmountState, never pushed as NaN
         // and never silently treated as a deleted row. A sent minimum
         // still records its (already moved) cash at 0 below.
-        if (occurrenceAmount == null && !sent) {
+        if ((occurrenceAmount == null || capUnknown) && !sent) {
           if (omissions) {
             const before = events.length;
             if (!omissions.has(before)) omissions.set(before, []);
@@ -4809,6 +4935,9 @@
       // second copy of the capitalise row and not a Forecast bill.
       for (const occ of capitalisingCashMinimumOccurrences(o, start, end)) {
         const cashCap = opts.obligationAbsorbed;
+        // An explicit null cap is unknown, never zero (see the payment leg).
+        if (cashCap && Object.prototype.hasOwnProperty.call(cashCap, occ.date + ':' + o.id)
+          && cashCap[occ.date + ':' + o.id] === null) continue;
         const cashAmount = cashCap ? (cashCap[occ.date + ':' + o.id] || 0) : occ.amount;
         if (cashAmount <= 0) continue;
         events.push({
@@ -9661,6 +9790,10 @@
     const cycle = spendingCycle(plan, asOf);
     const events = expandEvents(plan, origin, periodLast,
       Object.assign({}, opts || {}, { keepRepresented: true }));
+    // H2-9: the card ledger's covered minimums, read once through the same holder the
+    // Bills rows use (coveredCardMinimum), so this list never asks to pay a covered minimum.
+    const coverageRead = { ...(opts || {}), cardCoverageReuse: cardCoverageHolderFor(plan, asOf, opts || {}) };
+    const coverageKnown = probeCardCoverage(plan, asOf, coverageRead);
     const items = [];
     const seen = new Set();
     for (const e of events) {
@@ -9724,6 +9857,9 @@
         remaining = settlementRemaining !== undefined ? settlementRemaining : roundCent(amt);
       }
       const sent = minimumPaymentFor(plan, e, asOf, opts);
+      const coveredRaw = !paid && !sent && e.kind === 'obligation' && savingsCents(amt) != null
+        ? coveredCardMinimum(plan, e, asOf, coverageRead, coverageKnown) : null;
+      const covered = coveredRaw && coveredRaw.due === savingsCents(amt) ? coveredRaw : null;
       items.push({
         id: e.id,
         label: e.label,
@@ -9745,6 +9881,10 @@
         ...(sent ? { ...sent, date: e.date, actual: null,
           remaining: sent.issuerMinimumStatus === 'satisfied' ? 0 : null,
           settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified' } : {}),
+        ...(covered ? covered.full
+          ? { actual: covered.evidence.covered, remaining: 0, settlement: 'represented', minimumCoverage: covered.evidence }
+          : { actual: covered.evidence.covered, remaining: (covered.due - covered.covered) / 100,
+            minimumCoverage: covered.evidence } : {}),
         ...occurrenceTrustFields(e),
       });
     }
@@ -11800,9 +11940,18 @@
       const coversOccurrence = row.actual != null && Number.isFinite(Number(row.actual))
         && row.planned != null && Number.isFinite(Number(row.planned)) && Number(row.planned) !== 0
         && Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
+      // Settled in full by the payment's own evidence, as Grok Bot agreed
+      // (Plan #6, H2-4): a VERIFIED posted payment, already tied to this bill
+      // by billPaymentVerified (posted, linked to this one occurrence only,
+      // "bill verified"), settles it at the verified amount even below plan.
+      // A pending, unlinked, shared or inferred payment does not, and
+      // unverified and partial underpayments stay owed. A sent card minimum is
+      // NOT carried here: future minimums keep their planned publication with
+      // money sent shown separately (465464bf; H2-5 goes to the desk).
+      const verifiedSettles = !coversOccurrence && billPaymentVerified(row, asOf, opts);
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
-        && coversOccurrence;
+        && (coversOccurrence || verifiedSettles);
       // D2: a fixed bill paid in part early, on the walk's own settled set:
       // the paid part left cash on or before asOf, so the row keeps it as
       // paid in its planned period and owes only its remainder there; a
@@ -15716,10 +15865,16 @@
           status: row.status === 'PAID' ? 'paid' : 'partial', due: row.minimumCoverage.due,
           covered: row.minimumCoverage.covered, remaining: row.remaining,
           paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
-        const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
+        // H2-8b: a scheduled fee allowance (tdfees) still holds its unspent
+        // allowance after a fee posts, exactly as the period view's
+        // remainingTotal reads it; being represented does not drop it.
+        const feeAllowance = row.scheduledFeeAllowance && Number.isFinite(Number(row.scheduledFeeAllowance.remainingAllowance))
+          ? row.scheduledFeeAllowance : null;
+        const amount = feeAllowance ? roundCent(Number(feeAllowance.remainingAllowance))
+          : Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
         // D2: a fixed bill paid in part is represented for its paid part only;
         // its remainder is still cash Bills must hold.
-        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')
+        if ((row.settlement === 'represented' && !feeAllowance && !Object.hasOwn(row, 'additionalCashRequired')
           && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
@@ -18930,7 +19085,9 @@
   function planDefaultView(plan, asOf, alloc, action, plans, debts, opts) {
     // An unknown chequing opening withholds the allocation; its null
     // available amount is never a $0.00 leftover (roundCent(null) is 0).
-    const openingUnknown = !!(alloc && alloc.openingCash && alloc.openingCash.status === 'unavailable');
+    // H2-10: so does a live payday balance that cannot tell whether today's payroll is in it.
+    const openingUnknown = !!(alloc && ((alloc.openingCash && alloc.openingCash.status === 'unavailable')
+      || (alloc.paydayBalance && alloc.paydayBalance.status === 'unavailable')));
     const leftover = openingUnknown ? { currentBalance: null, afterBills: null,
       afterHouseholdBudget: null, afterDebtRepayment: null, afterBigPurchases: null }
       : (alloc && alloc.runningLeftover) || runningLeftoverFromAlloc(
@@ -20935,8 +21092,27 @@
       if (e.confidence !== 'confirmed') todayIncomeEstimated = true;
       todayIncome += amount;
     }
-    const availableTrust = todayIncomeEstimated ? 'estimated' : 'calculated';
-    const available = roundCent(opening + todayIncome);
+    let availableTrust = todayIncomeEstimated ? 'estimated' : 'calculated';
+    let available = roundCent(opening + todayIncome);
+    // Hunt 2 H2-10, desk ruling (Plan #6, choice (a)): a live provider stock dated on the payday
+    // with the payroll unrepresented may already hold that payroll, so it is not added onto it.
+    // The independently qualified pre-payday base supplies the Bills part when it exists;
+    // otherwise the allocation withholds (below). A dated or owner opening keeps the
+    // established pre-payroll reading.
+    const sameDayLive = liveSameDayPaydayStock(plan, asOf, opts);
+    let paydayBalanceUnproven = false;
+    if (sameDayLive) {
+      const posted = postedBillsAccountCash(plan);
+      const otherIncomeToday = todayEvents.some(e => e && e.kind === 'income' && e.date === today
+        && e.id !== sameDayLive.payroll.id);
+      if (sameDayLive.qualified && currentBalancePublication.status === 'planned-dale-payday'
+          && currentBalancePublication.amount != null && posted != null && !otherIncomeToday) {
+        available = roundCent(opening - posted + currentBalancePublication.amount);
+        availableTrust = 'estimated';
+      } else {
+        paydayBalanceUnproven = true;
+      }
+    }
 
     const cal = paydayCalendar(plan, asOf, opts);
     const todayIsPayday = cal.todayIsPayday;
@@ -20987,7 +21163,9 @@
 
     let obligationsWanted = 0;
     const obligationItems = [];
-    const periodEvents = expandEvents(plan, asOf, periodLast, opts);
+    // H2-9: a card minimum the card ledger already covered with a posted payment left cash
+    // once; only its uncovered remainder is still wanted (the same mapping as the walk, A4).
+    const periodEvents = withCoveredCardMinimums(plan, asOf, expandEvents(plan, asOf, periodLast, opts), opts);
     const obligationKeys = new Set();
     for (const e of periodEvents) {
       if (!isJointCashOutflow(e) && !e.cardPaid) continue;
@@ -21574,10 +21752,54 @@
       result.runningLeftover = null;
       result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional = result.paydayShellTrust.remainder = 'unknown';
     }
-    return withholdBudgetTargetAllocationClaims(withholdOpeningCashAllocationClaims(
+    return withholdPaydayBalanceAllocationClaims(withholdBudgetTargetAllocationClaims(withholdOpeningCashAllocationClaims(
       withholdScheduledAmountAllocationClaims(
         withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
-        scheduledAmounts), openingCashState(plan)), essentialNeed.withheld);
+        scheduledAmounts), openingCashState(plan)), essentialNeed.withheld), paydayBalanceUnproven);
+  }
+
+  // Hunt 2 H2-10, the desk's predicate (Plan #6): a live operating plan whose opening and observed
+  // cash are both dated on today's payday, with exactly one qualified observed chequing-a row on that
+  // date whose finite posted value matches the opening's Bills row, and Dale's payroll for that
+  // payday not represented under Forecast's existing rule. A fetch timestamp, the opening date,
+  // priorAsOf or a matching amount alone is not proof. Returns { payroll, qualified } or null (not live,
+  // not a payday opening, or the payroll already represented: the established reading applies).
+  function liveSameDayPaydayStock(plan, asOf, opts) {
+    if (!opts || opts.operatingPlan !== 'live') return null;
+    const day = financialDate(asOf);
+    if (!day || financialDate(plan && plan.opening && plan.opening.asOf) !== day) return null;
+    const cycle = spendingCycle(plan, day);
+    if (!cycle || cycle.start !== day) return null;
+    const payroll = dalePayrollEventOn(plan, day, opts);
+    if (!payroll || dalePayrollRepresented(plan, payroll, day, opts)) return null;
+    // The opening is proven to be that same-day provider stock only by a complete observation with
+    // one qualified row per household chequing account (chequing-a, the Bills row, included), each
+    // dated today and equal to its opening row to the cent: the pre-payday recovery keeps every other
+    // retained cash component, so each must be qualified too (#1591 review). An incomplete live feed
+    // is not a dated opening (qualified: false withholds).
+    const observed = opts.observedCash;
+    const accounts = observed && observed.complete === true && financialDate(observed.asOf) === day
+      && Array.isArray(observed.accounts) ? observed.accounts : null;
+    const opening = householdChequingOpeningRows((plan && plan.startingCash) || {});
+    const rowQualified = (id, expected) => {
+      const found = accounts ? accounts.filter(row => row && row.id === id) : [];
+      if (found.length !== 1 || expected == null) return false;
+      const row = found[0];
+      const value = row.value == null || row.value === '' || typeof row.value === 'boolean' ? NaN : Number(row.value);
+      return Number.isFinite(value) && row.unknown !== true && financialDate(row.evidenceDate) === day
+        && ![row.confidence, row.status].some(tag => tag != null && !['verified', 'confirmed', 'calculated'].includes(tag))
+        && Math.round(value * 100) === Math.round(expected * 100);
+    };
+    const qualified = !!accounts && opening.length > 0
+      && opening.some(row => row.id === BILLS_ACCOUNT_ID)
+      && opening.every(row => rowQualified(row.id, row.value));
+    return { payroll, qualified };
+  }
+  function withholdPaydayBalanceAllocationClaims(alloc, unproven) {
+    if (!alloc || !unproven) return alloc;
+    return withholdAllocationClaims(alloc, { status: 'unavailable', code: 'payday-balance-unproven',
+      reason: 'Today is payday and the payroll deposit is not yet confirmed, so whether it is already in the balance is unknown.' },
+      'paydayBalance');
   }
 
   // A withheld monthly Other target: the essential need is unknown, so the
@@ -22658,7 +22880,11 @@
     for (const period of periods || []) for (const row of period.bills || []) {
       const observed = row.status === 'PAID' && row.settlement === 'represented'
         && typeof row.actual === 'number' && isFinite(row.actual);
-      const posted = observed && budgetBillHasPostedActual(row, asOf, opts);
+      // H2-6 scope (a) only: a card-paid occurrence after the as-of reads Paid only through an early card posting
+      // (prepaidCardPaidBill). Its amount is never promoted to the posted, confirmed basis here, so the Stack
+      // "confirmed paid" check stays as before (scope (b) is owner-reserved, stop 2).
+      const earlyCardPaid = observed && row.cardPaid === true && typeof row.date === 'string' && row.date > asOf;
+      const posted = observed && !earlyCardPaid && budgetBillHasPostedActual(row, asOf, opts);
       row.displayAmountBasis = posted ? 'posted-actual' : observed ? 'unconfirmed-actual' : 'schedule';
       row.displayAmountTrust = posted ? 'calculated' : observed ? 'estimated' : billScheduleDisplayTrust(row);
       // Grok Bot's "bill verified" marker on the posted payment (billPaymentVerified): read by the payment evidence
@@ -24935,7 +25161,9 @@
         id: x.id, label: x.label, secured: !!x.secured, rate: x.rate || 0,
         limit: x.limit, opening, balance: opening,
         postedBalance: x.balance, pending, pendingUnknown: unknownPending,
-        interestByEvent: !!x.interestByEvent, principalShare: x.principalShare,
+        interestByEvent: !!x.interestByEvent,
+        // Every split read goes through the one resolver (never x.principalShare).
+        shareFor: date => debtPrincipalShareFor(x, date),
         interest: 0, paid: 0, capitalised: 0, drawn: 0,
         // The day the balance actually crosses the limit. Tracked on the daily
         // walk, not read off the 30-day snapshots — a month-end capitalisation
@@ -25142,6 +25370,11 @@
     // The same, for dated minimums, keyed by date and obligation id — one
     // obligation can fall several times in a window.
     const obligationAbsorbed = {};
+    // Debts whose payment split is unknown (dated principal share failed
+    // closed), by the first walk date it applies; and debts that used an
+    // estimated principal-share term.
+    const principalShareUnknownFrom = {};
+    const principalShareEstimated = new Set();
     const snapshot = (day, date) => ({
       day, date,
       debts: state.map(s => ({
@@ -25263,6 +25496,15 @@
           // are not payments anyone makes. Applying the interest share
           // first, then only capping the principal remainder, left later
           // interest draining cash after payoff.
+          // An earlier payment's unknown split makes this debt's balance
+          // unknown, so a payoff the placeholder walk reached is not evidence:
+          // check the inherited unknown BEFORE certifying "nothing left to pay".
+          if (principalShareUnknownFrom[t.id] != null && e.date >= principalShareUnknownFrom[t.id]) {
+            obligationAbsorbed[e.date + ':' + e.id] = null;
+            remainderDependent.add(t.id);
+            unabsorbedUnknown = true;
+            continue;
+          }
           if (!(t.balance > EPSILON)) {
             obligationAbsorbed[e.date + ':' + e.id] = 0;
             continue;
@@ -25270,11 +25512,34 @@
           // An amortising payment is part interest, part principal; only the
           // principal share moves the balance. The interest share is a real
           // cost, so it is not carried on to another debt.
-          const principal = t.principalShare != null ? amount * t.principalShare : amount;
+          // The PAYMENT EVENT's date selects a dated principal-share term.
+          const split = principalShareUnknownFrom[t.id] != null && e.date >= principalShareUnknownFrom[t.id]
+            ? { unknown: true } : t.shareFor(e.date);
+          if (split.unknown) {
+            // How much this payment (and every later one on this debt)
+            // absorbs is unknown: recorded as an explicit null, never a
+            // number from the placeholder walk, so the cash walk withholds
+            // the dependent claim instead of reading a missing cap as zero.
+            obligationAbsorbed[e.date + ':' + e.id] = null;
+            // Fail closed: the split is unknown, so this debt's balance,
+            // paid and interest from this date are withheld in the
+            // publication pass below, and the remainder is not certified.
+            // The internal walk carries the whole payment as principal only
+            // so it can continue; that number is never published.
+            if (principalShareUnknownFrom[t.id] == null || date < principalShareUnknownFrom[t.id]) {
+              principalShareUnknownFrom[t.id] = date;
+            }
+            remainderDependent.add(t.id);
+            unabsorbedUnknown = true;
+          } else if (split.estimated) {
+            principalShareEstimated.add(t.id);
+          }
+          const share = split.unknown ? null : split.share;
+          const principal = share != null ? amount * share : amount;
           // The interest share of an amortising payment is a real cost and is
           // genuinely paid, so it counts as absorbed even though it moves no
           // balance. Only the principal has to find somewhere to land.
-          const interestShare = t.principalShare != null ? amount - principal : 0;
+          const interestShare = share != null ? amount - principal : 0;
           if (interestShare) { t.interest += interestShare; t.paid += interestShare; }
           // Its NAMED balance only — never the cascade. A minimum is a demand
           // from one lender about one account: when that account is paid off
@@ -25288,7 +25553,7 @@
           // go next. The two look alike in the ledger and are not alike at all.
           const left = payDown([t], principal);
           unabsorbed += left;
-          obligationAbsorbed[e.date + ':' + e.id] = amount - left;
+          if (!split.unknown) obligationAbsorbed[e.date + ':' + e.id] = amount - left;
         } else if (e.kind === 'extra') {
           const isHyp = e.id === 'hypothetical-extra';
           const target = isHyp ? (hypExtraTarget || policyExtraTarget) : policyExtraTarget;
@@ -25372,7 +25637,7 @@
     let pubMarks = marks, pubById = byId, pubExtraDebtAllocation = extraDebtAllocation;
     const pubUnabsorbed = unabsorbedUnknown ? null : unabsorbed;
     const pubExtraAbsorbedUnknown = {};
-    if (scheduledAmounts.status === 'unavailable') {
+    if (scheduledAmounts.status === 'unavailable' || Object.keys(principalShareUnknownFrom).length) {
       // The marker alone does not withhold (B1): an unknown scheduled
       // payment leaves the affected debt's post-due balance, paid and
       // headroom claims unknown — publishing them unchanged is
@@ -25387,6 +25652,11 @@
         if (unknownFrom[row.debtId] == null || u.date < unknownFrom[row.debtId]) {
           unknownFrom[row.debtId] = u.date;
         }
+      }
+      // An unknown payment split withholds the same dependent outputs as an
+      // unknown scheduled amount, from the payment's walk date.
+      for (const [id, date] of Object.entries(principalShareUnknownFrom)) {
+        if (unknownFrom[id] == null || date < unknownFrom[id]) unknownFrom[id] = date;
       }
       const affectedIds = Object.keys(unknownFrom);
       if (affectedIds.length) {
@@ -25615,6 +25885,12 @@
       // A walk from a stale card balance is an estimate (marks, headroom,
       // consumer totals, interest and crossings all start from it).
       ...(staleCardBalances.length ? { trust: 'estimated', staleBalances: staleCardBalances } : {}),
+      // A dated principal-share split that failed closed, or an estimated
+      // term, is named; an estimated term lowers the walk's trust.
+      ...(Object.keys(principalShareUnknownFrom).length
+        ? { principalShareUnknownFrom: { ...principalShareUnknownFrom } } : {}),
+      ...(principalShareEstimated.size
+        ? { trust: 'estimated', principalShareEstimated: [...principalShareEstimated] } : {}),
     };
   }
 
@@ -29032,7 +29308,20 @@
             || !(plan.income || []).some(stream => stream.id === row.id)) {
           return unknown('Current income inclusion in the opening or reported Savings is unproved.');
         }
-        unreceivedCents += amount;
+        // H2-1b: a held early credit is this occurrence's cash (calendarIncomeSections, earlyReceiptLegs). The part
+        // its legs provably hold inside current Bills stock (the stock seed the period close reads) is already in the
+        // walk's cash, so it is not unreceived again; an unproven leg withholds the basis, as it withholds the close
+        // (earlyReceiptLegMembership). The same membership reader as the close (earlyReceiptSeedOverlap), so the
+        // boundary credit and the close agree.
+        let held = 0;
+        if (Array.isArray(row.earlyReceiptLegs) && row.earlyReceiptLegs.length) {
+          const overlap = earlyReceiptSeedOverlap(row, { kind: 'stock', asOf: day, accounts: [BILLS_ACCOUNT_ID],
+            reconciled: false });
+          if (overlap.unproven) return unknown('A held early income credit is not proven inside current cash.');
+          held = savingsCents(overlap.inside);
+          if (held == null || held < 0 || held > amount) return unknown('A held early income credit does not reconcile.');
+        }
+        unreceivedCents += amount - held;
         if (row.alreadyInCash === true || ['represented', 'opening'].includes(row.settlement))
           calendarReceivedWithoutReceipt += amount;
       }
@@ -31086,7 +31375,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, stackCardSummary, stackCreditLines, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
