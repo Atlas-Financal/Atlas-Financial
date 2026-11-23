@@ -9783,6 +9783,10 @@
     const cycle = spendingCycle(plan, asOf);
     const events = expandEvents(plan, origin, periodLast,
       Object.assign({}, opts || {}, { keepRepresented: true }));
+    // H2-9: the card ledger's covered minimums, read once through the same holder the
+    // Bills rows use (coveredCardMinimum), so this list never asks to pay a covered minimum.
+    const coverageRead = { ...(opts || {}), cardCoverageReuse: cardCoverageHolderFor(plan, asOf, opts || {}) };
+    const coverageKnown = probeCardCoverage(plan, asOf, coverageRead);
     const items = [];
     const seen = new Set();
     for (const e of events) {
@@ -9846,6 +9850,9 @@
         remaining = settlementRemaining !== undefined ? settlementRemaining : roundCent(amt);
       }
       const sent = minimumPaymentFor(plan, e, asOf, opts);
+      const coveredRaw = !paid && !sent && e.kind === 'obligation' && savingsCents(amt) != null
+        ? coveredCardMinimum(plan, e, asOf, coverageRead, coverageKnown) : null;
+      const covered = coveredRaw && coveredRaw.due === savingsCents(amt) ? coveredRaw : null;
       items.push({
         id: e.id,
         label: e.label,
@@ -9867,6 +9874,10 @@
         ...(sent ? { ...sent, date: e.date, actual: null,
           remaining: sent.issuerMinimumStatus === 'satisfied' ? 0 : null,
           settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified' } : {}),
+        ...(covered ? covered.full
+          ? { actual: covered.evidence.covered, remaining: 0, settlement: 'represented', minimumCoverage: covered.evidence }
+          : { actual: covered.evidence.covered, remaining: (covered.due - covered.covered) / 100,
+            minimumCoverage: covered.evidence } : {}),
         ...occurrenceTrustFields(e),
       });
     }
@@ -11922,9 +11933,18 @@
       const coversOccurrence = row.actual != null && Number.isFinite(Number(row.actual))
         && row.planned != null && Number.isFinite(Number(row.planned)) && Number(row.planned) !== 0
         && Math.round(Math.abs(Number(row.actual)) * 100) >= Math.round(Math.abs(Number(row.planned)) * 100);
+      // Settled in full by the payment's own evidence, as Grok Bot agreed
+      // (Plan #6, H2-4): a VERIFIED posted payment, already tied to this bill
+      // by billPaymentVerified (posted, linked to this one occurrence only,
+      // "bill verified"), settles it at the verified amount even below plan.
+      // A pending, unlinked, shared or inferred payment does not, and
+      // unverified and partial underpayments stay owed. A sent card minimum is
+      // NOT carried here: future minimums keep their planned publication with
+      // money sent shown separately (465464bf; H2-5 goes to the desk).
+      const verifiedSettles = !coversOccurrence && billPaymentVerified(row, asOf, opts);
       const prepaidByWalk = window.role === 'future' && row.date && asOf && row.date > asOf
         && row.status === 'PAID' && represented && represented.has(row.id + '@' + row.date)
-        && coversOccurrence;
+        && (coversOccurrence || verifiedSettles);
       // D2: a fixed bill paid in part early, on the walk's own settled set:
       // the paid part left cash on or before asOf, so the row keeps it as
       // paid in its planned period and owes only its remainder there; a
@@ -21109,7 +21129,9 @@
 
     let obligationsWanted = 0;
     const obligationItems = [];
-    const periodEvents = expandEvents(plan, asOf, periodLast, opts);
+    // H2-9: a card minimum the card ledger already covered with a posted payment left cash
+    // once; only its uncovered remainder is still wanted (the same mapping as the walk, A4).
+    const periodEvents = withCoveredCardMinimums(plan, asOf, expandEvents(plan, asOf, periodLast, opts), opts);
     const obligationKeys = new Set();
     for (const e of periodEvents) {
       if (!isJointCashOutflow(e) && !e.cardPaid) continue;
