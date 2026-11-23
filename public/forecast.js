@@ -4260,8 +4260,12 @@
   // to the operating pay period.
   function carriedOnceJointCashOutflow(plan, id, date, start) {
     if (!plan || !id || !date || !start || date >= start) return false;
+    // Finding 2 (Gemini hunt 4): `date` arrives already moved to the
+    // statement's due date (representedKeySet maps it), so the once row
+    // matches on its own date moved the same way, not on the unmoved date.
     const obligation = (plan.obligations || []).find(item => item && item.id === id
-      && item.frequency === 'once' && item.date === date
+      && item.frequency === 'once' && item.date
+      && statementOccurrenceDate(plan, item.id, item.date) === date
       && item.nonCash !== true
       && (obligationHasAmountSchedule(item) || obligationRegularAmountUnknown(item) || obligationMayBePositive(item)));
     if (obligation) return true;
