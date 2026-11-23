@@ -1107,7 +1107,16 @@
   // once: the Travel Visa published $0 available beside a derived $21.69,
   // because one of them knew about $165.13 of pending charges and the other
   // did not.
-  const openingBalance = debt => debt.balance + (debt.pending || 0);
+  function postedPlusPending(posted, pending) {
+    const amount = pending || 0;
+    // Add bank-reported cent amounts as cents before comparing to a limit.
+    // Preserve finer precision if a caller supplies a modelled balance.
+    if (roundCent(posted) === posted && roundCent(amount) === amount) {
+      return (Math.round(posted * 100) + Math.round(amount * 100)) / 100;
+    }
+    return posted + amount;
+  }
+  const openingBalance = debt => postedPlusPending(debt.balance, debt.pending);
   const pendingUnknown = x => !!(x && (x.pendingUnknown === true || x.unknownPending === true));
   // Published headroom and over-limit. Known pending is already inside
   // `openingBalance`. Unknown pending is not $0: posted room is not published,
@@ -24521,7 +24530,7 @@
     // $82.28 under one label.
     const extraFacilities = resolveExtraFacilities(opts.extraFacilities, plan);
     const extraAvailable = extraFacilities
-      .reduce((s, e) => s + Math.max(0, e.limit - (e.used + (e.pending || 0))), 0);
+      .reduce((s, e) => s + Math.max(0, e.limit - postedPlusPending(e.used, e.pending)), 0);
     // Cash `horizonDays` on simOptions is not a debt-walk length. Planned
     // debt asks for the master span explicitly via debtHorizonDays so the
     // 91-day coupled identity is not silently stretched.
@@ -26353,7 +26362,7 @@
     });
     for (const e of extra || []) {
       const pending = e.pending || 0;
-      const used = e.used + pending;
+      const used = postedPlusPending(e.used, pending);
       rows.push({
         id: e.id, label: e.label, posted: e.used, pending, used, limit: e.limit,
         available: Math.max(0, e.limit - used),
