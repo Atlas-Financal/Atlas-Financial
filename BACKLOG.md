@@ -723,6 +723,18 @@ so none of this is time-sensitive.
 
 ## Queued behind the above
 
+**B107 · A confirmed part payment against a card minimum** · *medium; rule 17, Grok Bot first*
+Forecast cannot take a confirmed payment that is smaller than a statement
+minimum off that minimum: a `sentPayments` record that does not satisfy the
+minimum makes `cardMinimumState` unavailable for every card (the weekly figure
+and the card waterfall step are withheld). Nor can it accept a payment from a
+named account outside the household's paying account. Found on the MBNA
+November minimum (owner 2026-11-23), recorded instead as the issuer's own
+minimum still owing. Outcome: a confirmed part payment, including from a named
+non-household account, reduces that one minimum to what is still owed, and the
+other cards stay available. Payment confirmation is ledger-side: Grok Bot's
+answer comes before any build.
+
 **B15 · Rebuild the income picture** *(on B63)* · *medium*
 Owner-stated 2026-08-29: do not add a coaching income line. Forecast uses
 salaries (Seaspan, Tennis BC) and the child benefit. Coaching leftover is
