@@ -29,19 +29,19 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 const cents = v => Math.round(Number(v) * 100);
 
-// Dale's shape (invented amounts in his pattern): a 234.61 authorization hold and its -234.61 release, the real
-// 232.47 grocery charge, and an unrelated 22.48 charge in another category.
-const HOLD = 234.61, REAL = 232.47, OTHER = 22.48;
-// By hand: the card's new charges are the real charge and the unrelated one, 232.47 + 22.48 = 254.95.
-const DALE_NEW_CHARGES = 254.95;
-ok(cents(REAL + OTHER) === cents(DALE_NEW_CHARGES), 'hand arithmetic: 232.47 + 22.48 = 254.95');
+// The decided shape (invented amounts): a 118.30 authorization hold and its -118.30 release, the real
+// 116.85 grocery charge, and an unrelated 14.60 charge in another category.
+const HOLD = 118.30, REAL = 116.85, OTHER = 14.60;
+// By hand: the card's new charges are the real charge and the unrelated one, 116.85 + 14.60 = 131.45.
+const NEW_CHARGES = 131.45;
+ok(cents(REAL + OTHER) === cents(NEW_CHARGES), 'hand arithmetic: 116.85 + 14.60 = 131.45');
 
 const row = (id, amount, { pending = true, date = '2026-08-20', account = 'travelvisa', category = 'Groceries', ...extra } = {}) => ({
   id, coverageRef: 'invented-' + id, atlasAccountId: account, account, accountRole: 'revolving-credit',
   date, amount, currency: 'cad', displayedPayee: 'Example ' + id, categoryLabel: category, pending,
   pendingTreatment: pending ? 'unresolved' : 'confirmed-settled',
   savingsPostingEvidence: pending ? 'pending' : 'posted', ...extra });
-const dale = () => [
+const shape = () => [
   row('hold', HOLD, { date: '2026-08-19' }),
   row('release', -HOLD, { date: '2026-08-20', category: null }),
   row('real', REAL, { date: '2026-08-20' }),
@@ -51,7 +51,7 @@ const pairsOf = txs => F.pendingHoldReleases({ transactions: txs }).pairs.map(p 
 
 console.log('1. The decision');
 {
-  ok(JSON.stringify(pairsOf(dale())) === JSON.stringify(['hold+release']), "Dale's shape: the hold and its release are one pair; the real and unrelated charges are not legs", JSON.stringify(pairsOf(dale())));
+  ok(JSON.stringify(pairsOf(shape())) === JSON.stringify(['hold+release']), "the decided shape: the hold and its release are one pair; the real and unrelated charges are not legs", JSON.stringify(pairsOf(shape())));
   ok(pairsOf([row('hold', HOLD), row('release', -HOLD, { category: 'Groceries' })]).length === 1,
     "a release carrying the hold's own category (Groceries) is consumed: the live ledger's shape (ruling (b))");
   ok(pairsOf([row('hold', HOLD), row('refund', -HOLD, { category: 'Restaurants' })]).length === 0,
@@ -61,7 +61,7 @@ console.log('1. The decision');
   ok(pairsOf([row('hold', HOLD), row('release', -HOLD - 0.01, { category: 'Groceries' })]).length === 0,
     'a same-category credit one cent off is not consumed');
   ok(pairsOf([row('hold', HOLD), row('release', -HOLD, { category: null, currency: 'usd' })]).length === 0
-    && pairsOf([row('hold', HOLD), row('release', -234.615, { category: null })]).length === 0,
+    && pairsOf([row('hold', HOLD), row('release', -118.305, { category: null })]).length === 0,
     'a non-CAD or fractional-cent row is never a leg (the card publication withholds it instead)');
   ok(pairsOf([row('lone', -HOLD, { category: null })]).length === 0, 'a credit with no matching charge is not consumed');
   ok(pairsOf([row('hold', HOLD), row('release', -HOLD - 0.01, { category: null })]).length === 0, 'a credit one cent off is not consumed');
@@ -114,9 +114,9 @@ function card(extra) {
   return { pub, travel: F.stackCardSummary(pub).find(c => c.id === 'travelvisa') };
 }
 {
-  const { travel } = card(dale());
-  ok(travel.spent.amount !== null && cents(travel.spent.amount) === cents(BASE_SPENT + DALE_NEW_CHARGES),
-    "Dale's shape: Spent is 207.40 + 254.95 = 462.35, the hold and its release counted as neither", JSON.stringify(travel.spent));
+  const { travel } = card(shape());
+  ok(travel.spent.amount !== null && cents(travel.spent.amount) === cents(BASE_SPENT + NEW_CHARGES),
+    "the decided shape: Spent is 207.40 + 131.45 = 338.85, the hold and its release counted as neither", JSON.stringify(travel.spent));
   ok(travel.spent.trust === 'estimated' && !travel.spent.reasons.includes('card-credit-purpose-unconfirmed'),
     'Spent reads estimated (pending rows), never withheld for the consumed release', JSON.stringify(travel.spent));
   const ids = travel.transactions.map(r => r.name);
@@ -153,43 +153,43 @@ function budget(txs) {
     other: rows.find(r => r && r.otherSpending), rows };
 }
 {
-  const b = budget(dale());
-  ok(cents(b.groceries.spent) === cents(REAL), "Dale's shape: Groceries counts the real 232.47 only, never the 234.61 hold", String(b.groceries.spent));
-  ok(cents(b.restaurants.spent) === cents(OTHER), 'the unrelated 22.48 counts in its own category', String(b.restaurants.spent));
+  const b = budget(shape());
+  ok(cents(b.groceries.spent) === cents(REAL), "the decided shape: Groceries counts the real 116.85 only, never the 118.30 hold", String(b.groceries.spent));
+  ok(cents(b.restaurants.spent) === cents(OTHER), 'the unrelated 14.60 counts in its own category', String(b.restaurants.spent));
   const recon = b.rows.flatMap(r => r.recon || []).map(r => r.id);
   ok(!recon.includes('hold') && !recon.includes('release'), 'neither leg is a line in any category', JSON.stringify(recon));
   ok(!b.other || !(b.other.recon || []).some(r => r.id === 'release' || r.id === 'hold'), 'neither leg lands in Other spending');
-  const control = budget(dale().filter(tx => tx.id !== 'release'));
+  const control = budget(shape().filter(tx => tx.id !== 'release'));
   ok(cents(control.groceries.spent) === cents(HOLD + REAL),
-    'control: without the release, the pending hold counts as the coming charge, 234.61 + 232.47 = 467.08', String(control.groceries.spent));
+    'control: without the release, the pending hold counts as the coming charge, 118.30 + 116.85 = 235.15', String(control.groceries.spent));
   const other = budget([row('hold', HOLD), row('refund', -HOLD, { category: 'Restaurants' })]);
   ok(cents(other.groceries.spent) === cents(HOLD),
     'a same-amount credit in a different category is not consumed: the Groceries hold still counts', String(other.groceries.spent));
   // A posted standalone categorized refund is untouched (LEDGER A item 3): it never nets a category, it is listed apart.
   const posted = budget([row('buy', 50, { pending: false }), row('back', -50, { pending: false })]);
   ok(cents(posted.groceries.spent) === cents(50), 'a posted categorized refund stays unlinked: Groceries still counts the 50.00 purchase', String(posted.groceries.spent));
-  // Dale's four live rows (invented amounts in his pattern), the release categorized Groceries like its hold, plus an
-  // earlier posted 140.48 grocery charge on another account. By hand: Groceries = 140.48 + 232.47 = 372.95 (the hold
-  // and its release both dropped); Restaurants = 22.48 (Fast Food).
-  const live = () => [row('earlier', 140.48, { pending: false, account: 'otherVisa' }), row('real', REAL), row('hold', HOLD),
-    row('release', -HOLD, { category: 'Groceries' }), row('quiznos', OTHER, { category: 'Fast Food' })];
+  // The live ledger's four-row shape (invented amounts), the release categorized Groceries like its hold, plus an
+  // earlier posted 61.20 grocery charge on another account. By hand: Groceries = 61.20 + 116.85 = 178.05 (the hold
+  // and its release both dropped); Restaurants = 14.60 (Fast Food).
+  const live = () => [row('earlier', 61.20, { pending: false, account: 'otherVisa' }), row('real', REAL), row('hold', HOLD),
+    row('release', -HOLD, { category: 'Groceries' }), row('sandwich', OTHER, { category: 'Fast Food' })];
   const lb = budget(live());
-  ok(cents(lb.groceries.spent) === cents(372.95), "Dale's live four rows: Groceries 140.48 + 232.47 = 372.95, both legs dropped", String(lb.groceries.spent));
-  ok(cents(lb.restaurants.spent) === cents(OTHER), "Dale's live four rows: the Quiznos 22.48 counts in Eating out", String(lb.restaurants.spent));
+  ok(cents(lb.groceries.spent) === cents(178.05), "the four-row shape: Groceries 61.20 + 116.85 = 178.05, both legs dropped", String(lb.groceries.spent));
+  ok(cents(lb.restaurants.spent) === cents(OTHER), "the four-row shape: the unrelated 14.60 (Fast Food) counts in Eating out", String(lb.restaurants.spent));
   const lc = card(live().filter(tx => tx.id !== 'earlier').map(tx => ({ ...tx, date: '2026-08-20' }))).travel;
-  ok(cents(lc.spent.amount) === cents(BASE_SPENT + DALE_NEW_CHARGES) && !lc.spent.reasons.includes('card-credit-purpose-unconfirmed'),
-    "Dale's live four rows: Travel new charges 22.48 + 232.47 = 254.95 over the fixture's 207.40, not withheld", JSON.stringify(lc.spent));
+  ok(cents(lc.spent.amount) === cents(BASE_SPENT + NEW_CHARGES) && !lc.spent.reasons.includes('card-credit-purpose-unconfirmed'),
+    "the four-row shape: Travel new charges 14.60 + 116.85 = 131.45 over the fixture's 207.40, not withheld", JSON.stringify(lc.spent));
 }
 
 console.log("3b. Dale's timeline: one number per purchase at every stage (hold -> release -> final)");
 {
-  const costco = { displayedPayee: 'Costco', originalMerchant: 'Costco' };
+  const store = { displayedPayee: 'Example warehouse', originalMerchant: 'Example warehouse' };
   const stages = [
-    ['1. hold only', [row('hold', HOLD, costco)], HOLD],
-    ['2. hold + its release + the pending final', [row('hold', HOLD, costco), row('release', -HOLD, { ...costco, category: 'Groceries' }),
-      row('final', REAL, costco)], REAL],
-    ['3. hold still pending + the posted final', [row('hold', HOLD, costco), row('final', REAL, { ...costco, pending: false })], REAL],
-    ['4. only the posted final', [row('final', REAL, { ...costco, pending: false })], REAL],
+    ['1. hold only', [row('hold', HOLD, store)], HOLD],
+    ['2. hold + its release + the pending final', [row('hold', HOLD, store), row('release', -HOLD, { ...store, category: 'Groceries' }),
+      row('final', REAL, store)], REAL],
+    ['3. hold still pending + the posted final', [row('hold', HOLD, store), row('final', REAL, { ...store, pending: false })], REAL],
+    ['4. only the posted final', [row('final', REAL, { ...store, pending: false })], REAL],
   ];
   for (const [label, txs, want] of stages) {
     const g = budget(txs).groceries;
@@ -199,60 +199,88 @@ console.log("3b. Dale's timeline: one number per purchase at every stage (hold -
   }
 }
 
+console.log('4a. One native id, one row (review 7089951090, finding 3)');
+{
+  // A release whose id the packet carries twice, beside two distinct equal holds: no pair, both holds still count.
+  const dup = [row('hold-a', HOLD, { date: '2026-08-19' }), row('hold-b', HOLD, { date: '2026-08-19' }),
+    row('release', -HOLD, { date: '2026-08-20', category: null }), row('release', -HOLD, { date: '2026-08-20', category: null })];
+  const r = F.pendingHoldReleases({ transactions: dup });
+  ok(r.pairs.length === 0 && r.legs.size === 0, 'a repeated release id consumes nothing, so neither distinct hold is hidden', JSON.stringify(r.pairs));
+  const g = budget(dup).groceries;
+  ok(cents(g.spent) === cents(HOLD + HOLD), 'Budget: both distinct holds still count, 118.30 + 118.30 = 236.60', String(g.spent));
+  ok(F.pendingHoldReleases({ transactions: [row('hold', HOLD), row('hold', HOLD), row('release', -HOLD, { category: null })] }).pairs.length === 0,
+    'a repeated charge id is never a leg either');
+}
+
 console.log('4. (B) A pending hold superseded by its posted final charge');
 {
   const posted = (id, amount, extra = {}) => row(id, amount, { pending: false, ...extra });
   const sup = txs => F.pendingHoldReleases({ transactions: txs }).superseded.map(p => p.pendingId + '>' + p.postedId);
   // Same merchant (the row helper's payee is per id, so give both legs one merchant name).
-  const costco = { displayedPayee: 'Costco', originalMerchant: 'Costco' };
-  ok(JSON.stringify(sup([row('hold', HOLD, { date: '2026-08-19', ...costco }), posted('final', REAL, { date: '2026-08-20', ...costco })])) === JSON.stringify(['hold>final']),
-    'a posted 232.47 from the same merchant and account, a day later, supersedes the 234.61 hold');
-  ok(sup([row('hold', HOLD, { ...costco }), posted('final', REAL, { ...costco, displayedPayee: 'Example grocer', originalMerchant: 'Example grocer' })]).length === 0,
+  const store = { displayedPayee: 'Example warehouse', originalMerchant: 'Example warehouse' };
+  ok(JSON.stringify(sup([row('hold', HOLD, { date: '2026-08-19', ...store }), posted('final', REAL, { date: '2026-08-20', ...store })])) === JSON.stringify(['hold>final']),
+    'a posted 116.85 from the same merchant and account, a day later, supersedes the 118.30 hold');
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, displayedPayee: 'Example grocer', originalMerchant: 'Example grocer' })]).length === 0,
     'a different merchant does not supersede');
-  ok(sup([row('hold', HOLD, { ...costco }), posted('final', REAL, { ...costco, account: 'otherVisa' })]).length === 0,
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, account: 'otherVisa' })]).length === 0,
     'another account does not supersede');
-  ok(sup([row('hold', HOLD, { date: '2026-08-20', ...costco }), posted('final', REAL, { date: '2026-08-19', ...costco })]).length === 0,
+  // Review 7089951090, finding 2: only a row the ledger itself posted is a final, in CAD and whole cents.
+  ok(sup([row('hold', HOLD, { ...store }), row('final', REAL, { ...store, pendingTreatment: 'presumed-settled-for-current-forecast' })]).length === 0,
+    'a second pending row Forecast only presumes settled is not a posted final: the hold is not superseded');
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, currency: 'usd' })]).length === 0,
+    'a foreign-currency posted row does not supersede a CAD hold');
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', 116.855, { ...store })]).length === 0,
+    'a posted row with fractional cents does not supersede');
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, currency: 'CAD' })]).length === 1,
+    'control: a genuine posted CAD final does supersede');
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store }), posted('final', REAL, { ...store, date: '2026-08-21' })]).length === 0,
+    'a posted id the packet carries twice supersedes nothing');
+  {
+    const g = budget([row('hold', HOLD, store), row('final', REAL, { ...store, pendingTreatment: 'presumed-settled-for-current-forecast' })]).groceries;
+    ok(cents(g.spent) === cents(HOLD + REAL), 'Budget: beside a presumed-settled pending row the hold still counts, 118.30 + 116.85 = 235.15', String(g.spent));
+  }
+  ok(sup([row('hold', HOLD, { date: '2026-08-20', ...store }), posted('final', REAL, { date: '2026-08-19', ...store })]).length === 0,
     'a posted charge dated before the hold does not supersede it');
-  ok(sup([row('hold', HOLD, { date: '2026-08-10', ...costco }), posted('final', REAL, { date: '2026-08-18', ...costco })]).length === 0
-    && sup([row('hold', HOLD, { date: '2026-08-11', ...costco }), posted('final', REAL, { date: '2026-08-18', ...costco })]).length === 1,
+  ok(sup([row('hold', HOLD, { date: '2026-08-10', ...store }), posted('final', REAL, { date: '2026-08-18', ...store })]).length === 0
+    && sup([row('hold', HOLD, { date: '2026-08-11', ...store }), posted('final', REAL, { date: '2026-08-18', ...store })]).length === 1,
     'the window is 0 to 7 days after the hold, inclusive');
   // Tolerance: the larger of 20% of the pending amount and $25. For 50.00: max(10.00, 25.00) = 25.00.
-  ok(sup([row('gas', 50, { ...costco }), posted('pump', 75, { ...costco })]).length === 1
-    && sup([row('gas', 50, { ...costco }), posted('pump', 75.01, { ...costco })]).length === 0,
+  ok(sup([row('gas', 50, { ...store }), posted('pump', 75, { ...store })]).length === 1
+    && sup([row('gas', 50, { ...store }), posted('pump', 75.01, { ...store })]).length === 0,
     'tolerance on 50.00 is $25 (larger than 20%): 75.00 supersedes, 75.01 does not');
   // For 200.00: max(40.00, 25.00) = 40.00.
-  ok(sup([row('big', 200, { ...costco }), posted('final', 240, { ...costco })]).length === 1
-    && sup([row('big', 200, { ...costco }), posted('final', 240.01, { ...costco })]).length === 0,
+  ok(sup([row('big', 200, { ...store }), posted('final', 240, { ...store })]).length === 1
+    && sup([row('big', 200, { ...store }), posted('final', 240.01, { ...store })]).length === 0,
     'tolerance on 200.00 is 20% = $40: 240.00 supersedes, 240.01 does not');
   // Two same-merchant pending trips, one posted: the closest amount wins; the other stays pending (documented).
-  const two = sup([row('trip-a', 60, { date: '2026-08-18', ...costco }), row('trip-b', 100, { date: '2026-08-19', ...costco }),
-    posted('final', 98, { date: '2026-08-20', ...costco })]);
+  const two = sup([row('trip-a', 60, { date: '2026-08-18', ...store }), row('trip-b', 100, { date: '2026-08-19', ...store }),
+    posted('final', 98, { date: '2026-08-20', ...store })]);
   ok(JSON.stringify(two) === JSON.stringify(['trip-b>final']), 'two trips, one posted: the closest amount is superseded, the other still counts', JSON.stringify(two));
   // Closest amount beats closest date: trip-a is 1.00 off but 2 days earlier; trip-b is 18.00 off but 1 day earlier.
-  const amountFirst = sup([row('trip-a', 97, { date: '2026-08-18', ...costco }), row('trip-b', 80, { date: '2026-08-19', ...costco }),
-    posted('final', 98, { date: '2026-08-20', ...costco })]);
+  const amountFirst = sup([row('trip-a', 97, { date: '2026-08-18', ...store }), row('trip-b', 80, { date: '2026-08-19', ...store }),
+    posted('final', 98, { date: '2026-08-20', ...store })]);
   ok(JSON.stringify(amountFirst) === JSON.stringify(['trip-a>final']), 'the closest amount wins before the closest date', JSON.stringify(amountFirst));
-  const tie = sup([row('a', 100, { date: '2026-08-18', ...costco }), row('b', 100, { date: '2026-08-19', ...costco }),
-    posted('final', 100, { date: '2026-08-20', ...costco })]);
+  const tie = sup([row('a', 100, { date: '2026-08-18', ...store }), row('b', 100, { date: '2026-08-19', ...store }),
+    posted('final', 100, { date: '2026-08-20', ...store })]);
   ok(JSON.stringify(tie) === JSON.stringify(['b>final']), 'an amount tie goes to the closest date', JSON.stringify(tie));
-  const one = sup([row('a', 100, { date: '2026-08-19', ...costco }), row('b', 100, { date: '2026-08-19', ...costco }),
-    posted('p1', 100, { date: '2026-08-20', ...costco }), posted('p2', 100, { date: '2026-08-20', ...costco })]);
+  const one = sup([row('a', 100, { date: '2026-08-19', ...store }), row('b', 100, { date: '2026-08-19', ...store }),
+    posted('p1', 100, { date: '2026-08-20', ...store }), posted('p2', 100, { date: '2026-08-20', ...store })]);
   ok(one.length === 2 && new Set(one.join('>').split('>')).size === 4, 'one posted charge supersedes at most one hold', JSON.stringify(one));
-  ok(sup([row('hold', HOLD, { ...costco, pendingPostedDuplicate: true }), posted('final', REAL, { ...costco })]).length === 0,
+  ok(sup([row('hold', HOLD, { ...store, pendingPostedDuplicate: true }), posted('final', REAL, { ...store })]).length === 0,
     'the ledger\'s own pending/posted link runs first: a linked pending row is not superseded again');
-  const both = F.pendingHoldReleases({ transactions: [row('hold', HOLD, { date: '2026-08-19', ...costco }),
-    row('release', -HOLD, { date: '2026-08-20', category: null, ...costco }), posted('final', REAL, { date: '2026-08-20', ...costco })] });
+  const both = F.pendingHoldReleases({ transactions: [row('hold', HOLD, { date: '2026-08-19', ...store }),
+    row('release', -HOLD, { date: '2026-08-20', category: null, ...store }), posted('final', REAL, { date: '2026-08-20', ...store })] });
   ok(both.pairs.length === 1 && both.superseded.length === 0, 'a hold already consumed by (A) is never superseded by (B) too');
-  const { travel } = card([row('hold', HOLD, { date: '2026-08-19', ...costco }), posted('final', REAL, { date: '2026-08-20', ...costco })]);
-  ok(cents(travel.spent.amount) === cents(BASE_SPENT + REAL), 'Stack card: the superseded hold is not counted, the posted final is (207.40 + 232.47)', JSON.stringify(travel.spent));
-  const b = budget([row('hold', HOLD, costco), posted('final', REAL, costco)]);
-  ok(cents(b.groceries.spent) === cents(REAL), 'Budget: Groceries counts the posted 232.47 only', String(b.groceries.spent));
+  const { travel } = card([row('hold', HOLD, { date: '2026-08-19', ...store }), posted('final', REAL, { date: '2026-08-20', ...store })]);
+  ok(cents(travel.spent.amount) === cents(BASE_SPENT + REAL), 'Stack card: the superseded hold is not counted, the posted final is (207.40 + 116.85)', JSON.stringify(travel.spent));
+  const b = budget([row('hold', HOLD, store), posted('final', REAL, store)]);
+  ok(cents(b.groceries.spent) === cents(REAL), 'Budget: Groceries counts the posted 116.85 only', String(b.groceries.spent));
 }
 
 console.log('5. The card line shows the ledger payee, never the generic fallback where the ledger has a name');
 {
-  const { travel } = card([row('real', REAL, { displayedPayee: undefined, originalMerchant: 'Costco' })]);
-  ok(travel.transactions.some(t => t.name === 'Costco') && !travel.transactions.some(t => t.name === 'Card transaction'),
+  const { travel } = card([row('real', REAL, { displayedPayee: undefined, originalMerchant: 'Example warehouse' })]);
+  ok(travel.transactions.some(t => t.name === 'Example warehouse') && !travel.transactions.some(t => t.name === 'Card transaction'),
     'a pending row with no displayed payee shows its ledger merchant', JSON.stringify(travel.transactions.map(t => t.name)));
   const bare = card([row('real', REAL, { displayedPayee: undefined, originalMerchant: undefined })]).travel;
   ok(bare.transactions.some(t => t.name === 'Card transaction'), 'with no ledger name at all, the generic label stays');

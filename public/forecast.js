@@ -7128,11 +7128,16 @@
     const cached = holdReleaseCache.get(txs);
     if (cached && cached.length === txs.length) return cached.result;
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    // One native id, one row: an id the packet carries more than once is never a leg or a replacement, so no row can
+    // be consumed twice and a distinct charge is never hidden behind a repeated release (review 7089951090, finding 3).
+    const idCounts = new Map();
+    for (const tx of txs) if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    const repeatedId = tx => idCounts.get(String(tx.id)) !== 1;
     const day = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
       ? Date.parse(value + 'T00:00:00Z') / 86400000 : NaN;
     const leg = tx => {
       if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'pending'
-        || tx.isGroup === true || duplicateIds.has(String(tx.id))
+        || tx.isGroup === true || duplicateIds.has(String(tx.id)) || repeatedId(tx)
         || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) return null;
       const account = tx.atlasAccountId || tx.account;
       const amount = Number(tx.amount);
@@ -7164,6 +7169,7 @@
     credits.sort(order);
     const legs = new Set(), pairs = [];
     for (const credit of credits) {
+      if (legs.has(credit.id)) continue;
       const uncategorized = lunchMoneyLeftUncategorised(credit.category);
       const charge = charges.find(c => !legs.has(c.id) && c.account === credit.account && c.cents === -credit.cents
         && Math.abs(c.at - credit.at) <= HOLD_RELEASE_WINDOW_DAYS
@@ -7178,14 +7184,19 @@
     const merchantOf = tx => normalizeMerchantKey(txMerchantExact(tx));
     const posted = [];
     for (const tx of txs) {
-      if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'posted' || tx.isGroup === true
-        || tx.accountRole !== 'revolving-credit'
+      // The replacement must be posted by the ledger itself (pending is not true): a pending row Forecast only presumes
+      // settled for planning is not a posted final (review 7089951090, finding 2).
+      if (!tx || tx.id == null || String(tx.id) === '' || tx.pending === true || transactionPendingState(tx) !== 'posted'
+        || tx.isGroup === true || tx.accountRole !== 'revolving-credit' || repeatedId(tx)
         || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
       const account = tx.atlasAccountId || tx.account;
       const amount = Number(tx.amount);
       const cents = isFinite(amount) ? Math.round(amount * 100) : NaN;
       const at = day(tx.date);
       const merchant = merchantOf(tx);
+      // The same qualification as a pending leg: CAD and whole cents only.
+      if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') continue;
+      if (!isFinite(amount) || Math.abs(amount * 100 - cents) > 1e-6) continue;
       if (!account || !Number.isSafeInteger(cents) || cents <= 0 || !isFinite(at) || !merchant) continue;
       posted.push({ id: String(tx.id), account: String(account), cents, at, date: tx.date, merchant });
     }

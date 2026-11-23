@@ -113,20 +113,20 @@ console.log('2. Trust: any figure a pending row adds to is estimated');
 
 console.log('3. A reversal pair counts as the ledger has it');
 {
-  const charge = row('r-charge', 234.61, { pending: true, payee: 'Example warehouse' });
-  const refund = travel(world([charge, row('r-credit', -234.61, { pending: true, payee: 'Card transaction', kindHint: 'refund' })]));
+  const charge = row('r-charge', 118.30, { pending: true, payee: 'Example warehouse' });
+  const refund = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction', kindHint: 'refund' })]));
   ok(cents(refund.spent.amount) === cents(BASE_SPENT) && refund.spent.trust === 'estimated',
     'a pending charge and a same-amount pending credit the ledger marks a refund net out: Spent stays 207.40, estimated', JSON.stringify(refund.spent));
   // Owner decision, Dale, 2026-11-23 (#821 7089360610, 7089379689; lead ruling (b)): a pending charge and a pending
   // credit of exactly opposite amount carrying the charge's own category are one hold and its release
   // (Forecast.pendingHoldReleases), so both are dropped and Spent is not withheld. Proved in test-pending-hold-release.js.
-  const released = travel(world([charge, row('r-credit', -234.61, { pending: true, payee: 'Card transaction' })]));
+  const released = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction' })]));
   ok(cents(released.spent.amount) === cents(BASE_SPENT) && released.spent.trust === 'calculated',
     'a pending charge and its same-category, same-amount pending release are one hold: both dropped, Spent stays 207.40', JSON.stringify(released.spent));
-  const otherCategory = travel(world([charge, row('r-credit', -234.61, { pending: true, payee: 'Card transaction', categoryLabel: 'Restaurants' })]));
+  const otherCategory = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction', categoryLabel: 'Restaurants' })]));
   ok(otherCategory.spent.amount === null && otherCategory.spent.reasons.includes('card-credit-purpose-unconfirmed'),
     'an unlabelled pending credit in another category is not a release: it still withholds Spent (never guessed)', JSON.stringify(otherCategory.spent));
-  const postedUnlabelled = travel(world([row('r-charge', 234.61, { payee: 'Example warehouse' }), row('r-credit', -234.61, { payee: 'Card transaction' })]));
+  const postedUnlabelled = travel(world([row('r-charge', 118.30, { payee: 'Example warehouse' }), row('r-credit', -118.30, { payee: 'Card transaction' })]));
   ok(postedUnlabelled.spent.amount === null && postedUnlabelled.spent.reasons.includes('card-credit-purpose-unconfirmed'),
     'control: the same pair posted is withheld the same way');
 }
