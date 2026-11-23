@@ -12582,6 +12582,12 @@
   // income stream: the hit represents plan.income.childBenefit.
   const CHILD_BENEFIT_STREAM_ID = 'childBenefit';
   const CHILD_BENEFIT_ACCOUNT_ID = 'chequing-b';
+  // The one home for which household account a scheduled income stream lands in. The Canada Child Benefit lands in
+  // Weekly (chequing-b), as above; every other stream lands in Bills (chequing-a), which is what Forecast has always
+  // assumed for scheduled income (the Bills close and Current Balance). Read by billsAccountPeriodBalance (H2-8a).
+  function incomeDepositAccountId(streamId) {
+    return streamId === CHILD_BENEFIT_STREAM_ID ? CHILD_BENEFIT_ACCOUNT_ID : BILLS_ACCOUNT_ID;
+  }
 
   function weekdayUtc(iso) {
     if (!iso || !ISO_CALENDAR_DATE.test(String(iso))) return null;
@@ -15679,7 +15685,7 @@
       }
       const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
-        if (date <= day || settled(stream.id, date)) continue;
+        if (date <= day || settled(stream.id, date) || incomeDepositAccountId(stream.id) !== BILLS_ACCOUNT_ID) continue;
         let amount = streamAmount(stream, opts, plan);
         const adjustment = typeof incomeOpts.incomeOccurrenceAdjust === 'function'
           ? incomeOpts.incomeOccurrenceAdjust(stream, date, amount) : null;
@@ -15688,7 +15694,8 @@
         if (!finite(amount) || amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
       for (const extra of incomeOpts.additionalIncomeEvents || []) {
-        if (extra?.kind !== 'income' || !extra.date || extra.date <= day || extra.date > cycle.end || settled(extra.id, extra.date)) continue;
+        if (extra?.kind !== 'income' || !extra.date || extra.date <= day || extra.date > cycle.end || settled(extra.id, extra.date)
+          || incomeDepositAccountId(extra.id) !== BILLS_ACCOUNT_ID) continue;
         if (!finite(extra.amount) || extra.amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
     };
@@ -15721,6 +15728,9 @@
       const observedIncome = representedActualMap(opts);
       for (const event of events) {
         if (event.kind === 'income') {
+          // H2-8a: route by account first. Income that does not land in Bills (incomeDepositAccountId) can neither
+          // add to nor withhold the Bills-only close, on its scheduled day or any other.
+          if (incomeDepositAccountId(event.id) !== BILLS_ACCOUNT_ID) continue;
           if (calendarOccurrenceRepresented(representedIncome, observedIncome, event.id, event.date)) continue;
           // Today is already in posted cash or needs the incumbent payday
           // recognition proof. Never add an unrepresented earlier salary.
