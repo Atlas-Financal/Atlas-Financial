@@ -35,34 +35,32 @@ function failureCode(error) {
   const value = error && error.code;
   return typeof value === 'string' && FAILURE_CODES.has(value) ? value : 'failed';
 }
-// Whether start() would make a refresh attempt (not a skip): only the incumbent open path is warmed.
-function willAttempt(composition) { return composition === 'inactive'; }
-
-// Starts the warm-up and resolves to its outcome code. `serve(options)` runs one
-// ordinary refresh; `retain(served)` applies the incumbent retention of a served
-// result. With the flag off it returns null and calls nothing.
-function start({ env, serve, retain = () => {}, composition = 'inactive', log = console.log,
+// Starts the warm-up and resolves to its outcome code. `serve(options)` runs one ordinary refresh; `retain(served)`
+// applies the incumbent retention of a served result; `claim()` is the caller's once-per-process claim, taken only
+// immediately before an eligible serve (after every skip check), and returns false when already spent. With the flag
+// off it returns null and calls nothing.
+function start({ env, serve, retain = () => {}, claim = () => true, composition = 'inactive', log = console.log,
   now = () => performance.now() } = {}) {
   if (!enabled(env)) return null;
   const began = now();
-  const line = outcome => {
-    log(JSON.stringify({ type: 'live-refresh-warmup', outcome, ms: Math.max(0, Math.round(now() - began)) }));
-    return outcome;
-  };
-  // An active settlement composition serves through its own base reader; the
-  // grant covers the incumbent open path only.
-  if (!willAttempt(composition) || typeof serve !== 'function') return Promise.resolve(line('skipped-composition'));
   let qualified = false;
-  // Every step runs inside the chain, so nothing here can throw out of the caller (startServer), and exactly one line
-  // is logged whatever fails.
+  // Every step, skips included, runs inside the chain, so nothing here can throw out of the caller (startServer), and
+  // exactly one line is logged whatever fails.
   return Promise.resolve()
     .then(() => {
+      // An active settlement composition serves through its own base reader; the grant covers the incumbent open path.
+      if (composition !== 'inactive' || typeof serve !== 'function') return 'skipped-composition';
       if (require('./live-plan').overlayModeFromEnv(env) !== 'live') return 'skipped-not-live';
+      if (claim() !== true) return 'skipped-already-started';
       return Promise.resolve(serve({ ...OPEN_OPTIONS, onCheck(check) { qualified = check?.qualified === true; } }))
         .then(served => { retain(served); return qualified ? 'qualified' : 'unqualified'; }, error => failureCode(error));
     })
     .catch(() => 'failed')
-    .then(outcome => { try { return line(outcome); } catch (_) { return outcome; } });
+    .then(outcome => {
+      try { log(JSON.stringify({ type: 'live-refresh-warmup', outcome, ms: Math.max(0, Math.round(now() - began)) })); }
+      catch (_) { /* a failing logger changes nothing */ }
+      return outcome;
+    });
 }
 
-module.exports = { FLAG, OPEN_OPTIONS, FAILURE_CODES, enabled, willAttempt, start };
+module.exports = { FLAG, OPEN_OPTIONS, FAILURE_CODES, enabled, start };

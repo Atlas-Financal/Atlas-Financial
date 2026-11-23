@@ -42,6 +42,7 @@ const SESSION_REVOCATION = Symbol('composed-session-revocation');
 // Boot warm-up (scripts/live-refresh-warmup.js): the application's one starter, called by startServer once listening.
 const LIVE_REFRESH_WARMUP = Symbol('live-refresh-warmup');
 let processWarmUpStarted = false;
+function claimProcessWarmUp() { if (processWarmUpStarted) return false; processWarmUpStarted = true; return true; }
 // General construction is history-unknown even without settlement dependencies.
 function createApplication(options = {}) {
 const environment = options.env || process.env;
@@ -674,11 +675,9 @@ app.use((_req, res) => res.status(404).type('text/plain').send('Not found'));
 
 // Boot warm-up: one ordinary open's refresh through the incumbent path, retained as an open's result is. Off unless
 // ATLAS_LIVE_REFRESH_WARMUP=on; an injected base reader (an active settlement composition) is never warmed.
-const warmUpComposition = baseSource ? 'active' : 'inactive';
-app[LIVE_REFRESH_WARMUP] = Object.freeze({ attempts: LiveRefreshWarmup.willAttempt(warmUpComposition),
-  start: () => LiveRefreshWarmup.start({ env: environment, composition: warmUpComposition,
-    serve: options => ServerLiveRefresh.serve(loadCanonicalData(), environment, options),
-    retain: withRetainedSavingsEvidence }) });
+app[LIVE_REFRESH_WARMUP] = () => LiveRefreshWarmup.start({ env: environment, composition: baseSource ? 'active' : 'inactive',
+  serve: options => ServerLiveRefresh.serve(loadCanonicalData(), environment, options),
+  retain: withRetainedSavingsEvidence, claim: claimProcessWarmUp });
 
 return app;
 }
@@ -1064,13 +1063,9 @@ async function startServer(options = {}) {
       server.once('error',reject);
     });
     if(o.settlement!==undefined)checkReady();
-    // Once listening, at most one warm-up attempt per process start (never awaited: the server serves while it runs).
-    // The once-guard is spent only by a composition that actually attempts one, never by a skipped composition.
-    const warmUp = app[LIVE_REFRESH_WARMUP];
-    if (LiveRefreshWarmup.enabled(environment) && !(warmUp.attempts && processWarmUpStarted)) {
-      if (warmUp.attempts) processWarmUpStarted = true;
-      void warmUp.start();
-    }
+    // Once listening, start the warm-up (never awaited: the server serves while it runs). At most one refresh attempt per
+    // process start: the claim is taken only immediately before an eligible serve, never by a skip.
+    void app[LIVE_REFRESH_WARMUP]();
     return Object.freeze({app,server,close,status:() => Object.freeze({state:phase,
       ...(runtime ? {financial:runtime.status(),authorization:authorization?.status() || null} : {})}),
       recoverSettledUncertainty:async() => {checkReady();return recover ? recover() : Object.freeze({status:'blocked'});}});

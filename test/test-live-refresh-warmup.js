@@ -125,12 +125,18 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
   const env = { SITE_PASSWORD: PASS, SESSION_SECRET: SECRET,
     ATLAS_LIVE_OVERLAY: 'live', ...(process.env.ATLAS_WARMUP_TEST_FLAG ? { ATLAS_LIVE_REFRESH_WARMUP: process.env.ATLAS_WARMUP_TEST_FLAG } : {}) };
   (async () => {
-    // ATLAS_WARMUP_TEST_ORDER=active-first: a composition with an injected base reader (skipped) starts first.
-    const first = await startServer({ env, port: 0, host: '127.0.0.1',
-      ...(process.env.ATLAS_WARMUP_TEST_ORDER === 'active-first' ? { baseSource: async () => ({}) } : {}) });
-    const second = await startServer({ env, port: 0, host: '127.0.0.1' });
-    await new Promise(resolve => setTimeout(resolve, 400));
-    await first.close(); await second.close();
+    // ATLAS_WARMUP_TEST_ORDER: the compositions started, in order, in this one process. Default: two ordinary ones.
+    // 'active-first': an injected base reader (skipped) first. 'nonlive-first': a non-live one first, then two live.
+    const order = process.env.ATLAS_WARMUP_TEST_ORDER;
+    const plan = order === 'active-first' ? [{ baseSource: async () => ({}) }, {}]
+      : order === 'nonlive-first' ? [{ env: { ...env, ATLAS_LIVE_OVERLAY: 'off' } }, {}, {}] : [{}, {}];
+    const owners = [];
+    for (const extra of plan) {
+      owners.push(await startServer({ env, port: 0, host: '127.0.0.1', ...extra }));
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    await new Promise(resolve => setTimeout(resolve, 300));
+    for (const owner of owners) await owner.close();
     realLog('WARMUP-CHILD ' + JSON.stringify({ calls, lines }));
     process.exit(0);
   })().catch(error => { realLog('WARMUP-CHILD-ERROR ' + (error && error.code)); process.exit(1); });
@@ -206,6 +212,27 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
       Live.overlayModeFromEnv = realMode;
       ok(!escaped && settled === 'failed' && logs.length === 1 && lineShape(logs[0]) && called === 0,
         'a throwing live-mode check never escapes start(): one "failed" line, no refresh', logs.join(' | '));
+      // Review 7090922999: no skip and no throw takes the claim; only an eligible serve does, once.
+      let claims = 0;
+      const claim = () => { claims++; return claims === 1; };
+      Live.overlayModeFromEnv = () => { throw new Error('SYNTHETIC-PRIVATE-MODE'); };
+      await Warmup.start({ env: { ATLAS_LIVE_REFRESH_WARMUP: 'on' }, log, claim, serve: () => { called++; } });
+      Live.overlayModeFromEnv = realMode;
+      await Warmup.start({ env: { ATLAS_LIVE_OVERLAY: 'off', ATLAS_LIVE_REFRESH_WARMUP: 'on' }, log, claim, serve: () => { called++; } });
+      await Warmup.start({ env: { ATLAS_LIVE_OVERLAY: 'live', ATLAS_LIVE_REFRESH_WARMUP: 'on' }, composition: 'active', log, claim, serve: () => { called++; } });
+      ok(claims === 0 && called === 0, 'a throwing mode check, a non-live start and an active composition take no claim');
+      let servedOnce = 0;
+      const live = { ATLAS_LIVE_OVERLAY: 'live', ATLAS_LIVE_REFRESH_WARMUP: 'on' };
+      const a = await Warmup.start({ env: live, log, claim, serve: () => { servedOnce++; return Promise.resolve({}); } });
+      const b = await Warmup.start({ env: live, log, claim, serve: () => { servedOnce++; return Promise.resolve({}); } });
+      ok(claims === 2 && servedOnce === 1 && a === 'unqualified' && b === 'skipped-already-started', 'the claim is taken only before an eligible serve, and only once serves');
+      // A throwing logger never escapes start(), on a skip or an attempt.
+      let threw = false;
+      try {
+        await Warmup.start({ env: live, composition: 'active', log: () => { throw new Error('SYNTHETIC-PRIVATE-LOG'); }, serve: () => {} });
+        await Warmup.start({ env: live, log: () => { throw new Error('SYNTHETIC-PRIVATE-LOG'); }, serve: () => Promise.resolve({}) });
+      } catch (_) { threw = true; }
+      ok(!threw, 'a throwing logger escapes neither a skip nor an attempt');
     }
 
     console.log('2. The server: exactly one warm-up per process start, through the open path, only with the flag on');
@@ -214,15 +241,20 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
       ok(on.calls.length === 1, 'flag on: two compositions started in one process make exactly one refresh call', JSON.stringify(on.calls));
       ok(on.calls[0].preferObservation === true && on.calls[0].forceRefresh === false && on.calls[0].hasCanonical,
         "the warm-up passes an ordinary open's options (prefer observation, not forced) and the canonical document");
-      ok(on.lines.length === 1 && on.lines[0].outcome === 'qualified' && lineShape(JSON.stringify(on.lines[0])), 'one log line, outcome qualified', JSON.stringify(on.lines));
+      ok(on.lines.map(l => l.outcome).join(',') === 'qualified,skipped-already-started' && on.lines.every(l => lineShape(JSON.stringify(l))),
+        'the first composition is warmed (qualified); the second logs skipped-already-started and calls nothing', JSON.stringify(on.lines));
       const off = await child('ok', null);
       ok(off.calls.length === 0 && off.lines.length === 0, 'flag off: no refresh call and no log line');
       // Pre-review note 2: a skipped composition does not spend the once-guard.
       const order = await child('ok', 'on', null, 'active-first');
       ok(order.calls.length === 1 && order.lines.map(l => l.outcome).join(',') === 'skipped-composition,qualified',
         'a skipped active composition first, then an ordinary one: the ordinary one is still warmed, exactly once', JSON.stringify(order.lines));
+      // Review 7090922999: a non-live start does not spend the claim; the first live one is warmed, a later one is not.
+      const nonlive = await child('ok', 'on', null, 'nonlive-first');
+      ok(nonlive.calls.length === 1 && nonlive.lines.map(l => l.outcome).join(',') === 'skipped-not-live,qualified,skipped-already-started',
+        'non-live, then live, then live in one process: exactly one refresh, by the first live start', JSON.stringify(nonlive.lines));
       const fail = await child('fail', 'on');
-      ok(fail.calls.length === 1 && fail.lines.length === 1 && fail.lines[0].outcome === 'live-refresh-timeout'
+      ok(fail.calls.length === 1 && fail.lines.map(l => l.outcome).join(',') === 'live-refresh-timeout,skipped-already-started'
         && !canaries.some(c => fail.out.includes(c)), 'a failed warm-up is one call, never retried, and logs no private text', JSON.stringify(fail));
     }
 
