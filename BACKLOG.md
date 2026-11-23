@@ -723,6 +723,18 @@ so none of this is time-sensitive.
 
 ## Queued behind the above
 
+**B107 · A confirmed part payment against a card minimum** · *medium; rule 17, Grok Bot first*
+Forecast cannot take a confirmed payment that is smaller than a statement
+minimum off that minimum: a `sentPayments` record that does not satisfy the
+minimum makes `cardMinimumState` unavailable for every card (the weekly figure
+and the card waterfall step are withheld). Nor can it accept a payment from a
+named account outside the household's paying account. Found on the MBNA
+November minimum (owner 2026-11-23), recorded instead as the issuer's own
+minimum still owing. Outcome: a confirmed part payment, including from a named
+non-household account, reduces that one minimum to what is still owed, and the
+other cards stay available. Payment confirmation is ledger-side: Grok Bot's
+answer comes before any build.
+
 **B15 · Rebuild the income picture** *(on B63)* · *medium*
 Owner-stated 2026-08-29: do not add a coaching income line. Forecast uses
 salaries (Seaspan, Tennis BC) and the child benefit. Coaching leftover is
@@ -876,6 +888,11 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Next action:** fix the test or retire it; if it is kept, register it.
 - **Resolution:** kept, because no registered suite proves in a real browser that a failed refresh leaves the header inert and hidden until a successful Retry. Its Cancel step now uses the keyboard (Tab to Cancel, then Enter), the only way a household can reach Cancel while loading: by design it takes no pointer input until focused. It is registered as `test/test-browser-observation-memory.js` (renamed, because the `browser-` prefix marks unregistered suites), and it skips where Playwright is absent.
 - Source: GUARDS, found while building #1561; the lead added it to the backlog.
+
+**A represented occurrence with an unknown planned amount should price from its posting** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-23, from the #1576 re-review 7091766542). Full lane (figures). Owner: unassigned.
+- **Why:** when an obligation occurrence is already represented (its payment is in the opening or a reconciled posting) but its planned amount is unknown, the current pay period's bill load cannot price it, so the native Budget period basis, and the Savings answer that depends on it, are withheld. This fails closed and predates dated schedules: on main, a regular `amount: null` row whose occurrence is in `opening.representedEvents` is also unavailable (through a different incumbent gate). With a dated `amountSchedule` (#1576), the same case now withholds through the period-basis gate, consistent with the unscheduled behaviour.
+- **Next action:** design how a represented occurrence's posted amount supplies the bill load when the planned amount is unknown, through the existing settlement path. Keep the planned/actual distinction, and never invent a planned amount.
+- Source: the reviewer of record on #1576; dispositioned by the lead.
 
 **Replay retention requires `qualified=true`, so on days Lunch Money hasn't synced every open runs the full provider job** · READY (ATLAS LEAD 12, 2026-11-23): the mechanism question behind OD-031. Owner: the lead.
 - **Why:** replay retention requires `qualified=true`, and an unqualified dated result clears retained evidence (`scripts/server-live-refresh.js` `publishResult`, around lines 640–680; `scripts/live-plan.js` `applyForServer`, around line 1953). `stale-live-cash-evidence` is day-based (`assertFreshLivePacket`, around line 308). On a day Lunch Money hasn't synced yet, nothing qualifies, so each open runs the full provider job.

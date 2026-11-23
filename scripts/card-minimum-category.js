@@ -127,6 +127,9 @@ function observe(input) {
         if (tx.date < cycleOpensOn(event.date, debt?.statementCloseDay)
             || tx.date > Forecast.addDays(event.date, 7)) continue;
         const original = event.scheduledDate || event.date;
+        // An issuer minimum still owing already reflects payments through its read date.
+        const reflectedThrough = Forecast.statementPaymentsReflectedThrough(plan, row.id, original);
+        if (reflectedThrough && tx.date <= reflectedThrough) continue;
         // No owner confirmation is overridden or duplicated by provider intent.
         if (!owned && (row.sentPayments || []).some(p => p.scheduledDate === original)) continue;
         compatible.push({ row, event, original });

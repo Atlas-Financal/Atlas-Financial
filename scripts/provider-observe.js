@@ -3500,6 +3500,9 @@ function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
   // The paired payment itself must post inside the cycle: a payment before
   // the cycle starts, or after the statement is due, pays no part of it.
   if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
+  // An issuer minimum still owing already reflects payments through its read date.
+  const reflectedThrough = Forecast.statementPaymentsReflectedThrough(plan, rule.eventId, original);
+  if (reflectedThrough && tx.date <= reflectedThrough) return false;
   const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
     && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
   return others.length === 0;
@@ -5840,7 +5843,7 @@ function identifiedHistoryPayments(history, opts) {
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
   // minimum), a revolving card's debt, a non-cash or capitalising leg (the
-  // HELOC), or a once schedule is never a candidate.
+  // HELOC), a dated amountSchedule, or a once schedule is never a candidate.
   // An id named by more than one plan row (two bills, two obligations, or a
   // bill and an obligation) is ambiguous, so it is never a candidate.
   const idCount = new Map();
@@ -5857,6 +5860,7 @@ function identifiedHistoryPayments(history, opts) {
   };
   const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
     && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && o.amountSchedule === undefined
     && !revolving(o);
   const bills = new Map();
   for (const b of plan.bills || []) {
