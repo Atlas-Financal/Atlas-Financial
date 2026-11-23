@@ -177,5 +177,56 @@ console.log('\n=== 7. the one resolver ===');
     'schedule on a non-interestByEvent debt is unknown');
 }
 
+console.log('\n=== 8. near payoff: an unknown split withholds the published cash guidance ===');
+{
+  // Invented mortgage balance 300, payment 1000 monthly on day 10, income 2000 biweekly.
+  // All-principal control: Feb 10 absorbs 300, later payments nothing to pay.
+  // All-interest control: every 1000 payment is a real cost. The unknown split must not
+  // publish either control's cash answer: the weekly figure is withheld.
+  const near = (share, sched) => {
+    const debt = { id: 'mortgage', label: 'Invented mortgage', balance: 300, pending: 0, rate: 5, secured: true,
+      interestByEvent: true, principalShare: share, confidence: 'confirmed' };
+    if (sched) debt.principalShareSchedule = sched;
+    const plan = { windowDays: 91, defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' },
+      startingCash: { breakdown: [{ id: 'chequing-a', value: 9000 }, { id: 'chequing-b', value: 0 }] },
+      opening: { asOf: START }, budget: { basis: 'ytd', categories: [] },
+      income: [{ id: 'pay', label: 'Invented pay', amount: 2000, frequency: 'biweekly', anchor: '2027-02-05', confidence: 'confirmed' }],
+      bills: [], commitments: [],
+      obligations: [{ id: 'mortgage-pay', debtId: 'mortgage', effect: 'payment', label: 'Invented mortgage payment',
+        frequency: 'monthly', day: 10, amount: 1000, confidence: 'confirmed', payingAccount: 'chequing-a' }] };
+    const advice = F.recommend(plan, START, { debts: [debt] });
+    return { weekly: advice.weekly, sim: advice.sim,
+      cash: ((advice.sim && advice.sim.events) || []).filter(e => e.id === 'mortgage-pay').map(e => [e.date, -e.amount]) };
+  };
+  const allPrincipal = near(1), allInterest = near(0);
+  ok(show(allPrincipal.cash) === show([['2027-02-10', 300]]), 'all-principal control: only 300 is paid', show(allPrincipal.cash));
+  ok(show(allInterest.cash) === show([['2027-02-10', 1000], ['2027-03-10', 1000], ['2027-04-10', 1000]]),
+    'all-interest control: every 1000 payment is cash', show(allInterest.cash));
+  ok(typeof allPrincipal.weekly === 'number' && typeof allInterest.weekly === 'number' && allPrincipal.weekly !== allInterest.weekly,
+    'the two legal endpoints publish different weekly figures', show([allPrincipal.weekly, allInterest.weekly]));
+  const unknown = near(0.5, [{ from: '2027-02-01', until: '2027-06-01', principalShare: 1.5 }]);
+  ok(unknown.weekly == null && unknown.sim && unknown.sim.status === 'unavailable' && unknown.cash.length === 0,
+    'unknown split: no weekly figure and no cash payment amount is published', show([unknown.weekly, unknown.sim && unknown.sim.status, unknown.cash]));
+  const r = F.projectDebts(...(() => { const x = setup([{ from: '2027-02-01', until: '2027-06-01', principalShare: 1.5 }]); return [x.plan, x.debts, START, {}]; })());
+  ok(Object.keys(r.obligationAbsorbed).filter(k => k.endsWith(':mortgage-pay')).every(k => r.obligationAbsorbed[k] === null),
+    'every absorbed amount of that debt from the unknown payment on is an explicit null, never a number', show(r.obligationAbsorbed));
+}
+
+console.log('\n=== 9. an authored schedule never falls back to an invalid regular share ===');
+{
+  // Term in March only (valid 0.5). Regular share -0.3: the Feb 10 payment is out of term, so it
+  // would fall back to the regular share: unknown, withheld. A regular share of exactly 0 stays known.
+  const term = [{ from: '2027-03-01', until: '2027-04-01', principalShare: 0.5 }];
+  const bad = walk(term, { principalShare: -0.3 });
+  ok(bad.principalShareUnknownFrom && bad.principalShareUnknownFrom.mortgage === '2027-02-10',
+    'regular -0.3 out of term: the split is unknown from Feb 10', show(bad.principalShareUnknownFrom));
+  ok(F.debtPrincipalShareFor({ interestByEvent: true, principalShare: -0.3, principalShareSchedule: term }, '2027-02-10').unknown === true,
+    'the resolver fails closed on the invalid regular fallback');
+  const zero = F.debtPrincipalShareFor({ interestByEvent: true, principalShare: 0, principalShareSchedule: term }, '2027-02-10');
+  ok(zero.unknown !== true && zero.share === 0, 'a regular share of exactly 0 stays a known zero', show(zero));
+  const legacy = F.debtPrincipalShareFor({ interestByEvent: true, principalShare: -0.3 }, '2027-02-10');
+  ok(legacy.unknown !== true && legacy.share === -0.3, 'an unscheduled row keeps the incumbent rule unchanged', show(legacy));
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);

@@ -3656,6 +3656,14 @@
         unknowns.push({ carrier: 'obligation', id: o.id || null, date,
           scheduledDate: null, cashMinimum: true, reason: 'scheduled-amount-unknown' });
       }
+      // A dated principal-share schedule that fails closed: from the first
+      // payment whose split is unknown, that debt's remaining balance is
+      // unknown, so how much each later payment can absorb is unknown too.
+      // Only a debt that authors a principalShareSchedule can reach this.
+      for (const date of principalShareUnknownPaymentDates(o, start, end, periodStart, opts)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date,
+          scheduledDate: null, principalShareUnknown: true, reason: 'scheduled-amount-unknown' });
+      }
     }
     // Phase 2 (ATLAS-080): the settlement relief index is judged at this
     // scan's own start — the same pin expandEvents applies to the walk
@@ -4495,6 +4503,17 @@
   const PRINCIPAL_SHARE_SCHEDULE_TERM_KEYS = ['from', 'until', 'principalShare', 'confidence'];
   // { share, estimated } | { unknown: true }. share null = no split (the
   // whole payment is principal), exactly the incumbent unscheduled rule.
+  // Payment dates of obligation `o` from the first one whose dated split is
+  // unknown. Empty unless the debt it pays (in opts.debts) authors a
+  // principalShareSchedule, so unscheduled households are untouched.
+  function principalShareUnknownPaymentDates(o, start, end, periodStart, opts) {
+    if (!o || o.nonCash || o.effect !== 'payment' || !o.debtId) return [];
+    const debt = ((opts && opts.debts) || []).find(d => d && d.id === o.debtId);
+    if (!debt || debt.principalShareSchedule === undefined) return [];
+    const dates = obligationOccurrences(o, start, end, periodStart).map(occ => occ.date).filter(Boolean);
+    const first = dates.findIndex(date => debtPrincipalShareFor(debt, date).unknown);
+    return first < 0 ? [] : dates.slice(first);
+  }
   function debtPrincipalShareFor(debt, date) {
     const regular = debt ? debt.principalShare : undefined;
     const regularShare = regular != null ? regular : null;
@@ -4506,7 +4525,14 @@
     const day = String(date || '');
     if (!ISO_CALENDAR_DATE.test(day)) return { unknown: true };
     const term = terms.find(t => t.from <= day && day < t.until);
-    if (!term) return { share: regularShare, estimated: false };
+    if (!term) {
+      // An authored schedule never falls back to an invalid regular share:
+      // outside every term the regular split must itself be null (no split)
+      // or a finite number in [0, 1]. Unscheduled rows keep the incumbent rule.
+      if (regularShare != null && (typeof regularShare !== 'number' || !Number.isFinite(regularShare)
+          || regularShare < 0 || regularShare > 1)) return { unknown: true };
+      return { share: regularShare, estimated: false };
+    }
     const share = term.principalShare;
     if (typeof share !== 'number' || !Number.isFinite(share) || share < 0 || share > 1) return { unknown: true };
     return { share, estimated: term.confidence === 'estimated' };
@@ -4766,6 +4792,12 @@
         // there is one rule for "a payment cannot exceed the debt it pays"
         // rather than two that can drift apart.
         const cap = opts.obligationAbsorbed;
+        // An explicit null cap is UNKNOWN (a dated principal split failed
+        // closed upstream), never zero: the occurrence goes on the same
+        // omission path as an unknown amount, and scheduledAmountState names
+        // it, so only its dependent claims are withheld.
+        const capUnknown = !sent && !!cap && Object.prototype.hasOwnProperty.call(cap, date + ':' + o.id)
+          && cap[date + ':' + o.id] === null;
         const amount = sent ? 0 : cap ? (cap[date + ':' + o.id] || 0) : occurrence.amount;
         // The effective amount at source selection: the occurrence amount
         // after statement replacement, before coercion or caps (ATLAS-077).
@@ -4788,7 +4820,7 @@
         // excluded loudly via scheduledAmountState, never pushed as NaN
         // and never silently treated as a deleted row. A sent minimum
         // still records its (already moved) cash at 0 below.
-        if (occurrenceAmount == null && !sent) {
+        if ((occurrenceAmount == null || capUnknown) && !sent) {
           if (omissions) {
             const before = events.length;
             if (!omissions.has(before)) omissions.set(before, []);
@@ -4818,6 +4850,9 @@
       // second copy of the capitalise row and not a Forecast bill.
       for (const occ of capitalisingCashMinimumOccurrences(o, start, end)) {
         const cashCap = opts.obligationAbsorbed;
+        // An explicit null cap is unknown, never zero (see the payment leg).
+        if (cashCap && Object.prototype.hasOwnProperty.call(cashCap, occ.date + ':' + o.id)
+          && cashCap[occ.date + ':' + o.id] === null) continue;
         const cashAmount = cashCap ? (cashCap[occ.date + ':' + o.id] || 0) : occ.amount;
         if (cashAmount <= 0) continue;
         events.push({
@@ -25114,8 +25149,14 @@
           // principal share moves the balance. The interest share is a real
           // cost, so it is not carried on to another debt.
           // The PAYMENT EVENT's date selects a dated principal-share term.
-          const split = t.shareFor(e.date);
+          const split = principalShareUnknownFrom[t.id] != null && e.date >= principalShareUnknownFrom[t.id]
+            ? { unknown: true } : t.shareFor(e.date);
           if (split.unknown) {
+            // How much this payment (and every later one on this debt)
+            // absorbs is unknown: recorded as an explicit null, never a
+            // number from the placeholder walk, so the cash walk withholds
+            // the dependent claim instead of reading a missing cap as zero.
+            obligationAbsorbed[e.date + ':' + e.id] = null;
             // Fail closed: the split is unknown, so this debt's balance,
             // paid and interest from this date are withheld in the
             // publication pass below, and the remainder is not certified.
@@ -25148,7 +25189,7 @@
           // go next. The two look alike in the ledger and are not alike at all.
           const left = payDown([t], principal);
           unabsorbed += left;
-          obligationAbsorbed[e.date + ':' + e.id] = amount - left;
+          if (!split.unknown) obligationAbsorbed[e.date + ':' + e.id] = amount - left;
         } else if (e.kind === 'extra') {
           const isHyp = e.id === 'hypothetical-extra';
           const target = isHyp ? (hypExtraTarget || policyExtraTarget) : policyExtraTarget;
