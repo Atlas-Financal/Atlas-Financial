@@ -1818,9 +1818,33 @@ served.
 
 Scheduled refresh in general, automatic canonical writes and unattended
 provider writes remain **not** approved. This paragraph is the whole of the
-exception. The job is `scripts/period-history-auto-capture.js`, started by
+exception, apart from the boot warm-up below. The job is `scripts/period-history-auto-capture.js`, started by
 `server.js` and off unless both `ATLAS_PERIOD_HISTORY_AUTO_CAPTURE` and
 `ATLAS_PERIOD_HISTORY_CAPTURE` are exactly `on`.
+
+**Boot warm-up — owner-approved 2026-11-23 (#821 comment 7090586736,
+relayed by the lead under OD-028).** The lead asked whether Atlas may run
+one read-only warm-up refresh by itself after each restart or deploy, so
+that it is ready before Dale opens it. Dale: "Yes, I like the warm up."
+
+One more unattended read is authorized, and nothing else is. When the server
+starts listening, Atlas may start **one ordinary on-demand live refresh per
+process start** (a deploy or a restart): the same GET-only Lunch Money
+requests, server-side token, worker, job key, coalescing, deadline and
+lifecycle as a page open (`ServerLiveRefresh.serve`), so an open that arrives
+during it joins it instead of starting a second job. Its result is retained
+exactly as an open's result would be. A failed warm-up is a failed open: the
+incumbent refresh path records the attempt and its retry gap, and nothing
+else happens. It does **not** authorize: a retry or a loop; a timer, a
+new-day or time-of-day refresh; a second warm-up in the same process; any
+provider, canonical or production write; or any change to what is published,
+how a figure is tagged, or the loading screen (OD-030). An active settlement
+composition is not warmed. Anything beyond one warm-up per process start
+needs a new owner decision. The job is `scripts/live-refresh-warmup.js`,
+started by `server.js` (`startServer`, once listening) and off unless
+`ATLAS_LIVE_REFRESH_WARMUP` is exactly `on`. It logs one line,
+`{"type":"live-refresh-warmup","outcome":…,"ms":…}`, with a fixed outcome
+code and a duration only, never a figure.
 
 **Authorized Lunch Money `category_id` corrections.**
 Two owner grants, both recorded on the 2026-08-23 production pass. They
