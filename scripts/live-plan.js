@@ -334,23 +334,20 @@ function assertFreshLivePacket(data, report, liveAsOf) {
   }
 }
 
-// A same-day refresh publishes exact figures only when every required cash
-// balance it reads is known and dated the live household day: one lagging
-// sibling (a transfer seen on one side only) is withheld, never served with
-// a caution. The same freshness predicate as assertFreshLivePacket; the
+// A same-day refresh is withheld when a required cash balance it reads is a
+// trustworthy value dated before the live household day and no fresh row
+// replaces it: one lagging sibling (a transfer seen on one side only) is
+// withheld, never served with a caution. Missing, unknown and conflicting
+// rows keep their existing refusals (the opening value stands); the
 // missing-savings and pending rules stay advancing-only.
 function assertSameDayCashFresh(data, report, liveAsOf) {
   for (const id of POSTED_CASH) {
     if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
     const locator = `cash:${id}`;
-    const rows = postedRowsForLocator(report, locator);
-    if (!rows.length && id === 'savings') continue;
-    if (!rows.length) fail(`missing-live-cash-evidence: ${locator}`);
-    if (!rows.some(row => trustworthyNumeric(row) && liveEvidenceDate(row) === liveAsOf)) {
-      const sample = rows.find(row => trustworthyNumeric(row)) || rows[0];
-      const dated = liveEvidenceDate(sample) || 'unknown (no usable balance date)';
-      fail(`stale-live-cash-evidence: ${locator} dated ${dated}; MATCH is not freshness`);
-    }
+    const known = postedRowsForLocator(report, locator).filter(row => trustworthyNumeric(row) && liveEvidenceDate(row));
+    if (!known.length || known.some(row => liveEvidenceDate(row) === liveAsOf)) continue;
+    const stale = known.find(row => liveEvidenceDate(row) < liveAsOf);
+    if (stale) fail(`stale-live-cash-evidence: ${locator} dated ${liveEvidenceDate(stale)}; MATCH is not freshness`);
   }
 }
 
