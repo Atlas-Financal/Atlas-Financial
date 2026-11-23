@@ -113,6 +113,28 @@ const beforeCashIncluded=F.cardMinimumState(p,'2038-06-05',nowOpts);
 check('posting without observed cash inclusion remains withheld',
  [beforeCashIncluded.status,beforeCashIncluded.payments[0].additionalCashRequired],['unavailable',null]);
 check('read-only diagnosis leaves input immutable',JSON.stringify(annotated),immutable);
+
+// The monthly originals are May 17, June 17 and July 17. A statement can
+// move the June minimum up to either neighbour, excluding the neighbour itself.
+{
+ const {plan, debts} = ledger();
+ const originalDate = '2038-06-17';
+ const statement = {scheduledDate: originalDate, minimum: 0.01, currency: 'cad', confidence: 'confirmed'};
+ plan.obligations[0].statementOccurrences = [statement];
+ for (const dueDate of ['2038-05-18', '2038-07-16']) {
+  statement.dueDate = dueDate;
+  const [payment] = F.expandEvents(plan, dueDate, dueDate);
+  check('valid statement date adjacent to another cycle: ' + dueDate,
+   [payment.scheduledDate, payment.date, payment.amount], [originalDate, dueDate, -0.01]);
+ }
+ for (const dueDate of ['2038-05-16', '2038-07-18']) {
+  statement.dueDate = dueDate;
+  assert.throws(() => F.recommend(plan, '2038-06-01', {...opts, debts}),
+   /Statement due date conflicts with another occurrence/, 'Budget must reject crossing ' + dueDate);
+  assert.throws(() => F.simulate(plan, '2038-06-01', opts),
+   /Statement due date conflicts with another occurrence/, 'cash walk must reject crossing ' + dueDate);
+ }
+}
 const small=results.map(result=>result.label.includes('all historical debt marks')&&!result.pass
  ? {label:result.label,pass:false,actual:'historical marks changed',expected:'exact unchanged baseline marks'}:result);
 

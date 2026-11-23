@@ -98,8 +98,12 @@
     });
     const effective = new Set();
     for (const record of records) {
-      if (effective.has(record.dueDate) || (occurrences(row, record.dueDate, record.dueDate).length
-          && record.dueDate !== record.scheduledDate)) throw new Error('Statement due date conflicts with another occurrence.');
+      // The original is already validated. Every other original in the
+      // inclusive interval is a cycle the statement would hit or cross.
+      const [start, end] = [record.scheduledDate, record.dueDate].sort();
+      if (effective.has(record.dueDate) || (start !== end && occurrences(row, start, end).length > 1)) {
+        throw new Error('Statement due date conflicts with another occurrence.');
+      }
       effective.add(record.dueDate);
     }
     return records;
