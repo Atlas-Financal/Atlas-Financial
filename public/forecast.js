@@ -3919,6 +3919,8 @@
         ? 'The Other spending target has no valid effective date, so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.reason === 'plan-frequency-invalid' || u.reason === 'plan-amount-invalid')
         ? 'An income or obligation has a frequency or amount Forecast cannot read, so the totals and plan verdicts that depend on it are unknown.'
+        : unknowns.every(u => u.reason === 'plan-date-invalid')
+        ? 'An income or obligation is scheduled on a day its month never has (such as April 31), so the totals and plan verdicts that depend on it are unknown.'
         : unknowns.every(u => u.dateUnknown)
         ? 'A scheduled bill or commitment has a missing or invalid date, so its dependent totals and spending claims are unknown.'
         : 'A scheduled amount or date is missing or invalid, so its dependent totals and spending claims are unknown.' };

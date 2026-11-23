@@ -91,6 +91,8 @@ for (const [month, day] of IMPOSSIBLE) {
     `yearly obligation ${month}/${day}: scheduled amounts unavailable, the obligation named plan-date-invalid`, JSON.stringify(g.unknowns));
   ok(g.cur.balanceAfterDeductions === null && g.next.balanceAfterDeductions === null,
     `yearly obligation ${month}/${day}: Balance After Deductions is unknown, not read as if the payment were absent`);
+  ok(/day its month never has/.test(g.r.scheduledAmounts.reason || ''),
+    `yearly obligation ${month}/${day}: the published reason names the impossible day`, g.r.scheduledAmounts.reason);
 }
 
 console.log('\n=== 4. an impossible yearly income withholds the plan, never drops to $0 ===');
