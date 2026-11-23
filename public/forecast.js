@@ -7142,10 +7142,17 @@
     const repeatedId = tx => idCounts.get(String(tx.id)) !== 1;
     const day = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
       ? Date.parse(value + 'T00:00:00Z') / 86400000 : NaN;
+    // A hold is an authorization on a card purchase. An issuer charge (interest, a finance charge), a represented
+    // card bill, a transfer or excluded-from-totals row, or a payment or refund is never a leg or a final: each stays
+    // with its incumbent owner (the pending card exposure check counts it, test-budget-pending-card-funding).
+    const NOT_PURCHASE_HINTS = new Set(['finance-charge', 'transfer', 'payment', 'card-payment', 'bill-payment', 'refund']);
+    const notPurchase = tx => isRevolvingCardFinanceCharge(tx) || tx.representedBill === true || tx.excludeFromTotals === true
+      || tx.cardPaymentIdentity === true
+      || NOT_PURCHASE_HINTS.has(typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '');
     const leg = tx => {
       if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'pending'
         || tx.isGroup === true || duplicateIds.has(String(tx.id)) || repeatedId(tx)
-        || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) return null;
+        || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true || notPurchase(tx)) return null;
       const account = tx.atlasAccountId || tx.account;
       const at = day(tx.date);
       // Card accounts only: an authorization hold is card behaviour. A pending row on household cash (a bill payment,
@@ -7192,7 +7199,7 @@
       // The replacement must be posted by the ledger itself (pending is not true): a pending row Forecast only presumes
       // settled for planning is not a posted final (review 7089951090, finding 2).
       if (!tx || tx.id == null || String(tx.id) === '' || tx.pending === true || transactionPendingState(tx) !== 'posted'
-        || tx.isGroup === true || tx.accountRole !== 'revolving-credit' || repeatedId(tx)
+        || tx.isGroup === true || tx.accountRole !== 'revolving-credit' || repeatedId(tx) || notPurchase(tx)
         || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
       const account = tx.atlasAccountId || tx.account;
       const at = day(tx.date);
