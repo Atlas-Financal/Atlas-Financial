@@ -85,7 +85,10 @@ function run(pay2Date, { bills = 2500, pending = false, account = 3001, amount =
         { id: 3003, name: 'Savings', type: 'cash', subtype: 'savings', currency: 'cad', balance: 500, updated_at: '2026-10-06T17:00:00Z', balance_last_update: '2026-10-06T17:00:00Z' },
         { id: 3006, name: 'Reserve', type: 'cash', subtype: 'savings', currency: 'cad', balance: 0, updated_at: '2026-10-06T17:00:00Z', balance_last_update: '2026-10-06T17:00:00Z' },
       ],
-      transactions: [pay1, ...(pay2 ? [pay2] : [])],
+      // A $0 same-day row on Weekly keeps the transaction feed fresh (bankFeedFreshness):
+      // this test is about the payroll leg, not a lagging feed (#1608).
+      transactions: [pay1, ...(pay2 ? [pay2] : []), { id: 990001, account_id: 3002, date: '2026-10-06', amount: '0.00',
+        currency: 'cad', payee: 'Invented feed check', is_pending: false }],
     },
   });
   const a = F.recommend(obs.data.plan, '2026-10-06', { debts: [], currentPeriodActuals: obs.data.liveOverlay.currentPeriodActuals, weeklyVariable: 0 });

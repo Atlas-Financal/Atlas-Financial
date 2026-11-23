@@ -33,6 +33,13 @@ function fixture() {
     pendingCoverage: { complete: true, basis: O.PENDING_COVERAGE_BASIS, hasMore: false, truncated: false },
     categories: [{ id: 'invented-category', name: 'Invented goal category' }],
     transactions: [raw()] };
+  // A $0 same-day row keeps the transaction feed fresh (bankFeedFreshness) in the supplied
+  // packet: these tests are about savings links and the ledger, not a lagging feed (#1608).
+  const packet = x.opts && x.opts.currentPeriodActuals;
+  if (packet && Array.isArray(packet.transactions) && packet.transactions.length) {
+    packet.transactions.push({ ...packet.transactions[packet.transactions.length - 1], id: 'tx-feed',
+      coverageRef: 'pc-feed-check', date: x.asOf, amount: 0 });
+  }
   return x;
 }
 function link(kind, id = 'near', occurrenceDate = '2026-10-21') {
@@ -45,8 +52,16 @@ function raw(extra = {}) {
     amount: '12.34', currency: 'cad', is_pending: false, category_id: 'invented-category',
     tag_ids: ['invented-tag'], payee: 'Invented merchant', ...extra };
 }
+// A $0 same-day row on chequing-b keeps the observed transaction feed fresh (bankFeedFreshness):
+// every case here tests savings links, not a lagging feed (#1608). Added on a copy, never twice.
+function withFeedCheck(x) {
+  const transactions = Array.isArray(x.payload.transactions) ? x.payload.transactions : [];
+  if (transactions.some(t => t && t.id === 'invented-feed-check')) return x.payload;
+  return { ...x.payload, transactions: transactions.concat([{ id: 'invented-feed-check', account_id: 'invented-account-b',
+    date: x.asOf, amount: '0.00', currency: 'cad', is_pending: false, payee: 'Invented feed check' }]) };
+}
 function observe(x) {
-  return O.observe({ provider: 'lunchmoney', payload: x.payload, accountMap: x.map, data: x.data,
+  return O.observe({ provider: 'lunchmoney', payload: withFeedCheck(x), accountMap: x.map, data: x.data,
     identity: { rules: [] }, fetchedAt: x.payload.fetchedAt }).currentPeriodActuals;
 }
 function evidence(x) { return observe(x).savingsLinks; }

@@ -124,6 +124,9 @@ function world({ held = false, item = false, bills = false, hydro = 90, heloc = 
         jointCash: false, payingAccount: 'mbna' }];
     w.obligations = structuredClone(OBLIGATIONS);
   }
+  // A $0 same-day row keeps the transaction feed fresh (bankFeedFreshness):
+  // these controls test Stack Surplus, not a lagging feed (#1608).
+  w.transactions.push(H.lm({ id: 990001, date: w.asOf, amount: 0, account: 'chequing-a', payee: 'Invented feed check' }));
   if (heloc) w.obligations = structuredClone(HELOC_OBLIGATIONS);
   if (held) w.transactions.push(H.lm({ date: '2026-10-12', amount: 400, category: MORTGAGE, account: 'chequing-a', payee: 'Invented lender' }));
   if (item) {

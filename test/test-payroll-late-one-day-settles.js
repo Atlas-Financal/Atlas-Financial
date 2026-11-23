@@ -35,7 +35,10 @@ function serve(dates, { amounts = {}, extraIncome = [], extraRules = [], first =
   w.windowStart = '2026-10-01';
   w.income = w.income.concat(extraIncome);
   w.identityRules = w.identityRules.concat(extraRules);
-  w.transactions = [...(first ? [pay(first)] : []), ...dates.map(d => pay(d, amounts[d]))];
+  // A $0 same-day row keeps the transaction feed fresh (bankFeedFreshness) in every case, so the
+  // on-time and late cases differ only in payroll timing, not in feed freshness (#1608).
+  w.transactions = [...(first ? [pay(first)] : []), ...dates.map(d => pay(d, amounts[d])),
+    H.lm({ id: 990001, date: '2026-10-27', amount: 0, account: 'chequing-b', payee: 'Invented feed check' })];
   H.productionOpening(w);
   const r = Live.fromObservation({ data: H.canonicalOf(w, H.planOf(w)), payload: H.rawPayload(w),
     accountMap: H.accountMapOf(w), identity: H.identityOf(w) });

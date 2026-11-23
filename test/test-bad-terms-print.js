@@ -45,6 +45,9 @@ const cents=text=>{const m=text.match(/^(?:≈ estimated )?(−?)\$([\d,]+)\.(\d
  return (m[1]?-1:1)*(Number(m[2].replace(/,/g,''))*100+Number(m[3]));};
 
 const f=fx.build(618.73);
+// A $0 same-day row keeps the transaction feed fresh (bankFeedFreshness): this test is about
+// the printed terms, not a lagging feed (#1608).
+f.packet.transactions.push({...f.packet.transactions[f.packet.transactions.length-1],id:'tx-feed',coverageRef:'pc-feed-check',date:f.date,amount:0});
 f.plan.bills=[{id:'invented-rent',label:'Invented rent',frequency:'biweekly',anchor:'2026-09-30',amount:212.34,confidence:'confirmed',payingAccount:'chequing-a'},
  {id:'invented-hydro',label:'Invented hydro',frequency:'monthly',day:15,amount:88.21,confidence:'estimated',payingAccount:'chequing-a'}];
 const advice=F.recommend(f.plan,f.date,{...f.plan.defaults,debts:[],currentPeriodActuals:f.packet});

@@ -16,7 +16,7 @@ let failures = 0;
 const ok = (c, m, d) => { console.log((c ? 'ok   ' : 'FAIL ') + m + (c || d === undefined ? '' : ' :: ' + JSON.stringify(d))); if (!c) failures++; };
 const TODAY = '2026-09-20';
 
-function refresh(txDate) {
+function refresh(txDate, feedCheck = false) {
   const x = base('card-x', 'card-x-min');
   x.data.meta.asOf = x.data.plan.opening.asOf = TODAY;
   x.data.plan.startingCash.breakdown[0].value = 100; x.data.plan.startingCash.breakdown[1].value = 500;
@@ -24,7 +24,8 @@ function refresh(txDate) {
   x.accountMap.mappings = x.accountMap.mappings.slice(0, 3); x.payload.accounts = x.payload.accounts.slice(0, 3);
   const pidA = Number(x.accountMap.mappings[0].providerAccountId);
   for (const [i, v] of [[0, 600], [1, 0], [2, 0]]) { x.payload.accounts[i].balance = v; x.payload.accounts[i].balance_last_update = TODAY + 'T17:00:00Z'; }
-  x.payload.transactions = [{ id: 901, account_id: pidA, date: txDate, amount: '25.00', currency: 'cad', is_pending: false, payee: 'Invented Shop' }];
+  x.payload.transactions = [{ id: 901, account_id: pidA, date: txDate, amount: '25.00', currency: 'cad', is_pending: false, payee: 'Invented Shop' },
+    ...(feedCheck ? [{ id: 902, account_id: pidA, date: TODAY, amount: '0.00', currency: 'cad', is_pending: false, payee: 'Invented feed check' }] : [])];
   x.payload.categories = []; x.payload.tags = []; x.payload.fetchedAt = TODAY + 'T18:00:00Z';
   x.payload.transactionWindow = { startDate: '2026-09-01', endDate: TODAY, complete: true, hasMore: false, truncated: false };
   x.payload.pendingCoverage = { complete: true, hasMore: false, truncated: false, basis: 'is_pending-unbounded' };
@@ -58,6 +59,20 @@ for (const [label, txDate, feed, want] of [['stale feed (newest spending 3 days 
   const headline = packet.forecast && packet.forecast.predictedEndingBalance;
   ok(headline && headline.status === 'ok' && headline.trust === want, `packet: headline Balance After Deductions is ${want}`, headline);
   ok(cur && cur.stackSurplus.status === 'ok' && cur.stackSurplus.trust === 'estimated', 'packet: current Stack Surplus is never more than estimated', cur && cur.stackSurplus);
+}
+console.log('\n=== the estimate is caused by the stale feed alone ===');
+{
+  // The same fixture, the same 25 spend three days old; the only difference is a $0 same-day row.
+  const stale = advise(refresh('2026-09-17')), fresh = advise(refresh('2026-09-17', true));
+  const strip = advice => JSON.parse(JSON.stringify(advice.payPeriodViews.map(v => {
+    const { balanceAfterDeductionsTrust, budgetHoldTrust, bankFeedEstimate, stackSummary, ...rest } = v;
+    return { ...rest, surplus: stackSummary && stackSummary.surplus && stackSummary.surplus.amount };
+  })));
+  ok(JSON.stringify(strip(stale)) === JSON.stringify(strip(fresh)), 'every amount and every other field is identical with and without the $0 row');
+  ok(current(stale).balanceAfterDeductionsTrust === 'estimated' && current(stale).stackSummary.surplus.trust === 'estimated',
+    'without the fresh row: estimated');
+  ok((current(fresh).balanceAfterDeductionsTrust || 'calculated') === 'calculated' && current(fresh).stackSummary.surplus.trust === 'calculated',
+    'with only a $0 same-day row added: calculated');
 }
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);

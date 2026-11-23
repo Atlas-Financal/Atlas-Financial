@@ -13172,8 +13172,7 @@
     incomeTxFactsDepth++;
     try {
       recommendationReads = openRecommendationReads(plan, asOf, opts);
-      return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(
-        qualifyStaleBankFeed(recommend(plan, asOf, opts), asOf, opts), plan, asOf, opts))));
+      return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))));
     } finally {
       recommendationReads = outer;
       incomeTxFactsDepth--;
@@ -23618,7 +23617,12 @@
     }
   }
 
+  // Every recommendation is qualified once for a lagging transaction feed,
+  // after its own withholding passes and before any publication reads it.
   function recommend(plan, asOf, opts) {
+    return qualifyStaleBankFeed(recommendUnqualified(plan, asOf, opts), asOf, opts);
+  }
+  function recommendUnqualified(plan, asOf, opts) {
     const base = Object.assign({}, opts || {});
     if (Array.isArray(base.debts)) base.debts = withCardBalanceFreshness(base.debts, plan, asOf);
     // One dated owner policy seeds the same native cash/funding publications.

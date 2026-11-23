@@ -314,7 +314,11 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
   [137.26,{pendingOther:17.43}],[137.26,{pendingCoverage:'unknown'}]]){
   // The fixture's unproven 93.72 Transfer is held To confirm now (rank 18), a figure the frozen
   // engine cannot read; the control runs on the same fixture without it (test-transfer-debit-held).
-  const x=totalFixture.build(spent,totalFixture.asOf,{...opts,noTransfer:true}),input=JSON.stringify(x);
+  const x=totalFixture.build(spent,totalFixture.asOf,{...opts,noTransfer:true});
+  // A $0 same-day row keeps the transaction feed fresh (bankFeedFreshness): this parity control
+  // compares with exact main on a fresh feed, not a lagging one (#1608).
+  x.packet.transactions.push({...x.packet.transactions[x.packet.transactions.length-1],id:'tx-feed',coverageRef:'pc-feed-check',date:x.date,amount:0});
+  const input=JSON.stringify(x);
   const args={debts:[],currentPeriodActuals:x.packet};
   const currentAdvice=stripPaydaySchedule(stripUnconfirmedBills(clone(F.recommend(x.plan,x.date,args))).advice).advice;
   const baselineAdvice=baselineModule.exports.recommend(x.plan,x.date,args);
