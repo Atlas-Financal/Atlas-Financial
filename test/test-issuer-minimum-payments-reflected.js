@@ -86,8 +86,8 @@ const withStatement = reflectedThrough => x => {
   row.statementOccurrences = [{ scheduledDate: '2026-09-20', dueDate: '2026-09-20', minimum: 25, currency: 'cad',
     confidence: 'confirmed', ...(reflectedThrough ? { paymentsReflectedThrough: reflectedThrough } : {}) }];
 };
-const coverage = (reflectedThrough, payDate) => {
-  const rows = [['card', 80, null, 'purchase'], ['bills', 25, payDate, 'cash'], ['card', -25, payDate, 'credit']];
+const coverage = (reflectedThrough, payDate, creditDate = payDate) => {
+  const rows = [['card', 80, null, 'purchase'], ['bills', 25, payDate, 'cash'], ['card', -25, creditDate, 'credit']];
   return run(world(rows, { edit: withStatement(reflectedThrough) })).coverage.minimumCoverage
     .filter(m => m.obligationId === 'travel');
 };
@@ -101,6 +101,16 @@ const coverage = (reflectedThrough, payDate) => {
   const after = coverage('2026-09-18', '2026-09-19');
   ok(after.length === 1 && after[0].status === 'covered-by-payment',
     'a payment dated after the read date still covers it');
+  // Split dates (review 7092391352): the cutoff reads the Bills debit's date, never the card credit's.
+  const lateCredit = coverage('2026-09-19', '2026-09-19', '2026-09-20');
+  ok(lateCredit.length === 1 && lateCredit[0].status === 'to-confirm' && Math.round(lateCredit[0].covered * 100) === 0,
+    'split dates: a debit on the read date with its card credit the day after covers none');
+  const earlyCredit = coverage('2026-09-19', '2026-09-20', '2026-09-19');
+  ok(earlyCredit.length === 1 && earlyCredit[0].status === 'covered-by-payment',
+    'split dates: a debit after the read date with its card credit on it still covers');
+  const controlSplit = coverage(null, '2026-09-19', '2026-09-20');
+  ok(controlSplit.length === 1 && controlSplit[0].status === 'covered-by-payment',
+    'control: the same split pair with no read date covers the minimum (the pair is matched)');
 }
 
 // 3. The field fails closed: a malformed or post-due read date is not a statement.

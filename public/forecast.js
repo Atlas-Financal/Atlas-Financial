@@ -16246,8 +16246,10 @@
             let amount = effective.get(pair), toMinimum = 0;
             const minimumParts = [];
             for (const minimum of minimums) {
-              // The issuer's minimum still owing already reflects this payment.
-              if (minimum.reflectedThrough && (pair.date || pair.card.tx.date) <= minimum.reflectedThrough) continue;
+              // The issuer's minimum still owing already reflects this payment: the
+              // cutoff reads the household debit's own date, as the other two readers do.
+              if (minimum.reflectedThrough
+                && (pair.cash?.tx?.date || pair.date || pair.card.tx.date) <= minimum.reflectedThrough) continue;
               const take = Math.min(amount - toMinimum, minimum.cents - minimum.covered);
               if (take <= 0) continue;
               minimum.covered += take; toMinimum += take;
