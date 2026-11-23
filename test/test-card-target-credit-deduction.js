@@ -286,6 +286,19 @@ console.log('6. Which card evidence the remainder\'s trust reads (review 7106640
   ok(mbna && mbna.deduction.trust === 'estimated' && mbna.minimum.reasons.includes('no-minimum-due-in-period')
     && trustOf(manual) === 'calculated' && manual.stackSummary.surplus.trust === 'calculated',
     'a manual card with no minimum due (its own deduction estimated) leaves the remainder calculated');
+  // The same manual card, no minimum due, but 200.00 over its 1,000 limit (review 7110654511): its deduction is +200.00, so
+  // it is not the unseen zero and lends its estimated trust. Balance After Deductions 825.00 - 200.00 = 625.00, estimated,
+  // and the Surplus estimated too.
+  const over = active(advise([interest(25)], F, { twoCards: true, edit: x => { synced(x);
+    const debt = x.data.debts.find(d => d.id === 'mbna'); debt.balance = 1200;
+    const acct = x.payload.accounts.find(a => a.name === 'Invented mbna'); if (acct) acct.balance = 1200; } }));
+  const overLine = over.stackSummary.credit.lines.find(l => l.id === 'mbna');
+  ok(overLine && cents(overLine.deduction.amount) === 20000 && overLine.deduction.trust === 'estimated'
+    && overLine.minimum.reasons.includes('no-minimum-due-in-period')
+    && cents(over.predictedEndingBalanceTerms.cardRepaymentAdjustment) === 20000 && cents(over.balanceAfterDeductions) === 62500
+    && trustOf(over) === 'estimated' && over.stackSummary.surplus.trust === 'estimated',
+    'a manual card with no minimum due but 200.00 over its limit: +200.00, 625.00, Balance After Deductions and the Surplus estimated',
+    JSON.stringify([overLine && overLine.deduction, over.balanceAfterDeductions, trustOf(over), over.stackSummary.surplus.trust]));
   // The Credit publication keeps its own trust: only what it lends the remainder leaves the manual card out.
   const breakdown = manual.stackSummary.creditBreakdown;
   ok(breakdown && breakdown.trust === 'estimated' && breakdown.alreadyCounted.trust === manual.stackSummary.credit.totals.deduction.trust

@@ -15521,7 +15521,8 @@
   // option (c)): the weakest deduction of the lines that can carry uncertainty. Each card the household holds counts,
   // including a feed card whose sync failed and a fall-back target (a minimum standing in for unknown new charges). Two
   // kinds count no uncertainty, because nothing here can see them: a card the household does not hold, and a manual card
-  // with no minimum due this period (Dale's decision that an unseen manual card counts $0 in normal font).
+  // with no minimum due this period (Dale's decision that an unseen manual card counts $0 in normal font), each only while
+  // its deduction is 0. A line that deducts anything still counts.
   function cardCreditTrust(credit, publication, debts) {
     const held = new Set((Array.isArray(debts) ? debts : []).map(debt => debt && String(debt.id)));
     const manual = new Set(((publication && publication.cards) || []).filter(card => card && card.manualStatement === true)
@@ -15531,7 +15532,10 @@
     for (const line of credit.lines) {
       const id = String(line.id);
       const noneDue = line.minimum.amount === null && line.minimum.reasons.includes('no-minimum-due-in-period');
-      if (!held.has(id) || (manual.has(id) && noneDue)) continue;
+      // Both exemptions are for a zero line only (review 7110654511): a line that still deducts something (a manual card's
+      // over-limit amount, say) lends its trust like any other.
+      const zero = line.deduction.amount === 0;
+      if (zero && (!held.has(id) || (manual.has(id) && noneDue))) continue;
       const t = Object.hasOwn(RANK, line.deduction.trust) ? line.deduction.trust : 'unavailable';
       if (RANK[t] > RANK[worst]) worst = t;
     }
