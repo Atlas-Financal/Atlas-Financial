@@ -9082,6 +9082,8 @@
         continue;
       }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
+      // A consumed pending hold or release (Forecast.pendingHoldReleases) is neither spending nor any other actual.
+      if (cls.kind === 'hold-release') continue;
       if (cls.kind === 'savings-paid') {
         // Savings audit (PR 1): already in observed Savings; not household cash.
         out.excluded.savingsPaid = roundCent((out.excluded.savingsPaid || 0) + amt);
@@ -15839,7 +15841,12 @@
     const aggregateReversalCashRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingPaymentIds = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingReversalRefs = opts.paymentDiagnostics === true ? new Set() : null;
-    const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet));
+    // A pending hold and its release, or a hold its posted final superseded (Forecast.pendingHoldReleases, the one
+    // decision the classifier, the Budget and the card publication read), is neither a purchase nor a credit here:
+    // coverage leaves it out exactly as they do, so it never withholds the plan as an unconfirmed purpose.
+    const holdReleaseLeg = tx => pendingHoldReleaseLeg(tx, packet);
+    const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet)
+      && !holdReleaseLeg(tx));
     // Broader movement labels identify a leg only after an explicit household
     // confirmation names that reference. Category/hint alone never pairs a
     // transfer, assigns purchase coverage, or settles a minimum.
@@ -16002,7 +16009,7 @@
       if (validOpening && periodOf(origin) !== origin) issue('coverage-opening-not-pay-period-start');
       const pairFrom = addDays(origin, -CARD_PAYMENT_PAIR_DAYS);
       const pool = input.filter(tx => tx && savingsDate(tx.date) && tx.date >= pairFrom && tx.date <= asOf
-        && !skipSplitParent(tx, packet) && tx.accountRole !== 'household-external');
+        && !skipSplitParent(tx, packet) && tx.accountRole !== 'household-external' && !holdReleaseLeg(tx));
       const legs = { cardCredit: [], cardDebit: [], cashDebit: [], cashCredit: [], reserveDebit: [] };
       const refundRows = [];
       for (const tx of pool) {
@@ -22626,6 +22633,8 @@
         for (const pendingTx of transactions) {
           if (!pendingTx || transactionPendingState(pendingTx) !== 'pending'
               || skipSplitParent(pendingTx, actuals)) continue;
+          // A consumed hold (Forecast.pendingHoldReleases) is released or superseded: it is no longer card exposure.
+          if (pendingHoldReleaseLeg(pendingTx, actuals)) continue;
           if (![pendingTx.atlasAccountId, pendingTx.account, pendingTx.accountId]
             .some(id => id != null && String(id) === account)) continue;
           const amount = Number(pendingTx.amount);
