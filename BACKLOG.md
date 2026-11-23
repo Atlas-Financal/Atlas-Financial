@@ -341,6 +341,8 @@ Proof required (the desk's acceptance): from raw invented Lunch Money rows throu
 
 The two gaps that retired #1594 are the next item, and a raw world in which Atlas's rule path produces an inferred tie for a Bills-paid bill.
 
+The s1 variant (Gemini's H2-7 note a) shares this root and gate. Under the s1 seed (`s1CurrentBillsStockCents`, Bills stock as of the as-of date), a bill posted inside the active period before as-of but due after it is deducted again. That can push the seed below 0 and leave the next opening and the Savings closing null. The same gate applies with the posting date compared to the as-of date instead of the payday opening, and the proof bar is the same.
+
 <a id="null-sweep-prior-period-debit"></a>
 
 **The payday sweep and next opening go null when a prior-period debit for a bill exists** · **ADDED TO BACKLOG — OPEN, investigate** · *found while proving H2-7 (#1594 7098398666)*
