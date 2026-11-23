@@ -210,7 +210,6 @@
     var sv = get(view, ['stackSummary', 'savings']);
     if (!sv || typeof sv !== 'object') return '';
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
-    if (!items.length) return ''; // no savings goals at all: no card
     var t = sv.totals || {};
     var saved = money(t.saved), needed = money(t.needed);
     var known = saved != null && needed != null;
@@ -223,6 +222,12 @@
       return bar ? '<li class="sc-row sc-own"><span class="sc-n">' + esc(label) + '</span>' + right + bar + '</li>'
         : '<li class="sc-row"><span><b class="sc-n">' + esc(label) + '</b></span>' + right + '</li>';
     };
+    if (!items.length) {
+      if (!t.balanceHeadTrust) return ''; // no goals in this period's pour
+      var remainder = row('Unallocated', money(t.unallocated), null, t.trust, null);
+      return strip('savings', 'Savings', 'Balance', money(t.balance), null, 0, '<ul class="sc-list">' + remainder + '</ul>',
+        null, null, isEst(t.balanceHeadTrust), true);
+    }
     var body = '<ul class="sc-list">' + items.map(function (i) {
       var f = money(i.saved), n = money(i.needed);
       return f != null && n != null ? row(i.label, f, n, i.trust, fill(i.saved, i.needed)) : row(i.label, null, null, null, null);

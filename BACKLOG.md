@@ -93,6 +93,25 @@ to be visible, merchant strings needing normalising before matching).
 
 ---
 
+## Atlas v2 — path to complete
+
+**Finish line (owner, 2026-11-23, OD-032):** every figure on the Budget page is
+either correct or honestly marked unknown, stays so when a bank sync lags, and
+Dale has walked it once against the bank. Everything else in this file is
+after v2. Progress is reported as steps remaining on this path; a merged slice
+is not a finished step until its live check is done. The live list of PRs and
+heads is the Merge line on #821; this section names steps, not heads.
+
+| # | Step | Owner | Next action |
+|---|---|---|---|
+| 1 | Land the in-flight PRs: card repayment target (#1573, Dale's figures look), Fortis link (#1583, desk redesign), yearly dates (#1597, final design pass), HELOC end date (#1602), outside-account unknown (#1603), default-view null leftover | Lead (routing); DISPLAY, GUARDS, ENGINE (builds) | Per the Merge line |
+| 2 | Same-day cash freshness: a lagging account, stale savings dating or a loan dated by `updated_at` must withhold, not double-count (Gemini hunt 5 findings 1, 3, 5; #821 7103458019) | ENGINE | Open the PR |
+| 3 | Pre-cutover dates of a linked bill keep the plan's own confidence, never `confirmed` (hunt 5 finding 11) | GUARDS, after #1597 | Build from fresh main |
+| 4 | Remaining fail-open findings from Gemini hunt 4 (see its BACKLOG entry): finding 11's once-moved half, then 3/4/5 with #1597's yearly-bills NEXT PR | ENGINE / GUARDS | After step 2 |
+| 5 | Confirm the open card-payment destination in Lunch Money, so the plan's withheld parts return | Dale with Grok | Dale confirms Grok's prepared edit |
+| 6 | Dale walks the live Budget page against the bank once (rule 15); each mismatch becomes a fix | Dale; lead | After steps 1–5 land |
+| 7 | Fixes from that walk land and are re-checked on the live page | Lead | After step 6 |
+
 ## 🔴 The two that undercut everything else
 
 **B70 · The HELOC limit is a planning boundary: $0 headroom means $0 additional borrowing** · **DONE / RESOLVED 2026-08-18** · *owner planning invariant; engine already held it*
@@ -221,6 +240,15 @@ considered.
 
 ## Blocked on the household
 
+**B106 · Disney+ has no payment identity** · *small*
+`disney-plus` (owner 2026-11-23: still paid) is a plan bill with no
+transaction-identity rule. Its payee is shared with other subscriptions, so it
+is not identity, and Lunch Money has no recurring item for it. Until one of
+these lands, a past-due occurrence reads unverified, never paid: Grok Bot and
+Dale create a Lunch Money recurring item for it (a Dale-confirmed ledger edit,
+rule 17) and it is named in `docs/connectivity/transaction-identity.json`, or
+Dale grants standing schedule-trust on its due date, as for Spotify.
+
 **B70 · Agree a standing transfer from Amanda's account** · **CLOSED 2026-08-22** · *small, high value*
 Owner-confirmed 2026-08-22: the two fixed Tennis BC salaries land in
 household accounts and are already Forecast household income. Coaching
@@ -318,6 +346,39 @@ Inferred personal from its transactions, not verified.
 ---
 
 ## Ready — analysis, nothing blocking
+
+<a id="gemini-hunt-4-dates-schedules"></a>
+
+**Gemini hunt 4 (dates and schedules): 15 findings, none overstating a household figure today** · **ADDED TO BACKLOG — OPEN** · *lead triage on #821 (7101135186), main `006b2c3b`; read-only hunt, invented repros only*
+
+The lead re-ran the repros for 2, 6 and 1, and checked (by ids only) which input shapes the household's committed plan carries, so each row says whether it can reach a published household figure today. Only finding 11 matches the household's current shape (ended monthly card-minimum rows with `lastDue` before today), and it errs toward caution. Two findings could fail open: 1 (the period view's bill load may read 0) and 11's once-moved half. Neither shape is in the household plan today: the lead checked, ids only, that there's no capitalising obligation with an amountSchedule and no once obligation with statementOccurrences. So no household figure is overstated today, but both stay open.
+
+| # | Finding (short) | Lead check | Household shape present? | Direction |
+|---|---|---|---|---|
+| 2 | A once card minimum moved by a statement is replayed after it is represented (`carriedOnceJointCashOutflow` compares the unmoved date) | Reproduced | No | Double deduction (cautious) |
+| 6 | The capitalising cash-minimum leg ignores `lastDue` | Reproduced: cash minimums continue after the end | No | Overstates outflow (cautious) |
+| 1 | A capitalising cash minimum with an unknown `amountSchedule` cashPayment | Partly: `scheduledAmountState` already reads unavailable, but the period bill load shows 0 | No | Needs triage: a possible fail-open on the period view |
+| 11 | The card overlap guard ignores `lastDue` and statement-moved once dates | Code read | **Yes** (ended card rows) | Withholds (cautious); the once-moved half could fail open |
+| 3, 4, 5 | Impossible dates or typos outside yearly bills (income and obligations, `timingBefore.from`, `lastDue`, inner `timingBefore` fields) are not validated | Not re-run | No | Varies |
+| 7, 8, 12, 14 | Readers that see only the outer schedule (`budgetBreakdown`, pay-period helpers, income sections, the yearly card-paid test) | Not re-run | No | Varies |
+| 9, 10 | Raw ISO instants compared after a `financialDate` guard | Not re-run | No | Trust badge or crash |
+| 13 | A `cashFirstDue` earlier than `firstDue` with an `amountSchedule` drops every cash minimum | Not re-run | No | Withholds |
+| 15 | The mortgage "to confirm" note is keyed on the unmoved date | Not re-run | Display only | None numeric |
+
+Order of work:
+1. Finding 2.
+2. Finding 1: first verify whether the period view fails open.
+3. Findings 6 and 11.
+4. The validation group, 3, 4 and 5. Fold it into #1597's yearly-bills NEXT PR where it is the same class; #1597 already fixes the yearly income and obligation part.
+5. The rest.
+
+No build is started until the open PRs land (Dale's ask). Each fix is its own PR with invented repros, and the household-shape column says which ones can move a household figure.
+
+<a id="recurring-timing-cutover-lastdue"></a>
+
+**The Lunch Money timing cutover check builds its rows without `lastDue`** · **ADDED TO BACKLOG — OPEN** · *same class as hunt 4 finding 6, found while building #1602; lead agreed ADDED TO BACKLOG*
+
+`scripts/provider-observe.js` `recurringObligationSchedule` builds `oldRow` and `newRow` (monthly, day, firstDue) for its cutover-safety comparison without the plan row's `lastDue`. An ended Lunch Money item is refused, but a plan row that has its own `lastDue` is not, so the "next occurrence" it compares can fall after the row has ended. This is ledger-side timing review (rule 17): it publishes no figure and only decides whether a proposed day change is safe. The next action is to ask Grok Bot whether an ended plan row should be refused (like an ended item) or bounded, then build as agreed.
 
 <a id="active-prepaid-bill-close"></a>
 

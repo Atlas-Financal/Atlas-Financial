@@ -568,6 +568,7 @@
   ["HELOC Forecast Required-debt cash minimum","test-heloc-forecast-cash-minimum.js"],
   ["authority invariants","test-invariants.js"],
   ["Forecast property tests: cash events once, settledOn fail-closed (fast-check)","test-forecast-properties.js"],
+  ["Forecast published figures agree with the independent shadow on invented households","test-forecast-shadow.js"],
   ["authority surface coverage","test-authority-coverage.js"],
   ["evidence-use register routing","test-evidence-use-register.js"],
   ["knowledge-evidence register (external-reference)","test-knowledge-evidence-register.js"],
@@ -753,11 +754,15 @@
   ["The live Lunch Money acquisition runs its independent reads in parallel (at most four in flight): the same requests and payload, acquire near the slowest read, manual_accounts -> /assets fallback kept, a late required failure and an outer abort fail closed and cancel every read","test-provider-acquire-parallel.js"],
   ["Forecast pay-period invariants over seeded invented households","test-forecast-invariants.js"],
   ["Dated obligation amounts: an obligation amountSchedule term selects by original scheduled date (inclusive from, exclusive until), the capitalising cash minimum takes the term of the cycle it pays, statements and sent payments still win, and a malformed schedule fails closed","test-obligation-amount-schedule.js"],
+  ["Capitalising cash minimum bounds: the cash leg carries the row's lastDue, month and anchor, so an ended row's cash minimum stops at its last cash date on or before lastDue","test-capitalising-cash-minimum-bounds.js"],
+  ["Capitalising cash minimum unknown: an unknown term cashPayment withholds the pay-period bill load, remaining bills and Balance After Deductions, never a known zero","test-capitalising-unknown-cash-withholds.js"],
+  ["Obligation unknown joint cash: an unknown obligation amount withholds the pay-period bill load exactly when its known amount would load, including a jointCash:false row","test-obligation-unknown-joint-cash-withholds.js"],
   ["Obligation .amount / .cashPayment are read only through the dated-schedule resolver (static guard; catches direct, destructured and aliased reads)","test-obligation-amount-read-guard.js"],
   ["Dated principal share: an interestByEvent debt's principalShareSchedule term selects by payment date (inclusive from, exclusive until), outside every term the regular share applies, an estimated term lowers walk trust, and a malformed schedule withholds the dependent debt-walk outputs","test-debt-principal-share-schedule.js"],
   ["A debt's principalShare is read only through Forecast.debtPrincipalShareFor (static guard; catches direct, destructured, aliased and string-keyed reads)","test-debt-principal-share-read-guard.js"],
   ["An early payment that settles its occurrence in full (a covering actual or a verified posted payment below plan) stays PAID in its planned period; pending, unlinked, shared, unverified and partial payments stay owed, and a sent minimum keeps its planned publication (H2-4, as Grok agreed)","test-early-payment-settles-occurrence.js"],
   ["Bills-only period balance keeps a scheduled fee allowance's unspent part after a fee posts, matching the period view (H2-8b)","test-bills-balance-fee-allowance.js"],
   ["A card statement due date moved later keeps its own statement: the known close day is used, and a 7-day minimum gap only picks which month's close applies (H2-3, as Grok agreed)","test-statement-close-grace.js"],
-  ["A fixed-interest card snapshot whose rate differs from its debt's recorded rate is named (data check; never recomputes an amount or moves a figure)","test-fixed-interest-snapshot-rate.js"]
+  ["A fixed-interest card snapshot whose rate differs from its debt's recorded rate is named (data check; never recomputes an amount or moves a figure)","test-fixed-interest-snapshot-rate.js"],
+  ["A once card minimum moved by its statement and already represented is not replayed in the cash walk (Gemini hunt 4, finding 2)","test-once-minimum-moved-represented.js"]
 ]
