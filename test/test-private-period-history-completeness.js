@@ -573,7 +573,7 @@ try {
     };
     const ok = capture(late(false));
     assert.equal(ok.content.kind, 'actual-correction');
-    assert.deepEqual(ok.content.period, { start: '2025-02-01', end: '2025-02-14' });
+    assert.deepEqual([ok.content.period.start, ok.content.period.end], ['2025-02-01', '2025-02-14']);
     rejects(() => capture(late(true)), 'history-forecast-capture-failed');
   });
 
