@@ -80,6 +80,9 @@ console.log('5. The HELOC keeps its own rule: its target is its minimum');
   const h = lineOf(withLimit(fx.fixture(), 'travelvisa', 800), 'heloc');
   ok(cents(h.target.amount) === 5000 && h.target.trust === h.minimum.trust && h.target.overLimitBy === null && h.target.newCharges === null,
     'HELOC: target 50.00, its minimum, with the minimum\'s trust; no new charges or over-limit part', JSON.stringify(h.target));
+  const none = lineOf(fx.fixture(), 'heloc', bills(MINIMUMS.filter(r => r.debtId !== 'heloc')));
+  ok(none.target.amount === 0 && none.target.trust === 'calculated',
+    'HELOC with no minimum due this period: a published 0 (nothing to repay), never withheld', JSON.stringify(none.target));
 }
 
 console.log('6. No minimum due: the target is the new charges; a withheld minimum withholds the target');
@@ -114,6 +117,33 @@ console.log('8. The minimum tick still means only "minimum covered" (posted-only
   const t = r.lines.find(l => l.id === 'travelvisa');
   ok(t.minimumCovered.value === true && cents(t.paidToward.amount) === 10000, 'the minimum is covered by the posted 100.00 payment');
   ok(cents(r.totals.minimumsDue.amount) === 2500 + 4000 + 3000 + 5000, 'the head\'s minimums due is still the sum of minimums (145.00), not the targets');
+}
+
+console.log('9. Every card, minimum due or not: $0 only with no minimum, no new charges and not over the limit (lead scope, 2026-11-23)');
+{
+  // Emerald with no minimum this period (its row dropped from the bills split). By hand: balance 1100.00.
+  const noMin = bills(MINIMUMS.filter(r => r.debtId !== 'tdcc'));
+  const charge = amount => ({ id: 'tdcc-new', coverageRef: 'invented-tdcc-new', atlasAccountId: 'tdcc', account: 'tdcc',
+    accountRole: 'revolving-credit', date: '2026-08-19', amount, currency: 'cad', displayedPayee: 'Example market',
+    categoryLabel: 'Groceries', pending: false, savingsPostingEvidence: 'posted' });
+  const over = lineOf(withLimit(fx.fixture(), 'tdcc', 1000), 'tdcc', noMin);
+  ok(over.minimum.amount === null && cents(over.target.amount) === 10000 && cents(over.target.overLimitBy) === 10000,
+    'no minimum, no new charges, over a 1000.00 limit by 100.00: the target is 100.00, not $0', JSON.stringify(over.target));
+  const under = lineOf(fx.fixture(), 'tdcc', noMin);
+  ok(under.target.amount === 0, 'the same card under its limit: 0 (no minimum, no new charges, not over)', JSON.stringify(under.target));
+  // A 50.00 new charge: Spent 50.00 and the balance 1100.00 stays the card's published balance (the fixture's), so the
+  // over-limit part is still 1100.00 - 1000.00 = 100.00. Target 50.00 + 100.00 = 150.00.
+  const withCharge = withLimit(fx.fixture(), 'tdcc', 1000); withCharge.packet.transactions.push(charge(50));
+  const n = lineOf(withCharge, 'tdcc', noMin);
+  ok(cents(n.spent.amount) === 5000 && cents(n.target.amount) === 15000, 'the same card with 50.00 of new charges: 50.00 + 100.00 = 150.00', JSON.stringify(n.target));
+  // Amazon Mastercard: a manual card (Spent withheld), no minimum this period, over its limit, and its balance a stale
+  // estimate (dated before its statement cycle). By hand: 760.00 - 700.00 = 60.00 over; target 60.00, estimated.
+  const stale = withLimit(fx.fixture(), 'mbna', 700);
+  Object.assign(stale.debts.find(d => d.id === 'mbna'), { statementCloseDay: 5, balanceAsOf: '2026-07-07' });
+  const m = lineOf(stale, 'mbna', bills(MINIMUMS));
+  ok(cents(m.target.amount) === 6000 && m.target.trust === 'estimated' && m.target.reasons.includes('over-limit-balance-estimated')
+    && m.target.reasons.includes('new-charges-unavailable'),
+    'Amazon Mastercard (no minimum, Spent withheld, stale balance, over by 60.00): 60.00, kept estimated, never confirmed', JSON.stringify(m.target));
 }
 
 console.log(`\nPASS Stack card repayment target (${checks})`);

@@ -542,9 +542,11 @@
       return { cents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated', reasons: stale ? ['over-limit-balance-estimated'] : [] };
     };
     const targetOf = (card, minimum) => {
-      if (card.id === 'heloc') return { amount: minimum.amount, trust: minimum.trust, reasons: minimum.reasons.slice(),
-        newCharges: null, minimum: minimum.amount, overLimitBy: null };
       const noneDue = minimum.amount === null && minimum.reasons.includes('no-minimum-due-in-period');
+      // The HELOC: its minimum, or a published 0 when none is due this period (nothing to repay, never "withheld").
+      if (card.id === 'heloc') return noneDue
+        ? { amount: 0, trust: STACK_TRUST_ORDER.includes(splitTrust) ? splitTrust : 'estimated', reasons: [], newCharges: null, minimum: 0, overLimitBy: null }
+        : { amount: minimum.amount, trust: minimum.trust, reasons: minimum.reasons.slice(), newCharges: null, minimum: minimum.amount, overLimitBy: null };
       if (minimum.amount === null && !noneDue) return { amount: null, trust: 'unavailable',
         reasons: ['minimum-unavailable'].concat(minimum.reasons), newCharges: null, minimum: null, overLimitBy: null };
       const minCents = noneDue ? 0 : cents(minimum.amount);
