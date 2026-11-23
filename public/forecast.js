@@ -12568,6 +12568,12 @@
   // income stream: the hit represents plan.income.childBenefit.
   const CHILD_BENEFIT_STREAM_ID = 'childBenefit';
   const CHILD_BENEFIT_ACCOUNT_ID = 'chequing-b';
+  // The one home for which household account a scheduled income stream lands in. The Canada Child Benefit lands in
+  // Weekly (chequing-b), as above; every other stream lands in Bills (chequing-a), which is what Forecast has always
+  // assumed for scheduled income (the Bills close and Current Balance). Read by billsAccountPeriodBalance (H2-8a).
+  function incomeDepositAccountId(streamId) {
+    return streamId === CHILD_BENEFIT_STREAM_ID ? CHILD_BENEFIT_ACCOUNT_ID : BILLS_ACCOUNT_ID;
+  }
 
   function weekdayUtc(iso) {
     if (!iso || !ISO_CALENDAR_DATE.test(String(iso))) return null;
@@ -15665,7 +15671,7 @@
       }
       const incomeOpts = resolveDalePayrollWalk(opts);
       for (const stream of plan.income || []) for (const date of occurrences(stream, day, cycle.end)) {
-        if (date <= day || settled(stream.id, date)) continue;
+        if (date <= day || settled(stream.id, date) || incomeDepositAccountId(stream.id) !== BILLS_ACCOUNT_ID) continue;
         let amount = streamAmount(stream, opts, plan);
         const adjustment = typeof incomeOpts.incomeOccurrenceAdjust === 'function'
           ? incomeOpts.incomeOccurrenceAdjust(stream, date, amount) : null;
@@ -15715,6 +15721,8 @@
             continue;
           }
           if (event.notReliedUpon || event.notReliedUponReason) continue;
+          // H2-8a: the Bills-only close counts only income that lands in Bills (incomeDepositAccountId).
+          if (incomeDepositAccountId(event.id) !== BILLS_ACCOUNT_ID) continue;
           if (!['confirmed', 'estimated'].includes(event.confidence)) {
             issue('income-unavailable', 'A future income amount is not qualified by the existing plan.'); continue;
           }
