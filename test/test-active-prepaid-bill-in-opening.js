@@ -13,8 +13,8 @@ function ok(cond, label, detail) {
   console.log((cond ? 'PASS ' : 'FAIL ') + label + (cond || detail === undefined ? '' : ' :: ' + JSON.stringify(detail)));
   if (!cond) failures++;
 }
-function world({ paid = true, postedOn = '2026-10-20', tx = {} } = {}) {
-  const openSnap = paid ? 1900 : 2000;
+function world({ paid = true, postedOn = '2026-10-20', tx = {}, amount = 100, verified = false, billId = 'internet', label = 'Internet' } = {}) {
+  const openSnap = paid ? 2000 - amount : 2000;
   const plan = {
     opening: { asOf: '2026-10-23', paydaySnapshot: { periodStart: '2026-10-23', asOf: '2026-10-23', opening: openSnap } },
     startingCash: { asOf: '2026-10-23', breakdown: [
@@ -22,7 +22,7 @@ function world({ paid = true, postedOn = '2026-10-20', tx = {} } = {}) {
       { id: 'chequing-b', value: 0, confidence: 'confirmed', evidenceDate: '2026-10-23' },
     ] },
     income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly', anchor: '2026-10-09', amount: 2000, confidence: 'confirmed' }],
-    bills: [{ id: 'internet', label: 'Internet', frequency: 'monthly', day: 28, amount: 100, confidence: 'confirmed' }],
+    bills: [{ id: billId, label, frequency: 'monthly', day: 28, amount: 100, confidence: 'confirmed' }],
     obligations: [], commitments: [], budget: { categories: [] },
   };
   const opts = { weeklyVariable: 0, debts: [] };
@@ -31,16 +31,16 @@ function world({ paid = true, postedOn = '2026-10-20', tx = {} } = {}) {
       schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-23',
       coverageStart: '2026-10-09', coverageThrough: '2026-10-23',
       transactionCoverage: 'complete', pendingCoverage: 'complete',
-      transactions: [Object.assign({ id: 'tx-net', date: postedOn, amount: 100, currency: 'CAD', atlasAccountId: 'chequing-a',
-        accountRole: 'household-cash', pending: false, savingsPostingEvidence: 'posted' }, tx)],
-      representedActuals: [{ id: 'internet', date: '2026-10-28', actual: 100, postedOn, transactionId: 'tx-net' }],
+      transactions: [Object.assign({ id: 'tx-net', date: postedOn, amount, currency: 'CAD', atlasAccountId: 'chequing-a',
+        accountRole: 'household-cash', pending: false, savingsPostingEvidence: 'posted' }, verified ? { billVerifiedNote: true } : {}, tx)],
+      representedActuals: [{ id: billId, date: '2026-10-28', actual: amount, postedOn, transactionId: 'tx-net' }],
     };
-    opts.representedEvents = [{ id: 'internet', date: '2026-10-28', postedOn, effectiveAsOf: postedOn }];
+    opts.representedEvents = [{ id: billId, date: '2026-10-28', postedOn, effectiveAsOf: postedOn }];
   }
   const a = F.recommend(plan, '2026-10-23', opts);
   const cur = a.payPeriodViews.find(v => v.start === '2026-10-23');
   const nxt = a.payPeriodViews.find(v => v.start === '2026-11-06');
-  return { cur, nxt, row: cur.bills.find(b => b.id === 'internet') };
+  return { cur, nxt, row: cur.bills.find(b => b.id === billId) };
 }
 
 console.log('\n=== 1. paid before the payday opening: the active close deducts it once ===');
@@ -66,6 +66,38 @@ console.log('\n=== 2. without native posted evidence before the opening, it is d
   ok(sameDay.plannedPeriodCloseTerms && sameDay.plannedPeriodCloseTerms.periodBillLoad === 100,
     'posted on the payday itself (snapshot is cash before that day): still deducted',
     sameDay.plannedPeriodCloseTerms && sameDay.plannedPeriodCloseTerms.periodBillLoad);
+}
+
+console.log('\n=== 3. an underpayment settles the whole occurrence only when verified (Codex P1 on #1594) ===');
+{
+  // Unverified 60 of 100: opening 1940. No relief, as on main: 1940 + 2000 - 100 = 3840 (cautious).
+  const under = world({ amount: 60 }).cur;
+  ok(under.plannedPeriodClose === 3840, 'unverified 60 of 100: still deducted in full (3840, never 3940)', under.plannedPeriodClose);
+  // Verified 80 of 100 (#1586's rule): the occurrence is settled at 80, already out of the 1920 opening.
+  const verified = world({ amount: 80, verified: true }).cur;
+  ok(verified.plannedPeriodClose === 3920, 'verified 80 of 100: settled, not deducted again (1920 + 2000)', verified.plannedPeriodClose);
+}
+
+console.log('\n=== 4. only a positive debit on the Bills account the opening holds (#1594 review) ===');
+{
+  for (const [label, tx] of [
+    ['a tied posted credit', { amount: -100 }],
+    ['a debit on the Savings reserve', { atlasAccountId: 'savings' }],
+    ['a debit on an external account', { atlasAccountId: 'external-x', accountRole: 'external' }],
+  ]) {
+    const c = world({ tx }).cur;
+    ok(c.plannedPeriodCloseTerms && c.plannedPeriodCloseTerms.periodBillLoad === 100, label + ': still deducted',
+      c.plannedPeriodCloseTerms && c.plannedPeriodCloseTerms.periodBillLoad);
+  }
+}
+
+console.log('\n=== 5. a scheduled fee allowance keeps its remainder in the close (#1594 review) ===');
+{
+  // tdfees 100 allowance, 40 posted 2026-10-20 (opening 1960). This PR gives
+  // fee rows no relief: the incumbent close deducts the period cost (100),
+  // 1960 + 2000 - 100 = 3860, as on main. Erasing the row would give 3960.
+  const fee = world({ amount: 40, billId: 'tdfees', label: 'Bank Fees' }).cur;
+  ok(fee.plannedPeriodClose === 3860, 'fee allowance: incumbent close kept, remainder not erased (3860, never 3960)', fee.plannedPeriodClose);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');

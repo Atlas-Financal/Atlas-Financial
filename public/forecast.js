@@ -9589,8 +9589,9 @@
   }
 
   // The posting date of the one transaction the ledger ties to this
-  // occurrence, only when that transaction carries native posted evidence
-  // (pending false and posting evidence 'posted', as #1578's finals read it).
+  // occurrence, only when that transaction is a positive Bills-account debit
+  // carrying native posted evidence (pending false and posting evidence
+  // 'posted', as #1578's finals read it).
   // Anything else (pending, unknown evidence, no tie, several ties or
   // transactions) is null.
   function nativePostedTieDate(opts, id, date) {
@@ -9604,6 +9605,12 @@
     if (rows.length !== 1) return null;
     const tx = rows[0];
     if (tx.pending !== false || tx.savingsPostingEvidence !== 'posted') return null;
+    // The payday opening is Bills cash (chequing-a): only a positive debit
+    // posted on that account is inside it. A credit, a Savings or external
+    // account debit, or an unknown account is not proof (#1594 review).
+    const debit = Number(tx.amount);
+    if (!(Number.isFinite(debit) && debit > 0) || tx.atlasAccountId !== BILLS_ACCOUNT_ID
+      || tx.accountRole !== 'household-cash') return null;
     const postedOn = financialDate(ties[0].postedOn) ? ties[0].postedOn : null;
     return postedOn && financialDate(tx.date) && tx.date === postedOn ? postedOn : null;
   }
@@ -11928,10 +11935,14 @@
       // opening already holds the payment. Record the posting date; the one
       // decision, paidBillAlreadyInPaydayOpening, then leaves it out of the
       // close. Paid state is unchanged; a pending or unknown posting records
-      // nothing and the row is deducted as before.
+      // nothing and the row is deducted as before. As for future rows, only a
+      // posting that covers the plan, or a verified one, settles the whole
+      // occurrence; an unverified underpayment keeps its full deduction. A
+      // scheduled fee allowance keeps its incumbent remainder in the close.
       if (window.role === 'active' && window.start && row.date && row.date >= window.start
           && row.status === 'PAID' && row.settlement === 'represented'
-          && represented && represented.has(row.id + '@' + row.date)) {
+          && represented && represented.has(row.id + '@' + row.date)
+          && !row.scheduledFeeAllowance && (coversOccurrence || verifiedSettles)) {
         const postedOn = nativePostedTieDate(opts, row.id, row.date);
         if (postedOn && postedOn < window.start) prepaidBillSettledBy.set(row, postedOn);
       }
