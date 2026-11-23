@@ -374,7 +374,7 @@ function postedBalanceEvidenceInstant(account) {
   return account.updatedAt || account.dateLastFetched || null;
 }
 
-// Live cash / mortgage / HELOC keep the prior object-update dating so
+// Other non-cash, non-credit roles keep the prior object-update dating so
 // daily-refreshed accounts are not silently retimed by a leftover
 // balance_as_of. This is not statement-cadence freshness.
 function genericAccountEvidenceInstant(account) {
@@ -386,6 +386,18 @@ function genericAccountEvidenceInstant(account) {
     || (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
       ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null)
     || null;
+}
+
+// Mortgage / HELOC balances are dated by their own balance date only:
+// legacy balance_as_of, then the validated v2 balance_last_update. An
+// object update (updated_at) or a sync time (date_last_fetched) says when
+// the record was touched, not when the balance was true, so a loan with no
+// genuine balance date is undated (unknown), never current.
+function loanBalanceEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  if (account.balanceAsOf) return account.balanceAsOf;
+  return Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
+    ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null;
 }
 
 function normalizeLunchMoneyCategory(raw) {
@@ -2653,19 +2665,39 @@ function observationFingerprintDigest(fingerprint) {
   return crypto.createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
 }
 
+// The one rule for whether the savings cash balance is a REQUIRED live
+// cash balance: it is while savings earmarks are not yet set up. The live
+// overlay's freshness gates and the household date both read this.
+function savingsCashRequired(plan, asOf) {
+  return !plan || Forecast.savingsEarmarksState(plan, asOf).status === 'setup-unknown';
+}
+
 // Schedule-trust uses one provider/household financial date.
 // fetchedAt and the process clock are fetch timestamps, not as-of.
-function householdDateFromProviderEvidence(observations) {
+function householdDateFromProviderEvidence(observations, plan) {
+  // Only required, known cash balances date the household. Savings is
+  // required exactly when the live overlay's freshness gate requires it
+  // (earmarks not yet set up); otherwise a stale savings date would pull
+  // the schedule-trust date back and switch off the early-income check.
+  const known = id => (observations || []).find(o =>
+    o
+    && o.canonical
+    && o.canonical.collection === 'cash'
+    && String(o.canonical.id) === id
+    && o.unknown !== true
+    && o.evidenceValue != null
+    && isFinite(Number(o.evidenceValue)));
+  const dayOf = obs => dateOnly(obs && (obs.evidenceDate || obs.observedAsOf));
   const dates = [];
   for (const id of REQUIRED_LIVE_CASH_IDS) {
-    const obs = (observations || []).find(o =>
-      o
-      && o.canonical
-      && o.canonical.collection === 'cash'
-      && String(o.canonical.id) === id
-      && o.evidenceValue != null
-      && isFinite(Number(o.evidenceValue)));
-    const day = dateOnly(obs && (obs.evidenceDate || obs.observedAsOf));
+    if (id === 'savings') continue;
+    const day = dayOf(known(id));
+    if (day) dates.push(day);
+  }
+  dates.sort();
+  const savingsRequired = !dates.length || savingsCashRequired(plan, dates[dates.length - 1]);
+  if (savingsRequired) {
+    const day = dayOf(known('savings'));
     if (day) dates.push(day);
   }
   if (!dates.length) return null;
@@ -2676,7 +2708,8 @@ function householdDateFromProviderEvidence(observations) {
 function householdFinancialDate(input, observations) {
   const explicit = dateOnly(input && (input.asOf || input.householdDate));
   if (explicit) return explicit;
-  return householdDateFromProviderEvidence(observations);
+  const plan = input && ((input.data && input.data.plan) || input.plan);
+  return householdDateFromProviderEvidence(observations, plan || null);
 }
 
 function observationReceipt(report, opts) {
@@ -4720,11 +4753,12 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
   const usesPostedDate = isCredit || isCash;
   const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+    : isCash ? cashBalanceEvidenceInstant(account)
+      : isLoan ? loanBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
   // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
   // request timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly. Mortgage/HELOC keep their incumbent generic dating,
-  // but never borrow the request time: an undated or future-dated loan balance
+  // the same helper directly. Mortgage/HELOC are dated by their balance date only
+  // (loanBalanceEvidenceInstant) and never borrow the request time: an undated or future-dated loan balance
   // is unknown, not current.
   const observedAt = usesPostedDate || isLoan ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
@@ -8437,6 +8471,8 @@ const api = {
   postedBalanceEvidenceInstant,
   cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
+  loanBalanceEvidenceInstant,
+  savingsCashRequired,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,
   observationsFromMappedAccount,

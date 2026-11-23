@@ -380,6 +380,12 @@ No build is started until the open PRs land (Dale's ask). Each fix is its own PR
 
 `scripts/provider-observe.js` `recurringObligationSchedule` builds `oldRow` and `newRow` (monthly, day, firstDue) for its cutover-safety comparison without the plan row's `lastDue`. An ended Lunch Money item is refused, but a plan row that has its own `lastDue` is not, so the "next occurrence" it compares can fall after the row has ended. This is ledger-side timing review (rule 17): it publishes no figure and only decides whether a proposed day change is safe. The next action is to ask Grok Bot whether an ended plan row should be refused (like an ended item) or bounded, then build as agreed.
 
+<a id="savings-required-rule-copies"></a>
+
+**"Savings is a required cash balance" is still written out in several places** · **ADDED TO BACKLOG — OPEN** · *found while building #1606; pre-existing on main*
+
+#1606 adds `savingsCashRequired(plan, asOf)` in `scripts/provider-observe.js` and uses it in the live freshness gates and the household date. Older copies of the same test (`savingsEarmarksState(...).status === 'setup-unknown'`, some judged at `'9999-12-31'`) remain in `scripts/live-plan.js` (savings pool observation, canonical and served savings, the evidence-day check) and in `scripts/provider-observe.js` (pool requirement and receipt). The next action is to derive each from `savingsCashRequired`, or to record why its reference date differs, with a test per site.
+
 <a id="active-prepaid-bill-close"></a>
 
 **A bill paid before the active period's payday opening is deducted again from that close** · **ADDED TO BACKLOG — OPEN** · *H2-7, Gemini hunt 2 (#821 7091517953); retired by desk ruling and lead, #1594 closed without merging (7098398666)*
