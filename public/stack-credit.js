@@ -144,8 +144,9 @@
     // (' stack-est' or ''), never a published string.
     const tone = r.tone ? ` is-${r.tone}` : '';
     const xSoft = r.x == null ? '' : r.xSoft;
+    const targetSoft = r.targetSoft;
     return `<span class="stack-credit-x${tone}${xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
-      + (r.target != null ? `<i class="stack-credit-of${r.targetSoft}"> / ${esc(money(r.target))}</i>` : r.targetOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
+      + (r.target != null ? `<i class="stack-credit-of${targetSoft}"> / ${esc(money(r.target))}</i>` : r.targetOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   };
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
