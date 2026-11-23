@@ -12,6 +12,7 @@
  * Driven through the rendered waterfall with the real shell, waterfall and Credit block. Invented ids, names and amounts.
  * `node test/test-stack-credit-minimum-checks.js`
  */
+const { standIn } = require('./lib/stack-credit-target');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -31,7 +32,8 @@ function load(waterfallSource = read('public/stack-waterfall.js')) {
   vm.runInContext(read('public/stack-shell.js'), ctx);
   const fns = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
-  ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
+  // Desk ruling (E): the Credit lines are Forecast's view publication; standIn places the stubbed lines there first.
+  ctx.StackBlocks.register = (name, fn) => { fns[name] = standIn(fn); register(name, fns[name]); };
   vm.runInContext(waterfallSource, ctx);
   vm.runInContext(read('public/stack-credit.js'), ctx);
   return fns;

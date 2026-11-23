@@ -18,7 +18,7 @@
  * `node test/test-stack-trust.js`
  */
 const assert = require('node:assert/strict');
-const { withTargets } = require('./lib/stack-credit-target');
+const { withTargets, standIn } = require('./lib/stack-credit-target');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -36,8 +36,11 @@ function load() {
   vm.runInContext(read('public/stack-shell.js'), ctx);
   const fns = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
-  ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
+  // Desk ruling (E): the Credit lines are Forecast's view publication; standIn places the stubbed lines there first.
+  // Every block: the waterfall and the cards read the same view publication (through StackCredit) before the Credit card.
+  ctx.StackBlocks.register = (name, fn) => { fns[name] = standIn(fn); register(name, fns[name]); };
   for (const f of ['waterfall', 'cards', 'credit', 'sheet']) vm.runInContext(read(`public/stack-${f}.js`), ctx);
+  if (ctx.StackSheet && typeof ctx.StackSheet.html === 'function') ctx.StackSheet.html = standIn(ctx.StackSheet.html);
   return { win: ctx, fns };
 }
 const container = () => ({ innerHTML: '', addEventListener: () => {}, querySelector: () => null });

@@ -67,10 +67,10 @@ for (const id of IDS) {
   const boot = calls.filter(c => c.state === 'boot').map(c => c.fn);
   ok(JSON.stringify(boot) === JSON.stringify(['budgetRecommendInputs', 'recommend']) && calls.filter(c => c.state === 'boot').every(c => /^public\/stack-shell\.js#/.test(c.route)),
     `${id}: at boot the shell builds the inputs, then recommends`, boot.join(','));
-  const per = fn => calls.filter(c => c.fn === fn && c.state.startsWith('stack:'));
-  ok(per('cardPeriodMovements').length === n && per('stackCreditLines').length === n && calls.length === 2 + 2 * n
-    && per('cardPeriodMovements').every(c => /^public\/stack-credit\.js#/.test(c.route)),
-  `${id}: one cardPeriodMovements and one stackCreditLines per period, from the Credit block (sheet reads share them)`, `${calls.length} calls, ${n} periods`);
+  // Desk ruling (E) (#1573): the Credit lines are Forecast's view publication (stackSummary.credit), read from the advice;
+  // no block calls a card function of its own, in any period.
+  ok(calls.length === 2 && !calls.some(c => c.fn === 'cardPeriodMovements' || c.fn === 'stackCreditLines'),
+  `${id}: only the boot reads; the Credit block reads the view's published lines (no per-period card call)`, `${calls.length} calls, ${n} periods`);
   ok(calls.every(c => c.error === null), `${id}: no read threw`);
 }
 
@@ -78,12 +78,13 @@ console.log('4. what is recorded is what Forecast returns for those arguments');
 {
   const plain = v => JSON.parse(JSON.stringify(v === undefined ? null : v));
   const cap = caps['stack-card-summary'];
-  const lines = cap.stackCalls.filter(c => c.fn === 'stackCreditLines');
-  ok(lines.length > 0 && lines.every(c => JSON.stringify(plain(Forecast.stackCreditLines(...c.args))) === JSON.stringify(plain(c.result))),
-    'every recorded stackCreditLines result equals the host Forecast\'s for the same arguments');
-  const moves = cap.stackCalls.filter(c => c.fn === 'cardPeriodMovements');
-  ok(moves.length > 0 && moves.every(c => JSON.stringify(plain(Forecast.cardPeriodMovements(...c.args))) === JSON.stringify(plain(c.result))),
-    'every recorded cardPeriodMovements result equals the host Forecast\'s for the same arguments');
+  // Desk ruling (E): the Credit lines the page prints are Forecast's view publication, so the boot recommend (its recorded
+  // arguments, through the host Forecast) publishes them on the views the page walks.
+  const boot = cap.stackCalls.find(c => c.fn === 'recommend');
+  const advice = boot ? Forecast.recommend(...boot.args) : null;
+  const views = advice && Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
+  ok(views.length > 0 && views.some(v => v.stackSummary && v.stackSummary.credit && v.stackSummary.credit.lines.length > 0),
+    'the boot recommend, recomputed by the host Forecast, publishes the Credit lines on the views the page reads');
 }
 
 console.log('5. non-vacuity: where the Stack page would not run, the capture says so');
@@ -174,14 +175,15 @@ console.log('7. the evidence keys');
   const again = {};
   Snapshot.__putStackCaptureEvidence(again, '', capture('stack-card-summary'));
   ok(JSON.stringify(again) === JSON.stringify(ev), 'deterministic: a second capture of the same input gives the same keys');
-  // A change in how the Credit block asks moves its arguments' digest (and only that).
-  const dir = copyRoot({ 'stack-credit.js': ['d.meta && d.meta.asOf', "'2020-01-01'"] });
+  // A change in how the shell asks moves its recommend's arguments digest (and only that). Desk ruling (E): the Credit block
+  // asks Forecast nothing of its own; its lines come with that recommend.
+  const dir = copyRoot({ 'stack-shell.js': ['Forecast.recommend(d.plan, d.meta && d.meta.asOf,', "Forecast.recommend(d.plan, '2020-01-01',"] });
   try {
     const moved = {};
     Snapshot.__putStackCaptureEvidence(moved, '', capture('stack-card-summary', dir));
     const diff = Object.keys(ev).filter(k => ev[k] !== moved[k]);
-    ok(diff.length > 0 && diff.every(k => /^stack\.capture\.o\d+$/.test(k) && ['cardPeriodMovements', 'stackCreditLines'].includes(ev[k].split('|')[1])),
-      'asking cardPeriodMovements for another date moves the Credit reads\' digests and nothing else', diff.slice(0, 4).join(','));
+    ok(diff.length > 0 && diff.every(k => /^stack\.capture\.(o\d+|states|count|state\.\d+)$/.test(k)) && diff.some(k => /^stack\.capture\.o\d+$/.test(k) && ev[k].split('|')[1] === 'recommend'),
+      'asking recommend for another date moves its arguments\' digest (and the states it renders), nothing else', diff.slice(0, 4).join(','));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 

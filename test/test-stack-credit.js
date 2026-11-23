@@ -30,12 +30,35 @@ function load(creditSrc) {
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(read('public/stack-shell.js'), ctx);
-  const fns = {};
+  const fns = {}, raw = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
-  ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
+  // Desk ruling (E) (#1573): Forecast publishes the Credit lines on the view (stackSummary.credit) and the page reads them
+  // there. This stand-in plays Forecast: it places the stubbed publication (ctx.Forecast.stackCreditLines, called as Forecast
+  // calls it) on the selected view before the card reads it; with no stub, the view carries none.
+  ctx.StackBlocks.register = (name, fn) => {
+    raw[name] = fn;
+    fns[name] = (el, c) => { publishCredit(c); return fn(el, c); };
+    register(name, fns[name]);
+  };
   vm.runInContext(creditSrc || read('public/stack-credit.js'), ctx);
   vm.runInContext(read('public/stack-sheet.js'), ctx);
-  return { win: ctx, fns };
+  // A sheet opened directly reads the same view publication: the stand-in places it first, as for the card.
+  if (ctx.StackSheet && typeof ctx.StackSheet.html === 'function') {
+    const sheetHtml = ctx.StackSheet.html;
+    ctx.StackSheet.html = (c, ...rest) => { publishCredit(c); return sheetHtml(c, ...rest); };
+  }
+  return { win: ctx, fns, raw };
+}
+function publishCredit(c) {
+  const views = c && c.recommendation && Array.isArray(c.recommendation.payPeriodViews) ? c.recommendation.payPeriodViews : [];
+  const view = views.find(v => v && v.start === c.selectedPeriodKey);
+  if (!view) return;
+  const F = c.Forecast || {};
+  const pub = typeof F.cardPeriodMovements === 'function'
+    ? F.cardPeriodMovements(c.plan, c.data && c.data.debts, c.data && c.data.meta && c.data.meta.asOf, { start: view.start, end: view.end },
+      { liveOverlay: null }) : null;
+  const credit = typeof F.stackCreditLines === 'function' ? F.stackCreditLines(pub, view.stackSummary ? view.stackSummary.bills : null) : null;
+  view.stackSummary = { ...(view.stackSummary || {}), credit: credit || null };
 }
 const container = () => ({ innerHTML: '', addEventListener: () => {}, querySelector: () => null });
 const text = html => html.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -138,11 +161,19 @@ console.log('2. closed card: "paid / card minimums due"');
     const { fns } = load();
     const el = container();
     fns.credit(el, { ...context(TOTALS.complete), Forecast: { cardPeriodMovements: () => ({}) } });
-    ok(el.innerHTML === '', 'without Forecast.stackCreditLines (A6b not yet on main) the card renders nothing');
+    ok(el.innerHTML === '', 'with no Credit publication on the view (stackSummary.credit) the card renders nothing');
   }
-  const [args, linesCall] = complete.calls;
-  ok(args[3].start === VIEW.start && args[3].end === VIEW.end && args[4].liveOverlay === null && linesCall[2] === VIEW.stackSummary.bills,
-    'reads the selected period, the applied overlay (none here) and view.stackSummary.bills');
+  // Desk ruling (E): the real renderer (no stand-in) prints the selected view's published Credit lines and needs no
+  // Forecast function: Forecast here has none.
+  {
+    const { raw } = load();
+    const el = container();
+    const c = context(TOTALS.complete);
+    const view = { ...VIEW, stackSummary: { ...VIEW.stackSummary, credit: { lines: withTargets(LINES), totals: TOTALS.complete } } };
+    raw.credit(el, { ...c, recommendation: { ...c.recommendation, payPeriodViews: [view] }, Forecast: {} });
+    ok(text(el.innerHTML).startsWith('Credit paid / card minimums due $120 / $345 Blue Visa'),
+      'the card prints the view\'s published Credit lines, calling no Forecast function', text(el.innerHTML).slice(0, 60));
+  }
 }
 
 // The six states of a row's "X / minimum", as one function so the mutants below can run it against altered source.
