@@ -209,6 +209,20 @@ assert(amounts(nt).length === 0 && !/sc-full/.test(nt) && /<i style="width:0%">/
   ['current', 'next', 'future', 'past', undefined].forEach(role => { const w = withSavings(POURED); w.timelineRole = role; assert(savingsOf(w) !== null, 'the card follows what Forecast publishes, not the role: ' + role); });
 }
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
+// When all the goals are due, Forecast publishes the balance as the head and the remainder as the only row.
+const balanceCard = (balance, unallocated, balanceTrust, trust) => savingsOf(withSavings({
+  items: [], totals: { balance, unallocated, balanceHeadTrust: balanceTrust, trust }
+}));
+const allDue = balanceCard(100, 15, 'calculated', 'estimated');
+assert(allDue && txt(allDue).includes('Savings Balance $100') && /class="sc-f">\$100<\/span>/.test(allDue),
+  'the reported balance heads the all-due card with its own trust');
+assert(/Unallocated<\/b><\/span><span class="sc-a stack-est">\$15<\/span>/.test(allDue) && amounts(allDue).length === 2,
+  'only the remaining money is shown as unallocated, with the weaker need trust');
+assert(txt(balanceCard(50, 0, 'calculated', 'estimated')).includes('Unallocated $0'), 'an exhausted balance explicitly shows zero left');
+const unknownDue = balanceCard(50, null, 'estimated', 'unavailable');
+assert(/class="sc-f stack-est">\$50<\/span>/.test(unknownDue) && txt(unknownDue).includes('Unallocated —'),
+  'the dated balance stays estimated when the unallocated amount is unknown');
+assert(amounts(balanceCard(null, null, 'unavailable', 'unavailable')).length === 0, 'unavailable all-due figures show dashes');
 
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
