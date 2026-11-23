@@ -2065,12 +2065,18 @@ function statementCloseDayForEvent(plan, event) {
   return Number(day);
 }
 
+// H2-3: a statement closes at least STATEMENT_MIN_GRACE_DAYS before its own
+// due date, so a due date moved later by a weekend or holiday keeps its own
+// statement instead of borrowing a close day a few days earlier. A week is
+// well inside every modelled card's grace gap (about 15 to 27 days).
+const STATEMENT_MIN_GRACE_DAYS = 7;
 function statementCloseDateForDue(dueDate, closeDay) {
   const due = parseIsoDate(dueDate);
   if (!due || !isFinite(Number(closeDay))) return null;
   const [year, month] = due.split('-').map(Number);
   const thisMonth = dateWithClampedDay(year, month, closeDay);
-  if (thisMonth && thisMonth < due) return thisMonth;
+  const gap = thisMonth ? calendarDaysBetween(thisMonth, due) : null;
+  if (thisMonth && gap != null && gap >= STATEMENT_MIN_GRACE_DAYS) return thisMonth;
   let priorYear = year;
   let priorMonth = month - 1;
   if (priorMonth < 1) {
@@ -3500,6 +3506,9 @@ function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
   // The paired payment itself must post inside the cycle: a payment before
   // the cycle starts, or after the statement is due, pays no part of it.
   if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
+  // An issuer minimum still owing already reflects payments through its read date.
+  const reflectedThrough = Forecast.statementPaymentsReflectedThrough(plan, rule.eventId, original);
+  if (reflectedThrough && tx.date <= reflectedThrough) return false;
   const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
     && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
   return others.length === 0;
@@ -5840,7 +5849,7 @@ function identifiedHistoryPayments(history, opts) {
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
   // minimum), a revolving card's debt, a non-cash or capitalising leg (the
-  // HELOC), or a once schedule is never a candidate.
+  // HELOC), a dated amountSchedule, or a once schedule is never a candidate.
   // An id named by more than one plan row (two bills, two obligations, or a
   // bill and an obligation) is ambiguous, so it is never a candidate.
   const idCount = new Map();
@@ -5857,6 +5866,7 @@ function identifiedHistoryPayments(history, opts) {
   };
   const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
     && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && o.amountSchedule === undefined
     && !revolving(o);
   const bills = new Map();
   for (const b of plan.bills || []) {
@@ -7772,6 +7782,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
       for (const localId of localIds) linkedLocalIds.add(localId);
+      // H2-6 (Grok Bot, Plan #6, 2026-11-23; desk adoption): a closed provenance label, set only when this tie is
+      // the provider's own matched occurrence: the candidate's relation is Lunch Money's unique, qualified match for
+      // this exact occurrence (stampLunchMoneyMatched, LM_MATCHED_RELATION) with exactly one payment. Never on a rule
+      // opt-in, a recurring item id alone, or Atlas's payee or date inference. It carries no provider id.
+      if (candidate.postingDateRelation === LM_MATCHED_RELATION && localIds.length === 1) row.occurrenceLink = 'provider-matched';
     } else if (candidate.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
       // The owner's rule settles this occurrence on its due date at the
       // scheduled amount; no bank transaction was seen. Say so on the

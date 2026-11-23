@@ -267,6 +267,8 @@ console.log('8. The assistant packet: forward walks withheld, the rest estimated
     const ft = flat(packetOf(truthRows));
     for (const [k, v] of Object.entries(fd)) {
       if (typeof v !== 'number' || typeof ft[k] !== 'number' || /At$|asOf|Count$|days|Days/i.test(k)) continue;
+      // What a bill row still owes may only be overstated (H2-9: a covered minimum owes 0 in the truth).
+      if (/^forecast\.currentPeriodAction\.bills\.\d+\.remaining$/.test(k)) { check(v >= ft[k] - 0.005, `packet ${k}: ${v} >= truth ${ft[k]}`); continue; }
       check(v <= ft[k] + 0.005, `packet ${k}: ${v} <= truth ${ft[k]}`);
     }
   }
@@ -281,7 +283,7 @@ console.log('9. Every published figure on the cautious side of the truth');
   const Snapshot = require('../scripts/figures-snapshot');
   const snapOf = (rows, opts) => { const o = Live.fromObservation(world(rows, opts)); return Snapshot.buildFiguresSnapshot(o.data, o.data.periods || null); };
   // Higher is the cautious direction for these: what is still owed or reserved.
-  const CAUTIOUS = [/^totals\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
+  const CAUTIOUS = [/^totals\.obligations$/, /^payday\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
     /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/];
   // The single named pre-existing exception (#1358, lead's call): the Plan
   // tab's raw walk, drawn only inside the hidden, inert #road-ahead (#1365).
