@@ -7373,9 +7373,11 @@
     const merchantOf = tx => normalizeMerchantKey(txMerchantExact(tx));
     const posted = [];
     for (const tx of txs) {
-      // The replacement must be posted by the ledger itself (pending is not true): a pending row Forecast only presumes
-      // settled for planning is not a posted final (review 7089951090, finding 2).
-      if (!tx || tx.id == null || String(tx.id) === '' || tx.pending === true || transactionPendingState(tx) !== 'posted'
+      // The replacement must be posted by the ledger itself, with native posted evidence (pending false and posting
+      // evidence 'posted'): a pending row Forecast only presumes settled for planning, or a row whose posting evidence
+      // is unknown, is not a posted final (reviews 7089951090 finding 2, 7092825238).
+      if (!tx || tx.id == null || String(tx.id) === '' || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
+        || transactionPendingState(tx) !== 'posted'
         || tx.isGroup === true || tx.accountRole !== 'revolving-credit' || repeatedId(tx) || notPurchase(tx)
         || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
       const account = tx.atlasAccountId || tx.account;

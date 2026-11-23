@@ -247,6 +247,19 @@ console.log('4. (B) A pending hold superseded by its posted final charge');
   // Review 7089951090, finding 2: only a row the ledger itself posted is a final, in CAD and whole cents.
   ok(sup([row('hold', HOLD, { ...store }), row('final', REAL, { ...store, pendingTreatment: 'presumed-settled-for-current-forecast' })]).length === 0,
     'a second pending row Forecast only presumes settled is not a posted final: the hold is not superseded');
+  // Review 7092825238: the observer emits pending false with posting evidence 'unknown' when the source's posting
+  // evidence is missing or unqualified. Only native posted evidence ('posted') makes a final.
+  ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, savingsPostingEvidence: 'unknown' })]).length === 0,
+    'a non-pending row whose posting evidence is unknown is not a posted final: the hold is not superseded');
+  {
+    const noEvidence = posted('final', REAL, { ...store }); delete noEvidence.savingsPostingEvidence;
+    ok(sup([row('hold', HOLD, { ...store }), noEvidence]).length === 0, 'a non-pending row with no posting evidence is not a posted final');
+    ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, savingsPostingEvidence: 'posted' })]).length === 1,
+      'control: pending false with posting evidence posted supersedes');
+    const g = budget([row('hold', HOLD, store), posted('final', REAL, { ...store, savingsPostingEvidence: 'unknown' })]).groceries;
+    ok(budget([row('hold', HOLD, store), posted('final', REAL, { ...store, savingsPostingEvidence: 'unknown' })]).rows
+      .flatMap(r => r.recon || []).some(r => r.id === 'hold'), 'Budget: beside an unknown-evidence final the hold is still a counted line', String(g.spent));
+  }
   ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, currency: 'usd' })]).length === 0,
     'a foreign-currency posted row does not supersede a CAD hold');
   ok(sup([row('hold', HOLD, { ...store }), posted('final', 116.855, { ...store })]).length === 0,
