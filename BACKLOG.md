@@ -319,6 +319,19 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+<a id="satisfied-minimum-future-close"></a>
+
+**A satisfied card minimum already in cash is deducted again from a future cash close** · **ADDED TO BACKLOG — OPEN** · *H2-5, Gemini hunt 2 (#821 7091517953); desk ruling (Plan #6) adopted (2), and #1589 was closed without merging (7096030824)*
+
+Known cautious limit: a future card minimum keeps its Planned row with money sent shown separately. When Forecast's settlement decision proves the issuer satisfied that exact statement occurrence and the sent debit is already in the household cash, the future period's cash close (`paydaySweep` / `plannedPeriodClose`) still deducts the minimum. The close can therefore understate cash by up to one minimum, never overstate it. #1589 tried a relief and drew three blockers in a row: a carry-forward from a payday snapshot taken before the debit; a cutover walk seeded by a balance dated before the debit; and a split send, where the seed check read only one of several contributing debits.
+
+Design conditions from the ruling, for any later attempt:
+- Use the settlement decision's full set of contributing debits, never a record re-derived from the first send.
+- Prove that each of them is included in the funding-account balance that seeds that close. If any one cannot be proven, there is no relief.
+- Keep the Planned row, the planned bill load and Balance After Deductions unchanged; only the cash close may move.
+
+Proof would be invented split-send, pre-debit-seed and carry-forward controls that get no relief, beside one fully proven case whose close moves by exactly one minimum.
+
 <a id="linked-posted-bill-payment"></a>
 
 **A pending copy of a linked, posted bill payment blocks Stack's Paid check. Expected: the bill stays Paid.** · **ADDED TO BACKLOG — OPEN** (C1 Check 6.19)
