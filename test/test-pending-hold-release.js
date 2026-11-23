@@ -233,6 +233,18 @@ console.log('4. (B) A pending hold superseded by its posted final charge');
     'a posted row with fractional cents does not supersede');
   ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, currency: 'CAD' })]).length === 1,
     'control: a genuine posted CAD final does supersede');
+  // Review 7090113373: the card publication's own money qualification (CardPeriodMovement.qualifiedMoney) gates both rules.
+  const unqualified = [['a missing currency', { currency: undefined }], ['a currency conflict flag', { coverageCurrencyConflict: true }],
+    ['an unconfirmed settlement flag', { currencySettlementUnconfirmed: true }]];
+  for (const [label, flaw] of unqualified) {
+    ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, ...flaw })]).length === 0,
+      'a posted final with ' + label + ' does not supersede a valid CAD hold');
+    ok(pairsOf([row('hold', HOLD), row('release', -HOLD, { category: null, ...flaw })]).length === 0,
+      'a release with ' + label + ' is not consumed, so the valid CAD hold stays');
+    const bb = budget([row('hold', HOLD, store), posted('final', REAL, { ...store, ...flaw })]);
+    const ids = bb.rows.flatMap(r => r.recon || []).map(r => r.id);
+    ok(ids.includes('hold'), 'Budget: beside a final with ' + label + ', the valid hold is still a counted line', JSON.stringify(ids));
+  }
   ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store }), posted('final', REAL, { ...store, date: '2026-08-21' })]).length === 0,
     'a posted id the packet carries twice supersedes nothing');
   {

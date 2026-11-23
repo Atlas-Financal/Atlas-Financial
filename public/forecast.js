@@ -7140,16 +7140,14 @@
         || tx.isGroup === true || duplicateIds.has(String(tx.id)) || repeatedId(tx)
         || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) return null;
       const account = tx.atlasAccountId || tx.account;
-      const amount = Number(tx.amount);
-      const cents = isFinite(amount) ? Math.round(amount * 100) : NaN;
       const at = day(tx.date);
       // Card accounts only: an authorization hold is card behaviour. A pending row on household cash (a bill payment,
       // a transfer) stays with its incumbent owners and is never a leg (test-pending-then-posted-bill-once).
       if (tx.accountRole !== 'revolving-credit') return null;
-      // CAD and whole cents only, the card publication's own qualification: a row it would withhold is never a leg.
-      if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
-      if (!isFinite(amount) || Math.abs(amount * 100 - cents) > 1e-6) return null;
-      if (!account || !Number.isSafeInteger(cents) || cents === 0 || !isFinite(at)) return null;
+      // The card publication's own money qualification (CardPeriodMovement.qualifiedMoney): a row it would withhold is
+      // never a leg (review 7090113373).
+      const cents = CardPeriodMovement.qualifiedMoney(tx, savingsCents);
+      if (!account || cents === null || cents === 0 || !isFinite(at)) return null;
       return { tx, id: String(tx.id), account: String(account), cents, at, date: tx.date,
         category: normalizeCategoryLabel(tx.categoryLabel) };
     };
@@ -7190,14 +7188,11 @@
         || tx.isGroup === true || tx.accountRole !== 'revolving-credit' || repeatedId(tx)
         || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
       const account = tx.atlasAccountId || tx.account;
-      const amount = Number(tx.amount);
-      const cents = isFinite(amount) ? Math.round(amount * 100) : NaN;
       const at = day(tx.date);
       const merchant = merchantOf(tx);
-      // The same qualification as a pending leg: CAD and whole cents only.
-      if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') continue;
-      if (!isFinite(amount) || Math.abs(amount * 100 - cents) > 1e-6) continue;
-      if (!account || !Number.isSafeInteger(cents) || cents <= 0 || !isFinite(at) || !merchant) continue;
+      // The same money qualification as a pending leg, the card publication's own.
+      const cents = CardPeriodMovement.qualifiedMoney(tx, savingsCents);
+      if (!account || cents === null || cents <= 0 || !isFinite(at) || !merchant) continue;
       posted.push({ id: String(tx.id), account: String(account), cents, at, date: tx.date, merchant });
     }
     const candidates = [];

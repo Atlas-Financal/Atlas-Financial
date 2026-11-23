@@ -76,8 +76,7 @@
       && point.currency === 'CAD' && cents(point.amount, true) !== null
       && point.date === day && date(point.date) && point.temporalClaim === claim
       && typeof point.evidenceRef === 'string' && point.evidenceRef.trim().length > 0;
-    const safeMoney = tx => tx?.coverageCurrencyConflict !== true && tx?.currencySettlementUnconfirmed !== true
-      && typeof tx?.currency === 'string' && tx.currency.trim().toLowerCase() === 'cad' ? cents(tx.amount, true) : null;
+    const safeMoney = tx => qualifiedMoney(tx, cents);
     const pointFact = point => point ? { amount: cents(point.amount, true) === null ? null : point.amount,
       date: date(point.date) ? point.date : null, temporalClaim: point.temporalClaim || null } : null;
     const cards = identities.map(([id, label]) => {
@@ -619,5 +618,12 @@
         reasons: noBalance.length ? ['some-balances-unavailable'] : [] };
     return { lines, totals };
   }
-  return { publish, stackCards, stackCreditLines };
+  // The one money qualification for a card row: explicit CAD, no currency conflict or unconfirmed settlement, and a
+  // strict cents value (the caller's incumbent primitive), else null. The card publication and
+  // Forecast.pendingHoldReleases both read it, so a row the card would withhold never drops a hold.
+  function qualifiedMoney(tx, cents) {
+    return tx?.coverageCurrencyConflict !== true && tx?.currencySettlementUnconfirmed !== true
+      && typeof tx?.currency === 'string' && tx.currency.trim().toLowerCase() === 'cad' ? cents(tx.amount, true) : null;
+  }
+  return { publish, stackCards, stackCreditLines, qualifiedMoney };
 });
