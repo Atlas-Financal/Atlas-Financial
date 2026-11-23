@@ -19,8 +19,8 @@
  *   stackSummary.bills.paid / .paidTrust  the Bills head's paid figure (Dale 2026-11-20 "bills needs the paid/owed")
  *   budgetProgress.household.actual.amount / .planned.amount      (existing)
  *   householdBudget[] rows: label, spent, planned                 (existing)
- *   stackSummary.savings.items[] {label, saved, needed, trust} and .totals {balance, saved, needed, unallocated,
- *     trust, reasons[]}  (owner rule 2026-11-20: the balance poured nearest due first; plain numbers or null)
+ *   stackSummary.savings.items[]: goal progress and held members, including overdue claims
+ *   stackSummary.savings.totals: reported and allocatable balances, saved, needed, held, unallocated and deficit
  */
 (function (root) {
   'use strict';
@@ -201,20 +201,20 @@
     return strip('budget', 'Budget', '', head, money(planned), fill(spent, planned), cats.length ? body : '', ' / ', null, hhEst, true, 'spent / budget');
   }
 
-  // Savings (owner rule, Dale 2026-11-20): the savings balance poured into the goals, nearest due first. Forecast
-  // pours; this card prints. Head "$saved / $needed" with a bar; open, one row per goal, "$saved / $needed" with its
-  // own small bar, then what is left over as Unallocated (only when Forecast publishes it above $0). A withheld figure
-  // is a dash, never $0 and never hidden: the goal names always show. Forecast publishes the card for the current
-  // and next periods only (stackSummary.savings is null elsewhere, and then there is no card).
+  // Forecast publishes the effective balance and each claim on it. Keep cents on this card
+  // so the visible saved, held and unallocated amounts reconcile to the displayed balance.
+  function savingsMoney(v) {
+    return isNum(v) ? root.StackBlocks.money(v, { cents: true }) : null;
+  }
+
   function savingsCard(view) {
     var sv = get(view, ['stackSummary', 'savings']);
     if (!sv || typeof sv !== 'object') return '';
     var items = Array.isArray(sv.items) ? sv.items.filter(function (i) { return i && i.label; }) : [];
-    if (!items.length) return ''; // no savings goals at all: no card
     var t = sv.totals || {};
-    var saved = money(t.saved), needed = money(t.needed);
-    var known = saved != null && needed != null;
-    var headEst = known && isEst(t.trust);
+    if (!items.length && !isNum(t.balance) && !isNum(t.reportedBalance)) return '';
+    var known = t.trust !== 'unavailable' && isNum(t.saved) && isNum(t.needed);
+    var balanceHead = known && t.needed === 0;
     var row = function (label, f, n, trust, width) {
       var est = estCls(isEst(trust));
       var right = f == null ? '<span class="sc-a">' + DASH + '</span>'
@@ -223,12 +223,31 @@
       return bar ? '<li class="sc-row sc-own"><span class="sc-n">' + esc(label) + '</span>' + right + bar + '</li>'
         : '<li class="sc-row"><span><b class="sc-n">' + esc(label) + '</b></span>' + right + '</li>';
     };
-    var body = '<ul class="sc-list">' + items.map(function (i) {
-      var f = money(i.saved), n = money(i.needed);
-      return f != null && n != null ? row(i.label, f, n, i.trust, fill(i.saved, i.needed)) : row(i.label, null, null, null, null);
-    }).join('') + (isNum(t.unallocated) && t.unallocated > 0 && known ? row('Unallocated', money(t.unallocated), null, t.trust, null) : '') + '</ul>';
-    return strip('savings', 'Savings', '', known ? saved : null, known ? needed : null,
-      known ? fill(t.saved, t.needed) : 0, body, ' / ', null, headEst, true);
+    var goalRows = items.map(function (i) {
+      var f = savingsMoney(i.saved), n = savingsMoney(i.needed);
+      var progress = i.heldOnly ? '' : row(i.label, f, n, i.trust,
+        f != null && n != null ? fill(i.saved, i.needed) : null);
+      var held = Array.isArray(i.heldMembers) ? i.heldMembers.map(function (member) {
+        var label = member.label;
+        if (i.heldOnly && i.label !== member.label) label = i.label + ' · ' + label;
+        label += member.overdue ? ' · Held · Overdue' : ' · Held';
+        return row(label, savingsMoney(member.saved), savingsMoney(member.needed), i.trust, null);
+      }).join('') : '';
+      return progress + held;
+    }).join('');
+    var balances = '';
+    if (isNum(t.reportedBalance) && t.reportedBalance !== t.balance)
+      balances += row('Reported balance', savingsMoney(t.reportedBalance), null, t.reportedBalanceTrust, null);
+    if (isNum(t.balance) && !balanceHead)
+      balances += row('Available balance', savingsMoney(t.balance), null, t.trust, null);
+    if (isNum(t.deficit) && t.deficit > 0)
+      balances += row('Pool deficit', savingsMoney(t.deficit), null, t.reportedBalanceTrust, null);
+    if (known && t.held > 0) balances += row('Held', savingsMoney(t.held), null, t.trust, null);
+    if (known && t.unallocated > 0) balances += row('Unallocated', savingsMoney(t.unallocated), null, t.trust, null);
+    return strip('savings', 'Savings', !known ? 'Allocation unavailable' : balanceHead ? 'Available balance' : '',
+      known ? savingsMoney(balanceHead ? t.balance : t.saved) : null, known && !balanceHead ? savingsMoney(t.needed) : null,
+      known && !balanceHead ? fill(t.saved, t.needed) : 0, '<ul class="sc-list">' + goalRows + balances + '</ul>',
+      ' / ', null, known && isEst(t.trust), true);
   }
 
   function buildCardsHTML(ctx) {

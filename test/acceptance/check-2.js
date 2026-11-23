@@ -22,15 +22,15 @@ function savingsWorld(H, savings = 1000) {
 
 const assert = require('node:assert/strict');
 
-async function readStackPool(p) {
+async function readStackPool(p, role = 'current') {
   const card = p.page.locator('#stack-root [data-stack-card="savings"]');
   assert.equal(await card.count(), 1, 'one Savings card');
   if (!await card.evaluate(node => node.open)) await card.locator('summary').click();
   assert.ok(await card.locator('.sc-list').isVisible(), 'the Savings roster is open');
-  return card.evaluate(node => {
+  return card.evaluate((node, role) => {
     const ctx = window.StackBlocks.context();
     const period = ctx.recommendation.payPeriodViews.find(v => v.start === ctx.selectedPeriodKey);
-    if (period?.role !== 'active') throw new Error('expected the current pay period');
+    if (period?.timelineRole !== role) throw new Error('expected the ' + role + ' pay period');
     const { items, totals } = period.stackSummary.savings;
     return {
       heading: node.querySelector('summary .sc-f')?.textContent,
@@ -42,16 +42,18 @@ async function readStackPool(p) {
       shares: items.map(item => [item.label, item.saved, item.needed]),
       gaps: ctx.recommendation.savingsFunding.rows.map(row => [row.label, row.stillToFund]),
     };
-  });
+  }, role);
 }
 
-const dollars = amount => '$' + amount.toLocaleString('en-CA', { maximumFractionDigits: 0 });
+const dollars = amount => '$' + amount.toLocaleString('en-CA', { minimumFractionDigits: Number.isInteger(amount) ? 0 : 2, maximumFractionDigits: 2 });
 const partlyFunded = [['Invented trip', 600, 600], ['Invented gift', 400, 600]];
 
-function assertShares(pool, expected, unallocated = 0) {
+function assertShares(pool, expected, unallocated = 0, reportedBalance = null) {
   assert.deepEqual(pool.shares, expected, 'published shares and needs to the cent in priority order');
   const rows = expected.map(([label, saved, needed]) =>
     [label, saved === null ? '—' : dollars(saved) + ' / ' + dollars(needed)]);
+  if (reportedBalance !== null) rows.push(['Reported balance', dollars(reportedBalance)]);
+  if (pool.totals.balance !== null) rows.push(['Available balance', dollars(pool.totals.balance)]);
   if (unallocated > 0) rows.push(['Unallocated', dollars(unallocated)]);
   assert.deepEqual(pool.rows, rows, 'the open card displays the expected roster and amounts');
 }
@@ -106,6 +108,22 @@ const scenarios = [
         const pool = await readStackPool(p);
         assertTotals(pool, { balance: 1273.19, saved: 1200, needed: 1200, unallocated: 73.19, trust: 'calculated' });
         assertShares(pool, [['Invented trip', 600, 600], ['Invented gift', 600, 600]], 73.19);
+      }, { view: 'stack' });
+      // Both periods read 80. One overdue claim holds 21.60 now; the next
+      // period also holds the 37.20 gift. The free 21.20 never moves.
+      const held = savingsWorld(H, 80);
+      Object.assign(held.commitments[0], { date: '2026-10-08', amount: 21.60 });
+      Object.assign(held.commitments[1], { date: '2026-10-25', amount: 37.20 });
+      await H.withBudget(held, async p => {
+        const current = await readStackPool(p);
+        const trip = ['Invented trip · Held · Overdue', '$21.60 / $21.60'];
+        assert.deepEqual(current.rows, [trip, ['Invented gift', '$37.20 / $37.20'],
+          ['Available balance', '$80'], ['Held', '$21.60'], ['Unallocated', '$21.20']]);
+        await p.selectPeriod('2026-10-23');
+        const next = await readStackPool(p, 'next');
+        assert.equal(next.heading, '$80', 'all held: the headline shows available balance');
+        assert.deepEqual(next.rows, [trip, ['Invented gift · Held', '$37.20 / $37.20'],
+          ['Held', '$58.80'], ['Unallocated', '$21.20']]);
       }, { view: 'stack' });
     },
   },
@@ -278,6 +296,11 @@ const scenarios = [
         H.expectMatch(H.goal(s, 'Invented gift'), /\$400\.00\s*Saved/, 'gift gets only the 400 still in Savings');
         H.expectFigure(H.goal(s, 'Invented gift'), 'Still to fund', '$200.00', 'gift gap is 200, not 0');
       });
+      await H.withBudget(w, async p => {
+        const pool = await readStackPool(p);
+        assertTotals(pool, { balance: 500, saved: 500, needed: 700, unallocated: 0, trust: 'estimated' });
+        assertShares(pool, [['Invented trip', 100, 100], ['Invented gift', 400, 600]], 0, 1000);
+      }, { view: 'stack' });
     },
   },
   {

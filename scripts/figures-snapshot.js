@@ -691,19 +691,25 @@ function putPayPeriods(put, putField, advice) {
         ['paid', 'stackBillsPaid'], ['paidTrust', 'stackBillsPaidTrust']])
         putField(p + '.' + key, record, field);
     }
-    // Stack Savings (owner rule, Dale 2026-11-20): the savings balance, the
-    // head (saved / needed), what is left unallocated and each goal's saved,
-    // needed and trust, copied as published (current and next periods only).
+    // Stack Savings on the current and next periods: capture both the reported
+    // stock and the allocation the card prints, including held group members.
     const savings = view.stackSummary && view.stackSummary.savings;
     const savingsTotals = savings && savings.totals;
     if (savingsTotals) {
       for (const [field, key] of [['balance', 'stackSavingsBalance'], ['saved', 'stackSavingsSaved'], ['needed', 'stackSavingsNeeded'],
-        ['unallocated', 'stackSavingsUnallocated'], ['trust', 'stackSavingsTrust']]) putField(p + '.' + key, savingsTotals, field);
+        ['held', 'stackSavingsHeld'], ['unallocated', 'stackSavingsUnallocated'], ['deficit', 'stackSavingsDeficit'],
+        ['reportedBalance', 'stackSavingsReportedBalance'], ['reportedBalanceTrust', 'stackSavingsReportedBalanceTrust'],
+        ['trust', 'stackSavingsTrust']]) putField(p + '.' + key, savingsTotals, field);
     }
     const goalKeys = new Set();
     for (const item of savings && Array.isArray(savings.items) ? savings.items : []) {
       const g = uniqueKey(goalKeys, p + '.stackSavingsGoal.' + segment(item && item.id));
-      for (const field of ['saved', 'needed', 'trust']) putField(g + '.' + field, item, field);
+      for (const field of ['saved', 'needed', 'held', 'heldOnly', 'trust']) putField(g + '.' + field, item, field);
+      const heldKeys = new Set();
+      for (const member of Array.isArray(item.heldMembers) ? item.heldMembers : []) {
+        const m = uniqueKey(heldKeys, g + '.heldMember.' + segment(member.key));
+        for (const field of ['date', 'saved', 'needed', 'overdue']) putField(m + '.' + field, member, field);
+      }
     }
     const billKeys = new Set();
     for (const bill of Array.isArray(view.bills) ? view.bills : []) {
@@ -1141,6 +1147,8 @@ function putSavingsPublication(put, putField, advice, publications) {
   const funding = advice.savingsFunding;
   put('savings.funding.status', funding && typeof funding.status === 'string' ? funding.status : null);
   if (!funding) return;
+  putField('savings.funding.goalAllocation.funds', funding.goalAllocation, 'funds');
+  for (const field of ['deficit', 'unallocated']) putField('savings.funding.backing.' + field, funding.backing, field);
   const periodKeys = new Set();
   for (const { view, packet } of publications) {
     const current = view.timelineRole === 'current';

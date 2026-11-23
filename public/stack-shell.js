@@ -72,9 +72,8 @@ try {
     // is rounded to the dollar for printing (half away from zero, so $2.50 prints $3 and −$2.50 prints −$3) and is
     // never used again; no sum, status or decision reads the printed text. A true minus sign; with signed, a plus on a
     // positive amount. An amount that prints as $0 carries no sign. '' for anything that is not a published number.
-    // With cents, as before: cents when the published amount has them ($12.50, but $150), only for a transaction line in
-    // a sheet, the ledger's own entry, which the household matches against the bank (the design shows no transaction
-    // list).
+    // With cents, as before: cents when the published amount has them ($12.50, but $150), for the Savings allocation
+    // that reconciles on the card and the transaction lines in a sheet.
     money(value, { signed = false, cents = false } = {}) {
       if (typeof value !== 'number' || !Number.isFinite(value)) return '';
       const fmt = cents && !Number.isInteger(value) ? CENTS : WHOLE;

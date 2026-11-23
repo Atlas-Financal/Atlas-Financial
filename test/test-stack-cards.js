@@ -167,13 +167,13 @@ const withSavings = s => { const v = JSON.parse(JSON.stringify(view)); v.stackSu
 const savingsOf = v => { const h = buildCardsHTML(ctx(v)); const p = h.split('data-stack-card="savings"')[1]; return p ? p.split('</details>')[0] : null; };
 const txt = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
-// Savings (owner rule, Dale 2026-11-20): the balance poured nearest due first. Head "$saved / $needed" with the bar;
+// Savings prints the allocation from Forecast. Head "$saved / $needed" with the bar;
 // one row per goal "$saved / $needed" with its own bar; Unallocated last, only when above $0; dashes when withheld.
 const POURED = { items: [
   { id: 'club', label: 'Club <fund>', saved: 95, needed: 230, trust: 'calculated' },
   { id: 'home', label: 'Home', saved: 24, needed: 24, trust: 'calculated' },
   { id: 'trip', label: 'Trip', saved: 0, needed: 40, trust: 'calculated' }],
-  totals: { balance: 160, saved: 119, needed: 294, unallocated: 41, trust: 'calculated', reasons: ['owner-rule:balance-poured-nearest-due-first', 'balance-current'] } };
+  totals: { reportedBalance: 160, reportedBalanceTrust: 'calculated', balance: 160, saved: 119, needed: 294, held: 0, deficit: 0, unallocated: 41, trust: 'calculated', reasons: ['owner-rule:balance-poured-nearest-due-first', 'balance-current'] } };
 const cur = savingsOf(withSavings(POURED));
 assert(cur.includes('class="sc-f">' + fmt(119) + '<i> / ' + fmt(294) + '</i>'), 'head: total saved / total needed');
 assert(cur.includes('style="width:' + shell.barWidth(119, 294) * 100 + '%"'), 'head bar = barWidth(saved, needed)');
@@ -185,8 +185,8 @@ assert(cur.includes('Club &lt;fund&gt;') && !cur.includes('<fund>'), 'goal names
 assert((cur.match(/sc-full/g) || []).length === 3, 'a bar on every goal, none on Unallocated');
 assert(/<b class="sc-n">Unallocated<\/b><\/span><span class="sc-a">\$41<\/span><\/li><\/ul>$/.test(cur), 'Unallocated is the last row, its amount alone');
 assert(txt(cur).indexOf('Club') < txt(cur).indexOf('Home') && txt(cur).indexOf('Home') < txt(cur).indexOf('Trip'), 'goals print in Forecast\'s pour order');
-amounts(cur).forEach(a => assert([119, 294, 95, 230, 24, 0, 40, 41].map(fmt).includes(a), 'unpublished amount ' + a));
-assert(!cur.includes(fmt(160)), 'the balance itself is not printed (the head is saved / needed)');
+amounts(cur).forEach(a => assert([119, 294, 95, 230, 24, 0, 40, 41, 160].map(fmt).includes(a), 'unpublished amount ' + a));
+assert(txt(cur).includes('Available balance $160'), 'show the balance that saved, held and unallocated reconcile to');
 assert(!/Funded|funded|moved|entitlement|this period/.test(txt(cur)), 'no funded or period words');
 // Nothing left over: no Unallocated row
 {
@@ -209,6 +209,54 @@ assert(amounts(nt).length === 0 && !/sc-full/.test(nt) && /<i style="width:0%">/
   ['current', 'next', 'future', 'past', undefined].forEach(role => { const w = withSavings(POURED); w.timelineRole = role; assert(savingsOf(w) !== null, 'the card follows what Forecast publishes, not the role: ' + role); });
 }
 assert(savingsOf(withSavings({ items: [], totals: { saved: null, entitlement: null } })) === null, 'empty savings renders nothing');
+
+// Hand-worked Stack display packets. Reported 91.11 less a posted 18.40 leaves 72.71.
+// Of that balance, two held members have 11.52 + 3.68, the future member has
+// 29.04 and the rest is 28.47. Keeping the cents makes the visible amounts reconcile.
+{
+  const split = withSavings({
+    items: [{ id: 'group:kit', label: 'Workshop kit', saved: 29.04, needed: 39, held: 15.20,
+      heldOnly: false, trust: 'estimated', heldMembers: [
+        { key: 'goal:k', label: 'Key <blank>', date: '2026-01-02', saved: 11.52, needed: 11.52, overdue: true },
+        { key: 'goal:h', label: 'Hinge', date: '2026-01-11', saved: 3.68, needed: 3.68, overdue: false },
+      ] }],
+    totals: { reportedBalance: 91.11, reportedBalanceTrust: 'estimated', balance: 72.71, saved: 29.04,
+      needed: 39, held: 15.20, unallocated: 28.47, deficit: 0, trust: 'estimated' },
+  });
+  const h = savingsOf(split);
+  const rows = (h.match(/<li\b[\s\S]*?<\/li>/g) || []).map(txt);
+  const has = (...words) => rows.some(r => words.every(word => r.includes(word)));
+  assert(has('Workshop kit', '$29.04', '$39'), 'mixed group shows the future share');
+  assert(has('Key &lt;blank&gt;', 'Held', 'Overdue', '$11.52'), 'overdue group member is named, escaped, flagged and funded');
+  assert(has('Hinge', 'Held', '$3.68') && !has('Hinge', 'Overdue'), 'current held member is distinguished from overdue');
+  assert(has('Held', '$15.20') && has('Unallocated', '$28.47'), 'both the held subtotal and the unallocated remainder are visible');
+  assert(has('Available balance', '$72.71') && has('Reported balance', '$91.11'), 'effective and reported balance are identified');
+}
+// With every goal held, the only commitment keeps its share. No $0 / $0 progress pair.
+{
+  const h = savingsOf(withSavings({
+    items: [{ id: 'commitment:pass', label: 'Day pass', saved: 0, needed: 0, held: 36, heldOnly: true, trust: 'calculated',
+      heldMembers: [{ key: 'goal:pass', label: 'Day pass', date: '2026-01-09', saved: 36, needed: 40, overdue: false }] }],
+    totals: { balance: 36, reportedBalance: 36, reportedBalanceTrust: 'calculated', saved: 0, needed: 0, held: 36,
+      unallocated: 0, deficit: 0, trust: 'calculated' },
+  }));
+  assert(h && (txt(h).match(/Day pass/g) || []).length === 1 && /Held/.test(h) && !txt(h).includes('$0 / $0'), 'all-held card shows the named held allocation, never empty progress');
+}
+{
+  const empty = totals => savingsOf(withSavings({ items: [], totals }));
+  const h = empty({ balance: 67, reportedBalance: 67, reportedBalanceTrust: 'calculated', saved: 0, needed: 0,
+    held: 0, unallocated: 67, deficit: 0, trust: 'calculated' });
+  assert(h && txt(h).includes('Unallocated $67') && !txt(h).includes('$0 / $0'), 'a balance with no goals still draws');
+  const overdrawn = empty({ balance: 0, reportedBalance: 43, reportedBalanceTrust: 'estimated', saved: 0, needed: 0,
+    held: 0, unallocated: 0, deficit: 14, trust: 'estimated' });
+  assert(overdrawn && txt(overdrawn).includes('Pool deficit $14') && txt(overdrawn).includes('Available balance $0'),
+    'posted spending of 57 against 43 shows the deficit and zero allocatable funds');
+  const unavailable = empty({ balance: null, reportedBalance: 43, reportedBalanceTrust: 'estimated', saved: null,
+    needed: null, held: null, unallocated: null, deficit: null, trust: 'unavailable' });
+  assert(unavailable && /unavailable/i.test(txt(unavailable)) && txt(unavailable).includes('Reported balance $43')
+    && /class="sc-a stack-est"/.test(unavailable) && !txt(unavailable).includes('$0'),
+    'a known dated balance survives unavailable allocation; its estimate stays visible');
+}
 
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
@@ -315,7 +363,7 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
   const sh = savingsOf(se);
   assert(/class="sc-f stack-est"/.test(sh) && /sc-a stack-est/.test(sh) && /sc-mini sc-full stack-est/.test(sh) && !/estimated/i.test(sh),
     'a dated balance: the head, each goal and Unallocated are soft, never worded');
-  assert((sh.match(/sc-a stack-est/g) || []).length === 2, 'the goal and Unallocated amounts are both soft');
+  assert((sh.match(/sc-a stack-est/g) || []).length === 3, 'the goal, balance and Unallocated amounts are soft');
   assert(!/class="sc-f stack-est"/.test(savingsOf(withSavings(POURED))) && !/stack-est/.test(savingsOf(withSavings(POURED))), 'a current balance: nothing soft');
   assert(/stack-est/.test(css), 'the css draws the soft style');
 }

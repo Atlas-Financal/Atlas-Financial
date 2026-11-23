@@ -10,7 +10,7 @@
  *      restyle the current page.
  *   4. index.html loads the shell and then the four block files, after every current script.
  *   5. L-001: the shell prints money only from stackSummary.surplus.amount; it does no arithmetic on a figure.
- *   7. StackBlocks.money, the page's one money format: whole dollars, half away from zero; cents only on a transaction
+ *   7. StackBlocks.money, the page's one money format: whole dollars, half away from zero; cents on reconciled Savings or a transaction
  *      line; no block formats money itself.
  * `node test/test-stack-shell.js`
  */
@@ -162,7 +162,7 @@ console.log('7. The one money format: whole dollars, printed by StackBlocks.mone
   ok(!badSigned.length, 'signed: a plus on a positive amount, never on one that prints as $0', badSigned.join('; '));
   const cents = [[12.5, '$12.50'], [150, '$150'], [-10, '−$10'], [-400, '−$400'], [22.99, '$22.99'], [0.004, '$0.00'], [-0.004, '$0.00']];
   const badCents = cents.filter(([v, want]) => money(v, { cents: true }) !== want).map(([v, want]) => v + ' → ' + money(v, { cents: true }) + ', expected ' + want);
-  ok(!badCents.length, 'cents (a transaction line only): to the cent when the amount has cents, whole when it has none', badCents.join('; '));
+  ok(!badCents.length, 'cents mode keeps fractional amounts exact and prints whole amounts without decimals', badCents.join('; '));
   const empty = [null, undefined, NaN, Infinity, -Infinity, '12', '', {}, [], true];
   ok(empty.every(v => money(v) === '' && money(v, { signed: true }) === '' && money(v, { cents: true }) === ''),
     'nothing for anything that is not a published number (never $0)');
@@ -173,7 +173,7 @@ console.log('7. The one money format: whole dollars, printed by StackBlocks.mone
   });
   ok(!own.length, 'every block prints money through StackBlocks.money and formats none itself', own.join(', '));
   const cuts = BLOCKS.flatMap(n => (read(`public/stack-${n}.js`).match(/cents: true/g) || []).map(() => n));
-  ok(JSON.stringify(cuts) === JSON.stringify(['sheet']), 'only the sheet asks for cents, once (its transaction lines)', cuts.join(', '));
+  ok(JSON.stringify(cuts) === JSON.stringify(['cards', 'sheet']), 'only the Savings reconciliation and sheet transactions request cents', cuts.join(', '));
 }
 
 console.log('8. a sheet holds the page still (the browser proof is test/browser-stack-sheet-scroll.js, local; iOS Safari bug, owner phone, 2026-11-20)');

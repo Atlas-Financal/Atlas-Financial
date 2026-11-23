@@ -12652,129 +12652,98 @@
     }
     return result;
   }
-  // Stack Savings (owner rule, Dale 2026-11-20: "Savings is stupid simple. It
-  // takes the grand total of what I have in my savings account and it funds
-  // each savings item in order. That's all there is to it."). One balance and
-  // one ordered pour, current and next period only (the same balance today);
-  // no card on any other period.
-  //   balance  savingsFunding.stock.reportedStock: the provider-reported
-  //            balances of both savings pool accounts, summed (the grand
-  //            total), as reported. Owner ruling (Dale, 2026-11-21, relayed by
-  //            the lead on #1493): "For savings, all you need is the total
-  //            amount in my savings account. That's it. ... Savings amount.
-  //            Funds. Every savings item in order." So the card takes nothing
-  //            off and adds no hold of the Savings allocator's (payments after
-  //            a balance date, an unpaid card charge for a goal, one transfer
-  //            in both balances): the allocator's own figures keep those.
-  //            Trust is its freshness: current -> calculated; dated or carried
-  //            -> estimated. Missing, unready or negative -> withheld.
-  //   order    savingsFunding.backing.items and savingsFunding.unresolved,
-  //            nearest due date first; equal dates keep the plan's order; an
-  //            item with no date comes last.
-  //   pour     each item is saved min(needed, what is left); an item whose
-  //            need or date is unpublished stops the pour (everything from it
-  //            on is withheld: the pour never skips an unknown).
-  //   rows     savingsFunding.rows, each the sum of its member items, listed
-  //            in pour order; unallocated is what is left after the last item.
-  //            A row the owner confirmed paid (every member paid) is left off:
-  //            there is nothing left to save for it.
-  // Every figure is null when withheld, never 0; the goal names always show.
-  // A tag is never more certain than its inputs: an item's saved depends on
-  // the balance and on every need poured before it, so it carries the
-  // weakest of those (and of its own need).
+  // Both Stack periods read today's combined allocation. The selected period
+  // changes which shares are held, never their amounts or their priority.
   const STACK_TRUST_RANK = { calculated: 0, estimated: 1 };
-  const isSavingsFigure = v => typeof v === 'number' && Number.isFinite(v);
-  const savingsFigureCents = v => Math.round(v * 100);
-  const stackWeakerTrust = (a, b) => a === 'unavailable' || b === 'unavailable' ? 'unavailable'
-    : STACK_TRUST_RANK[b] > STACK_TRUST_RANK[a] ? b : a;
-  function stackSavingsBalance(funding) {
-    const stock = funding && funding.stock && funding.stock.reportedStock;
-    if (!stock || typeof stock !== 'object') return { cents: null, trust: 'unavailable', reason: 'balance-unavailable' };
-    const fresh = { current: 'calculated', dated: 'estimated', carried: 'estimated' };
-    if (stock.status !== 'ready' || !isSavingsFigure(stock.amount) || !Object.hasOwn(fresh, stock.freshness))
+  function stackSavingsBalance(stock) {
+    const trust = { current: 'calculated', dated: 'estimated', carried: 'estimated' };
+    const cents = savingsCents(stock?.amount, true);
+    if (stock?.status !== 'ready' || cents === null || !Object.hasOwn(trust, stock.freshness))
       return { cents: null, trust: 'unavailable', reason: 'balance-unavailable' };
-    const cents = savingsFigureCents(stock.amount);
-    if (!Number.isSafeInteger(cents) || cents < 0) return { cents: null, trust: 'unavailable', reason: 'balance-negative' };
-    return { cents, trust: fresh[stock.freshness], reason: 'balance-' + stock.freshness };
+    return { cents, trust: trust[stock.freshness], reason: 'balance-' + stock.freshness };
   }
   function stackSavings(view, result) {
-    const role = view.timelineRole;
-    if (role !== 'current' && role !== 'next') return null;
-    const funding = result && result.savingsFunding && typeof result.savingsFunding === 'object' ? result.savingsFunding : null;
-    // Owner rule (Dale, 2026-11-21) with the lead's ruling on its money
-    // (#1505, ATLAS REVIEWER 7056773000): an item leaves the card from the
-    // pay period that contains its date, but leaving the list does not hand
-    // its money onward. While it can still be unpaid it keeps its nearest-
-    // first share of the balance, hidden: in the period that holds its date,
-    // and in the next period's card too, because that card pours the same
-    // balance of today. Only an item dated before the current period is gone
-    // from the pour, because by then the balance reflects the spend. An item
-    // with no date stays on the card.
-    const current = role === 'current' ? view
-      : (result && Array.isArray(result.payPeriodViews) ? result.payPeriodViews : []).find(v => v && v.timelineRole === 'current');
-    const periodEnd = typeof view.end === 'string' ? view.end : null;
-    const pourStart = current && typeof current.start === 'string' ? current.start : null;
-    const bounded = periodEnd !== null && pourStart !== null;
-    const allItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
-      ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
-    const dated = item => item && typeof item.key === 'string' && typeof item.date === 'string';
-    const gone = new Set(!bounded ? [] : allItems.filter(item => dated(item) && item.date < pourStart).map(item => item.key));
-    const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));
-    const items = allItems.filter(item => !(item && gone.has(item.key)));
-    const allRows = (funding && Array.isArray(funding.rows) ? funding.rows : [])
-      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid');
-    const balance = !bounded ? { cents: null, trust: 'unavailable', reason: 'period-bounds-unknown' } : stackSavingsBalance(funding);
-    const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(gone.size || hidden.size ? ['items-due-this-period-left'] : [])];
-    // The rows must name every item exactly once, or the card would print
-    // goals that do not add up to the pour. Checked before anything leaves.
-    const members = allRows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
-    const keys = allItems.map(item => item && item.key);
-    const coherent = members.length === keys.length && new Set(members).size === members.length
-      && keys.every(key => typeof key === 'string' && members.includes(key));
-    if (!coherent) reasons.push('rows-items-mismatch');
-    const rows = allRows
-      .map(row => !Array.isArray(row.members) ? row : { ...row, members: row.members.filter(key => !gone.has(key) && !hidden.has(key)) })
-      .filter(row => !Array.isArray(row.members) || row.members.length > 0);
-    const order = items.map((item, rank) => ({ item, rank }))
-      .sort((a, b) => {
-        const da = a.item && typeof a.item.date === 'string' ? a.item.date : '\uffff';
-        const db = b.item && typeof b.item.date === 'string' ? b.item.date : '\uffff';
-        return da < db ? -1 : da > db ? 1 : a.rank - b.rank;
-      });
-    const poured = new Map(), position = new Map();
-    let left = coherent ? balance.cents : null, running = balance.trust;
-    for (const [i, { item }] of order.entries()) {
-      position.set(item && item.key, i);
-      const known = left !== null && item && typeof item.date === 'string' && isSavingsFigure(item.needed)
-        && item.needed >= 0 && Object.hasOwn(STACK_TRUST_RANK, item.trust);
-      if (!known) { if (left !== null) reasons.push('pour-stopped-at-unknown-need'); left = null; poured.set(item && item.key, null); continue; }
-      const take = Math.min(savingsFigureCents(item.needed), left);
-      left -= take;
-      running = stackWeakerTrust(running, item.trust);
-      poured.set(item.key, { saved: take, needed: savingsFigureCents(item.needed), trust: running });
+    if (view.timelineRole !== 'current' && view.timelineRole !== 'next') return null;
+    const funding = result?.savingsFunding;
+    const stock = stackSavingsBalance(funding?.stock?.reportedStock ?? result?.savingsInventory?.reportedStock);
+    const backing = funding?.backing, allocation = funding?.goalAllocation;
+    const funds = savingsCents(allocation?.funds, true);
+    const deficit = savingsCents(backing?.deficit), free = savingsCents(backing?.unallocated);
+    const reasons = ['forecast-goal-allocation', stock.reason];
+    const bounded = savingsDate(view.start) && savingsDate(view.end) && view.start <= view.end && savingsDate(funding?.asOf);
+    if (!bounded) reasons.push('period-bounds-unknown');
+    if (allocation?.status !== 'ready') reasons.push('allocation-unavailable');
+
+    const roster = Array.isArray(backing?.items) && Array.isArray(funding?.unresolved) && Array.isArray(funding?.rows);
+    const items = [...(Array.isArray(backing?.items) ? backing.items : []),
+      ...(Array.isArray(funding?.unresolved) ? funding.unresolved : [])];
+    const byKey = new Map(items.filter(item => typeof item?.key === 'string').map(item => [item.key, item]));
+    const seen = new Set(), rowKeys = new Set(), rows = [];
+    let coherent = roster && byKey.size === items.length;
+    let valid = bounded && stock.cents !== null && funds !== null && funds <= stock.cents
+      && deficit === Math.max(0, -funds) && free !== null;
+    let saved = 0, needed = 0, held = 0;
+    for (const row of Array.isArray(funding?.rows) ? funding.rows : []) {
+      if (typeof row?.key !== 'string' || !Array.isArray(row.members) || !row.members.length) { coherent = false; continue; }
+      if (rowKeys.has(row.key)) coherent = false;
+      rowKeys.add(row.key);
+      const active = [];
+      for (const key of row.members) {
+        const item = byKey.get(key);
+        if (typeof key !== 'string' || seen.has(key)) coherent = false;
+        seen.add(key);
+        // Owner-paid display rows have no backing item. Settlement-paid
+        // members may still be present with zero need, including in a group.
+        if (row.paymentStatus === 'paid') {
+          if (item && item.paymentStatus !== 'paid') coherent = false;
+        } else if (!item) coherent = false;
+        else if (item.paymentStatus !== 'paid') active.push(item);
+        if (item?.paymentStatus === 'paid' && (item.needed !== 0 || item.saved > 0)) coherent = false;
+      }
+      if (row.paymentStatus === 'paid') continue;
+      let rowSaved = 0, rowNeeded = 0, rowHeld = 0;
+      const heldMembers = [];
+      const trust = periodWaterfallCombinedTrust(stock.trust, row.savedTrust, row.neededTrust);
+      if (trust === 'unavailable') valid = false;
+      for (const item of active) {
+        const share = savingsCents(item.saved), need = savingsCents(item.needed);
+        if (!savingsDate(item.date) || share === null || need === null || share > need) valid = false;
+        if (bounded && savingsDate(item.date) && item.date <= view.end) {
+          rowHeld += share;
+          heldMembers.push({ key: item.key, label: typeof item.label === 'string' && item.label.trim() ? item.label : item.key, date: item.date,
+            saved: item.saved, needed: item.needed, overdue: item.date < funding.asOf });
+        } else {
+          rowSaved += share;
+          rowNeeded += need;
+        }
+      }
+      rows.push({ id: row.key, label: typeof row.label === 'string' && row.label.trim() ? row.label : row.key,
+        saved: rowSaved / 100, needed: rowNeeded / 100,
+        held: rowHeld / 100, trust, heldMembers, heldOnly: active.length > 0 && heldMembers.length === active.length });
+      saved += rowSaved;
+      needed += rowNeeded;
+      held += rowHeld;
     }
-    const out = rows.map(row => {
-      const parts = (Array.isArray(row.members) ? row.members : []).map(key => poured.get(key));
-      const known = coherent && parts.length > 0 && parts.every(Boolean);
-      const first = Math.min(...(Array.isArray(row.members) ? row.members : []).map(key => position.has(key) ? position.get(key) : Infinity));
-      return { first, item: { id: row.key, label: typeof row.label === 'string' ? row.label : row.key,
-        saved: known ? parts.reduce((s, p) => s + p.saved, 0) / 100 : null,
-        needed: known ? parts.reduce((s, p) => s + p.needed, 0) / 100 : null,
-        trust: known ? parts.reduce((t, p) => stackWeakerTrust(t, p.trust), balance.trust) : 'unavailable' } };
-    }).sort((a, b) => a.first - b.first).map(entry => entry.item);
-    const complete = out.length > 0 && out.every(item => item.saved !== null);
-    if (!out.length) reasons.push('no-savings-items');
-    return {
-      items: out,
-      totals: {
-        balance: coherent && balance.cents !== null ? balance.cents / 100 : null,
-        saved: complete ? out.reduce((s, item) => s + savingsFigureCents(item.saved), 0) / 100 : null,
-        needed: complete ? out.reduce((s, item) => s + savingsFigureCents(item.needed), 0) / 100 : null,
-        unallocated: complete && left !== null ? left / 100 : null,
-        trust: complete ? out.reduce((t, item) => stackWeakerTrust(t, item.trust), balance.trust) : 'unavailable',
-        reasons,
-      },
-    };
+    coherent = coherent && items.every(item => seen.has(item.key));
+    if (!coherent) reasons.push('rows-items-mismatch');
+    // A missing need can withhold every share while the stock and its linked
+    // debits independently prove that the pool is already overdrawn.
+    const knownDeficit = stock.cents !== null && funds !== null && funds <= stock.cents && deficit === Math.max(0, -funds);
+    const balance = funds === null ? null : Math.max(0, funds);
+    const reconciles = valid && Number.isSafeInteger(needed) && Number.isSafeInteger(saved + held + free)
+      && saved + held + free === balance;
+    if (allocation?.status === 'ready' && !reconciles) reasons.push('allocation-does-not-reconcile');
+    const ready = allocation?.status === 'ready' && reconciles && coherent;
+    if (!ready) for (const row of rows) {
+      Object.assign(row, { saved: null, needed: null, held: null, trust: 'unavailable' });
+      for (const member of row.heldMembers) Object.assign(member, { saved: null, needed: null });
+    }
+    return { items: rows, totals: {
+      reportedBalance: stock.cents === null ? null : stock.cents / 100, reportedBalanceTrust: stock.trust,
+      balance: ready ? balance / 100 : null, saved: ready ? saved / 100 : null, needed: ready ? needed / 100 : null,
+      held: ready ? held / 100 : null, unallocated: ready ? free / 100 : null, deficit: ready || (knownDeficit && deficit > 0) ? deficit / 100 : null,
+      trust: ready ? periodWaterfallCombinedTrust(stock.trust, ...rows.map(row => row.trust)) : 'unavailable', reasons,
+    } };
   }
   const isStackFigure = v => typeof v === 'number' && Number.isFinite(v);
   const stackCents = v => Math.round(v * 100);
@@ -23643,6 +23612,7 @@
             actionPermission: 'not-granted', moneyMovementPermission: 'not-granted', rows,
             stock: { ...savingsFunding.stock, status: 'unavailable', amount: null },
             backing: { ...savingsFunding.backing, status: 'unavailable',
+              ...(savingsFunding.goalAllocation ? { unallocated: null, deficit: null } : {}),
               // A completed period never borrows a later balance: a pool
               // observed after its last day is Unknown for it (#818, 5.9).
               ...(Array.isArray(savingsFunding.backing.pools) ? { pools: savingsFunding.backing.pools.map(pool =>
@@ -27892,16 +27862,19 @@
       :pendingMovement?'Pending savings movement withholds backing and contributions; known posted stock is retained.'
       :coherenceReason ? coherenceReason
       :unresolved.length?'Unresolved protected requirements withhold allocation and contributions; no date or priority is invented.':null;
-    const allocationReason = itemCardHold && config.status === 'ready' ? itemCardHold
+    const poolHold = itemCardHold && config.status === 'ready' ? itemCardHold
       : config.status !== 'ready' ? config.reason : carried ? SAVINGS_CARRIED_REASON : !reportedKnown
       ? 'Both savings accounts require valid dated reported CAD cents evidence.'
       : observations.accounts.some(row => row.value < 0) ? 'Negative savings stock remains a protected deficit.'
-      : savingsReportedStockOverlap(opts, reported, day)
-        || (unresolved.length ? 'Unresolved protected requirements withhold allocation; no date or priority is invented.' : null);
-    const itemLiabilities = allocationReason ? { rows: null, reason: null }
+      : savingsReportedStockOverlap(opts, reported, day);
+    const itemLiabilities = poolHold ? { rows: null, reason: null }
       : savingsReportedItemLiabilities(plan, day, opts, reported, coherenceReason);
-    const allocationHold = allocationReason || itemLiabilities.reason;
-    const allocationReady = !allocationHold;
+    const pool = poolHold || itemLiabilities.reason ? null
+      : savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: itemLiabilities.rows,
+          needs: [...items, ...unresolved].map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: item.needCents })) });
+    const allocationReady = !unresolved.length && pool?.status === 'ready';
+    const allocationHold = poolHold || (unresolved.length ? 'Unresolved protected requirements withhold allocation; no date or priority is invented.' : null)
+      || itemLiabilities.reason || pool?.reason || null;
     // Decision 1 (owner 2026-10-29): a hold caused only by the movement
     // coherence check (a movement that cannot be uniquely qualified) is
     // marked so future periods may publish a separate reported-balance
@@ -27922,11 +27895,9 @@
     // already counts and B does not yet show. Unpaid card charges belong to
     // the card ledger's deduction, never also here. Needs are each item's U
     // (relief-adapted), in this branch's own date/rank order.
-    const ready=!reason; let left=null;
+    const ready=!reason;
     if (allocationReady) {
-      const pool = savingsLedgerPool({ cashCents: reported[savingsReportedCents], liabilities: itemLiabilities.rows,
-        needs: items.map((item, rank) => ({ key: item.key, needDate: item.date, rank, unpaidCents: item.needCents })) });
-      items.forEach((item, i) => { const take = pool.shares[i].cents; item.savedCents = take ?? 0; item.saved = take == null ? null : take / 100; });
+      items.forEach((item, i) => { item.savedCents = pool.shares[i].cents; item.saved = item.savedCents / 100; });
       // Savings audit (PR 3): each share depends on its own need and every
       // need allocated before it; any estimated (or unknown) one makes it estimated.
       let estimatedSoFar = false;
@@ -27934,7 +27905,6 @@
       // an all-confirmed publication keeps its exact incumbent shape.
       for (const item of items) { estimatedSoFar = estimatedSoFar || item.trust === 'estimated' || item.trust === 'unknown';
         if (estimatedSoFar) item.savedTrust = 'estimated'; }
-      left = pool.unallocated.cents;
     }
     // A paid display row holds no share: Saved is a known 0 exactly when the
     // allocation is known.
@@ -27984,8 +27954,10 @@
         goalKey:rows.find(r=>r.members.includes(i.key))?.key,amount:i.saved,location:'combined-observed-reserves'}]})):[];
     return {status:ready?'ready':'unavailable',reason,stock,items,unresolved,rows,pools:packetPools,
       allocationDescription: coherenceReason, holdKind,
-      unallocated:ready&&left!=null?left/100:null,basis:'policy-derived-combined-observed-backing',trust:ready?'calculated':'unknown',
+      unallocated: allocationReady ? pool.unallocated.cents / 100 : null, deficit: pool?.deficit.cents == null ? null : pool.deficit.cents / 100,
+      basis:'policy-derived-combined-observed-backing',trust:ready?'calculated':'unknown',
       goalAllocation: { status: allocationReady ? 'ready' : 'unavailable', reason: allocationHold,
+        funds: pool?.funds.cents == null ? null : pool.funds.cents / 100,
         basis: 'latest-validated-provider-reported-balances', evidenceTrust: reportedKnown ? 'provider-reported' : 'unknown',
         checkedAsOf: reported?.checkedAsOf || null, balanceDates: reported?.balanceDates || [] },
       funding:{status:paymentReason?'unavailable':'ready',asOf:day,reason:paymentReason,revision:null,source:'Forecast.savingsDailyFunding',payments}};
@@ -28673,7 +28645,7 @@
       backing: { status: derived.status, reason: derived.reason, basis: derived.basis, trust: derived.trust,
         actualTransferred: null, pools: derived.pools,
         items: derived.items.map(({ needCents, savedCents, event, rank, ...item }) => ({ ...item, ...savingsStillToFund(item.needed, item.saved) })),
-        unallocated: derived.unallocated ?? null },
+        unallocated: derived.unallocated ?? null, ...(derived.goalAllocation ? { deficit: derived.deficit } : {}) },
       ...(derived.goalAllocation ? { goalAllocation: derived.goalAllocation } : {}),
       allocationDescription: derived.goalAllocation?.status === 'ready'
         ? 'Latest reported balances checked ' + derived.goalAllocation.checkedAsOf + ', with balance dates '

@@ -159,40 +159,47 @@ function proveStackIncome(view, income) {
     }
   }
 }
-// Stack Savings (owner rule, Dale 2026-11-20): the savings balance poured into
-// the goals nearest due first, on the current and next periods only (null on
-// every other). Each goal's saved is between 0 and its needed, both published
-// or both null with trust unavailable; the head is the goals summed, and
-// saved + unallocated is the balance (at most it, once items have left);
-// reasons come from the closed set.
-const SAVINGS_REASONS = new Set(['owner-rule:balance-poured-nearest-due-first', 'balance-current', 'balance-dated', 'balance-carried',
-  'balance-unavailable', 'balance-negative', 'rows-items-mismatch', 'pour-stopped-at-unknown-need', 'no-savings-items',
-  'items-due-this-period-left', 'period-bounds-unknown']);
-const isFigure = v => typeof v === 'number' && Number.isFinite(v);
+// Only these two cards consume today's allocation. Saved, held and unallocated
+// partition its distributable balance; the reported account stock can differ.
+const SAVINGS_REASONS = new Set(['forecast-goal-allocation', 'balance-current', 'balance-dated', 'balance-carried',
+  'balance-unavailable', 'balance-negative', 'rows-items-mismatch', 'allocation-unavailable',
+  'allocation-does-not-reconcile', 'period-bounds-unknown']);
 function proveStackSavings(view, savings) {
   if (!['current', 'next'].includes(view.timelineRole)) {
     assert.equal(savings, null, 'authorized addition: only the current and next periods publish stackSummary.savings');
     return;
   }
   assert.ok(savings && Array.isArray(savings.items) && savings.totals, 'authorized addition: stackSummary.savings lists items and totals');
-  for (const item of savings.items) {
-    assert.ok(item.saved === null ? item.needed === null && item.trust === 'unavailable'
-      : isFigure(item.saved) && isFigure(item.needed) && item.saved >= 0 && item.saved <= item.needed && ['calculated', 'estimated'].includes(item.trust),
-    'authorized addition: a goal\'s saved is between 0 and its needed with a trust word, or both null and unavailable');
-  }
   const t = savings.totals;
-  if (t.saved !== null) {
-    const cents = v => Math.round(v * 100);
-    assert.equal(cents(t.saved), savings.items.reduce((c, item) => c + cents(item.saved), 0), 'authorized addition: the head\'s saved is the goals summed');
-    assert.equal(cents(t.needed), savings.items.reduce((c, item) => c + cents(item.needed), 0), 'authorized addition: the head\'s needed is the goals summed');
-    // An item that left the card this period still holds its share of the balance (lead ruling on ATLAS
-    // REVIEWER 7056773000), so saved + unallocated is the balance exactly only when nothing has left; otherwise it
-    // is at most the balance (the held shares are proved in test-stack-savings-summary's audit).
-    if (t.reasons.includes('items-due-this-period-left')) assert.ok(cents(t.saved) + cents(t.unallocated) <= cents(t.balance),
-      'authorized addition: with items that left, saved + unallocated is at most the balance');
-    else assert.equal(cents(t.saved) + cents(t.unallocated), cents(t.balance), 'authorized addition: saved + unallocated is the balance');
-  } else assert.ok(t.needed === null && t.unallocated === null && t.trust === 'unavailable', 'authorized addition: a withheld pour publishes no head');
   assert.ok(Array.isArray(t.reasons) && t.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings totals reasons are closed');
+  const sum = (rows, key) => rows.reduce((n, row) => n + cents(row[key]), 0);
+  for (const item of savings.items) {
+    assert.ok(Array.isArray(item.heldMembers), 'authorized addition: each goal lists its held members');
+    if (t.saved === null) {
+      assert.ok(item.saved === null && item.needed === null && item.held === null && item.trust === 'unavailable',
+        'authorized addition: a withheld allocation publishes no goal amounts');
+      continue;
+    }
+    assert.ok([item.saved, item.needed, item.held].every(n => finite(n) && n >= 0)
+      && item.saved <= item.needed && ['calculated', 'estimated'].includes(item.trust), 'authorized addition: known goal shares have a trust word');
+    for (const m of item.heldMembers) {
+      assert.ok(finite(m.saved) && finite(m.needed) && m.saved >= 0 && m.saved <= m.needed && typeof m.overdue === 'boolean',
+        'authorized addition: held claims disclose backing, need and overdue state');
+    }
+    assert.equal(cents(item.held), sum(item.heldMembers, 'saved'), 'authorized addition: held members account for the goal hold');
+  }
+  if (t.saved === null) {
+    assert.ok(t.needed === null && t.held === null && t.unallocated === null && t.trust === 'unavailable',
+      'authorized addition: a withheld allocation publishes no split');
+    return;
+  }
+  assert.ok([t.balance, t.unallocated, t.deficit].every(n => finite(n) && n >= 0), 'authorized addition: known pool amounts are nonnegative');
+  for (const key of ['saved', 'needed', 'held']) {
+    assert.equal(cents(t[key]), sum(savings.items, key), 'authorized addition: published goals account for ' + key);
+  }
+  assert.equal(cents(t.saved) + cents(t.held) + cents(t.unallocated), cents(t.balance),
+    'authorized addition: saved, held and unallocated account for the balance to the cent');
+  if (t.deficit > 0) assert.equal(t.balance, 0, 'authorized addition: the pool cannot fund shares while in deficit');
 }
 function withoutStackSummary(node, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return;
@@ -330,7 +337,7 @@ function authorizedTagKey(key, value) {
   if (/\.stackSummary\.income\.(dale|amanda|other|total)\.trust$/.test(key) || /\.stackSummary\.(surplus|bills)\.trust$/.test(key)
     // The Bills paid figure's trust (Dale, 2026-11-20 "bills needs the paid/owed"): proved in proveStackBillParts.
     || /\.stackSummary\.bills\.paidTrust$/.test(key)
-    || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust))$/.test(key)) {
+    || /\.stackSummary\.savings\.(items\.\d+\.(trust|savedTrust)|totals\.(trust|entitlementTrust|reportedBalanceTrust))$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
