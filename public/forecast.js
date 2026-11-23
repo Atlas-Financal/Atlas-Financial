@@ -4282,10 +4282,19 @@
   //   4. Exact means the occurrence's identity: the tie names this bill and this occurrence date. A key at any other
   //      date matches no scheduled occurrence, so a nearby date settles nothing.
   // It settles the occurrence (Paid, nothing remaining) only; the Stack "confirmed paid" check is unchanged.
-  function prepaidCardPaidBill(plan, id, date, start, opts) {
-    if (!plan || !id || !date || !start || date <= start) return false;
+  // The one home for "a card-paid bill's future occurrence that an early posting may settle": a dated card-paid bill
+  // with a positive amount, and a date after this start that its own schedule produces. live-plan reads it to carry
+  // such a candidate (with its posting date) to the engine; that admits nothing by itself, and only
+  // prepaidCardPaidBill below, with the ledger's tie, settles the occurrence.
+  function prepaidCardPaidBillCandidate(plan, id, date, start) {
+    if (!plan || !id || !date || !start || date <= start) return null;
     const bill = (plan.bills || []).find(item => item && item.id === id && Number(item.amount) > 0);
-    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return false;
+    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return null;
+    return outflowDates(bill, date, date).some(d => d === date) ? bill : null;
+  }
+  function prepaidCardPaidBill(plan, id, date, start, opts) {
+    const bill = prepaidCardPaidBillCandidate(plan, id, date, start);
+    if (!bill) return false;
     const packet = currentPeriodActualsPacket(opts);
     const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
       .filter(row => row && row.id === id && row.date === date);
@@ -4303,7 +4312,9 @@
     const elsewhere = (packet.representedActuals || []).filter(row => row && (String(row.transactionId) === txId
       || (Array.isArray(row.transactionIds) && row.transactionIds.map(String).includes(txId))));
     if (elsewhere.length !== 1) return false;
-    const reversed = transactions.some(other => other && other !== tx && other.pending === false
+    // A card payment, transfer or bill payment of the same amount is not a refund or reversal (Grok 2): it never
+    // un-settles the occurrence.
+    const reversed = transactions.some(other => other && other !== tx && other.pending === false && !cardPaymentOrTransferRow(other)
       && String(other.atlasAccountId || other.accountId || other.account) === String(account)
       && savingsCents(Number(other.amount), true) === -cents && savingsDate(other.date) && other.date >= tx.date);
     return !reversed;
@@ -7362,10 +7373,8 @@
     // A hold is an authorization on a card purchase. An issuer charge (interest, a finance charge), a represented
     // card bill, a transfer or excluded-from-totals row, or a payment or refund is never a leg or a final: each stays
     // with its incumbent owner (the pending card exposure check counts it, test-budget-pending-card-funding).
-    const NOT_PURCHASE_HINTS = new Set(['finance-charge', 'transfer', 'payment', 'card-payment', 'bill-payment', 'refund']);
-    const notPurchase = tx => isRevolvingCardFinanceCharge(tx) || tx.representedBill === true || tx.excludeFromTotals === true
-      || tx.cardPaymentIdentity === true
-      || NOT_PURCHASE_HINTS.has(typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '');
+    const notPurchase = tx => isRevolvingCardFinanceCharge(tx) || tx.representedBill === true || cardPaymentOrTransferRow(tx)
+      || NOT_PURCHASE_HINTS.has(cardRowKindHint(tx));
     const leg = tx => {
       if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'pending'
         || tx.isGroup === true || duplicateIds.has(String(tx.id)) || repeatedId(tx)
@@ -7805,6 +7814,20 @@
     'cash interest',
     'finance charge',
   ]);
+
+  // The card-row kinds that are never a purchase (#1578, review 7092825238): an issuer finance charge and a refund,
+  // plus the payment and transfer identities below.
+  const NOT_PURCHASE_HINTS = new Set(['finance-charge', 'transfer', 'payment', 'card-payment', 'bill-payment', 'refund']);
+  const PAYMENT_OR_TRANSFER_HINTS = new Set(['transfer', 'payment', 'card-payment', 'bill-payment']);
+  function cardRowKindHint(tx) {
+    return tx && typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '';
+  }
+  // A card row that is a payment or transfer identity: excluded from totals, a card-payment identity, or a payment
+  // or transfer kind. One home, read by the hold/release legs (#1578) and by the early card-paid bill reversal (H2-6).
+  function cardPaymentOrTransferRow(tx) {
+    return !!tx && (tx.excludeFromTotals === true || tx.cardPaymentIdentity === true
+      || PAYMENT_OR_TRANSFER_HINTS.has(cardRowKindHint(tx)));
+  }
 
   function isRevolvingCardAccount(tx) {
     if (!tx) return false;
@@ -31091,7 +31114,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidCardPaidBillCandidate, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, stackCardSummary, stackCreditLines, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

@@ -86,6 +86,16 @@ unpaid('condition 3: a tie to a card-payment transfer out of chequing', world({ 
 // 4. Exact means the occurrence's identity, not a matching date.
 unpaid('condition 4: a tie at a date that is not the scheduled occurrence', world({ represented: { id: 'streaming', date: '2026-10-27', postedOn: '2026-10-20', effectiveAsOf: '2026-10-20' } }));
 unpaid('control: no represented row at all', world({ represented: null }));
+for (const [label, extra] of [['kindHint card-payment', { kindHint: 'card-payment' }], ['kindHint payment', { kindHint: 'payment' }],
+  ['kindHint transfer', { kindHint: 'transfer' }], ['card-payment identity', { cardPaymentIdentity: true }], ['excluded from totals', { excludeFromTotals: true }]]) {
+  const { row } = next(world({ extraTx: [{ id: 'tx-pay', date: '2026-10-21', amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, ...extra }] }));
+  ok(row.status === 'PAID' && cents(row.remaining) === 0, 'control: a same-amount card payment (' + label + ') is not a reversal and does not un-settle it',
+    JSON.stringify({ s: row.status, r: row.remaining }));
+}
+{
+  const { row } = next(world({ extraTx: [{ id: 'tx-r', date: '2026-10-21', amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, kindHint: 'refund' }] }));
+  ok(row.status !== 'PAID', 'condition 2: a credit the ledger marks as a refund still un-settles it', JSON.stringify({ s: row.status }));
+}
 {
   const { row } = next(world({ extraTx: [{ id: 'tx-other', date: '2026-10-21', amount: -11.02, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false }] }));
   ok(row.status === 'PAID', 'control: an unrelated card credit of another amount does not un-settle it', JSON.stringify({ s: row.status }));
@@ -96,6 +106,53 @@ console.log('3. Control: a joint-cash bill keeps its incumbent prepaid behaviour
   const { row } = next(world({ payingAccount: 'chequing-a', account: 'chequing-a', role: 'household-cash' }));
   ok(row.status === 'PAID' && cents(row.remaining) === 0, 'an early-posted joint-cash bill still reads PAID (prepaidJointCashOutflow)',
     JSON.stringify({ s: row.status, r: row.remaining }));
+}
+
+console.log('4. The production path: observer report -> live-plan overlay (applyLiveCutover) -> recommend');
+{
+  // The invented early-income ledger (test/fixtures/early-income-data, payroll, no receipt) gives a real observer
+  // report. The observer's own matching is out of scope (rule 17), so one represented candidate for the card bill and
+  // the ledger's tie are added to that report, exactly in the observer's output shapes; everything after that is the
+  // production overlay and engine.
+  const O = require('../scripts/provider-observe');
+  const Live = require('../scripts/live-plan');
+  const fixture = require('./fixtures/early-income-data');
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const occurrence = '2027-01-03';
+  const live = ({ postingDate, tie = true } = {}) => {
+    const x = fixture('payroll', 'unpaid');
+    x.data.plan.bills = [{ id: 'streaming', label: 'Invented streaming', frequency: 'monthly', day: 3, amount: AMOUNT,
+      payingAccount: 'triangle', jointCash: false, confidence: 'confirmed' }];
+    const report = O.observe({ provider: 'lunchmoney', ...x });
+    const posted = postingDate || x.asOf;
+    report.representedEventCandidates = [...(report.representedEventCandidates || []),
+      { id: 'streaming', date: occurrence, postingDate: posted, observedAmount: AMOUNT, transactionIds: ['invented-card-posting'] }];
+    const packet = clone(report.currentPeriodActuals || {});
+    packet.transactions = [...(packet.transactions || []), { id: 'tx-live', date: posted, amount: AMOUNT, currency: 'CAD',
+      accountId: 'triangle', accountRole: 'revolving-credit', pending: false }];
+    packet.representedActuals = [...(packet.representedActuals || []),
+      ...(tie ? [{ id: 'streaming', date: occurrence, actual: AMOUNT, postedOn: posted, transactionId: 'tx-live' }] : [])];
+    report.currentPeriodActuals = packet;
+    const out = Live.overlayLiveState({ data: x.data, report });
+    const plan = out.data.plan;
+    const rec = F.recommend(plan, plan.opening.asOf, { weeklyVariable: 0, currentPeriodActuals: out.data.liveOverlay.currentPeriodActuals });
+    const view = rec.payPeriodViews.find(v => (v.bills || []).some(b => b.id === 'streaming' && b.date === occurrence));
+    return { plan, row: view && view.bills.find(b => b.id === 'streaming' && b.date === occurrence) };
+  };
+  const carried = live();
+  ok(carried.plan.opening.representedEvents.some(e => e.id === 'streaming' && e.date === occurrence && e.postedOn),
+    'the overlay carries the early card posting to the engine with its posting date',
+    JSON.stringify(carried.plan.opening.representedEvents));
+  ok(carried.row && carried.row.status === 'PAID' && cents(carried.row.remaining) === 0 && carried.row.stackBillPaid === false,
+    'live: the occurrence reads PAID, 0 remaining, and the Stack check stays pending', JSON.stringify(carried.row));
+  const untied = live({ tie: false });
+  ok(untied.row && untied.row.status !== 'PAID' && cents(untied.row.remaining) === cents(AMOUNT),
+    'live control: carried without the ledger tie, the engine leaves it unpaid (the overlay settles nothing)',
+    JSON.stringify(untied.row));
+  const late = live({ postingDate: '2027-01-01' });
+  ok(!late.plan.opening.representedEvents.some(e => e.id === 'streaming') && late.row && late.row.status !== 'PAID',
+    'live control: a posting after the live as-of is not carried and the occurrence stays unpaid',
+    JSON.stringify({ rep: late.plan.opening.representedEvents, row: late.row && late.row.status }));
 }
 
 console.log(`card-paid bill paid early, next period: ${checks} checks passed`);
