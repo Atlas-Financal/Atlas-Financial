@@ -3500,6 +3500,9 @@ function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
   // The paired payment itself must post inside the cycle: a payment before
   // the cycle starts, or after the statement is due, pays no part of it.
   if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
+  // An issuer minimum still owing already reflects payments through its read date.
+  const reflectedThrough = Forecast.statementPaymentsReflectedThrough(plan, rule.eventId, original);
+  if (reflectedThrough && tx.date <= reflectedThrough) return false;
   const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
     && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
   return others.length === 0;

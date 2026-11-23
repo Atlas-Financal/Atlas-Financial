@@ -425,7 +425,7 @@
                 "firstDue": "2026-11-30",
                 "amount": 140.72,
                 "confidence": "estimated",
-                "note": "Owner fact 2026-11-20 (Dale): the Amazon.ca Mastercard minimum is due on the 12th of each month (his Lunch Money recurring item), not month-end; next 2026-12-12. Successor of `mbna`, which ends at its 2026-10-31 occurrence (lastDue) so its dated history keeps its identity. Owner rule 2026-11-20 (Dale): each month plans one month's interest on the last statement balance on record (2026-10-07) at the purchase rate, up to the whole dollar, held constant and never below a statement minimum. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): an automatic minimum payment from Bills on the 30th, planned from 2026-11-30, at each statement's minimum (estimated at the current statement amount), Lunch Money item 3709492. It replaces the fixed-interest minimum on the 12th for Amazon; one payment a month, no second minimum. Owner 2026-11-23 (Dale): the 2026-11-30 statement occurrence is the issuer app's own minimum still owing, after two payments already posted in November, one from the Bills account and one from Amanda's debt-payments account. The statement minimum was higher, including a past-due amount. Those two payments are not recorded here as sent payments.",
+                "note": "Owner fact 2026-11-20 (Dale): the Amazon.ca Mastercard minimum is due on the 12th of each month (his Lunch Money recurring item), not month-end; next 2026-12-12. Successor of `mbna`, which ends at its 2026-10-31 occurrence (lastDue) so its dated history keeps its identity. Owner rule 2026-11-20 (Dale): each month plans one month's interest on the last statement balance on record (2026-10-07) at the purchase rate, up to the whole dollar, held constant and never below a statement minimum. Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): an automatic minimum payment from Bills on the 30th, planned from 2026-11-30, at each statement's minimum (estimated at the current statement amount), Lunch Money item 3709492. It replaces the fixed-interest minimum on the 12th for Amazon; one payment a month, no second minimum. Owner 2026-11-23 (Dale): the 2026-11-30 statement occurrence is the issuer app's own minimum still owing, after two payments already posted in November, one from the Bills account and one from Amanda's debt-payments account. The statement minimum was higher, including a past-due amount. Those two payments are not recorded here as sent payments; `paymentsReflectedThrough` 2026-11-23 (the date of Dale's issuer screen) keeps any payment dated on or before it from being credited to this occurrence again.",
                 "statementOccurrences": [
                     {
                         "scheduledDate": "2026-11-30",
@@ -433,7 +433,8 @@
                         "minimum": 140.72,
                         "currency": "cad",
                         "confidence": "confirmed",
-                        "dateConfidence": "confirmed"
+                        "dateConfidence": "confirmed",
+                        "paymentsReflectedThrough": "2026-11-23"
                     }
                 ],
                 "payingAccount": "chequing-a"

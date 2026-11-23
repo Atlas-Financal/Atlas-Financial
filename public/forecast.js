@@ -91,6 +91,8 @@
           || (Object.prototype.hasOwnProperty.call(record, 'dateConfidence') && record.dateConfidence !== 'confirmed'
             && record.dateConfidence !== 'estimated')
           || cents(record.minimum) == null
+          || (Object.prototype.hasOwnProperty.call(record, 'paymentsReflectedThrough')
+            && (!date(record.paymentsReflectedThrough) || record.paymentsReflectedThrough > record.dueDate))
           || occurrences(row, record.scheduledDate, record.scheduledDate).length !== 1
           || used.has(record.scheduledDate)) throw new Error('Statement must replace one unique scheduled occurrence.');
       used.add(record.scheduledDate);
@@ -306,7 +308,7 @@
     if (original) return original.scheduledDate;
     return records.find(item => item.dueDate === value)?.scheduledDate || value;
   }
-    return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits };
+    return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits, statementRows };
   })();
   /* --------------------------------------------------------------- dates */
   // ISO date strings throughout; arithmetic in UTC so DST can never shift a
@@ -943,6 +945,18 @@
   }
   function statementOccurrenceIdentity(plan, id, date) {
     return CardMinimumContract.originalDate(plan, id, date, occurrences);
+  }
+  // An issuer minimum read after payments had posted (`paymentsReflectedThrough` on its statement
+  // occurrence) already reflects every payment dated on or before that day: neither the categorized
+  // ledger matcher nor card coverage may credit one of them to that occurrence again (owner
+  // 2026-11-23, Grok Bot condition). Returns the date for one valid statement record, else null.
+  function statementPaymentsReflectedThrough(plan, id, scheduledDate) {
+    const row = (plan?.obligations || []).find(item => item && item.id === id);
+    if (!row || row.statementOccurrences == null) return null;
+    const records = CardMinimumContract.statementRows(row, occurrences)
+      .filter(record => record.scheduledDate === scheduledDate);
+    return records.length === 1 && typeof records[0].paymentsReflectedThrough === 'string'
+      ? records[0].paymentsReflectedThrough : null;
   }
   // Durable issuer knowledge is narrower than cash replay eligibility. Only
   // the optional minimum contract and one valid original occurrence qualify.
@@ -16178,8 +16192,11 @@
           if (cents == null) { issue('coverage-minimum-amount-unknown'); continue; }
           if (!cents) continue;
           const period = bucket(row.debtId, occurrence.date);
+          const scheduledDate = occurrence.scheduledDate || occurrence.date;
+          const reflectedThrough = statementPaymentsReflectedThrough(plan, row.id, scheduledDate);
           if (period) (period.minimums = period.minimums || []).push({ id: row.id,
-            scheduledDate: occurrence.scheduledDate || occurrence.date, date: occurrence.date, cents, covered: 0 });
+            scheduledDate, date: occurrence.date, cents, covered: 0,
+            ...(reflectedThrough ? { reflectedThrough } : {}) });
         }
       }
       const remainingCents = row => savingsCents(row.amount) - savingsCents(row.refunded) - savingsCents(row.covered);
@@ -16229,6 +16246,8 @@
             let amount = effective.get(pair), toMinimum = 0;
             const minimumParts = [];
             for (const minimum of minimums) {
+              // The issuer's minimum still owing already reflects this payment.
+              if (minimum.reflectedThrough && (pair.date || pair.card.tx.date) <= minimum.reflectedThrough) continue;
               const take = Math.min(amount - toMinimum, minimum.cents - minimum.covered);
               if (take <= 0) continue;
               minimum.covered += take; toMinimum += take;
@@ -30695,7 +30714,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, stackCardSummary, stackCreditLines,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
