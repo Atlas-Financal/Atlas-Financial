@@ -52,9 +52,15 @@ console.log('\n=== 3. a stale savings balance does not move the household date =
   const observations = [obs('chequing-a', TODAY), obs('chequing-b', TODAY), obs('savings', '2026-09-17')];
   ok(O.householdDateFromProviderEvidence(observations, null) === '2026-09-17',
     'savings required (no plan / earmarks not set up): its date counts, so the refresh is withheld by the freshness gate');
-  const setUp = { savingsEarmarks: {} };
-  const earmarked = F.savingsEarmarksState(setUp, TODAY).status !== 'setup-unknown';
-  if (earmarked) ok(O.householdDateFromProviderEvidence(observations, setUp) === TODAY,
+  // A genuinely earmark-configured invented plan (status 'ready'), asserted
+  // as a precondition so the branch can never skip silently.
+  const fx = require('./fixtures/savings-daily-allocation-contract');
+  const setUp = fx.advance(fx.fixture(), '2026-10-07').plan;
+  const earmarkDay = '2026-10-07';
+  const eObs = [obs('chequing-a', earmarkDay), obs('chequing-b', earmarkDay), obs('savings', '2026-10-01')];
+  ok(F.savingsEarmarksState(setUp, earmarkDay).status === 'ready', 'precondition: the plan is earmark-configured (ready)',
+    F.savingsEarmarksState(setUp, earmarkDay).status);
+  ok(O.householdDateFromProviderEvidence(eObs, setUp) === earmarkDay,
     'savings not required (earmarks set up): a stale savings date cannot pull the household date back');
   const unknownRow = [obs('chequing-a', TODAY), { ...obs('chequing-b', '2026-09-10'), unknown: true }];
   ok(O.householdDateFromProviderEvidence(unknownRow, null) === TODAY, 'an unknown balance row does not date the household');
