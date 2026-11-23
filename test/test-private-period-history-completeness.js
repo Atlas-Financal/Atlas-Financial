@@ -577,6 +577,28 @@ try {
     rejects(() => capture(late(true)), 'history-forecast-capture-failed');
   });
 
+  check('the automatic rollover entry point (captureClosing) judges freshness against the closing day', () => {
+    // ChatGPT 7104424942 / Codex 4667268047 on #1606: the rollover fetch and
+    // opening are Feb 15. Balances all dated Feb 14, the period's last day,
+    // are a valid close and must be captured through captureClosing, not only
+    // through capture(). One account dated Feb 13, before the closing day,
+    // is the lagging-sibling defect and is refused.
+    const rollover = (dates) => {
+      const x = input('2025-02-15', 'closing', { start: '2025-02-01', incomeAnchor: '2025-02-01', fetchedAt: '2025-02-15T18:00:00Z', capturedAt: '2025-02-15T18:01:00Z' });
+      delete x.kind; delete x.periodStart;
+      x.payload.accounts.forEach((row, i) => { row.balance_as_of = row.updated_at = dates[i] + 'T20:00:00Z'; });
+      return x;
+    };
+    const closeRollover = x => { const clean = clone(x), time = clean.capturedAt; delete clean.capturedAt;
+      return History.captureClosing(clean, { now: () => new Date(time) }); };
+    const consistent = closeRollover(rollover(['2025-02-14', '2025-02-14', '2025-02-14']));
+    assert.equal(consistent.content.kind, 'closing');
+    assert.deepEqual([consistent.content.period.start, consistent.content.period.end], ['2025-02-01', '2025-02-14']);
+    const fresh = closeRollover(rollover(['2025-02-15', '2025-02-15', '2025-02-15']));
+    assert.equal(fresh.content.kind, 'closing', 'balances dated the fetch day are accepted too');
+    rejects(() => closeRollover(rollover(['2025-02-14', '2025-02-13', '2025-02-14'])), 'history-forecast-capture-failed');
+  });
+
   results.forEach(name => console.log('  ok - ' + name));
   console.log('PASS private pay-period history H1: completeness, closing state, cutoff, v1 compatibility and receipt path (' + results.length + ' checks)');
 } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
