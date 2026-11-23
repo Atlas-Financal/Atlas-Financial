@@ -3694,14 +3694,18 @@
           dateUnknown: true, reason: 'plan-frequency-invalid' });
         continue;
       }
-      // H2-12: a yearly obligation on a day its month never has (April 31) has no real date. It is unknown for any
-      // window its own schedule (firstDue, lastDue) reaches, never quietly paid on another day; an ended or not yet
-      // started one changes nothing. The statement-replacement path below is unchanged.
-      if (impossibleYearlyInWindow(o, start, end)) {
-        unknowns.push({ carrier: 'obligation', id: o.id || null, date: start,
-          dateUnknown: true, reason: 'plan-date-invalid' });
-      }
+      // H2-12: a yearly obligation on a day its month never has (April 31) has no real date. An occurrence in this
+      // window that still falls back to that day (no statement replaces it) is unknown, never quietly paid on another
+      // day. A statement-replaced occurrence keeps the statement's own date and amount, and an ended or not yet
+      // started row has no occurrence here, so neither withholds (ChatGPT 7098708528, 7099423097).
+      const impossibleDay = impossibleYearlyInWindow(o, start, end);
+      let impossibleDayReported = false;
       for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
+        if (impossibleDay && occurrence.statement !== true && !impossibleDayReported) {
+          unknowns.push({ carrier: 'obligation', id: o.id || null, date: occurrence.date,
+            scheduledDate: occurrence.scheduledDate || null, dateUnknown: true, reason: 'plan-date-invalid' });
+          impossibleDayReported = true;
+        }
         if (scheduledAmountValue(occurrence.amount) != null) continue;
         if (!opts.keepRepresented && occurrence.date < start
           && represented.has(o.id + '@' + occurrence.date)) continue;

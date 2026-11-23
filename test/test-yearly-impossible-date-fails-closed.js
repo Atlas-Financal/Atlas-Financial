@@ -124,6 +124,24 @@ console.log('\n=== 3c. a statement-replaced obligation keeps main\'s statement p
     'the withhold is added beside the incumbent 2027 amount unknown, which still runs', JSON.stringify(got));
 }
 
+{
+  // Statement-only control (ChatGPT 7099423097): the same yearly Nov 31 card payment, bounded to its 2026 occurrence
+  // (lastDue 2026-12-31), whose one occurrence a valid statement replaces (due Nov 27, 250, confirmed). Nothing in
+  // the window falls back to the impossible day, so nothing withholds: the forecast reads ready, exactly as on main
+  // (hand: this period 1,210 and next 1,300, as the base plan, since the payment falls after both).
+  const only = { id: 'policy', label: 'Invented policy', debtId: 'inv-debt', effect: 'payment', frequency: 'yearly', month: 11, day: 31,
+    amount: 300, confidence: 'estimated', lastDue: '2026-12-31',
+    statementOccurrences: [{ scheduledDate: '2026-11-30', dueDate: '2026-11-27', minimum: 250, currency: 'cad', confidence: 'confirmed' }] };
+  const g = read(plan(p => { p.obligations.push(only); }));
+  ok(g.status === 'ready' && g.unknowns.length === 0, 'statement-only: no unknown, the forecast reads ready', JSON.stringify(g.unknowns));
+  ok(g.r.weekly != null && g.r.sim.ending != null && g.cur.balanceAfterDeductions === 1210 && g.next.balanceAfterDeductions === 1300,
+    'statement-only: the weekly figure, the projected walk and both periods (1,210 and 1,300) are shown',
+    JSON.stringify([g.r.weekly == null, g.r.sim.ending == null, g.cur.balanceAfterDeductions, g.next.balanceAfterDeductions]));
+  const occ = F.obligationOccurrences(only, AS_OF, '2027-12-31').map(o => [o.scheduledDate, o.date, o.amount, o.statement]);
+  ok(JSON.stringify(occ) === JSON.stringify([['2026-11-30', '2026-11-27', 250, true]]),
+    'statement-only: the statement still resolves (Nov 27, 250), exactly as on main', JSON.stringify(occ));
+}
+
 console.log('\n=== 4. an impossible yearly income withholds the plan, never drops to $0 ===');
 for (const [month, day] of IMPOSSIBLE) {
   const g = read(plan(p => { p.income.push(yearly('bonus', month, day, 500)); }));
