@@ -45,11 +45,11 @@ const cases = [
       H.lm({ date: '2026-10-11', amount: 6.5, category: 'Restaurants', payee: 'Invented cafe', pending: true }));
     await H.withBudget(w, async p => {
       const s = await H.snap(p);
-      H.expectMatch(eatingOut(s), /Spent ≈\s*estimated \$6\.50/, 'Eating out spent is marked estimated');
-      H.expectMatch(eatingOut(s), /≈\s*estimated \$93\.50 left/, 'Eating out remaining is marked estimated');
+      H.expectMatch(eatingOut(s), /Spent \$6\.50/, 'Eating out spent prints plainly');
+      H.expectMatch(eatingOut(s), /\$93\.50 left/, 'Eating out remaining prints plainly');
       H.expectMatch(eatingOut(s), /of planned \$100\.00/, 'the plan keeps its own trust: no estimate mark on planned');
-      H.expectMatch(s.household, /Household budget ≈\s*estimated \$6\.50 \/ of planned \$400\.00/, 'the household actual is estimated, never a precise 6.50');
-      H.expectMatch(s.household, /Household Budget TotalActual \/ Planned ≈\s*estimated \$6\.50/, 'the total line is estimated too');
+      H.expectMatch(s.household, /Household budget \$6\.50 \/ of planned \$400\.00/, 'the household actual prints plainly');
+      H.expectMatch(s.household, /Household Budget TotalActual \/ Planned \$6\.50/, 'the total line prints plainly');
       H.expect(H.occurrences(s.household, 'Invented cafe') === 2, `both cafe rows are listed (got ${H.occurrences(s.household, 'Invented cafe')})`);
       H.expect(H.occurrences(s.household, 'Possible duplicate') === 1, 'exactly the pending row carries the possible-duplicate mark');
       H.expectMatch(s.household, /Invented cafe\s*Pending\s*Possible duplicate/, 'the mark is on the pending row');
@@ -68,10 +68,10 @@ const cases = [
       const s = await H.snap(p);
       // One purchase cleared for 6.50. With the stale 6.50 authorization,
       // the estimate is 13.00 and the estimated category remainder is 87.00.
-      H.expectMatch(eatingOut(s), /≈\s*estimated \$87\.00 left.*Spent ≈\s*estimated \$13\.00/,
-        'the category marks the spend and allowance estimated');
-      H.expectMatch(s.household, /Household Budget TotalActual \/ Planned ≈\s*estimated \$13\.00/,
-        'the household total marks both amounts as estimated');
+      H.expectMatch(eatingOut(s), /\$87\.00 left.*Spent \$13\.00/,
+        'the category prints the spend and allowance');
+      H.expectMatch(s.household, /Household Budget TotalActual \/ Planned \$13\.00/,
+        'the household total prints the amounts');
       H.expectMatch(s.household, /Invented cafe\s*Pending\s*Possible duplicate/,
         'the stale authorization shows the warning');
     });
@@ -84,9 +84,9 @@ const cases = [
     await H.withBudget(w, async p => {
       const s = await H.snap(p);
       const other = H.category(s, 'Other spending');
-      H.expectMatch(other, /^Other spending≈\s*estimated \$6\.50/, 'Other spent is marked estimated, not a precise 6.50');
+      H.expectMatch(other, /^Other spending\$6\.50/, 'Other spending prints the published amount');
       H.expectMatch(s.household, /Invented kiosk\s*Pending\s*Possible duplicate/, 'the pending kiosk row stays listed and marked');
-      H.expectNoMatch(s.household, /Household Budget TotalActual \/ Planned \$6\.50/, 'no precise household total');
+      H.expectNoMatch(s.household, /Household Budget TotalActual \/ Planned ≈/, 'household total contains no estimate qualifier');
     });
   }],
   ['control: a lone pending purchase counts as before, unmarked', async () => {

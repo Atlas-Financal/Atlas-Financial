@@ -113,7 +113,7 @@ for (const mixed of [false, true]) {
   const p = closedPeriod(w);
   eq(p.unconfirmedBills, UNPAID + (mixed ? 40 : 0));
   eq(p.unconfirmedBillsTrust, 'estimated', 'an estimated contributing amount stays estimated');
-  assert.match(text(printer.calendarPeriodBillsHtml(p)), new RegExp('Not confirmed paid ≈ estimated \\$' + (mixed ? '160' : '120') + '\\.00')); checks++;
+  assert.match(text(printer.calendarPeriodBillsHtml(p)), new RegExp('Not confirmed paid \\$' + (mixed ? '160' : '120') + '\\.00')); checks++;
 }
 // All-confirmed control: calculated, no estimate marker.
 {

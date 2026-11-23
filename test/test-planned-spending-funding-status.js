@@ -280,7 +280,7 @@ check('S9: the Slice 4 funding-status code performs no page-side financial arith
 
 check('S10: Slice 1/2/3 shell behavior is intact', () => {
   const html = shell();
-  assert.match(html, /trust-tag/); // Slice 1 trust tags
+  assert.doesNotMatch(html, /trust-estimated|>calculated</);
   assert.doesNotMatch(html, /Atlas can't see money you've already moved/); // Slice 2 blindness qualifier
   assert.match(html, /Today's money — current position/);
 });
@@ -288,8 +288,7 @@ check('S10: Slice 1/2/3 shell behavior is intact', () => {
 check('S11: P1 — the shell cannot label an estimate-driven shortfall calculated', () => {
   // The P1 trap: the live row's Slice 1 stamp is calculated, but the
   // funding-status authority is estimated (an estimated future planned
-  // cost drives the gap). The shortfall must carry the estimate tag and
-  // never borrow the live row's calculated tag.
+  // cost drives the gap). The shortfall and the live row both print without a trust label.
   const html = shell({}, {
     status: 'funding-gap',
     fundingTrust: 'estimated',
@@ -297,15 +296,13 @@ check('S11: P1 — the shell cannot label an estimate-driven shortfall calculate
     gap: { payday: '2026-10-09', cashDate: '2026-10-20', required: 9000,
       available: 2500, shortBy: 6500, affected: ['proptax'] },
   });
-  // The earmark still carries the live row's own calculated tag…
-  assert.match(html, /Nest Money funding plan[\s\S]*\$1,200\.00 <span class="trust-tag">calculated<\/span>/);
-  // …but the funding-status figures carry the estimate tag instead.
-  assert.match(html, /Short by.*\$6,500\.00 <span class="trust-tag trust-estimated">estimate<\/span>/s);
-  assert.match(html, /Still to fund.*<span class="trust-tag trust-estimated">estimate<\/span>/s);
-  assert.match(html, /Projected protected.*<span class="trust-tag trust-estimated">estimate<\/span>/s);
-  // No calculated tag may appear on any funding-status figure. Scope to the
-  // funding-status subsection + gap block (later blocks legitimately carry
-  // their own calculated tags).
+  // Keep the independently expected earmark amount.
+  assert.match(html, /Nest Money funding plan[\s\S]*\$1,200\.00<\/span>/);
+  assert.match(html, /Short by.*\$6,500\.00/s);
+  assert.match(html, /Still to fund/);
+  assert.doesNotMatch(html, /trust-estimated|>estimate</);
+  assert.match(html, /Projected protected/);
+  // Check the funding subsection for a visible calculated tag as well.
   const fundingStart = html.indexOf('Projected protected');
   assert.ok(fundingStart !== -1, 'funding-status subsection rendered');
   const fundingSection = html.slice(fundingStart, html.indexOf('<h3>Protected cash</h3>'));

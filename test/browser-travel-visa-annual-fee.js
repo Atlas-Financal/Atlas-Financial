@@ -102,7 +102,7 @@ const proposalText = published.period.proposal.toFixed(2);
           assert.match(bucketText, /Travel Visa annual fee/);
           assert.match(bucketText, /149\.00/);
           assert.match(bucketText, /October 6, 2027/);
-          assert.match(bucketText, /estimated/i);
+          assert.doesNotMatch(bucketText, /≈|\bestimated\b/i);
           assert.equal(await bucket.locator('[data-budget-bill-open]').count(), 0, 'bills: the entry is plain markup, never a bill-open row');
           // Status filters hide the bucket; All restores it.
           for (const choice of ['paid', 'due', 'check']) {

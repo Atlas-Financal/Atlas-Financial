@@ -83,6 +83,9 @@ async function serve(page, data, planHtml) {
     if (['/periods.json', '/balance-history.json', '/running-build.json'].includes(u.pathname)) {
       return route.fulfill({ json: null });
     }
+    if (u.pathname !== '/' && !/\.(js|css|woff2|png|svg)$/.test(u.pathname)) {
+      return route.fulfill({ status: 404, body: '' });
+    }
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     if (!fs.existsSync(file)) return route.fulfill({ status: 404, body: '' });
     return route.fulfill({
@@ -158,7 +161,7 @@ const moveRiver = async (page, direction) => {
       assert.equal(face.text, 'Unavailable', 'withheld past term prints Unavailable');
       assert.equal(face.unavailable, true);
       assert.equal(face.negative, false, 'unavailable is never marked negative');
-      assert.notEqual(face.color, CRITICAL.light, 'unavailable is muted, not red');
+      assert.notEqual(face.color, CRITICAL.light, 'withheld amounts have no deficit warning');
       assert.deepEqual(errors, []);
       await page.close();
     }
@@ -171,7 +174,7 @@ const moveRiver = async (page, direction) => {
       assert.deepEqual(errors, []);
       await page.close();
     }
-    // B, light: an estimated negative term keeps its qualifier and pill
+    // B, light: an estimated negative term uses the same ink as another negative
     // while rendering red.
     {
       const { page, errors } = await open(browser, dataB(), { theme: 'light' });
@@ -183,8 +186,23 @@ const moveRiver = async (page, direction) => {
       assert.equal(face.period, 'next-pay-period');
       assert.ok(face.text.includes('−$413.21'), 'estimated negative amount: ' + face.text);
       assert.equal(face.negative, true, 'estimated negative term marks the face');
-      assert.equal(face.estimated, true, 'estimated qualifier class kept');
-      assert.equal(face.pill, true, 'est. pill still renders beside the red face');
+      assert.doesNotMatch(face.text, /≈|estimated|est\./i);
+      const copy = await page.evaluate(() => {
+        const amount = document.querySelector('[data-blend-term="balanceAfterDeductions"]');
+        return {
+          trust: document.querySelector('[data-bad-term="balanceAfterDeductions"]').dataset.badTermTrust,
+          opacity: getComputedStyle(amount).opacity,
+          underline: getComputedStyle(amount).textDecorationLine,
+          accessibleText: [amount, ...amount.querySelectorAll('[aria-label],[title]')]
+            .map(node => [node.getAttribute('aria-label'), node.title].join(' ')).join(' '),
+        };
+      });
+      assert.equal(copy.trust, 'estimated', 'the published figure keeps its trust');
+      assert.equal(copy.opacity, '1');
+      assert.equal(copy.underline, 'none');
+      assert.doesNotMatch(copy.accessibleText, /≈|estimat/i);
+      assert.equal(face.estimated, false, 'no trust-specific class');
+      assert.equal(face.pill, false, 'the negative amount has no estimate pill');
       assert.equal(face.color, CRITICAL.light, 'estimated negative renders --critical');
       assert.deepEqual(errors, []);
       await page.close();
@@ -235,7 +253,7 @@ const moveRiver = async (page, direction) => {
   } finally {
     await browser.close();
   }
-  console.log('PASS budget BAD red: negative terms render var(--critical) in light and dark on the selected period only; estimated negative keeps its pill; trusted $0.00 and unavailable stay unmarked; plan-side signed faces already render var(--critical)');
+  console.log('PASS budget BAD red: negative terms render var(--critical) in light and dark on the selected period only; estimated negative keeps its sign and colour; trusted $0.00 and unavailable stay unmarked; plan-side signed faces already render var(--critical)');
 })().catch(err => {
   console.error(err);
   process.exit(1);

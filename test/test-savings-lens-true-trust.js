@@ -4,7 +4,7 @@
 // 'payday') used to relabel a calculated backing requirement as 'confirmed',
 // so a calculated figure reached the page as owner-confirmed. The published
 // lens confidence is now the backing item's trust, verbatim, and the real
-// Budget renderer prints that cost as calculated without hiding it.
+// Budget renderer prints that cost without a trust label.
 // Ledger and amounts are the invented savings-future-closing fixture.
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
@@ -87,7 +87,7 @@ test('no savings-lens path emits "confirmed"; every lens row carries its backing
   }
 });
 
-test('the real Budget renderer prints a calculated lens cost as calculated and keeps the figure', () => {
+test('the Budget renderer prints the published lens cost without its trust label', () => {
   const { x, a } = advice();
   const ctx = budget();
   ctx.src = { plan: x.plan, debts: [], asOf: x.asOf, advice: a, liveOverlay: null, weekly: 0, weeklyOverride: 0, planPayPeriodId: null };
@@ -103,8 +103,8 @@ test('the real Budget renderer prints a calculated lens cost as calculated and k
       const row = panel.split(`data-budget-funding-cost="${item.id}"`)[1];
       assert.ok(row, `${key}: ${item.id} renders`);
       const head = row.split('</div>')[0];
-      assert.ok(head.includes(`<span class="budget-cash-sr">calculated </span>${money(item.cost)}`),
-        `${key}: ${item.id} prints its cost tagged calculated (${head})`);
+      assert.ok(head.includes(`<b>${money(item.cost)}</b>`),
+        `${key}: ${item.id} prints its cost without a qualifier (${head})`);
       assert.ok(!/budget-v3-unknown|budget-v3-est/.test(head), `${key}: ${item.id} cost is neither hidden nor marked estimated`);
       assert.ok(!/confirmed/i.test(head), `${key}: ${item.id} cost is not presented as confirmed`);
       checked++;

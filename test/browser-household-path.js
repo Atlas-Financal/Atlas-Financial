@@ -114,7 +114,7 @@ async function session(server, width, steps, extras = true) {
       for (const [key, actual, planned] of [['02', 1000, 1000], ['04', e.billPaid ? 120 : 0, 120], ['06', e.spent, 400]]) {
         const actualText = await overview(key).locator('[data-budget-ratio-actual]').innerText();
         assert.equal(summaryCents(actualText), actual * 100, key + ' actual cents');
-        if (key === '06' && e.key === 'purchases') assert.match(actualText, /estimated/, 'included pending spending retains its qualification');
+        if (key === '06' && e.key === 'purchases') assert.doesNotMatch(actualText, /≈|estimated/i, 'included pending spending has neutral figure text');
         assert.match(await overview(key).locator('[data-budget-ratio-plan]').innerText(), new RegExp(money(planned).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), key + ' original plan');
       }
       // The face prints Q07 a second time in whole dollars + cents; the
@@ -165,7 +165,7 @@ async function session(server, width, steps, extras = true) {
           const detail = body().locator('[data-budget-spent]');
           // d7646367: an unresolved pending look-alike keeps the category
           // Spent estimated (the hold step only); every other step is exact.
-          const spentText = (e.hold === 'pending-possible-replacement' && id === 'groceries' ? '≈ estimated ' : '') + money(spent);
+          const spentText = money(spent);
           assert.equal(await detail.locator(':scope > summary .household-budget-spent-amount').innerText(), spentText);
           assert.equal(await detail.evaluate(el => el.open), true, 'native category Info exposes its actual rows');
           assert.equal(await detail.locator('[data-budget-spent-total]').innerText(), spentText);

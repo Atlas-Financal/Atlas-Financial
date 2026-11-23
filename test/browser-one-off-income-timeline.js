@@ -84,7 +84,7 @@ async function strip(browser, served) {
     const nov6 = pick(withOne, '2026-11-06');
     assert.equal(nov6?.amount, '$550.00', 'Nov 6–19 prints $550.00 with the one-off');
     assert.equal(nov6.trust, 'estimated', 'the one-off period is marked estimated');
-    assert.ok(/≈/.test(nov6.text), 'the estimate mark prints: ' + nov6.text);
+    assert.doesNotMatch(nov6.text, /≈|estimated/i);
     for (const start of FUTURE.filter(s => s !== '2026-11-06')) {
       assert.equal(pick(withOne, start)?.amount, '$300.00', start + ' still prints $300.00');
     }
@@ -93,7 +93,7 @@ async function strip(browser, served) {
   } finally {
     await browser.close();
   }
-  console.log('PASS one-off income timeline: the one-off reaches only its named pay period on the strip ($550.00, ≈ estimated), neighbours stay $300.00, removal restores the strip');
+  console.log('PASS one-off income timeline: the one-off reaches only its named pay period on the strip ($550.00), neighbours stay $300.00, removal restores the strip');
 })().catch(err => {
   console.error(err);
   process.exit(1);

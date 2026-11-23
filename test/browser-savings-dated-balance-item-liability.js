@@ -52,7 +52,7 @@ const savingsCardPayment = (amount, date) => [
       assert.match(s.savings, /Reported combined savings: \$1,000\.00/, why + ': the dated report stays visible');
       assert.match(s.trip, /\$100\.00\s*Saved.*Paid \$500\.00/, why + ': trip saved 100, paid 500');
       assert.match(s.gift, /\$400\.00\s*Saved/, why + ': gift saved 400');
-      assert.match(s.gift, /Still to fund ≈ estimated \$200\.00/, why + ': gift still to fund 200');
+      assert.match(s.gift, /Still to fund \$200\.00/, why + ': gift still to fund 200');
     }
     console.log('savings dated balance item liability: engine and page checks passed');
   } finally {

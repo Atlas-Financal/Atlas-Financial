@@ -128,7 +128,7 @@ assert.equal((html.match(/data-operating-question=/g) || []).length, 6,
 context.row = structuredClone(first.current);
 context.row.fromTodayFunding.trust = 'estimated';
 assert.match(vm.runInContext('calendarWaterfallHtml(row, overlay, alloc, plan)', context),
-  /Proposed to set aside now<\/span><span>\$250\.00 ≈ estimated/);
+  /Proposed to set aside now<\/span><span>\$250\.00<\/span>/);
 
 const low = structuredClone(payload); low.accounts[0].balance = 100;
 const short = refresh(low); context.row = short.current;

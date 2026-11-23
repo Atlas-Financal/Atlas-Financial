@@ -139,12 +139,11 @@ fs.mkdirSync(screenshots, { recursive: true });
         // Some steps sit in a collapsed hero panel on the blend face; read the printed text, not the layout.
         const header = await printed(page.locator(`[data-operating-question="${id}"] .budget-step-summary`));
         assert.ok(header.includes(amount), `${id}: ${header}`);
-        if (id !== '04') assert.match(header, /≈\s*estimated/);
-        else assert.doesNotMatch(header, /≈\s*estimated/);
+        assert.doesNotMatch(header, /≈|\bestimat(?:e|ed)\b/i);
       }
       await page.screenshot({ path: path.join(screenshots, `routed-${width}-2027-estimated.png`), fullPage: true });
       await income.click();
-      assert.match(await page.locator('[data-period-income="payroll"]').innerText(), /≈\s*estimated/);
+      assert.doesNotMatch(await page.locator('[data-period-income="payroll"]').innerText(), /≈|\bestimat(?:e|ed)\b/i);
       await page.keyboard.press('Escape');
       assert.equal(await sheetOpen(), false);
       // Genuine touch swipe through the production listener, then back.

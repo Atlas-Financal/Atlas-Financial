@@ -78,12 +78,12 @@ console.log('\n=== the visible Credit cards strip tags a stale reported balance 
   };
   const stale = render('2026-09-10');
   const trigger = (/<button type="button" class="card-movement-trigger" data-budget-card-toggle="travelvisa"[\s\S]*?<\/button>/.exec(stale) || [''])[0];
-  ok(/data-card-movement-estimate>estimate · as of [^<]+<\/small>/.test(trigger),
-    'stale: the card row prints "estimate · as of <date>" beside the reported balance', trigger.slice(0, 400));
-  ok(!/data-card-movement-asof/.test(trigger), 'stale: the estimate replaces the plain as-of note');
-  ok(/card-movement-lead[^>]*>[^<]*· <span data-card-movement-estimate>estimate — /.test(stale),
-    'stale: the card panel lead line carries the estimate and its reason');
-  ok(!/estimate — estimate/.test(stale), 'stale: the reason reads "estimate" once, not twice');
+  ok(/data-card-movement-asof>as of Sep 10<\/small>/.test(trigger),
+    'stale: the card row prints the observation date beside the reported balance', trigger.slice(0, 400));
+  ok(!/data-card-movement-estimate|≈|estimate/i.test(trigger), 'stale: the date has no estimate label');
+  ok(/card-movement-lead[^>]*>[^<]*balance dated 2026-09-10, before this statement cycle/.test(stale),
+    'stale: the card panel lead line carries the freshness reason');
+  ok(!/estimate|≈/i.test(stale), 'stale: the drawer and strip are free of estimate labels');
   const current = render('2026-09-18');
   ok(/data-budget-card-toggle="travelvisa"/.test(current) && !/data-card-movement-estimate/.test(current),
     'current: the strip shows the card with no estimate tag');

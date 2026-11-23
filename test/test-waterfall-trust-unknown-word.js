@@ -162,7 +162,7 @@ for (const fields of FALSY.map(word => ({ confidence: word })).concat(FALSY.map(
 
 // 2b. The same cash minimum on the Bills list: a blank word never prints a
 //     bare figure that reads like a confirmed one (pre-review finding). It
-//     prints Unavailable; a missing word keeps its estimated mark.
+//     prints Unavailable; a missing word prints in plain type.
 function billsListLoan(fields) {
   const data = fx.served();
   data.plan.obligations.push(Object.assign({ id: 'invented-loan', label: 'Invented loan', frequency: 'monthly', day: 22,
@@ -172,7 +172,8 @@ function billsListLoan(fields) {
   assert.ok(m, `bills list ${JSON.stringify(fields)}: the invented loan row renders`);
   return strip(m[0]);
 }
-assert.match(billsListLoan({}), /estimated \$50\.00/, 'bills list, missing word: the cash minimum keeps its estimated mark');
+assert.doesNotMatch(billsListLoan({}), /≈|estimated/i);
+assert.match(billsListLoan({}), /\$50\.00/, 'bills list, missing word: the cash minimum prints in plain type');
 for (const word of ['', 0]) {
   const row = billsListLoan({ confidence: word });
   assert.doesNotMatch(row, /\$50\.00/, `bills list ${JSON.stringify(word)}: no bare figure`);
@@ -216,7 +217,7 @@ function commitment(word) {
 {
   const { advice, lines } = commitment(undefined);
   assert.equal(advice.planSpendPaydayFunding.fundingTrust, 'estimated', 'commitment, missing word: planned-cost trust stays estimated');
-  assert.ok(lines.some(line => /≈ estimated \$400\.00/.test(line)), 'commitment, missing word: the cost still prints as an estimate');
+  assert.ok(lines.some(line => !/≈|estimated/.test(line) && /\$400\.00/.test(line)), 'commitment, missing word: the known cost prints in plain type');
 }
 for (const word of FALSY.concat(['unknown'])) {
   const { advice, lines } = commitment(word);

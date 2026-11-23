@@ -105,17 +105,18 @@ function read(trip, gift) {
   }
   ctx.member = { item: advice.savingsFunding.backing.items.find(i => i.id === 'late'), thisPeriod: 0 };
   const shown = vm.runInContext('budgetSavingsMemberFigures(member,"calculated").saved', ctx);
-  assert.match(shown, /estimated[^]*\$500\.00/, 'Budget member keeps the causal Saved estimate');
+  assert.doesNotMatch(shown.replace(/<[^>]+>/g, ''), /≈|estimated/);
+  assert.match(shown, /\$500\.00/, 'Budget member shows its published Saved amount');
   assert.doesNotMatch(shown, /calculated/, 'Budget member does not promote Saved');
   ctx.funding = advice.savingsFunding; ctx.advice = advice;
   const inventory = vm.runInContext('SavingsInventory.html(funding,{asOf:"2026-10-14",advice})', ctx);
-  assert.match(inventory, /Invented late[^]*?Currently backed<\/dt><dd>\$500\.00 <small>estimated<\/small>/,
+  assert.match(inventory, /Invented late[^]*?Currently backed<\/dt><dd>\$500\.00<\/dd>/,
     'unchanged current-main inventory member honors the Saved-specific estimate');
   for (const trust of ['calculated', 'estimated', 'unknown']) for (const savedTrust of [undefined, 'estimated']) {
     ctx.member = { item: { saved: 500, needed: 600, trust, ...(savedTrust ? { savedTrust } : {}) }, thisPeriod: 0 };
     const result = vm.runInContext('budgetSavingsMemberFigures(member,"calculated").saved', ctx);
-    const expected = trust === 'unknown' ? 'budget-v3-unknown' : savedTrust || trust;
-    assert.ok(result.includes(expected), 'member preserves weaker need/Saved trust: ' + trust + '/' + savedTrust);
+    const expected = trust === 'unknown' ? 'Unavailable' : '$500.00';
+    assert.ok(result.replace(/<[^>]+>/g, '').trim() === expected, 'member preserves weaker need/Saved trust: ' + trust + '/' + savedTrust);
     assert.ok(vm.runInContext('budgetSavingsMemberFigures(member,"calculated",true).saved', ctx).includes('budget-v3-unknown'),
       'historical member remains withheld');
   }

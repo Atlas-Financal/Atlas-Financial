@@ -64,6 +64,7 @@ assert.equal((html.match(/class="budget-step-details"/g) || []).length, 6);
 assert.doesNotMatch(html, /<details class="budget-step-details"[^>]* open/);
 
 const summary = (markup, number) => markup.split(`data-operating-question="${number}"`)[1].split('</summary>')[0];
+const summaryText = (markup, number) => summary(markup, number).replace(/^[^>]*>/, '').replace(/<[^>]+>/g, '');
 // The period waterfall component prints Forecast's published totals, never a
 // sum of its detail rows. The retired operatingSurfaceHtml printed this same
 // component (calendarWaterfallHtml, full summaries); the live page prints its
@@ -94,8 +95,8 @@ assert.match(summary(zero, '02'), /is-noscale/);
 assert.doesNotMatch(summary(zero, '02'), /is-unknown|is-deficit|style="left:/);
 const estimated = f.calendarWaterfallHtml(Object.assign({}, rows[2], {
   budgetHoldTrust: 'estimated', balanceAfterDeductionsTrust: 'estimated' }), null, null, plan);
-assert.match(summary(estimated, '06'), /≈ estimated/);
-assert.match(summary(estimated, '07'), /≈ estimated/);
+assert.doesNotMatch(summaryText(estimated, '06'), /≈|estimated/);
+assert.doesNotMatch(summaryText(estimated, '07'), /≈|estimated/);
 for (const trust of ['unavailable', 'unknown']) {
   const withheld = f.calendarWaterfallHtml(Object.assign({}, rows[1], {
     budgetHoldTrust: trust, balanceAfterDeductionsTrust: trust }), null, null, plan);
@@ -131,7 +132,7 @@ assert.doesNotMatch(summary(deficitHtml, '06'), /is-unknown/);
 assert.match(summary(deficitHtml, '07'), /is-deficit/);
 assert.doesNotMatch(summary(deficitHtml, '07'), /is-unknown/);
 assert.match(summary(deficitHtml, '07'), /\$\-2199\.00/);
-assert.match(summary(deficitHtml, '07'), /≈ estimated/);
+assert.doesNotMatch(summaryText(deficitHtml, '07'), /≈|estimated/);
 assert.match(summary(deficitHtml, 'savings'), /is-unknown/);
 assert.doesNotMatch(summary(deficitHtml, 'savings'), /is-deficit|style="left:/);
 
@@ -166,7 +167,7 @@ assert.match(summary(zeroHtml, '06'), /is-deficit/);
 assert.doesNotMatch(summary(zeroHtml, '06'), /is-unknown|style="left:/);
 assert.match(summary(zeroHtml, '07'), /is-deficit/);
 assert.match(summary(zeroHtml, '07'), /\$\-2395\.00/);
-assert.match(summary(zeroHtml, '07'), /≈ estimated/);
+assert.doesNotMatch(summaryText(zeroHtml, '07'), /≈|estimated/);
 assert.doesNotMatch(summary(zeroHtml, '07'), /is-unknown|style="left:/);
 assert.match(summary(zeroHtml, 'savings'), /is-unknown/);
 assert.doesNotMatch(summary(zeroHtml, 'savings'), /is-deficit|is-noscale|style="left:/);
@@ -182,8 +183,8 @@ assert.equal(projected.afterBills, 2061.69); // 3860.69 - 1799
 assert.equal(projected.balanceAfterDeductions, 1961.69); // 2061.69 - 100
 const projectedHtml = f.calendarWaterfallHtml(projected, null, null, financialData.plan);
 for (const id of ['02', '05', '07']) {
-  assert.match(summary(projectedHtml, id), /≈ estimated/,
-    `collapsed ${id} must disclose the Forecast payroll estimate`);
+  assert.doesNotMatch(summaryText(projectedHtml, id), /≈|estimated/,
+    `collapsed ${id} shows the projected payroll without a trust mark`);
 }
 assert.doesNotMatch(summary(projectedHtml, '04'), /≈ estimated/);
 const estimatedBillData = require('./fixtures/budget-layout-data')();
@@ -194,9 +195,9 @@ const billPeriod = F.recommend(estimatedBillData.plan, '2026-11-20', { debts: []
   .payPeriodViews.find(p => p.start === '2026-11-20');
 assert.ok(billPeriod);
 const billHtml = f.calendarWaterfallHtml(billPeriod, null, null, estimatedBillData.plan);
-assert.match(summary(billHtml, '04'), /≈ estimated/);
-assert.match(summary(billHtml, '05'), /≈ estimated/);
-assert.match(summary(billHtml, '07'), /≈ estimated/);
+assert.doesNotMatch(summaryText(billHtml, '04'), /≈|estimated/);
+assert.doesNotMatch(summaryText(billHtml, '05'), /≈|estimated/);
+assert.doesNotMatch(summaryText(billHtml, '07'), /≈|estimated/);
 assert.doesNotMatch(summary(billHtml, '02'), /≈ estimated/);
 assert.equal(billPeriod.periodBillLoad, 1799);
 assert.equal(billPeriod.afterBills, 2465);
@@ -227,7 +228,7 @@ const funding = { status: 'ready', start: rows[1].start, end: rows[1].end, trust
     cost: 600, remainingGap: 499, confidence: 'confirmed', date: '2026-10-08' }] };
 const fundedHtml = f.calendarWaterfallHtml(Object.assign({}, rows[1], { plannedCostFunding: funding }), null, null, plan);
 assert.match(summary(fundedHtml, 'savings'), /\$123\.45/);
-assert.match(summary(fundedHtml, 'savings'), /≈ estimated/);
+assert.doesNotMatch(summaryText(fundedHtml, 'savings'), /≈|estimated/);
 assert.match(summary(fundedHtml, '07'), /\$456\.78/);
 assert.doesNotMatch(summary(fundedHtml, '07'), /1300\.00|1176\.55/);
 assert.match(fundedHtml, /&lt;Named cost&gt;/);

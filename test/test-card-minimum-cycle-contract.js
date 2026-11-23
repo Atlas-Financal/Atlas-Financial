@@ -108,10 +108,10 @@ eq(F.expandEvents(p, '2026-10-08', '2026-10-08')[0].dateConfidence, 'confirmed',
     'settlement uses confirmed amount trust without confirming the planning date');
   const BillDetail = require('../public/bill-detail');
   const detail = BillDetail.html(amountOnlyRun.bill, amountOnlyRun.data);
-  eq(/Due date<\/dt><dd>2026-10-07 · estimated/.test(detail), true,
-    'Plan bill detail reprints estimated date trust');
-  eq(/Published confidence<\/dt><dd>confirmed/.test(detail), true,
-    'Plan bill detail keeps confirmed amount trust');
+  eq(/Due date<\/dt><dd>2026-10-07<\/dd>/.test(detail), true,
+    'Plan bill detail prints the published date');
+  eq(/Published confidence|estimated/i.test(detail), false,
+    'Plan bill detail omits confidence labels');
   const planSrc = fs.readFileSync(require.resolve('../public/plan.js'), 'utf8');
   const grabPlan = re => { const m = re.exec(planSrc); eq(!!m, true, 'plan helper present'); return m[0]; };
   const labelCtx = { Date, Intl };
@@ -122,8 +122,8 @@ eq(F.expandEvents(p, '2026-10-08', '2026-10-08')[0].dateConfidence, 'confirmed',
     'this.glanceLineLabel = glanceLineLabel;',
   ].join('\n'), labelCtx);
   eq(labelCtx.glanceLineLabel(amountOnlyRun.bill, 'still due'),
-    'Invented card minimum · Oct 7 · estimated · still due',
-    'Plan date line keeps estimated indication after amount confirmation');
+    'Invented card minimum · Oct 7 · still due',
+    'Plan date line keeps the date and settlement after amount confirmation');
   const debtCtx = { Date, escapeHtml: require('./app-escape-html') };
   vm.createContext(debtCtx);
   vm.runInContext([
@@ -374,8 +374,8 @@ vm.runInContext([
 eq(presentCtx.glanceLineLabel({
   label: 'Invented card minimum', date: '2026-10-07',
   confidence: 'confirmed', dateConfidence: 'estimated',
-}, 'still due'), 'Invented card minimum · Oct 7 · estimated · still due',
-  'Plan keeps estimated on the retained planning date');
+}, 'still due'), 'Invented card minimum · Oct 7 · still due',
+  'Plan shows the retained planning date');
 eq(presentCtx.glanceLineLabel({
   label: 'Invented card minimum', date: '2026-10-08',
   confidence: 'confirmed', dateConfidence: 'confirmed',

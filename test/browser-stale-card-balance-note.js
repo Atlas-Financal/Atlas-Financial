@@ -68,7 +68,8 @@ const data = balanceAsOf => ({
       const rowText = (await row.count()) ? (await row.first().innerText()).replace(/\s+/g, ' ') : '';
       if (label === 'stale') {
         assert.equal(await row.first().isVisible(), true, 'stale: the card row is visible on the Budget');
-        assert.match(rowText, /estimate · as of /, 'stale: the visible card row says estimate · as of <date>');
+        assert.match(rowText, /as of /i, 'stale: the card row gives its observation date');
+        assert.doesNotMatch(rowText, /≈|estimate/i);
       } else {
         assert.doesNotMatch(rowText, /estimate/, 'current: the visible card row carries no estimate');
       }

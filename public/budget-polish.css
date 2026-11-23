@@ -177,13 +177,6 @@ body:has(#operating-surface) .site-head-inner {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.atlas-income-card [data-payday-balance] span[data-payday-balance-trust] {
-  color: var(--text-secondary);
-  font-size: .72rem;
-  font-weight: 600;
-  font-variant-numeric: normal;
-  white-space: nowrap;
-}
 
 /* Paycheck rows: no Amanda strikethrough, no arriving green highlight. */
 .atlas-budget-ui-ready .atlas-income-card .operating-line[data-income-status="not-relied-upon"] span:last-child,
@@ -553,34 +546,6 @@ body:has(#operating-surface) .site-head-inner {
 .payday-instruction-shell .instruction-block .operating-note {
   margin: 4px 0 0;
 }
-/* AMANDA SLICE 1 repair — trust tags. Every shell figure carries its
- * Forecast-published trust state so estimated state is never flattened
- * into indistinguishable bare currency. */
-.payday-instruction-shell .trust-tag {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  font-size: 0.7rem;
-  font-weight: 600;
-  vertical-align: middle;
-  color: var(--success-text);
-  background: var(--surface-1);
-}
-.payday-instruction-shell .trust-tag.trust-estimated {
-  border-color: var(--warning);
-  color: var(--text-primary);
-  background: var(--plane);
-}
-/* Dale, 2026-11-18 (option A): a card-coverage-only estimate leads with
- * the bank data's date; its "≈ estimate" mark stays, small and muted. */
-.trust-as-of .trust-as-of-mark {
-  font-size: 0.85em;
-  font-weight: 400;
-  color: var(--text-secondary);
-}
-
 
 /* ------------------------------------------------------------------------
    Design tighten (Dale, 2026-11-16). Paint and spacing only: no figure,

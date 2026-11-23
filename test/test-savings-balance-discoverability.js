@@ -46,10 +46,11 @@ for (const mode of ['valid-v2', 'stale-date', 'stale-both', 'pending-movement', 
     assert.match(visible, /Unavailable/); assert.doesNotMatch(visible, /\$/);
   } else {
     assert.match(visible, new RegExp(mode === 'negative-stale' ? '-\\$3\\.12' : mode === 'zero-stale' ? '\\$0\\.00' : '\\$119\\.00'));
-    assert.match(visible, /calculated.*provider-reported/);
+    assert.match(visible, /provider-reported/);
+    assert.doesNotMatch(visible, /\bcalculated\b/);
     assert.match(visible, /Balance dates [A-Z][a-z]{2} \d{1,2}/);
     assert.doesNotMatch(visible, /\d{4}-\d{2}-\d{2}/, mode + ': the date prints in the page style, never ISO');
-    assert.match(visible, /<\/small> · Balance dates /, mode + ': the tags are one clause, then Balance dates');
+    assert.match(visible, /provider-reported · Balance dates /, mode + ': the tags are one clause, then Balance dates');
   }
   if (mode.includes('stale')) assert.match(visible, /Dated balance — not current/);
   if (mode === 'stale-date') assert.match(visible, /Oct 4 - Oct 5/);
@@ -115,8 +116,8 @@ const dateReport = (from, through, more = {}) => ({ status: 'ready', basis: 'rep
   balanceFrom: from, balanceThrough: through, freshness: 'current', pendingState: 'clear', ...more });
 const lineOf = (from, through, more) => UI.reportedStockHtml({ asOf: '2026-10-14' }, dateReport(from, through, more));
 assert.match(lineOf('2026-10-14', '2026-10-14'),
-  /Reported combined savings: \$1,000\.00\. <small>calculated · provider-reported<\/small> · Balance dates Oct 14\.<\/p>/,
-  'same day prints once, in the short style, with the tags unchanged');
+  /Reported combined savings: \$1,000\.00\. provider-reported · Balance dates Oct 14\.<\/p>/,
+  'same day prints once, in the short style, with its provider source');
 assert.match(lineOf('2026-10-04', '2026-10-05'), /Balance dates Oct 4 - Oct 5\./, 'a range prints both ends in the short style');
 assert.match(lineOf('2025-12-30', '2025-12-31'), /Balance dates Dec 30, 2025 - Dec 31, 2025\./,
   'a prior-year balance keeps its year');

@@ -383,7 +383,10 @@ for(const [delta,known] of [[p.household.delta,true],[publish(pending).household
   context.delta=delta;const html=vm.runInContext('budgetHouseholdDeltaHtml(delta)',context);
   assert.equal(html.includes('data-budget-delta-amount='),known,'only qualified comparison amounts are stamped');
   if(!known)assert.match(html,/Remaining unavailable/);
-  else if(delta.trust==='estimated')assert.match(html,/estimated/,'estimated comparison preserves accessible qualifier');
+  else if(delta.trust==='estimated'){
+    assert.match(html,/data-budget-delta-value>\$[\d,.]+<\/span>/,'published comparison amount prints plainly');
+    assert.doesNotMatch(html,/estimated|≈/i,'comparison has no visual or accessible trust qualifier');
+  }
 }
 const bills=vm.runInContext('budgetBillsSectionHtml(progressPeriod,progressCtx)',context);
 assert.match(bills,/data-budget-ratio="bills"[\s\S]*?1,400\.00[\s\S]*?1,665\.00/);

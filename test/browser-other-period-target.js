@@ -51,7 +51,7 @@ try{for(const width of [1440,390,320])for(const spent of width===320?[137.26,450
  if(spent!==null&&!future)assert.match(detail,/invented-other/);else assert.match(detail,/Spent[\s\S]*Unavailable/);
  assert.match(detail,historical?/Configured target[\s\S]*450\.00/:/Planned[\s\S]*450\.00/,'dated Other target is labeled according to its period evidence');
  if(historical)assert.match(detail,/Historical original plan unavailable/);
- if(future){assert.match(detail,/estimated[\s\S]*450\.00/);assert.match(detail,/Projected/);assert.doesNotMatch(detail,/invented-other/);}
+ if(future){assert.match(detail,/450\.00/);assert.doesNotMatch(detail,/≈|estimated/i);assert.match(detail,/Projected/);assert.doesNotMatch(detail,/invented-other/);}
  await page.screenshot({path:path.join(out,`other-${spent}-info-${width}.png`),animations:'disabled'});
  await page.keyboard.press('Escape');assert.equal(await opener.evaluate(el=>el===document.activeElement),true);
  assert.equal(await opener.evaluate(el=>{const r=el.getBoundingClientRect(),dock=document.querySelector('.sitenav-household');

@@ -140,9 +140,9 @@ test('render: the estimate is tagged and explains its basis; the verified close 
     return SavingsInventory.html(a.savingsFunding, { asOf: a.savingsFunding.asOf, advice: a, periodId: view.id });
   };
   const est = render(advice(scenario(true)), '2026-10-30');
-  assert.match(est, /Savings at period close: ≈ \$1,599\.00 \(estimated\)\./);
+  assert.match(est, /Savings at period close: \$1,599\.00\./);
   assert.match(est, /data-savings-closing-estimate/);
-  assert.match(est, /Estimated from the reported Savings balance dated 2026-10-07\./);
+  assert.match(est, /[Rr]eported Savings balance dated 2026-10-07\./);
   assert.match(est, /may or may not already be included/);
   assert.ok(est.includes('Verified backing is withheld: ' + MOVEMENT_REASON), 'the withheld reason is named');
   const clean = render(advice(scenario(false)), '2026-10-30');
@@ -161,7 +161,7 @@ test('render: a projected period keeps the estimated tag on each per-goal Saved 
       .map(part => part.split('</dd>')[0]);
     const saved = facts('backed').filter(fact => /\$\d/.test(fact));
     assert.ok(saved.length > 0, 'the projected close prints at least one per-goal Saved figure');
-    for (const fact of saved) assert.match(fact, /<small>estimated<\/small>$/, 'a projected Saved figure keeps its estimated tag: ' + fact);
+    for (const fact of saved) assert.doesNotMatch(fact, /<small>estimated<\/small>$/, 'a projected Saved figure prints without its trust tag: ' + fact);
     for (const fact of facts('backed').filter(fact => !/\$\d/.test(fact)))
       assert.match(fact, /Unknown/, 'a projected Saved with no figure is Unknown');
   }
@@ -194,7 +194,7 @@ test('render: grouped members keep requirement trust on Needed and projection tr
     const saved = m.split('data-savings-member-backed>')[1].split('</dd>')[0];
     assert.match(needed, /\$[\d,]+\.\d{2}$/, 'a calculated member Needed stays unmarked in a projected period: ' + needed);
     assert.doesNotMatch(needed, /estimated/, 'Needed never borrows the Saved projection trust');
-    assert.match(saved, /<small>estimated<\/small>$/, 'member Saved at period close keeps its estimated tag: ' + saved);
+    assert.doesNotMatch(saved, /<small>estimated<\/small>$/, 'member Saved at period close prints without its trust tag: ' + saved);
   }
 });
 
@@ -240,16 +240,16 @@ const markerless = html => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 test('primary Budget card: estimated close and per-goal Saved carry the marker and named basis', () => {
   const html = budgetCard(true, '2026-10-30');
   const stock = html.split('data-budget-savings-forecast-stock>')[1].split('</p>')[0];
-  assert.match(stock, /≈/, 'Savings at period close is marked estimated');
-  assert.match(markerless(stock), /estimated \$1,599\.00/);
+  assert.doesNotMatch(stock, /≈/, 'Savings at period close prints without a trust mark');
+  assert.match(markerless(stock), /\$1,599\.00/);
   const basis = html.split('data-budget-savings-estimate-basis>')[1]?.split('</p>')[0];
   assert.ok(basis, 'the basis/reason is shown on the primary card, not only in the hidden panel');
   assert.match(basis, /reported Savings balance dated 2026-10-07/);
   assert.ok(basis.includes(MOVEMENT_REASON), 'the withheld verified reason is named');
   const goal = html.split('data-budget-savings-goal="commitment:a"')[1].split('</li>')[0];
   const saved = goal.split('class="budget-goal-amount">')[1].split('</span><small>Saved')[0];
-  assert.match(saved, /≈/, 'per-goal Saved is marked estimated');
-  assert.match(markerless(saved), /estimated \$1,500\.00/);
+  assert.doesNotMatch(saved, /≈/, 'per-goal Saved prints without a trust mark');
+  assert.match(markerless(saved), /\$1,500\.00/);
   const needed = goal.split('class="budget-goal-amount">')[2].split('<small>')[0];
   assert.doesNotMatch(needed, /≈/, 'Needed is a requirement, not an estimate');
 });

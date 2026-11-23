@@ -68,7 +68,7 @@ function render(row) {
 function summary(html, number) {
   const after = html.split(`data-operating-question="${number}"`)[1];
   assert.ok(after, 'question ' + number + ' is printed on the compact face');
-  return after.split('</summary>')[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  return after.split('</summary>')[0].replace(/^[^>]*>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 }
 const has = (text, amount) => text.includes('$' + amount.toLocaleString('en-CA', { minimumFractionDigits: 2 }));
 
@@ -89,15 +89,15 @@ for (const [number, printed, forbidden] of cases) {
   for (const amount of forbidden) ok(!has(text, amount), `${number}: never prints ${amount} (a detail sum or another figure)`);
 }
 
-// 2. An estimated published value carries the ≈ estimated mark on the compact face.
+// 2. An estimated published value uses plain type on the compact face.
 const estimated = render(period({
   afterBillsTrust: 'estimated', balanceAfterDeductionsTrust: 'estimated',
   budgetProgress: Object.assign({}, period().budgetProgress, {
     income: { actual: field(1111, 'estimated'), planned: field(1777) } }),
 }));
 for (const number of ['02', '05', '07']) {
-  ok(/≈/.test(summary(estimated, number)) && /estimated/.test(summary(estimated, number)),
-    number + ': an estimated published value is marked ≈ estimated');
+  ok(!/≈|estimated/i.test(summary(estimated, number)),
+    number + ': an estimated published value prints without qualification');
 }
 ok(!/≈/.test(summary(estimated, '04')), '04: a calculated value carries no ≈ mark');
 

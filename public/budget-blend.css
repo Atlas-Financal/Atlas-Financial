@@ -397,7 +397,6 @@ body:has([data-budget-bento]) .sitenav {
 
 .blend-hero .budget-bills-closing h2,
 .blend-hero .budget-bills-closing-value,
-.blend-hero .budget-bills-closing-estimate,
 .blend-hero .blend-hero-pill .operating-prompt,
 .blend-hero .blend-hero-pill .budget-step-value,
 .blend-hero-foot .operating-prompt,
@@ -710,14 +709,9 @@ body:has([data-budget-bento]) .sitenav {
 /* A published negative Balance After Deductions term (typed data-sign
    carrier, never the printed text) renders in the established critical
    red in both themes — the same token budget-surface.css applies to
-   [data-sign="negative"]. Declared before is-unavailable so the muted
-   unavailable treatment would win if the two ever co-occurred. */
+   [data-sign="negative"]. */
 .blend-bad.is-negative {
   color: var(--critical);
-}
-.blend-term.is-unavailable,
-.blend-bad.is-unavailable {
-  color: color-mix(in srgb, var(--blend-ink) 60%, transparent);
 }
 
 .budget-bento .blend-hero [data-operating-question="05"] .budget-step-summary {
@@ -777,7 +771,7 @@ body:has([data-budget-bento]) .sitenav {
   font-weight: 650;
   letter-spacing: 0;
   line-height: 1.2;
-  color: color-mix(in srgb, var(--blend-ink) 60%, transparent);
+  color: var(--blend-ink);
 }
 .blend-bad {
   display: inline-flex;
@@ -891,72 +885,6 @@ body:has([data-budget-bento]) .sitenav {
   color: var(--blend-ink-2);
   margin-top: .18em;
 }
-.budget-bento .blend-hero [data-operating-question="07"] .budget-step-value .est,
-.budget-bento .blend-hero [data-operating-question="07"] .budget-step-value > .blend-est { order: 2; }
-.budget-bento .blend-hero [data-operating-question="07"] .budget-step-value > .blend-est {
-  position: static;
-  align-self: flex-start;
-  margin: .2em 0 0 8px;
-}
-.budget-bento .blend-hero [data-operating-question="07"] .est {
-  position: static;
-  top: auto;
-  right: auto;
-  order: 2;
-  align-self: flex-start;
-  margin: .2em 0 0 8px;
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--blend-ink) 8%, transparent);
-  font-size: 0;
-  font-weight: 700;
-  letter-spacing: .04em;
-  line-height: 1.2;
-}
-.budget-bento .blend-hero [data-operating-question="07"] .est::after {
-  content: "est.";
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .04em;
-}
-.budget-bento .blend-hero [data-operating-question="07"] .est .budget-cash-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-.budget-bento .blend-hero [data-operating-question="07"] .blend-after-funding .est {
-  position: static;
-  display: inline;
-  order: 0;
-  align-self: baseline;
-  margin: 0;
-  padding: 0;
-  border-radius: 0;
-  background: none;
-  font-size: inherit;
-  font-weight: 400;
-  font-style: normal;
-  color: inherit;
-  letter-spacing: 0;
-  line-height: inherit;
-}
-.budget-bento .blend-hero [data-operating-question="07"] .blend-after-funding .est::after {
-  content: none;
-}
-.budget-bento .blend-hero [data-operating-question="07"] .blend-after-funding .est .budget-cash-sr {
-  position: static;
-  width: auto;
-  height: auto;
-  margin: 0;
-  overflow: visible;
-  clip: auto;
-  clip-path: none;
-  white-space: pre;
-}
 
 .budget-surface .budget-bento .blend-hero .blend-hero-foot > :is(.budget-step, .budget-bills-closing) {
   flex: 0 1 auto;
@@ -996,13 +924,6 @@ body:has([data-budget-bento]) .sitenav {
   max-width: none;
   line-height: 1.2;
   white-space: nowrap;
-  vertical-align: baseline;
-}
-.budget-surface .budget-bento .blend-hero .blend-hero-foot .budget-step-value .est {
-  display: inline;
-  font-size: inherit;
-  font-style: normal;
-  font-weight: inherit;
   vertical-align: baseline;
 }
 .blend-hero-foot > .budget-bills-closing > details {
@@ -1132,16 +1053,6 @@ body:has([data-budget-bento]) .sitenav {
   background: var(--blend-ink);
 }
 .blend-figure { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; max-width: 100%; min-width: 0; }
-.blend-est {
-  flex: none;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--blend-income) 14%, transparent);
-  color: var(--blend-income);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .03em;
-}
 .blend-income .blend-big {
   flex: 0 1 auto;
   min-width: min-content;
@@ -1316,7 +1227,7 @@ body:has([data-budget-bento]) .sitenav {
   font-size: 15px;
   font-weight: 650;
   letter-spacing: 0;
-  color: color-mix(in srgb, var(--blend-pay-ink) 60%, transparent);
+  color: var(--blend-pay-ink);
 }
 
 .budget-bento .blend-pay .budget-window-days {
@@ -1399,7 +1310,6 @@ body:has([data-budget-bento]) .sitenav {
 .blend-bill-item.is-today .blend-bill-when { color: var(--blend-ink); }
 .blend-bill-item.is-overdue { box-shadow: inset 3px 0 0 var(--blend-overdue); }
 .blend-bill-when { grid-area: when; color: var(--blend-ink-2); font-weight: 650; white-space: nowrap; }
-.blend-bill-when .blend-est { margin-left: 4px; }
 .blend-bill-name { grid-area: name; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
 .blend-bill-amount { grid-area: amount; font-weight: 700; white-space: nowrap; text-align: right; }
 .blend-bill-status { grid-area: status; display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--blend-ink-2); font-size: 12px; overflow-wrap: anywhere; }
@@ -1416,7 +1326,7 @@ body:has([data-budget-bento]) .sitenav {
 .blend-bill-item[data-s="due"] .blend-bill-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--blend-bills); }
 .blend-bill-item[data-s="confirm"] .blend-bill-dot { background: #d97706; }
 .blend-bill-item[data-s="pending"] .blend-bill-dot { background: var(--blend-pay-acc); }
-.blend-bill-item[data-s="estimated"] .blend-bill-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--blend-income); }
+.blend-bill-item[data-s="scheduled"] .blend-bill-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--blend-income); }
 .blend-bill-item[data-s="overdue"] .blend-bill-dot { background: var(--blend-overdue); }
 
 .blend-bills-head, .blend-house-head {
@@ -1498,9 +1408,7 @@ body:has([data-budget-bento]) .sitenav {
 .blend-ring { color: var(--blend-house); }
 .blend-ring:nth-child(3n+2) { color: var(--blend-income); }
 .blend-ring:nth-child(3n) { color: var(--blend-goals); }
-.blend-ring.is-unknown { color: var(--blend-ink-2); }
 .blend-rings .blend-ring.blend-ring-other { color: #d97706; }
-.blend-rings .blend-ring.blend-ring-other.is-unknown { color: var(--blend-ink-2); }
 .blend-ring-g {
   position: relative;
   display: grid;
@@ -1828,13 +1736,6 @@ body:has([data-budget-bento]) .sitenav {
 .blend-goal-slash { opacity: .7; }
 .blend-goal-paid-word { color: var(--blend-income); }
 .blend-goal-word:not(.blend-clip) { font-size: 12px; }
-.blend-goal-status .budget-v3-est {
-  color: var(--warning);
-  font-size: inherit;
-  font-weight: inherit;
-  font-style: inherit;
-  line-height: inherit;
-}
 
 /* Tap-to-explain window: one small modal that carries a row's wording. */
 .blend-explain {
@@ -1921,20 +1822,6 @@ body:has([data-budget-bento]) .sitenav {
   text-align: left;
 }
 .blend-explain-fact .blend-explain-words { color: var(--blend-ink-2); font-weight: 500; }
-/* In the window the trust word is spelled out beside its figure. */
-.blend-explain .budget-cash-sr {
-  position: static;
-  width: auto;
-  height: auto;
-  overflow: visible;
-  clip-path: none;
-  white-space: normal;
-  color: var(--blend-ink-2);
-  font-size: 12px;
-  font-weight: 400;
-}
-.blend-explain .budget-v3-est,
-.blend-explain .budget-v3-est .budget-cash-sr { color: var(--warning); }
 .blend-explain-members { margin: 12px 0 0; font-size: 13px; }
 .blend-explain-members small { color: var(--blend-ink-2); }
 .blend-explain-more {
@@ -2089,11 +1976,6 @@ body:has([data-budget-bento]) .sitenav {
   color: var(--blend-ink);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-.budget-blend-card-movements .card-movement-trigger .card-movement-balance.is-unavailable {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
 }
 
 .budget-blend-card-movements .card-movement-strip {
@@ -2798,8 +2680,7 @@ html.reduce .blend-sky { display: block; }
 }
 .blend-ring-incomplete { justify-self: center; margin-top: 2px; }
 
-/* Later pay periods, estimated, while today's cash is unconfirmed (#821
-   6964438984). Layout only: Forecast's figures and trust words as given. */
+/* Later periods remain available while today's cash is unconfirmed. */
 [data-budget-surface="unavailable"] .budget-surface-later { margin-top: 16px; padding: 18px 20px; }
 .estimated-later-period { padding: 12px 0; border-top: 1px solid var(--blend-line); }
 .estimated-later-period:first-of-type { border-top: 0; }
@@ -2807,5 +2688,3 @@ html.reduce .blend-sky { display: block; }
 .estimated-later-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin: 0; }
 .estimated-later-term dt { font-size: 0.78rem; color: var(--blend-muted, inherit); }
 .estimated-later-term dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
-.estimated-later-term .trust-tag.trust-estimated { margin-left: 6px; font-size: 0.7rem; padding: 1px 6px;
-  border: 1px solid var(--warning, currentColor); border-radius: 999px; }

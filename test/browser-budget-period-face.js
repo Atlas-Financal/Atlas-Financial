@@ -123,7 +123,7 @@ const norm = text => String(text || '').replace(/\s+/g, ' ').trim();
       const heroResult = page.locator('[data-blend-figures-open]');
       assert.equal(await heroResult.isVisible(), true, `${where}: the hero result is on the face`);
       assert.match(norm(await heroResult.innerText()), /\$1,632\.01/, `${where}: hero result 4,050 - 1,665 - 752.99`);
-      assert.match(norm(await heroResult.innerText()), /estimated/, `${where}: the hero result keeps its estimated tag`);
+      assert.doesNotMatch(await heroResult.textContent(), /≈|estimat/i, `${where}: hero result has no visible or screen-reader estimate label`);
       const householdSel = '[data-budget-browse-evidence="06"]';
       const household = page.locator(householdSel);
       assert.equal(await household.isVisible(), true, `${where}: the Household evidence opener is visible`);
@@ -202,7 +202,7 @@ const norm = text => String(text || '').replace(/\s+/g, ' ').trim();
       assert.equal(norm(await explain.locator('[data-blend-explain-fact="fulfilled"] dd').innerText()), 'Unknown',
         `${where}: future fulfilment is unknown`);
       assert.match(norm(await explain.locator('[data-blend-explain-fact="required-this-period"] dd').innerText()),
-        /^≈ estimated \$195\.00$/, `${where}: the period requirement is printed as an estimate`);
+        /^\$195\.00$/, `${where}: the period requirement is printed in plain type`);
       assert.doesNotMatch(norm(await explain.innerText()), /Current Forecast requirement/);
       await explain.locator('[data-blend-explain-evidence]').focus();
       await page.keyboard.press('Enter');
@@ -210,7 +210,7 @@ const norm = text => String(text || '').replace(/\s+/g, ' ').trim();
       const fulfilment = page.locator('[data-budget-detail-body] [data-budget-goal-fulfillment-evidence="school-trip"]');
       assert.equal(await fulfilment.count(), 1, `${where}: the goal evidence is the selected goal's own record`);
       assert.match(norm(await fulfilment.innerText()),
-        /Aug 28.*Sep 10.*Required this period: ≈ estimated \$195\.00.*Confirmed fulfilled this period: Unavailable.*Remaining this period: Unavailable.*Not confirmed/,
+        /Aug 28.*Sep 10.*Required this period: \$195\.00.*Confirmed fulfilled this period: Unavailable.*Remaining this period: Unavailable.*Not confirmed/,
         `${where}: requirement printed, fulfilment and remaining unavailable`);
       assert.doesNotMatch(norm(await fulfilment.innerText()), /Current Forecast requirement/);
       await page.keyboard.press('Escape');
