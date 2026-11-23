@@ -6,7 +6,7 @@
   "origin": {
     "kind": "test-builder",
     "source": "test/fixtures/card-coverage-aggregate-world.js world() with a 40 hold, its -40 release and a 38 pending charge",
-    "transform": "Live.fromObservation(world(rows)).data, serialized unchanged."
+    "transform": "Live.fromObservation(world(rows)).data, with the minimum obligation id renamed invented-card-minimum, serialized."
   },
   "limitations": [
     "absent-periods"
@@ -97,7 +97,7 @@
       "commitments": [],
       "obligations": [
         {
-          "id": "travel",
+          "id": "invented-card-minimum",
           "label": "Invented minimum",
           "debtId": "travelvisa",
           "effect": "payment",
