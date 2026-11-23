@@ -320,4 +320,31 @@ console.log('6. Which card evidence the remainder\'s trust reads (review 7106640
   'a fall-back target (the 25 minimum for unseen charges, zero term) keeps the remainder estimated');
 }
 
+console.log('7. Already counted above agrees with what the Household budget hold counted (Neon 7113251603 item 1, desk)');
+// The hold nets a refund only as a Lunch Money group-parent row (LEDGER A item 3, Grok rule 17); a standalone refund never
+// nets. The card ledger reads a group parent as unqualified coverage, and the live feed marks no card credit a refund, so
+// the rows the hold nets and the rows the card counts never overlap: the gross charges counted are what the hold counted.
+{
+  const holdOf = (v, id) => ((v.householdBudget || []).find(r => r.id === id) || {}).spent;
+  const travel = v => v.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  // A purchase alone: the hold counts 100.00 and the card counts the same 100.00 above.
+  const one = active(advise([['card', 100, null, 'purchase']]));
+  ok(cents(holdOf(one, 'groceries')) === 10000 && cents(travel(one).deduction.alreadyCounted) === 10000,
+    'a purchase: the hold counts 100.00 and the card counts the same 100.00 already counted above');
+  // A standalone refund beside it: the hold does not net it (100.00 still held); the card cannot confirm the credit, so it
+  // counts nothing above and deducts its whole target, estimated. Never a deduction reduced by a refund the hold kept.
+  const ref = active(advise([['card', 100, null, 'purchase'], ['card', -100, null, 'refund']]));
+  const rl = travel(ref);
+  ok(cents(holdOf(ref, 'groceries')) === 10000 && rl.deduction.alreadyCounted === null
+    && cents(rl.deduction.amount) === cents(rl.target.amount) && rl.deduction.trust === 'estimated',
+    'a standalone refund: the hold keeps the 100.00; the card counts nothing above and deducts its whole target, estimated',
+    JSON.stringify([holdOf(ref, 'groceries'), rl.deduction]));
+  // A group-parent row (the one form the hold nets): the card withholds its coverage and deducts its whole target.
+  const grp = active(advise([['card', 100, null, 'purchase', { is_group: true }]]));
+  const gl = travel(grp);
+  ok(gl.spent.amount === null && gl.spent.reasons.includes('parent-coverage-unqualified') && gl.deduction.alreadyCounted === null
+    && cents(gl.deduction.amount) === cents(gl.target.amount) && gl.deduction.trust === 'estimated',
+    'a group-parent row: the card withholds its coverage and deducts its whole target, estimated', JSON.stringify(gl.deduction));
+}
+
 console.log(`\nPASS card target Credit deduction (${checks})`);
