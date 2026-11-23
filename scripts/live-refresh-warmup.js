@@ -25,11 +25,18 @@ const FLAG = 'ATLAS_LIVE_REFRESH_WARMUP';
 // job key and an open during the warm-up joins it.
 const OPEN_OPTIONS = Object.freeze({ preferObservation: true });
 
+// The incumbent refresh path's own failure codes (scripts/server-live-refresh.js). Any other code, in this shape or
+// not, logs as 'failed': the line never carries a value it did not choose.
+const FAILURE_CODES = Object.freeze(new Set(['live-refresh-busy', 'live-refresh-cancelled', 'live-refresh-invalidated',
+  'live-refresh-timeout', 'live-refresh-unavailable']));
+
 function enabled(env) { return !!env && env[FLAG] === 'on'; }
 function failureCode(error) {
   const value = error && error.code;
-  return typeof value === 'string' && /^live-refresh-[a-z-]+$/.test(value) ? value : 'failed';
+  return typeof value === 'string' && FAILURE_CODES.has(value) ? value : 'failed';
 }
+// Whether start() would make a refresh attempt (not a skip): only the incumbent open path is warmed.
+function willAttempt(composition) { return composition === 'inactive'; }
 
 // Starts the warm-up and resolves to its outcome code. `serve(options)` runs one
 // ordinary refresh; `retain(served)` applies the incumbent retention of a served
@@ -44,16 +51,18 @@ function start({ env, serve, retain = () => {}, composition = 'inactive', log = 
   };
   // An active settlement composition serves through its own base reader; the
   // grant covers the incumbent open path only.
-  if (composition !== 'inactive' || typeof serve !== 'function') return Promise.resolve(line('skipped-composition'));
-  if (require('./live-plan').overlayModeFromEnv(env) !== 'live') return Promise.resolve(line('skipped-not-live'));
+  if (!willAttempt(composition) || typeof serve !== 'function') return Promise.resolve(line('skipped-composition'));
   let qualified = false;
+  // Every step runs inside the chain, so nothing here can throw out of the caller (startServer), and exactly one line
+  // is logged whatever fails.
   return Promise.resolve()
-    .then(() => serve({ ...OPEN_OPTIONS, onCheck(check) { qualified = check?.qualified === true; } }))
-    .then(served => {
-      retain(served);
-      return line(qualified ? 'qualified' : 'unqualified');
-    }, error => line(failureCode(error)))
-    .catch(() => line('failed'));
+    .then(() => {
+      if (require('./live-plan').overlayModeFromEnv(env) !== 'live') return 'skipped-not-live';
+      return Promise.resolve(serve({ ...OPEN_OPTIONS, onCheck(check) { qualified = check?.qualified === true; } }))
+        .then(served => { retain(served); return qualified ? 'qualified' : 'unqualified'; }, error => failureCode(error));
+    })
+    .catch(() => 'failed')
+    .then(outcome => { try { return line(outcome); } catch (_) { return outcome; } });
 }
 
-module.exports = { FLAG, OPEN_OPTIONS, enabled, start };
+module.exports = { FLAG, OPEN_OPTIONS, FAILURE_CODES, enabled, willAttempt, start };

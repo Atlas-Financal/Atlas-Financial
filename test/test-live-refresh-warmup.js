@@ -121,10 +121,13 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
     return Promise.resolve({ meta: {}, liveOverlay: {} });
   };
   const { startServer } = require('../server.js');
-  const env = { SITE_PASSWORD: 'warmup-test-password-1234', SESSION_SECRET: 'warmup-test-session-secret-0123456789abcdef',
+  const PASS = 'warmup-test-password-1234', SECRET = 'warmup-test-session-secret-0123456789abcdef';
+  const env = { SITE_PASSWORD: PASS, SESSION_SECRET: SECRET,
     ATLAS_LIVE_OVERLAY: 'live', ...(process.env.ATLAS_WARMUP_TEST_FLAG ? { ATLAS_LIVE_REFRESH_WARMUP: process.env.ATLAS_WARMUP_TEST_FLAG } : {}) };
   (async () => {
-    const first = await startServer({ env, port: 0, host: '127.0.0.1' });
+    // ATLAS_WARMUP_TEST_ORDER=active-first: a composition with an injected base reader (skipped) starts first.
+    const first = await startServer({ env, port: 0, host: '127.0.0.1',
+      ...(process.env.ATLAS_WARMUP_TEST_ORDER === 'active-first' ? { baseSource: async () => ({}) } : {}) });
     const second = await startServer({ env, port: 0, host: '127.0.0.1' });
     await new Promise(resolve => setTimeout(resolve, 400));
     await first.close(); await second.close();
@@ -132,10 +135,11 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
     process.exit(0);
   })().catch(error => { realLog('WARMUP-CHILD-ERROR ' + (error && error.code)); process.exit(1); });
 } else if (threads.isMainThread && require.main === module) {
-  function child(mode, flag, real) {
+  function child(mode, flag, real, order) {
     return new Promise((resolve, reject) => {
       const proc = spawn(process.execPath, [__filename], { cwd: path.resolve(__dirname, '..'),
         env: { PATH: process.env.PATH, ...(real ? { ATLAS_WARMUP_TEST_REAL: real } : { ATLAS_WARMUP_TEST_CHILD: mode }),
+          ...(order ? { ATLAS_WARMUP_TEST_ORDER: order } : {}),
           ...(flag ? { ATLAS_WARMUP_TEST_FLAG: flag } : {}) },
         stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
@@ -177,6 +181,31 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
       ok(await Warmup.start({ env: { ATLAS_LIVE_OVERLAY: 'live', ATLAS_LIVE_REFRESH_WARMUP: 'on' }, log,
         serve: () => { throw new Error('SYNTHETIC-PRIVATE-THROW'); } }) === 'failed' && logs.length === 1 && lineShape(logs[0]),
         'a thrown error with no refresh code logs "failed" and none of its text');
+      // Review 7090731433: only the incumbent refresh codes pass; any other code, even in their shape, logs 'failed'.
+      logs.length = 0;
+      ok(await Warmup.start({ env: { ATLAS_LIVE_OVERLAY: 'live', ATLAS_LIVE_REFRESH_WARMUP: 'on' }, log,
+        serve: () => Promise.reject({ code: 'live-refresh-synthetic-private-value' }) }) === 'failed'
+        && logs.length === 1 && !logs[0].includes('synthetic'), 'an in-pattern code outside the incumbent set logs "failed", never the code', logs[0]);
+      for (const known of Warmup.FAILURE_CODES) {
+        logs.length = 0;
+        const got = await Warmup.start({ env: { ATLAS_LIVE_OVERLAY: 'live', ATLAS_LIVE_REFRESH_WARMUP: 'on' }, log,
+          serve: () => Promise.reject({ code: known }) });
+        ok(got === known && JSON.parse(logs[0]).outcome === known && logs.length === 1, 'the incumbent code ' + known + ' is logged as itself');
+      }
+      ok(JSON.stringify([...Warmup.FAILURE_CODES].sort()) === JSON.stringify(['live-refresh-busy', 'live-refresh-cancelled',
+        'live-refresh-invalidated', 'live-refresh-timeout', 'live-refresh-unavailable']), 'the allowlist is exactly the five incumbent codes');
+      // Pre-review note 1: the live-mode check runs inside the chain, so a throw there never escapes the caller.
+      const Live = require('../scripts/live-plan');
+      const realMode = Live.overlayModeFromEnv;
+      Live.overlayModeFromEnv = () => { throw new Error('SYNTHETIC-PRIVATE-MODE'); };
+      logs.length = 0;
+      let escaped = false, result;
+      try { result = Warmup.start({ env: { ATLAS_LIVE_REFRESH_WARMUP: 'on' }, log, serve: () => { called++; } }); }
+      catch (_) { escaped = true; } finally { /* restored below, after the chain settles */ }
+      const settled = await result;
+      Live.overlayModeFromEnv = realMode;
+      ok(!escaped && settled === 'failed' && logs.length === 1 && lineShape(logs[0]) && called === 0,
+        'a throwing live-mode check never escapes start(): one "failed" line, no refresh', logs.join(' | '));
     }
 
     console.log('2. The server: exactly one warm-up per process start, through the open path, only with the flag on');
@@ -188,6 +217,10 @@ if (process.env.ATLAS_WARMUP_TEST_REAL) {
       ok(on.lines.length === 1 && on.lines[0].outcome === 'qualified' && lineShape(JSON.stringify(on.lines[0])), 'one log line, outcome qualified', JSON.stringify(on.lines));
       const off = await child('ok', null);
       ok(off.calls.length === 0 && off.lines.length === 0, 'flag off: no refresh call and no log line');
+      // Pre-review note 2: a skipped composition does not spend the once-guard.
+      const order = await child('ok', 'on', null, 'active-first');
+      ok(order.calls.length === 1 && order.lines.map(l => l.outcome).join(',') === 'skipped-composition,qualified',
+        'a skipped active composition first, then an ordinary one: the ordinary one is still warmed, exactly once', JSON.stringify(order.lines));
       const fail = await child('fail', 'on');
       ok(fail.calls.length === 1 && fail.lines.length === 1 && fail.lines[0].outcome === 'live-refresh-timeout'
         && !canaries.some(c => fail.out.includes(c)), 'a failed warm-up is one call, never retried, and logs no private text', JSON.stringify(fail));
