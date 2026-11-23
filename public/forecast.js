@@ -4468,8 +4468,11 @@
   }
   // A term value is a known amount only as a finite number of at least zero;
   // anything else (null, a string, a negative) is unknown, never zero.
+  // Strict cents contract (the same one the operating scan uses): a known
+  // amount is a finite number of at least zero in whole cents. A sub-cent,
+  // a string or a negative is unknown, never silently zero or rounded.
   function obligationTermValue(value) {
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && savingsCents(value) != null ? value : null;
   }
   // The base (pre-statement) amount and confidence of one occurrence. With no
   // schedule this is exactly the row's regular amount and confidence.
@@ -4524,11 +4527,14 @@
   // capitalising row's cash minimum), are resolved, and only an unknown one
   // among them withholds. Unknown evidence outside that window cannot change
   // the answer (desk ruling: withhold only dependent outputs).
-  function obligationAmountEvidenceUnavailable(o, from, through) {
+  // `unknownIds` is the walk's own unknown-amount decision for the answer
+  // window (scheduledAmountState from the answer day): represented and
+  // settled occurrences are already excluded there, so the scan never
+  // reopens an occurrence the walk has resolved.
+  function obligationAmountEvidenceUnavailable(o, unknownIds) {
     if (!obligationHasAmountSchedule(o)) return o.amount == null || savingsCents(o.amount) == null;
-    if (!obligationAmountScheduleTerms(o) || !from || !through) return true;
-    if (obligationOccurrences(o, from, through).some(occ => occ.amount == null || savingsCents(occ.amount) == null)) return true;
-    return o.nonCash === true && capitalisingCashMinimumUnknowns(o, from, through).length > 0;
+    if (!obligationAmountScheduleTerms(o) || !unknownIds) return true;
+    return unknownIds.has(o.id || null);
   }
   // The regular per-cycle amount of a row WITHOUT a schedule: the incumbent
   // raw field, unchanged (a scheduled row uses obligationNamedCycle).
@@ -28993,7 +28999,13 @@
         || dates.some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))(
         occurrences(b, cycle.start, bound.through))
       : b.amount == null || savingsCents(b.amount) == null)) return unknown('A required operating bill amount is unavailable.');
-    if ((plan.obligations || []).some(o => obligationAmountEvidenceUnavailable(o, cycle.start, bound.through))
+    const obligationUnknownIds = (plan.obligations || []).some(o => o && obligationHasAmountSchedule(o))
+      ? (() => { try {
+          return new Set(scheduledAmountState(plan, day, bound.through, opts).unknowns
+            .filter(u => u.carrier === 'obligation').map(u => u.id || null));
+        } catch (_) { return null; } })()
+      : null;
+    if ((plan.obligations || []).some(o => obligationAmountEvidenceUnavailable(o, obligationUnknownIds))
         || (plan.commitments || []).some(c => !commitmentSettledBy(c, day) && !(opts.disabled || []).includes(c.id)
           && c.flexibility !== 'optional' && savingsCents(c.amount) == null
           && (savingsCents(c.amountMin) == null || savingsCents(c.amountMax) == null || c.amountMax < c.amountMin))) {

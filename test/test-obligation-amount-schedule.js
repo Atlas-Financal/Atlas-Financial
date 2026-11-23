@@ -284,5 +284,32 @@ console.log('\n=== 10. HELOC risk names the crossing cycle, with its date and co
     'a row without a schedule keeps the incumbent record exactly', show(regular));
 }
 
+console.log('\n=== 11. term values follow the strict cents contract: null / exact zero / a cent / a sub-cent ===');
+{
+  // A capitalising row, regular cash 0, term [2027-03-01, 2027-05-01) amount 80.
+  // A sub-cent term cashPayment (0.001) is unknown, never a silent zero; one cent is one cent.
+  const sched = cash => [{ from: '2027-03-01', until: '2027-05-01', amount: 80, cashPayment: cash }];
+  const at = cash => plan([line({ cashPayment: 0, amountSchedule: sched(cash) })]);
+  ok(show(unknownDates(at(null), 'line')) === show(['2027-04-15', '2027-05-15']), 'null cash: unknown');
+  ok(unknownDates(at(0), 'line').length === 0 && cashEvents(at(0), 'line').length === 0, 'exact zero cash: a known zero');
+  ok(show(byDate(cashEvents(at(0.01), 'line'))) === show({ '2027-04-15': 0.01, '2027-05-15': 0.01 }) && unknownDates(at(0.01), 'line').length === 0,
+    'one cent cash: one cent, known');
+  ok(show(unknownDates(at(0.001), 'line')) === show(['2027-04-15', '2027-05-15']) && cashEvents(at(0.001), 'line').length === 0,
+    'sub-cent cash: unknown, no event', show(unknownDates(at(0.001), 'line')));
+  // The same contract on the planned amount.
+  const amt = v => plan([loan({ amountSchedule: [{ from: '2027-03-01', until: '2027-04-01', amount: v }] })]);
+  ok(show(unknownDates(amt(0.001), 'loan')) === show(['2027-03-10']), 'sub-cent amount: that occurrence is unknown');
+  // Through the published Savings answer (invented fixture, as-of 2026-10-07).
+  const fx = require('./fixtures/savings-daily-allocation-contract');
+  const savings = cash => {
+    const x = fx.advance(fx.fixture(), '2026-10-07');
+    x.plan.obligations = (x.plan.obligations || []).concat([line({ id: 'inv-line', debtId: 'inv-line', day: 28, amount: 5,
+      cashPayment: 0, amountSchedule: [{ from: '2026-09-01', until: '2026-12-01', amount: 5, cashPayment: cash }] })]);
+    return F.savingsDailyFunding(x.plan, [], x.asOf, x.opts).status;
+  };
+  ok(savings(0.001) === 'unavailable' && savings(null) === 'unavailable', 'Savings: sub-cent and null cash withhold the answer');
+  ok(savings(0.01) === 'ready', 'Savings: one cent cash keeps the answer ready');
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
