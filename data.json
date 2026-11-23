@@ -698,18 +698,6 @@
                 "payingAccount": "chequing-a"
             },
             {
-                "id": "disney-plus",
-                "label": "Disney+",
-                "frequency": "monthly",
-                "day": 28,
-                "firstDue": "2026-11-28",
-                "amount": 19.03,
-                "confidence": "estimated",
-                "budgetCategory": "subscriptions",
-                "note": "Owner 2026-11-23 (Dale): Disney+ still paid. $19.03 monthly from BILLS ACCOUNT (chequing-a), landing around the 28th since September; the day is estimated. firstDue 2026-11-28 is the next forward occurrence, so no past occurrence is created. No settlement identity yet: its payee is shared with other subscriptions, so it is not identity.",
-                "payingAccount": "chequing-a"
-            },
-            {
                 "id": "google-storage-100gb",
                 "label": "Google storage — 100 GB",
                 "frequency": "monthly",
@@ -964,6 +952,18 @@
                 "confidence": "confirmed",
                 "budgetCategory": "subscriptions",
                 "note": "Owner fact 2026-11-21 (Dale, owner-provided recurring ids, lead session 2026-11-21): monthly, tax included, paid from Bills (\"Bills account pays muse\"); Lunch Money recurring item 3722358 leads its schedule.",
+                "payingAccount": "chequing-a"
+            },
+            {
+                "id": "disney-plus",
+                "label": "Disney+",
+                "frequency": "monthly",
+                "day": 28,
+                "firstDue": "2026-11-28",
+                "amount": 19.03,
+                "confidence": "estimated",
+                "budgetCategory": "subscriptions",
+                "note": "Owner 2026-11-23 (Dale): Disney+ still paid. $19.03 monthly from BILLS ACCOUNT (chequing-a), landing around the 28th since September; the day is estimated. firstDue 2026-11-28 is the next forward occurrence, so no past occurrence is created. No settlement identity yet: its payee is shared with other subscriptions, so it is not identity.",
                 "payingAccount": "chequing-a"
             }
         ],

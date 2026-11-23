@@ -314,8 +314,10 @@ console.log('\n=== dated subtraction uses yearly amount/12, not $50/month ===');
     + 13.43 + 16.79 + 3.35 + 13.43
     // Owner-provided bills added 2026-11-21 (Dale, lead session): Microsoft, TeamSnap+ and Muse from Meta,
     // each monthly, tax included, as Dale stated them (independent literals, not read from the plan).
-    + 2.24 + 2.23 + 31.36;
-  for (const id of ['microsoft', 'teamsnap-plus', 'muse-meta']) {
+    + 2.24 + 2.23 + 31.36
+    // Owner 2026-11-23 (Dale): Disney+ still paid, monthly (an independent literal, not read from the plan).
+    + 19.03;
+  for (const id of ['microsoft', 'teamsnap-plus', 'muse-meta', 'disney-plus']) {
     ok((plan.bills || []).filter(b => b.id === id).length === 1, `${id} is one plan bill (a missing or renamed bill fails)`);
   }
   ok(subs && near(subs.dated, independentDated),
