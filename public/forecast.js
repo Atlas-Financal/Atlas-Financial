@@ -1086,8 +1086,11 @@
     }, start, end);
   }
   function capitalisingCashMinimumUnknowns(o, start, end) {
-    if (!o || !o.nonCash || o.cashDay == null || !obligationHasAmountSchedule(o)
-        || !capitalisingCashLegMayBePositive(o)) return [];
+    // Gated on applicability (a scheduled capitalising row with a cash day),
+    // never on whether some raw cash amount looks positive: a selected term
+    // that declares its cash minimum unknown is unknown even when the regular
+    // cash amount is zero or omitted. A known zero emits nothing here.
+    if (!o || !o.nonCash || o.cashDay == null || !obligationHasAmountSchedule(o)) return [];
     const legs = capitalisingCashMinimumDates(o, start, end).map(date => ({ date, leg: capitalisingCashLegAmount(o, date) }));
     if (legs.some(row => row.leg.invalid)) return legs.length ? [legs[0].date] : [start];
     return legs.filter(row => row.leg.amount == null).map(row => row.date);
@@ -4524,22 +4527,36 @@
   function obligationRegularAmountUnknown(o) {
     return scheduledAmountValue(o.amount) == null;
   }
-  // The operating answer's amount-evidence scan: the regular amount, and,
-  // when a schedule exists, its validity and every term value in cents.
-  function obligationAmountEvidenceUnavailable(o) {
-    if (o.amount == null || savingsCents(o.amount) == null) return true;
-    if (!obligationHasAmountSchedule(o)) return false;
-    const terms = obligationAmountScheduleTerms(o);
-    return !terms || terms.some(t => t.amount == null || savingsCents(t.amount) == null
-      || (Object.hasOwn(t, 'cashPayment') && (t.cashPayment == null || savingsCents(t.cashPayment) == null)));
+  // The operating answer's amount-evidence scan. With no schedule: the
+  // incumbent regular-amount test, unchanged. With one: a malformed schedule
+  // is unavailable; otherwise only the occurrences the answer depends on,
+  // those dated in [from, through] on both legs (the planned amount and a
+  // capitalising row's cash minimum), are resolved, and only an unknown one
+  // among them withholds. Unknown evidence outside that window cannot change
+  // the answer (desk ruling: withhold only dependent outputs).
+  function obligationAmountEvidenceUnavailable(o, from, through) {
+    if (!obligationHasAmountSchedule(o)) return o.amount == null || savingsCents(o.amount) == null;
+    if (!obligationAmountScheduleTerms(o) || !from || !through) return true;
+    if (obligationOccurrences(o, from, through).some(occ => occ.amount == null || savingsCents(occ.amount) == null)) return true;
+    return o.nonCash === true && capitalisingCashMinimumUnknowns(o, from, through).length > 0;
   }
-  // The amount of a named cycle: the row's first occurrence on or after asOf.
-  // Regular rows keep the incumbent regular amount exactly.
-  function obligationCycleAmount(o, asOf) {
-    if (!obligationHasAmountSchedule(o)) return o.amount;
-    if (!asOf) return null;
-    const next = obligationOccurrences(o, asOf, addDays(asOf, 400))[0];
-    return next ? scheduledAmountValue(next.amount) : null;
+  // The regular per-cycle amount of a row WITHOUT a schedule: the incumbent
+  // raw field, unchanged (a scheduled row uses obligationNamedCycle).
+  function obligationCycleAmount(o) {
+    return o.amount;
+  }
+  // The named cycle a dated risk speaks about: the row's latest occurrence on
+  // or before `onDate` (the cycle whose charge reached that date), else the
+  // first on or after `from`. Returns { amount, date, confidence }; amount is
+  // null when unknown, never a substituted regular value.
+  function obligationNamedCycle(o, from, onDate) {
+    if (!from) return { amount: null, date: null, confidence: 'unknown' };
+    const end = onDate && onDate >= from ? onDate : addDays(from, 400);
+    const list = obligationOccurrences(o, from, end);
+    const occ = onDate && onDate >= from ? list.filter(row => row.date <= onDate).pop() || list[0] : list[0];
+    if (!occ) return { amount: null, date: null, confidence: 'unknown' };
+    const amount = scheduledAmountValue(occ.amount);
+    return { amount, date: occ.scheduledDate || occ.date, confidence: amount == null ? 'unknown' : occ.confidence };
   }
   // { invalid } | { term } | { regular } for one occurrence date.
   function billAmountScheduleSelect(bill, date) {
@@ -26381,7 +26398,13 @@
         id: drawn > 0 ? 'helocDrawn' : 'helocNoDraw',
         date: helocCrossing.date,
         drawn,
-        monthlyInterest: helocObl ? obligationCycleAmount(helocObl, opening) : 0,
+        // Rows without a schedule keep the incumbent regular amount exactly.
+        // A scheduled row names the cycle at the crossing, with its own
+        // confidence and date, so the copy never states another cycle's term.
+        ...(helocObl && obligationHasAmountSchedule(helocObl)
+          ? ((cycle) => ({ monthlyInterest: cycle.amount, monthlyInterestCycleDate: cycle.date,
+            monthlyInterestConfidence: cycle.confidence }))(obligationNamedCycle(helocObl, opening, helocCrossing.date))
+          : { monthlyInterest: helocObl ? obligationCycleAmount(helocObl) : 0 }),
         alternative: drawAlt && drawAlt.applies
           ? {
               displaces: drawAlt.displaces,
@@ -29112,7 +29135,7 @@
         || dates.some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))(
         occurrences(b, cycle.start, bound.through))
       : b.amount == null || savingsCents(b.amount) == null)) return unknown('A required operating bill amount is unavailable.');
-    if ((plan.obligations || []).some(o => obligationAmountEvidenceUnavailable(o))
+    if ((plan.obligations || []).some(o => obligationAmountEvidenceUnavailable(o, cycle.start, bound.through))
         || (plan.commitments || []).some(c => !commitmentSettledBy(c, day) && !(opts.disabled || []).includes(c.id)
           && c.flexibility !== 'optional' && savingsCents(c.amount) == null
           && (savingsCents(c.amountMin) == null || savingsCents(c.amountMax) == null || c.amountMax < c.amountMin))) {

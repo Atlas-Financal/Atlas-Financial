@@ -10,9 +10,7 @@
  *
  * Every figure is invented and hand-calculated in the comments below,
  * through the published path (Forecast.expandEvents, scheduledAmountState,
- * planPhases). No household value is used. The savings operating-answer
- * scan (obligationAmountEvidenceUnavailable) sits behind a full live packet
- * and is not reached from this synthetic fixture.
+ * planPhases, savingsDailyFunding). No household value is used.
  *
  * `node test/test-obligation-amount-schedule.js`
  */
@@ -226,6 +224,64 @@ console.log('\n=== 7b. a posted sent payment still wins inside a term ===');
   ok(unknown[0].amount === 0 && unknown[0].minimumPayment.householdPaymentStatus === 'sent',
     'unknown term: the posted payment records money sent, never paid against an unknown minimum',
     show(unknown[0].minimumPayment && unknown[0].minimumPayment.householdPaymentStatus));
+}
+
+console.log('\n=== 8. an unknown term cash minimum is unknown even when the regular cash is zero or omitted ===');
+{
+  // Capitalising row, regular cash 0 (or omitted). Term [2027-03-01, 2027-05-01) declares
+  // cashPayment null: the cash dates paying the Mar 28 and Apr 28 cycles (Apr 15, May 15)
+  // are UNKNOWN, never silently a known zero. An explicit term 0 stays a known zero.
+  const sched = cash => [{ from: '2027-03-01', until: '2027-05-01', amount: 80, cashPayment: cash }];
+  for (const [name, extra] of [['regular 0', { cashPayment: 0 }], ['regular omitted', { cashPayment: undefined }]]) {
+    const p = plan([line(Object.assign({}, extra, { amountSchedule: sched(null) }))]);
+    ok(!('2027-04-15' in byDate(cashEvents(p, 'line'))) && !('2027-05-15' in byDate(cashEvents(p, 'line'))),
+      `${name}: no cash event is invented for the unknown leg`);
+    ok(show(unknownDates(p, 'line')) === show(['2027-04-15', '2027-05-15']),
+      `${name}: the unknown cash legs are named unknown`, show(unknownDates(p, 'line')));
+    const zero = plan([line(Object.assign({}, extra, { amountSchedule: sched(0) }))]);
+    ok(unknownDates(zero, 'line').length === 0 && cashEvents(zero, 'line').length === 0,
+      `${name}: an explicit term zero stays a known zero`);
+  }
+}
+
+console.log('\n=== 9. a valid schedule with unknown evidence outside the answer window does not withhold it ===');
+{
+  // Invented Savings fixture (as-of 2026-10-07) plus an invented monthly loan (day 20, amount 1).
+  const fx = require('./fixtures/savings-daily-allocation-contract');
+  const run = sched => {
+    const x = fx.advance(fx.fixture(), '2026-10-07');
+    x.plan.obligations = (x.plan.obligations || []).concat([loan({ id: 'inv-loan', debtId: 'inv-loan', day: 20, amount: 1,
+      ...(sched ? { amountSchedule: sched } : {}) })]);
+    return F.savingsDailyFunding(x.plan, [], x.asOf, x.opts);
+  };
+  ok(run(null).status === 'ready', 'control: the answer is ready');
+  const far = run([{ from: '2030-01-01', until: '2030-02-01', amount: null }]);
+  ok(far.status === 'ready', 'an unknown term years after the window leaves the answer ready', show(far.reasons || far.reason));
+  const inside = run([{ from: '2026-10-01', until: '2026-12-01', amount: null }]);
+  ok(inside.status === 'unavailable', 'the same unknown moved inside the window withholds it');
+  const bad = run([{ from: '2026-10-01', until: '2026-09-01', amount: 1 }]);
+  ok(bad.status === 'unavailable', 'a malformed schedule withholds it');
+}
+
+console.log('\n=== 10. HELOC risk names the crossing cycle, with its date and confidence ===');
+{
+  // Limit 1000, balance 850. Terms: Feb cycle 60 (confirmed), Mar cycle 130 (estimated).
+  // Feb 28: 850 + 60 = 910 (under). Mar 28: 910 + 130 = 1040 crosses. The risk must carry
+  // the Mar 28 cycle (130, estimated), not the first cycle after opening (60).
+  const debts = [{ id: 'heloc', label: 'Invented line', balance: 850, pending: 0, rate: 0, secured: true, limit: 1000 }];
+  const p = plan([line({ id: 'heloc', debtId: 'heloc', cashPayment: 0, amountSchedule: [
+    { from: '2027-02-01', until: '2027-03-01', amount: 60 },
+    { from: '2027-03-01', until: '2027-04-01', amount: 130, confidence: 'estimated' }] })]);
+  const proj = F.projectDebts(p, debts, START, {});
+  const advice = F.recommend(p, START, {});
+  const r = (F.planPhases(p, advice, proj, { sim: advice.sim }).risks || []).find(x => x.id === 'helocDrawn' || x.id === 'helocNoDraw');
+  ok(r && r.monthlyInterest === 130 && r.monthlyInterestCycleDate === '2027-03-28' && r.monthlyInterestConfidence === 'estimated',
+    'the crossing cycle (Mar 28) supplies 130, estimated', show(r && [r.date, r.monthlyInterest, r.monthlyInterestCycleDate, r.monthlyInterestConfidence]));
+  const regular = (F.planPhases(plan([line({ id: 'heloc', debtId: 'heloc', cashPayment: 0 })]), F.recommend(plan([line({ id: 'heloc', debtId: 'heloc', cashPayment: 0 })]), START, {}),
+    F.projectDebts(plan([line({ id: 'heloc', debtId: 'heloc', cashPayment: 0 })]), debts, START, {}), { sim: advice.sim }).risks || [])
+    .find(x => x.id === 'helocDrawn' || x.id === 'helocNoDraw');
+  ok(regular && regular.monthlyInterest === 80 && !('monthlyInterestConfidence' in regular),
+    'a row without a schedule keeps the incumbent record exactly', show(regular));
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
