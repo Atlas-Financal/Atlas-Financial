@@ -113,34 +113,23 @@ console.log('2. Trust: any figure a pending row adds to is estimated');
 
 console.log('3. A reversal pair counts as the ledger has it');
 {
-  const charge = row('r-charge', 118.30, { pending: true, payee: 'Example warehouse' });
-  const refund = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction', kindHint: 'refund' })]));
+  const charge = row('r-charge', 234.61, { pending: true, payee: 'Example warehouse' });
+  const refund = travel(world([charge, row('r-credit', -234.61, { pending: true, payee: 'Card transaction', kindHint: 'refund' })]));
   ok(cents(refund.spent.amount) === cents(BASE_SPENT) && refund.spent.trust === 'estimated',
     'a pending charge and a same-amount pending credit the ledger marks a refund net out: Spent stays 207.40, estimated', JSON.stringify(refund.spent));
-  // Owner decision, Dale, 2026-11-23 (#821 7089360610, 7089379689; lead ruling (b)): a pending charge and a pending
-  // credit of exactly opposite amount carrying the charge's own category are one hold and its release
-  // (Forecast.pendingHoldReleases), so both are dropped and Spent is not withheld. Proved in test-pending-hold-release.js.
-  const released = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction' })]));
-  ok(cents(released.spent.amount) === cents(BASE_SPENT) && released.spent.trust === 'calculated',
-    'a pending charge and its same-category, same-amount pending release are one hold: both dropped, Spent stays 207.40', JSON.stringify(released.spent));
-  const otherCategory = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction', categoryLabel: 'Restaurants' })]));
-  ok(otherCategory.spent.amount === null && otherCategory.spent.reasons.includes('card-credit-purpose-unconfirmed'),
-    'an unlabelled pending credit in another category is not a release: it still withholds Spent (never guessed)', JSON.stringify(otherCategory.spent));
-  const postedUnlabelled = travel(world([row('r-charge', 118.30, { payee: 'Example warehouse' }), row('r-credit', -118.30, { payee: 'Card transaction' })]));
+  const unlabelled = travel(world([charge, row('r-credit', -234.61, { pending: true, payee: 'Card transaction' })]));
+  ok(unlabelled.spent.amount === null && unlabelled.spent.trust === 'unavailable' && unlabelled.spent.reasons.includes('card-credit-purpose-unconfirmed'),
+    'an unlabelled pending credit withholds Spent, exactly as the same credit does when posted (never guessed)', JSON.stringify(unlabelled.spent));
+  const postedUnlabelled = travel(world([row('r-charge', 234.61, { payee: 'Example warehouse' }), row('r-credit', -234.61, { payee: 'Card transaction' })]));
   ok(postedUnlabelled.spent.amount === null && postedUnlabelled.spent.reasons.includes('card-credit-purpose-unconfirmed'),
     'control: the same pair posted is withheld the same way');
 }
 
-console.log('4. A posted amount that differs from its pending: the posted charge supersedes its hold (rule B), the known limit closed');
+console.log('4. A posted amount that differs from its pending is not paired, so both count (a known limit)');
 {
-  // Owner decision addendum, Dale, 2026-11-23 (#821 7089379689): a posted charge from the same merchant and account,
-  // 0-7 days later, within the larger of 20% and $25, supersedes the pending hold (Forecast.pendingHoldReleases, B).
   const t = travel(world([row('tip-pend', 40, { pending: true }), row('tip-post', 48)]));
-  ok(cents(t.spent.amount) === cents(BASE_SPENT + 48) && t.spent.trust === 'calculated',
-    'pending 40 and posted 48 (a tip): the posted 48 supersedes the hold, so Spent is 207.40 + 48 = 255.40, calculated', JSON.stringify(t.spent));
-  const far = travel(world([row('tip-pend', 40, { pending: true }), row('tip-post', 66)]));
-  ok(cents(far.spent.amount) === cents(BASE_SPENT + 106),
-    'outside the tolerance (40 against 66: more than $25 apart) both still count, 207.40 + 40 + 66 = 313.40', JSON.stringify(far.spent));
+  ok(cents(t.spent.amount) === cents(BASE_SPENT + 88) && t.spent.trust === 'estimated',
+    'pending 40 and posted 48 (a tip): the pairing does not match them, so Spent counts 207.40 + 40 + 48 = 295.40, estimated', JSON.stringify(t.spent));
 }
 
 console.log('4b. A pending row its posting names as a distinct authorization is a separate charge (the household budget\'s exception)');
