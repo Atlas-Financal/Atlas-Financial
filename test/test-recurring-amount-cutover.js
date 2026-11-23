@@ -88,8 +88,11 @@ console.log('3. A price-only change (same day and cadence): the link date still 
   // Plan and item both monthly on the 20th; the link starts 2026-11-01. No timingBefore (nothing in the timing changed),
   // but the price still changes only from the link: Oct 20 70.00, Nov 20 93.00.
   const s = serve([item('93.0000', '2026-01-20', ['2026-11-20'])], { bill: { day: 20 }, linkedFrom: '2026-11-01' });
-  ok(s.schedules.length === 1 && !s.schedules[0].timing.timingBefore && s.schedules[0].amountFrom === '2026-11-01',
-    'no timing cutover, and the schedule carries the link date with its amount (amountFrom 2026-11-01)', J(s.schedules[0]));
+  // The timing is the same on both sides (monthly on the 20th). Since #1605 a link keeps the plan's own date tag before its
+  // cutover (timingBefore with the same cadence), so the timing may carry one; the price still changes only from the link.
+  const tb = s.schedules[0] && s.schedules[0].timing.timingBefore;
+  ok(s.schedules.length === 1 && (!tb || (tb.frequency === 'monthly' && tb.day === 20)) && s.schedules[0].amountFrom === '2026-11-01',
+    'same cadence on both sides, and the schedule carries the link date with its amount (amountFrom 2026-11-01)', J(s.schedules[0]));
   ok(at(s.bill, '2026-10-20') === 70 && at(s.bill, '2026-11-20') === 93, 'Oct 20: 70.00 (the plan\'s); Nov 20: 93.00 (the item\'s)',
     J([at(s.bill, '2026-10-20'), at(s.bill, '2026-11-20')]));
   const oct = s.rows('2026-10-09');

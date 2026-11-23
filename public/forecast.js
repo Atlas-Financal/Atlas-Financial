@@ -24814,6 +24814,8 @@
         return price.amountUnknown ? { amount: null, reason: 'scheduled-amount-unknown' }
           : { amount: billMonthly({ ...before, amount: price.amount }) };
       }
+      // An undated bill never reaches here (billPriceCutover is null for it); the guard keeps the date authority explicit.
+      if (billNeedsDate(b)) return { amount: null, reason: 'bill-date-unknown' };
       let total = 0;
       for (const date of occurrences(b, scheduleAsOf, scheduleLastIncluded)) {
         const priced = billOccurrenceAmount(b, date).amount;
