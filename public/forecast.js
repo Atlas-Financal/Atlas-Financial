@@ -13172,12 +13172,41 @@
     incomeTxFactsDepth++;
     try {
       recommendationReads = openRecommendationReads(plan, asOf, opts);
-      return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(recommend(plan, asOf, opts), plan, asOf, opts))));
+      return publishReconMatchesSpent(publishBillHistory(publishBillPaidStates(publishStackSummary(
+        qualifyStaleBankFeed(recommend(plan, asOf, opts), asOf, opts), plan, asOf, opts))));
     } finally {
       recommendationReads = outer;
       incomeTxFactsDepth--;
       if (incomeTxFactsDepth === 0) incomeTxFactsMemo = null;
     }
+  }
+
+  // A transaction feed that lags a fresh balance (bankFeedFreshness 'stale':
+  // no spending transaction dated today or yesterday) may be missing this
+  // period's spending, so figures built on the transaction cohort are never
+  // more certain than estimated: the current period's Household spend and
+  // Balance After Deductions (and Stack Surplus, which takes that trust), and
+  // every later period opened from it. Figures stay published, marked with
+  // the reason; a withheld figure stays withheld. A fresh or unknown feed
+  // changes nothing here (unknown actuals already withhold elsewhere).
+  function qualifyStaleBankFeed(result, asOf, opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    if (!result || !packet) return result;
+    const feed = bankFeedFreshness(packet);
+    if (feed.status !== 'stale') return result;
+    const views = [...new Set([result.defaultView, ...(result.defaultView?.calendarPeriods || []),
+      ...(result.payPeriodViews || [])])].filter(Boolean);
+    const current = views.find(view => view.start && view.end && view.start <= asOf && asOf <= view.end);
+    if (!current) return result;
+    const reason = `estimate \u2014 the bank transaction feed is behind the balance (newest spending transaction ${feed.newestTransactionDate || 'none'}, as of ${feed.asOf})`;
+    const estimated = tag => tag === 'unavailable' ? 'unavailable' : 'estimated';
+    for (const view of views) {
+      if (!view.end || view.end < current.start) continue;
+      view.balanceAfterDeductionsTrust = estimated(view.balanceAfterDeductionsTrust || 'calculated');
+      if (view.budgetHold != null) view.budgetHoldTrust = estimated(view.budgetHoldTrust || 'calculated');
+      view.bankFeedEstimate = { status: 'estimated', reason, newestTransactionDate: feed.newestTransactionDate, asOf: feed.asOf };
+    }
+    return result;
   }
 
   // Stack Wallet (owner decision, Dale, #821 7013976545, waterfall option 3;

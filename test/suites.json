@@ -218,6 +218,7 @@
   ["conflicting posted ids survive pagination merging into the duplicate guard (A2)","test-posted-duplicate-survives-pagination.js"],
   ["future-dated or undated balances stay unknown through live overlay and savings inventory (A1)","test-unknown-balance-stays-unknown.js"],
   ["Same-day cash freshness: a lagging required cash balance withholds a same-day refresh, a stale savings date cannot move the household date, loans are dated by their balance date, and a close is judged against its closing day","test-same-day-cash-freshness.js"],
+  ["Stale bank feed: when the transaction feed lags a fresh balance (bankFeedFreshness stale), the current period's Household spend, Balance After Deductions and Stack Surplus are estimated, never calculated, through recommend, Stack and the assistant packet","test-stale-bank-feed-current-period-trust.js"],
   ["an invalid pending amount keeps card pending unknown, never zero (A19)","test-invalid-pending-stays-unknown.js"],
   ["a card with unknown pending makes consumer debt unknown in every Forecast publication","test-unknown-pending-consumer-debt.js"],
   ["native utility settlement units and independent holds","test-utility-settlement-currency.js"],
