@@ -59,8 +59,10 @@
     var t = sb && typeof sb.budgetTrust === 'function' ? sb.budgetTrust(c) : {};
     return { spent: isEst(t.spent), planned: isEst(t.planned) };
   }
-  // No label: an estimated figure is drawn softer (class stack-est), never worded.
-  function estCls(on) { return on ? ' stack-est' : ''; }
+  // The look of an estimated figure: the shell's one treatment (StackBlocks.estClass), now none (owner decision, Dale,
+  // 2026-11-23: no estimate styling). estAttr is the same for a bare element: empty when the treatment is none.
+  function estCls(on) { var sb = root.StackBlocks; return on && sb && typeof sb.estClass === 'function' ? sb.estClass('estimated', null) : ''; }
+  function estAttr(on) { var c = estCls(on).trim(); return c ? ' class="' + c + '"' : ''; }
   // A bill's printed name: the shell's one rule (StackBlocks.billName), or the label as given.
   function billName(label) {
     var sb = root.StackBlocks;
@@ -193,8 +195,8 @@
       // The mini bar is always drawn under the name; with no published plan it is an empty track, never a guessed fill.
       return '<li class="sc-row' + (tgt ? ' sc-go-row' : '') + '"' + sheetAttrs(tgt) + '><span><b class="sc-n">' + esc(c.label) + '</b>' +
         '<span class="sc-mini' + estCls(est.spent || est.planned) + '"><i style="width:' + (p == null ? 0 : fill(c.spent, c.planned)) + '%"></i></span></span>' +
-        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + (est.spent ? ' class="stack-est"' : '') + '>' + esc(s) + '</span>')
-          + (p == null ? '' : '<i' + (est.planned ? ' class="stack-est"' : '') + '> / ' + esc(p) + '</i>') + '</span>') + (tgt ? RCV : '') + '</li>';
+        (s == null && p == null ? '' : '<span class="sc-a">' + (s == null ? '' : '<span' + estAttr(est.spent) + '>' + esc(s) + '</span>')
+          + (p == null ? '' : '<i' + estAttr(est.planned) + '> / ' + esc(p) + '</i>') + '</span>') + (tgt ? RCV : '') + '</li>';
     }).join('') + '</ul>';
     var head = money(spent);
     // No visible descriptor under the name (Dale, 2026-11-20); the words stay for a screen reader only.

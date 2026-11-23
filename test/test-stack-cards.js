@@ -216,12 +216,12 @@ const balanceCard = (balance, unallocated, balanceTrust, trust) => savingsOf(wit
 const allDue = balanceCard(100, 15, 'calculated', 'estimated');
 assert(allDue && txt(allDue).includes('Savings Balance $100') && /class="sc-f">\$100<\/span>/.test(allDue),
   'the reported balance heads the all-due card with its own trust');
-assert(/Unallocated<\/b><\/span><span class="sc-a stack-est">\$15<\/span>/.test(allDue) && amounts(allDue).length === 2,
-  'only the remaining money is shown as unallocated, with the weaker need trust');
+assert(/Unallocated<\/b><\/span><span class="sc-a">\$15<\/span>/.test(allDue) && amounts(allDue).length === 2,
+  'only the remaining money is shown as unallocated, drawn like every other figure (no estimate styling)');
 assert(txt(balanceCard(50, 0, 'calculated', 'estimated')).includes('Unallocated $0'), 'an exhausted balance explicitly shows zero left');
 const unknownDue = balanceCard(50, null, 'estimated', 'unavailable');
-assert(/class="sc-f stack-est">\$50<\/span>/.test(unknownDue) && txt(unknownDue).includes('Unallocated —'),
-  'the dated balance stays estimated when the unallocated amount is unknown');
+assert(/class="sc-f">\$50<\/span>/.test(unknownDue) && txt(unknownDue).includes('Unallocated —'),
+  'the dated balance prints plain when the unallocated amount is unknown, which is still a dash');
 assert(amounts(balanceCard(null, null, 'unavailable', 'unavailable')).length === 0, 'unavailable all-due figures show dashes');
 
 // card colours: every kind's variable is defined in the CSS file
@@ -261,77 +261,42 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
   assert.strictEqual(clicked, 2, 'Enter and Space click; other keys do not');
 }
 
-// 2c. trust: estimated figures are drawn softer (class stack-est); the word never appears; calculated ones carry no class
+// 2c. trust has no look (owner decision, Dale, 2026-11-23: "remove all estimate styling"). These views differ from the
+// plain one only in published trust words, never in an amount, so the cards must render byte-for-byte the same: an
+// estimated or projected figure draws exactly as a calculated one, and the word never appears.
 {
+  const plain = buildCardsHTML(ctx(view));
   const e = JSON.parse(JSON.stringify(view));
   e.budgetProgress.household.actual.trust = 'estimated';
   e.householdBudget[0].plannedTrust = 'estimated';
   e.stackSummary.bills.trust = 'estimated';
-  const eh = buildCardsHTML(ctx(e)), cardOf = k => eh.split('data-stack-card="' + k + '"')[1].split('</details>')[0];
-  assert(/class="sc-f stack-est"/.test(cardOf('budget')) && /class="sc-bar stack-est"/.test(cardOf('budget')), 'budget headline and bar drawn soft');
-  assert((cardOf('budget').match(/class="stack-est"/g) || []).length === 1 && /<i class="stack-est"> \/ /.test(cardOf('budget')),
-    'only the estimated amount (the first row\'s plan) is soft');
-  // No greyed bill amounts on the rows (owner decision, Dale, 2026-11-22): an estimated row amount prints plain (its
-  // trust is drawn in its tap-in sheet). The head and its bar have no sheet, so they stay soft when estimated (lead
-  // ruling on pre-review 7074755817): the only place that total's trust can show.
-  assert(/class="sc-f stack-est"/.test(cardOf('bills')) && /class="sc-bar stack-est"/.test(cardOf('bills')),
-    'an estimated Bills total keeps its soft head and bar');
+  e.stackSummary.bills.paidTrust = 'estimated';
+  e.bills.forEach(b => { if (b.stackBillAmount != null) b.stackBillAmountTrust = 'estimated'; });
+  const eh = buildCardsHTML(ctx(e));
+  assert(eh === plain, 'estimated budget, bills and bill-row trust: the cards render exactly as the calculated ones');
+  assert(!/estimated/i.test(eh) && !/stack-est/.test(eh), 'no estimate word and no estimate class in the DOM');
+  // A row with no sheet target, and one whose sheet headline is a dash: both draw plain too (no fallback soft look).
+  const nt = JSON.parse(JSON.stringify(view));
+  nt.bills[1].stackBillAmountTrust = 'estimated'; delete nt.bills[1].date;
+  nt.bills[0].stackBillAmountTrust = 'estimated';
+  const ntPlain = JSON.parse(JSON.stringify(view)); delete ntPlain.bills[1].date;
+  assert(buildCardsHTML(ctx(nt)) === buildCardsHTML(ctx(ntPlain)), 'an estimated row with no sheet target draws plain');
   {
-    const rowsOfBills = h => (h.match(/<li class="sc-row sc-bill[\s\S]*?<\/li>/g) || []);
-    const eb = JSON.parse(JSON.stringify(e));
-    eb.stackSummary.bills.paidTrust = 'estimated';
-    eb.bills.forEach(b => { if (b.stackBillAmount != null) b.stackBillAmountTrust = 'estimated'; });
-    const bc = buildCardsHTML(ctx(eb)).split('data-stack-card="bills"')[1].split('</details>')[0];
-    const br = rowsOfBills(bc);
-    // This harness loads no sheet module, so no row's sheet can be shown to carry its estimate: every estimated row
-    // keeps its soft look (the safe default). The plain row with a marking sheet is proved in test-stack-trust, which
-    // loads the real sheet (StackSheet.billHeadline).
-    assert(br.length > 0 && br.every(r => /class="sc-a stack-est"/.test(r)), 'with no sheet module, estimated bill rows stay soft on the card');
-    assert(/class="sc-f stack-est"/.test(bc), 'an estimated paid keeps the head soft');
-    const pb = JSON.parse(JSON.stringify(view)); pb.evidenceState = 'projected';
-    const pc = buildCardsHTML(ctx(pb)).split('data-stack-card="bills"')[1].split('</details>')[0];
-    assert(/class="sc-f stack-est"/.test(pc), 'a projected period: the head (a projected total) stays soft');
-    // A row with no sheet target (no date to name it) keeps its trust on the card: its only place.
-    const nt = JSON.parse(JSON.stringify(view));
-    nt.bills[1].stackBillAmountTrust = 'estimated'; delete nt.bills[1].date;
-    nt.bills[0].stackBillAmountTrust = 'estimated';
-    const ntRows = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
-    const noTarget = ntRows.filter(r => !/data-stack-sheet=/.test(r));
-    assert(noTarget.length === 1 && /class="sc-a stack-est"/.test(noTarget[0]), 'an estimated row with no sheet stays soft on the card');
-    // With a sheet module present, the card asks it: a row is plain only when its sheet shows this amount marked.
-    {
-      const seen = [];
-      STUB.isEstimated = shell.isEstimated;
-      globalThis.StackSheet = { billHeadline: (c, row) => { seen.push(row.id); return row.id === 'phone' ? { amount: 222.22, trust: 'estimated' } : { amount: null, trust: null }; } };
-      try {
-        const sr = rowsOfBills(buildCardsHTML(ctx(nt)).split('data-stack-card="bills"')[1].split('</details>')[0]);
-        const byId = id => sr.find(r => r.includes('bill:' + id + '@')) || '';
-        assert(/class="sc-a stack-est"/.test(byId('hydro')), 'a sheet whose headline is a dash: the row stays soft');
-        assert(seen.includes('hydro'), 'the card asked the sheet');
-      } finally { delete globalThis.StackSheet; }
-    }
-    const calc = buildCardsHTML(ctx(view)).split('data-stack-card="bills"')[1].split('</details>')[0];
-    assert(!/stack-est/.test(calc), 'a calculated Bills card carries no soft class at all');
+    STUB.isEstimated = shell.isEstimated;
+    globalThis.StackSheet = { billHeadline: (c, row) => (row.id === 'phone' ? { amount: 222.22, trust: 'estimated' } : { amount: null, trust: null }) };
+    try {
+      assert(buildCardsHTML(ctx(nt)) === buildCardsHTML(ctx(ntPlain)), 'with a sheet module present, estimated rows still draw plain');
+    } finally { delete globalThis.StackSheet; }
   }
-  assert(!/estimated/i.test(eh), 'the word estimated never appears in the DOM');
-  // the category mini bar is soft with its row's figures: an estimated amount, and a projected period (Codex on #1467)
-  const rowsOf = h => (h.match(/<li class="sc-row[^>]*data-stack-sheet="budget:[\s\S]*?<\/li>/g) || []);
-  const er = rowsOf(cardOf('budget'));
-  assert(er.length === 2 && /class="sc-mini stack-est"/.test(er[0]) && /class="sc-mini"/.test(er[1]), 'a category with an estimated plan draws a soft bar; a calculated one does not');
+  // A projected period: no figure is drawn differently for being projected.
   const pv = JSON.parse(JSON.stringify(view)); pv.evidenceState = 'projected';
-  const pr = rowsOf(buildCardsHTML(ctx(pv)).split('data-stack-card="budget"')[1].split('</details>')[0]);
-  assert(pr.length === 2 && pr.every(r => /class="sc-mini stack-est"/.test(r)), 'a projected period: every category bar is soft');
-  const ar = rowsOf(card('budget'));
-  assert(ar.length === 2 && ar.every(r => !/sc-mini stack-est/.test(r)), 'an actual period with calculated figures: no bar is soft');
-  assert(!html.includes('stack-est'), 'calculated figures carry no class');
-  const se = withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 3, needed: 8, trust: 'estimated' }],
-    totals: { balance: 5, saved: 3, needed: 8, unallocated: 2, trust: 'estimated', reasons: [] } });
-  const sh = savingsOf(se);
-  assert(/class="sc-f stack-est"/.test(sh) && /sc-a stack-est/.test(sh) && /sc-mini sc-full stack-est/.test(sh) && !/estimated/i.test(sh),
-    'a dated balance: the head, each goal and Unallocated are soft, never worded');
-  assert((sh.match(/sc-a stack-est/g) || []).length === 2, 'the goal and Unallocated amounts are both soft');
-  assert(!/class="sc-f stack-est"/.test(savingsOf(withSavings(POURED))) && !/stack-est/.test(savingsOf(withSavings(POURED))), 'a current balance: nothing soft');
-  assert(/stack-est/.test(css), 'the css draws the soft style');
+  assert(!/stack-est/.test(buildCardsHTML(ctx(pv))), 'a projected period: no estimate class on any card');
+  // Savings: an estimated dated balance draws as the same balance would when calculated.
+  const savingsWith = trust => withSavings({ items: [{ id: 'r', label: 'Rainy', saved: 3, needed: 8, trust }],
+    totals: { balance: 5, saved: 3, needed: 8, unallocated: 2, trust, reasons: [] } });
+  const se = savingsOf(savingsWith('estimated'));
+  assert(se === savingsOf(savingsWith('calculated')) && !/estimated/i.test(se), 'an estimated savings card draws exactly as a calculated one');
+  assert(!/stack-est/.test(css), 'the css has no estimate style');
 }
 // 2d. a completed period whose original plan Forecast withholds: no category denominator, no progress bar
 {
@@ -394,7 +359,7 @@ console.log('test-stack-cards: ok');
   assert(/\.sc-bar\{[^}]*height:8px[^}]*margin-top:12px/.test(css1) && /\.sc-card\[open\] \.sc-bar\{height:12px;margin-top:14px\}/.test(css1), 'bar: 8px closed with 12px above, 12px open with 14px above');
   assert(/\.sc-card\[open\] \.sc-f\{font-size:52px/.test(css1), 'the open head figure is 52px');
   assert(!/dashed/.test(css1 + cr) && !/stack-(credit-bar|credit-minibar|sheet-bar)[^{]*\{[^}]*dashed/.test(sh), 'no dashed outline on any bar');
-  assert(/\.sc-bar\.stack-est>i[^{]*\{opacity:\.58\}/.test(css1) && /\.sc-bar\.stack-est[^{]*\{opacity:1\}/.test(css1), 'an estimated bar keeps its track and softens only its fill');
+  assert(!/stack-est/.test(css1), 'no estimate style on any bar (owner decision, Dale, 2026-11-23)');
   assert(/--sc-savings:#ffcfb3/.test(css1) && !/--sc-savings:#b4ead3/.test(css1), 'Savings is peach, not mint');
   assert(/\.stack-chev \{[^}]*width: 14px; height: 14px/.test(cr), 'Credit\'s chevron is the same 14px as the other cards\' (not stretched by the global svg rule)');
   // an unpublished budget figure: a dash and an empty track, never a $0 or a guessed fill
@@ -422,7 +387,7 @@ console.log('test-stack-cards: ok');
   assert(/<span class="sc-bar" aria-hidden="true"><i style="width:0%"><\/i><\/span>/.test(nh) && !/[$]0</.test(nh),
     'bills: an unpublished paid is a dash and an empty track, never $0 or a fill from the total');
   assert(/\.sc-f>\[role=img\]\{font-size:\.6em/.test(css1) && /\.stack-credit-figure\[data-unpublished\] \{ font-size: 14\.4px/.test(cr),
-    'a withheld head figure is a small soft dash like the "/ b" part, not a big minus');
+    'a withheld head figure is a small dash like the "/ b" part, not a big minus');
 }
 
 // C1 S4 B2: a real recommendation whose operating plan is unavailable. Replaces the classic page's printed "unavailable

@@ -200,8 +200,8 @@ test('Stack sheets retain each saved category amount, its own trust and missing 
     close.content.publication.householdBudget.find(row => row.id === 'groceries').confidence = confidence;
     const changed = await savedStack(close);
     assert.deepEqual(changed('groceries'), { ...groceries,
-      savedConfidence: confidence === 'invented-word' ? null : confidence, estimatedPlan: confidence === 'estimated' },
-      'the saved plan has its own ' + confidence + ' treatment');
+      savedConfidence: confidence === 'invented-word' ? null : confidence, estimatedPlan: false },
+      'the saved plan keeps its own ' + confidence + ' trust and draws plain (owner decision, Dale, 2026-11-23: no estimate styling)');
     assert.deepEqual(changed('fuel'), figures('fuel'), 'the neighbouring row keeps its own trust');
   }
   for (const [planned, printedPlan] of [[null, null], [0, '$0']]) {
