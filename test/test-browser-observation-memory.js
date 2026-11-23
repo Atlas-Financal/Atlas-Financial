@@ -6,7 +6,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { chromium } = require('playwright');
+// Registered in test/suites.json; skips where Playwright is absent (the
+// hosted npm test runner), like the other registered browser suites.
+let chromium;
+try { require.resolve('playwright'); ({ chromium } = require('playwright')); }
+catch (_) { console.log('browser observation memory: skipped (Playwright not installed)'); process.exit(0); }
 const { provider, atlas, CLOCK } = require('./test-server-observation-memory');
 const output = process.env.ATLAS_OBSERVATION_PROOF_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-observation-browser-'));
 fs.mkdirSync(output, { recursive: true });
@@ -76,7 +80,16 @@ fs.mkdirSync(output, { recursive: true });
     const providerStartDeadline = Date.now() + 5000;
     while (mock.calls.length === cancelCount && Date.now() < providerStartDeadline) await page.waitForTimeout(25);
     assert.ok(mock.calls.length > cancelCount, 'a real held provider GET starts before the cancellation proof');
-    await notice.getByRole('button', { name: 'Cancel', exact: true }).click();
+    // While loading, Cancel takes no pointer input (a tap on the scene never
+    // cancels the load) and appears only on keyboard focus. Reach it the way
+    // a household does: Tab to it, see it shown, press Enter.
+    const cancel = notice.getByRole('button', { name: 'Cancel', exact: true });
+    for (let tabs = 0; tabs < 20 && !await cancel.evaluate(button => button === document.activeElement); tabs++) {
+      await page.keyboard.press('Tab');
+    }
+    assert.ok(await cancel.evaluate(button => button === document.activeElement), 'keyboard focus reaches Cancel');
+    assert.equal(await cancel.evaluate(button => getComputedStyle(button).opacity), '1', 'focused Cancel is shown');
+    await page.keyboard.press('Enter');
     await notice.getByText('Loading cancelled.', { exact: false }).waitFor();
     mock.release();
     await Promise.all([page.waitForEvent('domcontentloaded'), notice.getByRole('button', { name: 'Retry', exact: true }).click()]);
