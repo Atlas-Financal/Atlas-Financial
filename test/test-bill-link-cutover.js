@@ -27,9 +27,9 @@ const RULE = { eventId: 'band', lunchMoneyRecurringIds: [ID], linkedFrom: '2026-
   payeePatterns: ['Invented band'], requiredCurrency: 'cad', requiredPostingEvidence: 'posted', postingDateRule: 'same-day-or-weekend-next-business-day' };
 const pay = date => H.lm({ date, amount: 80, account: 'chequing-a', payee: 'Invented band' });
 
-function serve(items, rules, asOf, payments) {
+function serve(items, rules, asOf, payments, bill = BILL) {
   const w = H.baseWorld(asOf);
-  w.bills = [{ ...BILL }];
+  w.bills = [{ ...bill }];
   w.identityRules = w.identityRules.concat(rules);
   w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' }),
     ...payments.map(pay)];
@@ -40,10 +40,40 @@ function serve(items, rules, asOf, payments) {
   const plan = r.data.plan;
   const adv = F.recommend(plan, w.asOf, { currentPeriodActuals: r.data.liveOverlay.currentPeriodActuals, debts: r.data.debts });
   const rows = [];
-  for (const p of adv.defaultView.calendarPeriods || []) for (const b of p.bills || []) if (b.id === 'band') rows.push({ date: b.date, status: b.status, period: p.start });
-  return { bill: plan.bills.find(b => b.id === 'band'), rows, refusals: r.report.recurringScheduleRefusals || r.report.recurringBillScheduleRefusals || null };
+  const published = [];
+  for (const p of adv.defaultView.calendarPeriods || []) for (const b of p.bills || []) if (b.id === 'band') {
+    rows.push({ date: b.date, status: b.status, period: p.start });
+    published.push(b);
+  }
+  return { bill: plan.bills.find(b => b.id === 'band'), rows, published, refusals: r.report.recurringScheduleRefusals || r.report.recurringBillScheduleRefusals || null };
 }
 const paid = (s, date) => s.rows.some(b => b.date === date && /paid/i.test(b.status || ''));
+
+console.log('0. Matching cadence: provider date confidence starts at linkedFrom');
+{
+  const same = item('2025-01-01', { anchorDate: '2026-11-15' });
+  // A known amount must not conceal a less certain date on the published row.
+  const estimated = { ...BILL, confidence: 'confirmed' };
+  const { dateConfidence, ...untagged } = estimated;
+  const tagAt = (s, date) => s.published.filter(b => b.date === date).map(b => [b.date, b.dateConfidence]);
+  const expected = pre => [['2026-10-15', pre], ['2026-11-15', 'confirmed']];
+  for (const [label, bill, pre] of [['estimated', estimated, 'estimated'], ['absent', untagged, 'estimated'],
+    ['confirmed', { ...BILL, dateConfidence: 'confirmed' }, 'confirmed']]) {
+    const linked = serve([same], [RULE], '2026-10-21', [], bill);
+    const unlinked = serve([same], [], '2026-10-21', [], bill);
+    const later = serve([same], [RULE], '2026-10-23', [], bill);
+    const dates = [...tagAt(linked, '2026-10-15'), ...tagAt(later, '2026-11-15')];
+    ok(J(dates) === J(expected(pre)),
+      label + ': past Oct 15 keeps plan trust and Nov 15 is provider-confirmed', J(dates));
+    ok(J(linked.rows) === J(unlinked.rows), label + ': dates, periods and statuses are unchanged');
+    ok(J(unlinked.bill) === J(bill), label + ': unlinked plan bill is unchanged');
+  }
+  const moved = serve([item('2025-01-01')], [RULE], '2026-10-21', []);
+  const movedLater = serve([item('2025-01-01')], [RULE], '2026-10-23', []);
+  ok(J([...tagAt(moved, '2026-10-15'), ...tagAt(movedLater, '2026-11-16')])
+    === J([['2026-10-15', 'estimated'], ['2026-11-16', 'confirmed']]),
+  'different cadence: prior day and trust are preserved, new day and trust start at the cutover');
+}
 
 console.log('1. Reviewer case: a payment inside the current period, item start long before it (linkedFrom Nov 1)');
 for (const start of ['2025-01-01', '2026-08-01', null]) {
