@@ -415,7 +415,13 @@ function capture(input, { now = () => new Date() } = {}) {
   const payload = capturePayload(clean.payload);
   const fetchedAt = instant(payload.fetchedAt);
   if (fetchedAt > capturedAt) fail('history-source-time-invalid');
-  const evidenceInput = { data: clean.data, payload, accountMap: clean.accountMap, identity: clean.identity, periods: clean.periods };
+  // A close is judged fresh against its own closing day (the end of the
+  // period it records), not the fetch day: balances dated that day are
+  // current for the close; an account dated before it still withholds.
+  const closingCycle = ['closing', 'actual-correction'].includes(kind) && clean.periodStart
+    ? Forecast.spendingCycle(clean.data.plan, date(clean.periodStart)) : null;
+  const evidenceInput = { data: clean.data, payload, accountMap: clean.accountMap, identity: clean.identity, periods: clean.periods,
+    ...(closingCycle && closingCycle.end ? { closingDay: closingCycle.end } : {}) };
   let refreshed, normalized, asOf, forecastOptions, advice;
   try {
     Observer.assertLiveMap(clean.accountMap, { data: clean.data });
@@ -499,8 +505,15 @@ function latestClosedPeriod(clean) {
   let refreshed, asOf;
   try {
     Observer.assertLiveMap(clean.accountMap, { data: clean.data });
+    // The candidate close (the cycle ending before the fetch day's cycle) is
+    // judged fresh against its own closing day, as capture() does; capture()
+    // then re-checks against the exact selected period.
+    const fetchDay = Forecast.financialDate(payload.fetchedAt);
+    const fetchCycle = fetchDay ? Forecast.spendingCycle(clean.data.plan, fetchDay) : null;
+    const priorCycle = fetchCycle && fetchCycle.start ? Forecast.spendingCycle(clean.data.plan, dayBefore(fetchCycle.start)) : null;
     refreshed = Live.fromObservation({ data: clean.data, payload, accountMap: clean.accountMap,
-      identity: clean.identity, periods: clean.periods });
+      identity: clean.identity, periods: clean.periods,
+      ...(priorCycle && priorCycle.end ? { closingDay: date(priorCycle.end) } : {}) });
     asOf = date(Operating.asOfFrom(refreshed.data, {}));
   } catch (_) { fail('history-forecast-capture-failed'); }
   const current = Forecast.spendingCycle(refreshed.data.plan, asOf);

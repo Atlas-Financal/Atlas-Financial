@@ -90,10 +90,17 @@ console.log('\n=== 4. the legacy semantic date is accepted; other dating is unch
   ok(creditBad.unknown === true && creditBad.evidenceDate === null && !('unknownReason' in creditBad),
     'credit with a null v2 date stays unknown (no new field on credit rows)');
   const heloc = first({ updated_at: '2026-08-19T09:00:00Z' }, { atlasRole: 'heloc', canonical: { collection: 'debts', id: 'h' } });
-  ok(heloc.evidenceDate === '2026-08-19' && !heloc.unknown, 'HELOC keeps incumbent object-update dating (out of scope)');
+  // Hunt 5 finding 5: updated_at is when Lunch Money last touched the record,
+  // not when the balance was true. The old pin asserted the dating order, not
+  // that the date was true: a loan touched today with a 15-day-old balance
+  // read as current. A loan with no genuine balance date is unknown.
+  ok(heloc.evidenceDate === null && heloc.unknown === true, 'a HELOC dated only by updated_at is undated (unknown), never current');
+  const helocV2 = first({ updated_at: '2026-08-20T09:00:00Z', balance_last_update: '2026-08-17' },
+    { atlasRole: 'heloc', canonical: { collection: 'debts', id: 'h' } });
+  ok(helocV2.evidenceDate === '2026-08-17', 'a HELOC is dated by balance_last_update, not a later updated_at');
   ok(P.genericAccountEvidenceInstant(P.normalizeLunchMoneyAccount({ id: 1, updated_at: '2026-08-20T09:00:00Z',
     balance_last_update: '2026-08-17' })) === '2026-08-20T09:00:00Z',
-    'genericAccountEvidenceInstant itself is unchanged (still used for mortgage and HELOC)');
+    'genericAccountEvidenceInstant itself is unchanged (other non-cash, non-credit roles; loans use loanBalanceEvidenceInstant)');
 }
 
 console.log('\n' + (failures ? `${failures} failure(s)` : 'ALL CHECKS PASSED'));

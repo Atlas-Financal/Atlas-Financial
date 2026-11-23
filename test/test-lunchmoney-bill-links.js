@@ -13,7 +13,9 @@ const J = JSON.stringify;
 const LINKS = { shaw: '3722143', bcaa: '3722144', icbc: '3722145', resp: '3722146', netflix: '3722150', 'icloud-storage': '3722153',
   'google-storage-100gb': '3722157', 'chatgpt-plus-dale': '3722348', 'youtube-premium': '3709406', 'noble-garbage': '3722207',
   fit4less: '3722395', 'tdcc-auto17': '3722415', 'triangle-td3': '3722506', microsoft: '3722390', 'teamsnap-plus': '3722391', 'muse-meta': '3722358', 'mbna-auto30': '3709492', 'crave-standard-ads': '3722235',
-  'paramount-plus': '3722236', stacktv: '3722237', 'prime-video-ad-free': '3722299' };
+  'paramount-plus': '3722236', stacktv: '3722237', 'prime-video-ad-free': '3722299',
+  // Lead 2026-11-23: fortis is its reviewed item 3709340 (Bills, monthly from 2026-12-01).
+  fortis: '3709340' };
 // Invented items: monthly on the 5th (a day no linked row uses today), quarterly, biweekly as the row's cadence needs.
 const invented = (id, rid) => {
   const row = data.plan.bills.find(b => b.id === id) || data.plan.obligations.find(o => o.id === id);
@@ -39,7 +41,7 @@ for (const rid of ['3722173', '3722165', '3722147', '3722158', '3722163', '37221
 console.log('2. An invented item moves each linked row; nothing else moves');
 const got = review(identity.rules);
 const byId = Object.fromEntries(got.map(s => [s.billId || s.obligationId, s]));
-for (const id of ['shaw', 'bcaa', 'icbc', 'resp', 'netflix', 'icloud-storage', 'google-storage-100gb', 'chatgpt-plus-dale', 'youtube-premium', 'microsoft', 'teamsnap-plus', 'muse-meta', 'crave-standard-ads', 'paramount-plus', 'stacktv', 'prime-video-ad-free'])
+for (const id of ['shaw', 'bcaa', 'icbc', 'resp', 'netflix', 'icloud-storage', 'google-storage-100gb', 'chatgpt-plus-dale', 'youtube-premium', 'microsoft', 'teamsnap-plus', 'muse-meta', 'crave-standard-ads', 'paramount-plus', 'stacktv', 'prime-video-ad-free', 'fortis'])
   ok(byId[id] && byId[id].timing.frequency === 'monthly' && byId[id].timing.day === 5, `${id}: monthly on the invented 5th`, J(byId[id]));
 ok(byId['noble-garbage'] && byId['noble-garbage'].timing.frequency === 'quarterly' && byId['noble-garbage'].timing.day === 5,
   'noble-garbage: quarterly on the 5th', J(byId['noble-garbage']));

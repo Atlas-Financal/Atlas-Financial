@@ -134,7 +134,11 @@ console.log('=== F2. posted-balance evidence prefers balance_as_of over updated_
   });
   ok(O.cashBalanceEvidenceInstant(cashAcc) === '2026-08-19T03:25:33.904Z', 'live cash dates from balance_as_of, never updated_at');
   ok(O.genericAccountEvidenceInstant(cashAcc) === '2026-08-16T20:00:00.000Z',
-    'the generic helper (mortgage/HELOC) still dates from updated_at; live cash uses cashBalanceEvidenceInstant (N1)');
+    'the generic helper (non-cash, non-credit, non-loan roles) still dates from updated_at; live cash uses cashBalanceEvidenceInstant (N1)');
+  // Loans are dated by their balance date only: updated_at is when the record
+  // was touched, not when the balance was true (hunt 5 finding 5).
+  ok(O.loanBalanceEvidenceInstant(cashAcc) === '2026-08-19T03:25:33.904Z',
+    'mortgage/HELOC date from balance_as_of, never updated_at');
 }
 
 console.log('=== G. pending stays distinct from posted ===');

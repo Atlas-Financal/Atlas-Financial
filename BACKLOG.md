@@ -107,7 +107,7 @@ heads is the Merge line on #821; this section names steps, not heads.
 | 1 | Land the in-flight PRs: card repayment target (#1573, Dale's figures look), Fortis link (#1583, desk redesign), yearly dates (#1597, final design pass), HELOC end date (#1602), outside-account unknown (#1603), default-view null leftover | Lead (routing); DISPLAY, GUARDS, ENGINE (builds) | Per the Merge line |
 | 2 | Same-day cash freshness: a lagging account, stale savings dating or a loan dated by `updated_at` must withhold, not double-count (Gemini hunt 5 findings 1, 3, 5; #821 7103458019) | ENGINE | Open the PR |
 | 3 | Pre-cutover dates of a linked bill keep the plan's own confidence, never `confirmed` (hunt 5 finding 11) | GUARDS, after #1597 | Build from fresh main |
-| 4 | Remaining fail-open findings from Gemini hunt 4 (see its BACKLOG entry): finding 11's once-moved half, then 3/4/5 with #1597's yearly-bills NEXT PR | ENGINE / GUARDS | After step 2 |
+| 4 | Remaining Gemini hunt 4 fail-open findings **whose triggering input shape is in the household plan or live feed today** (owner, 2026-11-23, #821 7105210397): the card-overlap guard's ended-recurring half. Every other still-present hunt 4 finding (Neon REPORT 1, #1607) is straight after v2, in that report's order, and moves back in front if the household gains its shape | ChatGPT | Build item 2 |
 | 5 | Confirm the open card-payment destination in Lunch Money, so the plan's withheld parts return | Dale with Grok | Dale confirms Grok's prepared edit |
 | 6 | Dale walks the live Budget page against the bank once (rule 15); each mismatch becomes a fix | Dale; lead | After steps 1–5 land |
 | 7 | Fixes from that walk land and are re-checked on the live page | Lead | After step 6 |
@@ -379,6 +379,12 @@ No build is started until the open PRs land (Dale's ask). Each fix is its own PR
 **The Lunch Money timing cutover check builds its rows without `lastDue`** · **ADDED TO BACKLOG — OPEN** · *same class as hunt 4 finding 6, found while building #1602; lead agreed ADDED TO BACKLOG*
 
 `scripts/provider-observe.js` `recurringObligationSchedule` builds `oldRow` and `newRow` (monthly, day, firstDue) for its cutover-safety comparison without the plan row's `lastDue`. An ended Lunch Money item is refused, but a plan row that has its own `lastDue` is not, so the "next occurrence" it compares can fall after the row has ended. This is ledger-side timing review (rule 17): it publishes no figure and only decides whether a proposed day change is safe. The next action is to ask Grok Bot whether an ended plan row should be refused (like an ended item) or bounded, then build as agreed.
+
+<a id="savings-required-rule-copies"></a>
+
+**"Savings is a required cash balance" is still written out in several places** · **ADDED TO BACKLOG — OPEN** · *found while building #1606; pre-existing on main*
+
+#1606 adds `savingsCashRequired(plan, asOf)` in `scripts/provider-observe.js` and uses it in the live freshness gates and the household date. Older copies of the same test (`savingsEarmarksState(...).status === 'setup-unknown'`, some judged at `'9999-12-31'`) remain in `scripts/live-plan.js` (savings pool observation, canonical and served savings, the evidence-day check) and in `scripts/provider-observe.js` (pool requirement and receipt). The next action is to derive each from `savingsCashRequired`, or to record why its reference date differs, with a test per site.
 
 <a id="active-prepaid-bill-close"></a>
 

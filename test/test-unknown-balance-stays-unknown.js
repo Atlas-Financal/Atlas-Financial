@@ -97,18 +97,19 @@ for (const [label, date] of [['future-dated', TOMORROW], ['undated', null]]) {
   eq(billsCash(replay.data), 100, label + ': repeat refresh still keeps 100');
 }
 
-// ── A stale (yesterday) balance never replaces today's cash, and the
-// refresh never reads "current" on it. ──
+// ── A stale (yesterday) balance on a same-day refresh is withheld, not
+// served with a caution: the refresh fails stale-live-cash-evidence, the
+// same rule as an advancing refresh (hunt 5 finding 1). Before, it published
+// exact figures beside a "stale" coverage limit. Today-dated is the control. ──
 {
-  const live = Live.fromObservation(world(YESTERDAY));
-  eq(billsCash(live.data), 100, 'stale: yesterday\'s 200 never replaces today\'s 100');
-  eq(live.overlays.some(r => r.locator === 'cash:chequing-a'), false, 'stale: no cash overlay');
-  const trust = live.data.refreshTrust;
-  yes(trust.displayState !== 'current', 'stale: refresh trust is not current (' + trust.displayState + ')');
-  yes(trust.coverageLimits.some(l => l.id === 'required-cash-balance-stale'),
-    'stale: refresh trust names the stale required cash balance');
-  eq(Live.fromObservation(world(TODAY)).data.refreshTrust.coverageLimits
-    .some(l => l.id === 'required-cash-balance-stale'), false, 'stale control: today-dated cash is not stale');
+  let threw = null;
+  try { Live.fromObservation(world(YESTERDAY)); } catch (e) { threw = e; }
+  yes(threw && /stale-live-cash-evidence: cash:chequing-a dated 2026-09-19/.test(threw.message),
+    'stale: a same-day refresh with yesterday\'s required balance is withheld (' + (threw && threw.message) + ')');
+  const control = Live.fromObservation(world(TODAY));
+  eq(control.data.refreshTrust.coverageLimits.some(l => l.id === 'required-cash-balance-stale'), false,
+    'stale control: today-dated cash is not stale');
+  eq(billsCash(control.data), 200, 'stale control: today-dated 200 overlays');
 }
 
 // ── As-of advance: live-plan's freshness assertion is the guard. The

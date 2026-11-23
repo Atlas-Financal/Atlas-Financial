@@ -358,13 +358,15 @@
     },
     {
       "eventId": "fortis",
+      "lunchMoneyRecurringIds": ["3709340"],
+      "linkedFrom": "2026-12-01",
       "payeePattern": "Fortisbc Energy Bpy",
       "payeePatterns": ["Fortisbc Energy Bpy", "FortisBC Energy BPY", "FORTISBC"],
       "atlasAccountId": "chequing-a",
       "direction": "debit",
       "requiredCurrency": "cad",
       "postingDateRule": "covers-early-or-due-on-or-before-posting",
-      "note": "Owner 2026-09-09: Fortisbc Energy Bpy / Natural Gas on BILLS is fortis, including early pay before due. Identity is that explicit alias + BILLS + debit + early-or-covers-due. Amount is not identity. Matching confirmed-settled evidence creates representedActuals and marks PAID. Without matching evidence the bill stays still-due / unverified. Do not owner-question Dale when evidence matches. Do not implement trust-without-evidence."
+      "note": "Owner 2026-09-09: Fortisbc Energy Bpy / Natural Gas on BILLS is fortis, including early pay before due. Identity is that explicit alias + BILLS + debit + early-or-covers-due. Amount is not identity. Matching confirmed-settled evidence creates representedActuals and marks PAID. Without matching evidence the bill stays still-due / unverified. Do not owner-question Dale when evidence matches. Do not implement trust-without-evidence. Lead 2026-11-23 (on the household's Lunch Money review): fortis is also its reviewed Lunch Money recurring item 3709340 (Bills, monthly from 2026-12-01), named here as the 2026-11-21 owner-provided ids were, so the item's schedule and amount apply from linkedFrom (the household's equal-payment plan). The plan bill keeps its estimated tag; Dale was asked to say if his bill differs."
     },
     {
       "eventId": "shaw",
