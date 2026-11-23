@@ -49,14 +49,17 @@ try {
         || whole <= 0) return null;
       return Math.min(1, Math.max(0, part / whole));
     },
-    // B5, the one visual trust treatment (lead ruling, 2026-11-19; owner: no text labels, no dotted underlines): a
-    // figure whose published trust is 'estimated', or any figure of a pay period Forecast publishes as projected
-    // (evidenceState 'projected'), carries the class stack-est. Nothing else does: calculated and verified never, and
-    // an unknown or unavailable figure prints nothing. Read from the published trust, never inferred.
+    // The published-trust reading (B5): a figure whose published trust is 'estimated', or any figure of a pay period
+    // Forecast publishes as projected (evidenceState 'projected'). Read from the published trust, never inferred. It
+    // still gates content (for example, no minimum-paid check in a projected period); it no longer changes how a
+    // figure looks (estClass below).
     isEstimated(trust, view) {
       return trust === 'estimated' || !!(view && typeof view === 'object' && view.evidenceState === 'projected');
     },
-    estClass(trust, view) { return StackBlocks.isEstimated(trust, view) ? ' stack-est' : ''; },
+    // The one visual trust treatment, now none (owner decision, Dale, 2026-11-23, given directly to the builder: "remove
+    // all estimate styling"; #821 7112693071): every Budget figure draws the same whatever its trust. The trust is still
+    // published and read; only its look is gone. An unknown or unavailable figure still prints a dash, never $0.
+    estClass() { return ''; },
     // A bill's printed name (owner decision, Dale, queued 2026-11-22): the plan's label without its timing qualifiers,
     // "(estimated timing)" and "— <date> posting unknown", as the classic page already drops "posting unknown"
     // (plan.js glanceLineLabel). Display only: the label Forecast publishes is unchanged, and the trust of the amount is
@@ -202,10 +205,10 @@ try {
       const surplus = view.stackSummary && view.stackSummary.surplus;
       const current = view.role === 'active';
       // Owner direction (Dale, 2026-11-20 walk): no dashed or dotted outline on a future period; every chip has the
-      // design's plain fill. A period with no published surplus shows a dash (F8) in the soft treatment (lead,
-      // 2026-11-20), never $0 and never a blank.
+      // design's plain fill. A period with no published surplus shows a dash (F8), never $0 and never a blank, in the
+      // same type as every other figure (owner decision, Dale, 2026-11-23: no estimate styling).
       const value = amount == null
-        ? '<span class="stack-chip-value stack-est" data-stack-chip-amount role="img" aria-label="not available">\u2014</span>'
+        ? '<span class="stack-chip-value" data-stack-chip-amount role="img" aria-label="not available">\u2014</span>'
         : `<span class="stack-chip-value${neg ? ' is-neg' : ''}${StackBlocks.estClass(surplus && surplus.trust, view)}" data-stack-chip-amount>${esc(money(amount))}</span>`;
       return `<button class="stack-chip${neg ? ' is-neg' : ''}${current ? ' is-now' : ''}" type="button"`
         + ` data-stack-period="${esc(key)}" aria-pressed="${key === state.selectedPeriodKey}"`

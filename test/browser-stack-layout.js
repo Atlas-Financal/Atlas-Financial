@@ -123,7 +123,7 @@ const strips = page => page.evaluate(() => {
 
 
 // The slab's printed surplus, set to an invented estimated value, measured as drawn: its ink blended at its own
-// opacity over the slab's fill, as a contrast ratio. Reports whether it carries the soft (estimated) treatment.
+// opacity over the slab's fill, as a contrast ratio. Reports whether it carries the retired estimate class (stack-est).
 const slabInk = (page, amount) => page.evaluate(value => {
   const original = window.__origRecommend || (window.__origRecommend = Forecast.recommend);
   Forecast.recommend = function () {
@@ -253,16 +253,16 @@ const slabInk = (page, amount) => page.evaluate(value => {
       ok(fit.some(r => r.overflow || r.inkRight > r.inner + 0.5), 'with the old fixed 66px size, the long value is reported past the slab edge');
       await page.close();
     }
-    console.log('the surplus slab: an estimated surplus or deficit stays soft and readable (4.5:1 or more)');
+    console.log('the surplus slab: an estimated surplus or deficit draws plain (full opacity) and readable (4.5:1 or more)');
     for (const theme of ['light', 'dark']) {
       const { page, errors } = await open(browser, 390, theme);
       const drawn = [await slabInk(page, 1000), await slabInk(page, -250.5)];
-      ok(drawn.every(r => r.measured && r.soft && r.opacity < 1 && r.ratio >= 4.5) && drawn[1].neg && !drawn[0].neg,
-        `${theme}: an estimated surplus and deficit keep the soft treatment and clear 4.5:1 on the slab`, JSON.stringify(drawn));
+      ok(drawn.every(r => r.measured && !r.soft && r.opacity === 1 && r.ratio >= 4.5) && drawn[1].neg && !drawn[0].neg,
+        `${theme}: an estimated surplus and deficit draw at full opacity, unmarked, and clear 4.5:1 on the slab`, JSON.stringify(drawn));
       ok(errors.length === 0, 'no page errors', errors.join('; '));
       if (theme === 'light') {
-        console.log('control: the contrast check catches the shell\'s plain .58 fade on the slab');
-        await page.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-slab .n.stack-est { opacity: .58; }' });
+        console.log('control: the contrast check catches a .58 fade on the slab (the retired estimate look)');
+        await page.addStyleTag({ content: 'html.stack-view .stack-waterfall .wf-slab .n { opacity: .58; }' });
         const faded = await slabInk(page, -250.5);
         ok(faded.measured && faded.ratio < 4.5, 'with the .58 fade, the deficit is reported under 4.5:1', JSON.stringify(faded));
       }

@@ -1,16 +1,18 @@
 'use strict';
-/* B5, one visual trust treatment across the Stack page: checked in CI without a browser, on invented data only.
+/* Trust has no look on the Stack page: checked in CI without a browser, on invented data only.
  *
- * Owner: no text labels, no dotted underlines; an estimated figure must never look verified. The shell's one rule
- * (StackBlocks.isEstimated / estClass): a figure whose published trust is 'estimated', or any figure of a pay period
- * Forecast publishes as projected (evidenceState 'projected'), carries the class stack-est; nothing else does.
+ * Owner decision (Dale, 2026-11-23, given directly to the builder: "remove all estimate styling"; #821 7112693071):
+ * every Budget figure draws the same whatever its published trust. The shell still reads the trust
+ * (StackBlocks.isEstimated: 'estimated', or a pay period Forecast publishes as projected), and that reading still gates
+ * content, but its one visual treatment (StackBlocks.estClass) is now nothing, so no figure carries the old class
+ * stack-est. A withheld or unpublished figure is still a dash, never $0.
  *
- *   1. The rule itself: estimated and projected only; calculated, verified, unknown, unavailable and absent never.
- *   2. Waterfall (an actual period, mixed trust): exactly the rows whose published trust is estimated carry the class.
- *   3. Waterfall (a projected period): every printed figure carries it.
- *   4. Credit card and its sheet: exactly the figures read from estimated paid / spent / toGo / minimum / totals.
- *   5. Bill and budget sheets: from displayAmountTrust, spentTrust, plannedTrust and trust.
- *   5b. Cards (B3): a projected period softens every printed card figure; an actual one only the estimated amounts.
+ *   1. The reading is unchanged (estimated and projected only); the treatment is empty.
+ *   2. Waterfall (an actual period, mixed trust): no row is drawn differently.
+ *   3. Waterfall (a projected period): no printed figure is drawn differently.
+ *   4. Credit card and its sheet: estimated paid / spent / toGo / minimum / totals draw plain, with plain names.
+ *   5. Bill and budget sheets: estimated displayAmountTrust, spentTrust, plannedTrust and trust draw plain.
+ *   5b. Cards (B3): a projected period and estimated amounts draw plain.
  *   6. No rendered text says "estimated", "projected" or "≈", and no rule underlines (owner).
  *   7. The shell's chips and every block read the one rule (no block decides trust on its own).
  *   8. No explanatory text: every block and sheet prints only the page's names, the invented names, figures and ✓.
@@ -104,53 +106,54 @@ console.log('1. the one rule');
   ok(B.isEstimated('estimated') && B.isEstimated('calculated', { evidenceState: 'projected' }), "'estimated', or a projected period");
   ok(['calculated', 'verified', 'unknown', 'unavailable', null, undefined, 'Estimated', 'projected'].every(t => !B.isEstimated(t, { evidenceState: 'actual' })),
     'calculated, verified, unknown, unavailable, absent and look-alike words are never estimated');
-  ok(B.estClass('estimated') === ' stack-est' && B.estClass('calculated') === '', 'estClass gives the one class name or nothing');
+  ok(B.estClass('estimated') === '' && B.estClass('calculated') === '' && B.estClass('calculated', { evidenceState: 'projected' }) === '',
+    'estClass draws nothing for any trust (owner decision, Dale, 2026-11-23)');
 }
 
 console.log('2. waterfall, an actual period with mixed trust');
 {
   const { fns } = load();
   const html = waterfall(fns, context(view('actual')));
-  ok(estSources(html) === ['budgetHold', 'stackSummary.income.amanda.amount', 'stackSummary.income.total.amount', 'stackSummary.surplus.amount'].join(','),
-    'exactly Amanda, Total income, Budget and the Surplus are soft (their published trust is estimated)', estSources(html));
+  ok(estSources(html) === '' && allSources(html).split(',').length === 10,
+    'Amanda, Total income, Budget and the Surplus (published estimated) draw like every other row', estSources(html));
 }
 
 console.log('3. waterfall, a projected period');
 {
   const { fns } = load();
   const html = waterfall(fns, context(view('projected')));
-  ok(estSources(html) === allSources(html) && allSources(html).split(',').length === 10, 'every printed figure is soft', estSources(html));
+  ok(estSources(html) === '' && allSources(html).split(',').length === 10, 'no printed figure is drawn differently in a projected period', estSources(html));
 }
 
-console.log('4. credit card and its sheet (the design\'s "X / minimum", soft per field)');
+console.log('4. credit card and its sheet (the design\'s "X / minimum"): estimated fields draw plain');
 {
   const { fns, win } = load();
   const el = container();
   fns.credit(el, context(view('actual')));
   const rows = el.innerHTML.split('<li>').slice(1);
   const softIn = h => classed(h).filter(e => e.cls.includes('stack-est')).map(e => e.cls.find(c => /^stack-credit-/.test(c))).sort().join(',');
-  ok(!/stack-est/.test(el.innerHTML.split('<li>')[0]), 'calculated totals: the paid total, the minimums due and the bar are not soft');
-  ok(softIn(rows[0]) === '', 'Blue Visa (all calculated): nothing soft', softIn(rows[0]));
-  ok(softIn(rows[1]) === 'stack-credit-of,stack-credit-x',
-    'Green Card (spent, toGo and minimum estimated): the figure X and the "/ min" are soft', softIn(rows[1]));
+  ok(!/stack-est/.test(el.innerHTML), 'no estimate class anywhere on the card');
+  ok(softIn(rows[0]) === '' && softIn(rows[1]) === '',
+    'Blue Visa (all calculated) and Green Card (spent, toGo and minimum estimated) draw the same way', softIn(rows[1]));
+  ok(!/estimated/i.test(el.innerHTML), 'no "estimated" in any name or label');
   const el2 = container();
   fns.credit(el2, context(view('actual'), 'estimated'));
-  ok(/data-stack-credit-total><span>\$500<\/span>/.test(el2.innerHTML) && !/data-stack-credit-total><span class="stack-est">/.test(el2.innerHTML) && /stack-credit-bar stack-est/.test(el2.innerHTML),
-    'estimated totals: the paid figure prints in normal type whatever its trust word (Dale, 2026-11-20); the bar stays soft');
+  ok(/data-stack-credit-total><span>\$500<\/span>/.test(el2.innerHTML) && !/stack-est/.test(el2.innerHTML) && /class="stack-credit-bar"/.test(el2.innerHTML),
+    'estimated totals: the paid figure and the bar draw in normal type');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
-  ok(/stack-credit-x is-bad stack-est"[^>]*>−\$160</.test(green) && /<dt>New charges<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
-    && /<dt>Paid onto it<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="stack-est">\$30<\/span><\/dd>/.test(green),
-  'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
-  ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
+  ok(/stack-credit-x is-bad"[^>]*>−\$160</.test(green) && /<dt>New charges<\/dt><dd class="stack-n"><span class="">\$260<\/span>/.test(green)
+    && /<dt>Paid onto it<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="">\$30<\/span><\/dd>/.test(green),
+  'Green Card sheet: the estimated figures draw exactly as the calculated "Paid onto it"');
+  ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: no estimate class');
   const projected = context(view('projected'));
   const pEl = container();
   fns.credit(pEl, projected);
-  ok(!/data-stack-credit-total><span class="stack-est">/.test(pEl.innerHTML) && pEl.innerHTML.split('<li>').slice(1).every(r => /stack-credit-x[^"]* stack-est"/.test(r) || /stack-credit-dash/.test(r)),
-    'a projected period: every line is soft; the head\'s paid figure stays in normal type (Dale, 2026-11-20)');
+  ok(!/stack-est/.test(pEl.innerHTML) && pEl.innerHTML.split('<li>').slice(1).every(r => /stack-credit-x/.test(r) || /stack-credit-dash/.test(r)),
+    'a projected period: every line still prints its figure or a dash, in normal type');
 }
 
-console.log('4b. the covered ✓ always shows when covered, soft on estimated evidence (Atlas on #1444)');
+console.log('4b. the covered ✓ always shows when covered, drawn plain whatever its evidence (Atlas on #1444)');
 {
   // The same covered line, its paid and spent published calculated, then with paid estimated (an unconfirmed payment
   // allocation), then in a projected period.
@@ -168,19 +171,18 @@ console.log('4b. the covered ✓ always shows when covered, soft on estimated ev
     'calculated paid and spent: the row tick is filled and the sheet\'s Minimum row has its ✓, plain');
   for (const [label, r] of [['estimated paid', render(view('actual'), line('estimated', 'calculated'))],
     ['a projected period', render(view('projected'), line('calculated', 'calculated'))]]) {
-    ok(/stack-credit-tick is-on stack-est" role="img" aria-label="Minimum covered, estimated"/.test(r.row)
-      && /<span class="stack-est">✓<\/span>/.test(r.sheet) && /stack-credit-x is-good stack-est"[^>]*>\+\$400</.test(r.row),
-      `${label}: the tick and the ✓ still show (covered), soft, read as "Minimum covered, estimated"`);
+    ok(/stack-credit-tick is-on" role="img" aria-label="Minimum covered"/.test(r.row)
+      && /<span class="">✓<\/span>/.test(r.sheet) && /stack-credit-x is-good"[^>]*>\+\$400</.test(r.row),
+      `${label}: the tick and the ✓ still show (covered), plain, read as "Minimum covered"`);
     ok(!/estimated/i.test(r.row.replace(/<[^>]*>/g, ' ') + r.sheet.replace(/<[^>]*>/g, ' ')), `${label}: no word "estimated" is added`);
   }
-  // The ✓ is the covered claim alone (the coverage check, the minimum and paid): an estimated spent softens X (the colour reads
-  // it) but not the ✓.
+  // An estimated spent: the figure X and the ✓ both draw plain.
   const spentSoft = render(view('actual'), line('calculated', 'estimated'));
-  ok(/stack-credit-tick is-on" role="img" aria-label="Minimum covered"/.test(spentSoft.row) && /stack-credit-x is-good stack-est"[^>]*>\+\$400</.test(spentSoft.row)
-    && /<span class="">✓<\/span>/.test(spentSoft.sheet), 'estimated spent: the figure is soft, the ✓ (a coverage claim) is not');
+  ok(/stack-credit-tick is-on" role="img" aria-label="Minimum covered"/.test(spentSoft.row) && /stack-credit-x is-good"[^>]*>\+\$400</.test(spentSoft.row)
+    && /<span class="">✓<\/span>/.test(spentSoft.sheet), 'estimated spent: the figure and the ✓ draw plain');
 }
 
-console.log('4c. the sheet\'s minimum amount and its ✓ carry their own treatment (Codex on #1475)');
+console.log('4c. the sheet\'s minimum amount and its ✓ draw plain whatever their trust (Codex on #1475)');
 {
   const { win } = load();
   const sheet = (v, minTrust, covTrust) => {
@@ -191,45 +193,45 @@ console.log('4c. the sheet\'s minimum amount and its ✓ carry their own treatme
     return win.StackSheet.html(ctx, 'card:travelvisa');
   };
   const minRow = h => (/<dt>Minimum<\/dt><dd class="stack-n">([\s\S]*?)<\/dd>/.exec(h) || [])[1];
-  ok(minRow(sheet(view('actual'), 'estimated', 'calculated')) === '<span class="stack-est">$30</span> <span class="stack-est">✓</span>',
-    'an estimated minimum amount: the amount is soft and so is the ✓ (the covered claim is read from it)');
-  ok(minRow(sheet(view('actual'), 'calculated', 'estimated')) === '<span class="">$30</span> <span class="stack-est">✓</span>', 'estimated coverage alone: the ✓ is soft, the amount is not');
-  ok(minRow(sheet(view('projected'), 'calculated', 'calculated')) === '<span class="stack-est">$30</span> <span class="stack-est">✓</span>', 'a projected period: both are soft');
-  ok(minRow(sheet(view('actual'), 'calculated', 'calculated')) === '<span class="">$30</span> <span class="">✓</span>', 'calculated minimum and coverage: neither is soft');
+  const PLAIN = '<span class="">$30</span> <span class="">✓</span>';
+  ok(minRow(sheet(view('actual'), 'estimated', 'calculated')) === PLAIN, 'an estimated minimum amount: the amount and the ✓ draw plain');
+  ok(minRow(sheet(view('actual'), 'calculated', 'estimated')) === PLAIN, 'estimated coverage alone: both draw plain');
+  ok(minRow(sheet(view('projected'), 'calculated', 'calculated')) === PLAIN, 'a projected period: both draw plain');
+  ok(minRow(sheet(view('actual'), 'calculated', 'calculated')) === PLAIN, 'calculated minimum and coverage: the same plain markup');
 }
 
 console.log('5. bill and budget sheets');
 {
   const { win } = load();
   const ctx = context(view('actual'));
-  ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(ctx, 'bill:water@2031-03-05')), 'an estimated bill amount is soft');
-  ok(!/stack-est/.test(win.StackSheet.html(ctx, 'bill:power@2031-03-06')), 'a calculated bill amount is not');
+  ok(/stack-sheet-big stack-n"/.test(win.StackSheet.html(ctx, 'bill:water@2031-03-05')) && !/stack-est/.test(win.StackSheet.html(ctx, 'bill:water@2031-03-05')),
+    'an estimated bill amount draws plain');
+  ok(!/stack-est/.test(win.StackSheet.html(ctx, 'bill:power@2031-03-06')), 'a calculated bill amount draws plain');
   // The marking moved here from the card (owner decision, Dale, queued 2026-11-22), and the sheet's title is the bill's
   // name without its timing qualifiers (StackBlocks.billName); the published label is unchanged.
   {
     const v = view('actual');
     v.bills[0].label = 'Water (estimated timing)';
     const h = win.StackSheet.html(context(v), 'bill:water@2031-03-05');
-    ok(/<h3 id="stack-sheet-title">Water<\/h3>/.test(h) && !/estimated timing/i.test(h) && /stack-sheet-big stack-n stack-est/.test(h),
-      'a bill sheet titles the name without "(estimated timing)" and still draws its estimated amount soft');
+    ok(/<h3 id="stack-sheet-title">Water<\/h3>/.test(h) && !/estimated timing/i.test(h) && /stack-sheet-big stack-n"/.test(h) && !/stack-est/.test(h),
+      'a bill sheet titles the name without "(estimated timing)" and draws its estimated amount plain');
     ok(v.bills[0].label === 'Water (estimated timing)', 'the published label is unchanged');
   }
   const g = win.StackSheet.html(ctx, 'budget:groceries');
-  ok(/stack-sheet-big stack-n">/.test(g) && /<i class="stack-est"> \//.test(g) && !/Spent<\/dt>|Budget<\/dt>/.test(g)
-    && /Left<\/dt><dd class="stack-n stack-est"/.test(g),
-  'budget: calculated spent plain; estimated planned and left soft; no Spent or Budget row');
-  ok(/stack-sheet-big stack-n stack-est/.test(win.StackSheet.html(context(view('projected')), 'bill:power@2031-03-06')), 'a projected period: a bill is soft');
-  // Which of Spent, the plan and Left are soft, read from each budget sheet's headline and Left row.
+  ok(/stack-sheet-big stack-n">/.test(g) && /<i> \//.test(g) && !/Spent<\/dt>|Budget<\/dt>/.test(g)
+    && /Left<\/dt><dd class="stack-n"/.test(g) && !/stack-est/.test(g),
+  'budget: spent, the estimated plan and Left all draw plain; no Spent or Budget row');
+  ok(!/stack-est/.test(win.StackSheet.html(context(view('projected')), 'bill:power@2031-03-06')), 'a projected period: a bill draws plain');
+  // Which of Spent, the plan and Left are drawn differently: none, whatever the row's trust.
   const soft = key => {
     const h = win.StackSheet.html(ctx, key);
     const big = /<div class="stack-sheet-big stack-n"><span( class="stack-est")?>[^<]*<\/span>(?:<i( class="stack-est")?>)?/.exec(h);
     const dd = name => new RegExp(`${name}</dt><dd class="stack-n( stack-est)?"`).exec(h);
     return [big && big[1] ? 'spent' : '', big && big[2] ? 'plan' : '', dd('Left')[1] ? 'Left' : ''].filter(Boolean).join(',');
   };
-  ok(soft('budget:carried') === 'plan,Left', 'a carried budget (row trust only): the plan and Left are soft, Spent is not', soft('budget:carried'));
-  ok(soft('budget:dup') === 'spent,Left', 'a possible duplicate (calculated plan): Spent and Left are soft, the plan is not', soft('budget:dup'));
-  ok(soft('budget:other') === 'Left', 'Other spending: its undated plan is never soft; Left follows the row', soft('budget:other'));
-  ok(soft('budget:firm') === '', 'a calculated row: nothing soft', soft('budget:firm'));
+  for (const key of ['budget:carried', 'budget:dup', 'budget:other', 'budget:firm']) {
+    ok(soft(key) === '', `${key}: nothing drawn differently (carried, possible duplicate, Other spending, calculated)`, soft(key));
+  }
 }
 
 console.log('5c. the bill sheet reads billHistory, the one source for an occurrence amount and trust (#1446)');
@@ -253,14 +255,14 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     phone: [{ date: '2031-03-11', amount: null, amountBasis: 'schedule', trust: 'unavailable', paidState: 'not-paid' }],
   };
   const hydro = win.StackSheet.html(ctx, 'bill:hydro@2031-03-08');
-  ok(/<div class="stack-sheet-big stack-n stack-est">\$112<\/div>/.test(hydro) && !/\$100\b/.test(hydro),
-    'the headline is this occurrence\'s entry, amount and trust together (soft $112, printed in whole dollars), never the row\'s amount and trust');
+  ok(/<div class="stack-sheet-big stack-n">\$112<\/div>/.test(hydro) && !/\$100\b/.test(hydro),
+    'the headline is this occurrence\'s entry ($112, printed in whole dollars and plain), never the row\'s amount');
   const rows = [...hydro.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
   ok(rows.length === 2 && /Feb 8/.test(rows[0]) && /Jan 8/.test(rows[1]) && !/Apr 8|Mar 8/.test(rows.join('')),
     'history: the earlier occurrences only, newest first (no later or future one, not the headline itself)', rows.length);
   ok(/stack-sheet-txa stack-n">\$98</.test(rows[0]) && /stack-sheet-check/.test(rows[0])
-    && /stack-sheet-txa stack-n stack-est">\$97</.test(rows[1]) && !/stack-sheet-check/.test(rows[1]),
-    'each row: its amount (soft when estimated) and a ✓ only when paid');
+    && /stack-sheet-txa stack-n">\$97</.test(rows[1]) && !/stack-sheet-check/.test(rows[1]),
+    'each row: its amount (plain, estimated or not) and a ✓ only when paid');
   ok(!/[A-Za-z]{3,}/.test(rows.map(r => r.replace(/<[^>]*>/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g, '')).join(' ')),
     'history rows carry no words, only dates, amounts and ✓');
   for (const [key, label] of [['bill:gym@2031-03-09', 'no entry'], ['bill:phone@2031-03-11', 'an unpublished amount'],
@@ -309,7 +311,7 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
     { date: '2031-02-08', amount: 98.1, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }] };
   const may = win.StackSheet.html(fut, 'bill:hydro@2031-05-08');
   const mayRows = [...may.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
-  ok(/stack-sheet-big stack-n stack-est">\$101</.test(may) && mayRows.length === 2 && /Mar 8/.test(mayRows[0]) && /Feb 8/.test(mayRows[1])
+  ok(/stack-sheet-big stack-n">\$101</.test(may) && mayRows.length === 2 && /Mar 8/.test(mayRows[0]) && /Feb 8/.test(mayRows[1])
     && !/Apr 8/.test(may), 'a future bill: its own schedule is the headline; history lists only occurrences on or before the observation date');
   const noAsOf = context(view('projected'));
   Object.assign(noAsOf, { recommendation: fut.recommendation, data: { ...noAsOf.data, meta: {} } });
@@ -319,9 +321,9 @@ console.log('5c. the bill sheet reads billHistory, the one source for an occurre
   projected.recommendation.billHistory = ctx.recommendation.billHistory;
   const pv = projected.recommendation.payPeriodViews[0];
   pv.bills = v.bills;
-  ok(/stack-sheet-big stack-n stack-est">\$112</.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08'))
-    && /stack-sheet-txa stack-n stack-est">\$98</.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08')),
-    'a projected period: the headline and every history amount are soft');
+  ok(/stack-sheet-big stack-n">\$112</.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08'))
+    && /stack-sheet-txa stack-n">\$98</.test(win.StackSheet.html(projected, 'bill:hydro@2031-03-08')),
+    'a projected period: the headline and every history amount draw plain');
 }
 
 console.log('5d. the bill sheet matches its entry by occurrence identity (#1455), never by a coinciding date');
@@ -411,10 +413,10 @@ console.log('5e. producer to sheet: a statement-moved occurrence beside a saved 
   ok(/\$47$/.test(headline(current)) && /Oct 10/.test(current), 'control: the current Oct 10 copy shows its own 47.39', headline(current));
 }
 
-console.log('5a. a bill row prints plain only when its sheet shows the same amount marked (Atlas 7075134982)');
+console.log('5a. an estimated bill row draws plain on the card and in its sheet, whatever the sheet shows');
 {
-  // Invented estimated Bills rows, each with an id and a date (so each opens a sheet). The card prints a row plain only
-  // when its tap-in sheet headline shows this same amount drawn soft; otherwise the card is its only marking.
+  // Invented estimated Bills rows, each with an id and a date (so each opens a sheet). There is no estimate marking
+  // anywhere now, so the card no longer needs its sheet to carry one: every row draws plain.
   const { win, fns } = load();
   const v = view('actual');
   const row = (id, date, amount) => ({ id, date, label: id, amount, paidState: 'not-paid', stackBillPart: 'other', stackBillAmount: amount,
@@ -430,14 +432,15 @@ console.log('5a. a bill row prints plain only when its sheet shows the same amou
   const el = container(); fns.cards(el, c);
   const rowOf = id => (el.innerHTML.match(new RegExp('<li class="sc-row sc-bill[^>]*bill:' + id + '@[\\s\\S]*?<\\/li>')) || [''])[0];
   const sheetOf = (id, date) => win.StackSheet.html(c, 'bill:' + id + '@' + date);
-  ok(!/stack-est/.test(rowOf('match')) && /stack-sheet-big stack-n stack-est">\$64</.test(sheetOf('match', '2031-03-05')),
-    'control: a matching estimated entry: plain on the card, soft $64 in the sheet');
-  ok(/class="sc-a stack-est"/.test(rowOf('nohist')) && /stack-sheet-big stack-n"><span role="img" aria-label="not available">/.test(sheetOf('nohist', '2031-03-06')),
-    'no history entry: the sheet shows a dash, so the card keeps the row soft');
-  ok(/class="sc-a stack-est"/.test(rowOf('unpub')) && /stack-sheet-big stack-n"><span role="img" aria-label="not available">/.test(sheetOf('unpub', '2031-03-07')),
-    'an unpublished occurrence amount: the sheet shows a dash, so the card keeps the row soft');
-  ok(/class="sc-a stack-est"/.test(rowOf('other')) && /\$45/.test(sheetOf('other', '2031-03-08')),
-    'the sheet shows a different amount: the card keeps the row soft');
+  ok(!/stack-est/.test(rowOf('match')) && /stack-sheet-big stack-n">\$64</.test(sheetOf('match', '2031-03-05')),
+    'a matching estimated entry: plain on the card and plain $64 in the sheet');
+  ok(/class="sc-a"/.test(rowOf('nohist')) && /stack-sheet-big stack-n"><span role="img" aria-label="not available">/.test(sheetOf('nohist', '2031-03-06')),
+    'no history entry: the sheet shows a dash and the card row is plain');
+  ok(/class="sc-a"/.test(rowOf('unpub')) && /stack-sheet-big stack-n"><span role="img" aria-label="not available">/.test(sheetOf('unpub', '2031-03-07')),
+    'an unpublished occurrence amount: the sheet shows a dash and the card row is plain');
+  ok(/class="sc-a"/.test(rowOf('other')) && /\$45/.test(sheetOf('other', '2031-03-08')),
+    'the sheet shows a different amount: the card row is plain');
+  ok(!/stack-est/.test(el.innerHTML), 'no estimate class on any Bills row');
   ok(win.StackSheet.billHeadline(c, v.bills[0]).amount === 64 && win.StackSheet.billHeadline(c, v.bills[1]).amount === null,
     'StackSheet.billHeadline reports what the sheet headline shows');
 }
@@ -450,13 +453,13 @@ console.log('5b. cards');
   const figures = html => [...html.matchAll(/<(span|i|b)([^>]*)>(\$[^<]*|[^<]*\$[\d,.]+[^<]*)</g)];
   const projected = cards(view('projected'));
   const printed = figures(projected);
-  const unsoft = printed.filter(m => !/stack-est/.test(m[2]) && !/class="[^"]*sc-a[^"]*"/.test(m[2]));
-  ok(printed.length > 0 && unsoft.length === 0, 'a projected period: every printed card figure is soft',
-    unsoft.map(m => m[0]).join(' | '));
+  const soft = printed.filter(m => /stack-est/.test(m[2]));
+  ok(printed.length > 0 && soft.length === 0 && !/stack-est/.test(projected), 'a projected period: no printed card figure is drawn differently',
+    soft.map(m => m[0]).join(' | '));
   const actual = cards(view('actual'));
   const g = /data-stack-sheet="budget:groceries"[\s\S]*?<\/li>/.exec(actual);
-  ok(g && /<span>\$310(\.00)?<\/span><i class="stack-est"> \/ \$500/.test(g[0]),
-    'an actual period: the Groceries plan (estimated) is soft, its calculated Spent is not', g && g[0]);
+  ok(g && /<span>\$310(\.00)?<\/span><i> \/ \$500/.test(g[0]),
+    'an actual period: the Groceries plan (estimated) and its calculated Spent draw the same', g && g[0]);
 }
 
 console.log('6. no words, no underline');
@@ -471,6 +474,10 @@ console.log('6. no words, no underline');
     const cel = container(); fns.cards(cel, ctx); all.push(cel.innerHTML);
   }
   ok(!/estimated|projected|≈/i.test(text(all.join(' '))), 'the rendered text never says estimated, projected or ≈');
+  // Owner decision (Dale, 2026-11-23): no estimate styling at all, so not even a class or a screen-reader name carries it.
+  ok(!/stack-est/.test(all.join(' ')), 'no element in any block or sheet carries an estimate class (actual and projected, estimated totals)');
+  ok(!/aria-label="[^"]*estimat/i.test(all.join(' ')) && !/title="[^"]*estimat/i.test(all.join(' ')),
+    'no screen-reader name or tooltip says "estimated"');
   const css = ['stack', 'stack-waterfall', 'stack-cards', 'stack-credit', 'stack-sheet'].map(f => read(`public/${f}.css`)).join('\n');
   ok(!/text-decoration[^;]*(underline|dotted)|border-bottom[^;]*dotted/i.test(css), 'no Stack stylesheet underlines or dots a figure');
 }
@@ -479,6 +486,7 @@ console.log('7. one rule, read by every block');
 {
   const shell = read('public/stack-shell.js');
   ok(/StackBlocks\.estClass\(surplus && surplus\.trust, view\)/.test(shell), "the shell's chips read the surplus's published trust through the rule");
+  ok(/estClass\(\) \{ return ''; \}/.test(shell), 'the one treatment is empty (owner decision, Dale, 2026-11-23)');
   for (const f of ['waterfall', 'cards', 'credit', 'sheet']) {
     const src = read(`public/stack-${f}.js`).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     ok(/estClass|isEstimated/.test(src) && !/=== 'estimated'|evidenceState === 'projected'/.test(src),

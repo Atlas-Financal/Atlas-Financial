@@ -21,9 +21,9 @@ function assertBillPeriod(page, start, bill, { paid, trust }) {
   const head = card.split('</summary>')[0];
   const figure = head.match(/<span class="sc-f([^"]*)">([^<]+)<i>([^<]+)<\/i>/);
   assert.deepEqual(figure && [figure[2], figure[3]], ['$' + paidAmount, ' / $' + total], 'printed paid and owed');
-  // The heading (paid / total) has no tap-in sheet, so it carries its trust on the card (lead ruling on pre-review
-  // 7074755817); a bill row prints plain and its trust is in its sheet, checked below.
-  assert.equal(figure[1].includes('stack-est'), trust === 'estimated', 'the heading carries its trust');
+  // No figure is drawn differently for its trust (owner decision, Dale, 2026-11-23: no estimate styling); the trust is
+  // still published on the occurrence, checked below.
+  assert.equal(figure[1].includes('stack-est'), false, 'the heading is drawn plain whatever its trust');
   const rows = [...card.matchAll(/<li\b[^>]*>[\s\S]*?<\/li>/g)].map(match => match[0]);
   assert.equal(rows.length, bill ? 1 : 0, 'the period lists each counted bill once');
   if (!bill) return;
@@ -47,13 +47,13 @@ function assertBillPeriod(page, start, bill, { paid, trust }) {
   assert.ok(sheet, 'the row target resolves to a bill sheet');
   const big = sheet.match(/<div class="stack-sheet-big stack-n([^"]*)">/);
   assert.ok(big, 'the sheet prints the occurrence amount');
-  assert.equal(big[1].includes('stack-est'), trust === 'estimated', 'the tap-in sheet carries the amount\'s trust');
+  assert.equal(big[1].includes('stack-est'), false, 'the tap-in sheet draws the amount plain whatever its trust');
   // An earlier occurrence can have its own check. Only the tapped bill's headline counts here.
   const headline = sheet.split('<ul class="stack-sheet-hist">')[0];
   assert.ok(headline.includes('>' + bill.label + '</h3>'), 'the sheet names the tapped bill');
   const shown = headline.match(/<div class="stack-sheet-big stack-n([^"]*)">([^<]+)<\/div>/);
   assert.equal(shown?.[2], '$' + total, 'the sheet shows the selected occurrence amount');
-  assert.equal(shown[1].includes('stack-est'), trust === 'estimated', 'the sheet carries the occurrence trust');
+  assert.equal(shown[1].includes('stack-est'), false, 'the sheet draws the occurrence plain whatever its trust');
   assert.deepEqual([headline.includes('aria-label="Paid"'), headline.includes('✓')], [paid, paid],
     'the sheet marks only the confirmed occurrence');
   if (paid) assert.doesNotMatch(rows[0] + headline, /trusted on due date|not seen/i,

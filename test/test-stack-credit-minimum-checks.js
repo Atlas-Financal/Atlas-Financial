@@ -80,9 +80,9 @@ console.log('2. A check once the minimum is paid');
   ok(CHECK.test(rows.cardA) && !/stack-est/.test(rows.cardA.match(CHECK)[0]), 'due and covered (calculated): a plain check', rows.cardA);
   ok(!CHECK.test(rows.cardB), 'due but not covered: no check');
   ok(!CHECK.test(rows.cardD), 'coverage unknown: no check');
-  ok(CHECK.test(rows.cardE) && /stack-est/.test(rows.cardE.match(CHECK)[0]), 'covered on an estimated check: a soft check');
-  ok(/aria-label="Minimum paid">/.test(rows.cardA) && /aria-label="Minimum paid, estimated">/.test(rows.cardE),
-    'the accessible name says "estimated" exactly for the soft check');
+  ok(CHECK.test(rows.cardE) && !/stack-est/.test(rows.cardE.match(CHECK)[0]), 'covered on an estimated check: the same plain check');
+  ok(/aria-label="Minimum paid">/.test(rows.cardA) && /aria-label="Minimum paid">/.test(rows.cardE) && !/estimated/.test(rows.cardE),
+    'both checks have the same accessible name, with no "estimated"');
   ok(!CHECK.test(rows.heloc), 'the HELOC with no published coverage: no check');
   // Whatever the page's money format (whole dollars since #1480), each row prints its own published amount.
   ok(/\$25(\.00)?(?![\d.,])/.test(rows.cardA) && /\$30(\.00)?(?![\d.,])/.test(rows.cardB) && /\$210(\.00)?(?![\d.,])/.test(rows.heloc),
