@@ -70,14 +70,23 @@ const lineOf = (r, id) => r.lines.find(l => l.id === id);
   // Beyond-minimum netting. (1) Emerald, min 40, nothing spent, 15 paid beyond: due 40, overlap min(15, 0) = 0, deduction 40.
   const r1 = lines(fx.fixture(), new Map([['tdcc', 1500]]));
   ok(cents(lineOf(r1, 'tdcc').deduction.amount) === 4000, 'a payment beyond the target stays cash: Emerald deduction 40.00 beside its 15.00 term');
-  // (3) Travel over an 800.00 limit: target 236.00 + 127.40 = 363.40; due 363.40 − 264.75 = 98.65; min 25; 100 paid beyond:
-  // overlap min(100.00, 73.65) = 73.65; deduction 25.00; with the 100.00 term the card takes 125.00 = the cash paid.
-  const x = fx.fixture(); x.debts.find(d => d.id === 'travelvisa').limit = 800;
+  // (2) The over-limit amount and the period's charges come from the same balance (Neon 7113251603 item 2): Travel over an
+  // 800.00 limit by 127.40, with 236.00 of new charges. Repaying the charges brings it back under the limit, so the target
+  // is max(25, 236.00, 127.40) = 236.00, never 236.00 + 127.40 = 363.40.
+  const over = fx.fixture(); over.debts.find(d => d.id === 'travelvisa').limit = 800;
+  const t2 = lineOf(lines(over), 'travelvisa');
+  ok(cents(t2.target.amount) === 23600 && cents(t2.target.overLimitBy) === 12740 && t2.deduction.amount === 0,
+    'over the limit by less than the new charges: target 236.00 (the larger), not 363.40; deduction 0', JSON.stringify(t2.target));
+  // (3) Travel over a 527.40 limit by 400.00, more than its 236.00 of charges: target max(25, 236.00, 400.00) = 400.00; due
+  // 400.00 − 264.75 = 135.25; min 25; 100 paid beyond: overlap min(100.00, 110.25) = 100.00; deduction 35.25; with the 100.00
+  // term the card takes 135.25 = its due.
+  const x = fx.fixture(); x.debts.find(d => d.id === 'travelvisa').limit = 527.40;
   const t3 = lineOf(lines(x, new Map([['travelvisa', 10000]])), 'travelvisa');
-  ok(cents(t3.target.amount) === 36340 && cents(t3.deduction.amount) === 2500,
-    'beyond-minimum cash that pays the target above the minimum is netted once: deduction 25.00 beside the 100.00 term', JSON.stringify(t3.deduction));
+  ok(cents(t3.target.amount) === 40000 && cents(t3.target.overLimitBy) === 40000 && cents(t3.deduction.amount) === 3525,
+    'over the limit by more than the charges: target 400.00; beyond-minimum cash netted once: deduction 35.25 beside the 100.00 term',
+    JSON.stringify([t3.target, t3.deduction]));
   const t3b = lineOf(lines(x, new Map([['travelvisa', 5000]])), 'travelvisa');
-  ok(cents(t3b.deduction.amount) === 4865, 'with 50.00 beyond instead: 98.65 − min(50.00, 73.65) = 48.65');
+  ok(cents(t3b.deduction.amount) === 8525, 'with 50.00 beyond instead: 135.25 − min(50.00, 110.25) = 85.25');
 }
 {
   // A withheld target withholds the deduction and the total, never 0.

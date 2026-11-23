@@ -2,11 +2,14 @@
 /* The card repayment target (Dale, 2026-11-23, OD-028; dispatched by ATLAS LEAD 12): each Stack credit line's figure after
  * the slash is what the household needs to repay onto the card this pay period:
  *
- *   target = max(statement minimum, the period's new charges) + the amount that brings an over-limit card under its limit.
+ *   target = max(statement minimum, the period's new charges, the amount that brings an over-limit card under its limit).
+ *
+ * The three come from the same balance, so the target is the largest, never their sum (Neon 7113251603 item 2): repaying a
+ * charge that pushed the card over its limit is the same dollar as bringing it back under.
  *
  * New charges are the card's published Spent (#1557: pending counted, a replaced pending once; fees and interest are
- * charges). The over-limit amount is Forecast.utilisation's overLimitBy, a figure as of today, so it is added in the
- * current period only. Spent withheld: the minimum plus over-limit, a lower bound tagged estimated with its reason. A
+ * charges). The over-limit amount is Forecast.utilisation's overLimitBy, a figure as of today, so it counts in the
+ * current period only. Spent withheld: the larger of the minimum and the over-limit amount, a lower bound tagged estimated with its reason. A
  * withheld minimum withholds the target. The HELOC keeps its own rule (its target is its minimum).
  *
  * Every expected figure is worked by hand from the invented card week (test/fixtures/card-posted-period-movement-data):
@@ -45,10 +48,11 @@ console.log('1. New charges above the minimum: the target is the new charges');
 
 console.log('2. An over-limit card: the amount over the limit is added');
 {
-  // Travel's limit lowered to 800.00: by hand, used 927.40 - 800.00 = 127.40 over; target 236.00 + 127.40 = 363.40.
+  // Travel's limit lowered to 800.00: by hand, used 927.40 - 800.00 = 127.40 over; target max(25.00, 236.00, 127.40) = 236.00
+  // (repaying the 236.00 of charges already brings it 108.60 under the limit).
   const t = lineOf(withLimit(fx.fixture(), 'travelvisa', 800), 'travelvisa');
-  ok(cents(t.target.amount) === 36340 && cents(t.target.overLimitBy) === 12740 && t.target.trust === 'estimated',
-    'Travel over its 800.00 limit: 236.00 + 127.40 = 363.40', JSON.stringify(t.target));
+  ok(cents(t.target.amount) === 23600 && cents(t.target.overLimitBy) === 12740 && t.target.trust === 'estimated',
+    'Travel over its 800.00 limit by less than its charges: max(25.00, 236.00, 127.40) = 236.00, not 363.40', JSON.stringify(t.target));
   const u = F.utilisation(withLimit(fx.fixture(), 'travelvisa', 800).debts, null, fx.fixture().plan).rows.find(r => r.id === 'travelvisa');
   ok(cents(u.overLimitBy) === cents(t.target.overLimitBy), 'the over-limit part is Forecast.utilisation\'s own overLimitBy, read not recomputed');
 }
@@ -58,21 +62,22 @@ console.log('3. A no-spend card: the target is the minimum (plus any over-limit)
   const e = lineOf(fx.fixture(), 'tdcc');
   ok(cents(e.target.amount) === 4000 && e.target.trust === 'calculated' && cents(e.target.newCharges) === 0,
     'Emerald, nothing spent: max(40.00, 0.00) + 0 = 40.00, calculated', JSON.stringify(e.target));
-  // Emerald's limit lowered to 1000.00: 1100.00 - 1000.00 = 100.00 over; target 40.00 + 100.00 = 140.00.
+  // Emerald's limit lowered to 1000.00: 1100.00 - 1000.00 = 100.00 over; target max(40.00, 0.00, 100.00) = 100.00 (the 40.00
+  // minimum is part of the 100.00 that brings it under).
   const over = lineOf(withLimit(fx.fixture(), 'tdcc', 1000), 'tdcc');
-  ok(cents(over.target.amount) === 14000 && cents(over.target.overLimitBy) === 10000 && over.target.trust === 'calculated',
-    'Emerald over a 1000.00 limit with nothing spent: 40.00 + 100.00 = 140.00', JSON.stringify(over.target));
+  ok(cents(over.target.amount) === 10000 && cents(over.target.overLimitBy) === 10000 && over.target.trust === 'calculated',
+    'Emerald over a 1000.00 limit with nothing spent: max(40.00, 0.00, 100.00) = 100.00', JSON.stringify(over.target));
 }
 
-console.log('4. Spent withheld: the minimum plus over-limit, a lower bound tagged estimated');
+console.log('4. Spent withheld: the larger of the minimum and the over-limit amount, a lower bound tagged estimated');
 {
   const tri = lineOf(fx.fixture(), 'triangle');
   ok(tri.spent.amount === null && cents(tri.target.amount) === 3000 && tri.target.trust === 'estimated'
     && tri.target.reasons.includes('new-charges-unavailable') && tri.target.newCharges === null,
     'Triangle (Spent withheld): 30.00, estimated with new-charges-unavailable, never presented as calculated', JSON.stringify(tri.target));
-  // Triangle's limit lowered to 1900.00: 1980.00 - 1900.00 = 80.00 over; target 30.00 + 80.00 = 110.00, still estimated.
+  // Triangle's limit lowered to 1900.00: 1980.00 - 1900.00 = 80.00 over; target max(30.00, 80.00) = 80.00, still estimated.
   const over = lineOf(withLimit(fx.fixture(), 'triangle', 1900), 'triangle');
-  ok(cents(over.target.amount) === 11000 && over.target.trust === 'estimated', 'Triangle over a 1900.00 limit: 30.00 + 80.00 = 110.00, estimated', JSON.stringify(over.target));
+  ok(cents(over.target.amount) === 8000 && over.target.trust === 'estimated', 'Triangle over a 1900.00 limit: max(30.00, 80.00) = 80.00, estimated', JSON.stringify(over.target));
 }
 
 console.log('5. The HELOC keeps its own rule: its target is its minimum');
@@ -132,10 +137,11 @@ console.log('9. Every card, minimum due or not: $0 only with no minimum, no new 
   const under = lineOf(fx.fixture(), 'tdcc', noMin);
   ok(under.target.amount === 0, 'the same card under its limit: 0 (no minimum, no new charges, not over)', JSON.stringify(under.target));
   // A 50.00 new charge: Spent 50.00 and the balance 1100.00 stays the card's published balance (the fixture's), so the
-  // over-limit part is still 1100.00 - 1000.00 = 100.00. Target 50.00 + 100.00 = 150.00.
+  // over-limit part is still 1100.00 - 1000.00 = 100.00. Target max(0, 50.00, 100.00) = 100.00: the 50.00 charge is inside
+  // the balance the 100.00 brings under the limit, so it is not added again (Neon 7113251603 item 2).
   const withCharge = withLimit(fx.fixture(), 'tdcc', 1000); withCharge.packet.transactions.push(charge(50));
   const n = lineOf(withCharge, 'tdcc', noMin);
-  ok(cents(n.spent.amount) === 5000 && cents(n.target.amount) === 15000, 'the same card with 50.00 of new charges: 50.00 + 100.00 = 150.00', JSON.stringify(n.target));
+  ok(cents(n.spent.amount) === 5000 && cents(n.target.amount) === 10000, 'the same card with 50.00 of new charges: max(0, 50.00, 100.00) = 100.00, not 150.00', JSON.stringify(n.target));
   // Amazon Mastercard: a manual card (Spent withheld), no minimum this period, over its limit, and its balance a stale
   // estimate (dated before its statement cycle). By hand: 760.00 - 700.00 = 60.00 over; target 60.00, estimated.
   const stale = withLimit(fx.fixture(), 'mbna', 700);

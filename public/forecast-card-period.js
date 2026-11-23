@@ -571,7 +571,11 @@
       const over = overLimitOf(card.id);
       const reasons = over.reasons.slice();
       if (charges === null) reasons.push('new-charges-unavailable');
-      const amount = Math.max(minCents, charges === null ? 0 : charges) + over.cents;
+      // What must be repaid this period, counted once (Neon 7113251603 item 2; the lead's recommendation to the desk): the
+      // minimum, the period's new charges and the amount over the limit all come from the same balance, so the target is
+      // the largest of them, never their sum. Repaying a charge that pushed the card over its limit is the same dollar as
+      // bringing it back under; an over-limit amount older than this period's charges is the larger term and stands.
+      const amount = Math.max(minCents, charges === null ? 0 : charges, over.cents);
       return { amount: amount / 100,
         trust: weakest(minTrust, charges === null ? 'estimated' : card.spent.trust, over.trust),
         reasons: [...new Set(reasons)],
