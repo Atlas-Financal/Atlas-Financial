@@ -76,8 +76,9 @@
       && point.currency === 'CAD' && cents(point.amount, true) !== null
       && point.date === day && date(point.date) && point.temporalClaim === claim
       && typeof point.evidenceRef === 'string' && point.evidenceRef.trim().length > 0;
-    const safeMoney = tx => tx?.coverageCurrencyConflict !== true && tx?.currencySettlementUnconfirmed !== true
-      && typeof tx?.currency === 'string' && tx.currency.trim().toLowerCase() === 'cad' ? cents(tx.amount, true) : null;
+    // The one money qualification for a card row is Forecast's (primitives.money, Forecast.cardMoneyCents): the card
+    // publication and Forecast.pendingHoldReleases both read it, so a row the card would withhold never drops a hold.
+    const safeMoney = primitives.money;
     const pointFact = point => point ? { amount: cents(point.amount, true) === null ? null : point.amount,
       date: date(point.date) ? point.date : null, temporalClaim: point.temporalClaim || null } : null;
     const cards = identities.map(([id, label]) => {
@@ -152,6 +153,9 @@
           || tx.accountRole !== (id === 'heloc' ? 'heloc' : 'revolving-credit')) continue;
         if (!date(tx.date)) { issues.push('transaction-date-unqualified'); continue; }
         if (tx.date < start || tx.date > through) continue;
+        // A pending hold and its release (Forecast's pendingHoldReleases, owner decision 2026-11-23): neither leg is a
+        // charge or an unconfirmed credit on the card, so neither is listed or counted, and Spent is not withheld for it.
+        if (tx.pending === true && typeof primitives.holdReleaseLeg === 'function' && primitives.holdReleaseLeg(tx) === true) continue;
         // A pending row Forecast's one pending/posted pairing calls replaced by its posted twin (the household budget's rule,
         // `replacedPending`) is that same charge: it is never counted, and its posted twin counts once (Dale, 2026-11-22: "when
         // the actual charge comes in, I don't want to have that doubled up"). Every flag still withholds the posted movement
@@ -183,7 +187,10 @@
           : value != null && value < 0 ? 'credit-unconfirmed'
           : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';
         const published = { id: tx.id == null ? null : String(tx.id), date: tx.date,
-          payee: typeof tx.displayedPayee === 'string' ? tx.displayedPayee : id === 'heloc' ? 'Transaction' : 'Card transaction',
+          // The ledger's payee, else its merchant (never the generic fallback where the ledger has a name).
+          payee: typeof tx.displayedPayee === 'string' && tx.displayedPayee.trim() ? tx.displayedPayee
+            : typeof tx.originalMerchant === 'string' && tx.originalMerchant.trim() ? tx.originalMerchant
+            : id === 'heloc' ? 'Transaction' : 'Card transaction',
           // Display only: the item text of an "item:" note, shown instead of
           // the payee. Present only when there is one; `payee` is unchanged
           // and nothing here reads the field.
