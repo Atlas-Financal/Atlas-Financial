@@ -31,7 +31,8 @@ const STUB = `;(function (F) {
   window.__stackCreditStub = true;
   const fig = (amount, trust) => ({ amount, trust: trust || 'calculated', reasons: [] });
   const covered = value => ({ value, trust: value === 'unknown' ? 'unknown' : 'calculated', reasons: [] });
-  F.stackCreditLines = () => ({
+  const withTarget = l => ({ ...l, target: l.minimum && l.minimum.amount != null ? { amount: l.minimum.amount, trust: l.minimum.trust, reasons: [], newCharges: null, minimum: l.minimum.amount, overLimitBy: 0 } : { amount: 0, trust: 'calculated', reasons: [], newCharges: null, minimum: 0, overLimitBy: 0 } });
+  const lines = () => ({
     lines: [
       { id: 'travelvisa', label: 'Blue Visa', paid: fig(400), spent: fig(400), net: fig(0), minimum: fig(25), toGo: fig(0),
         status: 'paid-back', minimumCovered: covered(true), transactions: [
@@ -51,6 +52,8 @@ const STUB = `;(function (F) {
     totals: { paid: 500, spent: 660, trust: 'calculated', completeness: 'partial', excluded: ['tdcc'], reasons: [],
       minimumsPaid: { amount: 500, trust: 'estimated', reasons: [] }, minimumsDue: { amount: 60, trust: 'calculated', reasons: [] }, minimumsDueCount: 4, minimumsCoveredCount: 2, minimumsCoveredTrust: 'calculated' },
   });
+  // Each invented line's target is its minimum here (the simplest case, OD-028); the page prints what Forecast publishes.
+  F.stackCreditLines = () => { const r = lines(); return { ...r, lines: r.lines.map(withTarget) }; };
 })(window.Forecast);\n`;
 
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
@@ -132,7 +135,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     await page.click('[data-stack-sheet="card:travelvisa"]');
     await page.waitForSelector('.stack-sheet');
     const sheet = await textOf(page, '.stack-sheet');
-    if (stub) ok(/Blue Visa \+\$400 \/ \$25 Paid onto it \$400 Spent on it \$400 Minimum \$25 ✓/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
+    if (stub) ok(/Blue Visa \+\$400 \/ \$25 Paid onto it \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
       'the sheet prints the line\'s "X / minimum", its rows, payments with +, no tag', sheet);
     if (stub) {
       const big = await page.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color }));
@@ -168,7 +171,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       const big = await fp.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color, t: el.innerText.replace(/\s+/g, ' ').trim() }));
       ok(big.size === '64px' && big.x === 'rgb(15, 122, 67)' && big.t === '+$400 / $25', 'the sheet\'s big figure is the same "X / min", 64px and green', JSON.stringify(big));
       const sh = await textOf(fp, '.stack-sheet');
-      ok(/Paid onto it \$400 Spent on it \$400 Minimum \$25 ✓/.test(sh), 'the sheet rows: Paid onto it, Spent on it, Minimum with its ✓', sh);
+      ok(/Paid onto it \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sh), 'the sheet rows: Paid onto it, New charges, Minimum with its ✓, Target', sh);
       // A pending row: dimmed, with a drawn hollow dot named "pending" (rule B5: no printed word); posted rows have none.
       const dots = await fp.$$eval('.stack-sheet-tx li', els => els.map(li => {
         const d = li.querySelector('.stack-sheet-txp');

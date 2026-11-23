@@ -18,6 +18,7 @@
  * `node test/test-stack-trust.js`
  */
 const assert = require('node:assert/strict');
+const { withTargets } = require('./lib/stack-credit-target');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -83,7 +84,7 @@ function context(v, totalsTrust = 'calculated') {
     selectedPeriodKey: v.start, recommendation: { payPeriodViews: [v], billHistory: {
       water: [{ date: '2031-03-05', amount: 64, amountBasis: 'schedule', trust: 'estimated', paidState: 'not-paid' }],
       power: [{ date: '2031-03-06', amount: 80, amountBasis: 'posted-actual', trust: 'calculated', paidState: 'paid', paidConfirmed: true }] } },
-    Forecast: { cardPeriodMovements: () => ({}), stackCreditLines: () => ({ lines: LINES,
+    Forecast: { cardPeriodMovements: () => ({}), stackCreditLines: () => ({ lines: withTargets(LINES),
       totals: { paid: 500, spent: 660, trust: totalsTrust, completeness: 'complete', excluded: [], reasons: [],
         minimumsPaid: { amount: 500, trust: totalsTrust, reasons: [] }, minimumsDue: { amount: 55, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 1, minimumsCoveredTrust: totalsTrust } }) },
   };
@@ -135,7 +136,7 @@ console.log('4. credit card and its sheet (the design\'s "X / minimum", soft per
     'estimated totals: the paid figure prints in normal type whatever its trust word (Dale, 2026-11-20); the bar stays soft');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
-  ok(/stack-credit-x is-bad stack-est"[^>]*>−\$160</.test(green) && /<dt>Spent on it<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
+  ok(/stack-credit-x is-bad stack-est"[^>]*>−\$160</.test(green) && /<dt>New charges<\/dt><dd class="stack-n"><span class="stack-est">\$260<\/span>/.test(green)
     && /<dt>Paid onto it<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="stack-est">\$30<\/span><\/dd>/.test(green),
   'Green Card sheet: the estimated figures are soft, the calculated "Paid onto it" is not');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: nothing soft');
@@ -183,7 +184,7 @@ console.log('4c. the sheet\'s minimum amount and its ✓ carry their own treatme
     const ctx = context(v);
     const line = [{ id: 'travelvisa', label: 'Blue Visa', paid: fig(100, 'calculated'), spent: fig(100, 'calculated'), minimum: fig(30, minTrust),
       toGo: fig(0, 'calculated'), status: 'paid-back', minimumCovered: { value: true, trust: covTrust }, transactions: [] }];
-    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: line, totals: { paid: 100, spent: 100, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
+    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(line), totals: { paid: 100, spent: 100, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
     return win.StackSheet.html(ctx, 'card:travelvisa');
   };
   const minRow = h => (/<dt>Minimum<\/dt><dd class="stack-n">([\s\S]*?)<\/dd>/.exec(h) || [])[1];
@@ -503,7 +504,7 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
   for (const v of [view('actual'), view('projected'), withheld(view('actual')), negative(view('actual'))]) {
     for (const completeness of ['complete', 'partial', 'none']) {
       const ctx = context(v);
-      ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: more, totals: { paid: 500, spent: 660, trust: 'calculated',
+      ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(more), totals: { paid: 500, spent: 660, trust: 'calculated',
         completeness, excluded: completeness === 'complete' ? [] : ['tdcc'], reasons: ['x'] } }) };
       const wf = container(); fns.waterfall(wf, ctx); texts.push(wf.innerHTML);
       const cr = container(); fns.credit(cr, ctx); texts.push(cr.innerHTML);
@@ -524,7 +525,7 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     // the two head subtitles from the approved design, exactly (no other wording)
     t = t.split('paid / card minimums due').join(' ').split('spent / budget').join(' ');
     // the design's Credit wording (Dale, 2026-11-20, the Credit Minimum mock-up), exactly: the row lines and the sheet rows
-    for (const phrase of ['Spent on it', 'Paid onto it', 'Not due this period']) t = t.split(phrase).join(' ');
+    for (const phrase of ['New charges', 'Over the limit by', 'Target', 'Paid onto it', 'Not due this period']) t = t.split(phrase).join(' ');
     t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( \u2013 ((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?\d{1,2})?\b/g, ' ')
       .replace(/[✓=−+\/—·]/g, ' ');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));
