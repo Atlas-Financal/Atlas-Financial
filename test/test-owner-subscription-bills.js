@@ -12,6 +12,7 @@
 const F = require('../public/forecast.js');
 const data = require('../data.json');
 const periods = require('../public/periods.json');
+const identityRules = require('../docs/connectivity/transaction-identity.json').rules;
 const { sourceText } = require('./test-source-text');
 const fs = require('fs');
 const path = require('path');
@@ -315,12 +316,31 @@ console.log('\n=== dated subtraction uses yearly amount/12, not $50/month ===');
     // Owner-provided bills added 2026-11-21 (Dale, lead session): Microsoft, TeamSnap+ and Muse from Meta,
     // each monthly, tax included, as Dale stated them (independent literals, not read from the plan).
     + 2.24 + 2.23 + 31.36;
-  for (const id of ['microsoft', 'teamsnap-plus', 'muse-meta']) {
+  for (const id of ['microsoft', 'teamsnap-plus', 'muse-meta', 'disney-plus']) {
     ok((plan.bills || []).filter(b => b.id === id).length === 1, `${id} is one plan bill (a missing or renamed bill fails)`);
   }
-  ok(subs && near(subs.dated, independentDated),
-    'subscriptions dated total is the owner bills, yearly as amount/12',
-    String(subs && subs.dated));
+  // Owner 2026-11-23 (Dale): Disney+ still paid. Its household amount is not typed or printed here:
+  // the production row is checked for shape only, and its arithmetic on an invented amount below.
+  const disney = (plan.bills || []).find(b => b.id === 'disney-plus');
+  ok(disney && disney.frequency === 'monthly' && disney.day === 28 && disney.firstDue === '2026-11-28'
+    && disney.confidence === 'estimated' && disney.budgetCategory === 'subscriptions' && disney.payingAccount === 'chequing-a'
+    && Number(disney.amount) > 0, 'disney-plus: monthly on the 28th from 2026-11-28, estimated, subscriptions, paid from Bills');
+  ok(!identityRules.some(r => r && r.eventId === 'disney-plus'), 'disney-plus has no settlement identity yet (B106)');
+  const disneyDated = Number(disney && disney.amount) || 0;
+  ok(subs && near(subs.dated, independentDated + disneyDated),
+    'subscriptions dated total is the owner bills, yearly as amount/12, plus the Disney+ row');
+  {
+    const datedWith = amount => {
+      const p = clone(plan);
+      const row = (p.bills || []).find(b => b.id === 'disney-plus');
+      if (amount == null) p.bills = p.bills.filter(b => b.id !== 'disney-plus'); else row.amount = amount;
+      const c = F.budgetBreakdown(p, periods, { paypalPerMonth: data.paypal && data.paypal.perMonth, asOf })
+        .categories.find(x => x.id === 'subscriptions');
+      return c && c.dated;
+    };
+    ok(near(datedWith(12.34) - datedWith(null), 12.34),
+      'an invented 12.34 Disney+ amount adds exactly 12.34 to the subscriptions dated total');
+  }
   ok(!(subs.datedItems || []).some(item => /amazon prime/i.test(item.label || '')),
     'Amazon Prime membership is not a subscriptions-category smear');
   ok(subs.datedItems.some(item => item.label === 'Ultimate Guitar'

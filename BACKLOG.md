@@ -221,6 +221,15 @@ considered.
 
 ## Blocked on the household
 
+**B106 · Disney+ has no payment identity** · *small*
+`disney-plus` (owner 2026-11-23: still paid) is a plan bill with no
+transaction-identity rule. Its payee is shared with other subscriptions, so it
+is not identity, and Lunch Money has no recurring item for it. Until one of
+these lands, a past-due occurrence reads unverified, never paid: Grok Bot and
+Dale create a Lunch Money recurring item for it (a Dale-confirmed ledger edit,
+rule 17) and it is named in `docs/connectivity/transaction-identity.json`, or
+Dale grants standing schedule-trust on its due date, as for Spotify.
+
 **B70 · Agree a standing transfer from Amanda's account** · **CLOSED 2026-08-22** · *small, high value*
 Owner-confirmed 2026-08-22: the two fixed Tennis BC salaries land in
 household accounts and are already Forecast household income. Coaching
