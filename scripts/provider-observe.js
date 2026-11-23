@@ -374,12 +374,26 @@ function postedBalanceEvidenceInstant(account) {
   return account.updatedAt || account.dateLastFetched || null;
 }
 
+// Other non-cash, non-credit roles keep the prior object-update dating so
+// daily-refreshed accounts are not silently retimed by a leftover
+// balance_as_of. This is not statement-cadence freshness.
+function genericAccountEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  // Incumbent order. A v2 account dated only by balance_last_update keeps a
+  // validated semantic date instead of becoming undated (loans no longer
+  // borrow the request time).
+  return account.updatedAt || account.balanceAsOf || account.dateLastFetched
+    || (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
+      ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null)
+    || null;
+}
+
 // Mortgage / HELOC balances are dated by their own balance date only:
 // legacy balance_as_of, then the validated v2 balance_last_update. An
 // object update (updated_at) or a sync time (date_last_fetched) says when
 // the record was touched, not when the balance was true, so a loan with no
 // genuine balance date is undated (unknown), never current.
-function genericAccountEvidenceInstant(account) {
+function loanBalanceEvidenceInstant(account) {
   if (!account || typeof account !== 'object') return null;
   if (account.balanceAsOf) return account.balanceAsOf;
   return Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
@@ -4733,11 +4747,12 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
   const usesPostedDate = isCredit || isCash;
   const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+    : isCash ? cashBalanceEvidenceInstant(account)
+      : isLoan ? loanBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
   // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
   // request timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly. Mortgage/HELOC keep their incumbent generic dating,
-  // but never borrow the request time: an undated or future-dated loan balance
+  // the same helper directly. Mortgage/HELOC are dated by their balance date only
+  // (loanBalanceEvidenceInstant) and never borrow the request time: an undated or future-dated loan balance
   // is unknown, not current.
   const observedAt = usesPostedDate || isLoan ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
@@ -8450,6 +8465,7 @@ const api = {
   postedBalanceEvidenceInstant,
   cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
+  loanBalanceEvidenceInstant,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,
   observationsFromMappedAccount,

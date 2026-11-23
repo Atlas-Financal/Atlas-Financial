@@ -415,7 +415,13 @@ function capture(input, { now = () => new Date() } = {}) {
   const payload = capturePayload(clean.payload);
   const fetchedAt = instant(payload.fetchedAt);
   if (fetchedAt > capturedAt) fail('history-source-time-invalid');
-  const evidenceInput = { data: clean.data, payload, accountMap: clean.accountMap, identity: clean.identity, periods: clean.periods };
+  // A close is judged fresh against its own closing day (the end of the
+  // period it records), not the fetch day: balances dated that day are
+  // current for the close; an account dated before it still withholds.
+  const closingCycle = ['closing', 'actual-correction'].includes(kind) && clean.periodStart
+    ? Forecast.spendingCycle(clean.data.plan, date(clean.periodStart)) : null;
+  const evidenceInput = { data: clean.data, payload, accountMap: clean.accountMap, identity: clean.identity, periods: clean.periods,
+    ...(closingCycle && closingCycle.end ? { closingDay: closingCycle.end } : {}) };
   let refreshed, normalized, asOf, forecastOptions, advice;
   try {
     Observer.assertLiveMap(clean.accountMap, { data: clean.data });

@@ -340,13 +340,13 @@ function assertFreshLivePacket(data, report, liveAsOf) {
 // withheld, never served with a caution. Missing, unknown and conflicting
 // rows keep their existing refusals (the opening value stands); the
 // missing-savings and pending rules stay advancing-only.
-function assertSameDayCashFresh(data, report, liveAsOf) {
+function assertSameDayCashFresh(data, report, liveAsOf, freshFrom) {
   for (const id of POSTED_CASH) {
     if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
     const locator = `cash:${id}`;
     const known = postedRowsForLocator(report, locator).filter(row => trustworthyNumeric(row) && liveEvidenceDate(row));
-    if (!known.length || known.some(row => liveEvidenceDate(row) === liveAsOf)) continue;
-    const stale = known.find(row => liveEvidenceDate(row) < liveAsOf);
+    if (!known.length || known.some(row => liveEvidenceDate(row) >= freshFrom && liveEvidenceDate(row) <= liveAsOf)) continue;
+    const stale = known.find(row => liveEvidenceDate(row) < freshFrom);
     if (stale) fail(`stale-live-cash-evidence: ${locator} dated ${liveEvidenceDate(stale)}; MATCH is not freshness`);
   }
 }
@@ -1461,7 +1461,11 @@ function overlayLiveState(input) {
   if (historicalOpeningAsOf && liveAsOf && liveAsOf > historicalOpeningAsOf) {
     assertFreshLivePacket(data, report, liveAsOf);
   } else if (historicalOpeningAsOf && liveAsOf && liveAsOf === historicalOpeningAsOf) {
-    assertSameDayCashFresh(data, report, liveAsOf);
+    // A period-close capture records the period that just ended: a balance
+    // dated its closing day is current for that close.
+    const closingDay = typeof input.closingDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.closingDay)
+      && input.closingDay < liveAsOf ? input.closingDay : null;
+    assertSameDayCashFresh(data, report, liveAsOf, closingDay || liveAsOf);
   }
   const next = clone(data);
   applyLedgerNames(next.debts, report);
@@ -1626,7 +1630,7 @@ function observeInput(opts) {
 
 function fromObservation(opts) {
   const report = O.observe(observeInput(opts));
-  const overlaid = overlayLiveState({ data: opts.data, report });
+  const overlaid = overlayLiveState({ data: opts.data, report, closingDay: opts.closingDay });
   return Object.assign({ report }, overlaid);
 }
 
