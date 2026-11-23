@@ -6900,14 +6900,13 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     // start, so it cannot move between observations. Occurrences before it
     // keep the bill's own cadence and day (timingBefore); from it on, the
     // item's timing applies.
-    if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
-      const before = {};
-      for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
-      // The plan's own date tag goes with the plan's own timing: occurrences
-      // before the cutover never take the item's confirmed tag (owner stop 2).
-      timing.timingBefore = { from: linkedFrom, ...before,
-        dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
-    }
+    // Preserve that date trust even when only the source of the cadence changes.
+    // An identical prior cadence keeps the same dates, but the served
+    // confirmation still starts at linkedFrom, not in the plan's history.
+    const before = {};
+    for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
+    timing.timingBefore = { from: linkedFrom, ...before,
+      dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     const amount = recurringBillAmount(item, bill, opts && opts.amounts);
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
       ...(amount.amount != null ? { amount: amount.amount } : { amountReason: amount.reason }) });
