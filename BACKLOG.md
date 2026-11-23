@@ -319,6 +319,38 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+<a id="active-prepaid-bill-close"></a>
+
+**A bill paid before the active period's payday opening is deducted again from that close** · **ADDED TO BACKLOG — OPEN** · *H2-7, Gemini hunt 2 (#821 7091517953); retired by desk ruling and lead, #1594 closed without merging (7098398666)*
+
+Known cautious limit: a bill paid in the previous period is already out of the payday opening, yet the active period's close still deducts it. Gemini's invented case closes at 3800 against 3900, so the close understates by up to the bill and never overstates. The cause is that `prepaidBillSettledBy` is set only for future periods, so an active row falls back to its scheduled date in `paidBillAlreadyInPaydayOpening`.
+
+Design for a later attempt, from the reviews on #1594:
+- `paidBillAlreadyInPaydayOpening` stays the one decision. An active row gets its posting date only when every check below holds:
+  - the walk's own settled set holds the row;
+  - it passes the future gate's `coversOccurrence || verifiedSettles`;
+  - it is not a scheduled fee allowance;
+  - the tie is the provider's own match (`occurrenceLink: 'provider-matched'`, #1587's label, reused unchanged);
+  - the tie is to exactly one natively posted (`pending: false`, `savingsPostingEvidence: 'posted'`), positive Bills-account debit, dated before the payday opening.
+- PAID status and the assigned bill load do not change.
+
+Proof required (the desk's acceptance): from raw invented Lunch Money rows through observer, overlay and Forecast, show that
+- the native match waives exactly one active-close deduction;
+- the waiver carries through to the next opening and the s1 seed;
+- an otherwise identical early-date inference, and a removed link, get no relief.
+
+The two gaps that retired #1594 are the next item, and a raw world in which Atlas's rule path produces an inferred tie for a Bills-paid bill.
+
+The s1 variant (Gemini's H2-7 note a) shares this root and gate. Under the s1 seed (`s1CurrentBillsStockCents`, Bills stock as of the as-of date), a bill posted inside the active period before as-of but due after it is deducted again. That can push the seed below 0 and leave the next opening and the Savings closing null. The same gate applies with the posting date compared to the as-of date instead of the payday opening, and the proof bar is the same.
+
+<a id="null-sweep-prior-period-debit"></a>
+
+**The payday sweep and next opening go null when a prior-period debit for a bill exists** · **ADDED TO BACKLOG — OPEN, investigate** · *found while proving H2-7 (#1594 7098398666)*
+
+In an invented raw world (Bills bill of 100 due 10-28, payday 10-23 with a snapshot opening, as-of 10-23), main publishes a calculated active close (3300). Yet its `paydaySweep` is null, so the next period's opening is unknown. This happens whenever a debit for that bill posted in the prior period (10-20) exists, whether or not the ledger ties it to the occurrence. Without that debit, the sweep and the next opening are known (2900). Traced (read-only): the active close is known, but the non-s1 Bills/Weekly split check withholds the carry. It requires the payday opening to equal the sum of the `plan.startingCash.breakdown` rows. Those rows carry the dated opening's earlier evidence date, so any Bills flow between that date and the payday makes the two disagree, and with a non-zero Weekly row `previousEnding` goes null. The tie is irrelevant. The result is cautious: it withholds and never overstates. Whether the live household path (s1 or non-s1) is affected needs a private-route check of the next period's `openingSource` and `openingChainLost`.
+
+Desk ruling (Plan #6): keep today's guard. A later fix is a design, not a build: "Require complete posted flow coverage per account, count each flow once, and reconcile to the same opening date and cash basis. Totals that happen to match are not proof of the account split. Keep #1594 closed and s1 unchanged." Comparing only same-dated rows was rejected: it would also withhold today's correct no-flow carry.
+
 <a id="satisfied-minimum-future-close"></a>
 
 **A satisfied card minimum already in cash is deducted again from a future cash close** · **ADDED TO BACKLOG — OPEN** · *H2-5, Gemini hunt 2 (#821 7091517953); desk ruling (Plan #6) adopted (2), and #1589 was closed without merging (7096030824)*
