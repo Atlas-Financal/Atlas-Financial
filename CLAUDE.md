@@ -16,8 +16,8 @@ scaffolding. The rule numbers are kept so existing references (for example
 
 - **Roles**: who builds, reviews and merges, including the backup-merger
   clause and, in "Review routing and claims", the 10-minute Merge fallback.
-  This is Dale's division of labour. Codex and Astra stay paused; resuming
-  either is Dale's call.
+  This is Dale's division of labour. Codex stays paused; resuming it is
+  Dale's call. Astra builds through its mailbox (OD-035).
 - **Rules 8–10**: the PR is the record and Slack is for "needs you" and
   "done"; the weekly plain-words owner report; and repository visibility
   (owner-reserved stop 4).
@@ -48,8 +48,11 @@ scaffolding. The rule numbers are kept so existing references (for example
   dispatch move to the lead.
 - **Grok (Grok Bot):** owns the ledger-side work, under rule 17 below. Grok
   Bot writes no code.
-- **Codex, Astra:** paused; resuming either is Dale's call. The lead may call
-  on Astra for a specific hard task, with Dale's okay.
+- **Astra:** approved builder and read-only analyst (Dale, 2026-11-23;
+  OD-035). It takes `TASK` (read-only) and `BUILD` items from the lead
+  through its mailbox, issue #1611, one at a time, under every builder rule.
+  It never reviews of record or merges.
+- **Codex:** paused; resuming it is Dale's call.
 - Nobody reviews or merges their own build. Atlas never merges.
 - **Backup merger:** under the full Merge gate, a Claude Code session may
   merge a PR it neither built nor reviewed, when Muse reviewed that PR
