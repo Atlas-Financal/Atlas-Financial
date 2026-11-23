@@ -16,13 +16,13 @@ function ok(cond, label, detail) {
 }
 // Cash 3000 observed on 2026-10-14 already reflects the 120 minimum debit
 // posted 2026-10-12. snap: an optional payday snapshot on 2026-10-09.
-function world({ snap = null, sent = {}, noSent = false, noIssuer = false } = {}) {
+function world({ snap = null, sent = {}, noSent = false, noIssuer = false, cashDate = '2026-10-14' } = {}) {
   const plan = {
     opening: Object.assign({ asOf: '2026-10-14',
       representedEvents: noIssuer ? [] : [{ id: 'card-min', date: '2026-10-25', effectiveAsOf: '2026-10-12' }] },
       snap != null ? { paydaySnapshot: { periodStart: '2026-10-09', asOf: '2026-10-09', opening: snap } } : {}),
     startingCash: { asOf: '2026-10-14', breakdown: [
-      { id: 'chequing-a', value: 3000, confidence: 'confirmed', evidenceDate: '2026-10-14' },
+      { id: 'chequing-a', value: 3000, confidence: 'confirmed', evidenceDate: cashDate },
       { id: 'chequing-b', value: 0, confidence: 'confirmed', evidenceDate: '2026-10-14' },
     ] },
     income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly', anchor: '2026-10-09', amount: 2000, confidence: 'confirmed' }],
@@ -68,6 +68,22 @@ console.log('\n=== 2. no relief without the proof (the incumbent withheld close 
     const n = world(o).next;
     ok(n.paydaySweep === null && n.plannedPeriodClose === null, label + ': close stays withheld, never relieved', n.paydaySweep);
   }
+}
+
+console.log('\n=== 2b. cutover walk seeded from a balance dated before the debit gets no relief ===');
+{
+  // #1589 review: the funding account balance is dated 2026-10-09, before the
+  // 2026-10-12 debit, so the walk seed never had it removed.
+  const stale = world({ cashDate: '2026-10-09' }).next;
+  const staleControl = world({ cashDate: '2026-10-09', noSent: true }).next;
+  ok(stale.openingSource === 'cutover-walk' && stale.paydaySweep != null, 'still a cutover-walk close with a sweep', { src: stale.openingSource, sweep: stale.paydaySweep });
+  ok(stale.paydaySweep === staleControl.paydaySweep, 'pre-debit seed: deducted like the unpaid control, no relief',
+    { sweep: stale.paydaySweep, control: staleControl.paydaySweep });
+  // Balance dated the day of inclusion holds the debit: relief applies.
+  const sameDay = world({ cashDate: '2026-10-12' }).next;
+  const sameDayControl = world({ cashDate: '2026-10-12', noSent: true }).next;
+  ok(sameDay.paydaySweep != null && Math.round((sameDay.paydaySweep - sameDayControl.paydaySweep) * 100) === 12000,
+    'balance dated on the inclusion date: relief of exactly 120', { sweep: sameDay.paydaySweep, control: sameDayControl.paydaySweep });
 }
 
 console.log('\n=== 3. carry-forward closes get no relief (known limit) ===');

@@ -15062,6 +15062,24 @@
       && row.additionalCashRequired === 0);
   }
 
+  // The cutover walk seeds from the household cash rows (startingCash). The
+  // sent minimum's debit is inside that seed only when its funding account's
+  // balance evidence is dated on or after the record's cashIncludedAsOf; an
+  // older balance never had it removed (#1589 review). The record is the
+  // same occurrence's sent payment the settlement decision already read.
+  function sentMinimumInWalkSeedCash(plan, row) {
+    if (!plan || !row) return false;
+    const obligation = (plan.obligations || []).find(o => o && o.id === row.id);
+    const records = ((obligation && obligation.sentPayments) || []).filter(r => r
+      && r.scheduledDate === row.scheduledDate && r.postedOn === row.cashSentOn && r.cashIncludedAsOf != null);
+    if (records.length !== 1) return false;
+    const record = records[0];
+    const accountId = record.fundingAccountId || row.payingAccount;
+    const cash = ((plan.startingCash && plan.startingCash.breakdown) || []).find(b => b && b.id === accountId);
+    return !!(cash && financialDate(cash.evidenceDate) && financialDate(record.cashIncludedAsOf)
+      && cash.evidenceDate >= record.cashIncludedAsOf);
+  }
+
   // The amount an assigned bill row deducts. A verified posted payment IS the occurrence's amount, above or below
   // the plan (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot's "bill verified" marker; lead ruling (A)): the
   // check then always stands beside what was paid. Otherwise unchanged: the plan, or a posted payment above it.
@@ -18372,6 +18390,7 @@
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource,
           row => projected && openingSource === 'cutover-walk' && minimumAlreadyInFutureCash(row)
+            && sentMinimumInWalkSeedCash(plan, row)
             ? 0 : deductedBillAmount(row));
       const paidBills = planUnavailable ? null : periodPaidBillDisclosure(bills);
       // Balance After Deductions is the household remaining:
