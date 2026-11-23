@@ -12762,16 +12762,20 @@
         needed: known ? parts.reduce((s, p) => s + p.needed, 0) / 100 : null,
         trust: known ? parts.reduce((t, p) => stackWeakerTrust(t, p.trust), balance.trust) : 'unavailable' } };
     }).sort((a, b) => a.first - b.first).map(entry => entry.item);
-    const complete = out.length > 0 && out.every(item => item.saved !== null);
-    if (!out.length) reasons.push('no-savings-items');
+    // When the last visible row leaves this period, its unpaid members still
+    // participate in the pour. The head shows the reported balance itself.
+    const allDue = coherent && !out.length && hidden.size > 0;
+    const complete = allDue ? left !== null : out.length > 0 && out.every(item => item.saved !== null);
+    if (!out.length && !allDue) reasons.push('no-savings-items');
     return {
       items: out,
       totals: {
         balance: coherent && balance.cents !== null ? balance.cents / 100 : null,
+        ...(allDue ? { balanceHeadTrust: balance.trust } : {}),
         saved: complete ? out.reduce((s, item) => s + savingsFigureCents(item.saved), 0) / 100 : null,
         needed: complete ? out.reduce((s, item) => s + savingsFigureCents(item.needed), 0) / 100 : null,
         unallocated: complete && left !== null ? left / 100 : null,
-        trust: complete ? out.reduce((t, item) => stackWeakerTrust(t, item.trust), balance.trust) : 'unavailable',
+        trust: complete ? running : 'unavailable',
         reasons,
       },
     };
