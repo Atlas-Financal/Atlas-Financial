@@ -736,11 +736,17 @@
   // cadence, the same way monthly uses only `day`. Missing or non-integer
   // month/day fails closed rather than inventing 1 January or the caller's
   // start. `firstDue` is a filter, not a rewrite of the calendar day.
+  // H2-12: a yearly month and day must name a real calendar day in some year. February 29 is real (it recurs on
+  // Feb 28 in common years, as today); April 31, February 30 or 31 and the like never exist, so they fail closed
+  // (no dates, and scheduledInputState reports the date unknown) rather than being moved to another day.
+  function yearlyMonthDayReal(month, day) {
+    const m = Number(month), d = Number(day);
+    return Number.isInteger(m) && m >= 1 && m <= 12 && Number.isInteger(d) && d >= 1 && d <= daysInMonth(2000, m);
+  }
   function yearlyDates(month, day, start, end, firstDue) {
     const m = Number(month);
     const requestedDay = Number(day);
-    if (!Number.isInteger(m) || m < 1 || m > 12) return [];
-    if (!Number.isInteger(requestedDay) || requestedDay < 1 || requestedDay > 31) return [];
+    if (!yearlyMonthDayReal(month, day)) return [];
     const out = [];
     let y = Number(String(start).slice(0, 4)) - 1;
     const endYear = Number(String(end).slice(0, 4));
@@ -3568,7 +3574,7 @@
         case 'monthly': dateKnown = dayOk(row.day); break;
         case 'quarterly': dateKnown = dayOk(row.day)
           && isoDay(row.anchor != null && row.anchor !== '' ? row.anchor : row.firstDue); break;
-        case 'yearly': dateKnown = dayOk(row.day) && dayOk(row.month) && Number(row.month) <= 12; break;
+        case 'yearly': dateKnown = dayOk(row.day) && dayOk(row.month) && yearlyMonthDayReal(row.month, row.day); break;
         case 'biweekly': dateKnown = isoDay(row.anchor); break;
         default: dateKnown = false;
       }
@@ -3592,6 +3598,8 @@
   // scenario monthly figure takes precedence over it.
   function planIncomeInvalidReason(stream, start, end, opts) {
     if (!PLAN_FREQUENCIES.has(stream.frequency)) return 'plan-frequency-invalid';
+    // H2-12: a yearly income stream on a day its month never has is unknown, not silently dropped.
+    if (stream.frequency === 'yearly' && !yearlyMonthDayReal(stream.month, stream.day)) return 'plan-date-invalid';
     const override = incomeOverrideState(opts || {}, stream.id);
     const monthly = stream.scenarioMonthly ? stream.scenarioMonthly[(opts && opts.scenario) || 'expected'] : null;
     const ownAmountUsed = !override.present && !override.invalid && monthly == null;
@@ -3678,6 +3686,13 @@
       if (!PLAN_FREQUENCIES.has(o.frequency)) {
         unknowns.push({ carrier: 'obligation', id: o.id || null, date: start,
           dateUnknown: true, reason: 'plan-frequency-invalid' });
+        continue;
+      }
+      // H2-12: a yearly obligation on a day its month never has (April 31) has no real date. It is unknown and
+      // withholds the plan, never dropped and never moved to another day.
+      if (o.frequency === 'yearly' && !yearlyMonthDayReal(o.month, o.day)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date: start,
+          dateUnknown: true, reason: 'plan-date-invalid' });
         continue;
       }
       for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
