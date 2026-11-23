@@ -98,4 +98,23 @@ const unmatched = run(world([...base, hold, real, unmatchedCredit]));
 ok(F.pendingHoldReleases(unmatched.packet).legs.size === 0, 'a credit of another amount consumes nothing');
 ok(unmatched.coverage.reservedCash === 78 && unmatched.coverage.status === 'ready',
   'so the hold still counts and is reserved beside it (38 + 40 = 78), as on base', JSON.stringify({ r: unmatched.coverage.reservedCash, s: unmatched.coverage.status }));
+console.log('5. End to end: the served assistant packet on the invented figures input is not fail-closed');
+{
+  // test/fixtures/figures-inputs/card-hold-release.json is this world (Live.fromObservation(...).data), so the figures
+  // review exercises the same path. On b1fbb6c5 (before this fix) all three read unavailable with the live incident's
+  // card-coverage reason.
+  const Assistant = require('../scripts/assistant-packet');
+  const input = require('./fixtures/figures-inputs/card-hold-release.json');
+  ok(input.invented === true && input.data.liveOverlay.applied === true
+    && F.pendingHoldReleases(input.data.liveOverlay.currentPeriodActuals).pairs.length === 1,
+    'the figures input is invented, live-shaped, and holds one consumed hold/release pair');
+  const packet = Assistant.buildPacket({ data: input.data, env: {}, now: '2026-09-20T18:00:00Z',
+    sourceCheck: { check: null, attemptedAt: '2026-09-20T18:00:00Z' } });
+  for (const [label, value] of [['spendable household cash', packet.current.spendableHouseholdCash],
+    ['the current-period action', packet.forecast.currentPeriodAction], ['the payday allocation', packet.forecast.paydayAllocation]]) {
+    ok(value && value.status === 'ok' && !/card-coverage/.test(String(value.reason || '')), label + ' is available, not withheld on card coverage',
+      JSON.stringify(value && { status: value.status, reason: value.reason }));
+  }
+}
+
 console.log(`pending hold and release across the plan: ${checks} checks passed`);
