@@ -6765,8 +6765,8 @@ function recurringBillAmount(item, bill, amounts) {
 }
 // The served amount is applied separately (applyRecurringAmount), after the live overlay's owner-policy guard, as
 // Lunch Money budget targets are: the guard checks the overlay against the canonical plan, not this derived input.
-// A link's cutover (#1583 review 7100673283): the item's amount applies only from the link's `linkedFrom`, as
-// its timing does (timingBefore). Before it, the plan's own amount stands, carried as one amountSchedule term
+// A link's cutover (#1583 reviews 7100673283, 7102068014): the item's amount applies only from the link's `linkedFrom`
+// (the schedule's amountFrom), as its timing does, whether or not the timing changed. Before it, the plan's own amount stands, carried as one amountSchedule term
 // that ends at the cutover (Forecast's dated-amount owner, billAmountScheduleSelect: `from` inclusive, `until`
 // exclusive, and a term needs both ends, so it starts at AMOUNT_BEFORE_CUTOVER_FROM, before any occurrence a
 // plan can expand). From the cutover on, the scalar amount is the item's, exactly as for a link without one.
@@ -6777,9 +6777,9 @@ function applyRecurringAmount(bill, schedule) {
   if (!bill || !schedule || schedule.billId !== bill.id) return bill;
   if (!(typeof schedule.amount === 'number' && Number.isFinite(schedule.amount) && schedule.amount > 0)) return bill;
   if (bill.amountSchedule !== undefined) return bill;
-  const before = schedule.timing && schedule.timing.timingBefore;
-  const cutover = before && typeof before.from === 'string' && realIsoDay(before.from)
-    && before.from > AMOUNT_BEFORE_CUTOVER_FROM ? before.from : null;
+  // The cutover is the link's validated linkedFrom (amountFrom), carried with the amount whether or not the timing changed.
+  const from = schedule.amountFrom;
+  const cutover = typeof from === 'string' && realIsoDay(from) && from > AMOUNT_BEFORE_CUTOVER_FROM ? from : null;
   if (cutover && bill.amount !== schedule.amount) {
     return { ...bill, amount: schedule.amount, amountSchedule: [{ from: AMOUNT_BEFORE_CUTOVER_FROM, until: cutover,
       amount: bill.amount }] };
@@ -6882,7 +6882,9 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     }
     const amount = recurringBillAmount(item, bill, opts && opts.amounts);
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
-      ...(amount.amount != null ? { amount: amount.amount } : { amountReason: amount.reason }) });
+      // The item's amount applies from the link's own validated linkedFrom, whether or not the timing changed (#1583 review
+      // 7102068014: a price-only change has no timingBefore).
+      ...(amount.amount != null ? { amount: amount.amount, amountFrom: linkedFrom } : { amountReason: amount.reason }) });
   }
   return done(out);
 }
