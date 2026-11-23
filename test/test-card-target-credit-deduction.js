@@ -70,24 +70,27 @@ const lineOf = (r, id) => r.lines.find(l => l.id === id);
   // Beyond-minimum netting. (1) Emerald, min 40, nothing spent, 15 paid beyond: due 40, overlap min(15, 0) = 0, deduction 40.
   const r1 = lines(fx.fixture(), new Map([['tdcc', 1500]]));
   ok(cents(lineOf(r1, 'tdcc').deduction.amount) === 4000, 'a payment beyond the target stays cash: Emerald deduction 40.00 beside its 15.00 term');
-  // (2) The over-limit amount and the period's charges are on one total basis (Neon 7113251603 item 2; desk, Plan #6).
-  // Travel's posted 100.00 payment (Aug 18) is already off its observed 927.40 balance, so the amount over a limit before it
-  // is the observed amount over plus 100.00. Over an 800.00 limit: observed 127.40, before the payment 227.40, still below
-  // the 236.00 of new charges, so the target is max(25, 236.00, 227.40) = 236.00, never 236.00 + 127.40 = 363.40.
+  // (2) The over-limit amount and the period's charges come from one balance (Neon 7113251603 item 2), so the target is the
+  // largest, never the sum. Travel over an 800.00 limit by 127.40 (observed) with 236.00 of new charges: max(25, 236.00,
+  // 127.40) = 236.00, never 363.40. Travel's posted 100.00 payment is not added back (desk, Plan #6, on review 7116017401):
+  // this world's card balance endpoints reconcile and match in value, but nothing ties them to the exact provider
+  // observation behind utilisation's posted balance, so equal values are not proof. The target is estimated.
   const over = fx.fixture(); over.debts.find(d => d.id === 'travelvisa').limit = 800;
   const t2 = lineOf(lines(over), 'travelvisa');
-  ok(cents(t2.target.amount) === 23600 && cents(t2.target.overLimitBy) === 12740 && t2.deduction.amount === 0,
-    'over the limit by less than the new charges: target 236.00 (the larger), not 363.40; deduction 0', JSON.stringify(t2.target));
-  // (3) Over a 527.40 limit: observed 400.00 over, 500.00 before the 100.00 payment, more than the charges: target
-  // max(25, 236.00, 500.00) = 500.00 (the 100.00 paid is part of it, not a reduction of it). Due 500.00 − 264.75 = 235.25;
-  // min 25; 100 paid beyond: overlap min(100.00, 210.25) = 100.00; deduction 135.25.
+  ok(cents(t2.target.amount) === 23600 && cents(t2.target.overLimitBy) === 12740 && t2.deduction.amount === 0
+    && t2.target.trust === 'estimated' && t2.target.reasons.includes('over-limit-payments-unproven'),
+    'over the limit by less than the new charges: target 236.00 (the larger), not 363.40; deduction 0; the payment not added back', JSON.stringify(t2.target));
+  // (3) Over a 527.40 limit by 400.00 (observed), more than the charges: target max(25, 236.00, 400.00) = 400.00, a lower
+  // bound, estimated (not 500.00 on the unproven payment). Due 400.00 − 264.75 = 135.25; min 25; 100 paid beyond: overlap
+  // min(100.00, 110.25) = 100.00; deduction 35.25 (85.25 beside 50.00).
   const x = fx.fixture(); x.debts.find(d => d.id === 'travelvisa').limit = 527.40;
   const t3 = lineOf(lines(x, new Map([['travelvisa', 10000]])), 'travelvisa');
-  ok(cents(t3.target.amount) === 50000 && cents(t3.target.overLimitBy) === 40000 && cents(t3.deduction.amount) === 13525,
-    'over the limit by more than the charges: target 500.00 on the total basis (observed 400.00 + the 100.00 posted payment); deduction 135.25 beside the 100.00 term',
+  ok(cents(t3.target.amount) === 40000 && cents(t3.target.overLimitBy) === 40000 && cents(t3.deduction.amount) === 3525
+    && t3.target.trust === 'estimated' && t3.deduction.trust === 'estimated' && t3.target.reasons.includes('over-limit-payments-unproven'),
+    'equal-value endpoints are not proof: target 400.00, estimated (not 500.00); deduction 35.25 beside the 100.00 term, estimated',
     JSON.stringify([t3.target, t3.deduction]));
   const t3b = lineOf(lines(x, new Map([['travelvisa', 5000]])), 'travelvisa');
-  ok(cents(t3b.deduction.amount) === 18525, 'with 50.00 beyond instead: 235.25 − min(50.00, 210.25) = 185.25');
+  ok(cents(t3b.deduction.amount) === 8525, 'with 50.00 beyond instead: 135.25 − min(50.00, 110.25) = 85.25');
 }
 {
   // A withheld target withholds the deduction and the total, never 0.

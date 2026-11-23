@@ -143,37 +143,48 @@ console.log('9. Every card, minimum due or not: $0 only with no minimum, no new 
   const withCharge = withLimit(fx.fixture(), 'tdcc', 1000); withCharge.packet.transactions.push(charge(50));
   const n = lineOf(withCharge, 'tdcc', noMin);
   ok(cents(n.spent.amount) === 5000 && cents(n.target.amount) === 10000, 'the same card with 50.00 of new charges: max(0, 50.00, 100.00) = 100.00, not 150.00', JSON.stringify(n.target));
-  // The desk's case (Plan #6, on Neon 7113251603 item 2): Emerald starts 50.00 over a 1050.00 limit... as published it is
-  // 1100.00 - 1050.00 = 50.00 over, with 100.00 of new charges and a posted 100.00 payment already off that balance. Before
-  // the payment it was 150.00 over, so the total to pay back is max(0, 100.00, 50.00 + 100.00) = 150.00 (100.00 paid, 50.00
-  // still to pay), never max(100.00, 50.00) = 100.00, which would read as nothing left.
-  const payment = (amount, pending = false) => ({ id: 'tdcc-pay' + (pending ? '-p' : ''), coverageRef: 'invented-tdcc-pay' + (pending ? '-p' : ''),
-    atlasAccountId: 'tdcc', account: 'tdcc', accountRole: 'revolving-credit', date: '2026-08-19', amount: -amount, currency: 'cad',
-    displayedPayee: 'PAYMENT - THANK YOU', kindHint: 'payment', pending, savingsPostingEvidence: pending ? 'pending' : 'posted' });
+  // Payments this period and the over-limit amount (desk, Plan #6, on review 7116017401): a payment is added back only
+  // where a qualified card closing endpoint is tied to the exact provider observation behind utilisation's posted
+  // balance. The live route carries no such link, so none is ever added back: the observed amount is a lower bound,
+  // estimated with over-limit-payments-unproven. Each case asserts the target and the Credit deduction together.
+  const payment = (amount, { pending = false, date = '2026-08-19' } = {}) => ({ id: 'tdcc-pay-' + date + (pending ? '-p' : ''),
+    coverageRef: 'invented-tdcc-pay-' + date + (pending ? '-p' : ''), atlasAccountId: 'tdcc', account: 'tdcc',
+    accountRole: 'revolving-credit', date, amount: -amount, currency: 'cad', displayedPayee: 'PAYMENT - THANK YOU',
+    kindHint: 'payment', pending, savingsPostingEvidence: pending ? 'pending' : 'posted' });
+  const lowerBound = (l, cents100, label) => ok(cents(l.target.amount) === cents100 && l.target.trust === 'estimated'
+    && l.target.reasons.includes('over-limit-payments-unproven') && cents(l.deduction.amount) === cents(l.target.amount) - cents(l.deduction.alreadyCounted || 0)
+    && l.deduction.trust === 'estimated', label, JSON.stringify([l.target, l.deduction]));
+  // The desk's case: published 1100.00 against a 1050.00 limit = 50.00 over, 100.00 charged, a posted 100.00 payment with no
+  // endpoint tied to that balance (Neon REPORT 5 repro A: an unreconciled posted payment). Target max(0, 100.00, 50.00) =
+  // 100.00, a lower bound, estimated; never 150.00 on an unproven add-back, never calculated.
   const desk = withLimit(fx.fixture(), 'tdcc', 1050); desk.packet.transactions.push(charge(100), payment(100));
   const d = lineOf(desk, 'tdcc', noMin);
-  ok(cents(d.spent.amount) === 10000 && cents(d.target.overLimitBy) === 5000 && cents(d.target.amount) === 15000,
-    'the desk\'s case: 50.00 over after a posted 100.00 payment, 100.00 charged: total 150.00 (50.00 still to pay), not 100.00',
-    JSON.stringify(d.target));
-  // Neon REPORT 6 (#1607 7113958210) section 4 case 7: the target holds as a mid-period payment posts. (h1) Started 50.00
-  // over, 100.00 charged, then 50.00 paid: published 1100.00 over a 1000.00 limit = 100.00 over; before the payment 150.00;
-  // target max(0, 100.00, 150.00) = 150.00 (not 100.00). (h2) Started 50.00 over, nothing charged, then 50.00 paid: published
-  // 1100.00 at a 1100.00 limit = 0 over; before the payment 50.00; target 50.00 (not 0).
+  ok(cents(d.target.overLimitBy) === 5000, 'the desk\'s case: the published over-limit amount is the observed 50.00', JSON.stringify(d.target));
+  lowerBound(d, 10000, 'the desk\'s case (Neon repro A, unreconciled payment): 100.00, estimated lower bound, not 150.00; deduction with it');
+  // Neon REPORT 5 repro B: a payment dated after the balance observation is never added back either.
+  const late = withLimit(fx.fixture(), 'tdcc', 1050); late.packet.transactions.push(charge(100), payment(100, { date: '2026-08-20' }));
+  lowerBound(lineOf(late, 'tdcc', noMin), 10000, 'a payment dated after the balance (Neon repro B): 100.00, estimated, not added back');
+  // A same-day payment whose ordering against the balance is unknown: not added back.
+  const same = withLimit(fx.fixture(), 'tdcc', 1050); same.packet.transactions.push(charge(100), payment(100, { date: fx.fixture().asOf }));
+  lowerBound(lineOf(same, 'tdcc', noMin), 10000, 'a same-day payment, ordering unknown: 100.00, estimated, not added back');
+  // Mid-period payment (Neon REPORT 6 case 7) under the ruling: (h1) 100.00 over after paying 50.00, 100.00 charged: 100.00
+  // estimated; (h2) at the limit after paying 50.00, nothing charged: 0, estimated (a payment could have hidden an overage).
   const h1 = withLimit(fx.fixture(), 'tdcc', 1000); h1.packet.transactions.push(charge(100), payment(50));
-  const h1l = lineOf(h1, 'tdcc', noMin);
-  ok(cents(h1l.target.amount) === 15000 && cents(h1l.target.overLimitBy) === 10000,
-    'mid-period payment (h1): 100.00 over after paying 50.00, 100.00 charged: the target holds at 150.00', JSON.stringify(h1l.target));
+  lowerBound(lineOf(h1, 'tdcc', noMin), 10000, 'mid-period payment (h1): 100.00, estimated lower bound');
   const h2 = withLimit(fx.fixture(), 'tdcc', 1100); h2.packet.transactions.push(payment(50));
   const h2l = lineOf(h2, 'tdcc', noMin);
-  ok(cents(h2l.target.amount) === 5000 && h2l.target.overLimitBy === 0,
-    'mid-period payment (h2): at the limit after paying 50.00, nothing charged: the target holds at 50.00', JSON.stringify(h2l.target));
-  // Controls. No payment: 50.00 over and 100.00 charged, the charges are the larger: 100.00.
+  ok(h2l.target.amount === 0 && h2l.target.trust === 'estimated' && h2l.target.reasons.includes('over-limit-payments-unproven'),
+    'mid-period payment (h2): 0, estimated (the payment could have hidden an overage)', JSON.stringify(h2l.target));
+  // Controls. No payment: 100.00, calculated (nothing to prove). A pending payment: never added back.
   const nopay = withLimit(fx.fixture(), 'tdcc', 1050); nopay.packet.transactions.push(charge(100));
-  ok(cents(lineOf(nopay, 'tdcc', noMin).target.amount) === 10000, 'the same card with no payment: max(0, 100.00, 50.00) = 100.00');
-  // A pending payment is not proven to be in the balance: nothing is added back.
-  const pend = withLimit(fx.fixture(), 'tdcc', 1050); pend.packet.transactions.push(charge(100), payment(100, true));
-  const pl = lineOf(pend, 'tdcc', noMin);
-  ok(cents(pl.target.amount) === 10000, 'a pending 100.00 payment is never added back: max(0, 100.00, 50.00) = 100.00', JSON.stringify(pl.target));
+  const np = lineOf(nopay, 'tdcc', noMin);
+  ok(cents(np.target.amount) === 10000 && !np.target.reasons.includes('over-limit-payments-unproven'),
+    'no payment: max(0, 100.00, 50.00) = 100.00, with no payments reason', JSON.stringify(np.target));
+  const pend = withLimit(fx.fixture(), 'tdcc', 1050); pend.packet.transactions.push(charge(100), payment(100, { pending: true }));
+  ok(cents(lineOf(pend, 'tdcc', noMin).target.amount) === 10000, 'a pending 100.00 payment is never added back: 100.00');
+  // A payment far under the limit cannot have hidden an overage: no reason added (Cash Back, used + paid under its limit).
+  const cb = lineOf(fx.fixture(), 'cashback', noMin);
+  ok(!cb.target.reasons.includes('over-limit-payments-unproven'), 'a card far under its limit after its payment: no payments reason', JSON.stringify(cb.target));
   // Amazon Mastercard: a manual card (Spent withheld), no minimum this period, over its limit, and its balance a stale
   // estimate (dated before its statement cycle). By hand: 760.00 - 700.00 = 60.00 over; target 60.00, estimated.
   const stale = withLimit(fx.fixture(), 'mbna', 700);

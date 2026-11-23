@@ -539,11 +539,12 @@
     };
     // The card's repayment target for the period (Dale, 2026-11-23, OD-028: "if I don't want to go over limit ... this needs to
     // be tacked on, or if there's a fee, that fee needs to be tacked on to what I need to repay onto that card"):
-    //   target = max(statement minimum, the period's new charges) + the amount that brings an over-limit card under its limit.
+    //   target = max(statement minimum, the period's new charges, the amount that brings an over-limit card under its limit),
+    // counted once (desk ruling on Neon 7113251603, Plan #6): the three come from one balance, never summed.
     // New charges are the card's published Spent (pending counted, a replaced pending once; fees and interest are charges).
-    // The over-limit amount is Forecast.utilisation's overLimitBy for the card, a figure as of today, so it is added in the
-    // current period only. Where Spent is withheld the target is the minimum plus over-limit, a lower bound tagged
-    // estimated with its reason; an unknown over-limit is the same. A withheld minimum withholds the target. Never a
+    // The over-limit amount is Forecast.utilisation's overLimitBy for the card, a figure as of today, so it counts in the
+    // current period only (overLimitOf). Where Spent is withheld the target is the larger of the minimum and the over-limit
+    // amount, a lower bound tagged estimated with its reason; an unknown over-limit is the same. A withheld minimum withholds the target. Never a
     // confident wrong number. The HELOC keeps its own rule: its target is its minimum.
     const utilRows = Array.isArray(utilisation) ? utilisation : null;
     const overLimitOf = (id, card) => {
@@ -555,26 +556,22 @@
       const by = cents(rows[0].overLimitBy);
       if (by === null) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unknown'] };
       const stale = rows[0].balanceTrust === 'estimated';
-      const out = { cents: Math.max(0, by), observedCents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated',
+      const out = { cents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated',
         reasons: stale ? ['over-limit-balance-estimated'] : [] };
-      // The same total basis as the period's charges (desk, Plan #6, on Neon 7113251603 item 2): the observed balance already
-      // has this period's posted payments taken off, so the amount over the limit before them is the observed balance plus
-      // those payments, less the limit. Only payments proven to be in that balance are added back: the card's posted-only
-      // paid, which Forecast publishes only when the card's posted rows reconcile to its balance endpoints. Unproven, none
-      // is added and the target is tagged estimated with its reason; a pending payment is never added.
+      // This period's posted payments are already off the observed balance, so the observed amount over the limit can be
+      // smaller than the amount the period's charges and payments are on (desk, Plan #6, on Neon 7113251603 item 2 and
+      // review 7116017401). A payment counts back only where a qualified closing endpoint is tied to the exact provider
+      // observation behind utilisation's posted balance; the live route carries no such link (no card balance evidence
+      // reaches it), so no payment is ever added back. Where a payment this period could have hidden an overage (the card
+      // is over its limit, or its used balance plus its posted payments would be, or its posted payments are unknown), the
+      // observed amount stands as a lower bound, estimated with over-limit-payments-unproven. The test only lowers trust; it
+      // never raises a figure.
       const paid = card && card.paidPosted;
       const paidCents = paid && paid.amount !== null && paid.amount !== undefined ? cents(paid.amount) : null;
-      if (paidCents === null) {
-        if (card && card.id !== 'heloc') { out.trust = 'estimated'; out.reasons.push('over-limit-payments-unproven'); }
-        return out;
-      }
-      if (paidCents > 0) {
-        // Forecast.utilisation's own used balance and limit (the figures its overLimitBy is read from).
-        const used = cents(rows[0].used), limit = cents(rows[0].limit);
-        const signed = by > 0 ? by : used !== null && limit !== null ? used - limit : null;
-        if (signed === null) { out.trust = 'estimated'; out.reasons.push('over-limit-payments-unplaced'); return out; }
-        out.cents = Math.max(0, signed + paidCents);
-      }
+      const used = cents(rows[0].used), limit = cents(rows[0].limit);
+      const couldHide = paidCents === null ? true
+        : paidCents > 0 && (by > 0 || used === null || limit === null || used + paidCents > limit);
+      if (card && card.id !== 'heloc' && couldHide) { out.trust = 'estimated'; out.reasons.push('over-limit-payments-unproven'); }
       return out;
     };
     const targetOf = (card, minimum) => {
@@ -592,19 +589,17 @@
       const reasons = over.reasons.slice();
       if (charges === null) reasons.push('new-charges-unavailable');
       // What must be repaid this period, counted once (Neon 7113251603 item 2; desk ruling, Plan #6): the minimum, the
-      // period's new charges and the amount over the limit (before this period's proven posted payments, overLimitOf) are
-      // on one total basis, so the target is the largest of them, never their sum. Repaying a charge that pushed the card
-      // over its limit is the same dollar as bringing it back under; an over-limit amount older than this period's charges
-      // is the larger term and stands; a payment already in the balance is part of the total, not a reduction of it.
+      // period's new charges and the amount over the limit come from one balance, so the target is the largest of them,
+      // never their sum. Repaying a charge that pushed the card over its limit is the same dollar as bringing it back
+      // under; an over-limit amount older than this period's charges is the larger term and stands. The over-limit amount
+      // is the observed one (overLimitOf): where a payment this period may have reduced it, the target is a lower bound,
+      // estimated, never raised by a payment the balance is not proven to include.
       const amount = Math.max(minCents, charges === null ? 0 : charges, over.cents);
       return { amount: amount / 100,
         trust: weakest(minTrust, charges === null ? 'estimated' : card.spent.trust, over.trust),
         reasons: [...new Set(reasons)],
         newCharges: charges === null ? null : charges / 100, minimum: minCents / 100,
-        // overLimitBy stays the observed amount over the limit (Forecast.utilisation's own figure); the target compares the
-        // amount before this period's proven posted payments.
-        overLimitBy: over.reasons.includes('over-limit-unknown') || over.reasons.includes('over-limit-unavailable') ? null
-          : (over.observedCents === undefined ? over.cents : over.observedCents) / 100 };
+        overLimitBy: over.reasons.includes('over-limit-unknown') || over.reasons.includes('over-limit-unavailable') ? null : over.cents / 100 };
     };
     // The Credit deduction (desk ruling (E), #1573, Plan #6): "The Credit deduction is their sum minus the qualifying charges
     // already counted above, each deducted from that sum only once." Per card:
