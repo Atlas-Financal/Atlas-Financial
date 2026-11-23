@@ -17916,7 +17916,10 @@
             // A capitalising row's interest never leaves cash, but its
             // cash minimum does: an unknown cash leg withholds the load
             // like any unknown amount, never a silent known zero.
-            if (o && o.jointCash === false && !o.cardPaid) return false;
+            // An unknown obligation amount withholds exactly when its known
+            // amount would load: expandEvents deducts every obligation event
+            // from joint cash (a jointCash flag is a bill contract only), so
+            // a jointCash:false row's unknown is not dropped here.
             if (o && !u.cashMinimum && (o.nonCash || o.effect === 'capitalise')) return false;
             return true;
           }

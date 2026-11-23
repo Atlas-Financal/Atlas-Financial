@@ -36,6 +36,9 @@ for (const role of ['next', 'future'])
   ok(unknown(role).periodBillLoad === zero(role).periodBillLoad && unknown(role).balanceAfterDeductions === zero(role).balanceAfterDeductions,
     role + ': a period without the unknown leg is unchanged');
 const offJoint = run(null, { jointCash: false });
-ok(offJoint('current').periodBillLoad === 0, 'a non-joint-cash row stays out of the joint load');
+// Obligations always leave joint cash (a known jointCash:false leg loads), so its
+// unknown withholds too (test-obligation-unknown-joint-cash-withholds.js).
+ok(offJoint('current').periodBillLoad === null && run(40, { jointCash: false })('current').periodBillLoad === 40,
+  'a jointCash:false row: known leg loads, unknown leg withholds (never a ready period without it)');
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
