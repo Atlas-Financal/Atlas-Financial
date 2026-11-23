@@ -178,8 +178,8 @@ console.log('\n=== 3d. a timing cutover: each date is judged by the term that pr
   }
   // (ii) An impossible prior term withholds only while it applies, and the real successor recovers.
   const recovery = [
-    // the cutover (2026-11-01) is before the impossible term's first window date: only the real Nov 25 successor is in force
-    ['impossible prior Nov 31 until 2026-11-01, real own Nov 25: recovered', cut([11, 25], [11, 31], '2026-11-01'),
+    // the cutover (2026-11-03) is before the impossible term's first window date: only the real Nov 25 successor is in force
+    ['impossible prior Nov 31 until 2026-11-03, real own Nov 25: recovered', cut([11, 25], [11, 31], '2026-11-03'),
       ['2026-11-25', '2027-11-25', '2028-11-25'], null],
     // the impossible prior term applies to 2026-11-30 only; the real Apr 30 successor follows from 2027
     ['impossible prior Nov 31 until 2027-01-01, real own Apr 30: withheld at the prior date only', cut([4, 30], [11, 31], '2027-01-01'),
