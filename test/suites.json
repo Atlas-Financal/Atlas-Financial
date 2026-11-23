@@ -759,5 +759,6 @@
   ["An early payment that settles its occurrence in full (a covering actual or a verified posted payment below plan) stays PAID in its planned period; pending, unlinked, shared, unverified and partial payments stay owed, and a sent minimum keeps its planned publication (H2-4, as Grok agreed)","test-early-payment-settles-occurrence.js"],
   ["Bills-only period balance keeps a scheduled fee allowance's unspent part after a fee posts, matching the period view (H2-8b)","test-bills-balance-fee-allowance.js"],
   ["A card statement due date moved later keeps its own statement: the known close day is used, and a 7-day minimum gap only picks which month's close applies (H2-3, as Grok agreed)","test-statement-close-grace.js"],
-  ["A fixed-interest card snapshot whose rate differs from its debt's recorded rate is named (data check; never recomputes an amount or moves a figure)","test-fixed-interest-snapshot-rate.js"]
+  ["A fixed-interest card snapshot whose rate differs from its debt's recorded rate is named (data check; never recomputes an amount or moves a figure)","test-fixed-interest-snapshot-rate.js"],
+  ["A once card minimum moved by its statement and already represented is not replayed in the cash walk (Gemini hunt 4, finding 2)","test-once-minimum-moved-represented.js"]
 ]
