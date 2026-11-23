@@ -93,6 +93,25 @@ to be visible, merchant strings needing normalising before matching).
 
 ---
 
+## Atlas v2 — path to complete
+
+**Finish line (owner, 2026-11-23, OD-032):** every figure on the Budget page is
+either correct or honestly marked unknown, stays so when a bank sync lags, and
+Dale has walked it once against the bank. Everything else in this file is
+after v2. Progress is reported as steps remaining on this path; a merged slice
+is not a finished step until its live check is done. The live list of PRs and
+heads is the Merge line on #821; this section names steps, not heads.
+
+| # | Step | Owner | Next action |
+|---|---|---|---|
+| 1 | Land the in-flight PRs: card repayment target (#1573, Dale's figures look), Fortis link (#1583, desk redesign), yearly dates (#1597, final design pass), HELOC end date (#1602), outside-account unknown (#1603), default-view null leftover | Lead (routing); DISPLAY, GUARDS, ENGINE (builds) | Per the Merge line |
+| 2 | Same-day cash freshness: a lagging account, stale savings dating or a loan dated by `updated_at` must withhold, not double-count (Gemini hunt 5 findings 1, 3, 5; #821 7103458019) | ENGINE | Open the PR |
+| 3 | Pre-cutover dates of a linked bill keep the plan's own confidence, never `confirmed` (hunt 5 finding 11) | GUARDS, after #1597 | Build from fresh main |
+| 4 | Remaining Gemini hunt 4 fail-open findings **whose triggering input shape is in the household plan or live feed today** (owner, 2026-11-23, #821 7105210397): the card-overlap guard's ended-recurring half. Every other still-present hunt 4 finding (Neon REPORT 1, #1607) is straight after v2, in that report's order, and moves back in front if the household gains its shape | ChatGPT | Build item 2 |
+| 5 | Confirm the open card-payment destination in Lunch Money, so the plan's withheld parts return | Dale with Grok | Dale confirms Grok's prepared edit |
+| 6 | Dale walks the live Budget page against the bank once (rule 15); each mismatch becomes a fix | Dale; lead | After steps 1–5 land |
+| 7 | Fixes from that walk land and are re-checked on the live page | Lead | After step 6 |
+
 ## 🔴 The two that undercut everything else
 
 **B70 · The HELOC limit is a planning boundary: $0 headroom means $0 additional borrowing** · **DONE / RESOLVED 2026-08-18** · *owner planning invariant; engine already held it*
@@ -221,6 +240,15 @@ considered.
 
 ## Blocked on the household
 
+**B106 · Disney+ has no payment identity** · *small*
+`disney-plus` (owner 2026-11-23: still paid) is a plan bill with no
+transaction-identity rule. Its payee is shared with other subscriptions, so it
+is not identity, and Lunch Money has no recurring item for it. Until one of
+these lands, a past-due occurrence reads unverified, never paid: Grok Bot and
+Dale create a Lunch Money recurring item for it (a Dale-confirmed ledger edit,
+rule 17) and it is named in `docs/connectivity/transaction-identity.json`, or
+Dale grants standing schedule-trust on its due date, as for Spotify.
+
 **B70 · Agree a standing transfer from Amanda's account** · **CLOSED 2026-08-22** · *small, high value*
 Owner-confirmed 2026-08-22: the two fixed Tennis BC salaries land in
 household accounts and are already Forecast household income. Coaching
@@ -318,6 +346,90 @@ Inferred personal from its transactions, not verified.
 ---
 
 ## Ready — analysis, nothing blocking
+
+<a id="gemini-hunt-4-dates-schedules"></a>
+
+**Gemini hunt 4 (dates and schedules): 15 findings, none overstating a household figure today** · **ADDED TO BACKLOG — OPEN** · *lead triage on #821 (7101135186), main `006b2c3b`; read-only hunt, invented repros only*
+
+The lead re-ran the repros for 2, 6 and 1, and checked (by ids only) which input shapes the household's committed plan carries, so each row says whether it can reach a published household figure today. Only finding 11 matches the household's current shape (ended monthly card-minimum rows with `lastDue` before today), and it errs toward caution. Two findings could fail open: 1 (the period view's bill load may read 0) and 11's once-moved half. Neither shape is in the household plan today: the lead checked, ids only, that there's no capitalising obligation with an amountSchedule and no once obligation with statementOccurrences. So no household figure is overstated today, but both stay open.
+
+| # | Finding (short) | Lead check | Household shape present? | Direction |
+|---|---|---|---|---|
+| 2 | A once card minimum moved by a statement is replayed after it is represented (`carriedOnceJointCashOutflow` compares the unmoved date) | Reproduced | No | Double deduction (cautious) |
+| 6 | The capitalising cash-minimum leg ignores `lastDue` | Reproduced: cash minimums continue after the end | No | Overstates outflow (cautious) |
+| 1 | A capitalising cash minimum with an unknown `amountSchedule` cashPayment | Partly: `scheduledAmountState` already reads unavailable, but the period bill load shows 0 | No | Needs triage: a possible fail-open on the period view |
+| 11 | The card overlap guard ignores `lastDue` and statement-moved once dates | Code read | **Yes** (ended card rows) | Withholds (cautious); the once-moved half could fail open |
+| 3, 4, 5 | Impossible dates or typos outside yearly bills (income and obligations, `timingBefore.from`, `lastDue`, inner `timingBefore` fields) are not validated | Not re-run | No | Varies |
+| 7, 8, 12, 14 | Readers that see only the outer schedule (`budgetBreakdown`, pay-period helpers, income sections, the yearly card-paid test) | Not re-run | No | Varies |
+| 9, 10 | Raw ISO instants compared after a `financialDate` guard | Not re-run | No | Trust badge or crash |
+| 13 | A `cashFirstDue` earlier than `firstDue` with an `amountSchedule` drops every cash minimum | Not re-run | No | Withholds |
+| 15 | The mortgage "to confirm" note is keyed on the unmoved date | Not re-run | Display only | None numeric |
+
+Order of work:
+1. Finding 2.
+2. Finding 1: first verify whether the period view fails open.
+3. Findings 6 and 11.
+4. The validation group, 3, 4 and 5. Fold it into #1597's yearly-bills NEXT PR where it is the same class; #1597 already fixes the yearly income and obligation part.
+5. The rest.
+
+No build is started until the open PRs land (Dale's ask). Each fix is its own PR with invented repros, and the household-shape column says which ones can move a household figure.
+
+<a id="recurring-timing-cutover-lastdue"></a>
+
+**The Lunch Money timing cutover check builds its rows without `lastDue`** · **ADDED TO BACKLOG — OPEN** · *same class as hunt 4 finding 6, found while building #1602; lead agreed ADDED TO BACKLOG*
+
+`scripts/provider-observe.js` `recurringObligationSchedule` builds `oldRow` and `newRow` (monthly, day, firstDue) for its cutover-safety comparison without the plan row's `lastDue`. An ended Lunch Money item is refused, but a plan row that has its own `lastDue` is not, so the "next occurrence" it compares can fall after the row has ended. This is ledger-side timing review (rule 17): it publishes no figure and only decides whether a proposed day change is safe. The next action is to ask Grok Bot whether an ended plan row should be refused (like an ended item) or bounded, then build as agreed.
+
+<a id="savings-required-rule-copies"></a>
+
+**"Savings is a required cash balance" is still written out in several places** · **ADDED TO BACKLOG — OPEN** · *found while building #1606; pre-existing on main*
+
+#1606 adds `savingsCashRequired(plan, asOf)` in `scripts/provider-observe.js` and uses it in the live freshness gates and the household date. Older copies of the same test (`savingsEarmarksState(...).status === 'setup-unknown'`, some judged at `'9999-12-31'`) remain in `scripts/live-plan.js` (savings pool observation, canonical and served savings, the evidence-day check) and in `scripts/provider-observe.js` (pool requirement and receipt). The next action is to derive each from `savingsCashRequired`, or to record why its reference date differs, with a test per site.
+
+<a id="active-prepaid-bill-close"></a>
+
+**A bill paid before the active period's payday opening is deducted again from that close** · **ADDED TO BACKLOG — OPEN** · *H2-7, Gemini hunt 2 (#821 7091517953); retired by desk ruling and lead, #1594 closed without merging (7098398666)*
+
+Known cautious limit: a bill paid in the previous period is already out of the payday opening, yet the active period's close still deducts it. Gemini's invented case closes at 3800 against 3900, so the close understates by up to the bill and never overstates. The cause is that `prepaidBillSettledBy` is set only for future periods, so an active row falls back to its scheduled date in `paidBillAlreadyInPaydayOpening`.
+
+Design for a later attempt, from the reviews on #1594:
+- `paidBillAlreadyInPaydayOpening` stays the one decision. An active row gets its posting date only when every check below holds:
+  - the walk's own settled set holds the row;
+  - it passes the future gate's `coversOccurrence || verifiedSettles`;
+  - it is not a scheduled fee allowance;
+  - the tie is the provider's own match (`occurrenceLink: 'provider-matched'`, #1587's label, reused unchanged);
+  - the tie is to exactly one natively posted (`pending: false`, `savingsPostingEvidence: 'posted'`), positive Bills-account debit, dated before the payday opening.
+- PAID status and the assigned bill load do not change.
+
+Proof required (the desk's acceptance): from raw invented Lunch Money rows through observer, overlay and Forecast, show that
+- the native match waives exactly one active-close deduction;
+- the waiver carries through to the next opening and the s1 seed;
+- an otherwise identical early-date inference, and a removed link, get no relief.
+
+The two gaps that retired #1594 are the next item, and a raw world in which Atlas's rule path produces an inferred tie for a Bills-paid bill.
+
+The s1 variant (Gemini's H2-7 note a) shares this root and gate. Under the s1 seed (`s1CurrentBillsStockCents`, Bills stock as of the as-of date), a bill posted inside the active period before as-of but due after it is deducted again. That can push the seed below 0 and leave the next opening and the Savings closing null. The same gate applies with the posting date compared to the as-of date instead of the payday opening, and the proof bar is the same.
+
+<a id="null-sweep-prior-period-debit"></a>
+
+**The payday sweep and next opening go null when a prior-period debit for a bill exists** · **ADDED TO BACKLOG — OPEN, investigate** · *found while proving H2-7 (#1594 7098398666)*
+
+In an invented raw world (Bills bill of 100 due 10-28, payday 10-23 with a snapshot opening, as-of 10-23), main publishes a calculated active close (3300). Yet its `paydaySweep` is null, so the next period's opening is unknown. This happens whenever a debit for that bill posted in the prior period (10-20) exists, whether or not the ledger ties it to the occurrence. Without that debit, the sweep and the next opening are known (2900). Traced (read-only): the active close is known, but the non-s1 Bills/Weekly split check withholds the carry. It requires the payday opening to equal the sum of the `plan.startingCash.breakdown` rows. Those rows carry the dated opening's earlier evidence date, so any Bills flow between that date and the payday makes the two disagree, and with a non-zero Weekly row `previousEnding` goes null. The tie is irrelevant. The result is cautious: it withholds and never overstates. Whether the live household path (s1 or non-s1) is affected needs a private-route check of the next period's `openingSource` and `openingChainLost`.
+
+Desk ruling (Plan #6): keep today's guard. A later fix is a design, not a build: "Require complete posted flow coverage per account, count each flow once, and reconcile to the same opening date and cash basis. Totals that happen to match are not proof of the account split. Keep #1594 closed and s1 unchanged." Comparing only same-dated rows was rejected: it would also withhold today's correct no-flow carry.
+
+<a id="satisfied-minimum-future-close"></a>
+
+**A satisfied card minimum already in cash is deducted again from a future cash close** · **ADDED TO BACKLOG — OPEN** · *H2-5, Gemini hunt 2 (#821 7091517953); desk ruling (Plan #6) adopted (2), and #1589 was closed without merging (7096030824)*
+
+Known cautious limit: a future card minimum keeps its Planned row with money sent shown separately. When Forecast's settlement decision proves the issuer satisfied that exact statement occurrence and the sent debit is already in the household cash, the future period's cash close (`paydaySweep` / `plannedPeriodClose`) still deducts the minimum. The close can therefore understate cash by up to one minimum, never overstate it. #1589 tried a relief and drew three blockers in a row: a carry-forward from a payday snapshot taken before the debit; a cutover walk seeded by a balance dated before the debit; and a split send, where the seed check read only one of several contributing debits.
+
+Design conditions from the ruling, for any later attempt:
+- Use the settlement decision's full set of contributing debits, never a record re-derived from the first send.
+- Prove that each of them is included in the funding-account balance that seeds that close. If any one cannot be proven, there is no relief.
+- Keep the Planned row, the planned bill load and Balance After Deductions unchanged; only the cash close may move.
+
+Proof would be invented split-send, pre-debit-seed and carry-forward controls that get no relief, beside one fully proven case whose close moves by exactly one minimum.
 
 <a id="linked-posted-bill-payment"></a>
 
@@ -723,6 +835,18 @@ so none of this is time-sensitive.
 
 ## Queued behind the above
 
+**B107 · A confirmed part payment against a card minimum** · *medium; rule 17, Grok Bot first*
+Forecast cannot take a confirmed payment that is smaller than a statement
+minimum off that minimum: a `sentPayments` record that does not satisfy the
+minimum makes `cardMinimumState` unavailable for every card (the weekly figure
+and the card waterfall step are withheld). Nor can it accept a payment from a
+named account outside the household's paying account. Found on the MBNA
+November minimum (owner 2026-11-23), recorded instead as the issuer's own
+minimum still owing. Outcome: a confirmed part payment, including from a named
+non-household account, reduces that one minimum to what is still owed, and the
+other cards stay available. Payment confirmation is ledger-side: Grok Bot's
+answer comes before any build.
+
 **B15 · Rebuild the income picture** *(on B63)* · *medium*
 Owner-stated 2026-08-29: do not add a coaching income line. Forecast uses
 salaries (Seaspan, Tennis BC) and the child benefit. Coaching leftover is
@@ -816,7 +940,7 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Closure:** a ledger-side ruling on whether a fixed recurring transfer should match only its own dated transfer instead of the cycle. Any change is built only as Grok Bot agrees, and a Lunch Money recurring item for the payment (the bill-linking work, #1495) may settle it.
 - Source: ATLAS REVIEWER non-blocking observation 2 on #1498 (comment 7053318897); builder disposition ADDED TO BACKLOG, ledger-side (comment 7053592949, item 4).
 
-**Flag a stale fixed-interest snapshot when a card's recorded purchase rate changes** · QUEUED (ATLAS LEAD 11, 2026-11-20): from the fixed-interest minimum PR (#1498). Light lane, unless it reaches a published trust word.
+**Flag a stale fixed-interest snapshot when a card's recorded purchase rate changes** · **FIXED** by `test/test-fixed-interest-snapshot-rate.js` (data check). Originally QUEUED (ATLAS LEAD 11, 2026-11-20) from the fixed-interest minimum PR (#1498). Light lane, unless it reaches a published trust word.
 - **Why:** a card row with a fixed-interest rule holds its own balance, rate and date in a snapshot, by design: a refresh never moves the planned amount, and a rate change is applied by re-authoring the snapshot. The card's rate also lives on its debt record, so the two can disagree and nothing flags it.
 - **Closure:** a data check (for example in the plan validator) that names the row when the debt's rate and the snapshot's rate differ, never silently recomputes the amount, and never moves a figure. Proof: a config test that the two match today, and a case that names the row when they do not.
 - Source: ATLAS REVIEWER non-blocking observation 3 on #1498 (comment 7053318897); builder disposition ADDED TO BACKLOG (comment 7053592949, item 5).
@@ -876,6 +1000,11 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Next action:** fix the test or retire it; if it is kept, register it.
 - **Resolution:** kept, because no registered suite proves in a real browser that a failed refresh leaves the header inert and hidden until a successful Retry. Its Cancel step now uses the keyboard (Tab to Cancel, then Enter), the only way a household can reach Cancel while loading: by design it takes no pointer input until focused. It is registered as `test/test-browser-observation-memory.js` (renamed, because the `browser-` prefix marks unregistered suites), and it skips where Playwright is absent.
 - Source: GUARDS, found while building #1561; the lead added it to the backlog.
+
+**A represented occurrence with an unknown planned amount should price from its posting** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-23, from the #1576 re-review 7091766542). Full lane (figures). Owner: unassigned.
+- **Why:** when an obligation occurrence is already represented (its payment is in the opening or a reconciled posting) but its planned amount is unknown, the current pay period's bill load cannot price it, so the native Budget period basis, and the Savings answer that depends on it, are withheld. This fails closed and predates dated schedules: on main, a regular `amount: null` row whose occurrence is in `opening.representedEvents` is also unavailable (through a different incumbent gate). With a dated `amountSchedule` (#1576), the same case now withholds through the period-basis gate, consistent with the unscheduled behaviour.
+- **Next action:** design how a represented occurrence's posted amount supplies the bill load when the planned amount is unknown, through the existing settlement path. Keep the planned/actual distinction, and never invent a planned amount.
+- Source: the reviewer of record on #1576; dispositioned by the lead.
 
 **Replay retention requires `qualified=true`, so on days Lunch Money hasn't synced every open runs the full provider job** · READY (ATLAS LEAD 12, 2026-11-23): the mechanism question behind OD-031. Owner: the lead.
 - **Why:** replay retention requires `qualified=true`, and an unqualified dated result clears retained evidence (`scripts/server-live-refresh.js` `publishResult`, around lines 640–680; `scripts/live-plan.js` `applyForServer`, around line 1953). `stale-live-cash-evidence` is day-based (`assertFreshLivePacket`, around line 308). On a day Lunch Money hasn't synced yet, nothing qualifies, so each open runs the full provider job.

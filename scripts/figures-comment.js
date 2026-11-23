@@ -107,6 +107,7 @@ const FIELD_CLASSES = Object.freeze([
   ['budget-period-income-amanda-trust', 'Trust', 'period.*.incomeAmandaTrust', 'tag'],
   ['budget-period-income-other-trust', 'Trust', 'period.*.incomeOtherTrust', 'tag'],
   ['budget-period-stack-savings-trust', 'Trust', 'period.*.stackSavingsTrust', 'tag'],
+  ['budget-period-stack-savings-balance-head-trust', 'Trust', 'period.*.stackSavingsBalanceHeadTrust', 'tag'],
   ['budget-period-stack-savings-goal-trust', 'Trust', 'period.*.stackSavingsGoal.*.trust', 'tag'],
   ['budget-period-bill-load-trust', 'Trust', 'period.*.periodBillLoadTrust', 'tag'],
   ['budget-period-after-bills-trust', 'Trust', 'period.*.afterBillsTrust', 'tag'],

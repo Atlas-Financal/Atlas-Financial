@@ -491,6 +491,15 @@ const PHASE_BODY = {
 // Forecast.planPhases decides which risks appear and the figures inside
 // them. This map is how each one reads. The cash-not-cards line is always
 // shown: it is copy, not a comparison.
+// The HELOC risk's interest phrase. A row without a dated schedule keeps the
+// incumbent copy exactly. A scheduled row names its own cycle: an unknown
+// amount is never printed as a figure, and an estimated cycle says so.
+function helocInterestPhrase(r) {
+  if (!Object.prototype.hasOwnProperty.call(r, 'monthlyInterestConfidence')) return `${money(r.monthlyInterest)}/month interest`;
+  const cycle = r.monthlyInterestCycleDate ? ` for the cycle charged ${fmtDateLong(r.monthlyInterestCycleDate)}` : '';
+  if (r.monthlyInterest == null || r.monthlyInterestConfidence === 'unknown') return `interest${cycle} (amount unknown)`;
+  return `${r.monthlyInterestConfidence === 'estimated' ? 'estimated ' : ''}${money(r.monthlyInterest)} interest${cycle}`;
+}
 const RISK_WHAT = {
   amandaRequired: r => `Amanda's Tennis BC salary — ${money(r.amount)}/month is owner-confirmed (15th and month-end)`,
   amandaOptional: r => `Amanda's Tennis BC salary — ${money(r.amount)}/month is owner-confirmed (15th and month-end)`,
@@ -510,11 +519,11 @@ const RISK_CHANGE = {
     `${r.labels.join(', ')}. None is invoiced yet. If they land higher, or
                earlier than assumed, the weekly cap falls.`,
   helocDrawn: r =>
-    `Its ${money(r.monthlyInterest)}/month interest capitalises and
+    `Its ${helocInterestPhrase(r)} capitalises and
                nothing repays it, so the balance grows on its own. The ${money(r.drawn)} this plan draws to cover the opening gap brings that date forward, and the
             crossing date shown already includes it.`,
   helocNoDraw: r =>
-    `Its ${money(r.monthlyInterest)}/month interest capitalises and
+    `Its ${helocInterestPhrase(r)} capitalises and
                nothing repays it, so the balance grows on its own.${r.alternative
       ? ` Covering the opening gap from it instead of ${escapeHtml(r.alternative.displaces.join(' and '))}
           brings that crossing forward to <b>${fmtDateLong(r.alternative.alternateDate)}</b>.` : ''}`,

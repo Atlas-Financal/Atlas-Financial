@@ -374,7 +374,7 @@ function postedBalanceEvidenceInstant(account) {
   return account.updatedAt || account.dateLastFetched || null;
 }
 
-// Live cash / mortgage / HELOC keep the prior object-update dating so
+// Other non-cash, non-credit roles keep the prior object-update dating so
 // daily-refreshed accounts are not silently retimed by a leftover
 // balance_as_of. This is not statement-cadence freshness.
 function genericAccountEvidenceInstant(account) {
@@ -386,6 +386,18 @@ function genericAccountEvidenceInstant(account) {
     || (Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
       ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null)
     || null;
+}
+
+// Mortgage / HELOC balances are dated by their own balance date only:
+// legacy balance_as_of, then the validated v2 balance_last_update. An
+// object update (updated_at) or a sync time (date_last_fetched) says when
+// the record was touched, not when the balance was true, so a loan with no
+// genuine balance date is undated (unknown), never current.
+function loanBalanceEvidenceInstant(account) {
+  if (!account || typeof account !== 'object') return null;
+  if (account.balanceAsOf) return account.balanceAsOf;
+  return Object.prototype.hasOwnProperty.call(account, 'balanceLastUpdate')
+    ? postedBalanceEvidenceInstant({ balanceLastUpdate: account.balanceLastUpdate }) : null;
 }
 
 function normalizeLunchMoneyCategory(raw) {
@@ -2065,12 +2077,18 @@ function statementCloseDayForEvent(plan, event) {
   return Number(day);
 }
 
+// H2-3: a statement closes at least STATEMENT_MIN_GRACE_DAYS before its own
+// due date, so a due date moved later by a weekend or holiday keeps its own
+// statement instead of borrowing a close day a few days earlier. A week is
+// well inside every modelled card's grace gap (about 15 to 27 days).
+const STATEMENT_MIN_GRACE_DAYS = 7;
 function statementCloseDateForDue(dueDate, closeDay) {
   const due = parseIsoDate(dueDate);
   if (!due || !isFinite(Number(closeDay))) return null;
   const [year, month] = due.split('-').map(Number);
   const thisMonth = dateWithClampedDay(year, month, closeDay);
-  if (thisMonth && thisMonth < due) return thisMonth;
+  const gap = thisMonth ? calendarDaysBetween(thisMonth, due) : null;
+  if (thisMonth && gap != null && gap >= STATEMENT_MIN_GRACE_DAYS) return thisMonth;
   let priorYear = year;
   let priorMonth = month - 1;
   if (priorMonth < 1) {
@@ -2647,19 +2665,39 @@ function observationFingerprintDigest(fingerprint) {
   return crypto.createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
 }
 
+// The one rule for whether the savings cash balance is a REQUIRED live
+// cash balance: it is while savings earmarks are not yet set up. The live
+// overlay's freshness gates and the household date both read this.
+function savingsCashRequired(plan, asOf) {
+  return !plan || Forecast.savingsEarmarksState(plan, asOf).status === 'setup-unknown';
+}
+
 // Schedule-trust uses one provider/household financial date.
 // fetchedAt and the process clock are fetch timestamps, not as-of.
-function householdDateFromProviderEvidence(observations) {
+function householdDateFromProviderEvidence(observations, plan) {
+  // Only required, known cash balances date the household. Savings is
+  // required exactly when the live overlay's freshness gate requires it
+  // (earmarks not yet set up); otherwise a stale savings date would pull
+  // the schedule-trust date back and switch off the early-income check.
+  const known = id => (observations || []).find(o =>
+    o
+    && o.canonical
+    && o.canonical.collection === 'cash'
+    && String(o.canonical.id) === id
+    && o.unknown !== true
+    && o.evidenceValue != null
+    && isFinite(Number(o.evidenceValue)));
+  const dayOf = obs => dateOnly(obs && (obs.evidenceDate || obs.observedAsOf));
   const dates = [];
   for (const id of REQUIRED_LIVE_CASH_IDS) {
-    const obs = (observations || []).find(o =>
-      o
-      && o.canonical
-      && o.canonical.collection === 'cash'
-      && String(o.canonical.id) === id
-      && o.evidenceValue != null
-      && isFinite(Number(o.evidenceValue)));
-    const day = dateOnly(obs && (obs.evidenceDate || obs.observedAsOf));
+    if (id === 'savings') continue;
+    const day = dayOf(known(id));
+    if (day) dates.push(day);
+  }
+  dates.sort();
+  const savingsRequired = !dates.length || savingsCashRequired(plan, dates[dates.length - 1]);
+  if (savingsRequired) {
+    const day = dayOf(known('savings'));
     if (day) dates.push(day);
   }
   if (!dates.length) return null;
@@ -2670,7 +2708,8 @@ function householdDateFromProviderEvidence(observations) {
 function householdFinancialDate(input, observations) {
   const explicit = dateOnly(input && (input.asOf || input.householdDate));
   if (explicit) return explicit;
-  return householdDateFromProviderEvidence(observations);
+  const plan = input && ((input.data && input.data.plan) || input.plan);
+  return householdDateFromProviderEvidence(observations, plan || null);
 }
 
 function observationReceipt(report, opts) {
@@ -3500,6 +3539,9 @@ function lmMatchedCardMinimumQualifies(plan, rule, tx, date, linked, txWindow) {
   // The paired payment itself must post inside the cycle: a payment before
   // the cycle starts, or after the statement is due, pays no part of it.
   if (!realIsoDay(tx.date) || !(tx.date > previous && tx.date <= statement.dueDate)) return false;
+  // An issuer minimum still owing already reflects payments through its read date.
+  const reflectedThrough = Forecast.statementPaymentsReflectedThrough(plan, rule.eventId, original);
+  if (reflectedThrough && tx.date <= reflectedThrough) return false;
   const others = (linked || []).filter(other => other !== tx && other && other.pending === false && other.date
     && lunchMoneyDebitAmount(other.amount) > 0 && other.date > previous && other.date <= statement.dueDate);
   return others.length === 0;
@@ -4711,11 +4753,12 @@ function observationsFromMappedAccount(account, mapping, fetchedAt) {
   const usesPostedDate = isCredit || isCash;
   const dated = isCredit
     ? postedBalanceEvidenceInstant(account)
-    : isCash ? cashBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
+    : isCash ? cashBalanceEvidenceInstant(account)
+      : isLoan ? loanBalanceEvidenceInstant(account) : genericAccountEvidenceInstant(account);
   // Every posted-credit and posted-cash fact shares the semantic-date boundary. A
   // request timestamp cannot repair missing/invalid balance evidence. Savings uses
-  // the same helper directly. Mortgage/HELOC keep their incumbent generic dating,
-  // but never borrow the request time: an undated or future-dated loan balance
+  // the same helper directly. Mortgage/HELOC are dated by their balance date only
+  // (loanBalanceEvidenceInstant) and never borrow the request time: an undated or future-dated loan balance
   // is unknown, not current.
   const observedAt = usesPostedDate || isLoan ? dated : dated || fetchedAt;
   const evidenceDate = dateOnly(observedAt);
@@ -5840,7 +5883,7 @@ function identifiedHistoryPayments(history, opts) {
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
   // minimum), a revolving card's debt, a non-cash or capitalising leg (the
-  // HELOC), or a once schedule is never a candidate.
+  // HELOC), a dated amountSchedule, or a once schedule is never a candidate.
   // An id named by more than one plan row (two bills, two obligations, or a
   // bill and an obligation) is ambiguous, so it is never a candidate.
   const idCount = new Map();
@@ -5857,6 +5900,7 @@ function identifiedHistoryPayments(history, opts) {
   };
   const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
     && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && o.amountSchedule === undefined
     && !revolving(o);
   const bills = new Map();
   for (const b of plan.bills || []) {
@@ -6872,14 +6916,13 @@ function recurringBillScheduleReview(block, identityRules, plan, asOf, opts) {
     // start, so it cannot move between observations. Occurrences before it
     // keep the bill's own cadence and day (timingBefore); from it on, the
     // item's timing applies.
-    if (RECURRING_CUTOVER_FIELDS.some(field => bill[field] !== timing[field])) {
-      const before = {};
-      for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
-      // The plan's own date tag goes with the plan's own timing: occurrences
-      // before the cutover never take the item's confirmed tag (owner stop 2).
-      timing.timingBefore = { from: linkedFrom, ...before,
-        dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
-    }
+    // Preserve that date trust even when only the source of the cadence changes.
+    // An identical prior cadence keeps the same dates, but the served
+    // confirmation still starts at linkedFrom, not in the plan's history.
+    const before = {};
+    for (const field of RECURRING_CUTOVER_FIELDS) if (bill[field] !== undefined) before[field] = bill[field];
+    timing.timingBefore = { from: linkedFrom, ...before,
+      dateConfidence: bill.dateConfidence === 'confirmed' ? 'confirmed' : 'estimated' };
     const amount = recurringBillAmount(item, bill, opts && opts.amounts);
     out.push({ billId, recurringId: item.recurringId, timing, dateConfidence: 'confirmed', source: 'lunchmoney-recurring',
       // The item's amount applies from the link's own validated linkedFrom, whether or not the timing changed (#1583 review
@@ -7790,6 +7833,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
       for (const localId of localIds) linkedLocalIds.add(localId);
+      // H2-6 (Grok Bot, Plan #6, 2026-11-23; desk adoption): a closed provenance label, set only when this tie is
+      // the provider's own matched occurrence: the candidate's relation is Lunch Money's unique, qualified match for
+      // this exact occurrence (stampLunchMoneyMatched, LM_MATCHED_RELATION) with exactly one payment. Never on a rule
+      // opt-in, a recurring item id alone, or Atlas's payee or date inference. It carries no provider id.
+      if (candidate.postingDateRelation === LM_MATCHED_RELATION && localIds.length === 1) row.occurrenceLink = 'provider-matched';
     } else if (candidate.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
       // The owner's rule settles this occurrence on its due date at the
       // scheduled amount; no bank transaction was seen. Say so on the
@@ -8440,6 +8488,8 @@ const api = {
   postedBalanceEvidenceInstant,
   cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
+  loanBalanceEvidenceInstant,
+  savingsCashRequired,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,
   observationsFromMappedAccount,

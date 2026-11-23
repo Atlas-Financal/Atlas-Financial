@@ -698,7 +698,8 @@ function putPayPeriods(put, putField, advice) {
     const savingsTotals = savings && savings.totals;
     if (savingsTotals) {
       for (const [field, key] of [['balance', 'stackSavingsBalance'], ['saved', 'stackSavingsSaved'], ['needed', 'stackSavingsNeeded'],
-        ['unallocated', 'stackSavingsUnallocated'], ['trust', 'stackSavingsTrust']]) putField(p + '.' + key, savingsTotals, field);
+        ['unallocated', 'stackSavingsUnallocated'], ['trust', 'stackSavingsTrust'], ['balanceHeadTrust', 'stackSavingsBalanceHeadTrust']])
+        putField(p + '.' + key, savingsTotals, field);
     }
     const goalKeys = new Set();
     for (const item of savings && Array.isArray(savings.items) ? savings.items : []) {

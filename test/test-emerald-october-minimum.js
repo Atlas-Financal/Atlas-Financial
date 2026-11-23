@@ -101,6 +101,11 @@ observed.data = clone(x.data); observed.identity = { rules: [], billPaymentPayee
 observed.payload.fetchedAt = x.asOf + 'T18:00:00Z';
 observed.payload.accounts.forEach((row, i) => {
   row.balance = [472.21, 0, 0, 772.21][i]; row.updated_at = x.asOf + 'T17:00:00Z';
+  // Same-day refresh: every balance is dated the live day. A lagging
+  // fixture balance is the withheld stale-sibling case (hunt 5 finding 1),
+  // not what this test is about.
+  if (row.balance_as_of) row.balance_as_of = x.asOf + 'T17:00:00Z';
+  if (row.balance_last_update) row.balance_last_update = x.asOf + 'T17:00:00Z';
 });
 observed.payload.transactions = [{ id: 82001, account_id: 3001, date: '2038-06-05', amount: 27.79,
   currency: 'cad', payee: 'TFR-TO C/C', category_name: 'Credit Card Payment', is_pending: false }];
