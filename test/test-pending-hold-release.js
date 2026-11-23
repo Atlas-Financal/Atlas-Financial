@@ -144,4 +144,63 @@ function budget(txs) {
     'a same-amount categorized pending credit is not consumed: the hold still counts, the credit keeps today\'s treatment', String(refund.groceries.spent));
 }
 
+console.log('4. (B) A pending hold superseded by its posted final charge');
+{
+  const posted = (id, amount, extra = {}) => row(id, amount, { pending: false, ...extra });
+  const sup = txs => F.pendingHoldReleases({ transactions: txs }).superseded.map(p => p.pendingId + '>' + p.postedId);
+  // Same merchant (the row helper's payee is per id, so give both legs one merchant name).
+  const costco = { displayedPayee: 'Costco', originalMerchant: 'Costco' };
+  ok(JSON.stringify(sup([row('hold', HOLD, { date: '2026-08-19', ...costco }), posted('final', REAL, { date: '2026-08-20', ...costco })])) === JSON.stringify(['hold>final']),
+    'a posted 232.47 from the same merchant and account, a day later, supersedes the 234.61 hold');
+  ok(sup([row('hold', HOLD, { ...costco }), posted('final', REAL, { ...costco, displayedPayee: 'Example grocer', originalMerchant: 'Example grocer' })]).length === 0,
+    'a different merchant does not supersede');
+  ok(sup([row('hold', HOLD, { ...costco }), posted('final', REAL, { ...costco, account: 'otherVisa' })]).length === 0,
+    'another account does not supersede');
+  ok(sup([row('hold', HOLD, { date: '2026-08-20', ...costco }), posted('final', REAL, { date: '2026-08-19', ...costco })]).length === 0,
+    'a posted charge dated before the hold does not supersede it');
+  ok(sup([row('hold', HOLD, { date: '2026-08-10', ...costco }), posted('final', REAL, { date: '2026-08-18', ...costco })]).length === 0
+    && sup([row('hold', HOLD, { date: '2026-08-11', ...costco }), posted('final', REAL, { date: '2026-08-18', ...costco })]).length === 1,
+    'the window is 0 to 7 days after the hold, inclusive');
+  // Tolerance: the larger of 20% of the pending amount and $25. For 50.00: max(10.00, 25.00) = 25.00.
+  ok(sup([row('gas', 50, { ...costco }), posted('pump', 75, { ...costco })]).length === 1
+    && sup([row('gas', 50, { ...costco }), posted('pump', 75.01, { ...costco })]).length === 0,
+    'tolerance on 50.00 is $25 (larger than 20%): 75.00 supersedes, 75.01 does not');
+  // For 200.00: max(40.00, 25.00) = 40.00.
+  ok(sup([row('big', 200, { ...costco }), posted('final', 240, { ...costco })]).length === 1
+    && sup([row('big', 200, { ...costco }), posted('final', 240.01, { ...costco })]).length === 0,
+    'tolerance on 200.00 is 20% = $40: 240.00 supersedes, 240.01 does not');
+  // Two same-merchant pending trips, one posted: the closest amount wins; the other stays pending (documented).
+  const two = sup([row('trip-a', 60, { date: '2026-08-18', ...costco }), row('trip-b', 100, { date: '2026-08-19', ...costco }),
+    posted('final', 98, { date: '2026-08-20', ...costco })]);
+  ok(JSON.stringify(two) === JSON.stringify(['trip-b>final']), 'two trips, one posted: the closest amount is superseded, the other still counts', JSON.stringify(two));
+  // Closest amount beats closest date: trip-a is 1.00 off but 2 days earlier; trip-b is 18.00 off but 1 day earlier.
+  const amountFirst = sup([row('trip-a', 97, { date: '2026-08-18', ...costco }), row('trip-b', 80, { date: '2026-08-19', ...costco }),
+    posted('final', 98, { date: '2026-08-20', ...costco })]);
+  ok(JSON.stringify(amountFirst) === JSON.stringify(['trip-a>final']), 'the closest amount wins before the closest date', JSON.stringify(amountFirst));
+  const tie = sup([row('a', 100, { date: '2026-08-18', ...costco }), row('b', 100, { date: '2026-08-19', ...costco }),
+    posted('final', 100, { date: '2026-08-20', ...costco })]);
+  ok(JSON.stringify(tie) === JSON.stringify(['b>final']), 'an amount tie goes to the closest date', JSON.stringify(tie));
+  const one = sup([row('a', 100, { date: '2026-08-19', ...costco }), row('b', 100, { date: '2026-08-19', ...costco }),
+    posted('p1', 100, { date: '2026-08-20', ...costco }), posted('p2', 100, { date: '2026-08-20', ...costco })]);
+  ok(one.length === 2 && new Set(one.join('>').split('>')).size === 4, 'one posted charge supersedes at most one hold', JSON.stringify(one));
+  ok(sup([row('hold', HOLD, { ...costco, pendingPostedDuplicate: true }), posted('final', REAL, { ...costco })]).length === 0,
+    'the ledger\'s own pending/posted link runs first: a linked pending row is not superseded again');
+  const both = F.pendingHoldReleases({ transactions: [row('hold', HOLD, { date: '2026-08-19', ...costco }),
+    row('release', -HOLD, { date: '2026-08-20', category: null, ...costco }), posted('final', REAL, { date: '2026-08-20', ...costco })] });
+  ok(both.pairs.length === 1 && both.superseded.length === 0, 'a hold already consumed by (A) is never superseded by (B) too');
+  const { travel } = card([row('hold', HOLD, { date: '2026-08-19', ...costco }), posted('final', REAL, { date: '2026-08-20', ...costco })]);
+  ok(cents(travel.spent.amount) === cents(BASE_SPENT + REAL), 'Stack card: the superseded hold is not counted, the posted final is (207.40 + 232.47)', JSON.stringify(travel.spent));
+  const b = budget([row('hold', HOLD, costco), posted('final', REAL, costco)]);
+  ok(cents(b.groceries.spent) === cents(REAL), 'Budget: Groceries counts the posted 232.47 only', String(b.groceries.spent));
+}
+
+console.log('5. The card line shows the ledger payee, never the generic fallback where the ledger has a name');
+{
+  const { travel } = card([row('real', REAL, { displayedPayee: undefined, originalMerchant: 'Costco' })]);
+  ok(travel.transactions.some(t => t.name === 'Costco') && !travel.transactions.some(t => t.name === 'Card transaction'),
+    'a pending row with no displayed payee shows its ledger merchant', JSON.stringify(travel.transactions.map(t => t.name)));
+  const bare = card([row('real', REAL, { displayedPayee: undefined, originalMerchant: undefined })]).travel;
+  ok(bare.transactions.some(t => t.name === 'Card transaction'), 'with no ledger name at all, the generic label stays');
+}
+
 console.log(`\nPASS pending hold and release (${checks})`);

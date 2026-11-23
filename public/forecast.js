@@ -7108,9 +7108,17 @@
   // is never a leg. Several equal charges for one credit: the earliest same-account charge (date, then id) is
   // paired; the totals are identical whichever equal charge is chosen. Sums (debt, utilisation) are unchanged:
   // the two legs net to zero.
+  // (B), after (A) (addendum, Dale, 2026-11-23, #821 7089379689: one number per purchase through hold -> release ->
+  // final): a pending charge superseded by a posted charge from the same merchant (spendDuplicateKey's merchant key)
+  // on the same account, dated 0 to HOLD_RELEASE_WINDOW_DAYS days after it, within the larger of 20% of the pending
+  // amount and $25, is that same purchase: the pending hold is dropped and the posted charge counts. One posted charge
+  // supersedes at most one pending charge; on ambiguity the closest amount wins, then the closest date, then the
+  // earliest pending row (date, then id), then the earliest posted row. The ledger's own pending/posted link
+  // (pendingPostedDuplicateIdSet) runs first, and a row consumed by one rule is never consumed by another.
   const HOLD_RELEASE_WINDOW_DAYS = 7;
+  const SUPERSEDE_TOLERANCE_SHARE = 0.2, SUPERSEDE_TOLERANCE_CENTS = 2500;
   const holdReleaseCache = new WeakMap();
-  const NO_HOLD_RELEASES = Object.freeze({ legs: new Set(), pairs: Object.freeze([]) });
+  const NO_HOLD_RELEASES = Object.freeze({ legs: new Set(), pairs: Object.freeze([]), superseded: Object.freeze([]) });
   function pendingHoldReleases(packet) {
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
     if (!txs) return NO_HOLD_RELEASES;
@@ -7154,7 +7162,42 @@
       pairs.push(Object.freeze({ chargeId: charge.id, creditId: credit.id, account: credit.account,
         amount: charge.cents / 100, chargeDate: charge.date, creditDate: credit.date }));
     }
-    const result = Object.freeze({ legs, pairs: Object.freeze(pairs) });
+    // (B): a posted charge supersedes the pending hold for the same purchase.
+    const merchantOf = tx => normalizeMerchantKey(txMerchantExact(tx));
+    const posted = [];
+    for (const tx of txs) {
+      if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'posted' || tx.isGroup === true
+        || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
+      const account = tx.atlasAccountId || tx.account;
+      const amount = Number(tx.amount);
+      const cents = isFinite(amount) ? Math.round(amount * 100) : NaN;
+      const at = day(tx.date);
+      const merchant = merchantOf(tx);
+      if (!account || !Number.isSafeInteger(cents) || cents <= 0 || !isFinite(at) || !merchant) continue;
+      posted.push({ id: String(tx.id), account: String(account), cents, at, date: tx.date, merchant });
+    }
+    const candidates = [];
+    for (const hold of charges) {
+      const merchant = merchantOf(hold.tx);
+      if (!merchant) continue;
+      const tolerance = Math.max(Math.round(hold.cents * SUPERSEDE_TOLERANCE_SHARE), SUPERSEDE_TOLERANCE_CENTS);
+      for (const post of posted) {
+        const days = post.at - hold.at, gap = Math.abs(post.cents - hold.cents);
+        if (post.account !== hold.account || post.merchant !== merchant || days < 0 || days > HOLD_RELEASE_WINDOW_DAYS
+          || gap > tolerance) continue;
+        candidates.push({ hold, post, gap, days });
+      }
+    }
+    candidates.sort((a, b) => a.gap - b.gap || a.days - b.days || order(a.hold, b.hold) || order(a.post, b.post));
+    const superseded = [], usedPosted = new Set();
+    for (const { hold, post } of candidates) {
+      if (legs.has(hold.id) || usedPosted.has(post.id)) continue;
+      legs.add(hold.id);
+      usedPosted.add(post.id);
+      superseded.push(Object.freeze({ pendingId: hold.id, postedId: post.id, account: hold.account,
+        pendingAmount: hold.cents / 100, postedAmount: post.cents / 100, pendingDate: hold.date, postedDate: post.date }));
+    }
+    const result = Object.freeze({ legs, pairs: Object.freeze(pairs), superseded: Object.freeze(superseded) });
     holdReleaseCache.set(txs, result);
     return result;
   }

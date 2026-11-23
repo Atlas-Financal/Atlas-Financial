@@ -186,7 +186,10 @@
           : value != null && value < 0 ? 'credit-unconfirmed'
           : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';
         const published = { id: tx.id == null ? null : String(tx.id), date: tx.date,
-          payee: typeof tx.displayedPayee === 'string' ? tx.displayedPayee : id === 'heloc' ? 'Transaction' : 'Card transaction',
+          // The ledger's payee, else its merchant (never the generic fallback where the ledger has a name).
+          payee: typeof tx.displayedPayee === 'string' && tx.displayedPayee.trim() ? tx.displayedPayee
+            : typeof tx.originalMerchant === 'string' && tx.originalMerchant.trim() ? tx.originalMerchant
+            : id === 'heloc' ? 'Transaction' : 'Card transaction',
           // Display only: the item text of an "item:" note, shown instead of
           // the payee. Present only when there is one; `payee` is unchanged
           // and nothing here reads the field.
