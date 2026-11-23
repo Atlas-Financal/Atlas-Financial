@@ -319,6 +319,34 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+<a id="active-prepaid-bill-close"></a>
+
+**A bill paid before the active period's payday opening is deducted again from that close** · **ADDED TO BACKLOG — OPEN** · *H2-7, Gemini hunt 2 (#821 7091517953); retired by desk ruling and lead, #1594 closed without merging (7098398666)*
+
+Known cautious limit: a bill paid in the previous period is already out of the payday opening, yet the active period's close still deducts it. Gemini's invented case closes at 3800 against 3900, so the close understates by up to the bill and never overstates. The cause is that `prepaidBillSettledBy` is set only for future periods, so an active row falls back to its scheduled date in `paidBillAlreadyInPaydayOpening`.
+
+Design for a later attempt, from the reviews on #1594:
+- `paidBillAlreadyInPaydayOpening` stays the one decision. An active row gets its posting date only when every check below holds:
+  - the walk's own settled set holds the row;
+  - it passes the future gate's `coversOccurrence || verifiedSettles`;
+  - it is not a scheduled fee allowance;
+  - the tie is the provider's own match (`occurrenceLink: 'provider-matched'`, #1587's label, reused unchanged);
+  - the tie is to exactly one natively posted (`pending: false`, `savingsPostingEvidence: 'posted'`), positive Bills-account debit, dated before the payday opening.
+- PAID status and the assigned bill load do not change.
+
+Proof required (the desk's acceptance): from raw invented Lunch Money rows through observer, overlay and Forecast, show that
+- the native match waives exactly one active-close deduction;
+- the waiver carries through to the next opening and the s1 seed;
+- an otherwise identical early-date inference, and a removed link, get no relief.
+
+The two gaps that retired #1594 are the next item, and a raw world in which Atlas's rule path produces an inferred tie for a Bills-paid bill.
+
+<a id="null-sweep-prior-period-debit"></a>
+
+**The payday sweep and next opening go null when a prior-period debit for a bill exists** · **ADDED TO BACKLOG — OPEN, investigate** · *found while proving H2-7 (#1594 7098398666)*
+
+In an invented raw world (Bills bill of 100 due 10-28, payday 10-23 with a snapshot opening, as-of 10-23), main publishes a calculated active close (3300). Yet its `paydaySweep` is null, so the next period's opening is unknown. This happens whenever a debit for that bill posted in the prior period (10-20) exists, whether or not the ledger ties it to the occurrence. Without that debit, the sweep and the next opening are known (2900). It may be a deliberate withholding or a real bug. Find which input withholds the sweep, then either name it on the period or fix it. Proof would be the same invented world showing the sweep and the next opening known, or withheld with a stated reason.
+
 <a id="satisfied-minimum-future-close"></a>
 
 **A satisfied card minimum already in cash is deducted again from a future cash close** · **ADDED TO BACKLOG — OPEN** · *H2-5, Gemini hunt 2 (#821 7091517953); desk ruling (Plan #6) adopted (2), and #1589 was closed without merging (7096030824)*
