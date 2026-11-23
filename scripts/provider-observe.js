@@ -28,6 +28,8 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const { performance } = require('perf_hooks');
+const StageTiming = require('./refresh-stage-timing');
 const R = require('./reconcile.js');
 const Credentials = require('./local-credentials.js');
 const SalaryDiagnostic = require('./salary-match-diagnostic.js');
@@ -925,6 +927,53 @@ async function resolveLiveCredential(options) {
   return Credentials.resolveLunchMoneyAccessToken(options);
 }
 
+// At most this many Lunch Money reads in flight at once for one observation.
+// Four keeps one refresh's burst modest (the provider's documented limits are
+// per token; one refresh issues about ten reads plus pages) while letting the
+// slowest paged reads overlap with the small catalogue reads.
+const LIVE_READ_CONCURRENCY = 4;
+// Runs the named reads with at most LIVE_READ_CONCURRENCY in flight, in list
+// order. Each read gets a signal that aborts when the outer signal aborts or
+// when another read fails. Resolves to { name: value }. Rejects with the
+// earliest-listed genuine failure (a read cancelled only because a sibling
+// failed is not a genuine failure); after an outer abort, with the first
+// failure seen. Per-read wall ms go to the stage timing line (timing only).
+async function liveParallelReads(tasks, outerSignal) {
+  const controller = new AbortController();
+  const onOuter = () => controller.abort();
+  if (outerSignal) {
+    if (outerSignal.aborted) controller.abort();
+    else outerSignal.addEventListener('abort', onOuter, { once: true });
+  }
+  const results = {}, failures = [];
+  let next = 0;
+  const runOne = async index => {
+    const [name, run] = tasks[index];
+    const started = performance.now();
+    try { results[name] = await run(controller.signal); }
+    catch (error) {
+      // A cancellation (outer abort or a sibling's failure) is never a provider failure; any other error
+      // (an HTTP failure, a timeout) is genuine and wins over cancellation, even after an outer abort.
+      const cancelled = controller.signal.aborted && error && error.message === 'Live refresh cancelled.';
+      if (!cancelled) failures.push({ index, error });
+      controller.abort();
+    } finally {
+      StageTiming.providerRead(name, performance.now() - started);
+    }
+  };
+  const worker = async () => {
+    while (next < tasks.length && !controller.signal.aborted) await runOne(next++);
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(LIVE_READ_CONCURRENCY, tasks.length) }, worker));
+  } finally {
+    if (outerSignal) outerSignal.removeEventListener('abort', onOuter);
+  }
+  if (failures.length) throw failures.sort((x, y) => x.index - y.index)[0].error;
+  if (controller.signal.aborted) throw new Error('Live refresh cancelled.');
+  return results;
+}
+
 async function fetchLunchMoneyLive(token, now, historyDays, options) {
   if (!token) fail('Live observation has no Lunch Money credential.');
   const env = options && options.env ? options.env : process.env;
@@ -937,34 +986,44 @@ async function fetchLunchMoneyLive(token, now, historyDays, options) {
   if (Number.isSafeInteger(me?.account_id) && me.account_id >= 0) {
     options?.onHouseholdIdentity?.(String(me.account_id));
   }
-  const plaid = await tryGetJson(new URL(`${base}/plaid_accounts`), token, options);
-  let manuals = await tryGetJson(new URL(`${base}/manual_accounts`), token, options);
-  if (!manuals) manuals = await tryGetJson(new URL(`${base}/assets`), token, options);
-  // Categories are fetched without tryGetJson's 404-to-null swallow: a
-  // transaction whose raw row carries only a category_id takes its label
-  // and income flag solely from this index, so a swallowed 404 would
-  // silently degrade classification while the observation still qualified
-  // as complete. A categories failure must reject the whole fetch, exactly
-  // like a 503 already does through tryGetJson's rethrow (ATLAS-067 FR2).
-  const categoriesPayload = await httpsGetJson(new URL(`${base}/categories`), token, options);
-  // Tags are fetched without tryGetJson's 404-to-null swallow either: tag
-  // names are classification inputs — a tag named fuel/gas is explicit fuel
-  // evidence and a tag named for a household member assigns the personal
-  // owner — so a swallowed 404 would silently strip that evidence from
-  // every bare-ID tag while the observation still qualified as complete.
-  // A tags failure must reject the whole fetch, exactly like a 503
-  // already does through tryGetJson's rethrow (ATLAS-067 tags).
-  const tagsPayload = await httpsGetJson(new URL(`${base}/tags`), token, options);
-  const txPage = await fetchLunchMoneyTransactionsPaged(txUrl, token, options);
-  const pendingPage = await fetchLunchMoneyTransactionsPaged(
-    lunchMoneyPendingUniverseUrl(base),
-    token,
-    options
-  );
-  const recurringItems = await fetchRecurringEvidence(token, txUrl, base, options);
-  const lunchMoneyBudgets = await fetchBudgetEvidence(token, base, now, options);
-  const amountHistory = options && options.amountHistory === true
-    ? await fetchAmountHistory(token, now, base, options) : undefined;
+  // The remaining reads do not depend on each other, so they run in
+  // parallel under a small concurrency cap (LIVE_READ_CONCURRENCY). Each read
+  // makes exactly the requests it made when run in sequence: pagination stays
+  // sequential within a read, and manual_accounts still falls back to /assets
+  // only after its own 404. Fail-closed is unchanged: the first required
+  // read to fail aborts every read still in flight, and the fetch rejects with
+  // the earliest-listed genuine failure. An outer abort cancels everything.
+  const reads = await liveParallelReads([
+    ['plaidBalances', signal => tryGetJson(new URL(`${base}/plaid_accounts`), token, { ...options, signal })],
+    ['manualBalances', async signal => {
+      const sub = { ...options, signal };
+      return (await tryGetJson(new URL(`${base}/manual_accounts`), token, sub))
+        || tryGetJson(new URL(`${base}/assets`), token, sub);
+    }],
+    // Categories are fetched without tryGetJson's 404-to-null swallow: a
+    // transaction whose raw row carries only a category_id takes its label
+    // and income flag solely from this index, so a swallowed 404 would
+    // silently degrade classification while the observation still qualified
+    // as complete. A categories failure must reject the whole fetch, exactly
+    // like a 503 already does through tryGetJson's rethrow (ATLAS-067 FR2).
+    ['categories', signal => httpsGetJson(new URL(`${base}/categories`), token, { ...options, signal })],
+    // Tags are fetched without tryGetJson's 404-to-null swallow either: tag
+    // names are classification inputs (a tag named fuel/gas is explicit fuel
+    // evidence, a tag named for a household member assigns the personal
+    // owner), so a tags failure must reject the whole fetch (ATLAS-067 tags).
+    ['tags', signal => httpsGetJson(new URL(`${base}/tags`), token, { ...options, signal })],
+    ['transactions', signal => fetchLunchMoneyTransactionsPaged(txUrl, token, { ...options, signal })],
+    ['pending', signal => fetchLunchMoneyTransactionsPaged(lunchMoneyPendingUniverseUrl(base), token, { ...options, signal })],
+    ['recurring', signal => fetchRecurringEvidence(token, txUrl, base, { ...options, signal })],
+    ['budgets', signal => fetchBudgetEvidence(token, base, now, { ...options, signal })],
+    ...(options && options.amountHistory === true
+      ? [['amountHistory', signal => fetchAmountHistory(token, now, base, { ...options, signal })]] : []),
+  ], options && options.signal);
+  const plaid = reads.plaidBalances, manuals = reads.manualBalances;
+  const categoriesPayload = reads.categories, tagsPayload = reads.tags;
+  const txPage = reads.transactions, pendingPage = reads.pending;
+  const recurringItems = reads.recurring, lunchMoneyBudgets = reads.budgets;
+  const amountHistory = reads.amountHistory;
   return {
     provider: 'lunchmoney',
     fetchedAt: now,
@@ -8394,6 +8453,7 @@ const api = {
   displayedItemNote,
   observe,
   fetchLunchMoneyLive,
+  liveParallelReads,
   sanitizedBudgetEvidence,
   budgetEvidenceLooksSanitized,
   resolveLiveToken,
