@@ -2065,12 +2065,18 @@ function statementCloseDayForEvent(plan, event) {
   return Number(day);
 }
 
+// H2-3: a statement closes at least STATEMENT_MIN_GRACE_DAYS before its own
+// due date, so a due date moved later by a weekend or holiday keeps its own
+// statement instead of borrowing a close day a few days earlier. A week is
+// well inside every modelled card's grace gap (about 15 to 27 days).
+const STATEMENT_MIN_GRACE_DAYS = 7;
 function statementCloseDateForDue(dueDate, closeDay) {
   const due = parseIsoDate(dueDate);
   if (!due || !isFinite(Number(closeDay))) return null;
   const [year, month] = due.split('-').map(Number);
   const thisMonth = dateWithClampedDay(year, month, closeDay);
-  if (thisMonth && thisMonth < due) return thisMonth;
+  const gap = thisMonth ? calendarDaysBetween(thisMonth, due) : null;
+  if (thisMonth && gap != null && gap >= STATEMENT_MIN_GRACE_DAYS) return thisMonth;
   let priorYear = year;
   let priorMonth = month - 1;
   if (priorMonth < 1) {
