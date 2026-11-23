@@ -142,6 +142,48 @@ console.log('\n=== 3c. a statement-replaced obligation keeps main\'s statement p
     'statement-only: the statement still resolves (Nov 27, 250), exactly as on main', JSON.stringify(occ));
 }
 
+console.log('\n=== 3d. a timing cutover: each date is judged by the term that produced it (ChatGPT 7100106374) ===');
+{
+  // A row with `timingBefore` has two terms: the prior timing before `from`, the row's own from `from` on. Only a
+  // date an impossible term produced is unknown. Hand: in every case below the forecast horizon (to 2028) sees one
+  // dated term, read off `occurrences` (the same split).
+  const cut = (outer, prior, from, extra) => ({ id: 'cut', label: 'Invented cutover', frequency: 'yearly', month: outer[0], day: outer[1],
+    amount: 300, confidence: 'confirmed', timingBefore: { from, frequency: 'yearly', month: prior[0], day: prior[1] }, ...(extra || {}) });
+  const cases = [
+    // [label, row, expected dates to 2028, withholds]
+    ['impossible own term not started (from 2030), real prior Nov 25', cut([11, 31], [11, 25], '2030-01-01'),
+      ['2026-11-25', '2027-11-25', '2028-11-25'], false],
+    ['impossible prior term in force (to 2030), real own Nov 25', cut([11, 25], [11, 31], '2030-01-01'),
+      ['2026-11-30', '2027-11-30', '2028-11-30'], true],
+    // Both terms in the window: the real prior date (2026-11-25) and the impossible own term's April 2027 date,
+    // which the window reaches (section 3b: April 2027 is flagged).
+    ['real prior Nov 25 to 2027, impossible own Apr 31 from 2027-01-01', cut([4, 31], [11, 25], '2027-01-01'),
+      ['2026-11-25', '2027-04-30', '2028-04-30'], true],
+    // The same split with the impossible term's first date past the window (November 2027): ready.
+    ['real prior Nov 25 to 2027, impossible own Nov 31 from 2027-01-01 (first date past the window)', cut([11, 31], [11, 25], '2027-01-01'),
+      ['2026-11-25', '2027-11-30', '2028-11-30'], false],
+    ['impossible prior term ended by lastDue before the window', { ...cut([11, 31], [11, 31], '2030-01-01'), lastDue: '2025-12-31' },
+      [], false],
+  ];
+  for (const [label, row, dates, withholds] of cases) {
+    ok(JSON.stringify(F.occurrences(row, AS_OF, '2028-12-31')) === JSON.stringify(dates), `cutover, ${label}: dated ${dates.join(', ') || 'nowhere'} (main's split)`,
+      JSON.stringify(F.occurrences(row, AS_OF, '2028-12-31')));
+    for (const kind of ['obligations', 'income']) {
+      const g = read(plan(p => { p[kind].push(row); }));
+      const flagged = g.unknowns.some(u => u.reason === 'plan-date-invalid');
+      ok(withholds ? (g.status === 'unavailable' && flagged && g.r.weekly == null) : (g.status === 'ready' && !flagged && g.r.weekly != null),
+        `cutover, ${label}, as ${kind === 'income' ? 'an income' : 'an obligation'}: ${withholds ? 'withheld (plan-date-invalid)' : 'ready, as on main'}`,
+        JSON.stringify([g.status, g.unknowns.map(u => u.reason)]));
+    }
+  }
+  // A statement replacing the one date the impossible prior term produces leaves nothing to withhold.
+  const stated = { ...cut([11, 25], [11, 31], '2027-01-01'), debtId: 'inv-debt', effect: 'payment', lastDue: '2026-12-31',
+    statementOccurrences: [{ scheduledDate: '2026-11-30', dueDate: '2026-11-27', minimum: 250, currency: 'cad', confidence: 'confirmed' }] };
+  const g = read(plan(p => { p.obligations.push(stated); }));
+  ok(g.status === 'ready' && g.unknowns.length === 0, 'cutover: a statement replacing the impossible prior term\'s only date reads ready',
+    JSON.stringify(g.unknowns));
+}
+
 console.log('\n=== 4. an impossible yearly income withholds the plan, never drops to $0 ===');
 for (const [month, day] of IMPOSSIBLE) {
   const g = read(plan(p => { p.income.push(yearly('bonus', month, day, 500)); }));
