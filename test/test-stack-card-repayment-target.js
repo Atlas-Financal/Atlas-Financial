@@ -77,7 +77,8 @@ console.log('4. Spent withheld: the larger of the minimum and the over-limit amo
     'Triangle (Spent withheld): 30.00, estimated with new-charges-unavailable, never presented as calculated', JSON.stringify(tri.target));
   // Triangle's limit lowered to 1900.00: 1980.00 - 1900.00 = 80.00 over; target max(30.00, 80.00) = 80.00, still estimated.
   const over = lineOf(withLimit(fx.fixture(), 'triangle', 1900), 'triangle');
-  ok(cents(over.target.amount) === 8000 && over.target.trust === 'estimated', 'Triangle over a 1900.00 limit: max(30.00, 80.00) = 80.00, estimated', JSON.stringify(over.target));
+  ok(cents(over.target.amount) === 8000 && over.target.trust === 'estimated' && over.target.reasons.includes('over-limit-payments-unproven'),
+    'Triangle over a 1900.00 limit: max(30.00, 80.00) = 80.00, estimated; its payments unproven, so none is added back', JSON.stringify(over.target));
 }
 
 console.log('5. The HELOC keeps its own rule: its target is its minimum');
@@ -142,6 +143,25 @@ console.log('9. Every card, minimum due or not: $0 only with no minimum, no new 
   const withCharge = withLimit(fx.fixture(), 'tdcc', 1000); withCharge.packet.transactions.push(charge(50));
   const n = lineOf(withCharge, 'tdcc', noMin);
   ok(cents(n.spent.amount) === 5000 && cents(n.target.amount) === 10000, 'the same card with 50.00 of new charges: max(0, 50.00, 100.00) = 100.00, not 150.00', JSON.stringify(n.target));
+  // The desk's case (Plan #6, on Neon 7113251603 item 2): Emerald starts 50.00 over a 1050.00 limit... as published it is
+  // 1100.00 - 1050.00 = 50.00 over, with 100.00 of new charges and a posted 100.00 payment already off that balance. Before
+  // the payment it was 150.00 over, so the total to pay back is max(0, 100.00, 50.00 + 100.00) = 150.00 (100.00 paid, 50.00
+  // still to pay), never max(100.00, 50.00) = 100.00, which would read as nothing left.
+  const payment = (amount, pending = false) => ({ id: 'tdcc-pay' + (pending ? '-p' : ''), coverageRef: 'invented-tdcc-pay' + (pending ? '-p' : ''),
+    atlasAccountId: 'tdcc', account: 'tdcc', accountRole: 'revolving-credit', date: '2026-08-19', amount: -amount, currency: 'cad',
+    displayedPayee: 'PAYMENT - THANK YOU', kindHint: 'payment', pending, savingsPostingEvidence: pending ? 'pending' : 'posted' });
+  const desk = withLimit(fx.fixture(), 'tdcc', 1050); desk.packet.transactions.push(charge(100), payment(100));
+  const d = lineOf(desk, 'tdcc', noMin);
+  ok(cents(d.spent.amount) === 10000 && cents(d.target.overLimitBy) === 5000 && cents(d.target.amount) === 15000,
+    'the desk\'s case: 50.00 over after a posted 100.00 payment, 100.00 charged: total 150.00 (50.00 still to pay), not 100.00',
+    JSON.stringify(d.target));
+  // Controls. No payment: 50.00 over and 100.00 charged, the charges are the larger: 100.00.
+  const nopay = withLimit(fx.fixture(), 'tdcc', 1050); nopay.packet.transactions.push(charge(100));
+  ok(cents(lineOf(nopay, 'tdcc', noMin).target.amount) === 10000, 'the same card with no payment: max(0, 100.00, 50.00) = 100.00');
+  // A pending payment is not proven to be in the balance: nothing is added back.
+  const pend = withLimit(fx.fixture(), 'tdcc', 1050); pend.packet.transactions.push(charge(100), payment(100, true));
+  const pl = lineOf(pend, 'tdcc', noMin);
+  ok(cents(pl.target.amount) === 10000, 'a pending 100.00 payment is never added back: max(0, 100.00, 50.00) = 100.00', JSON.stringify(pl.target));
   // Amazon Mastercard: a manual card (Spent withheld), no minimum this period, over its limit, and its balance a stale
   // estimate (dated before its statement cycle). By hand: 760.00 - 700.00 = 60.00 over; target 60.00, estimated.
   const stale = withLimit(fx.fixture(), 'mbna', 700);
