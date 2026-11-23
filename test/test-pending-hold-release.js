@@ -89,6 +89,12 @@ console.log('1. The decision');
   ok(JSON.stringify(tie) === JSON.stringify(['m+release']), 'a same-day tie pairs the lower id, deterministically', JSON.stringify(tie));
   const twice = pairsOf([row('h1', HOLD), row('h2', HOLD), row('r1', -HOLD, { category: null }), row('r2', -HOLD, { category: null })]);
   ok(twice.length === 2 && new Set(twice.join('+').split('+')).size === 4, 'two holds and two releases make two pairs, no leg used twice', JSON.stringify(twice));
+  const cash = { accountRole: 'household-cash', account: 'chequing-a', atlasAccountId: 'chequing-a' };
+  ok(pairsOf([row('hold', HOLD, cash), row('release', -HOLD, { ...cash, category: null })]).length === 0,
+    'card accounts only: a pending pair on household cash (a bill payment, a transfer) is never consumed');
+  ok(F.pendingHoldReleases({ transactions: [row('hold', HOLD, { ...cash, displayedPayee: 'Hydro', originalMerchant: 'Hydro' }),
+    row('final', REAL, { ...cash, pending: false, displayedPayee: 'Hydro', originalMerchant: 'Hydro' })] }).superseded.length === 0,
+    'card accounts only: a pending and a posted payment on household cash are never superseded (a genuine second payment)');
   const grow = { transactions: [row('hold', HOLD)] };
   const first = F.pendingHoldReleases(grow).pairs.length;
   grow.transactions.push(row('release', -HOLD, { category: null }));

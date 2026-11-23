@@ -7138,6 +7138,9 @@
       const amount = Number(tx.amount);
       const cents = isFinite(amount) ? Math.round(amount * 100) : NaN;
       const at = day(tx.date);
+      // Card accounts only: an authorization hold is card behaviour. A pending row on household cash (a bill payment,
+      // a transfer) stays with its incumbent owners and is never a leg (test-pending-then-posted-bill-once).
+      if (tx.accountRole !== 'revolving-credit') return null;
       // CAD and whole cents only, the card publication's own qualification: a row it would withhold is never a leg.
       if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
       if (!isFinite(amount) || Math.abs(amount * 100 - cents) > 1e-6) return null;
@@ -7176,6 +7179,7 @@
     const posted = [];
     for (const tx of txs) {
       if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'posted' || tx.isGroup === true
+        || tx.accountRole !== 'revolving-credit'
         || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
       const account = tx.atlasAccountId || tx.account;
       const amount = Number(tx.amount);
