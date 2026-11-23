@@ -54,6 +54,16 @@ const STUB = `;(function (F) {
   });
   // Each invented line's target is its minimum here (the simplest case, OD-028); the page prints what Forecast publishes.
   F.stackCreditLines = () => { const r = lines(); return { ...r, lines: r.lines.map(withTarget) }; };
+  // Desk ruling (E): the page reads each view's published lines (stackSummary.credit); forced, the invented lines are
+  // published there by Forecast's own recommend, as Forecast would.
+  if (window.__stackCreditForce) {
+    const recommend = F.recommend;
+    F.recommend = function () {
+      const r = recommend.apply(this, arguments);
+      for (const v of (r && Array.isArray(r.payPeriodViews) ? r.payPeriodViews : [])) v.stackSummary = { ...(v.stackSummary || {}), credit: F.stackCreditLines() };
+      return r;
+    };
+  }
 })(window.Forecast);\n`;
 
 const TYPES = { '.js': 'application/javascript', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
@@ -69,7 +79,7 @@ async function open(browser, { width = 390, theme = 'light', force = false } = {
     const file = path.join(root, 'public', u.pathname === '/' ? 'index.html' : u.pathname.slice(1));
     if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return route.fulfill({ status: 404, body: '' });
     let body = fs.readFileSync(file);
-    if (u.pathname === '/forecast.js') body = body.toString('utf8') + (force ? STUB.replace("if (!F || typeof F.stackCreditLines === 'function') return;", 'if (!F) return;') : STUB);
+    if (u.pathname === '/forecast.js') body = body.toString('utf8') + (force ? ';window.__stackCreditForce = true;' + STUB.replace("if (!F || typeof F.stackCreditLines === 'function') return;", 'if (!F) return;') : STUB);
     return route.fulfill({ body, contentType: TYPES[path.extname(file)] || 'application/octet-stream' });
   });
   await page.goto('http://stack.test/?view=stack');
