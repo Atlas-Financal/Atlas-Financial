@@ -217,6 +217,7 @@
   ["v2 semantic credit dates, qualified live stock and active Credit renderer","test-provider-v2-credit-date.js"],
   ["conflicting posted ids survive pagination merging into the duplicate guard (A2)","test-posted-duplicate-survives-pagination.js"],
   ["future-dated or undated balances stay unknown through live overlay and savings inventory (A1)","test-unknown-balance-stays-unknown.js"],
+  ["Same-day cash freshness: a lagging required cash balance withholds a same-day refresh, a stale savings date cannot move the household date, loans are dated by their balance date, and a close is judged against its closing day","test-same-day-cash-freshness.js"],
   ["an invalid pending amount keeps card pending unknown, never zero (A19)","test-invalid-pending-stays-unknown.js"],
   ["a card with unknown pending makes consumer debt unknown in every Forecast publication","test-unknown-pending-consumer-debt.js"],
   ["native utility settlement units and independent holds","test-utility-settlement-currency.js"],
