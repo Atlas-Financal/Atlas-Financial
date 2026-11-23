@@ -328,6 +328,33 @@ Inferred personal from its transactions, not verified.
 
 ## Ready — analysis, nothing blocking
 
+<a id="gemini-hunt-4-dates-schedules"></a>
+
+**Gemini hunt 4 (dates and schedules): 15 findings, none overstating a household figure today** · **ADDED TO BACKLOG — OPEN** · *lead triage on #821 (7101135186), main `006b2c3b`; read-only hunt, invented repros only*
+
+The lead re-ran the repros for 2, 6 and 1, and checked (by ids only) which input shapes the household's committed plan carries, so each row says whether it can reach a published household figure today. Only finding 11 matches the household's current shape (ended monthly card-minimum rows with `lastDue` before today), and it errs toward caution. Two findings could fail open: 1 (the period view's bill load may read 0) and 11's once-moved half. Neither shape is in the household plan today: the lead checked, ids only, that there's no capitalising obligation with an amountSchedule and no once obligation with statementOccurrences. So no household figure is overstated today, but both stay open.
+
+| # | Finding (short) | Lead check | Household shape present? | Direction |
+|---|---|---|---|---|
+| 2 | A once card minimum moved by a statement is replayed after it is represented (`carriedOnceJointCashOutflow` compares the unmoved date) | Reproduced | No | Double deduction (cautious) |
+| 6 | The capitalising cash-minimum leg ignores `lastDue` | Reproduced: cash minimums continue after the end | No | Overstates outflow (cautious) |
+| 1 | A capitalising cash minimum with an unknown `amountSchedule` cashPayment | Partly: `scheduledAmountState` already reads unavailable, but the period bill load shows 0 | No | Needs triage: a possible fail-open on the period view |
+| 11 | The card overlap guard ignores `lastDue` and statement-moved once dates | Code read | **Yes** (ended card rows) | Withholds (cautious); the once-moved half could fail open |
+| 3, 4, 5 | Impossible dates or typos outside yearly bills (income and obligations, `timingBefore.from`, `lastDue`, inner `timingBefore` fields) are not validated | Not re-run | No | Varies |
+| 7, 8, 12, 14 | Readers that see only the outer schedule (`budgetBreakdown`, pay-period helpers, income sections, the yearly card-paid test) | Not re-run | No | Varies |
+| 9, 10 | Raw ISO instants compared after a `financialDate` guard | Not re-run | No | Trust badge or crash |
+| 13 | A `cashFirstDue` earlier than `firstDue` with an `amountSchedule` drops every cash minimum | Not re-run | No | Withholds |
+| 15 | The mortgage "to confirm" note is keyed on the unmoved date | Not re-run | Display only | None numeric |
+
+Order of work:
+1. Finding 2.
+2. Finding 1: first verify whether the period view fails open.
+3. Findings 6 and 11.
+4. The validation group, 3, 4 and 5. Fold it into #1597's yearly-bills NEXT PR where it is the same class; #1597 already fixes the yearly income and obligation part.
+5. The rest.
+
+No build is started until the open PRs land (Dale's ask). Each fix is its own PR with invented repros, and the household-shape column says which ones can move a household figure.
+
 <a id="active-prepaid-bill-close"></a>
 
 **A bill paid before the active period's payday opening is deducted again from that close** · **ADDED TO BACKLOG — OPEN** · *H2-7, Gemini hunt 2 (#821 7091517953); retired by desk ruling and lead, #1594 closed without merging (7098398666)*

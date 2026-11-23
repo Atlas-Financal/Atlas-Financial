@@ -4266,8 +4266,13 @@
   // to the operating pay period.
   function carriedOnceJointCashOutflow(plan, id, date, start) {
     if (!plan || !id || !date || !start || date >= start) return false;
+    // Finding 2 (Gemini hunt 4): representedKeySet passes the date already
+    // moved to the statement's due date; the provider settlement lookup and
+    // the live overlay pass the row's original date. Either names this one
+    // occurrence; its identity stays the original date.
     const obligation = (plan.obligations || []).find(item => item && item.id === id
-      && item.frequency === 'once' && item.date === date
+      && item.frequency === 'once' && item.date
+      && (item.date === date || statementOccurrenceDate(plan, item.id, item.date) === date)
       && item.nonCash !== true
       && (obligationHasAmountSchedule(item) || obligationRegularAmountUnknown(item) || obligationMayBePositive(item)));
     if (obligation) return true;
@@ -17919,8 +17924,11 @@
           }
           if (u.carrier === 'obligation') {
             const o = (plan.obligations || []).find(row => row && row.id === u.id);
-            if (o && (o.nonCash || o.effect === 'capitalise'
-              || (o.jointCash === false && !o.cardPaid))) return false;
+            // A capitalising row's interest never leaves cash, but its
+            // cash minimum does: an unknown cash leg withholds the load
+            // like any unknown amount, never a silent known zero.
+            if (o && o.jointCash === false && !o.cardPaid) return false;
+            if (o && !u.cashMinimum && (o.nonCash || o.effect === 'capitalise')) return false;
             return true;
           }
           return false;
