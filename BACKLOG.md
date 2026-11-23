@@ -866,9 +866,9 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Closure:** when a statement is recorded on a `tdcc-auto17` occurrence, the fixed autopay is recorded as that occurrence's `sentPayments` entry (intent: fixed autopay), so the plan shows the payment made and the statement minimum stays visible as the floor. If a statement minimum ever exceeds the fixed amount, flag it to the lead for Dale.
 - Source: ATLAS REVIEWER 2 on #1514 (7058724201), lead ruling 2026-11-21.
 
-**`/assistant/mcp` spends about 7.8 s of main-thread work after its data read, outside every marked phase** · READY (ATLAS LEAD 12, 2026-11-22): low priority. Owner: unassigned. Not on the household page path.
+**`/assistant/mcp` spends about 7.8 s of main-thread work after its data read, outside every marked phase** · IN PROGRESS (ATLAS LEAD 12, 2026-11-23): phase marks added (GUARDS). Owner: the lead, for the prod reading. Not on the household page path.
 - **Why:** on prod `e5db93db` at 20:39Z, the request's `atlas-timing` line showed unattributed 7792 ms and `mainBusyMs` 7796. The likely cause is the assistant packet build or the MCP encoding, but no phase mark covers that span.
-- **Next action:** add phase marks inside the assistant route, then choose a fix from what they show.
+- **Next action:** ~~add phase marks inside the assistant route~~ done: each assistant `atlas-timing` line now carries `assistant: { packetBuild, packetCheck, encode, write }`. Next, one prod call names the 7.8 s; then choose a fix from what it shows.
 - Source: the lead, from the #1553/#1558 timing lines.
 
 **`test/browser-observation-memory.js` fails on plain main** · **DONE 2026-11-22** (fixed and registered; GUARDS). Light lane (tests).
@@ -881,6 +881,18 @@ New ideas that are not a #821 item 1–7 blocker go here until Atlas 1.0 is froz
 - **Why:** replay retention requires `qualified=true`, and an unqualified dated result clears retained evidence (`scripts/server-live-refresh.js` `publishResult`, around lines 640–680; `scripts/live-plan.js` `applyForServer`, around line 1953). `stale-live-cash-evidence` is day-based (`assertFreshLivePacket`, around line 308). On a day Lunch Money hasn't synced yet, nothing qualifies, so each open runs the full provider job.
 - **Next action:** a desk ruling on OD-031's design (the freshness contract, and any store or qualified-gate question) before any build. OD-030's declined swap stays out.
 - Source: ENGINE, relayed by ATLAS LEAD 12.
+
+**Live refresh worker CPU: profiled; three candidates closed, one held** · DISPOSITIONED (ATLAS LEAD 12, 2026-11-23). Do not re-profile these without new evidence. Owner: the lead (held items go to the desk with OD-031).
+- **Measured:** `scripts/live-refresh-benchmark.js`, history case (invented data), main `7ff6b144` (after #1564), local wall ms. Primary normalize 296, primary overlay 454 (Forecast 324 inside it), replay check 433 (sourceInputs about 25, replay normalize 264, replay overlay 144). Total about 1.2 s locally; prod runs about 15–20× slower.
+- **Replay check off the response path:** DROPPED. The replay check is about 36% of refresh CPU (433 of about 1,183 ms) but sits before serving. Serving early is unsafe because the served `qualified` feeds `completeDisplay` (`publishResult`), the forced-refresh rejection, the `X-Atlas-Observation-Qualified` header (`server.js` data route) and the assistant packet's `sourceCheck`. Revisit only with proof that no post-primary exception can flip `qualified`, or together with the OD-031 cache design.
+- **Dedupe the 200-day history read with the transaction window:** REJECTED. The window is 14 days (`CURRENT_STATE_HISTORY_DAYS`) against the history's 200 (`AMOUNT_HISTORY_DAYS`), so only about 7% of the rows overlap. Since #1564 the history read also runs in parallel with the other reads, so the wall-clock saving is near zero.
+- **Memoize Forecast within one refresh:** REJECTED, because it is already done. `scripts/operating-answer.js` `createRefreshEvaluation` keeps one deep-equal-keyed result per refresh, and the replay overlay hits it: Forecast runs once per refresh.
+- **Single-pass history normalize:** REJECTED as framed. The replay normalize is the verification itself: it re-observes the projected `sourceInputs` to prove the projection reproduces the same data, so its inputs differ by design and memoizing it is invalid. It moves into the OD-031 cache design, where unchanged evidence could skip re-verifying identical inputs (about 400 ms local, roughly 6–8 s prod).
+- **Run each sanitizer check once per object per refresh:** HELD for the desk, alongside OD-031. The profile's self-time across both passes is about 280 ms of 1.2 s (about 23%):
+  - `sanitizedCurrentPeriodActualsPass` 98, `currentPeriodActualsLooksSanitized` 50, `transactionLooksSanitized` 40, the privacy-field RegExp 39 and `identityProofLooksSanitized` 51;
+  - plus `structuredClone` 96 (38 clones) and GC 61.
+  The expected saving is about 10–15% of CPU, roughly 2–4 s prod. These are privacy guards, so the work is full lane. Proof needed: every guard still rejects each mutant it rejects today, at every boundary it guards (a mutant matrix test).
+- Source: ENGINE research for ATLAS LEAD 12, 2026-11-23.
 
 **Share the held Other Income set across one `recommend`** · PARKED (ATLAS LEAD 11, 2026-11-19). The lead takes it to the desk as a positive-list design after #1405 lands, because #1405 changes what feeds the hold set. Full lane, Atlas; a missed input publishes a wrong To-confirm hold, so this is a figure-risk change, not a small one.
 - **Why:** on the 753-purchase invented harness world (main `311c6c7b`), building the hold set (`computeHeldOtherIncomeKeys` → `calendarIncomeSections`, which scans every packet transaction in its span) is 292 of 1,035 ms inside `recommend`. One `recommend` builds it 36 times. The payday and weekly searches already share it within a search (#980 follow-up, #1406); the other callers do not.
