@@ -33,6 +33,31 @@ test('full payment is Paid through completion-period end and absent at next open
   assert.ok(!p.funding.backing.items.some(r=>r.id==='near'));
   assert.ok(!p.inventory.pools[0].plannedGoals.some(g=>g.key==='commitment:near'));
 });
+for (const grouped of [false, true]) {
+  test('Stack Savings leaves out a settlement-paid ' + (grouped ? 'group member' : 'standalone goal'), () => {
+    const x = input();
+    const [near, far] = x.plan.commitments;
+    if (!grouped) delete near.group;
+    near.confidence = 'estimated';
+    far.date = '2026-11-10';
+    const advice = F.recommend(x.plan, x.asOf, { ...x.opts, settlementEvidence: evidence(), debts: [] });
+    assert.equal(advice.savingsFunding.backing.items.find(i => i.id === 'near').paymentStatus, 'paid');
+
+    // The 60 payment settles near. It does not reduce the reported 95 + 24.
+    // Home takes 24 first; far takes the remaining 95 of its 170. The paid
+    // estimate supplies neither the group's position nor any goal's trust.
+    const home = ['yearly-bill:home-cost', 24, 24, 'calculated'];
+    const club = ['group:club', 95, 170, 'calculated'];
+    for (const role of ['current', 'next']) {
+      const { items, totals } = advice.payPeriodViews.find(v => v.timelineRole === role).stackSummary.savings;
+      assert.ok(!totals.reasons.includes('rows-items-mismatch'));
+      // In the next period home is due and leaves the list, keeping its 24.
+      assert.deepEqual(items.map(i => [i.id, i.saved, i.needed, i.trust]), role === 'current' ? [home, club] : [club]);
+      assert.deepEqual([totals.balance, totals.saved, totals.needed, totals.unallocated, totals.trust],
+        role === 'current' ? [119, 119, 194, 0, 'calculated'] : [119, 95, 170, 0, 'calculated']);
+    }
+  });
+}
 test('partial, over-assigned and reversal-tainted payments never retire',()=>{
   for(const cents of [2500,6100]) {
     const p=surfaces('2026-10-30',evidence(cents));

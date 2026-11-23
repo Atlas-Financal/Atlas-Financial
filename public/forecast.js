@@ -45,7 +45,7 @@
       paymentAllocations: reconciliation.paymentAllocations,
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
-      date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
+      date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
@@ -54,6 +54,8 @@
       replacedPending: tx => isPossibleReplacementPending(tx, duplicateIds) && !(tx.id != null && pendingEstimateIds.has(String(tx.id))),
       // The row this same pairing matched to tx one for one (its id), or null: never a second matcher.
       pendingPostedPartner: tx => (tx && tx.id != null && pairs.get(String(tx.id))) || null,
+      // The one hold/release decision (pendingHoldReleases): both legs are left off the card's rows and Spent.
+      holdReleaseLeg: tx => pendingHoldReleaseLeg(tx, packet),
       classify: (tx, selectedPlan) => classifyCurrentPeriodTransaction(tx, selectedPlan,
         Object.assign({}, opts, { currentPeriodActuals: packet, useActuals: true })),
     });
@@ -1223,6 +1225,13 @@
   // Forecast reconciles it. Neither history nor a proposal is a balance.
   const SAVINGS_INSTRUCTIONS_HELD = 'Additional savings proposals are withheld until the funding plan accounts for existing assignments and the cash used to pay each cost.';
   const SAVINGS_ALIAS = /^[a-z][a-z0-9-]{0,63}$/;
+  // The one money qualification for a card row: explicit CAD, no currency conflict or unconfirmed settlement, and
+  // strict signed cents, else null. The card publication reads it as its money primitive and
+  // pendingHoldReleases reads it for every leg and final, so a row the card would withhold never drops a hold.
+  function cardMoneyCents(tx) {
+    return tx?.coverageCurrencyConflict !== true && tx?.currencySettlementUnconfirmed !== true
+      && typeof tx?.currency === 'string' && tx.currency.trim().toLowerCase() === 'cad' ? savingsCents(tx.amount, true) : null;
+  }
   function savingsCents(value, signed) {
     if (typeof value !== 'number' || !Number.isFinite(value) || (value < 0 && !signed)) return null;
     const cents = Math.round(value * 100);
@@ -2179,6 +2188,7 @@
   }
   function savingsItemMember(tx, plan, opts) {
     const packet = opts && (opts.packet || opts.currentPeriodActuals);
+    if (pendingHoldReleaseLeg(tx, packet)) return null;
     const member = tx && tx.id != null ? savingsItemMembership(plan, packet)?.get(String(tx.id)) : null;
     return member && member.date === tx.date ? member : null;
   }
@@ -7272,6 +7282,142 @@
     return flagged;
   }
 
+  // A pending authorization hold and its release (owner decision, Dale, 2026-11-23, #821 7089360610: a narrow,
+  // owner-directed exception to rule 17's "no matching", for pending rows only). A pending charge and an
+  // uncategorized pending credit of exactly equal and opposite amount, on the same account, dated within
+  // HOLD_RELEASE_WINDOW_DAYS of each other, are one hold and its release: neither leg counts as spending, on the
+  // (the credit is uncategorized, or carries the same ledger spending category as the charge: lead ruling (b),
+  // ATLAS LEAD 12, 2026-11-23, from the live ledger, where the release carries its hold's category; a standalone
+  // refund of any other shape is untouched and stays unlinked, LEDGER A item 3)
+  // Stack card or in any Budget category (classifyTransaction and the card publication read this one decision).
+  // Posted rows are never paired. The credit must carry no ledger category and no payment or refund identity; a
+  // row already in the pending/posted pairing (pendingPostedDuplicateIdSet) or flagged ambiguous or contradictory
+  // is never a leg. Several equal charges for one credit: the earliest same-account charge (date, then id) is
+  // paired; the totals are identical whichever equal charge is chosen. Sums (debt, utilisation) are unchanged:
+  // the two legs net to zero.
+  // (B), after (A) (addendum, Dale, 2026-11-23, #821 7089379689: one number per purchase through hold -> release ->
+  // final): a pending charge superseded by a posted charge from the same merchant (spendDuplicateKey's merchant key)
+  // on the same account, dated 0 to HOLD_RELEASE_WINDOW_DAYS days after it, within the larger of 20% of the pending
+  // amount and $25, is that same purchase: the pending hold is dropped and the posted charge counts. One posted charge
+  // supersedes at most one pending charge; on ambiguity the closest amount wins, then the closest date, then the
+  // earliest pending row (date, then id), then the earliest posted row. The ledger's own pending/posted link
+  // (pendingPostedDuplicateIdSet) runs first, and a row consumed by one rule is never consumed by another.
+  const HOLD_RELEASE_WINDOW_DAYS = 7;
+  const SUPERSEDE_TOLERANCE_SHARE = 0.2, SUPERSEDE_TOLERANCE_CENTS = 2500;
+  const holdReleaseCache = new WeakMap();
+  const NO_HOLD_RELEASES = Object.freeze({ legs: new Set(), pairs: Object.freeze([]), superseded: Object.freeze([]) });
+  function pendingHoldReleases(packet) {
+    const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
+    if (!txs) return NO_HOLD_RELEASES;
+    const cached = holdReleaseCache.get(txs);
+    if (cached && cached.length === txs.length) return cached.result;
+    const duplicateIds = pendingPostedDuplicateIdSet(packet);
+    // One native id, one row: an id the packet carries more than once is never a leg or a replacement, so no row can
+    // be consumed twice and a distinct charge is never hidden behind a repeated release (review 7089951090, finding 3).
+    const idCounts = new Map();
+    for (const tx of txs) if (tx && tx.id != null) idCounts.set(String(tx.id), (idCounts.get(String(tx.id)) || 0) + 1);
+    const repeatedId = tx => idCounts.get(String(tx.id)) !== 1;
+    const day = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? Date.parse(value + 'T00:00:00Z') / 86400000 : NaN;
+    // A hold is an authorization on a card purchase. An issuer charge (interest, a finance charge), a represented
+    // card bill, a transfer or excluded-from-totals row, or a payment or refund is never a leg or a final: each stays
+    // with its incumbent owner (the pending card exposure check counts it, test-budget-pending-card-funding).
+    const NOT_PURCHASE_HINTS = new Set(['finance-charge', 'transfer', 'payment', 'card-payment', 'bill-payment', 'refund']);
+    const notPurchase = tx => isRevolvingCardFinanceCharge(tx) || tx.representedBill === true || tx.excludeFromTotals === true
+      || tx.cardPaymentIdentity === true
+      || NOT_PURCHASE_HINTS.has(typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '');
+    const leg = tx => {
+      if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'pending'
+        || tx.isGroup === true || duplicateIds.has(String(tx.id)) || repeatedId(tx)
+        || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true || notPurchase(tx)) return null;
+      const account = tx.atlasAccountId || tx.account;
+      const at = day(tx.date);
+      // Card accounts only: an authorization hold is card behaviour. A pending row on household cash (a bill payment,
+      // a transfer) stays with its incumbent owners and is never a leg (test-pending-then-posted-bill-once).
+      if (tx.accountRole !== 'revolving-credit') return null;
+      // The card publication's own money qualification (cardMoneyCents): a row it would withhold is
+      // never a leg (review 7090113373).
+      const cents = cardMoneyCents(tx);
+      if (!account || cents === null || cents === 0 || !isFinite(at)) return null;
+      return { tx, id: String(tx.id), account: String(account), cents, at, date: tx.date,
+        category: normalizeCategoryLabel(tx.categoryLabel) };
+    };
+    const order = (a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const charges = [], credits = [];
+    for (const tx of txs) {
+      const row = leg(tx);
+      if (!row) continue;
+      if (row.cents > 0) charges.push(row);
+      else {
+        const hint = typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '';
+        if (tx.cardPaymentIdentity === true || ['payment', 'card-payment', 'bill-payment', 'refund'].includes(hint)) continue;
+        credits.push(row);
+      }
+    }
+    charges.sort(order);
+    credits.sort(order);
+    const legs = new Set(), pairs = [];
+    for (const credit of credits) {
+      if (legs.has(credit.id)) continue;
+      const uncategorized = lunchMoneyLeftUncategorised(credit.category);
+      const charge = charges.find(c => !legs.has(c.id) && c.account === credit.account && c.cents === -credit.cents
+        && Math.abs(c.at - credit.at) <= HOLD_RELEASE_WINDOW_DAYS
+        && (uncategorized || c.category === credit.category));
+      if (!charge) continue;
+      legs.add(charge.id);
+      legs.add(credit.id);
+      pairs.push(Object.freeze({ chargeId: charge.id, creditId: credit.id, account: credit.account,
+        amount: charge.cents / 100, chargeDate: charge.date, creditDate: credit.date }));
+    }
+    // (B): a posted charge supersedes the pending hold for the same purchase.
+    const merchantOf = tx => normalizeMerchantKey(txMerchantExact(tx));
+    const posted = [];
+    for (const tx of txs) {
+      // The replacement must be posted by the ledger itself, with native posted evidence (pending false and posting
+      // evidence 'posted'): a pending row Forecast only presumes settled for planning, or a row whose posting evidence
+      // is unknown, is not a posted final (reviews 7089951090 finding 2, 7092825238).
+      if (!tx || tx.id == null || String(tx.id) === '' || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
+        || transactionPendingState(tx) !== 'posted'
+        || tx.isGroup === true || tx.accountRole !== 'revolving-credit' || repeatedId(tx) || notPurchase(tx)
+        || duplicateIds.has(String(tx.id)) || tx.pendingPostedAmbiguous === true || tx.contradictoryEvidence === true) continue;
+      const account = tx.atlasAccountId || tx.account;
+      const at = day(tx.date);
+      const merchant = merchantOf(tx);
+      // The same money qualification as a pending leg, the card publication's own.
+      const cents = cardMoneyCents(tx);
+      if (!account || cents === null || cents <= 0 || !isFinite(at) || !merchant) continue;
+      posted.push({ id: String(tx.id), account: String(account), cents, at, date: tx.date, merchant });
+    }
+    const candidates = [];
+    for (const hold of charges) {
+      const merchant = merchantOf(hold.tx);
+      if (!merchant) continue;
+      const tolerance = Math.max(Math.round(hold.cents * SUPERSEDE_TOLERANCE_SHARE), SUPERSEDE_TOLERANCE_CENTS);
+      for (const post of posted) {
+        const days = post.at - hold.at, gap = Math.abs(post.cents - hold.cents);
+        if (post.account !== hold.account || post.merchant !== merchant || days < 0 || days > HOLD_RELEASE_WINDOW_DAYS
+          || gap > tolerance) continue;
+        candidates.push({ hold, post, gap, days });
+      }
+    }
+    candidates.sort((a, b) => a.gap - b.gap || a.days - b.days || order(a.hold, b.hold) || order(a.post, b.post));
+    const superseded = [], usedPosted = new Set();
+    for (const { hold, post } of candidates) {
+      if (legs.has(hold.id) || usedPosted.has(post.id)) continue;
+      legs.add(hold.id);
+      usedPosted.add(post.id);
+      superseded.push(Object.freeze({ pendingId: hold.id, postedId: post.id, account: hold.account,
+        pendingAmount: hold.cents / 100, postedAmount: post.cents / 100, pendingDate: hold.date, postedDate: post.date }));
+    }
+    const result = Object.freeze({ legs, pairs: Object.freeze(pairs), superseded: Object.freeze(superseded) });
+    holdReleaseCache.set(txs, { length: txs.length, result });
+    return result;
+  }
+  function pendingHoldReleaseLeg(tx, packet) {
+    return !!(tx && tx.id != null && transactionPendingState(tx) === 'pending'
+      && pendingHoldReleases(packet).legs.has(String(tx.id)));
+  }
+
   function isPossibleReplacementPending(tx, duplicateIds) {
     if (!tx || transactionPendingState(tx) !== 'pending') return false;
     if (tx.id == null || !duplicateIds) return false;
@@ -7880,6 +8026,11 @@
     return cls;
   }
   function classifyTransaction(tx, plan, opts) {
+    // A pending hold and its release (pendingHoldReleases) are not spending in any view.
+    if (pendingHoldReleaseLeg(tx, opts && (opts.packet || opts.currentPeriodActuals))) {
+      return { kind: 'hold-release', categoryId: null, householdSpending: false, atlasRow: null,
+        reason: 'pending-hold-release', includeReason: 'pending-hold-release' };
+    }
     const cls = withMortgageDueNote(tx, plan, opts,
       merchantLabelUnbudgetedResult(tx, classifyCurrentPeriodTransactionCore(tx, plan, opts)));
     if (cls && cls.householdSpending === true && tx && tx.accountRole === 'household-reserve'
@@ -9117,6 +9268,8 @@
         continue;
       }
       if (cls.kind === 'interest') { out.excluded.interest = roundCent((out.excluded.interest || 0) + amt); continue; }
+      // A consumed pending hold or release (Forecast.pendingHoldReleases) is neither spending nor any other actual.
+      if (cls.kind === 'hold-release') continue;
       if (cls.kind === 'savings-paid') {
         // Savings audit (PR 1): already in observed Savings; not household cash.
         out.excluded.savingsPaid = roundCent((out.excluded.savingsPaid || 0) + amt);
@@ -9421,7 +9574,7 @@
       || cls.kind === 'business' || cls.kind === 'external' || cls.kind === 'bill'
       || cls.kind === 'refund' || cls.kind === 'interest' || cls.kind === 'unmapped'
       || cls.kind === 'savings-item' || cls.kind === 'savings-paid'
-      || cls.kind === 'held-outflow') {
+      || cls.kind === 'held-outflow' || cls.kind === 'hold-release') {
       return false;
     }
     if (cls.needsConfirmation || cls.kind === 'unclassified') return true;
@@ -12853,8 +13006,8 @@
   //            on is withheld: the pour never skips an unknown).
   //   rows     savingsFunding.rows, each the sum of its member items, listed
   //            in pour order; unallocated is what is left after the last item.
-  //            A row the owner confirmed paid (every member paid) is left off:
-  //            there is nothing left to save for it.
+  //            Paid goals leave the pour and the rows. A group keeps its
+  //            unpaid members in their own pour order.
   // Every figure is null when withheld, never 0; the goal names always show.
   // A tag is never more certain than its inputs: an item's saved depends on
   // the balance and on every need poured before it, so it carries the
@@ -12892,18 +13045,24 @@
     const periodEnd = typeof view.end === 'string' ? view.end : null;
     const pourStart = current && typeof current.start === 'string' ? current.start : null;
     const bounded = periodEnd !== null && pourStart !== null;
-    const allItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
+    const fundingItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
       ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
+    // Settlement-paid goals may still have a backing item, including inside
+    // a partly paid group. Owner-confirmed goals may have only a paid row.
+    const paidKeys = new Set(fundingItems.filter(item => item?.paymentStatus === 'paid').map(item => item.key));
+    const allItems = fundingItems.filter(item => item?.paymentStatus !== 'paid');
     const dated = item => item && typeof item.key === 'string' && typeof item.date === 'string';
     const gone = new Set(!bounded ? [] : allItems.filter(item => dated(item) && item.date < pourStart).map(item => item.key));
     const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));
     const items = allItems.filter(item => !(item && gone.has(item.key)));
     const allRows = (funding && Array.isArray(funding.rows) ? funding.rows : [])
-      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid');
+      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid')
+      .map(row => paidKeys.size && Array.isArray(row.members)
+        ? { ...row, members: row.members.filter(key => !paidKeys.has(key)) } : row);
     const balance = !bounded ? { cents: null, trust: 'unavailable', reason: 'period-bounds-unknown' } : stackSavingsBalance(funding);
     const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(gone.size || hidden.size ? ['items-due-this-period-left'] : [])];
-    // The rows must name every item exactly once, or the card would print
-    // goals that do not add up to the pour. Checked before anything leaves.
+    // The unpaid rows must name every unpaid item exactly once. Check before
+    // removing members by date, so a hidden mismatch still withholds figures.
     const members = allRows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
     const keys = allItems.map(item => item && item.key);
     const coherent = members.length === keys.length && new Set(members).size === members.length
@@ -15874,7 +16033,12 @@
     const aggregateReversalCashRefs = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingPaymentIds = opts.paymentDiagnostics === true ? new Set() : null;
     const conflictingReversalRefs = opts.paymentDiagnostics === true ? new Set() : null;
-    const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet));
+    // A pending hold and its release, or a hold its posted final superseded (Forecast.pendingHoldReleases, the one
+    // decision the classifier, the Budget and the card publication read), is neither a purchase nor a credit here:
+    // coverage leaves it out exactly as they do, so it never withholds the plan as an unconfirmed purpose.
+    const holdReleaseLeg = tx => pendingHoldReleaseLeg(tx, packet);
+    const rows = input.filter(tx => tx && tx.date >= origin && tx.date <= asOf && !skipSplitParent(tx, packet)
+      && !holdReleaseLeg(tx));
     // Broader movement labels identify a leg only after an explicit household
     // confirmation names that reference. Category/hint alone never pairs a
     // transfer, assigns purchase coverage, or settles a minimum.
@@ -16037,7 +16201,7 @@
       if (validOpening && periodOf(origin) !== origin) issue('coverage-opening-not-pay-period-start');
       const pairFrom = addDays(origin, -CARD_PAYMENT_PAIR_DAYS);
       const pool = input.filter(tx => tx && savingsDate(tx.date) && tx.date >= pairFrom && tx.date <= asOf
-        && !skipSplitParent(tx, packet) && tx.accountRole !== 'household-external');
+        && !skipSplitParent(tx, packet) && tx.accountRole !== 'household-external' && !holdReleaseLeg(tx));
       const legs = { cardCredit: [], cardDebit: [], cashDebit: [], cashCredit: [], reserveDebit: [] };
       const refundRows = [];
       for (const tx of pool) {
@@ -22661,6 +22825,8 @@
         for (const pendingTx of transactions) {
           if (!pendingTx || transactionPendingState(pendingTx) !== 'pending'
               || skipSplitParent(pendingTx, actuals)) continue;
+          // A consumed hold (Forecast.pendingHoldReleases) is released or superseded: it is no longer card exposure.
+          if (pendingHoldReleaseLeg(pendingTx, actuals)) continue;
           if (![pendingTx.atlasAccountId, pendingTx.account, pendingTx.accountId]
             .some(id => id != null && String(id) === account)) continue;
           const amount = Number(pendingTx.amount);
@@ -30886,7 +31052,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, stackCardSummary, stackCreditLines,
+    cardPeriodMovements, stackCardSummary, stackCreditLines, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
