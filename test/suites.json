@@ -90,6 +90,7 @@
   ["posted income and unresolved future occurrence cash gate","test-early-income-uncertainty.js"],
   ["bounded live refresh and client cancellation","test-live-refresh-deadline.js"],
   ["equivalent in-flight refresh sharing, caller isolation and sanitized timings","test-live-refresh-coalescing.js"],
+  ["boot warm-up: one ordinary refresh per process start, joined by an open, never retried, off unless switched on (Dale, 2026-11-23)","test-live-refresh-warmup.js"],
   ["private qualified observation reuse, Manual Refresh, context and restart","test-server-observation-memory.js"],
   ["replay result reuse: identical inputs skip Forecast; changed observation, plan, day, engine or write recompute (#822 c)","test-replay-result-reuse.js"],
   ["latest complete refresh retains one dated cohort and truthful failed attempt","test-latest-complete-refresh.js"],
