@@ -22,6 +22,11 @@ services:
       # one GET-only read per pay period, off unless switched on.
       - key: ATLAS_LIVE_OVERLAY
         value: "live"
+      # Boot warm-up (owner grant, ARCHITECTURE.md "Boot warm-up"): one read-only
+      # live refresh when the server starts listening, through the on-demand path.
+      # Off unless exactly "on". No retry, no schedule, no write.
+      - key: ATLAS_LIVE_REFRESH_WARMUP
+        value: "on"
       # Owner-supplied Lunch Money GET-only token. Never commit a value.
       - key: LUNCHMONEY_ACCESS_TOKEN
         sync: false
