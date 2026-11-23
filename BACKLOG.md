@@ -330,9 +330,9 @@ Inferred personal from its transactions, not verified.
 
 <a id="gemini-hunt-4-dates-schedules"></a>
 
-**Gemini hunt 4 (dates and schedules): 15 findings, none overstating money today** · **ADDED TO BACKLOG — OPEN** · *lead triage on #821 (7101135186), main `006b2c3b`; read-only hunt, invented repros only*
+**Gemini hunt 4 (dates and schedules): 15 findings, none overstating a household figure today** · **ADDED TO BACKLOG — OPEN** · *lead triage on #821 (7101135186), main `006b2c3b`; read-only hunt, invented repros only*
 
-The lead re-ran the repros for 2, 6 and 1, and checked (by ids only) which input shapes the household's committed plan carries, so each row says whether it can reach a published household figure today. Only finding 11 matches the household's current shape (ended monthly card-minimum rows with `lastDue` before today), and it errs toward caution. Nothing found makes a household figure look better than it is.
+The lead re-ran the repros for 2, 6 and 1, and checked (by ids only) which input shapes the household's committed plan carries, so each row says whether it can reach a published household figure today. Only finding 11 matches the household's current shape (ended monthly card-minimum rows with `lastDue` before today), and it errs toward caution. Two findings could fail open: 1 (the period view's bill load may read 0) and 11's once-moved half. Neither shape is in the household plan today: the lead checked, ids only, that there's no capitalising obligation with an amountSchedule and no once obligation with statementOccurrences. So no household figure is overstated today, but both stay open.
 
 | # | Finding (short) | Lead check | Household shape present? | Direction |
 |---|---|---|---|---|
