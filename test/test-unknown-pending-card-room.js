@@ -38,6 +38,22 @@ const debts = unknown => [
   { id: 'heloc', label: 'Invented HELOC', balance: 5000, rate: 6, secured: true },
 ];
 
+// Posted and pending are bank amounts in cents. One cent posted and five
+// cents pending exactly fill a six-cent limit, so the cure action is done.
+for (const [limit, overLimit] of [[0.05, true], [0.06, false], [0.07, false]]) {
+  const card = { id: 'boundary-card', label: 'Invented card', balance: 0.01, pending: 0.05, limit, rate: 0 };
+  const extra = { id: 'boundary-line', label: 'Invented line', used: 0.01, pending: 0.05, limit };
+  const actions = [card, extra].map(debt => ({ debtId: debt.id }));
+  const publication = F.utilisation([card], [extra], plan);
+  ok(publication.rows.every(row => row.overLimit === overLimit),
+    `card and line agree with the cent-exact limit ${limit}`);
+  ok(F.resolveActions({ ...plan, actions }, [card], [extra]).every(action => action.status === (overLimit ? 'open' : 'done')),
+    'the limit action stays open only while the facility is over');
+  const projection = F.projectDebts(plan, [card], START, { horizonDays: 1 });
+  ok(projection.marks[0].overLimitCount === Number(overLimit) && projection.crossings.length === Number(overLimit),
+    'the current debt timeline and crossing warning agree with the limit action');
+}
+
 console.log('=== 1. utilisation: credit left ===');
 {
   const known = F.utilisation(debts(false), [], plan);
