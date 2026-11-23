@@ -152,5 +152,21 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await m.close();
   }
 
+  console.log('7. A genuine failure is not masked by an outer abort that lands with it');
+  {
+    // Deterministic: the categories read aborts the outer signal, then fails genuinely. The earlier-listed sibling
+    // rejects with the cancellation first; the genuine failure must still be the one reported.
+    const outer = new AbortController();
+    const cancellable = signal => new Promise((_, reject) => signal.addEventListener('abort',
+      () => reject(new Error('Live refresh cancelled.')), { once: true }));
+    const tasks = [['tags', cancellable], ['categories', async () => { await pause(5); outer.abort();
+      throw new Error('/v2/categories failed with HTTP 503'); }], ['recurring', cancellable]];
+    await assert.rejects(O.liveParallelReads(tasks, outer.signal), error => /categories failed with HTTP 503/.test(error.message)); checks++;
+    const onlyAbort = new AbortController();
+    const quiet = O.liveParallelReads([['tags', cancellable], ['recurring', cancellable]], onlyAbort.signal);
+    onlyAbort.abort();
+    await assert.rejects(quiet, error => error.message === 'Live refresh cancelled.'); checks++;
+  }
+
   console.log(`provider acquire parallel: ${checks} checks passed`);
 })().catch(error => { console.error(error); process.exit(1); });

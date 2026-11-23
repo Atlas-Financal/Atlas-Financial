@@ -946,18 +946,16 @@ async function liveParallelReads(tasks, outerSignal) {
     else outerSignal.addEventListener('abort', onOuter, { once: true });
   }
   const results = {}, failures = [];
-  let firstFailure = null, next = 0;
+  let next = 0;
   const runOne = async index => {
     const [name, run] = tasks[index];
     const started = performance.now();
     try { results[name] = await run(controller.signal); }
     catch (error) {
-      // Only the shared abort's own cancellation is a casualty of a sibling's failure; any other error
-      // (an HTTP failure, a timeout) is genuine, so near-simultaneous failures report deterministically.
-      const casualty = controller.signal.aborted && !(outerSignal && outerSignal.aborted)
-        && error && error.message === 'Live refresh cancelled.';
-      if (!casualty) failures.push({ index, error });
-      if (firstFailure === null) firstFailure = error;
+      // A cancellation (outer abort or a sibling's failure) is never a provider failure; any other error
+      // (an HTTP failure, a timeout) is genuine and wins over cancellation, even after an outer abort.
+      const cancelled = controller.signal.aborted && error && error.message === 'Live refresh cancelled.';
+      if (!cancelled) failures.push({ index, error });
       controller.abort();
     } finally {
       StageTiming.providerRead(name, performance.now() - started);
@@ -971,9 +969,8 @@ async function liveParallelReads(tasks, outerSignal) {
   } finally {
     if (outerSignal) outerSignal.removeEventListener('abort', onOuter);
   }
-  if (outerSignal && outerSignal.aborted) throw firstFailure || new Error('Live refresh cancelled.');
   if (failures.length) throw failures.sort((x, y) => x.index - y.index)[0].error;
-  if (controller.signal.aborted) throw firstFailure || new Error('Live refresh cancelled.');
+  if (controller.signal.aborted) throw new Error('Live refresh cancelled.');
   return results;
 }
 
@@ -8456,6 +8453,7 @@ const api = {
   displayedItemNote,
   observe,
   fetchLunchMoneyLive,
+  liveParallelReads,
   sanitizedBudgetEvidence,
   budgetEvidenceLooksSanitized,
   resolveLiveToken,
