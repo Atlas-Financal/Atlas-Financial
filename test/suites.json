@@ -623,6 +623,7 @@
   ["Amanda's pay counts when a posted credit within $5 of that payday's amount reaches Bills within 3 business days of it; two candidates or one credit fitting two paydays stay To confirm (Q2)","test-amanda-pay-near-amount.js"],
   ["A plain Bills credit that could be Amanda's pay, posted before the owner's window, holds her next payday instead of counting twice (U6)","test-amanda-pay-early-plain-credit.js"],
   ["An early or split salary credit is held To confirm over its payday's run-up and the payday is counted once, including across a period opening","test-early-salary-credit-counted-once.js"],
+  ["A payroll credit posted a day early is counted once in the next opening, its sweep and the savings schedule","test-early-payroll-leg-counted-once.js"],
   ["A projected period's savings top-up and the payday lens reprint the Budget's own period funding; unpublished funding is withheld, never zero","test-savings-projected-topup-one-authority.js"],
   ["A near-due bill payment seen pending, then posted days later without a provider link, is deducted once: the posted copy stays held To confirm","test-near-due-pending-replacement.js"],
   ["A card minimum settles from Lunch Money's own match only for one payment covering a confirmed statement minimum in its cycle; otherwise it stays withheld (E2)","test-lunchmoney-matched-card-minimum.js"],
