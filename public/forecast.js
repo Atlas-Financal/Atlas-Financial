@@ -15050,9 +15050,12 @@
   // amount, its remaining requirement and its place in the planned bill load.
   // Only the period's cash close (and the sweep built on it) skips it, once
   // Forecast's own settlement decision proves the issuer satisfied this exact
-  // statement occurrence AND the sent debit is already inside the cash base
-  // (additionalCashRequired 0). Sent alone, another cycle or unproven
-  // inclusion gets no relief: those rows carry no 0 here.
+  // statement occurrence AND the sent debit is already inside the as-of cash
+  // (additionalCashRequired 0), and only when that close opens on the
+  // cutover walk from that as-of cash. A carry-forward chain may start from a
+  // payday snapshot taken before the debit, so it gets no relief (cautious:
+  // a missed relief understates cash; a false one would overstate it). Sent
+  // alone, another cycle or unproven inclusion gets no relief either.
   function minimumAlreadyInFutureCash(row) {
     return !!(row && row.status !== 'PAID' && row.cashPaymentStatus === 'sent'
       && row.issuerMinimumStatus === 'satisfied' && row.cashInclusionStatus === 'included'
@@ -18368,7 +18371,8 @@
       const closeBillLoad = planUnavailable || billLoadUnknown
         ? null
         : periodWaterfallBillLoad(assignedBillRows, openingAsOf, openingSource,
-          row => projected && minimumAlreadyInFutureCash(row) ? 0 : deductedBillAmount(row));
+          row => projected && openingSource === 'cutover-walk' && minimumAlreadyInFutureCash(row)
+            ? 0 : deductedBillAmount(row));
       const paidBills = planUnavailable ? null : periodPaidBillDisclosure(bills);
       // Balance After Deductions is the household remaining:
       // displayed period income − assigned bills − Household Budget.
