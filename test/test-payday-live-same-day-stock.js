@@ -32,7 +32,7 @@ const OLD = prior.module.exports;
 let checks = 0, failures = 0;
 const ok = (cond, label, detail) => { checks++; if (cond) console.log('  PASS  ' + label); else { failures++; console.log('  FAIL  ' + label + (detail ? ' — ' + detail : '')); } };
 const P = '2026-10-09';
-function plan({ represented = false, base = false } = {}) {
+function plan({ represented = false, base = false, chequingB = 0 } = {}) {
   return {
     opening: { asOf: P,
       ...(represented ? { representedEvents: [{ id: 'payroll', date: P }] } : {}),
@@ -41,7 +41,7 @@ function plan({ represented = false, base = false } = {}) {
         fromAsOf: '2026-10-07', through: '2026-10-08' } } : {}) },
     startingCash: { asOf: P, breakdown: [
       { id: 'chequing-a', value: 3000, confidence: 'confirmed', evidenceDate: P },
-      { id: 'chequing-b', value: 0, confidence: 'confirmed', evidenceDate: P }] },
+      { id: 'chequing-b', value: chequingB, confidence: 'confirmed', evidenceDate: P }] },
     income: [{ id: 'payroll', label: 'Payroll — Seaspan', frequency: 'biweekly', anchor: P, amount: 2000, confidence: 'confirmed' }],
     bills: [], obligations: [], commitments: [], budget: { categories: [] },
   };
@@ -114,6 +114,22 @@ console.log('5. The independently qualified pre-payday base supplies the Bills p
     'paydayAllocation: 2,960.00, estimated, from that base (not 5,000.00)', JSON.stringify([a.available, a.paydayShellTrust.available]));
   const unqualified = alloc(plan({ base: true }), live({ currentPeriodActuals: packet, observedCash: observed(2999.99) }));
   ok(withheld(unqualified), 'the same base beside an unqualified observed row still withholds');
+  // Every retained cash component must be qualified (review 7095799594): Chequing B 700.00 in the opening.
+  const withB = (accounts, complete = true) => live({ currentPeriodActuals: packet,
+    observedCash: { complete, asOf: P, accounts } });
+  const billsRow = { id: 'chequing-a', value: 3000, evidenceDate: P };
+  const bRow = (value = 700) => ({ id: 'chequing-b', value, evidenceDate: P });
+  const both = alloc(plan({ base: true, chequingB: 700 }), withB([billsRow, bRow()]));
+  ok(both.available === 3660 && both.paydayShellTrust.available === 'estimated' && !both.paydayBalance,
+    'both chequing rows qualified: 3,700.00 opening - 3,000.00 Bills + 2,960.00 = 3,660.00, estimated',
+    JSON.stringify([both.available, both.paydayShellTrust.available]));
+  for (const [name, o] of [
+    ['an explicitly incomplete observation (only the Bills row)', withB([billsRow], false)],
+    ['complete, but no Chequing B row', withB([billsRow])],
+    ['a Chequing B row not matching the opening', withB([billsRow, bRow(699.99)])],
+    ['a Chequing B row dated another day', withB([billsRow, { ...bRow(), evidenceDate: '2026-10-08' }])],
+    ['an incomplete observation with both rows', withB([billsRow, bRow()], false)],
+  ]) ok(withheld(alloc(plan({ base: true, chequingB: 700 }), o)), `${name}: withheld, not 3,660.00`);
 }
 
 console.log('6. Downstream: no $0.00 leftover, and the assistant packet reads unavailable');

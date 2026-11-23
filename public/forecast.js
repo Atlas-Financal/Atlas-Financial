@@ -21699,17 +21699,27 @@
     if (!cycle || cycle.start !== day) return null;
     const payroll = dalePayrollEventOn(plan, day, opts);
     if (!payroll || dalePayrollRepresented(plan, payroll, day, opts)) return null;
-    // The opening is proven to be that same-day provider stock only by one qualified observed
-    // chequing-a row; an incomplete live feed is not a dated opening (qualified: false withholds).
+    // The opening is proven to be that same-day provider stock only by a complete observation with
+    // one qualified row per household chequing account (chequing-a, the Bills row, included), each
+    // dated today and equal to its opening row to the cent: the pre-payday recovery keeps every other
+    // retained cash component, so each must be qualified too (#1591 review). An incomplete live feed
+    // is not a dated opening (qualified: false withholds).
     const observed = opts.observedCash;
-    const rows = observed && financialDate(observed.asOf) === day && Array.isArray(observed.accounts)
-      ? observed.accounts.filter(row => row && row.id === BILLS_ACCOUNT_ID) : [];
-    const row = rows.length === 1 ? rows[0] : null;
-    const value = !row || row.value == null || row.value === '' || typeof row.value === 'boolean' ? NaN : Number(row.value);
-    const posted = postedBillsAccountCash(plan);
-    const qualified = !!row && Number.isFinite(value) && row.unknown !== true && financialDate(row.evidenceDate) === day
-      && ![row.confidence, row.status].some(tag => tag != null && !['verified', 'confirmed', 'calculated'].includes(tag))
-      && posted != null && Math.round(value * 100) === Math.round(posted * 100);
+    const accounts = observed && observed.complete === true && financialDate(observed.asOf) === day
+      && Array.isArray(observed.accounts) ? observed.accounts : null;
+    const opening = householdChequingOpeningRows((plan && plan.startingCash) || {});
+    const rowQualified = (id, expected) => {
+      const found = accounts ? accounts.filter(row => row && row.id === id) : [];
+      if (found.length !== 1 || expected == null) return false;
+      const row = found[0];
+      const value = row.value == null || row.value === '' || typeof row.value === 'boolean' ? NaN : Number(row.value);
+      return Number.isFinite(value) && row.unknown !== true && financialDate(row.evidenceDate) === day
+        && ![row.confidence, row.status].some(tag => tag != null && !['verified', 'confirmed', 'calculated'].includes(tag))
+        && Math.round(value * 100) === Math.round(expected * 100);
+    };
+    const qualified = !!accounts && opening.length > 0
+      && opening.some(row => row.id === BILLS_ACCOUNT_ID)
+      && opening.every(row => rowQualified(row.id, row.value));
     return { payroll, qualified };
   }
   function withholdPaydayBalanceAllocationClaims(alloc, unproven) {
