@@ -27,7 +27,7 @@ Not covered by this table: whether each Forecast function a `REPOINT` suite call
 | `SPLIT` | Mixed: repoint the Forecast-side assertions; the markup assertions retire with the page after a replacement proof (rule 2). | 35 |
 | `RETIRE-AFTER-PROOF` | Proves classic markup of a Forecast-published figure or verdict. Retire only after the replacement is named and shown to fail on a broken figure (rule 2). Replacement column: to name in the batch PR. | 27 |
 | `RETIRE-AT-S7` | Proves only the classic surface's layout, interaction or wording (rule 3). No replacement needed. | 11 |
-| `KEEP-ADAPT` | Shared shell, server or Stack page. Survives; drop the `?view=classic` harness or adapt `index.html` expectations at S5/S7. | 14 |
+| `KEEP-ADAPT` | Shared shell, server or Stack page. Survives; drop the `?view=classic` harness or adapt `index.html` expectations at S5/S7. | 15 |
 | `ADAPT-AT-S7 (full lane)` | Guard and figures machinery. The consumer list, page capture and pins shrink when `plan.js` goes; re-pin with the reviewer on the pin diff. | 2 |
 | `RETARGETED` | Already given Stack proofs (S4 batch 1, #1515 and #1516, merged; S4 PR 2, #1518, merged); the classic coverage retires at S7. | 5 |
 | `REPOINTED` | A `REPOINT` suite already repointed. This includes the B3 pilot and renderer guards, and the bill payment evidence table below. | 36 |
@@ -171,7 +171,7 @@ Each batch is one PR, one outcome, in the lane stated, reviewed by a reviewer of
 | `test-savings-still-to-fund-render.js` | plan.js | PA-2b Decision 2: the Budget goals list renders row-owned Still to fund with its estimate mark and reason; leg | 13/20 | `RETIRE-AFTER-PROOF` | classic markup of a Forecast-published figure/verdict (see "Protects"): the Forecast-level pin (or Stack check) must be named and shown to fail when the figure is broken before this retires Replacement: to name in the batch PR. |
 | `test-savings-capture-roster.js` | plan.js,savings-inventory.js | figures check: Savings per-state call roster, gate facts, the pre-review regression witnesses and the finite-r | 19/121 | `ADAPT-AT-S7 (full lane)` | guard/figures machinery: the consumer list, page capture and pins shrink when plan.js goes; re-pin with the reviewer on the pin diff |
 
-## CI suites — Budget page, plan surfaces, shell (100)
+## CI suites — Budget page, plan surfaces, shell (101)
 
 | Suite | Loads | Protects | Markup asserts | Disposition | Next action |
 |---|---|---|---|---|---|
@@ -276,6 +276,7 @@ Each batch is one PR, one outcome, in the lane stated, reviewed by a reviewer of
 | `test-running-build.js` | running-build.css,index.html +?view=classic | Budget running build identity | 23/27 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
 | `test-startup-manifest.js` | budget-blend.css,index.html | phone startup entry: web app manifest, brand icons and head metadata pin the launch to / | 15/28 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
 | `test-static.js` | plan.js,index.html | static sanity | 9/32 | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
+| `test-browser-observation-memory.js` | index.html +?view=classic (real Chromium; skips without Playwright) | a failed refresh withholds the shell (header inert and hidden) until Retry; a keyboard Cancel stops a held refresh; manual refresh and session expiry. Registered 2026-11-22, renamed from the manual `browser-observation-memory.js` | browser | `KEEP-ADAPT` | shared shell, server or Stack page: survives; drop the ?view=classic harness or adapt index.html expectations at S5/S7 |
 
 ## B4 refund activity on the Stack page
 
@@ -340,7 +341,7 @@ Scenario 6.19 remains OPEN in the [linked posted bill payment backlog entry](htt
 
 The six scenarios use `openBudget` through `withBudget(..., { view: 'stack' })`. In disposable copies they detect reversed allocation priority, one-cent changes to a share, need, pool total, excess or funding gap, a missing amount published or printed as zero, a real zero withheld, incorrect trust, an omitted Unallocated row, a wrong printed share and a change delivered only on reload.
 
-## Manual browser files (96)
+## Manual browser files (95)
 
 Not run by `npm test` (`test.js` lists the `browser-` prefix as not a node suite), so retiring one removes no CI protection; the figure or trust claim a browser file makes is carried by the CI row above that covers the same subject. Dispositions: `RETIRE-AT-S7 (manual)` unless the file proves shared shell/boot behaviour or the Stack page (`ADAPT-OR-KEEP`: run it on the Stack page, decide per file in B5), or is one of the escaping twins (`RETARGETED`).
 
@@ -349,7 +350,6 @@ Not run by `npm test` (`test.js` lists the `browser-` prefix as not a node suite
 | `browser-app-release-resume.js` | `ADAPT-OR-KEEP` |
 | `browser-boot-treatment.js` | `ADAPT-OR-KEEP` |
 | `browser-latest-complete-refresh.js` | `ADAPT-OR-KEEP` |
-| `browser-observation-memory.js` | `ADAPT-OR-KEEP` |
 | `browser-routes-render.js` | `ADAPT-OR-KEEP` |
 | `browser-stack-credit.js` | `ADAPT-OR-KEEP` |
 | `browser-stack-layout.js` | `ADAPT-OR-KEEP` |
