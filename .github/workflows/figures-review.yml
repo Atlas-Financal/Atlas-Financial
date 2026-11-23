@@ -174,6 +174,7 @@ jobs:
               ['budget-period-income-amanda-trust', 'period.*.incomeAmandaTrust', 'tag'],
               ['budget-period-income-other-trust', 'period.*.incomeOtherTrust', 'tag'],
               ['budget-period-stack-savings-trust', 'period.*.stackSavingsTrust', 'tag'],
+              ['budget-period-stack-savings-balance-head-trust', 'period.*.stackSavingsBalanceHeadTrust', 'tag'],
               ['budget-period-stack-savings-goal-trust', 'period.*.stackSavingsGoal.*.trust', 'tag'],
               ['budget-period-bill-load-trust', 'period.*.periodBillLoadTrust', 'tag'],
               ['budget-period-after-bills-trust', 'period.*.afterBillsTrust', 'tag'],

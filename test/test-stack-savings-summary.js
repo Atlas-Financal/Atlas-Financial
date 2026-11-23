@@ -164,8 +164,9 @@ console.log('1. Hand-derived invented worlds');
   // Owner rule (Dale, 2026-11-21): an item leaves the card from the pay period that contains its date. The next
   // period here runs Oct 16-29 and holds every goal's date (near 10-21, home 10-25, far 10-28): no goal is left.
   const next = sav(byRole(r, 'next')[0]);
-  ok(byRole(r, 'next')[0].start === '2026-10-16' && byRole(r, 'next')[0].end === '2026-10-29' && next.items.length === 0
-    && next.totals.reasons.includes('items-due-this-period-left'), 'the next period (Oct 16-29) holds every goal\'s date: every goal has left the card',
+  ok(byRole(r, 'next')[0].start === '2026-10-16' && byRole(r, 'next')[0].end === '2026-10-29'
+    && same(next, { items: [], totals: [119, 0, 0, 0, 'calculated'] }) && !next.totals.reasons.includes('no-savings-items'),
+    'next period: the due goals hold 60, 24 and 35 of the reported 119, with nothing left unallocated',
     JSON.stringify(next));
   const others = r.payPeriodViews.filter(v => !['current', 'next'].includes(v.timelineRole));
   ok(others.length > 2 && others.every(v => v.stackSummary && v.stackSummary.savings === null), `no other period publishes a card (${others.length} periods)`);
@@ -394,6 +395,8 @@ console.log('6. The figures snapshot captures every figure and tag');
   }
   ok(s.items.length > 1 && missing === 0, 'the balance, the head, unallocated and each goal\'s saved, needed and trust are captured as published', String(missing));
   ok(snap['period.' + view.start + '.stackSavingsGoal.group:club.saved'] === 95, 'club saved 95 is in the snapshot');
+  ok(snap['period.2026-10-16.stackSavingsBalanceHeadTrust'] === 'calculated' && snap['period.2026-10-16.stackSavingsUnallocated'] === 0,
+    'the all-due next period captures the trust of the reported balance and the exhausted remainder');
 }
 
 console.log('7. The card pours the reported total as is (owner ruling, Dale 2026-11-21)');
@@ -486,7 +489,25 @@ console.log('8. An item leaves the card from the pay period that contains its da
   ok(same(middle, { items: [['row:a', 40, 40, 'calculated'], ['row:b', 5, 40, 'estimated']], totals: [50, 45, 80, 0, 'estimated'] }),
     'an item due inside the period leaves the card and keeps its share (b 5 of 40)', JSON.stringify(pick(middle)));
   const onStart = at(shipped, '2026-11-25', '2026-12-08');
-  ok(onStart.items.length === 0, 'a period starting on the items\' dates: every item has left the card', JSON.stringify(pick(onStart)));
+  ok(same(onStart, { items: [], totals: [50, 0, 0, 0, 'estimated'] }) && onStart.totals.balanceHeadTrust === 'calculated'
+    && !onStart.totals.reasons.includes('no-savings-items'),
+    'current period: the hidden items hold 5, 40 and the last 5; the remaining zero depends on an estimated need');
+  const excess = at(shipped, '2026-11-25', '2026-12-08',
+    { stock: { reportedStock: { status: 'ready', amount: 100.75, freshness: 'dated' } } });
+  ok(same(excess, { items: [], totals: [100.75, 0, 0, 15.75, 'estimated'] }) && excess.totals.balanceHeadTrust === 'estimated',
+    'all due: 100.75 less 5, 40 and 40 leaves 15.75 unallocated');
+  const unknownDue = packet({});
+  unknownDue.backing.items[2].needed = null;
+  const unknown = at(shipped, '2026-11-25', '2026-12-08', unknownDue);
+  ok(same(unknown, { items: [], totals: [50, null, null, null, 'unavailable'] }) && !unknown.totals.reasons.includes('no-savings-items'),
+    'all due with an unknown need: the balance stands and the remainder is withheld');
+  const noBalance = at(shipped, '2026-11-25', '2026-12-08', { stock: {} });
+  ok(same(noBalance, { items: [], totals: [null, null, null, null, 'unavailable'] }) && noBalance.totals.balanceHeadTrust === 'unavailable'
+    && !noBalance.totals.reasons.includes('no-savings-items'),
+    'all due without a reported balance: the card is present with withheld figures');
+  const noGoals = at(shipped, '2026-11-25', '2026-12-08', { backing: { items: [] }, rows: [] });
+  ok(noGoals.totals.balance === 50 && !Object.hasOwn(noGoals.totals, 'balanceHeadTrust') && noGoals.totals.reasons.includes('no-savings-items'),
+    'a genuinely empty roster still publishes no balance head');
   // Once an item is dated before the current period, it is gone from the pour too (the balance reflects the spend).
   const GONE = { backing: { items: [
     { key: 'c@2026-11-25', date: '2026-11-25', needed: 5, trust: 'calculated' },
