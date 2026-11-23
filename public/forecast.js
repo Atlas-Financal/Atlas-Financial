@@ -7102,6 +7102,9 @@
   // owner-directed exception to rule 17's "no matching", for pending rows only). A pending charge and an
   // uncategorized pending credit of exactly equal and opposite amount, on the same account, dated within
   // HOLD_RELEASE_WINDOW_DAYS of each other, are one hold and its release: neither leg counts as spending, on the
+  // (the credit is uncategorized, or carries the same ledger spending category as the charge: lead ruling (b),
+  // ATLAS LEAD 12, 2026-11-23, from the live ledger, where the release carries its hold's category; a standalone
+  // refund of any other shape is untouched and stays unlinked, LEDGER A item 3)
   // Stack card or in any Budget category (classifyTransaction and the card publication read this one decision).
   // Posted rows are never paired. The credit must carry no ledger category and no payment or refund identity; a
   // row already in the pending/posted pairing (pendingPostedDuplicateIdSet) or flagged ambiguous or contradictory
@@ -7122,7 +7125,8 @@
   function pendingHoldReleases(packet) {
     const txs = packet && Array.isArray(packet.transactions) ? packet.transactions : null;
     if (!txs) return NO_HOLD_RELEASES;
-    if (holdReleaseCache.has(txs)) return holdReleaseCache.get(txs);
+    const cached = holdReleaseCache.get(txs);
+    if (cached && cached.length === txs.length) return cached.result;
     const duplicateIds = pendingPostedDuplicateIdSet(packet);
     const day = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
       ? Date.parse(value + 'T00:00:00Z') / 86400000 : NaN;
@@ -7134,8 +7138,12 @@
       const amount = Number(tx.amount);
       const cents = isFinite(amount) ? Math.round(amount * 100) : NaN;
       const at = day(tx.date);
+      // CAD and whole cents only, the card publication's own qualification: a row it would withhold is never a leg.
+      if (tx.currency && String(tx.currency).toLowerCase() !== 'cad') return null;
+      if (!isFinite(amount) || Math.abs(amount * 100 - cents) > 1e-6) return null;
       if (!account || !Number.isSafeInteger(cents) || cents === 0 || !isFinite(at)) return null;
-      return { tx, id: String(tx.id), account: String(account), cents, at, date: tx.date };
+      return { tx, id: String(tx.id), account: String(account), cents, at, date: tx.date,
+        category: normalizeCategoryLabel(tx.categoryLabel) };
     };
     const order = (a, b) => a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     const charges = [], credits = [];
@@ -7145,8 +7153,7 @@
       if (row.cents > 0) charges.push(row);
       else {
         const hint = typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '';
-        if (tx.cardPaymentIdentity === true || ['payment', 'card-payment', 'bill-payment', 'refund'].includes(hint)
-          || !lunchMoneyLeftUncategorised(normalizeCategoryLabel(tx.categoryLabel))) continue;
+        if (tx.cardPaymentIdentity === true || ['payment', 'card-payment', 'bill-payment', 'refund'].includes(hint)) continue;
         credits.push(row);
       }
     }
@@ -7154,8 +7161,10 @@
     credits.sort(order);
     const legs = new Set(), pairs = [];
     for (const credit of credits) {
+      const uncategorized = lunchMoneyLeftUncategorised(credit.category);
       const charge = charges.find(c => !legs.has(c.id) && c.account === credit.account && c.cents === -credit.cents
-        && Math.abs(c.at - credit.at) <= HOLD_RELEASE_WINDOW_DAYS);
+        && Math.abs(c.at - credit.at) <= HOLD_RELEASE_WINDOW_DAYS
+        && (uncategorized || c.category === credit.category));
       if (!charge) continue;
       legs.add(charge.id);
       legs.add(credit.id);
@@ -7198,7 +7207,7 @@
         pendingAmount: hold.cents / 100, postedAmount: post.cents / 100, pendingDate: hold.date, postedDate: post.date }));
     }
     const result = Object.freeze({ legs, pairs: Object.freeze(pairs), superseded: Object.freeze(superseded) });
-    holdReleaseCache.set(txs, result);
+    holdReleaseCache.set(txs, { length: txs.length, result });
     return result;
   }
   function pendingHoldReleaseLeg(tx, packet) {

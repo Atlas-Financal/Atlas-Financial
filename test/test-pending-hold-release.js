@@ -4,10 +4,14 @@
  * needs to be clean"; a narrow, owner-directed exception to rule 17's "no matching", for pending rows only; dispatched
  * by ATLAS LEAD 12).
  *
- * The rule (Forecast.pendingHoldReleases): a pending charge and an uncategorized pending credit of exactly equal and
- * opposite amount, on the same account, dated within 7 days of each other. Posted rows are never paired. A credit the
- * ledger has categorized, or that carries payment or refund identity, is never consumed. Several equal charges for one
- * credit pair with the earliest (date, then id).
+ * The rule (Forecast.pendingHoldReleases):
+ *   (A) a pending charge and a pending credit of exactly equal and opposite amount, on the same account, dated within 7
+ *       days of each other, where the credit is uncategorized or carries the charge's own ledger category (lead ruling
+ *       (b): in the live ledger the release carries its hold's category). Both legs are dropped. A credit in another
+ *       category, or with payment or refund identity, is never consumed; a posted refund stays unlinked (LEDGER A).
+ *   (B) a pending charge superseded by a posted charge from the same merchant on the same account, 0-7 days later,
+ *       within the larger of 20% and $25: the pending hold is dropped, the posted charge counts.
+ *   Posted rows are never paired with each other. Ambiguity resolves deterministically.
  *
  * Failure it detects: a hold and its release counted as spending, or the release withholding the card's Spent; the
  * Stack card and a Budget category disagreeing about the same pair; a categorized refund, an unmatched credit, an
@@ -48,8 +52,17 @@ const pairsOf = txs => F.pendingHoldReleases({ transactions: txs }).pairs.map(p 
 console.log('1. The decision');
 {
   ok(JSON.stringify(pairsOf(dale())) === JSON.stringify(['hold+release']), "Dale's shape: the hold and its release are one pair; the real and unrelated charges are not legs", JSON.stringify(pairsOf(dale())));
-  ok(pairsOf([row('hold', HOLD), row('refund', -HOLD, { category: 'Groceries' })]).length === 0,
-    'an unrelated same-amount credit the ledger has categorized is not consumed');
+  ok(pairsOf([row('hold', HOLD), row('release', -HOLD, { category: 'Groceries' })]).length === 1,
+    "a release carrying the hold's own category (Groceries) is consumed: the live ledger's shape (ruling (b))");
+  ok(pairsOf([row('hold', HOLD), row('refund', -HOLD, { category: 'Restaurants' })]).length === 0,
+    'a same-amount credit in a different category than the charge is not consumed');
+  ok(pairsOf([row('hold', HOLD, { category: null }), row('refund', -HOLD, { category: 'Groceries' })]).length === 0,
+    'a categorized credit beside an uncategorized charge is not consumed (no shared category)');
+  ok(pairsOf([row('hold', HOLD), row('release', -HOLD - 0.01, { category: 'Groceries' })]).length === 0,
+    'a same-category credit one cent off is not consumed');
+  ok(pairsOf([row('hold', HOLD), row('release', -HOLD, { category: null, currency: 'usd' })]).length === 0
+    && pairsOf([row('hold', HOLD), row('release', -234.615, { category: null })]).length === 0,
+    'a non-CAD or fractional-cent row is never a leg (the card publication withholds it instead)');
   ok(pairsOf([row('lone', -HOLD, { category: null })]).length === 0, 'a credit with no matching charge is not consumed');
   ok(pairsOf([row('hold', HOLD), row('release', -HOLD - 0.01, { category: null })]).length === 0, 'a credit one cent off is not consumed');
   ok(pairsOf([row('hold', HOLD, { date: '2026-08-10' }), row('release', -HOLD, { date: '2026-08-18', category: null })]).length === 0,
@@ -76,6 +89,10 @@ console.log('1. The decision');
   ok(JSON.stringify(tie) === JSON.stringify(['m+release']), 'a same-day tie pairs the lower id, deterministically', JSON.stringify(tie));
   const twice = pairsOf([row('h1', HOLD), row('h2', HOLD), row('r1', -HOLD, { category: null }), row('r2', -HOLD, { category: null })]);
   ok(twice.length === 2 && new Set(twice.join('+').split('+')).size === 4, 'two holds and two releases make two pairs, no leg used twice', JSON.stringify(twice));
+  const grow = { transactions: [row('hold', HOLD)] };
+  const first = F.pendingHoldReleases(grow).pairs.length;
+  grow.transactions.push(row('release', -HOLD, { category: null }));
+  ok(first === 0 && F.pendingHoldReleases(grow).pairs.length === 1, 'a row added to the same packet after a first read is seen (no stale decision)');
   ok(pairsOf([row('dup', HOLD, { pendingPostedDuplicate: true }), row('release', -HOLD, { category: null })]).length === 0,
     'a pending row already in the pending/posted pairing is never a leg');
 }
@@ -116,7 +133,7 @@ function budget(txs) {
     bills: [], obligations: [], commitments: [],
     budget: { categories: [
       { id: 'groceries', label: 'Groceries', class: 'essential', plannedWeekly: 450, ownerLine: 'Groceries' },
-      { id: 'restaurants', label: 'Dining', class: 'discretionary', from: ['Restaurants'], plannedPayday: 200, ownerLine: 'Eating out' },
+      { id: 'restaurants', label: 'Dining', class: 'discretionary', from: ['Restaurants', 'Fast Food'], plannedPayday: 200, ownerLine: 'Eating out' },
     ] },
   };
   const packet = { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-09-01', coverageStart: '2026-07-01',
@@ -139,9 +156,41 @@ function budget(txs) {
   const control = budget(dale().filter(tx => tx.id !== 'release'));
   ok(cents(control.groceries.spent) === cents(HOLD + REAL),
     'control: without the release, the pending hold counts as the coming charge, 234.61 + 232.47 = 467.08', String(control.groceries.spent));
-  const refund = budget([row('hold', HOLD), row('refund', -HOLD, { category: 'Groceries' })]);
-  ok(cents(refund.groceries.spent) === cents(HOLD),
-    'a same-amount categorized pending credit is not consumed: the hold still counts, the credit keeps today\'s treatment', String(refund.groceries.spent));
+  const other = budget([row('hold', HOLD), row('refund', -HOLD, { category: 'Restaurants' })]);
+  ok(cents(other.groceries.spent) === cents(HOLD),
+    'a same-amount credit in a different category is not consumed: the Groceries hold still counts', String(other.groceries.spent));
+  // A posted standalone categorized refund is untouched (LEDGER A item 3): it never nets a category, it is listed apart.
+  const posted = budget([row('buy', 50, { pending: false }), row('back', -50, { pending: false })]);
+  ok(cents(posted.groceries.spent) === cents(50), 'a posted categorized refund stays unlinked: Groceries still counts the 50.00 purchase', String(posted.groceries.spent));
+  // Dale's four live rows (invented amounts in his pattern), the release categorized Groceries like its hold, plus an
+  // earlier posted 140.48 grocery charge on another account. By hand: Groceries = 140.48 + 232.47 = 372.95 (the hold
+  // and its release both dropped); Restaurants = 22.48 (Fast Food).
+  const live = () => [row('earlier', 140.48, { pending: false, account: 'otherVisa' }), row('real', REAL), row('hold', HOLD),
+    row('release', -HOLD, { category: 'Groceries' }), row('quiznos', OTHER, { category: 'Fast Food' })];
+  const lb = budget(live());
+  ok(cents(lb.groceries.spent) === cents(372.95), "Dale's live four rows: Groceries 140.48 + 232.47 = 372.95, both legs dropped", String(lb.groceries.spent));
+  ok(cents(lb.restaurants.spent) === cents(OTHER), "Dale's live four rows: the Quiznos 22.48 counts in Eating out", String(lb.restaurants.spent));
+  const lc = card(live().filter(tx => tx.id !== 'earlier').map(tx => ({ ...tx, date: '2026-08-20' }))).travel;
+  ok(cents(lc.spent.amount) === cents(BASE_SPENT + DALE_NEW_CHARGES) && !lc.spent.reasons.includes('card-credit-purpose-unconfirmed'),
+    "Dale's live four rows: Travel new charges 22.48 + 232.47 = 254.95 over the fixture's 207.40, not withheld", JSON.stringify(lc.spent));
+}
+
+console.log("3b. Dale's timeline: one number per purchase at every stage (hold -> release -> final)");
+{
+  const costco = { displayedPayee: 'Costco', originalMerchant: 'Costco' };
+  const stages = [
+    ['1. hold only', [row('hold', HOLD, costco)], HOLD],
+    ['2. hold + its release + the pending final', [row('hold', HOLD, costco), row('release', -HOLD, { ...costco, category: 'Groceries' }),
+      row('final', REAL, costco)], REAL],
+    ['3. hold still pending + the posted final', [row('hold', HOLD, costco), row('final', REAL, { ...costco, pending: false })], REAL],
+    ['4. only the posted final', [row('final', REAL, { ...costco, pending: false })], REAL],
+  ];
+  for (const [label, txs, want] of stages) {
+    const g = budget(txs).groceries;
+    ok(cents(g.spent) === cents(want), label + ': Groceries ' + want, String(g.spent));
+    const t = card(txs.map(tx => ({ ...tx, date: '2026-08-20' }))).travel;
+    ok(cents(t.spent.amount) === cents(BASE_SPENT + want), label + ': Travel new charges 207.40 + ' + want, JSON.stringify(t.spent));
+  }
 }
 
 console.log('4. (B) A pending hold superseded by its posted final charge');
