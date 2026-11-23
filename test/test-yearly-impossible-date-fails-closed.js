@@ -176,6 +176,28 @@ console.log('\n=== 3d. a timing cutover: each date is judged by the term that pr
         JSON.stringify([g.status, g.unknowns.map(u => u.reason)]));
     }
   }
+  // (ii) An impossible prior term withholds only while it applies, and the real successor recovers.
+  const recovery = [
+    // the cutover (2026-11-01) is before the impossible term's first window date: only the real Nov 25 successor is in force
+    ['impossible prior Nov 31 until 2026-11-01, real own Nov 25: recovered', cut([11, 25], [11, 31], '2026-11-01'),
+      ['2026-11-25', '2027-11-25', '2028-11-25'], null],
+    // the impossible prior term applies to 2026-11-30 only; the real Apr 30 successor follows from 2027
+    ['impossible prior Nov 31 until 2027-01-01, real own Apr 30: withheld at the prior date only', cut([4, 30], [11, 31], '2027-01-01'),
+      ['2026-11-30', '2027-04-30', '2028-04-30'], '2026-11-30'],
+  ];
+  for (const [label, row, dates, flaggedDate] of recovery) {
+    ok(JSON.stringify(F.occurrences(row, AS_OF, '2028-12-31')) === JSON.stringify(dates), `cutover, ${label}: dated ${dates.join(', ')} (main's split)`,
+      JSON.stringify(F.occurrences(row, AS_OF, '2028-12-31')));
+    for (const kind of ['obligations', 'income']) {
+      const g = read(plan(p => { p[kind].push(row); }));
+      const flags = g.unknowns.filter(u => u.reason === 'plan-date-invalid');
+      const want = flaggedDate == null
+        ? g.status === 'ready' && flags.length === 0 && g.r.weekly != null
+        : g.status === 'unavailable' && flags.length === 1 && g.r.weekly == null
+          && (kind === 'income' || (flags[0].scheduledDate || flags[0].date) === flaggedDate);
+      ok(want, `cutover, ${label}, as ${kind === 'income' ? 'an income' : 'an obligation'}`, JSON.stringify([g.status, flags]));
+    }
+  }
   // A statement replacing the one date the impossible prior term produces leaves nothing to withhold.
   const stated = { ...cut([11, 25], [11, 31], '2027-01-01'), debtId: 'inv-debt', effect: 'payment', lastDue: '2026-12-31',
     statementOccurrences: [{ scheduledDate: '2026-11-30', dueDate: '2026-11-27', minimum: 250, currency: 'cad', confidence: 'confirmed' }] };
