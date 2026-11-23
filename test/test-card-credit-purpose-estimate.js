@@ -184,8 +184,12 @@ console.log('4. Still withheld, exactly as before');
 console.log('5. Resolves exactly as today');
 {
   const ruled = run(world([purchase, asNonPayment()]));
-  check(ruled.coverage.toConfirm === undefined && ruled.period.fromTodayFunding.trust === 'calculated',
-    'a ruled non-payment credit: no To-confirm row, calculated as today');
+  // #1573 (lead, 2026-11-23): this world gives no card ledger evidence, so each card's charges already counted above
+  // are unread and its target is a fall-back: the remainder is an estimate. Toward caution only. 'card-coverage' means a
+  // card payment to confirm, and there is none here, so no cause is published (lead, 2026-11-23).
+  check(ruled.coverage.toConfirm === undefined && ruled.coverage.trust === undefined
+    && ruled.period.fromTodayFunding.trust === 'estimated' && ruled.period.fromTodayFunding.estimateCause === undefined,
+    'a ruled non-payment credit: no To-confirm row, coverage calculated; available now estimated by the card targets, with no card-payment cause');
   const refund = run(world([purchase, asRefund()]));
   check(refund.coverage.toConfirm === undefined && refund.coverage.reservedCash === 50, 'a refund: calculated as today');
   const none = run(world([purchase]));

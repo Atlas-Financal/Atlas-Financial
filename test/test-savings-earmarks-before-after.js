@@ -67,12 +67,34 @@ const blankActions = v => {
 // Periods whose unposted paycheque reads to confirm (validated and stripped by incumbentPublication):
 // their three trust words are left out of the legacy comparison on both sides.
 const heldByPublication = new WeakMap();
+// #1573 (lead, 2026-11-23): a view's Balance After Deductions takes the trust of its card-target Credit deduction. This
+// probe gives no card ledger evidence, so each card target is a fall-back and the remainder reads estimated where the
+// frozen engine left it calculated (null). Only that move toward caution is admitted, only where the view's own card
+// publication is estimated; the value and every other field still compare exactly.
+const cardTrustByPublication = new WeakMap();
+const PERIOD_LISTS = [['payPeriodViews'], ['defaultView', 'calendarPeriods'], ['pastPeriodViews']];
+const periodsOf = v => PERIOD_LISTS.flatMap(keys => {
+  const list = keys.reduce((o, k) => o && o[k], v);
+  return Array.isArray(list) ? list.map((row, i) => [keys.join('/') + '/' + i, row]) : [];
+}).concat(v && v.defaultView ? [['defaultView', v.defaultView]] : []);
+let cardTrustAdmitted = 0;
 const sameAsLegacy = (actual, expected, message) => {
   const held = heldByPublication.get(actual) || new Set();
-  return assert.deepEqual(blankActions(omitTrustOnPeriods(clone(actual), held)), blankActions(omitTrustOnPeriods(clone(expected), held)), message);
+  const a = clone(actual), cardEstimated = cardTrustByPublication.get(actual) || new Set();
+  const expectedAt = new Map(periodsOf(expected));
+  for (const [where, row] of periodsOf(a)) {
+    const old = expectedAt.get(where);
+    if (row && old && cardEstimated.has(where) && row.balanceAfterDeductionsTrust === 'estimated'
+      && (old.balanceAfterDeductionsTrust == null || old.balanceAfterDeductionsTrust === 'calculated')) {
+      row.balanceAfterDeductionsTrust = old.balanceAfterDeductionsTrust; cardTrustAdmitted++;
+    }
+  }
+  return assert.deepEqual(blankActions(omitTrustOnPeriods(a, held)), blankActions(omitTrustOnPeriods(clone(expected), held)), message);
 };
 function incumbentPublication(value) {
   const copy = stripPaydaySchedule(stripUnconfirmedBills(clone(incumbentAdvice(value, AS_OF))).advice).advice;
+  cardTrustByPublication.set(copy, new Set(periodsOf(value).filter(([, row]) => row && row.stackSummary
+    && row.stackSummary.creditBreakdown && row.stackSummary.creditBreakdown.trust === 'estimated').map(([where]) => where)));
   heldByPublication.set(copy, stripMissingDeposit(copy).held);
   // Admit only six complete, positively validated additive packets. All old
   // fields and any cost namespace outside these exact rows remain compared.
@@ -176,6 +198,14 @@ for (const placement of ['root', 'defaultView']) {
 }
 assert.equal(rejectedCostMutations, 18, 'every bounded cost rejection control executed');
 sameAsLegacy(incumbentPublication(legacyAfter), legacyBefore, 'every incumbent recommend field is unchanged with absent configuration');
+assert.ok(cardTrustAdmitted > 0, 'the card-target trust allowance was exercised');
+// A remainder estimated without an estimated card publication is still a change.
+{
+  const noCard = clone(legacyAfter);
+  for (const [, row] of periodsOf(noCard)) if (row && row.stackSummary && row.stackSummary.creditBreakdown) row.stackSummary.creditBreakdown.trust = 'calculated';
+  assert.throws(() => sameAsLegacy(incumbentPublication(noCard), legacyBefore), assert.AssertionError,
+    'an estimated remainder without an estimated card publication is still detected');
+}
 const changedBalance = clone(legacyAfter); changedBalance.binding.balance += 1;
 assert.throws(() => sameAsLegacy(incumbentPublication(changedBalance), legacyBefore),
   assert.AssertionError, 'a changed incumbent balance is still detected');

@@ -99,6 +99,13 @@ degradedShape(degraded, 'unsourced credit');
 check(degraded.period.fromTodayFunding.availableNow === 325, 'available now is the hand-derived 325 (got '
   + degraded.period.fromTodayFunding.availableNow + ')');
 check(degraded.coverage.reservedCash === 80, 'the 80 purchase stays reserved as if unpaid');
+// The negative (#1573): beside this To-confirm credit, a non-card estimate (the invented payroll estimated) reads as
+// non-card: no card cause. The card-coverage cause above stands only while the cards are the only uncertainty.
+{
+  const incomeEstimated = run(world([purchase, credit()], { edit: w => { w.data.plan.income[0].confidence = 'estimated'; } }));
+  check(incomeEstimated.coverage.trust === 'estimated' && incomeEstimated.period.fromTodayFunding.trust === 'estimated'
+    && incomeEstimated.period.fromTodayFunding.estimateCause === undefined, 'an estimated income beside it: estimated, no card cause');
+}
 check(/source|came from/.test(degraded.coverage.estimateReason) && /source/.test(degraded.period.plannedPeriodCloseReason || ''),
   'the coverage and close reasons name the unconfirmed source');
 

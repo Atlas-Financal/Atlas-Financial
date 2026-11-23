@@ -286,6 +286,10 @@ console.log('6. Which card evidence the remainder\'s trust reads (review 7106640
   ok(mbna && mbna.deduction.trust === 'estimated' && mbna.minimum.reasons.includes('no-minimum-due-in-period')
     && trustOf(manual) === 'calculated' && manual.stackSummary.surplus.trust === 'calculated',
     'a manual card with no minimum due (its own deduction estimated) leaves the remainder calculated');
+  // The Credit publication keeps its own trust: only what it lends the remainder leaves the manual card out.
+  const breakdown = manual.stackSummary.creditBreakdown;
+  ok(breakdown && breakdown.trust === 'estimated' && breakdown.alreadyCounted.trust === manual.stackSummary.credit.totals.deduction.trust
+    && breakdown.alreadyCounted.trust === 'estimated', 'the Credit breakdown and its "Already counted above" row stay estimated');
   // A fall-back target: the manual card's 25 minimum stands in for its unseen new charges. Estimated.
   const fallback = active(advise([], F, { card: 'mbna', payDownOnly: ['mbna', 'triangle'] }));
   const fm = fallback.stackSummary.credit.lines.find(l => l.id === 'mbna');

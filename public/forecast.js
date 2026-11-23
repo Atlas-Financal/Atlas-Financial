@@ -13175,7 +13175,9 @@
         const cap = node => Array.isArray(node) ? node.map(cap) : node && typeof node === 'object'
           ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, typeof v === 'string' && /trust$/i.test(k)
             && (v === 'calculated' || v === 'verified') ? 'estimated' : cap(v)])) : node;
-        cardCredit = { ...cardCredit, credit: cap(cardCredit.credit), trust: cardCredit.trust === 'unavailable' ? 'unavailable' : 'estimated' };
+        const capTrust = t => t === 'unavailable' ? 'unavailable' : 'estimated';
+        cardCredit = { ...cardCredit, credit: cap(cardCredit.credit), trust: capTrust(cardCredit.trust),
+          ...(Object.hasOwn(cardCredit, 'remainderTrust') ? { remainderTrust: capTrust(cardCredit.remainderTrust) } : {}) };
         periodCardCreditByPeriod.set(view, cardCredit);
       }
       view.stackSummary = Object.assign(view.stackSummary || {},
@@ -15350,6 +15352,9 @@
   const periodBillLoadPartsByPeriod = new WeakMap();
   // Desk ruling (E) (#1573): each current or upcoming view's card-target publication, read by publishStackSummary.
   const periodCardCreditByPeriod = new WeakMap();
+  // Each view's Balance After Deductions trust with and without the card-target term's trust (#1573, lead 2026-11-23):
+  // beside a card payment to confirm, the card targets are a card cause too, so card coverage can stay the only cause.
+  const periodBadTrustCardPart = new WeakMap();
 
   // Authoritative frozen-waterfall bill load: each assigned period
   // occurrence once, including subsequently PAID rows that are not
@@ -15552,19 +15557,21 @@
     const util = utilisation(debts, opts.extraFacilities || opts.revolvingExtra, plan);
     const credit = CardPeriodMovement.stackCreditLines(publication, split, util ? util.rows : null, beyond);
     if (!credit) return null;
-    if (!minimums) return { credit, adjustmentCents: null, trust: 'unavailable' };
+    if (!minimums) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
     const lineIds = new Set(credit.lines.map(line => String(line.id)));
     let minimumCents = 0, unlinedCents = 0;
     for (const card of minimums) {
       const c = savingsCents(card.amount, true);
-      if (c == null) return { credit, adjustmentCents: null, trust: 'unavailable' };
+      if (c == null) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
       minimumCents += c;
       if (!lineIds.has(String(card.debtId))) unlinedCents += c;
     }
     const deduction = credit.totals.deduction;
-    if (!deduction || deduction.amount === null) return { credit, adjustmentCents: null, trust: 'unavailable' };
+    if (!deduction || deduction.amount === null) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
     const creditCents = Math.round(deduction.amount * 100) + unlinedCents;
-    return { credit, creditCents, adjustmentCents: creditCents - minimumCents, trust: cardCreditTrust(credit, publication, debts) };
+    // trust: the publication's own (the breakdown and its rows); remainderTrust: what it lends the remainder (option (c)).
+    return { credit, creditCents, adjustmentCents: creditCents - minimumCents, trust: deduction.trust,
+      remainderTrust: cardCreditTrust(credit, publication, debts) };
   }
 
   function composeBalanceAfterDeductionsTerms(
@@ -18661,7 +18668,8 @@
       // fallback of unknown evidence (a withheld Spent deducts the target as the minimum), not proof that the target is the
       // minimum (#1573 review 7106640633). Complete card evidence keeps the deduction's own (calculated) trust.
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust,
-        ...(cardAdjusts ? [cardCredit.trust] : []));
+        ...(cardAdjusts ? [cardCredit.remainderTrust] : []));
+      const balanceAfterDeductionsTrustExceptCard = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
       // own provenance only when it really is the carry. Any other projected
@@ -19194,6 +19202,8 @@
       });
       if (billLoadParts) periodBillLoadPartsByPeriod.set(periods[periods.length - 1], billLoadParts);
       if (cardCredit) periodCardCreditByPeriod.set(periods[periods.length - 1], { ...cardCredit, adjusts: cardAdjusts });
+      if (balanceAfterDeductionsTrust !== balanceAfterDeductionsTrustExceptCard) periodBadTrustCardPart.set(periods[periods.length - 1],
+        { withCard: balanceAfterDeductionsTrust, exceptCard: balanceAfterDeductionsTrustExceptCard });
       if (unconfirmedOpeningFuture) estimateUnconfirmedOpeningPeriod(periods[periods.length - 1],
         opts.operatingPlanNote || 'Current plan unavailable. The dated opening is stale.');
     }
@@ -23406,7 +23416,14 @@
         [failure('pending-cash-unresolved', 'Unresolved pending chequing debits still need protection.', {}, '')]);
     }
     const end = full.at(-1).end;
-    let basisTrust = 'calculated';
+    let basisTrust = 'calculated', basisTrustExceptCard = 'calculated';
+    // A view's remainder trust without its card-target term, while nothing has re-stamped it since (a later coverage
+    // estimate is a non-card cause).
+    const badTrustExceptCard = p => {
+      const published = p.balanceAfterDeductionsTrust == null ? 'calculated' : p.balanceAfterDeductionsTrust;
+      const part = periodBadTrustCardPart.get(p);
+      return part && part.withCard === published && !p.coverageEstimate ? part.exceptCard : published;
+    };
     for (const p of ordered) {
       if (p.end > end) continue;
       if (!finite(p.incomeTotal) || !finite(p.periodBillLoad) || !finite(p.budgetHold)
@@ -23420,6 +23437,8 @@
       basisTrust = periodWaterfallCombinedTrust(basisTrust, p.incomeTrust, p.periodBillLoadTrust,
         p.budgetHoldTrust == null ? 'calculated' : p.budgetHoldTrust,
         p.balanceAfterDeductionsTrust == null ? 'calculated' : p.balanceAfterDeductionsTrust);
+      basisTrustExceptCard = periodWaterfallCombinedTrust(basisTrustExceptCard, p.incomeTrust, p.periodBillLoadTrust,
+        p.budgetHoldTrust == null ? 'calculated' : p.budgetHoldTrust, badTrustExceptCard(p));
       let allowance = p.budgetHold;
       if (p.start < asOf) {
         // Today's cash already includes observed spending. Missing actuals
@@ -23543,7 +23562,9 @@
               ? 'estimated' : 'calculated';
             const trust = periodWaterfallCombinedTrust(forward.fundingTrust, basisTrust, cashTrust);
             const estimateCause = cardEstimateCause(trust,
-              periodWaterfallCombinedTrust(forward.fundingTrustExceptCard, basisTrust, cashTrust));
+              // 'card-coverage' means a card payment to confirm (fundingTrustExceptCard is published only then). Beside one,
+              // the card-target term is a card cause too (#1573); without one, the card targets alone publish no cause.
+              periodWaterfallCombinedTrust(forward.fundingTrustExceptCard, basisTrustExceptCard, cashTrust));
             const cumulative = new Map();
             const rows = forward.paydays.map(row => {
               for (const a of row.allocations) cumulative.set(a.id,

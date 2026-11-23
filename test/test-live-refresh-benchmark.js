@@ -11,7 +11,9 @@ const snapshots = {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
     // Re-pinned for desk ruling (E) (#1573): each view adds stackSummary.credit / creditBreakdown and the options carry the
     // card publication's evidence; a whole-document diff against main shows only those additions (no figure moved).
-    forecast: '4ed4ac151e1f61f0137cb6794397050b6ea01eef3c86ac7b7c5e08736102a150',
+    // Re-pinned again for review 7106640633 (option (c)): a whole-document diff against 4bbaf67e shows only three periods'
+    // balanceAfterDeductionsTrust null -> estimated and stackSummary.surplus.trust calculated -> estimated (toward caution).
+    forecast: 'cdae4dfc10896e425b749b11bae71d0541d30fcab62bd21a0a6b9bb48f465916',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',

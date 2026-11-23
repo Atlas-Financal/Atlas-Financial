@@ -83,8 +83,20 @@ for (const [why, s] of [['payment To confirm (#1358)', degraded], ['credit To co
   check(s.advice.cardPurchaseCoverage.trust === 'estimated' && s.advice.cardPurchaseCoverage.toConfirm.length > 0,
     why + ': coverage stays an estimate with its To-confirm rows');
 }
-check(resolved.period.fromTodayFunding.trust === 'calculated' && resolved.period.fromTodayFunding.estimateCause === undefined
-  && resolved.advice.paydayShellEstimateCause === undefined, 'confirmed: calculated, no cause');
+// #1573 (lead, 2026-11-23): this world gives no card ledger evidence, so each card's charges already counted above
+// are unread and its target is a fall-back: the remainder is an estimate. Toward caution only. 'card-coverage' means a
+// card payment to confirm, and there is none here, so no cause is published (lead, 2026-11-23).
+check(resolved.coverage.trust === undefined && resolved.period.fromTodayFunding.trust === 'estimated'
+  && resolved.period.fromTodayFunding.estimateCause === undefined && resolved.advice.paydayShellEstimateCause === undefined,
+  'confirmed coverage: the card-target estimate alone publishes no card-coverage cause (estimated, no cause)');
+// The negative (#1573): beside a card payment to confirm, a non-card estimate (the invented payroll estimated) still
+// reads as non-card: no card cause.
+{
+  const incomeEstimated = run(world([purchase, cashLeg(105)], { edit: w => { w.data.plan.income[0].confidence = 'estimated'; } }));
+  check(incomeEstimated.coverage.trust === 'estimated' && incomeEstimated.period.fromTodayFunding.trust === 'estimated'
+    && incomeEstimated.period.fromTodayFunding.estimateCause === undefined,
+    'a payment To confirm beside an estimated income: estimated, and no card cause');
+}
 
 console.log('2. The page leads with the date, then a small "≈ estimate" mark, for this cause');
 for (const [why, s] of [['payment To confirm', degraded], ['credit To confirm', credit], ['both', both]]) {
@@ -104,12 +116,15 @@ for (const [why, s] of [['payment To confirm', degraded], ['credit To confirm', 
   check(/data-trust="estimated"/.test(cell), `${why}: Still planned keeps data-trust="estimated"`);
 }
 
-console.log('3. A confirmed world shows neither');
+console.log('3. A confirmed world shows no card-payment date tag');
 {
   const r = render(resolved);
-  check(count(r.html, /data-card-estimate-as-of/g) === 0, 'confirmed: no date tag');
-  check(!/trust-estimated/.test(block(r.shell, 'Money available')) && !/≈/.test(stillPlanned(r.spending)),
-    'confirmed: no estimate word on these figures either');
+  check(count(r.html, /data-card-estimate-as-of/g) === 0 && !r.html.includes('card payment to confirm'),
+    'confirmed: no date tag and no card-payment wording');
+  // #1573 (lead, 2026-11-23): this world's card targets are fall-backs (no card ledger evidence), so the figures carry
+  // the ordinary estimate mark. Toward caution only.
+  check(/trust-estimated/.test(block(r.shell, 'Money available')) || /≈/.test(stillPlanned(r.spending)),
+    'confirmed coverage, fall-back card targets: the ordinary estimate mark');
 }
 
 console.log('4. Other estimate causes keep their wording');
