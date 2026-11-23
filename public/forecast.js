@@ -15680,7 +15680,8 @@
         if (!finite(amount) || amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
       for (const extra of incomeOpts.additionalIncomeEvents || []) {
-        if (extra?.kind !== 'income' || !extra.date || extra.date <= day || extra.date > cycle.end || settled(extra.id, extra.date)) continue;
+        if (extra?.kind !== 'income' || !extra.date || extra.date <= day || extra.date > cycle.end || settled(extra.id, extra.date)
+          || incomeDepositAccountId(extra.id) !== BILLS_ACCOUNT_ID) continue;
         if (!finite(extra.amount) || extra.amount < 0) issue('income-unavailable', 'A qualified future income amount is unknown.');
       }
     };
@@ -15713,6 +15714,9 @@
       const observedIncome = representedActualMap(opts);
       for (const event of events) {
         if (event.kind === 'income') {
+          // H2-8a: route by account first. Income that does not land in Bills (incomeDepositAccountId) can neither
+          // add to nor withhold the Bills-only close, on its scheduled day or any other.
+          if (incomeDepositAccountId(event.id) !== BILLS_ACCOUNT_ID) continue;
           if (calendarOccurrenceRepresented(representedIncome, observedIncome, event.id, event.date)) continue;
           // Today is already in posted cash or needs the incumbent payday
           // recognition proof. Never add an unrepresented earlier salary.
@@ -15721,8 +15725,6 @@
             continue;
           }
           if (event.notReliedUpon || event.notReliedUponReason) continue;
-          // H2-8a: the Bills-only close counts only income that lands in Bills (incomeDepositAccountId).
-          if (incomeDepositAccountId(event.id) !== BILLS_ACCOUNT_ID) continue;
           if (!['confirmed', 'estimated'].includes(event.confidence)) {
             issue('income-unavailable', 'A future income amount is not qualified by the existing plan.'); continue;
           }

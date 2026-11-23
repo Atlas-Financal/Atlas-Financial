@@ -52,4 +52,30 @@ const other = published(world(stream('invented-bonus', 437.61)));
 ok(other && other.status === 'ok' && cents(other.terms.futureIncome) === cents(643.17 + 437.61) && cents(other.amount) === cents(1735.35 + 437.61),
   'an otherwise identical stream that lands in Bills adds 437.61: future income 1080.78, closing 2172.96', JSON.stringify(other));
 
+console.log('4. On the benefit\'s scheduled day (review 7093681543): routed by account before the same-day guard');
+{
+  const sameDay = (id, amount) => ({ ...stream(id, amount), day: 20 });
+  const ccbToday = published(world(sameDay('childBenefit', 437.61)));
+  ok(ccbToday && ccbToday.status === 'ok' && cents(ccbToday.amount) === cents(1735.35),
+    'published: a child benefit dated the as-of day neither adds to nor withholds the Bills close', JSON.stringify(ccbToday));
+  const billsToday = engine(world(sameDay('invented-bonus', 437.61)));
+  ok(billsToday.status === 'unavailable' && billsToday.issues.some(i => i.code === 'same-day-income-unconfirmed'),
+    'control: Bills-landing income dated the as-of day still withholds (the incumbent same-day guard)', JSON.stringify(billsToday.issues));
+  const billsTodayPublished = published(world(sameDay('invented-bonus', 437.61)));
+  ok(!billsTodayPublished || billsTodayPublished.status !== 'ok', 'control, published: that Bills close is not published as ok', JSON.stringify(billsTodayPublished));
+}
+
+console.log('5. Supplemental income events follow the same account boundary');
+{
+  const extraOpts = id => { const data = world(); return F.billsAccountPeriodBalance(data.plan, fx.AS_OF, {
+    currentPeriodActuals: data.liveOverlay.currentPeriodActuals, debts: data.debts, observedCash: data.liveOverlay.observedCash,
+    additionalIncomeEvents: [{ kind: 'income', id, date: '2026-08-25', amount: null }] }); };
+  const ccbExtra = extraOpts('childBenefit');
+  ok(ccbExtra.status === 'ready' && cents(ccbExtra.amount) === cents(1735.35),
+    'a supplemental child-benefit event of unknown amount does not withhold the Bills close', JSON.stringify(ccbExtra.issues));
+  const billsExtra = extraOpts('invented-bonus');
+  ok(billsExtra.status === 'unavailable' && billsExtra.issues.some(i => i.code === 'income-unavailable'),
+    'control: a supplemental Bills-landing event of unknown amount still withholds', JSON.stringify(billsExtra.issues));
+}
+
 console.log(`Bills close income deposit account: ${checks} checks passed`);
