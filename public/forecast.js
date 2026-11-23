@@ -4506,13 +4506,16 @@
   // Payment dates of obligation `o` from the first one whose dated split is
   // unknown. Empty unless the debt it pays (in opts.debts) authors a
   // principalShareSchedule, so unscheduled households are untouched.
+  // Payment dates of obligation `o` whose absorbed amount the debt walk
+  // published as UNKNOWN (an explicit null in opts.obligationAbsorbed, from a
+  // dated principal split that failed closed). This reads the walk's own
+  // qualified result, so a debt the walk proves paid off (a known zero) is
+  // never withheld, and a household with no schedule has no null caps.
   function principalShareUnknownPaymentDates(o, start, end, periodStart, opts) {
-    if (!o || o.nonCash || o.effect !== 'payment' || !o.debtId) return [];
-    const debt = ((opts && opts.debts) || []).find(d => d && d.id === o.debtId);
-    if (!debt || debt.principalShareSchedule === undefined) return [];
-    const dates = obligationOccurrences(o, start, end, periodStart).map(occ => occ.date).filter(Boolean);
-    const first = dates.findIndex(date => debtPrincipalShareFor(debt, date).unknown);
-    return first < 0 ? [] : dates.slice(first);
+    const caps = opts && opts.obligationAbsorbed;
+    if (!caps || !o || o.nonCash || !o.debtId) return [];
+    return obligationOccurrences(o, start, end, periodStart).map(occ => occ.date)
+      .filter(date => date && Object.prototype.hasOwnProperty.call(caps, date + ':' + o.id) && caps[date + ':' + o.id] === null);
   }
   function debtPrincipalShareFor(debt, date) {
     const regular = debt ? debt.principalShare : undefined;
@@ -25141,6 +25144,15 @@
           // are not payments anyone makes. Applying the interest share
           // first, then only capping the principal remainder, left later
           // interest draining cash after payoff.
+          // An earlier payment's unknown split makes this debt's balance
+          // unknown, so a payoff the placeholder walk reached is not evidence:
+          // check the inherited unknown BEFORE certifying "nothing left to pay".
+          if (principalShareUnknownFrom[t.id] != null && e.date >= principalShareUnknownFrom[t.id]) {
+            obligationAbsorbed[e.date + ':' + e.id] = null;
+            remainderDependent.add(t.id);
+            unabsorbedUnknown = true;
+            continue;
+          }
           if (!(t.balance > EPSILON)) {
             obligationAbsorbed[e.date + ':' + e.id] = 0;
             continue;

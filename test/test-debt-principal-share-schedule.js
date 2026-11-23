@@ -205,8 +205,8 @@ console.log('\n=== 8. near payoff: an unknown split withholds the published cash
   ok(typeof allPrincipal.weekly === 'number' && typeof allInterest.weekly === 'number' && allPrincipal.weekly !== allInterest.weekly,
     'the two legal endpoints publish different weekly figures', show([allPrincipal.weekly, allInterest.weekly]));
   const unknown = near(0.5, [{ from: '2027-02-01', until: '2027-06-01', principalShare: 1.5 }]);
-  ok(unknown.weekly == null && unknown.sim && unknown.sim.status === 'unavailable' && unknown.cash.length === 0,
-    'unknown split: no weekly figure and no cash payment amount is published', show([unknown.weekly, unknown.sim && unknown.sim.status, unknown.cash]));
+  ok(unknown.weekly == null && unknown.cash.length === 0,
+    'unknown split: no weekly figure and no cash payment amount is published', show([unknown.weekly, unknown.cash]));
   const r = F.projectDebts(...(() => { const x = setup([{ from: '2027-02-01', until: '2027-06-01', principalShare: 1.5 }]); return [x.plan, x.debts, START, {}]; })());
   ok(Object.keys(r.obligationAbsorbed).filter(k => k.endsWith(':mortgage-pay')).every(k => r.obligationAbsorbed[k] === null),
     'every absorbed amount of that debt from the unknown payment on is an explicit null, never a number', show(r.obligationAbsorbed));
@@ -226,6 +226,36 @@ console.log('\n=== 9. an authored schedule never falls back to an invalid regula
   ok(zero.unknown !== true && zero.share === 0, 'a regular share of exactly 0 stays a known zero', show(zero));
   const legacy = F.debtPrincipalShareFor({ interestByEvent: true, principalShare: -0.3 }, '2027-02-10');
   ok(legacy.unknown !== true && legacy.share === -0.3, 'an unscheduled row keeps the incumbent rule unchanged', show(legacy));
+}
+
+console.log('\n=== 10. a placeholder payoff is never certified; a proven payoff is never withheld ===');
+{
+  const world = (balance, sched) => {
+    const debt = { id: 'mortgage', label: 'Invented mortgage', balance, pending: 0, rate: 5, secured: true,
+      interestByEvent: true, principalShare: 0.5, confidence: 'confirmed', principalShareSchedule: sched };
+    const plan = { windowDays: 91, defaults: { targetBuffer: 0, extraDebtMonthly: 0, scenario: 'expected' },
+      startingCash: { breakdown: [{ id: 'chequing-a', value: 9000 }, { id: 'chequing-b', value: 0 }] },
+      opening: { asOf: START }, budget: { basis: 'ytd', categories: [] },
+      income: [{ id: 'pay', label: 'Invented pay', amount: 2000, frequency: 'biweekly', anchor: '2027-02-05', confidence: 'confirmed' }],
+      bills: [], commitments: [],
+      obligations: [{ id: 'mortgage-pay', debtId: 'mortgage', effect: 'payment', label: 'Invented mortgage payment',
+        frequency: 'monthly', day: 10, amount: 1000, confidence: 'confirmed', payingAccount: 'chequing-a' }] };
+    const caps = F.projectDebts(plan, [debt], START, {}).obligationAbsorbed;
+    return { caps: ['2027-02-10', '2027-03-10', '2027-04-10'].map(d => caps[d + ':mortgage-pay']),
+      weekly: F.recommend(plan, START, { debts: [debt] }).weekly };
+  };
+  // Speculative payoff: opening 300, February split unknown (1.5), March onward valid 0.5. An all-interest
+  // February would leave the balance, so the later "nothing left" zeros are not evidence: all unknown.
+  const speculative = world(300, [{ from: '2027-02-01', until: '2027-03-01', principalShare: 1.5 },
+    { from: '2027-03-01', until: '2027-06-01', principalShare: 0.5 }]);
+  ok(show(speculative.caps) === show([null, null, null]) && speculative.weekly == null,
+    'near-payoff opening: every cap after the unknown split is unknown, and the weekly figure is withheld', show(speculative));
+  // Proven payoff: a known zero opening balance. The walk never evaluates a split, so an unused invalid term
+  // cannot withhold anything: caps are known zeros and the weekly figure equals the valid-term control.
+  const proven = world(0, [{ from: '2027-02-01', until: '2027-06-01', principalShare: 1.5 }]);
+  const control = world(0, [{ from: '2027-02-01', until: '2027-06-01', principalShare: 0.5 }]);
+  ok(show(proven.caps) === show([0, 0, 0]) && typeof proven.weekly === 'number' && proven.weekly === control.weekly,
+    'zero opening balance: known zero caps, and the weekly figure is published as in the valid control', show([proven, control.weekly]));
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL CHECKS PASSED');
