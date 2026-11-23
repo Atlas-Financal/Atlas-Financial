@@ -15507,8 +15507,8 @@
   // already tied to that card counts (the card ledger's payDownBeyondMinimum: posted household-cash debits it paired to the
   // card); (2) only within the cycle the target belongs to, never an earlier one; (3) a payment already counted elsewhere
   // is not netted again (the part paying the minimum is the bill; payDownBeyondMinimum holds only the part beyond it). The
-  // cycle is this one bound: the target's own pay-period window (the targets are per pay period). Pending Grok's answer on
-  // whether the pay period is "the cycle", this is the one place to change.
+  // cycle is this one bound: the target's own pay-period window. Grok Bot (Plan #6): "Yes, the pay period works as 'the
+  // cycle' for #1573, since the target is set per pay period."
   function cardTargetBeyondMinimum(cardCoverage, window, asOf) {
     return window ? manualCardBeyondMinimumCycle(cardCoverage, { start: window.start, end: window.end }, asOf) : null;
   }
