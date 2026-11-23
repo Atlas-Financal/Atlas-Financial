@@ -155,4 +155,63 @@ const active = r => r.payPeriodViews.find(p => p.role === 'active') || r.payPeri
     'the identity: Surplus = Balance After Deductions + the 35.00 paid beyond the minimum (owner decision above stackSurplus)');
 }
 
+console.log('3. The property, over a grid of invented values: each card\'s total effect is the larger of the cash still needed');
+// effect = deduction + cash paid beyond the minimum (its own term) == max(due, min(due, minimum) + beyond): the larger of
+// the cash still needed for the target and the cash sent beyond the minimum plus the part of the minimum the counted charges
+// do not already cover. Never both added together, never less than either. (Where due >= minimum this is
+// max(due, minimum + beyond).) An invented one-card publication, its target max(minimum, charges + interest).
+{
+  const M = require('../public/forecast-card-period');
+  const pub = rows => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current',
+    cards: [{ id: 'inv', label: 'Invented', posted: rows, pending: [], postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] } }] });
+  let cases = 0, below = 0, above = 0;
+  for (const charges of [0, 30, 80, 150]) for (const interest of [0, 10, 60]) for (const minimum of [25, 60, 100]) for (const beyond of [0, 20, 50, 200]) {
+    const rows = [charges && { kind: 'charge', amount: charges, date: '2031-03-02' }, interest && { kind: 'interest', amount: interest, date: '2031-03-03' }].filter(Boolean);
+    const line = M.stackCreditLines(pub(rows), { cardMinimums: [{ debtId: 'inv', amount: minimum }], trust: 'calculated' }, [],
+      new Map([['inv', beyond * 100]])).lines.find(l => l.id === 'inv');
+    const due = Math.max(0, Math.max(minimum, charges + interest) - charges);
+    const effect = cents(line.deduction.amount) + beyond * 100;
+    assert.equal(effect, Math.max(due, Math.min(due, minimum) + beyond) * 100,
+      `charges ${charges}, interest ${interest}, minimum ${minimum}, beyond ${beyond}: effect ${effect / 100}`);
+    assert.ok(line.deduction.amount >= 0 && effect >= due * 100 && effect >= beyond * 100, 'never less than either');
+    cases++; if (due < minimum) below++; else above++;
+  }
+  ok(cases === 144 && below > 0 && above > 0, 'effect == max(due, min(due, minimum) + beyond) on every grid point, below and above the minimum',
+    `${cases} points, ${below} with due < minimum, ${above} with due >= minimum`);
+}
+
+console.log('4. Grok Bot\'s three conditions on the cash paid beyond a minimum (Plan #6), each on its own invented case');
+{
+  const opts = { card: 'mbna', payDownOnly: ['mbna', 'triangle'] };
+  const line = v => v.stackSummary.credit.lines.find(l => l.id === 'mbna');
+  // (1) Only a POSTED payment tied to the card counts: a pending 60 payment is not netted (and is no term).
+  const pending = ['bills', 60, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS', is_pending: true }];
+  const v1 = active(advise([pending], F, opts));
+  // Positive control: the same payment posted, in this cycle, is the 35 beyond the minimum, carried to the netting.
+  const posted = active(advise([['bills', 60, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }]], F, opts));
+  ok(cents(line(posted).deduction.beyondMinimumPaid) === 3500, 'control: the same payment posted in this cycle carries its 35.00 beyond the minimum',
+    JSON.stringify(line(posted).deduction));
+  ok(line(v1).deduction.beyondMinimumPaid === 0 && !v1.predictedEndingBalanceTerms.manualCardPaymentBeyondMinimum,
+    'condition 1: a pending payment is not netted against the target', JSON.stringify(line(v1).deduction));
+  // (2) Only within the target's own cycle (its pay period): the card ledger opens 09-04 and sees a 60 payment on 09-10
+  // against that period's 25 minimum (35 beyond, in the 09-04..09-17 period). It is netted there and never against the
+  // 09-18..10-01 period's target.
+  const { RULE } = require('./fixtures/card-coverage-aggregate-world');
+  const early = ['bills', 60, '2026-09-10', 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }];
+  const r2 = advise([early], F, { ...opts, windowStart: '2026-09-04', minimumDate: '2026-09-10',
+    policy: { rule: RULE, opening: { asOf: '2026-09-04', confirmed: true, currency: 'cad', fundingAccountId: 'chequing-a', purchases: [] },
+      payDownOnly: ['mbna', 'triangle'] } });
+  const seen = (r2.cardPurchaseCoverage.payDownBeyondMinimum || []).filter(row => row.account === 'mbna' && row.date === '2026-09-10');
+  const earlier = r2.payPeriodViews.find(v => v.start === '2026-09-04'), v2 = active(r2);
+  ok(seen.length === 1 && cents(line(earlier).deduction.beyondMinimumPaid) === 3500 && line(v2).deduction.beyondMinimumPaid === 0,
+    'condition 2: the 35.00 beyond is netted in its own cycle (09-04) and not against the next cycle\'s target',
+    JSON.stringify([seen, line(earlier).deduction.beyondMinimumPaid, line(v2).deduction]));
+  // (3) A payment already counted elsewhere is not netted again: a 25 payment of the 25 minimum is the bill itself, so
+  // nothing is beyond it and nothing is netted; the remainder is main's.
+  const exact = ['bills', 25, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }];
+  const v3 = active(advise([exact], F, opts)), o3 = active(advise([exact], OLD, opts));
+  ok(line(v3).deduction.beyondMinimumPaid === 0 && cents(v3.balanceAfterDeductions) === cents(o3.balanceAfterDeductions),
+    'condition 3: the payment of the minimum (counted as the bill) is not netted again; remainder as main', JSON.stringify(line(v3).deduction));
+}
+
 console.log(`\nPASS card target Credit deduction (${checks})`);

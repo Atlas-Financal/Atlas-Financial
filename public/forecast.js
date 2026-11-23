@@ -15479,6 +15479,15 @@
   // takes: Credit − the card minimums the bills already deduct, in cents (either sign). A card minimum the publication has
   // no line for keeps its minimum as its deduction (no evidence of more), so with no card evidence the adjustment is 0 and
   // the remainder is main's. A withheld deduction withholds the adjustment (null): never zero, never more certain.
+  // Grok Bot's conditions on netting cash paid beyond a minimum (Plan #6, relayed by the lead): (1) only a POSTED payment
+  // already tied to that card counts (the card ledger's payDownBeyondMinimum: posted household-cash debits it paired to the
+  // card); (2) only within the cycle the target belongs to, never an earlier one; (3) a payment already counted elsewhere
+  // is not netted again (the part paying the minimum is the bill; payDownBeyondMinimum holds only the part beyond it). The
+  // cycle is this one bound: the target's own pay-period window (the targets are per pay period). Pending Grok's answer on
+  // whether the pay period is "the cycle", this is the one place to change.
+  function cardTargetBeyondMinimum(cardCoverage, window, asOf) {
+    return window ? manualCardBeyondMinimumCycle(cardCoverage, { start: window.start, end: window.end }, asOf) : null;
+  }
   function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum) {
     if (!Array.isArray(debts) || !window) return null;
     const minimums = Array.isArray(cardMinimums) ? cardMinimums : null;
@@ -18586,7 +18595,7 @@
       // A completed period still publishes its lines (the Credit tile reads them), without the adjustment.
       const cardCredit = !planUnavailable
         ? periodCardCredit(plan, debts, asOf, window, opts, billLoadParts && billLoadParts.cardMinimums, periodBillLoadTrust,
-          beyondMinimum) : null;
+          cardTargetBeyondMinimum(cardCoverage, window, asOf)) : null;
       const cardAdjusts = (role === 'active' || role === 'future') && !!cardCredit && !!billLoadParts;
       const cardAdjustmentCents = cardAdjusts ? cardCredit.adjustmentCents : 0;
       const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && beyondMinimum != null
