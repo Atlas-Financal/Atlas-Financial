@@ -2,8 +2,8 @@
 // A pending row that only looks like a posted one (same date, account,
 // amount and merchant) may be a second real purchase. Through the Budget
 // page a household reads, it stays visible with a possible-duplicate mark,
-// and its category's spent and the household actual are marked estimated
-// until it resolves, never a precise calculated total. The plan keeps its
+// and its category's spent and the household actual retain estimated trust
+// until it resolves. The displayed amounts use the same format. The plan keeps its
 // own trust, and Balance After Deductions is unchanged. Real page, invented
 // household from test/acceptance/harness.js (income 1,400; Groceries 300 +
 // Eating out 100); no household figure enters this file.
@@ -13,12 +13,12 @@
 // Expectations are hand-derived from the rule, not read from the code:
 //   1. two 6.50 cafe purchases on Oct 11, one posted and one pending: both
 //      rows are listed, the pending one says "Possible duplicate"; Eating out
-//      shows Spent ≈ estimated 6.50 and ≈ estimated 93.50 left, of planned
+//      shows Spent 6.50 and 93.50 left, of planned
 //      100 with no estimate mark on the plan; the household total is
-//      ≈ estimated 6.50 of planned 400; Groceries is untouched (300 left);
+//      6.50 of planned 400; Groceries is untouched (300 left);
 //      Balance After Deductions stays 1,400 - 400 = 1,000.
 //   2. the same look-alike in an unassigned (Uncategorised) purchase: the
-//      Other spending row reads ≈ estimated 6.50, not a precise 6.50.
+//      Other spending row prints 6.50 and the pending warning.
 //   3. control: one pending 6.50 with no posted look-alike is counted as
 //      before (Spent 6.50, 93.50 left), unmarked.
 //   4. control: a pending row joined to its posted successor by the provider

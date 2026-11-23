@@ -168,15 +168,15 @@ const scenarios = [
     },
   },
   {
-    id: '5.7', basis: 'spec', name: 'no snapshot but complete history: the reconstructed close says estimated',
+    id: '5.7', basis: 'spec', name: 'no snapshot but complete history: the reconstructed close shows its figure',
     // Complete Sep 1 onward history, no captured snapshot. The closed period's
-    // reconstructed figures are shown, and labelled estimated.
+    // reconstructed figures are shown with the same treatment as other published figures.
     async run(H) {
       await H.withBudget(historyWorld(H), async p => {
         await closed(H, p);
         const bad = (await p.rows('[data-operating-question="07"]')).join(' ');
         H.expectMatch(bad, /Balance After Deductions[^$]*\$[\d,]+\.\d\d/, 'a reconstructed closing figure is shown');
-        H.expectMatch(bad, /≈|estimated|Estimated/, 'and it is labelled estimated');
+        H.expectNoMatch(bad, /≈|estimated/i, 'the reconstructed figure carries no estimate cue');
       });
     },
   },

@@ -5,7 +5,7 @@
  * Invented data only, served to the real public/ page. An unknown chequing
  * opening makes Forecast withhold today's plan; later periods are released as
  * estimates. The page must keep "Current plan unavailable" for today and show
- * each later period's four figures, every one with the estimate tag. With a
+ * each later period's four figures, with no estimate marks. With a
  * known opening the page is the normal Budget and shows no such card.
  *
  * CHROME_PATH=<Chromium> node test/browser-budget-estimated-later-periods.js
@@ -76,7 +76,8 @@ const data = openingKnown => ({
             /Household budget\s*\$200\.00/, /Balance After Deductions\s*\$1,600\.00/]) {
             assert.match(text, want, `${label}: first later period shows ${want}`);
           }
-          assert.equal(await card.locator('.trust-tag.trust-estimated:visible').count(), 0,
+          assert.doesNotMatch(await card.textContent(), /≈|\bestimat(?:e|ed)\b/i);
+          assert.equal(await card.locator('.trust-tag.trust-estimated').count(), 0,
             `${label}: none of the twenty figures has a visible estimate tag`);
           await card.scrollIntoViewIfNeeded();
         } else {

@@ -31,7 +31,7 @@ const H = require('./acceptance/harness');
       assert.deepEqual(p.errors, []);
     });
     // Atlas #931: an unknown in-window amount (never emitted as a row) gives
-    // Unknown; an estimated amount keeps its estimate marker.
+    // Unknown; a published estimated amount prints plainly.
     const unknown = H.clone(w);
     unknown.bills.push({ id: 'mystery', label: 'Invented unknown bill', amount: null, frequency: 'monthly',
       day: 2, confidence: 'confirmed', payee: 'Invented mystery co' });

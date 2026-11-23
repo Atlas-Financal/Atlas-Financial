@@ -45,7 +45,8 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
     const inspect = async (id, amount, name, estimated) => {
       const trigger = bill(id), text = await trigger.innerText();
       assert.match(text, new RegExp(amount));
-      assert.doesNotMatch(text, /estimated|≈|about/i, 'the bill and its shortfall have neutral amounts');
+      if (before && estimated) assert.match(text, /estimated/);
+      else assert.doesNotMatch(text, /estimated|≈|about/i, 'the bill and its shortfall have neutral amounts');
       if (!estimated) {
         const shortfall = ((18361 - Math.round(Number(amount.replace('\\', '')) * 100)) / 100).toFixed(2);
         assert.ok(text.includes(`$${shortfall} still to pay`), 'the independently computed shortfall stays visible');
@@ -53,7 +54,8 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
       await trigger.focus(); await page.keyboard.press('Enter');
       const sheet = page.locator('[data-budget-detail-body]'), summary = sheet.locator('[data-period-bill]');
       const summaryText = await summary.innerText();
-      assert.doesNotMatch(summaryText, /about|≈|estimated/i);
+      if (before && estimated) assert.match(summaryText, /about/);
+      else assert.doesNotMatch(summaryText, /about|≈|estimated/i);
       assert.match(await sheet.innerText(), /Payment evidence/);
       if (name !== 'future') assert.match(await sheet.innerText(), /Posted|Pending [—-] not a posted payment|evidence is unavailable/);
       await page.screenshot({ path: path.join(out, `${name}-sheet-${width}.png`), animations: 'disabled' });
