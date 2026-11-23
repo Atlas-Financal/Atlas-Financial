@@ -560,6 +560,23 @@ try {
     assert.deepEqual(a, History.REASONS.filter(code => a.includes(code)), 'reasons follow the published fixed order');
   });
 
+  check('late correction judges cash freshness against its closing day, end to end through capture()', () => {
+    // Hunt 5 finding 1 (#1606): a correction of the Feb 1-14 period fetched
+    // Feb 20 (same-day opening) reads balances dated Feb 20, after the close:
+    // fresh for that close. One account dated Feb 13, before the closing
+    // day, is the lagging-sibling defect and still withholds.
+    const late = (stale) => {
+      const x = input('2025-02-20', 'actual-correction', { start: '2025-02-01', incomeAnchor: '2025-02-01' });
+      x.reason = 'invented correction';
+      if (stale) { x.payload.accounts[1].balance_as_of = '2025-02-13T20:00:00Z'; x.payload.accounts[1].updated_at = '2025-02-13T20:00:00Z'; }
+      return x;
+    };
+    const ok = capture(late(false));
+    assert.equal(ok.content.kind, 'actual-correction');
+    assert.deepEqual(ok.content.period, { start: '2025-02-01', end: '2025-02-14' });
+    rejects(() => capture(late(true)), 'history-forecast-capture-failed');
+  });
+
   results.forEach(name => console.log('  ok - ' + name));
   console.log('PASS private pay-period history H1: completeness, closing state, cutoff, v1 compatibility and receipt path (' + results.length + ' checks)');
 } finally { fs.rmSync(temporary, { recursive: true, force: true }); }

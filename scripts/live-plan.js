@@ -308,7 +308,7 @@ function pendingRowsForDebt(report, id) {
 function assertFreshLivePacket(data, report, liveAsOf) {
   if (!liveAsOf) fail('Live overlay is missing a household financial date.');
   for (const id of POSTED_CASH) {
-    if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
+    if (id === 'savings' && !O.savingsCashRequired(data && data.plan, liveAsOf)) continue;
     const locator = `cash:${id}`;
     const rows = postedRowsForLocator(report, locator);
     const fresh = rows.find(row => (
@@ -342,7 +342,7 @@ function assertFreshLivePacket(data, report, liveAsOf) {
 // missing-savings and pending rules stay advancing-only.
 function assertSameDayCashFresh(data, report, liveAsOf, freshFrom) {
   for (const id of POSTED_CASH) {
-    if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
+    if (id === 'savings' && !O.savingsCashRequired(data && data.plan, liveAsOf)) continue;
     const locator = `cash:${id}`;
     const known = postedRowsForLocator(report, locator).filter(row => trustworthyNumeric(row) && liveEvidenceDate(row));
     if (!known.length || known.some(row => liveEvidenceDate(row) >= freshFrom && liveEvidenceDate(row) <= liveAsOf)) continue;

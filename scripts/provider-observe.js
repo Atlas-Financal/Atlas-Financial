@@ -2665,6 +2665,13 @@ function observationFingerprintDigest(fingerprint) {
   return crypto.createHash('sha256').update(JSON.stringify(fingerprint)).digest('hex');
 }
 
+// The one rule for whether the savings cash balance is a REQUIRED live
+// cash balance: it is while savings earmarks are not yet set up. The live
+// overlay's freshness gates and the household date both read this.
+function savingsCashRequired(plan, asOf) {
+  return !plan || Forecast.savingsEarmarksState(plan, asOf).status === 'setup-unknown';
+}
+
 // Schedule-trust uses one provider/household financial date.
 // fetchedAt and the process clock are fetch timestamps, not as-of.
 function householdDateFromProviderEvidence(observations, plan) {
@@ -2688,8 +2695,7 @@ function householdDateFromProviderEvidence(observations, plan) {
     if (day) dates.push(day);
   }
   dates.sort();
-  const savingsRequired = !plan || !dates.length
-    || Forecast.savingsEarmarksState(plan, dates[dates.length - 1]).status === 'setup-unknown';
+  const savingsRequired = !dates.length || savingsCashRequired(plan, dates[dates.length - 1]);
   if (savingsRequired) {
     const day = dayOf(known('savings'));
     if (day) dates.push(day);
@@ -8466,6 +8472,7 @@ const api = {
   cashBalanceEvidenceInstant,
   genericAccountEvidenceInstant,
   loanBalanceEvidenceInstant,
+  savingsCashRequired,
   normalizeLunchMoneyTransaction,
   normalizeLunchMoneyPayload,
   observationsFromMappedAccount,
