@@ -127,7 +127,7 @@ for (const [name, html] of Object.entries(pages)) {
 const income = step(pages.compact, '02'), bills = step(pages.compact, '04'), household = step(pages.compact, '06');
 // The invented deposit is planned and never observed, so the close saved its income as estimated (the
 // completed-period income trust rule): the drawer total carries that saved tag, and the amount is unchanged.
-ok(/\+\$200\.00/.test(income) && /Payday balance ≈ estimated \$200\.00/.test(text(income)), 'L5 the saved income line and total (200.00, tagged as saved) are on the page');
+ok(/\+\$200\.00/.test(income) && /Payday balance \$200\.00/.test(text(income)), 'L5 the saved income line and total (200.00, tagged as saved) are on the page');
 ok(/Total bills this period \$30\.00/.test(text(bills)) && /Paid bills this period \$0\.00/.test(text(bills)),
   'L5 the saved bill totals (30.00 this period, 0.00 paid) are on the page');
 ok(/Completed-period spending deduction \$12\.34/.test(text(household)), 'L5 the saved spending deduction (12.34) is on the page');

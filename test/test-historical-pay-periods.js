@@ -726,8 +726,8 @@ console.log('\n=== 10. finalized historical facts close every publication alias 
       && !['estimated', 'unavailable'].includes(past(after).balanceAfterDeductionsTrust),
       'once the missing deposits post, the same period reads estimated becoming calculated', trustWords(past(before)) + ' -> ' + trustWords(past(after)));
     // The drawer total carries the published income tag, and clears with it.
-    ok(/data-payday-balance-trust>≈ estimated</.test(surface(before)) && !/data-payday-balance-trust/.test(surface(after)),
-      'the Payday balance drawer total shows the estimated tag while unobserved and drops it once the deposits post');
+    ok(!/data-payday-balance-trust|≈/.test(surface(before)) && !/data-payday-balance-trust/.test(surface(after)),
+      'the Payday balance drawer total has no trust mark before or after the deposits post');
     // Condition 1: observed means a posted deposit. A pending deposit, or one
     // only held "to confirm", is not observed and keeps the period estimated.
     const pending = fixture(4017.25, true);

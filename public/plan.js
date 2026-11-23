@@ -1,10 +1,7 @@
 'use strict';
 /* The Plan page — the 90-day forecast, the budget solved from it, and the
    next actions. All amounts come from data.json's `plan` block; the maths is
-   forecast.js, the same file the node test suite exercises.
-
-   Estimated figures are marked ≈ and rendered in the .est style everywhere,
-   so a confirmed dollar never looks the same as a modelled one. */
+   forecast.js, the same file the node test suite exercises. */
 
 /* ----------------------------------------------------------- knob state */
 // The user's planning knobs — not financial data, just their adjustments.
@@ -1047,22 +1044,12 @@ function paydayGlanceCashNote(alloc, liveOverlay) {
   return glanceUpdatedNote(asOf, liveOverlay);
 }
 
-// Dale, 2026-11-18 ("instead of an estimated tag show the last update
-// date", option A): a figure Forecast publishes as estimated ONLY because a
-// card payment or credit is To confirm (estimateCause 'card-coverage') leads
-// with the bank data's date, followed by a small muted "≈ estimate" mark,
-// in place of the estimate tag. The element keeps
-// data-trust="estimated" and says "estimate" to assistive technology. With no
-// single bank date the caller keeps the estimate word (null here).
+// Show the bank evidence date when card coverage is the sole qualification.
 function cardEstimateAsOfHtml(liveOverlay) {
   const date = providerBalanceDate(liveOverlay);
   if (!date) return null;
   const shown = escapeHtml('as of ' + fmtDateLong(date));
-  // Dale chose option A: the date leads, and a small muted "≈ estimate"
-  // mark follows it, so the estimate word stays but is not the headline.
-  return `<span class="trust-tag trust-as-of" data-trust="estimated" data-card-estimate-as-of`
-    + ` title="estimate: card payment to confirm" aria-label="${shown}, estimate: card payment to confirm">${shown}`
-    + ` <small class="trust-as-of-mark" data-card-estimate-mark>≈ estimate</small></span>`;
+  return `<span data-trust="estimated" data-card-estimate-as-of>${shown}</span>`;
 }
 
 function providerBalanceDate(liveOverlay) {
@@ -1637,7 +1624,6 @@ function glanceLineLabel(row, tag) {
     const printed = row && (row.scheduledDue || row.date);
     if (printed) {
       bits.push(fmtDate(printed));
-      if (row.dateConfidence === 'estimated') bits.push('estimated');
     }
     if (tag && tag !== 'needs-date') bits.push(tag);
   }
@@ -1736,9 +1722,8 @@ function runningLeftoverHtml(amount, trust) {
   // negative running balance cannot be mistaken for a positive one.
   const sign = !known ? 'unknown' : Number(amount) < 0 ? 'negative' : 'non-negative';
   const estimated = trust === 'estimated' && known;
-  const mark = estimated ? '<span class="est">≈ estimated</span> ' : '';
   return `<div class="payday-leftover" data-running-leftover data-sign="${sign}"${estimated ? ' data-balance-trust="estimated"' : ''}>
-    <span class="operating-amount">${mark}${known ? money2(amount) : '—'}</span>
+    <span class="operating-amount">${known ? money2(amount) : '—'}</span>
   </div>`;
 }
 
@@ -1822,15 +1807,14 @@ function periodBillLine(row) {
     : row.status === 'carried' || row.settlement === 'carried' ? 'carried at close'
     : row.settlement === 'unverified' ? 'to confirm'
     : 'still due';
-  // A trust-settled row prints estimated, never PAID; the status attribute stays the closed value.
+  // Settlement by schedule does not establish a bank payment.
   const tag = status === 'PAID' && row.settlementBasis === 'schedule-trust-on-due'
-    ? 'estimated · trusted on due date (not seen)' : status;
+    ? 'Settled by schedule · payment not observed' : status;
   const amount = glanceSignedMoney(glanceMoney(row, kind));
   const amountTrust = row.displayAmountTrust === undefined
     ? (row.confidence === 'estimated' ? 'estimated' : null) : row.displayAmountTrust;
-  const about = amountTrust === 'estimated' && amount != null ? 'about ' : '';
   // Unknown or unavailable trust never prints a bare figure (same rule as the Bills list).
-  const amountText = amount == null ? '—' : ['unknown', 'unavailable'].includes(amountTrust) ? 'Unavailable' : about + amount;
+  const amountText = amount == null ? '—' : ['unknown', 'unavailable'].includes(amountTrust) ? 'Unavailable' : amount;
   if (typeof BillDetail !== 'undefined') {
     // App.data is this render's served packet, also used by renderPlan above.
     // The disclosure only reprints Forecast rows and exact sanitized links.
@@ -1953,11 +1937,7 @@ function calendarIncomeHtml(period) {
       : glanceLineLabel(row, toConfirm ? '' : notRelied ? 'not relied upon'
         : row.status === 'relied-upon' ? 'relied upon'
         : row.alreadyInCash && row.status !== 'received' ? 'already in balance'
-        : status);
-    const about = !estimatedTrust && !daleSalary && row.confidence === 'estimated' && amount != null
-      ? 'about ' : '';
-    const estimateMark = estimatedTrust && amount != null
-      ? '<span class="est">≈ estimated</span> ' : '';
+        : status === 'estimated' ? '' : status);
     const statusAttr = notRelied ? 'not-relied-upon'
       : row.depositStatus === 'to-confirm' ? 'to-confirm'
       : row.status === 'relied-upon' ? 'relied-upon'
@@ -1965,7 +1945,7 @@ function calendarIncomeHtml(period) {
     // Other named receipts already include date/status in glanceLineLabel.
     // Salary names omit that metadata, so print it once beneath the name.
     // A To confirm row states its status once, in the amount column.
-    const receiptStatus = toConfirm ? '' : notRelied ? 'deposit not confirmed' : status;
+    const receiptStatus = toConfirm || status === 'estimated' ? '' : notRelied ? 'deposit not confirmed' : status;
     const receiptDate = (daleSalary || amandaSalary) && row.date
       && /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))
       ? `<time class="budget-receipt-date" datetime="${escapeHtml(row.date)}">${fmtDate(row.date)}${receiptStatus ? ' · ' + receiptStatus : ''}</time>` : '';
@@ -1976,7 +1956,7 @@ function calendarIncomeHtml(period) {
     const originalPlan = row.status === 'received' && typeof original === 'number' && Number.isFinite(original)
       ? `<span class="budget-receipt-date" data-income-original-plan>Original plan ${money2(original)}</span>` : '';
     return `<div class="operating-line" data-period-income="${escapeHtml(row.id) || ''}" data-income-status="${statusAttr}"${extra}>
-      <span>${escapeHtml(displayName)}${receiptDate}${pendingHint}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? estimateMark + about + amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
+      <span>${escapeHtml(displayName)}${receiptDate}${pendingHint}${originalPlan}</span><span data-income-line-amount>${toConfirm ? toConfirmFace(row) : amount != null ? amount : row.status === 'received' ? 'Unavailable' : '-'}</span>
     </div>`;
   };
   const namedLines = named.map(row => line(row)).join('');
@@ -2009,7 +1989,7 @@ function calendarIncomeHtml(period) {
       const toConfirm = !isReceived && row.toConfirm === true;
       // A To confirm item states its status once, in the amount column.
       const pending = toConfirm ? ''
-        : !isReceived && (tx.pending === true || row.confidence === 'estimated')
+        : !isReceived && tx.pending === true
           ? '<span class="other-income-tx-pending">Expected</span>'
           : '';
       const received = isReceived
@@ -2023,7 +2003,6 @@ function calendarIncomeHtml(period) {
         : row.status === 'planned' ? 'planned'
         : row.status === 'unknown' ? 'unknown'
         : row.alreadyInCash ? 'already in balance' : 'arriving';
-      const about = !isReceived && row.confidence === 'estimated' ? 'about ' : '';
       // Each item prints what the Other income total (and the headline)
       // counted for it: Forecast's contribution selector, never row.amount.
       const receiptAmount = incomeCountedAmount(row);
@@ -2031,7 +2010,7 @@ function calendarIncomeHtml(period) {
       return `<li class="other-income-tx"${idAttr} data-income-status="${status}">
         <time${dateAttr}>${esc(dateText)}</time>
         <span class="other-income-tx-payee">${esc(payeeRaw)}${received}${pending}</span>
-        <span class="other-income-tx-amount" data-income-line-amount>${toConfirm ? toConfirmFace(row) : receiptAmount != null ? about + money2(receiptAmount) : 'Unavailable'}</span>
+        <span class="other-income-tx-amount" data-income-line-amount>${toConfirm ? toConfirmFace(row) : receiptAmount != null ? money2(receiptAmount) : 'Unavailable'}</span>
       </li>`;
     }).join('');
     otherHtml = `<div class="other-income-openable" data-other-income>
@@ -2051,15 +2030,10 @@ function calendarIncomeHtml(period) {
   // Kept under the named/other income breakdown, parallel to bills:
   // line items, then a closing total. Do not invent a second calculator
   // field or relabel this as leftover-after-adding-income.
-  // The total carries the Income headline's published tag: when Forecast
-  // publishes incomeTrust estimated this closing total says so too, and it
-  // never reads more certain than the headline above it.
-  const paydayEstimate = period && period.incomeTrust === 'estimated'
-    ? ' <span class="est" data-payday-balance-trust>≈ estimated</span>' : '';
   const payday = period && period.available != null
     ? `<div class="payday-totals">
         <p class="payday-qual payday-total payday-total-strong" data-payday-balance>
-          <span>Payday balance${paydayEstimate}</span><span data-payday-balance-amount>${money2(period.available)}</span>
+          <span>Payday balance</span><span data-payday-balance-amount>${money2(period.available)}</span>
         </p>
       </div>`
     : '';
@@ -2084,11 +2058,7 @@ function householdBudgetMetric(label, amount, opts) {
     ? 'household-budget-metric household-budget-remaining'
     : 'household-budget-metric';
   const knownAmount = amount != null && isFinite(Number(amount));
-  const plain = knownAmount ? money2(amount) : (opts && opts.unavailableText) || '—';
-  const estimated = !!(opts && opts.estimated) && knownAmount;
-  const value = estimated
-    ? `<span class="est">≈ estimated</span> ${plain}`
-    : plain;
+  const value = knownAmount ? money2(amount) : (opts && opts.unavailableText) || '—';
   const recon = opts && Array.isArray(opts.recon) ? opts.recon : null;
   // Rank 18: the To confirm block lists its rows the same way, under its own label.
   if ((label === 'Spent' || (opts && opts.listRows === true)) && recon && recon.length) {
@@ -2232,14 +2202,8 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const datedOtherPlan = other && typeof row.targetEffectiveFrom === 'string'
     && /^\d{4}-\d{2}-\d{2}$/.test(row.targetEffectiveFrom)
     && typeof row.planned === 'number' && Number.isFinite(row.planned);
-  // Forecast's plannedTrust, when present, is the plan's own trust; an
-  // estimated row with a calculated plan (a possible duplicate) estimates
-  // Spent and Remaining only. spentTrust marks Spent estimated alongside an
-  // estimated plan (a carried Lunch Money budget with a possible duplicate).
   const rowEstimated = row.confidence === 'estimated' || row.trust === 'estimated';
   const estimated = (!other || datedOtherPlan) && rowEstimated;
-  const plannedEstimated = estimated && (row.plannedTrust == null || row.plannedTrust === 'estimated');
-  const spentEstimated = rowEstimated && (row.plannedTrust === 'calculated' || row.spentTrust === 'estimated');
   const name = row.label || '';
   const context = other
     ? (row.note || 'Not yet assigned to a budget category')
@@ -2250,14 +2214,14 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   const remainingUnavailable = opts.remainingEvidenceIncomplete === true;
   const metrics = [];
   if ((!other && !historicalPlanUnknown || datedOtherPlan) && row.planned != null) {
-    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned, { estimated: plannedEstimated }));
-    else metrics.push(householdBudgetMetric('Planned', row.planned, { estimated: plannedEstimated }));
+    if (historicalPlanUnknown) metrics.push(householdBudgetMetric('Configured target', row.planned));
+    else metrics.push(householdBudgetMetric('Planned', row.planned));
   }
   if (row.spent != null || recon.length || datedOtherPlan) {
-    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, estimated: spentEstimated, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
+    metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
   }
   if ((!other || datedOtherPlan) && !historicalPlanUnknown && (row.remaining != null || datedOtherPlan)) {
-    metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, estimated, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
+    metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
   }
   const kind = other ? 'other' : 'category';
   // The archive keeps no trust word on a category row. Say so beside the
@@ -2271,7 +2235,7 @@ function householdBudgetCategoryHtml(row, opts = {}) {
       ? '<p class="household-budget-context" data-budget-saved-close-plan="amount-not-saved">Planned amount not saved with this close.</p>'
       : savedPlanTagged
         ? '<p class="household-budget-context" data-budget-saved-close-plan="saved">Planned amount saved when this period closed.</p>'
-        : '<p class="household-budget-context" data-budget-saved-close-plan="tag-not-saved">Planned amount saved when this period closed. Whether it was an estimate was not saved.</p>';
+        : '<p class="household-budget-context" data-budget-saved-close-plan="tag-not-saved">Planned amount saved when this period closed.</p>';
   const projected = (!other || datedOtherPlan) && !historicalPlanUnknown && row.projected && row.remaining != null
     ? '<p class="household-budget-context">Projected.</p>' : '';
   const trustAttr = estimated ? ' data-budget-trust="estimated"' : '';
@@ -2317,22 +2281,16 @@ function calendarBudgetHtml(period, liveOverlay, plan, opts = {}) {
   // budgetHoldTrust is Forecast's stamp when the hold includes the
   // future Other Spend estimate. The page does not infer it.
   const estimatedHold = period && period.budgetHoldTrust === 'estimated';
-  const holdMark = estimatedHold
-    ? '<span class="est">≈ estimated</span> '
-    : '';
   const amount = period && period.budgetHold != null
     ? `<span data-household-budget-total-amount>${money2(period.budgetHold)}</span>`
     : '';
-  // The mark sits in the same flex child as the Forecast cents so the
-  // total stays label | figure. Current rows omit the wrapper entirely.
-  const value = estimatedHold ? `<span>${holdMark}${amount}</span>` : amount;
   const deductionLabel = completed
     ? 'Completed-period spending deduction' : 'Protective spending reserve';
   const total = amount
     ? `<div class="payday-totals household-budget-total">
       <p class="payday-qual payday-total payday-total-strong" data-household-budget-total${estimatedHold ? ' data-budget-hold-trust="estimated"' : ''}>
         <span>${deductionLabel}</span>
-        ${value}
+        ${amount}
       </p>
     </div>`
     : '';
@@ -2508,11 +2466,10 @@ function calendarPeriodBillsHtml(period) {
     // A completed period is settlement evidence, not an amount due: it
     // prints what its evidence does not prove paid (Forecast's figure,
     // Unknown when an amount is unknown), never a "remaining to pay" $0.
-    // An estimated contributing amount keeps its estimate marker.
     // A saved close shows nothing for it (Grok Bot, recorded on #1113): the
     // archive keeps no such figure, and today's never reaches a past period.
     const estimated = period.unconfirmedBills != null && !loadUnavailable && period.unconfirmedBillsTrust === 'estimated';
-    if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null || loadUnavailable ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null || loadUnavailable ? 'Unknown' : (estimated ? '<span class="est">≈ estimated</span> ' : '') + money2(period.unconfirmedBills)}</span></p>`);
+    if (!period.capturedClose) totals.push(`<p class="payday-qual payday-total payday-total-strong" data-unconfirmed-bills data-unconfirmed-bills-trust="${period.unconfirmedBills == null || loadUnavailable ? 'unavailable' : estimated ? 'estimated' : 'calculated'}"><span>Not confirmed paid</span><span>${period.unconfirmedBills == null || loadUnavailable ? 'Unknown' : money2(period.unconfirmedBills)}</span></p>`);
   } else if (period && period.remainingBills != null && !loadUnavailable) {
     totals.push(`<p class="payday-qual payday-total payday-total-strong"><span>Remaining bills to pay</span><span>${money2(period.remainingBills)}</span></p>`);
   }
@@ -2699,23 +2656,16 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   // both. Unknown is not $0 — anything Forecast did not publish renders
   // as unavailable. Nothing here is a transfer or a payment made.
   //
-  // Trust tags (AMANDA SLICE 1 repair): every figure the shell reprints
-  // carries its Forecast-published trust state ('calculated' | 'estimated'),
-  // rendered with the figure so estimated state is never flattened into
-  // indistinguishable bare currency. The page renders only that published
-  // state — never a page-side inference — and fails closed when Forecast
-  // did not publish it.
+  // A missing trust publication withholds the amount. A known amount may carry its evidence date.
   const alloc = advice && advice.paydayAllocation;
   if (!alloc || !alloc.lines) return '';
   const shellTrust = (advice && advice.paydayShellTrust) || {};
   const shellCause = (advice && advice.paydayShellEstimateCause) || {};
   const cardAsOf = cardEstimateAsOfHtml(liveOverlay);
-  const trustTag = key => {
+  const asOfFor = key => {
     const trust = shellTrust[key];
     if (trust === 'estimated' && shellCause[key] === Forecast.CARD_ESTIMATE_CAUSE && cardAsOf) return ' ' + cardAsOf;
-    if (trust === 'estimated') return ' <span class="trust-tag trust-estimated">estimate</span>';
-    if (trust === 'calculated') return ' <span class="trust-tag">calculated</span>';
-    return null;
+    return ['estimated', 'calculated'].includes(trust) ? '' : null;
   };
   const known = value => value != null && isFinite(Number(value)) ? Number(value) : null;
   const unavailableNote = label =>
@@ -2737,7 +2687,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   };
 
   const available = known(alloc.available);
-  const availableTag = trustTag('available');
+  const availableTag = asOfFor('available');
   const availableBlock = block('Money available',
     available == null || availableTag == null ? unavailableNote('Money available')
       : `<p class="instruction-amount">${money2(available)}${availableTag}</p>`);
@@ -2745,7 +2695,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   const obligations = alloc.obligations || {};
   const billsValue = known(obligations.allocated);
   const billsShortfall = known(obligations.shortfall);
-  const billsTag = trustTag('obligations');
+  const billsTag = asOfFor('obligations');
   const billsAttention = billsShortfall != null && billsShortfall > 0
     ? `<p class="operating-note">Shortfall of ${money2(billsShortfall)} — bills are not fully covered.</p>` : '';
   const billsBlock = block('Bills & required minimums',
@@ -2755,7 +2705,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
 
   const essentials = alloc.essentials || {};
   const householdValue = known(essentials.allocated);
-  const householdTag = trustTag('household');
+  const householdTag = asOfFor('household');
   const householdBlock = block('Current household spending',
     (householdValue == null || householdTag == null ? unavailableNote('Current household spending')
       : `<p class="instruction-amount">${money2(householdValue)}${householdTag}</p>`)
@@ -2774,23 +2724,8 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   const exactPayday = row && typeof row.payday === 'string' && isValidIsoCalendarDate(row.payday)
     ? row.payday : null;
   const exactPaydayLabel = exactPayday ? fmtDateLong(exactPayday) : null;
-  // Trust tag for the live row's figures (contribution, named lines,
-  // other protected cash). Forecast publishes it on the row; the page
-  // renders only that published state and fails closed when it is absent.
-  const rowTrustTag = row && row.trust === 'estimated'
-    ? ' <span class="trust-tag trust-estimated">estimate</span>'
-    : row && row.trust === 'calculated' ? ' <span class="trust-tag">calculated</span>' : null;
-  // Trust tag for the funding-status figures (AMANDA SLICE 4 P1 repair).
-  // Forecast publishes schedule.fundingTrust as the authority for
-  // protectedAfterPayday, stillToFund, and the funding-gap shortfall/
-  // status path. The live row's Slice 1 stamp must not be reused for
-  // them: a future estimated planned cost can drive those figures while
-  // the live row stays calculated. Unpublished trust fails closed — the
-  // funding-status figures are omitted, never shown untagged.
-  const fundingTrustTag = schedule && schedule.fundingTrust === 'estimated'
-    ? ' <span class="trust-tag trust-estimated">estimate</span>'
-    : schedule && schedule.fundingTrust === 'calculated'
-      ? ' <span class="trust-tag">calculated</span>' : null;
+  const rowTrusted = ['estimated', 'calculated'].includes(row?.trust);
+  const fundingTrusted = ['estimated', 'calculated'].includes(schedule?.fundingTrust);
   // AMANDA SLICE 14 — trust for the exact-payday funding figures
   // (contribution, named allocations). The live row carries its own
   // Forecast-published row trust (AMANDA SLICE 1); any other payday
@@ -2798,7 +2733,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   // — the page never borrows another figure's stamp,
   // and unpublished trust fails the block closed, never untagged.
   const isLiveRow = !!(exactPayday && schedule && exactPayday === schedule.asOf);
-  const plannedTrustTag = isLiveRow ? rowTrustTag : fundingTrustTag;
+  const plannedTrusted = isLiveRow ? rowTrusted : fundingTrusted;
   // AMANDA SLICE 2 — NEST MONEY EARMARK (P1 4117851665 repair).
   // The exact payday's Plan-Spend-attributable part (schedule contribution
   // with its named allocations) is the money Forecast specifically
@@ -2830,7 +2765,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
     // strictly and fails closed.
     const strictMoney = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
     const contribution = strictMoney(row.contribution);
-    if (contribution == null || plannedTrustTag == null || !Array.isArray(row.allocations)) {
+    if (contribution == null || !plannedTrusted || !Array.isArray(row.allocations)) {
       // Null contribution (Forecast publishes null only with estimated
       // trust), unpublished trust, or a malformed allocations collection:
       // fail closed — never $0, never a partial named list.
@@ -2850,12 +2785,12 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
       const protectedAfter = known(row.protectedAfterPayday);
       const stillToFund = known(row.stillToFund);
       let fundingStatusHtml = '';
-      if (protectedAfter != null && stillToFund != null && fundingTrustTag != null) {
+      if (protectedAfter != null && stillToFund != null && fundingTrusted) {
         const statusLabel = schedule.status === 'ready' ? 'On track' : null;
         fundingStatusHtml = `<div class="operating-lines">
-            <div class="operating-line"><span>Projected protected</span><span>${money2(protectedAfter)}${fundingTrustTag}</span></div>
-            <div class="operating-line"><span>Still to fund</span><span>${money2(stillToFund)}${fundingTrustTag}</span></div>
-            ${statusLabel ? `<div class="operating-line"><span>Status</span><span>${statusLabel}${fundingTrustTag}</span></div>` : ''}
+            <div class="operating-line"><span>Projected protected</span><span>${money2(protectedAfter)}</span></div>
+            <div class="operating-line"><span>Still to fund</span><span>${money2(stillToFund)}</span></div>
+            ${statusLabel ? `<div class="operating-line"><span>Status</span><span>${statusLabel}</span></div>` : ''}
           </div>`;
       }
       // A Forecast-published funding gap is exposed with its shortfall,
@@ -2869,7 +2804,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
       // is omitted rather than shown untagged.
       let gapHtml = '';
       const fundingGap = schedule.gap;
-      if (schedule.status === 'funding-gap' && fundingGap && fundingTrustTag != null) {
+      if (schedule.status === 'funding-gap' && fundingGap && fundingTrusted) {
         const shortBy = known(fundingGap.shortBy);
         const labelById = new Map((schedule.costs || [])
           .filter(cost => cost && cost.id != null)
@@ -2890,7 +2825,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
           <div class="operating-lines">
             ${shortBy == null
               ? `<div class="operating-line"><span>Short by</span><span>unavailable</span></div>`
-              : `<div class="operating-line"><span>Short by</span><span>${money2(shortBy)}${fundingTrustTag}</span></div>`}
+              : `<div class="operating-line"><span>Short by</span><span>${money2(shortBy)}</span></div>`}
             ${whenValue ? `<div class="operating-line"><span>When</span><span>${whenValue}</span></div>` : ''}
             ${affectedLabels.length ? `<div class="operating-line"><span>Affected</span><span>${affectedLabels.join(', ')}</span></div>` : ''}
           </div>`;
@@ -2935,12 +2870,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
         if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return null;
         try { return fmtDateLong(iso); } catch (e) { return null; }
       };
-      // Per-cost trust is the cost's published confidence, reprinted — never
-      // promoted. Unpublished confidence fails closed (null).
-      const costTrustTag = confidence => confidence === 'estimated'
-        ? ' <span class="trust-tag trust-estimated">estimate</span>'
-        : confidence === 'confirmed'
-          ? ' <span class="trust-tag">confirmed</span>' : null;
+      const costDateKnown = confidence => confidence === 'estimated' || confidence === 'confirmed';
       // "Funding now": the incumbent named allocations plus the Forecast
       // cash date reprinted from schedule.costs. An unpublished or
       // unparseable date is omitted, never invented. Malformed allocation
@@ -2957,10 +2887,9 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
           }
           if (!(rawAmount > 0)) return '';
           const cost = costById.get(item.id);
-          const tag = cost ? costTrustTag(cost.confidence) : null;
-          const neededBy = tag ? fmtUpcomingDate(cost.date) : null;
-          return `<div class="operating-line"><span>${escapeHtml(label)}</span><span>${money2(rawAmount)}${plannedTrustTag}</span></div>`
-            + (neededBy ? `<div class="operating-line"><span>Needed by</span><span>${neededBy}${tag}</span></div>` : '');
+          const neededBy = cost && costDateKnown(cost.confidence) ? fmtUpcomingDate(cost.date) : null;
+          return `<div class="operating-line"><span>${escapeHtml(label)}</span><span>${money2(rawAmount)}</span></div>`
+            + (neededBy ? `<div class="operating-line"><span>Needed by</span><span>${neededBy}</span></div>` : '');
         }).join('');
       // "Still in the plan": dated costs with no allocation this payday and
       // a cash date not before this payday, in Forecast's publication order.
@@ -2970,14 +2899,13 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
           && typeof cost.date === 'string' && cost.date >= row.payday)
         .map(cost => {
           const label = typeof cost.label === 'string' && cost.label.length ? cost.label : cost.id;
-          const tag = costTrustTag(cost.confidence);
           // The page states only the reprintable fact — "No funding from this
           // payday" — never the reason. The publication does not distinguish
           // "not yet scheduled" from "crowded out by nearer costs" or "the
           // payday could not fund what was required", so asserting a reason
           // (e.g. "nothing required") would misdescribe the $0.
           const head = `<div class="operating-line"><span>${escapeHtml(label)}</span><span>No funding from this payday</span></div>`;
-          if (tag == null) {
+          if (!costDateKnown(cost.confidence)) {
             return head + `<div class="operating-line"><span>Future funding details</span><span>unavailable — trust not published.</span></div>`;
           }
           // C6: the next contribution and the funded-by date are funding-path
@@ -2988,19 +2916,19 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
           const next = cost.nextContribution;
           const nextAmount = next ? known(next.amount) : null;
           const nextPayday = next ? fmtUpcomingDate(next.payday) : null;
-          const nextLine = fundingTrustTag == null
+          const nextLine = !fundingTrusted
             ? `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — trust not published. This is not $0.</span></div>`
             : next == null
               ? `<div class="operating-line"><span>Next scheduled contribution</span><span>none scheduled</span></div>`
               : nextAmount == null || nextPayday == null
                 ? `<div class="operating-line"><span>Next scheduled contribution</span><span>unavailable — not published.</span></div>`
-                : `<div class="operating-line"><span>Next scheduled contribution</span><span>${money2(nextAmount)}${fundingTrustTag} on ${nextPayday}</span></div>`;
+                : `<div class="operating-line"><span>Next scheduled contribution</span><span>${money2(nextAmount)} on ${nextPayday}</span></div>`;
           const fundedBy = fmtUpcomingDate(cost.projectedFullyFunded);
-          const fundedByLine = fundingTrustTag == null
+          const fundedByLine = !fundingTrusted
             ? `<div class="operating-line"><span>Projected funded by</span><span>unavailable — trust not published.</span></div>`
             : fundedBy == null
               ? `<div class="operating-line"><span>Projected funded by</span><span>not published</span></div>`
-              : `<div class="operating-line"><span>Projected funded by</span><span>${fundedBy}${fundingTrustTag}</span></div>`;
+              : `<div class="operating-line"><span>Projected funded by</span><span>${fundedBy}</span></div>`;
           return head + nextLine + fundedByLine;
         }).join('');
       const stillPlannedHtml = stillPlannedLines
@@ -3009,12 +2937,12 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
         // A $0 contribution does not mean fully funded: Forecast may still
         // carry remaining funding, so the funding status renders alongside
         // the $0 earmark instead of replacing it.
-        plannedBody = `<p class="instruction-amount">${money2(0)}${plannedTrustTag}</p>
+        plannedBody = `<p class="instruction-amount">${money2(0)}</p>
           <p class="operating-note">No Nest Money earmark this payday.</p>
           ${stillPlannedHtml}
           ${fundingStatusHtml}${gapHtml}`;
       } else {
-        plannedBody = `<p class="instruction-amount">${money2(contribution)}${plannedTrustTag}</p>
+        plannedBody = `<p class="instruction-amount">${money2(contribution)}</p>
           ${fundedNowLines ? `<div class="operating-lines">${fundedNowLines}</div>` : ''}
           ${stillPlannedHtml}
           ${fundingStatusHtml}${gapHtml}`;
@@ -3034,13 +2962,13 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   });
 
   const bufferValue = known(advice.buffer);
-  const bufferTag = trustTag('buffer');
+  const bufferTag = asOfFor('buffer');
   const otherProtected = row ? known(row.nonPlanSpendProtected) : null;
   const protectedBlock = block('Protected cash',
     (bufferValue == null || bufferTag == null ? unavailableNote('Minimum cash floor')
       : `<p class="instruction-amount">Keep at least ${money2(bufferValue)}${bufferTag}</p>`)
-    + (otherProtected == null || rowTrustTag == null ? unavailableNote('Other protected cash — keep in chequing')
-      : `<p class="instruction-amount">${money2(otherProtected)}${rowTrustTag}</p>
+    + (otherProtected == null || !rowTrusted ? unavailableNote('Other protected cash — keep in chequing')
+      : `<p class="instruction-amount">${money2(otherProtected)}</p>
         <p class="operating-note">Other protected cash — keep in chequing.</p>`));
 
   // AMANDA SLICE 6 — FOCUS DEBT CONTINUITY.
@@ -3056,13 +2984,12 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   // debt exists — uncertainty stays visible, never converted to $0 or
   // safe surplus, and never presented as the reason an allocation is $0.
   // With no target, the published strategy state (reason) renders as
-  // published — no debt is invented, and the $0 figure keeps its trust
-  // tag. The page does not choose, compare, rank, or reorder debts and
+  // published. The page does not choose, compare, rank, or reorder debts and
   // does no payoff or balance arithmetic; it reprints the publication
   // in place.
   const extra = alloc.extraDebt || {};
   const extraValue = known(extra.allocated);
-  const extraTag = trustTag('extraDebt');
+  const extraTag = asOfFor('extraDebt');
   // Incumbent convention (plan.js renderers): the target is the
   // debtPriority object; the household name is target.label. Never
   // interpolate the raw object. Tolerate a plain string defensively.
@@ -3123,7 +3050,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
   // Reprint only — one line per Forecast row, no page-side total.
   const optionalRows = (Array.isArray(alloc.optional) ? alloc.optional : [])
     .filter(item => item && Number(item.allocated) > 0);
-  const optionalTag = trustTag('optional');
+  const optionalTag = asOfFor('optional');
   const optionalBlock = optionalRows.length ? block('Optional plans',
     optionalTag == null ? unavailableNote('Optional plans')
     : `<div class="operating-lines">${optionalRows
@@ -3132,7 +3059,7 @@ function paydayInstructionShellHtml(advice, period, schedule, liveOverlay) {
     { headline: optionalTag == null ? 'Unavailable' : 'Funded plans' }) : '';
 
   const remainderValue = known(alloc.remainder);
-  const remainderTag = trustTag('remainder');
+  const remainderTag = asOfFor('remainder');
   const unresolved = Array.isArray(alloc.unresolved) ? alloc.unresolved : [];
   const remainderAttention = unresolved.length
     ? `<p class="operating-note">${unresolved.length} planned cost${unresolved.length === 1 ? ' is' : 's are'} still unresolved.</p>` : '';
@@ -3157,20 +3084,20 @@ function calendarFromTodayEvidenceHtml(period, plan) {
   const numeric = value => typeof value === 'number' && Number.isFinite(value);
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const costMoney = row => numeric(row.cost) && row.confidence === 'confirmed' ? money2(row.cost)
-    : numeric(row.cost) && row.confidence === 'estimated' ? money2(row.cost) + ' · estimated' : 'Unavailable';
+  const costMoney = row => numeric(row.cost) && ['confirmed', 'estimated'].includes(row.confidence)
+    ? money2(row.cost) : 'Unavailable';
   const today = period.fromTodayFunding;
   const todayKnown = !planUnavailable && today && today.basis === 'Budget-from-today'
     && (today.status === 'ready' || today.status === 'funding-gap')
     && (today.trust === 'calculated' || today.trust === 'estimated') && numeric(today.contribution);
   const todayMoney = amount => todayKnown && numeric(amount)
-    ? money2(amount) + (today.trust === 'estimated' ? ' ≈ estimated' : '') : 'Unavailable';
+    ? money2(amount) : 'Unavailable';
   const forwardItems = rows => (rows || []).map(row => `<div class="budget-funding-item" data-from-today-cost="${escape(row.id)}">
     <h3>${escape(row.label)}</h3>
     <div class="operating-line"><span>Proposed contribution</span><span>${todayMoney(row.contribution)}</span></div>
     <div class="operating-line"><span>Cumulative proposed / cost</span><span>${todayMoney(row.cumulativeProposed)} / ${costMoney(row)}</span></div>
     <div class="operating-line"><span>Remaining requirement</span><span>${todayMoney(row.remainingGap)}</span></div>
-    <p class="operating-note">Planning date: ${escape(row.date || 'Unknown')}${row.confidence === 'estimated' ? ' · estimated' : ''}${numeric(row.ceiling) && row.ceiling > row.cost ? ` · upper estimate ${money2(row.ceiling)}` : ''}. ${numeric(row.actualSaved) ? 'Actual saved: ' + money2(row.actualSaved) + ' calculated backing. Destination account: ' + (row.reserveParts && row.reserveParts.length ? row.reserveParts.map(part => escape(part.label || part.accountId)).join(' · ') : 'unknown') + '.' : 'Actual saved and destination account: unknown.'}</p>
+    <p class="operating-note">Planning date: ${escape(row.date || 'Unknown')}${numeric(row.ceiling) && row.ceiling > row.cost ? ` · upper cost ${money2(row.ceiling)}` : ''}. ${numeric(row.actualSaved) ? 'Actual saved: ' + money2(row.actualSaved) + '. Destination account: ' + (row.reserveParts && row.reserveParts.length ? row.reserveParts.map(part => escape(part.label || part.accountId)).join(' · ') : 'unknown') + '.' : 'Actual saved and destination account: unknown.'}</p>
   </div>`).join('');
   const fromTodayBody = today ? `<div data-from-today="${escape(today.asOf)}">
     <p class="operating-note">${todayKnown ? 'A new proposal dated' : 'Evidence checked for'} ${escape(today.asOf)}.${todayKnown ? '' : confirmedSavings ? ' Additional contributions are withheld.' : ' No savings proposal is available.'}</p>
@@ -3215,8 +3142,8 @@ function calendarFromTodayEvidenceHtml(period, plan) {
 // Forecast's published Balance After Deductions
 // (predictedEndingBalanceTerms.balanceAfterDeductions, before savings funding)
 // for EVERY advice.payPeriodViews row in order, for renderers that need the
-// whole timeline while the Budget page shows one period. Trust, face, the
-// ≈ mark and the amount are decided exactly as the selected period's terms
+// whole timeline while the Budget page shows one period. Trust, face and
+// amount are decided exactly as the selected period's terms
 // block in calendarWaterfallHtml decides them (#549/#550): the same tests,
 // repeated here because suites load calendarWaterfallHtml on its own.
 // test-bad-terms-print.js locks the two to the same output for every row.
@@ -3232,7 +3159,7 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
   //   'estimated' a completed period whose close was not captured, with every
   //               term known. Owner decision on #866 (Dale, 2026-11-07): it is
   //               a reconstruction from today's records and plan, so it is
-  //               shown as ≈ estimated even when Forecast qualifies it as
+  //               stamped estimated even when Forecast qualifies it as
   //               calculated (fully settled, #868).
   //   'withheld'  a completed period whose close was not captured and whose
   //               terms are not all known: Unavailable.
@@ -3310,8 +3237,6 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const shownStamp = badState === 'estimated' ? 'estimated' : stamp;
     const known = !historicalBadWithheld && numeric(value)
       && (shownStamp === 'calculated' || shownStamp === 'estimated');
-    const mark = known && shownStamp === 'estimated' ? compactOverview
-      ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
     // Terms block face: dailySavings and fundedBalanceKnown, as calendarWaterfallHtml derives them.
     const dailySavings = compactOverview
       && ['Forecast.savingsDailyFunding', 'Budget.savingsDailyFundingUnavailable'].includes(savingsContext?.daily?.source)
@@ -3331,7 +3256,7 @@ function badTimelineHtml(advice, compactOverview, savingsContext) {
     const claim = period.budgetProgress?.coverage?.remainingClaim;
     const coverage = typeof claim === 'string' && claim
       ? ` data-bad-timeline-coverage="${escape(claim)}"` : '';
-    return `<li data-bad-timeline-period="${escape(period.id || period.start || '')}" data-bad-timeline-role="${role}" data-bad-timeline-start="${escape(period.start || '')}" data-bad-timeline-end="${escape(period.end || '')}" data-bad-timeline-range-label="${escape(payPeriodRangeLabel(period).replace(/<[^>]*>/g, ''))}"${coverage} data-bad-term-trust="${known ? shownStamp : 'unavailable'}" data-bad-terms-face="${face}"${known && value < 0 ? ' data-sign="negative"' : ''}>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></li>`;
+    return `<li data-bad-timeline-period="${escape(period.id || period.start || '')}" data-bad-timeline-role="${role}" data-bad-timeline-start="${escape(period.start || '')}" data-bad-timeline-end="${escape(period.end || '')}" data-bad-timeline-range-label="${escape(payPeriodRangeLabel(period).replace(/<[^>]*>/g, ''))}"${coverage} data-bad-term-trust="${known ? shownStamp : 'unavailable'}" data-bad-terms-face="${face}"${known && value < 0 ? ' data-sign="negative"' : ''}>${known ? '' : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></li>`;
   }).join('');
   return `<ol data-bad-timeline hidden aria-hidden="true">${items}</ol>`;
 }
@@ -3349,7 +3274,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   //   'estimated' a completed period whose close was not captured, with every
   //               term known. Owner decision on #866 (Dale, 2026-11-07): it is
   //               a reconstruction from today's records and plan, so it is
-  //               shown as ≈ estimated even when Forecast qualifies it as
+  //               stamped estimated even when Forecast qualifies it as
   //               calculated (fully settled, #868).
   //   'withheld'  a completed period whose close was not captured and whose
   //               terms are not all known: Unavailable.
@@ -3486,9 +3411,6 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       const known = (summary.stock === true || !planUnavailable) && typeof summary.amount === 'number' && Number.isFinite(summary.amount)
         && (summary.trust === 'calculated' || summary.trust === 'estimated'
           || (!summary.trustRequired && summary.trust == null));
-      const estimate = summary.trust === 'estimated' ? compactOverview
-        ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> '
-        : '<span class="est">≈ estimated</span> ' : '';
       // Geometry only: size each already-published step against period income.
       // Never derive another financial total or read a formatted HTML value.
       const scaleKnown = typeof period.available === 'number' && Number.isFinite(period.available)
@@ -3605,8 +3527,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
         ${overflowStart ? '<span class="budget-waterfall-overflow at-start">←</span>' : ''}${overflowEnd ? '<span class="budget-waterfall-overflow at-end">→</span>' : ''}
       </span>`;
       // Print-only Q07 hooks: data-budget-result-trust (null stamp = calculated)
-      // and [data-budget-result-amount], the same money2 text without the ≈
-      // prefix, empty when unavailable. Visible text is unchanged.
+      // and [data-budget-result-amount], the money2 text, empty when unavailable. Visible text is unchanged.
       const resultHook = number === '07' && !(ratioKey && ratioKey !== 'savings');
       const resultTrust = known ? summary.trust === 'estimated' ? 'estimated' : 'calculated' : 'unavailable';
       return `<div class="operating-question budget-step${kind ? ` budget-step-${kind}` : ''}" data-operating-question="${number}" data-operating-prompt="${prompt}"${compactOverview && number === '07' ? ' data-budget-period-result' : ''}${resultHook ? ` data-budget-result-trust="${resultTrust}"` : ''}${summary.stock ? ' data-budget-savings-stock' : ''}>
@@ -3616,8 +3537,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
             <span class="budget-step-title"><span class="operating-prompt" role="heading" aria-level="2">${prompt}</span>${compactOverview ? summary.stock && stockDateLabel ? `<span class="budget-step-caption" data-budget-savings-observed-date>${budgetBrowseEscape(stockDateLabel)}</span>` : '' : summary.note ? `<span class="budget-step-caption">${escapeHtml(summary.note)}</span>` : ''}</span>
             ${graph}
             <span class="budget-step-value"${known && summary.amount < 0 ? ' data-sign="negative"' : ''}>${ratioKey && ratioKey !== 'savings' ? budgetProgressValueHtml(progress, ratioKey, { savedClose: !!captured }) : resultHook
-              ? `${known ? estimate : 'Unavailable'}<span data-budget-result-amount>${known ? money2(summary.amount) : ''}</span>`
-              : known ? estimate + money2(summary.amount) : 'Unavailable'}</span>
+              ? `${known ? '' : 'Unavailable'}<span data-budget-result-amount>${known ? money2(summary.amount) : ''}</span>`
+              : known ? money2(summary.amount) : 'Unavailable'}</span>
             <span class="budget-step-chevron" aria-hidden="true">⌄</span>
           </summary>
           <div class="operating-answer budget-step-body">${detail}</div>
@@ -3659,12 +3580,11 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const savingsFundingKnown = fundingKnown && (!compactOverview
     || savingsPublication && funding.source === 'Forecast.planSpendPaydayFunding' && funding.basis === 'selected-Budget-period'
       && funding.asOf === savingsPublication?.asOf);
-  const fundingEstimate = fundingKnown && funding.trust === 'estimated' ? ' ≈ estimated' : '';
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const fundMoney = value => fundingKnown && numeric(value) ? money2(value) + fundingEstimate : 'Unavailable';
-  const costMoney = row => numeric(row.cost) && row.confidence === 'confirmed' ? money2(row.cost)
-    : numeric(row.cost) && row.confidence === 'estimated' ? money2(row.cost) + ' ≈ estimated' : 'Unavailable';
+  const fundMoney = value => fundingKnown && numeric(value) ? money2(value) : 'Unavailable';
+  const costMoney = row => numeric(row.cost) && ['confirmed', 'estimated'].includes(row.confidence)
+    ? money2(row.cost) : 'Unavailable';
   const costRows = funding && Array.isArray(funding.items) ? funding.items : [];
   const unscheduled = fundingKnown && Array.isArray(funding.unscheduled) ? funding.unscheduled : [];
   const itemDetails = `${costRows.map(row => `<div class="budget-funding-item" data-budget-funding-item="${escape(row.id)}">
@@ -3672,8 +3592,8 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
       <div class="operating-line"><span>This period — proposed</span><span>${fundMoney(row.contribution)}</span></div>
       <div class="operating-line"><span>Cumulative proposed / cost</span><span>${fundMoney(row.cumulativeProposed)} / ${costMoney(row)}</span></div>
       <div class="operating-line"><span>Still to set aside after this period</span><span>${fundMoney(row.remainingGap)}</span></div>
-      ${numeric(row.ceiling) && numeric(row.cost) && row.ceiling > row.cost ? `<p class="operating-note">Estimated cost range: ${costMoney(row)}–${money2(row.ceiling)}.</p>` : ''}
-      <p class="operating-note">Planning date: ${escape(row.date || 'Unavailable')} · Destination account: ${row.reserveParts && row.reserveParts.length ? row.reserveParts.map(part => escape(part.label || part.accountId)).join(' · ') : 'unavailable'} · Actual saved: ${numeric(row.actualSaved) ? money2(row.actualSaved) + ' calculated backing' : 'unavailable'}.</p>
+      ${numeric(row.ceiling) && numeric(row.cost) && row.ceiling > row.cost ? `<p class="operating-note">Cost range: ${costMoney(row)}–${money2(row.ceiling)}.</p>` : ''}
+      <p class="operating-note">Planning date: ${escape(row.date || 'Unavailable')} · Destination account: ${row.reserveParts && row.reserveParts.length ? row.reserveParts.map(part => escape(part.label || part.accountId)).join(' · ') : 'unavailable'} · Actual saved: ${numeric(row.actualSaved) ? money2(row.actualSaved) : 'unavailable'}.</p>
     </div>`).join('')}`;
   const fundingBody = fundingKnown ? `${itemDetails}
     ${unscheduled.map(row => `<div class="budget-funding-item" data-budget-funding-item="${escape(row.id)}"><h3>${escape(row.label)}</h3>
@@ -3688,7 +3608,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const badState = historicalBadState(period);
   const historicalBadWithheld = badState === 'withheld';
   const historicalBadEstimated = badState === 'estimated';
-  const historicalBadEstimatedNote = 'Reconstructed, not saved: Atlas did not save this close when the period ended, so it is worked out from this period\'s records with today\'s plan. Shown as an estimate only.';
+  const historicalBadEstimatedNote = 'Reconstructed, not saved: Atlas did not save this close when the period ended, so it is worked out from this period\'s records with today\'s plan.';
   const historicalBadNote = 'Historical Balance After Deductions is unavailable. Whole-period income, bill settlement and Household evidence have not been qualified together. Household transaction coverage alone does not qualify this balance.';
   // A reconstructed close is Forecast's own published term, before any
   // proposed funding: funding was never applied to a completed period.
@@ -3706,7 +3626,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
   const finalHero = !planUnavailable ? `<div class="budget-period-result" data-budget-period-result data-budget-result-trust="${finalKnown ? finalTrust === 'estimated' ? 'estimated' : 'calculated' : 'unavailable'}">
     <h2>Balance After Deductions</h2>
     <p class="budget-period-result-value"${finalKnown && finalAmount < 0 ? ' data-sign="negative"' : ''}>${finalKnown
-      ? `${finalTrust === 'estimated' ? compactOverview ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : ''}<span data-budget-result-amount>${money2(finalAmount)}</span>` : 'Unavailable<span data-budget-result-amount></span>'}</p>
+      ? `<span data-budget-result-amount>${money2(finalAmount)}</span>` : 'Unavailable<span data-budget-result-amount></span>'}</p>
     ${(historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? '' : 'Before savings · funding unavailable' : finalCaption) ? `<p class="budget-period-result-caption">${historicalBadEstimated ? historicalBadEstimatedNote : historicalBadWithheld ? historicalBadNote : compactOverview ? fundedBalanceKnown ? '' : 'Before savings · funding unavailable' : finalCaption}</p>` : ''}
   </div>` : '';
   // Print-only: Forecast's published Balance After Deductions terms for this
@@ -3738,9 +3658,7 @@ function calendarWaterfallHtml(period, liveOverlay, alloc, plan, compactOverview
     const stamp = historicalBadEstimated && key === 'balanceAfterDeductions' ? 'estimated' : raw;
     const known = !(historicalBadWithheld && key === 'balanceAfterDeductions')
       && numeric(value) && (stamp === 'calculated' || stamp === 'estimated');
-    const mark = known && stamp === 'estimated' ? compactOverview
-      ? '<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="est">≈ estimated</span> ' : '';
-    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"${faceLabel ? ` data-bad-term-face-label="${escapeHtml(faceLabel)}"` : ''}><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? mark : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
+    return `<div class="operating-line" data-bad-term="${key}" data-bad-term-trust="${known ? stamp : 'unavailable'}"${faceLabel ? ` data-bad-term-face-label="${escapeHtml(faceLabel)}"` : ''}><span data-bad-term-label>${label}</span><span data-bad-term-value>${known ? '' : 'Unavailable'}<span data-bad-term-amount>${known ? money2(value) : ''}</span></span></div>`;
   };
   // When the Q07 figure is the after-proposed-funding balance, say so: the
   // published term is before savings funding, so the two are not one figure.
@@ -4154,32 +4072,26 @@ function budgetDailySavingsFor(ctx, periodId = null) {
     period: { status: 'unavailable', proposal: null, actualSaved: null } };
 }
 
-// periodContext 'estimate' (Decision 1): a projected period whose Forecast
-// close is a reported-balance estimate. Saved and contribution figures keep
-// the visible estimated marker instead of the plain period-context money.
-function budgetSavingsMoney(amount, trust, periodContext = false) {
-  if (periodContext === 'estimate') return budgetV3Money(amount, budgetV3Known(amount, trust) ? 'estimated' : 'unknown');
-  return periodContext ? budgetV3Known(amount, trust) ? money2(amount)
-    : budgetV3Money(null, 'unknown') : budgetV3Money(amount, trust);
-}
 const budgetSavingsEstimateClose = packet => packet?.period?.kind === 'projected'
   && packet.forecastClosing?.status === 'ready' && packet.forecastClosing.nature === 'reported-balance-estimate';
-const budgetSavingsPeriodContext = packet => budgetSavingsEstimateClose(packet) ? 'estimate'
-  : packet?.period?.kind === 'projected';
+// Keep the dated source and the reason for a withholding when showing Forecast's funding notes.
+function budgetFundingReason(reason) {
+  return String(reason ?? '')
+    .replace(/^estimate [—-] /i, '')
+    .replace('Estimated from the reported Savings balance dated ', 'Based on the reported Savings balance dated ')
+    .replace('The estimated close is withheld', 'The close is withheld');
+}
 function budgetSavingsEstimateBasisHtml(packet) {
   if (!budgetSavingsEstimateClose(packet)) return '';
   const c = packet.forecastClosing;
-  return '<p data-budget-savings-estimate-basis>' + budgetV3Escape('Estimated from the reported Savings balance dated '
+  return '<p data-budget-savings-estimate-basis>' + budgetV3Escape('Based on the reported Savings balance dated '
     + c.balanceAsOf + '. ' + (c.assumptions || []).join(' ') + ' Verified backing is withheld: ' + c.verifiedReason) + '</p>';
 }
 
-// Needed is a requirement, never the estimate, so 'estimate' renders as the
-// ordinary projected context here.
-function budgetDailyNeededHtml(row, periodContext = false) {
-  if (periodContext === 'estimate') periodContext = true;
-  return row.neededRange ? budgetSavingsMoney(row.neededRange.min, row.trust, periodContext)
-    + ' - ' + budgetSavingsMoney(row.neededRange.max, row.trust, periodContext)
-    : budgetSavingsMoney(row.needed, row.neededTrust ?? row.trust, periodContext);
+function budgetDailyNeededHtml(row) {
+  return row.neededRange ? budgetV3Money(row.neededRange.min, row.trust)
+    + ' - ' + budgetV3Money(row.neededRange.max, row.trust)
+    : budgetV3Money(row.needed, row.neededTrust ?? row.trust);
 }
 
 // ATLAS-024 Paid / Still to fund. Paid is Forecast's published
@@ -4188,7 +4100,7 @@ function budgetDailyNeededHtml(row, periodContext = false) {
 // its trust and reason on the same row the period packet serves, so a
 // historical or projected row carries that period's own figure (or Unknown)
 // and never borrows today's gap. Nothing is subtracted or recomputed here;
-// the figure prints only as published, with its ESTIMATED mark and reason on
+// the figure prints only as published, with its planning basis on
 // the figure itself, and Unknown (with the published reason) otherwise —
 // never 0, and the row is never hidden. The legacy funding-schedule
 // stillToFund join (missing Saved read as 0) is retired. Fill geometry is
@@ -4212,15 +4124,15 @@ const budgetGoalOwnerSettled = row => row?.commitmentCost?.ownerConfirmation?.st
 const BUDGET_GOAL_OWNER_PAID_WORD = 'Paid by owner';
 const BUDGET_GOAL_OWNER_PAID_NOTE = 'no pool money needed';
 const BUDGET_GOAL_OWNER_PAID_TEXT = BUDGET_GOAL_OWNER_PAID_WORD + ' · ' + BUDGET_GOAL_OWNER_PAID_NOTE;
-const BUDGET_GOAL_STILL_TO_FUND_ESTIMATE = 'Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance.';
+const BUDGET_GOAL_STILL_TO_FUND_BASIS = 'Needed minus Saved. It is a planning gap, not an unpaid balance.';
 function budgetGoalStillToFundHtml(row) {
   const known = row?.stillToFundTrust === 'estimated' && typeof row.stillToFund === 'number'
     && Number.isFinite(row.stillToFund) && row.stillToFund >= 0;
   const settledZero = known && row.stillToFund === 0 && budgetGoalOwnerSettled(row);
-  const reason = settledZero ? 'Owner-confirmed paid; no further funding needed.' : known ? BUDGET_GOAL_STILL_TO_FUND_ESTIMATE
+  const reason = settledZero ? 'Owner-confirmed paid; no further funding needed.' : known ? BUDGET_GOAL_STILL_TO_FUND_BASIS
     : (typeof row?.stillToFundReason === 'string' && row.stillToFundReason) || 'Still to fund is unavailable.';
   return { known, amount: known ? row.stillToFund : null,
-    html: (settledZero ? money2(row.stillToFund) : known ? budgetV3Money(row.stillToFund, 'estimated') : '<span class="budget-v3-unknown">Unknown</span>')
+    html: (known ? money2(row.stillToFund) : '<span class="budget-v3-unknown">Unknown</span>')
       + ` <small class="budget-goal-still-to-fund-reason" data-budget-goal-still-to-fund-reason>${budgetV3Escape(reason)}</small>` };
 }
 
@@ -4386,7 +4298,7 @@ function budgetSavingsRowMembers(packet, row) {
   return { title, members, historical: packet?.period?.kind === 'historical' };
 }
 
-function budgetSavingsMemberFigures(member, thisPeriodTrust, historical = false, periodContext = false) {
+function budgetSavingsMemberFigures(member, thisPeriodTrust, historical = false) {
   const item = member.item;
   const withheld = budgetV3Money(null, 'unknown');
   return {
@@ -4394,12 +4306,12 @@ function budgetSavingsMemberFigures(member, thisPeriodTrust, historical = false,
     date: item?.date || null,
     saved: historical ? withheld
       // Savings audit (PR 3): Saved carries its own published tag; never stronger than the need's.
-      : item ? budgetSavingsMoney(item.saved, item.saved == null ? 'unknown'
-        : item.trust !== 'unknown' && item.savedTrust === 'estimated' ? 'estimated' : item.trust, periodContext) : withheld,
+      : item ? budgetV3Money(item.saved, item.saved == null ? 'unknown'
+        : item.trust !== 'unknown' && item.savedTrust === 'estimated' ? 'estimated' : item.trust) : withheld,
     needed: historical ? withheld
-      : item ? budgetDailyNeededHtml(item, periodContext) : withheld,
+      : item ? budgetDailyNeededHtml(item) : withheld,
     proposed: historical ? withheld
-      : budgetSavingsMoney(member.thisPeriod, member.thisPeriod == null ? 'unknown' : thisPeriodTrust, periodContext),
+      : budgetV3Money(member.thisPeriod, member.thisPeriod == null ? 'unknown' : thisPeriodTrust),
   };
 }
 
@@ -4416,15 +4328,14 @@ function budgetSavingsCostHtml(packet, row, withheld = false) {
 
 function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null, context = {}) {
   const projected = packet.period?.kind === 'projected';
-  const periodMode = budgetSavingsPeriodContext(packet);
-  const value = (amount, trust) => budgetSavingsMoney(amount, trust, periodMode);
+  const value = budgetV3Money;
   const listed = budgetDailySavingsRows(packet, inventory);
   const annualBillNote = budgetSavingsAnnualBillNoteHtml(listed);
   const rows = listed.map(row => {
-    const needed = budgetDailyNeededHtml(row, projected);
+    const needed = budgetDailyNeededHtml(row);
     const group = budgetSavingsRowMembers(packet, row);
     const members = group ? `<ul class="budget-savings-members">${group.members.map(member => {
-      const figures = budgetSavingsMemberFigures(member, row.thisPeriodTrust, group.historical, periodMode);
+      const figures = budgetSavingsMemberFigures(member, row.thisPeriodTrust, group.historical);
       return `<li data-budget-savings-member="${budgetV3Escape(member.key)}">
       <span>${budgetV3Escape(figures.name)}${figures.date ? ` <small>${budgetV3Escape(fmtDate(figures.date))}</small>` : ''}</span>
       <span><span data-budget-savings-member-saved>${figures.saved}</span> / <span data-budget-savings-member-needed>${figures.needed}</span><small>Saved / needed</small></span>
@@ -4458,9 +4369,9 @@ function budgetDailySavingsHtml(packet, retainedEvidence = '', inventory = null,
     <ul class="budget-savings-contributions">${rows || (projected && (packet.forecastClosing?.status === 'ready' || packet.plannedRequirements?.rows.length === 0 && !packet.forecastClosing?.gap) ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>${annualBillNote}
     <p class="operating-line"><span>${projected ? 'Added this period' : 'Unsent top-up today'}</span><strong data-budget-daily-proposal>${value(period?.proposal, period?.trust)}</strong></p>
     <details class="budget-savings-info" data-budget-savings-info><summary>Info</summary><div>
-      ${projected ? projectedReasons.map(reason => '<p>' + budgetV3Escape(reason) + '</p>').join('')
+      ${projected ? projectedReasons.map(reason => '<p>' + budgetV3Escape(budgetFundingReason(reason)) + '</p>').join('')
         : '<p>' + budgetV3Escape(packet.allocationDescription || 'Savings allocation evidence is unavailable.') + ' Saved amounts are reported earmarks, not money moved or bills paid.</p>'}
-      ${!projected && (packet.period?.reason || packet.backing?.reason) ? '<p>' + budgetV3Escape(packet.period?.reason || packet.backing?.reason) + '</p>' : ''}
+      ${!projected && (packet.period?.reason || packet.backing?.reason) ? '<p>' + budgetV3Escape(budgetFundingReason(packet.period?.reason || packet.backing?.reason)) + '</p>' : ''}
       ${openingCosts ? '<details data-savings-opening-costs><summary>Opening costs for surviving requirements</summary><ul>' + openingCosts + '</ul></details>' : ''}
       ${projected ? `<div class="operating-line"><span>Savings at period close</span><span>${value(packet.forecastClosing?.stock, packet.forecastClosing?.trust)}</span></div>
       ${packet.forecastClosing?.status === 'ready' ? `<div class="operating-line"><span>Bills at period close (both chequing accounts)</span><span>${value(packet.forecastClosing?.operatingCash, packet.forecastClosing?.trust)}</span></div>` : ''}
@@ -5053,7 +4964,7 @@ function budgetApplyBillFilter(section, choice) {
   if (status) status.textContent = day ? `Showing bills on ${day}.` : ({ all: 'Showing all bills.',
     check: 'Showing bills to confirm. They may already be paid; check the evidence before paying again.',
     due: 'Showing bills published as due.', paid: 'Showing paid bills: money sent or settlement confirmed.',
-    estimated: 'Showing estimated bills: settled by your schedule-trust rule on the due date; no bank payment was seen.',
+    estimated: 'Settled by schedule on the due date. Payment not observed.',
     pending: 'Showing pending bills. Settlement is not confirmed.',
     unknown: 'Showing bills with unavailable status.',
     carried: 'Showing bills recorded as carried when this period closed.' })[selected];
@@ -5645,14 +5556,11 @@ function budgetTodayCashCardHtml(ctx) {
     ? advice.defaultView.currentBalancePublication : alloc.currentBalancePublication;
   const balanceKnown = publication?.accountId === 'chequing-a' && strict(publication.amount)
     && ['posted', 'planned-unconfirmed', 'estimated'].includes(publication.trust);
-  // C5: an estimated or planned balance carries the ≈ mark; only a posted,
-  // provider-confirmed balance is printed bare.
-  const balanceApprox = balanceKnown && publication.trust !== 'posted';
   const cash = ready ? today.currentCash : null; // chart scale, never Current Balance
   const cashTrust = today?.trust;
   const asOf = publication?.effectiveDate || alloc.cashBasis?.asOf || advice.defaultView?.asOf;
   const print = (value, trust) => strict(value) && trusted(trust)
-    ? `<span data-budget-cash-trust="${trust}">${trust === 'estimated' ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}<span class="budget-cash-sr">${trust} </span>${money2(value)}</span>`
+    ? `<span data-budget-cash-trust="${trust}">${money2(value)}</span>`
     : '<span class="budget-cash-unknown">Unavailable</span>';
   const floorTrust = advice.paydayShellTrust?.buffer;
   const parts = [
@@ -5718,14 +5626,14 @@ function budgetTodayCashCardHtml(ctx) {
   return `<div class="budget-today-cash" data-budget-today-cash data-live-current-balance>
     <header><p class="budget-cash-eyebrow">${retained ? 'Dated refresh' : 'Today'}${asOf ? ' · ' + escape(fmtDateLong(asOf)) : ''}</p>
       <button type="button" class="budget-cash-how" data-budget-cash-how aria-controls="budget-today-evidence" aria-expanded="${evidenceOpen}"><span aria-hidden="true">ⓘ</span><span class="budget-cash-sr">${retained ? 'Dated balance and funding details' : 'Current balance and funding details'}</span></button><h2>${retained ? 'Balance at this refresh' : 'Current balance'}</h2></header>
-    <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? `${balanceApprox ? '<span class="budget-cash-est" aria-hidden="true">≈</span> ' : ''}${publication.trust === 'estimated' ? '<span class="budget-cash-sr">estimated </span>' : ''}${money2(publication.amount)}` : 'Unavailable'}</p>
-    <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${balanceKnown && publication.trust === 'estimated' ? ' · estimated, not provider-confirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
+    <p class="budget-cash-hero" data-budget-cash-hero data-live-current-balance-amount${balanceKnown && publication.amount < 0 ? ' data-sign="negative"' : ''}>${balanceKnown ? money2(publication.amount) : 'Unavailable'}</p>
+    <p class="budget-cash-sub">Bills account only${balanceKnown && publication.trust === 'planned-unconfirmed' ? ' · payday receipt unconfirmed' : ''}${balanceKnown && publication.trust === 'estimated' ? ' · balance not provider-confirmed' : ''}${selected && selected.timelineRole !== 'current' ? ' · current position, not the selected period opening' : ''}</p>
     ${shortfallMarker}${notice}${next}
     <section class="budget-today-evidence" id="budget-today-evidence" data-budget-today-evidence aria-label="Current balance and funding evidence"${evidenceOpen ? '' : ' hidden'}>
       <button type="button" class="budget-cash-back" data-budget-cash-back>‹ Back to overview</button>
       <div class="budget-cash-plan" data-budget-cash-detail><h3>Cash needed${today?.currentThrough ? " through " + escape(fmtDate(today.currentThrough)) : ""}</h3><p class="budget-cash-plan-scope">Across chequing accounts</p>${chart}${legend}${ready ? status : ""}</div>
       ${keep}
-      ${publication?.note ? `<p>${escape(publication.note)}</p>` : ''}
+      ${publication?.note ? `<p>${escape(String(publication.note).replace(/^Estimated Bills balance — /, 'Bills balance — '))}</p>` : ''}
       ${ready && strict(today.futureIncomeThisPeriod) ? `<p>Future receipts in this period: ${print(today.futureIncomeThisPeriod, today.trust)}.</p>` : ''}
       ${today?.evidenceFailures?.length ? `<ul>${today.evidenceFailures.map(issue => `<li data-budget-cash-reason="${escape(issue.code)}">${escape(issue.message)}${[issue.accountLabel, issue.categoryLabel, issue.date].some(Boolean) ? `<small data-budget-cash-reason-context>${[issue.accountLabel, issue.categoryLabel, issue.date].filter(Boolean).map(escape).join(' · ')}</small>` : ''}${issue.action ? `<small>${escape(issue.action)}</small>` : ''}</li>`).join('')}</ul>` : !ready ? `<p>${escape(today?.reason || 'Current funding evidence is unavailable.')}</p>` : ''}
       <div class="budget-today-evidence-body">${paydayInstructionShellHtml(advice, current, schedule, ctx && ctx.liveOverlay)}</div>
@@ -5816,12 +5724,10 @@ function budgetDetailSheetHtml() {
 const budgetBrowseKnown = value => typeof value === 'number' && Number.isFinite(value);
 const budgetBrowseEscape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-// asOfHtml: cardEstimateAsOfHtml's date and small mark, given only for a
-// figure estimated solely by card coverage; it replaces the ≈ estimated mark.
 function budgetBrowseMoney(value, trust, asOfHtml) {
   return budgetBrowseKnown(value) && !['unavailable', 'unknown', 'untrusted'].includes(trust)
     ? trust === 'estimated' && asOfHtml ? `${money2(value)} ${asOfHtml}`
-    : `${trust === 'estimated' ? '<span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span> ' : ''}${money2(value)}`
+    : money2(value)
     : '<span class="budget-browse-unknown">Unavailable</span>';
 }
 
@@ -6064,7 +5970,7 @@ function budgetSpendingSectionHtml(period, ctx) {
   const historyEvidence = historical ? budgetHistoricalSpendingEvidence(period) : (period.projected ? 'projected' : 'current');
   const observedHold = !historical || historyEvidence === 'observed';
   const count = period.timelineRole === 'current'
-    ? `<span class="budget-browse-pill${over.length ? ' is-warn' : !classified.length ? ' is-muted' : ''}">${over.length} of ${classified.length} known categories over plan</span>${planned.length > classified.length ? `<span class="budget-browse-pill is-muted">${planned.length - classified.length} without a remaining estimate</span>` : ''}`
+    ? `<span class="budget-browse-pill${over.length ? ' is-warn' : !classified.length ? ' is-muted' : ''}">${over.length} of ${classified.length} known categories over plan</span>${planned.length > classified.length ? `<span class="budget-browse-pill is-muted">${planned.length - classified.length} without a remaining amount</span>` : ''}`
     : `<span class="budget-browse-pill is-muted">${budgetSpendingHistoryLabel(period)}</span>`;
   const cards = rows.map(row => {
     if (row.informational) return `<p class="budget-browse-note">${budgetBrowseEscape(row.label)} · ${budgetBrowseEscape(row.note || 'Included in Bills')}</p>`;
@@ -6158,8 +6064,7 @@ function budgetBillPresentation(row) {
   if (row.paymentState === 'partly-paid' && typeof row.shortfall === 'number' && row.shortfall > 0
       && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
       && (row.status === 'PAID' || row.settlement === 'represented') && row.settlementBasis !== 'schedule-trust-on-due') {
-    return { kind: 'due', label: 'Partly paid', qualifier: row.shortfallTrust === 'estimated'
-      ? `≈ ${money2(row.shortfall)} still to pay (estimated)` : `${money2(row.shortfall)} still to pay` };
+    return { kind: 'due', label: 'Partly paid', qualifier: `${money2(row.shortfall)} still to pay` };
   }
   if (row.status === 'planned' && row.settlement === 'upcoming'
       && row.cashPaymentStatus === 'sent' && row.householdPaymentStatus === 'paid') {
@@ -6188,16 +6093,12 @@ function budgetBillPresentation(row) {
     // transaction was seen. Never shown as a seen or verified payment, and
     // never with an excess (nothing was seen to exceed the plan).
     if (row.settlementBasis === 'schedule-trust-on-due') {
-      return { kind: 'estimated', label: 'Estimated', qualifier: 'Trusted on due date (not seen)' };
+      return { kind: 'estimated', label: 'Settled by schedule', qualifier: 'Payment not observed' };
     }
-    // Forecast.billPaymentState publishes the excess and its trust; this only
-    // prints them. An estimated excess keeps its mark; any other trust prints
-    // nothing rather than an unqualified figure.
+    // Print an excess only when Forecast publishes both a positive amount and known trust.
     const excessTrust = row.excessTrust === 'calculated' || row.excessTrust === 'estimated' ? row.excessTrust : null;
     return typeof row.excess === 'number' && row.excess > 0 && excessTrust
-      ? { kind: 'paid', label: 'Paid', qualifier: excessTrust === 'estimated'
-        ? `≈ ${money2(row.excess)} over planned (estimated)${row.excessReview === true ? ' · Review in Lunch Money' : ''}`
-        : `${money2(row.excess)} over planned${row.excessReview === true ? ' · Review in Lunch Money' : ''}` }
+      ? { kind: 'paid', label: 'Paid', qualifier: `${money2(row.excess)} over planned${row.excessReview === true ? ' · Review in Lunch Money' : ''}` }
       : { kind: 'paid', label: 'Paid' };
   }
   if (row.needsDate || row.status === 'needs-date') return { kind: 'check', label: 'Needs a date' };
@@ -6217,7 +6118,7 @@ function budgetBillDisplayLabel(row) {
     const cycle = new Date(row.date + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'long', timeZone: 'UTC' });
     return `Amazon Mastercard — ${cycle} minimum`;
   }
-  return row.label || 'Bill';
+  return String(row.label || '').replace(/\s*\(estimated timing\)/ig, '').trim() || 'Bill';
 }
 
 function budgetBillBrowseRowHtml(row, historical = false) {
@@ -6234,10 +6135,9 @@ function budgetBillBrowseRowHtml(row, historical = false) {
   const shown = stoodIn ? row.scheduledDue : row.date;
   const amount = budgetBrowseKnown(row.movement) ? Math.abs(row.movement) : null;
   const month = knownDate ? new Date(shown + 'T12:00:00Z').toLocaleDateString('en-CA', { month: 'short', timeZone: 'UTC' }) : '?';
-  const dateEstimated = row.dateConfidence === 'estimated';
-  return `<button type="button" class="budget-bill-row is-${escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
-    <span class="budget-bill-date${dateEstimated ? ' est' : ''}" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
-    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) + (dateEstimated ? ' · estimated' : '') : 'Date unavailable'}</span>${row.ledgerEntryUnbacked === true ? '<span class="budget-bill-when" data-budget-bill-ledger-unbacked>A ledger entry may be for this bill. It\'s already marked paid, and no bank payment backs it.</span>' : ''}</span>
+  return `<button type="button" class="budget-bill-row is-${state.kind === 'estimated' ? 'scheduled' : escapeHtml(state.kind)}${state.label === 'Due' ? ' is-upcoming-due' : ''}" data-budget-bill-open="${budgetBrowseEscape(row.id)}" data-budget-bill-date="${budgetBrowseEscape(knownDate ? row.date : '')}"${stoodIn ? ` data-budget-bill-due="${budgetBrowseEscape(shown)}"` : ''} data-budget-browse-origin="bills" aria-haspopup="dialog">
+    <span class="budget-bill-date" aria-hidden="true"><small>${budgetBrowseEscape(month)}</small><b>${knownDate ? Number(shown.slice(8)) : '—'}</b></span>
+    <span class="budget-bill-label"><strong>${budgetBrowseEscape(budgetBillDisplayLabel(row))}</strong><span class="budget-bill-when">${knownDate ? budgetBrowseEscape(fmtDateLong(shown)) : 'Date unavailable'}</span>${row.ledgerEntryUnbacked === true ? '<span class="budget-bill-when" data-budget-bill-ledger-unbacked>A ledger entry may be for this bill. It\'s already marked paid, and no bank payment backs it.</span>' : ''}</span>
     <span class="budget-bill-value"><span class="budget-bill-amount">${budgetBrowseMoney(amount, amountTrust)}</span><span class="budget-bill-state"><i aria-hidden="true"></i>${label}${state.qualifier ? ` · ${budgetBrowseEscape(state.qualifier)}` : ''}</span></span><span class="budget-bill-chevron" aria-hidden="true">›</span>
   </button>`;
 }
@@ -6269,7 +6169,7 @@ function budgetUpcomingAnnualBill(period, ctx) {
   // once in that period's native bill buckets; the upcoming entry steps aside.
   if (date && period?.start && period?.end && date >= period.start && date <= period.end) return null;
   return { label: item.label || 'Annual bill', amount: budgetDailyNeededHtml(item),
-    when: date ? fmtDateFull(date) + (item.trust === 'estimated' ? ' · estimated' : '') : 'Date unavailable' };
+    when: date ? fmtDateFull(date) : 'Date unavailable' };
 }
 
 function budgetUpcomingAnnualBillRowHtml(entry) {
@@ -6298,11 +6198,11 @@ function budgetBillsSectionHtml(period, ctx) {
   return `<section class="budget-browse-card budget-browse-bills" data-budget-browse="bills" data-budget-bills-remaining-scope="${historical ? withholdActionableRemaining ? 'historical-unconfirmed' : 'historical-settlement' : 'actionable'}" aria-labelledby="budget-bills-heading">
     <header><div><p class="budget-browse-eyebrow">Bills this period${period.projected ? ' · projected' : historical ? ' · completed' : ''}</p><h2 id="budget-bills-heading" tabindex="-1">${budgetProgressValueHtml(progress, 'bills', { savedClose: !!budgetSavedClose(period) })}</h2><p class="budget-browse-sub">${remainingHeading}</p>${historical ? `<p class="budget-browse-sub">${withholdActionableRemaining ? 'Settlement not fully confirmed. ' : ''}Historical settlement evidence, not an amount due now. Unconfirmed entries may already be paid.</p>` : ''}</div></header>
     <div class="budget-browse-counts budget-bill-filters" role="group" aria-label="Filter bills by recorded household payment">
-      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Estimated', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : [], ...groups.carried.length ? [['carried', 'Carried', groups.carried.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}">${label}<span>${count}</span></button>`).join('')}
+      ${[['all', 'All', rows.length], ['check', 'To confirm', groups.check.length], ['due', 'Due', groups.due.length], ['paid', 'Paid', groups.paid.length], ...groups.estimated.length ? [['estimated', 'Settled by schedule', groups.estimated.length]] : [], ...groups.pending.length ? [['pending', 'Pending', groups.pending.length]] : [], ...groups.unknown.length ? [['unknown', 'Unknown', groups.unknown.length]] : [], ...groups.carried.length ? [['carried', 'Carried', groups.carried.length]] : []].map(([key, label, count]) => `<button type="button" class="budget-browse-pill is-${key === 'estimated' ? 'scheduled' : key}" data-budget-bill-filter="${key}" aria-pressed="${key === 'all'}"${key !== 'all' && count ? ` aria-controls="budget-bill-bucket-${key}"` : ''} aria-label="${label} bills: ${count}${key === 'estimated' ? '. Payment not observed.' : ''}">${label}<span>${count}</span></button>`).join('')}
     </div><p class="budget-cash-sr" data-budget-bill-filter-status role="status">Showing all bills.</p>
     ${section('check', 'To confirm', groups.check, 'The bill may already be paid. Check its evidence before paying again.')}
     ${section('due', 'Due', groups.due)}${section('pending', 'Pending', groups.pending)}
-    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Estimated', groups.estimated, 'Settled by your schedule-trust rule on the due date. No bank payment was seen, so these are not counted as paid.')}${section('unknown', 'Status unavailable', groups.unknown)}${section('carried', 'Carried at close', groups.carried, 'The saved total excluded these bills.')}
+    ${section('paid', 'Paid', groups.paid)}${section('estimated', 'Settled by schedule', groups.estimated, 'Payment not observed. These bills are excluded from the paid count.')}${section('unknown', 'Status unavailable', groups.unknown)}${section('carried', 'Carried at close', groups.carried, 'The saved total excluded these bills.')}
     ${section('upcoming', 'Upcoming annual bills', upcomingAnnualBill ? [upcomingAnnualBill] : [], '', budgetUpcomingAnnualBillRowHtml)}
     <p class="budget-browse-note" data-budget-bill-filter-empty hidden>No published bills in this filter.</p>
     <details class="budget-bill-period-evidence"><summary>Period evidence</summary><div class="budget-bills-progress-wrapper">${budgetProgressBarHtml(progress, 'bills')}</div>
@@ -6371,7 +6271,7 @@ const budgetV3Escape = value => String(value == null ? '' : value).replace(/[&<>
 const budgetV3Known = (amount, trust) => typeof amount === 'number' && Number.isFinite(amount)
   && ['calculated', 'estimated'].includes(trust);
 const budgetV3Money = (amount, trust) => budgetV3Known(amount, trust)
-  ? `${trust === 'estimated' ? '<span class="budget-v3-est">≈<span class="budget-cash-sr"> estimated</span></span> ' : '<span class="budget-cash-sr">calculated </span>'}${money2(amount)}`
+  ? money2(amount)
   : '<span class="budget-v3-unknown">Unavailable</span>';
 
 function budgetSavingsGoalsHtml(ctx, period, schedule) {
@@ -6379,8 +6279,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       || ctx.advice?.savingsFunding != null) {
     const daily = budgetDailySavingsFor(ctx, period.id);
     const projected = daily.period?.kind === 'projected';
-    const periodMode = budgetSavingsPeriodContext(daily);
-    const value = (amount, trust) => budgetSavingsMoney(amount, trust, periodMode);
+    const value = budgetV3Money;
     const roster = [...(period.plannedCostFunding?.items || []), ...(period.plannedCostFunding?.unscheduled || [])];
     const listed = budgetDailySavingsRows(daily, ctx.advice?.savingsInventory, roster);
     const named = listed.map(row => {
@@ -6394,10 +6293,10 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
         ? ` data-budget-goal-required-amount="${row.needed}"` : '';
       const settled = budgetGoalOwnerSettled(row);
       const target = settled ? budgetGoalCostText(budgetGoalCostFact(row.commitmentCost.originalCost))
-        : budgetDailyNeededHtml(row, projected);
+        : budgetDailyNeededHtml(row);
       const group = budgetSavingsRowMembers(daily, row);
       const members = group ? `<div class="budget-goal-members">${group.members.map(member => {
-        const figures = budgetSavingsMemberFigures(member, row.thisPeriodTrust, group.historical, periodMode);
+        const figures = budgetSavingsMemberFigures(member, row.thisPeriodTrust, group.historical);
         return `<div class="budget-goal-member" data-budget-savings-member="${budgetV3Escape(member.key)}"><span>${budgetV3Escape(figures.name)}${figures.date ? ` <small>${budgetV3Escape(fmtDate(figures.date))}</small>` : ''}</span><span><span data-budget-savings-member-saved>${figures.saved}</span> / <span data-budget-savings-member-needed>${figures.needed}</span><small>Saved / needed</small></span><span><span data-budget-savings-member-proposed>${figures.proposed}</span><small>This period</small></span></div>`;
       }).join('')}</div>` : '';
       return `<li data-budget-savings-goal="${budgetV3Escape(row.key)}"${savedStamp}${requiredStamp}><button type="button" class="budget-goal-row" data-budget-goal-open="${budgetV3Escape(row.key)}" aria-haspopup="dialog">
@@ -6408,7 +6307,7 @@ function budgetSavingsGoalsHtml(ctx, period, schedule) {
       <p class="budget-goal-context">${settled ? '' : `${value(row.thisPeriod, row.thisPeriodTrust)} this period`}<span class="budget-goal-evidence">Info <span aria-hidden="true">></span></span></p>${members}
     </button></li>`;
     }).join('');
-    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${period?.timelineRole === 'current' && typeof SavingsInventory !== 'undefined' ? SavingsInventory.reportedStockHtml(daily, ctx.advice?.savingsInventory?.reportedStock) : ''}${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(daily.forecastClosing.reason) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>
+    return `<div class="budget-surface-card budget-savings-goals" data-budget-savings-goals><p class="budget-surface-eyebrow">${budgetV3Escape(payPeriodRangeLabel(period))}</p><h3>Saving for</h3>${period?.timelineRole === 'current' && typeof SavingsInventory !== 'undefined' ? SavingsInventory.reportedStockHtml(daily, ctx.advice?.savingsInventory?.reportedStock) : ''}${projected ? '<p data-budget-savings-forecast-stock>Savings at period close: ' + value(daily.forecastClosing?.stock, daily.forecastClosing?.trust) + '.</p>' + budgetSavingsEstimateBasisHtml(daily) : ''}${projected && daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-bills>Bills at period close (both chequing accounts): ' + value(daily.forecastClosing.operatingCash, daily.forecastClosing.trust) + '.</p>' : ''}${daily.forecastClosing?.gap ? daily.forecastClosing?.status === 'ready' ? '<p data-budget-savings-forecast-gap>Bills shortfall of ' + value(daily.forecastClosing.gap.shortBy, daily.forecastClosing.gap.trust) + ' on ' + budgetV3Escape(fmtDate(daily.forecastClosing.gap.date)) + '.</p>' : '<p>' + budgetV3Escape(budgetFundingReason(daily.forecastClosing.reason)) + '</p>' : ''}<ul>${named || (projected && (daily.plannedRequirements?.rows.length === 0 && !daily.forecastClosing?.gap || daily.forecastClosing?.status === 'ready') ? '<li>No remaining Savings requirements.</li>' : '<li>Named savings unavailable.</li>')}</ul>
       <button type="button" class="budget-surface-link" data-budget-funding-inventory aria-haspopup="dialog">Accounts &amp; evidence</button>
       <div data-budget-funding-savings hidden>${daily ? budgetDailySavingsHtml(daily, '', ctx.advice?.savingsInventory, { asOf: ctx.asOf || ctx.advice?.defaultView?.asOf, period }) : 'Daily savings unavailable.'}</div></div>`;
   }
@@ -6517,7 +6416,7 @@ function budgetUpcomingFundingHtml(ctx) {
       && Array.isArray(lens.gap?.affected) && lens.gap.affected.includes(budgetFundingRequirementId(item));
     return `<div class="budget-funding-cost${gap ? ' has-gap' : ''}" data-budget-funding-cost="${budgetV3Escape(item.id)}">
       <div class="budget-funding-cost-head"><strong>${budgetV3Escape(item.label || item.id)}</strong><b>${budgetV3Money(item.cost, costTrust)}</b></div>
-      <p>${isValidIsoCalendarDate(item.date) ? budgetV3Escape(fmtDate(item.date)) : 'Date not established'}${item.confidence === 'estimated' ? ' · estimated date' : ''}${undated ? ' · ' + budgetV3Escape(item.reason || 'Contribution unavailable') : ''}</p>
+      <p>${isValidIsoCalendarDate(item.date) ? budgetV3Escape(fmtDate(item.date)) : 'Date not established'}${undated ? ' · ' + budgetV3Escape(item.reason || 'Contribution unavailable') : ''}</p>
       <p data-budget-funding-saved>Currently backed: ${budgetV3Money(item.saved, item.savedTrust)}</p>
       <div class="budget-funding-progress"><span class="budget-funding-track${!scaled && !(costKnown && item.cost === 0 && contributionKnown) ? ' is-unknown' : ''}" aria-hidden="true">${scaled ? `<i style="width:${Math.min(100, item.contribution / item.cost * 100)}%"></i>` : ''}</span><span>${contributionKnown ? budgetV3Money(item.contribution, lens.trust) + ' ' + escapeHtml(lens.when) : '<span class="budget-v3-unknown">Contribution unknown</span>'}</span></div>
       ${lens.ready && item.nextContribution && lens.key === 'payday' && budgetV3Known(item.nextContribution.amount, lens.fundingTrust) && isValidIsoCalendarDate(item.nextContribution.payday) && item.nextContribution.payday > exact ? `<p>Next scheduled: ${budgetV3Money(item.nextContribution.amount, lens.fundingTrust)} on ${budgetV3Escape(fmtDate(item.nextContribution.payday))}</p>` : ''}
@@ -6539,7 +6438,7 @@ function budgetUpcomingFundingHtml(ctx) {
       <p class="budget-funding-scope">${lens.key === 'today' ? 'Unsent top-ups from current chequing.' : "Future payday projection. Keep it separate from today's offer."}</p>
       <div class="budget-funding-totals"><div><span>${lens.key === 'today' ? 'Unsent top-up today' : 'Proposed this payday'}</span><strong data-budget-funding-proposal>${budgetV3Money(lens.ready ? lens.proposal : null, lens.trust)}</strong></div><div><span>${lens.key === 'today' ? 'Remaining cycle entitlement' : 'Still to fund after this proposal'}</span><strong>${budgetV3Money(lens.ready ? lens.remaining : null, lens.fundingTrust)}</strong></div></div>
       ${gapKnown ? `<div class="budget-funding-gap">${budgetV3Money(lens.gap.shortBy, lens.fundingTrust)} short${isValidIsoCalendarDate(lens.gap.payday) ? ' on ' + budgetV3Escape(fmtDate(lens.gap.payday)) : ''}.${names.length ? '<p>Affected: ' + names.map(budgetV3Escape).join(', ') + '.</p>' : ''}<p>Later proposals pause at this published gap. Earmarks only — not transfers or saved money.</p></div>` : ''}
-      ${!lens.ready || lens.reason ? `<p class="budget-funding-notice">${budgetV3Escape(lens.reason || 'Funding evidence is unavailable. Open the complete evidence for the reasons and next steps.')}</p>` : ''}
+      ${!lens.ready || lens.reason ? `<p class="budget-funding-notice">${budgetV3Escape(budgetFundingReason(lens.reason || 'Funding evidence is unavailable. Open the complete evidence for the reasons and next steps.'))}</p>` : ''}
       ${items || `<p>${lens.ready ? 'No dated costs published for this proposal.' : 'Dated cost roster unavailable for this proposal.'}</p>`}
       ${lens.unscheduled.length ? `<div class="budget-funding-timeline-row"><div class="budget-funding-month">No scheduled contribution</div><div>${lens.unscheduled.map(item => costHtml(item, lens, true)).join('')}</div></div>` : lens.key === 'payday' && !Array.isArray(schedule?.unscheduled) ? '<p>Undated cost roster unavailable for this payday proposal.</p>' : ''}
       <button type="button" class="budget-surface-link" data-budget-funding-evidence="${escapeHtml(lens.key)}" aria-haspopup="dialog">${lens.key === 'today' ? 'Today: needs, costs and forward evidence' : 'Complete exact payday funding plan'}</button>
@@ -6639,21 +6538,21 @@ function billsAccountPeriodBalanceHtml(ctx) {
     ['Posted Bills cash', publication.observedCash],
     ['Income still to reach Bills', publication.futureIncome],
     ['Remaining bills', publication.remainingBills],
-    ['Remaining household funding — estimate', household.remaining],
+    ['Remaining household funding', household.remaining],
     ['Other planned Bills outflows', publication.otherOutflows],
     ['Earlier or nonbudget card purchases', publication.additionalCardCash],
   ].map(([label, amount]) => `<div class="operating-line"><span>${escape(label)}</span><strong>${print(amount)}</strong></div>`).join('') : '';
   const open = paydayDisclosuresOpen.has('bills-closing');
   return `<section class="budget-bills-closing" data-bills-closing data-bills-closing-state="${ready ? 'estimated' : 'unavailable'}" aria-label="Expected Bills balance at period end">
     <h2>Expected Bills balance at period end</h2>
-    <p class="budget-bills-closing-value" data-bills-closing-amount${ready && publication.amount < 0 ? ' data-sign="negative"' : ''}>${ready ? '<span class="budget-bills-closing-estimate">Estimated</span> ' + print(publication.amount) : 'Unavailable'}</p>
+    <p class="budget-bills-closing-value" data-bills-closing-amount${ready && publication.amount < 0 ? ' data-sign="negative"' : ''}>${ready ? print(publication.amount) : 'Unavailable'}</p>
     <p class="operating-note">After remaining bills and household funding${publication.end ? ', through ' + escape(fmtDateLong(publication.end)) : ''}. Bills account only.</p>
     ${!ready ? `<p class="operating-note" data-bills-closing-reason>${escape(publication.reason || 'Remaining cash requirements are unconfirmed.')}</p>` : ''}
     ${publication.observedAsOf
       ? `<p class="operating-note">Latest recorded Bills balance: ${print(publication.observedCash)}, dated ${escape(fmtDateLong(publication.observedAsOf))}. The bank may have a newer balance.</p>`
       : '<p class="operating-note" data-bills-closing-undated>Latest recorded Bills balance: Unavailable. A dated posted Bills account balance is unavailable, and a balance is never shown without its date.</p>'}
     <details data-payday-breakdown="bills-closing" data-bills-closing-details${open ? ' open' : ''}>
-      <summary>${ready ? 'How this estimate works' : 'What needs confirmation'}</summary>
+      <summary>${ready ? 'How this balance is calculated' : 'What needs confirmation'}</summary>
       <div class="budget-bills-closing-evidence">${rows}
         ${ready ? `<p class="operating-note">Household target ${print(household.target)}; already funded from Bills ${print(household.funded)}. Category allocations are not established.</p>`
           : `<ul>${(publication.issues || []).map(row => `<li>${escape(row.message)}</li>`).join('')}</ul>`}
@@ -6676,13 +6575,11 @@ function budgetEstimatedLaterPeriodsHtml(ctx) {
   const periods = (advice.payPeriodViews || []).filter(p => p && p.currentCashUnconfirmed
     && p.currentCashUnconfirmed.status === 'estimated' && (!asOf || p.start > asOf));
   if (!periods.length) return '';
-  // Fail closed: only an amount Forecast tagged 'estimated' is printed, and
-  // always with its tag. Any other trust word (or none) prints Unavailable,
-  // so no released figure can appear untagged or more certain.
+  // Release only terms Forecast published for these later periods.
   const term = (label, amount, trust, key) => {
     const shown = trust === 'estimated' && amount != null && isFinite(Number(amount));
     return `<div class="estimated-later-term" data-estimated-term="${key}"><dt>${label}</dt>`
-      + `<dd>${shown ? money2(Number(amount)) + ' <span class="trust-tag trust-estimated">estimate</span>' : 'Unavailable'}</dd></div>`;
+      + `<dd>${shown ? money2(Number(amount)) : 'Unavailable'}</dd></div>`;
   };
   const items = periods.map(p => `<article class="estimated-later-period" data-estimated-later-period="${escapeHtml(p.start)}">
       <h3 class="estimated-later-range">${escapeHtml(p.rangeLabel || (p.start + '–' + p.end))}</h3>
@@ -6695,7 +6592,7 @@ function budgetEstimatedLaterPeriodsHtml(ctx) {
     </article>`).join('');
   return `<div class="estimated-later-periods" data-estimated-later-periods>
     <p class="operating-lead">Later pay periods</p>
-    <p class="operating-note" data-estimated-later-reason>${escapeHtml(periods[0].currentCashUnconfirmed.reason || '')}</p>
+    <p class="operating-note" data-estimated-later-reason>${escapeHtml(budgetFundingReason(periods[0].currentCashUnconfirmed.reason).replace('this later period is estimated from', 'this later period uses'))}</p>
     ${items}
   </div>`;
 }

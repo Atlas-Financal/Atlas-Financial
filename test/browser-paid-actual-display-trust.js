@@ -45,21 +45,17 @@ const head = execFileSync('git', ['-c', 'safe.directory=' + root.split(path.sep)
     const inspect = async (id, amount, name, estimated) => {
       const trigger = bill(id), text = await trigger.innerText();
       assert.match(text, new RegExp(amount));
-      if (estimated) assert.match(text, /estimated/);
-      else {
-        // f1668b85 (Grok Bot rule 17 answer): a posted payment below the
-        // estimated plan reads Partly paid, and only its shortfall (estimated
-        // plan 183.61 minus the posted receipt, computed here) carries the
-        // estimate. The paid actual itself never does.
-        assert.doesNotMatch(await trigger.locator('[data-blend-bill-amount]').innerText(), /estimated|≈|about/);
-        const shortfall = ((18361 - Math.round(Number(amount.split('\\').join('')) * 100)) / 100).toFixed(2);
-        assert.doesNotMatch(text.replace(`Partly paid · ≈ $${shortfall} still to pay (estimated)`, 'Partly paid'),
-          /estimated|≈|about/, 'no estimate mark except on the independently derived shortfall');
+      if (before && estimated) assert.match(text, /estimated/);
+      else assert.doesNotMatch(text, /estimated|≈|about/i, 'the bill and its shortfall have neutral amounts');
+      if (!estimated) {
+        const shortfall = ((18361 - Math.round(Number(amount.replace('\\', '')) * 100)) / 100).toFixed(2);
+        assert.ok(text.includes(`$${shortfall} still to pay`), 'the independently computed shortfall stays visible');
       }
       await trigger.focus(); await page.keyboard.press('Enter');
       const sheet = page.locator('[data-budget-detail-body]'), summary = sheet.locator('[data-period-bill]');
       const summaryText = await summary.innerText();
-      if (estimated) assert.match(summaryText, /about/); else assert.doesNotMatch(summaryText, /about|≈|estimated/);
+      if (before && estimated) assert.match(summaryText, /about/);
+      else assert.doesNotMatch(summaryText, /about|≈|estimated/i);
       assert.match(await sheet.innerText(), /Payment evidence/);
       if (name !== 'future') assert.match(await sheet.innerText(), /Posted|Pending [—-] not a posted payment|evidence is unavailable/);
       await page.screenshot({ path: path.join(out, `${name}-sheet-${width}.png`), animations: 'disabled' });

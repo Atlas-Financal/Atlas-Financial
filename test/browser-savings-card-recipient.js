@@ -40,7 +40,7 @@ const ASSUMPTIONS = [
   'An unqualified Savings movement may or may not already be included in that reported balance.',
   'The current-period sweep counts proven household transfers only.',
 ];
-const ESTIMATE_BASIS = 'Estimated from the reported Savings balance dated 2026-10-07. '
+const ESTIMATE_BASIS = 'Based on the reported Savings balance dated 2026-10-07. '
   + ASSUMPTIONS.join(' ') + ' Verified backing is withheld: ' + CUTOFF_HOLD;
 async function step(page, direction) {
   const before = await page.locator('[data-budget-window-progress]').getAttribute('data-start');
@@ -51,7 +51,7 @@ async function assertClose(page, tile, mode, expected) {
   const estimate = mode === 'cutoff', ready = mode === 'recognized' || estimate;
   assert.equal(await page.locator('[data-budget-window-progress]').getAttribute('data-start'), expected.start);
   assert.equal((await tile.locator('[data-budget-savings-forecast-stock]').innerText()).replace(/\s+/g, ' '),
-    'Savings at period close: ' + (estimate ? '≈ estimated ' + expected.printed : ready ? expected.printed : 'Unavailable') + '.',
+    'Savings at period close: ' + (ready ? expected.printed : 'Unavailable') + '.',
     `${mode} ${expected.start}: exact independently pinned closing figure or withheld state`);
   const basis = tile.locator('[data-budget-savings-estimate-basis]');
   assert.equal(await basis.count(), estimate ? 1 : 0, 'only the cutoff-ambiguous case gets an estimate basis');
@@ -121,7 +121,7 @@ async function assertEvidence(dialog, mode, expected) {
     assert.ok(await basis.isVisible(), 'inventory estimate explanation is visible');
     assert.equal(await basis.innerText(), ESTIMATE_BASIS);
     assert.equal(await inventoryNode.locator(':scope > p').first().innerText(),
-      'Savings at period close: ≈ ' + expected.printed + ' (estimated).', 'inventory figure keeps its own estimate mark');
+      'Savings at period close: ' + expected.printed + '.', 'inventory prints the independently predicted figure');
   } else if (mode !== 'recognized') assert.match(inventory, /Savings at period close: Unknown\./);
   return { inventory, reasons };
 }

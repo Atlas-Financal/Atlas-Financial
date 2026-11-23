@@ -166,7 +166,7 @@ console.log('\n=== the page says so ===');
   const text = html => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   const html = period => { context.period = period; return vm.runInContext('calendarIncomeHtml(period)', context); };
   const held = html(world('2026-08-18', '2026-08-14').period);
-  ok(/data-income-status="to-confirm"/.test(held) && /to confirm/i.test(text(held)) && /≈ estimated/.test(text(held)) && /2,600\.00/.test(text(held)),
+  ok(/data-income-status="to-confirm"/.test(held) && /to confirm/i.test(text(held)) && !/≈|estimated/i.test(text(held)) && /2,600\.00/.test(text(held)),
     'the Income sheet prints the payroll as to confirm, estimated, with its planned 2,600.00', (text(held).match(/Dale salary[^]{0,120}/) || [''])[0]);
   ok(!/to confirm/i.test(text(html(world('2026-08-17', '2026-08-14').period))), 'day 1: nothing about to confirm');
   const hinted = text(html(world('2026-08-20', '2026-08-18', { post: '2026-08-19', pending: true }).period));
@@ -182,8 +182,8 @@ console.log('\n=== the page says so ===');
   ok(/data-income-status="to-confirm"/.test(hintedRow) && !/data-income-status="pending"/.test(sheetHtml),
     'the hinted paycheque row prints its own status as to confirm, never pending', hintedRow.slice(0, 160));
   ok(/data-income-pending-hint>Possible pending deposit</.test(hintedRow), 'and the hint "Possible pending deposit" beside it');
-  ok(/≈ estimated/.test(text(hintedRow)) && /2,600\.00/.test(text(hintedRow)),
-    'the hinted row itself carries the "≈ estimated" mark beside its planned 2,600.00', text(hintedRow));
+  ok(!/≈|estimated/i.test(text(hintedRow)) && /2,600\.00/.test(text(hintedRow)),
+    'the hinted row itself prints its plain planned 2,600.00', text(hintedRow));
   // The payday balance printed beside it carries the estimate derived from this same row (the rule: the figures built on a held
   // paycheque read estimated too), so it is the one other mark, and it names itself (data-payday-balance-trust).
   const otherRows = sheetHtml.replace(hintedRow, '').replace(/<span class="est" data-payday-balance-trust>[^<]*<\/span>/g, '');

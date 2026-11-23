@@ -153,7 +153,9 @@ function checkInventory(packet, label) {
   assert.equal(figure(a2, 'data-budget-savings-member-saved').includes('0.00'), true, 'sheet: genuine zero saved prints as zero');
   assert.doesNotMatch(figure(a2, 'data-budget-savings-member-saved'), /Unavailable/, 'sheet: genuine zero is not withheld');
   assert.match(figure(a2, 'data-budget-savings-member-proposed'), /Unavailable/, 'sheet: a member with no published allocation stays unavailable, never zero');
-  assert.match(a3, /South team fee/); assert.match(a3, /estimated/, 'sheet: member trust prints with its figure');
+  assert.match(a3, /South team fee/);
+  assert.match(figure(a3, 'data-budget-savings-member-saved'), /\$50\.00/);
+  assert.doesNotMatch(a3, /≈|estimated/i, 'sheet: member figures have no trust qualifier');
   assert.equal(figure(a3, 'data-budget-savings-member-proposed').includes('50.00'), true);
   const printed = [a1, a2, a3].flatMap(block => amounts(figure(block, 'data-budget-savings-member-proposed')));
   assert.equal(printed.reduce((sum, n) => sum + n, 0), 120, 'sheet: printed member allocations reconcile exactly to the published group this-period — no double counting, none invented');
@@ -201,7 +203,7 @@ function checkInventory(packet, label) {
   const backed = block => block.split('data-savings-member-backed>')[1].split('</div>')[0];
   assert.match(backed(members['north-fee-1@2027-03-01']), /\$100\.00/);
   assert.match(backed(members['north-fee-2@2027-04-01']), /\$0\.00/, 'inventory: genuine zero prints as zero');
-  assert.match(backed(members['south-fee@2027-03-15']), /estimated/, 'inventory: member trust prints with its figure');
+  assert.match(backed(members['south-fee@2027-03-15']), /<dd>\$50\.00<\/dd>/, 'inventory: member backing prints its published amount without a qualifier');
 
   const lessons = html.split('data-savings-goal="group:synthetic-lessons"')[1].split('</article>')[0];
   assert.match(lessons, /<h3>Synthetic lessons<\/h3>/, 'inventory: published groupLabel titles the group');

@@ -114,7 +114,7 @@ assert.equal(wholeDollarAmount('247.63'), null, 'a string is not a typed value')
 
 // --- pairSideText: one face pair side ---------------------------------
 assert.equal(pairSideText(247.63, '$247.63'), '$248', 'a stamped side renders whole dollars');
-assert.equal(pairSideText(137.26, '≈ $137.26'), '≈ $138', 'the estimated qualifier is preserved explicitly');
+assert.equal(pairSideText(137.26, '≈ $137.26'), '$138', 'the rounded stamp prints without the legacy estimate prefix');
 assert.equal(pairSideText(0, '$0.00'), '$0', 'a stamped zero renders $0 beside its print');
 assert.equal(pairSideText(-0.49, '−$0.49'), '−$1', 'a stamped refund renders −$1');
 // Unknown sides: the published word passes through verbatim; nothing

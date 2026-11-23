@@ -242,8 +242,8 @@ console.log('\n=== composed surface: cash, identity, debt, protection, limits ==
     ok(q4.includes(item.label) && q4.includes(composer.money2(item.amount)),
       `Q4 required debt ${item.id} is the Forecast required item, not extra principal`);
     if (item.confidence === 'estimated') {
-      ok(/about /.test(q4),
-        `Q4 marks estimated ${item.id} as about`);
+      ok(!/\babout\s*[+−-]?\$/i.test(q4.replace(/<[^>]*>/g, '')),
+        `Q4 prints the published amount for ${item.id} without an approximation prefix`);
     }
     ok(!/unverified/.test(q4.replace(/<[^>]*>/g, '')),
       `Q4 does not print settlement code words for ${item.id}`);

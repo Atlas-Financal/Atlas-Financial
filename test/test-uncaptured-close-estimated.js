@@ -1,7 +1,7 @@
 'use strict';
 // #818 acceptance 5.7, owner decision on #866 (Dale, 2026-11-07): a completed
 // pay period whose close was not captured shows Balance After Deductions as
-// "≈ estimated" (reconstructed, not saved) only when every term is known,
+// reconstructed only when every term is known, with its published trust retained,
 // including a fully settled period Forecast qualifies as calculated (#868).
 // Any unknown piece is Unavailable. A captured close keeps its native trust.
 // Presentation only: the Payday shell, the Today card and the Forecast
@@ -83,7 +83,7 @@ function expectEstimated(row, label) {
     ok(resultTrusts(html).length > 0 && resultTrusts(html).every(t => t === 'estimated'), where + ': every result hook is estimated');
     ok(termTrust(html) === 'estimated', where + ': the BAD term row is estimated');
     ok(amountHooks(html).length > 0 && amountHooks(html).every(a => a === amount), where + ': prints Forecast\'s own term, ' + amount);
-    ok(/≈/.test(html), where + ': carries the ≈ mark');
+    ok(!/≈|class="est"|>\s*estimated\s*</i.test(html), where + ': shows the figure without estimate styling');
   }
   const t = timeline(row);
   ok(/data-bad-term-trust="estimated"/.test(t) && t.includes('<span data-bad-term-amount>' + amount + '</span>')
@@ -138,7 +138,7 @@ expectEstimated({ ...gated, bills: [billRow({ status: 'still due', settlement: '
 // 3b. Atlas 6714227624, end to end through the acceptance harness's real
 // provider-observe → live-plan → Forecast path, then this page's renderer.
 // Invented: Sep 25 – Oct 8, payroll 1,400, internet 60 due Sep 28, groceries 70.
-// Paid: ≈ estimated 1,400 − 60 − 70 = 1,270. The same world without the
+// Paid: published 1,400 − 60 − 70 = 1,270. The same world without the
 // Sep 28 debit must not print the higher 1,330: it is Unavailable.
 {
   const H = require('./acceptance/harness');
@@ -165,7 +165,7 @@ expectEstimated({ ...gated, bills: [billRow({ status: 'still due', settlement: '
   for (const compact of [true, false]) {
     const html = call('calendarWaterfallHtml(p,null,null,plan,c)', { p: paidRow, plan: f.plan, c: compact });
     ok(resultTrusts(html).every(t => t === 'estimated') && amountHooks(html).every(a => a === '$1,270.00'),
-      'harness, bill paid: ≈ estimated $1,270.00 (' + (compact ? 'compact' : 'full') + ')');
+      'harness, bill paid: published $1,270.00 (' + (compact ? 'compact' : 'full') + ')');
     const unpaid = call('calendarWaterfallHtml(p,null,null,plan,c)', { p: unpaidRow, plan: f.plan, c: compact });
     ok(resultTrusts(unpaid).every(t => t === 'unavailable') && amountHooks(unpaid).every(a => a === '')
       && !unpaid.includes('$1,330.00'), 'harness, bill unpaid: Unavailable, never the higher $1,330.00 (' + (compact ? 'compact' : 'full') + ')');
@@ -223,6 +223,16 @@ const WORDING = [
   [' — this figure was not published.', '.'],
   [/\n    <details class="instruction-context"[^\n]*>\n    <summary>How to read these amounts<\/summary>\n[^\n]*\n[^\n]*\n[^\n]*\n    <\/details>/, ''],
   [/\n    <p class="operating-note">The [^\n]* pay-period detail above shows this period's Payday balance, bills, and Balance After Deductions[^\n]*<\/p>/, ''],
+  // The Classic face prints the same cents and dates for every published trust state.
+  // The hold's marker had a flex wrapper around just the marker and amount.
+  [/<span><span class="est">≈ estimated<\/span> (<span data-household-budget-total-amount>[^<]*<\/span>)<\/span>/, '$1'],
+  ['<span class="est">≈ estimated</span> ', ''],
+  ['<span class="est">≈<span class="budget-cash-sr"> estimated</span></span> ', ''],
+  ['<span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span> ', ''],
+  [' <span class="trust-tag">calculated</span>', ''],
+  ['<span class="budget-cash-est" aria-hidden="true">≈</span> <span class="budget-cash-sr">estimated </span>', ''],
+  ['<span class="budget-cash-sr">calculated </span>', ''],
+  [/(\$[\d,]+\.\d{2}) ≈ estimated/, '$1'],
   [/\n      <p>This funding plan uses both chequing accounts\.[^\n]*<\/p>/, ''],
 ];
 const wordingUsed = new Set();
@@ -255,10 +265,6 @@ for (const row of views.filter(v => v && v.timelineRole !== 'past' && v.lookback
     // #1039 face-label attribute above: one intended difference is normalised, and
     // every other byte (amount, trust, note) must still match the base.
     const shown = html => html.replace(/ data-bad-term-face-label="[^"]*"/g, '').replace(/Reported combined savings/g, 'Planned Savings')
-      // The payday balance's own estimated word (data-payday-balance-trust) is printed by today's renderer; the held paycheque's
-      // period carries that trust in its published data, and the pinned base renderer does not print the word. One intended
-      // difference normalised, as above; every other byte, including the amount, must still match.
-      .replace(/ <span class="est" data-payday-balance-trust>≈ estimated<\/span>/g, '')
       .replace(/&(amp|lt|gt|quot|#39);/g, (_, k) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[k]));
     ok(shown(call(expr, vars)) === shown(mainCall(expr, vars)), row.timelineRole + ' period ' + row.start + ' renders as on main (' + (compact ? 'compact' : 'full') + ')');
   }
@@ -314,8 +320,7 @@ ok(wordingUsed.size === WORDING.length,
     'It is not permission to spend.', 'These are not cash available now.']) {
     ok(!head.includes(removed), 'removed sentence no longer prints: ' + removed);
   }
-  // Trust tags stay: the explanatory cautions are gone, the estimate mark on the Balance After Deductions is not.
-  ok(head.includes('≈'), 'the estimate mark still prints on this head');
+  ok(!head.includes('≈'), 'all decision surfaces show figures without the estimate mark');
 }
 
 // 7. The archive's capture and projection never load page code, so the

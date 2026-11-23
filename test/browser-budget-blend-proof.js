@@ -257,7 +257,6 @@ const composite = (fg, bg) => {
       const dollars = document.querySelector('.blend-dollar-group');
       const foot = document.querySelector('.blend-hero-foot');
       const ink = document.querySelector('.blend-hero-foot .operating-prompt');
-      const est = line && line.querySelector('.est');
       const label = document.querySelector('[data-operating-question="07"] .blend-result-label');
       const hero = document.querySelector('.blend-hero');
       const lineBox = line ? line.getBoundingClientRect() : null;
@@ -298,9 +297,6 @@ const composite = (fg, bg) => {
         color: line ? getComputedStyle(line).color : '',
         ink: ink ? getComputedStyle(ink).color : '',
         valueWrap: value ? getComputedStyle(value).whiteSpace : '',
-        estAfter: est ? getComputedStyle(est, '::after').content : '',
-        estBeforeValue: !!(est && value && est.getBoundingClientRect().right <= value.getBoundingClientRect().left + 2),
-        estimatedWidth: line && line.querySelector('.budget-cash-sr') ? line.querySelector('.budget-cash-sr').getBoundingClientRect().width : 0,
         school: [...document.querySelectorAll('[data-budget-funding-item]')].map(el => (el.textContent || '').replace(/\s+/g, ' ').trim()),
         terms: ['periodIncome', 'assignedBills', 'householdBudgetHold', 'balanceAfterDeductions'].map(key => {
           const slot = document.querySelector(`[data-blend-term="${key}"]`);
@@ -428,7 +424,6 @@ const composite = (fg, bg) => {
               const captionStyle = caption ? getComputedStyle(caption) : null;
               const payDate = document.querySelector('.blend-pay-date');
               const payFace = document.querySelector('.blend-pay-face');
-              const incomeBig = document.querySelector('.blend-income .blend-big');
               const incomeEst = document.querySelector('.blend-income .blend-est');
               const oneLine = values.length === 3 && Math.max(...values.map(v => v.top)) - Math.min(...values.map(v => v.top)) < 4;
               const incomePrinted = (() => {
@@ -536,7 +531,7 @@ const composite = (fg, bg) => {
                 captionEllipsis: captionStyle ? captionStyle.textOverflow : '',
                 dateOverlapsRing: overlaps(box(payDate), box(payFace)),
                 dateOneLine: !!(payDate && payDate.scrollWidth <= payDate.clientWidth + 1),
-                estOverlapsIncome: overlaps(box(incomeBig), box(incomeEst)),
+                incomeHasEstimateBadge: !!incomeEst,
                 oneLine,
                 compactEquation: getComputedStyle(hero).gridTemplateColumns.split(' ').length === 2,
                 incomeShown,
@@ -619,15 +614,14 @@ const composite = (fg, bg) => {
         }
         const hooks = { '02': 'periodIncome', '04': 'assignedBills', '06': 'householdBudgetHold' };
         const expectShown = row => row.trust === 'unavailable' ? 'Unavailable' : (row.amountText || row.printed);
-        const expectChip = row => !!(row.amountText && row.trust === 'estimated');
         (face.terms || []).forEach(term => {
-          if (term.hook !== hooks[term.id] || term.shown !== expectShown(term) || term.chip !== expectChip(term)
+          if (term.hook !== hooks[term.id] || term.shown !== expectShown(term) || term.chip
             || (term.amountText && /≈|estimated/.test(term.shown))) {
             errors.push(`${width}/${theme} term slot ${JSON.stringify(term)}`);
           }
         });
         const big = face.big || {};
-        if (big.shown !== expectShown(big) || big.chip !== expectChip(big) || (big.amountText && /≈|estimated/.test(big.shown))
+        if (big.shown !== expectShown(big) || big.chip || (big.amountText && /≈|estimated/.test(big.shown))
           || !big.parked || !big.hidden || big.longOnFace) {
           errors.push(`${width}/${theme} bad number ${JSON.stringify(big)}`);
         }
@@ -716,8 +710,8 @@ const composite = (fg, bg) => {
         if (face.captionWrap === 'nowrap' || face.captionEllipsis === 'ellipsis') {
           errors.push(`${width}/${theme} caption ${face.captionWrap} ${face.captionEllipsis}`);
         }
-        if (width <= 390 && face.estOverlapsIncome) {
-          errors.push(`${width}/${theme} est overlaps income`);
+        if (face.incomeHasEstimateBadge) {
+          errors.push(`${width}/${theme} income contains estimate badge`);
         }
         if (face.bills && (!face.bills.toggleInHead || !face.bills.oneLine)) {
           errors.push(`${width}/${theme} bills head ${JSON.stringify(face.bills)}`);
@@ -750,10 +744,6 @@ const composite = (fg, bg) => {
         const layout = await page.evaluate(() => {
           const box = el => el ? el.getBoundingClientRect() : null;
           const hits = (a, b) => !!(a && b && a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1);
-          const centsEl = document.querySelector('.blend-cents');
-          const estEl = document.querySelector('[data-operating-question="07"] .budget-step-value > .blend-est');
-          const cents = box(centsEl);
-          const est = box(estEl);
           const top = box(document.querySelector('.blend-hero-top'));
           const cash = document.querySelector('.blend-hero-top .budget-today-cash');
           const cashBox = box(cash);
@@ -777,19 +767,7 @@ const composite = (fg, bg) => {
           const houseTitle = box(houseHead && houseHead.querySelector('h2'));
           const paired = (icon, title) => !!(icon && title && title.left >= icon.left && title.left - icon.right < 24 && Math.abs(title.top - icon.top) < 24);
           return {
-            estChip: !!(estEl && !estEl.closest('.blend-clip') && getComputedStyle(estEl).display !== 'none' && est && est.width > 8),
-            estBeside: !!(cents && est && estEl && !estEl.closest('.blend-clip') && est.left >= cents.right - 2 && est.left - cents.right < 40 && Math.abs(est.top - cents.top) < 28),
-            termChips: [...document.querySelectorAll('.blend-hero [data-operating-question="02"] .budget-step-value > .blend-est, .blend-hero [data-operating-question="04"] .budget-step-value > .blend-est, .blend-hero [data-operating-question="06"] .budget-step-value > .blend-est')].map(chip => {
-              const amount = chip.previousElementSibling;
-              if (!amount) return { beside: false, below: true };
-              const a = amount.getBoundingClientRect();
-              const b = chip.getBoundingClientRect();
-              return {
-                hidden: b.width <= 2 && b.height <= 2 && getComputedStyle(chip).overflow === 'hidden',
-                beside: b.left >= a.right - 2 && b.top < a.bottom - 1,
-                below: b.top >= a.bottom - 1,
-              };
-            }),
+            estimateMarks: document.querySelectorAll('.blend-hero .blend-est, .blend-hero .is-estimated, .blend-hero .est').length,
             pillRight: !!(cashShown && top && top.right - cashBox.right < 24 && cashBox.top >= top.top - 2 && cashBox.bottom <= top.bottom + 2),
             incomeInside: !(metaBox && income) || (metaBox.right <= income.right + 1 && metaBox.left >= income.left - 1 && metaBox.bottom <= income.bottom + 1),
             stacked: !income,
@@ -843,10 +821,7 @@ const composite = (fg, bg) => {
             })(),
           };
         });
-        if (layout.estChip) errors.push(`${width}/${theme} repeated est badge remains visible`);
-        if ((layout.termChips || []).some(row => !row.hidden)) {
-          errors.push(`${width}/${theme} term est badge remains visible ${JSON.stringify(layout.termChips)}`);
-        }
+        if (layout.estimateMarks) errors.push(`${width}/${theme} hero contains estimate styling`);
         if (!layout.pillRight) errors.push(`${width}/${theme} Bills account pill is not at the right of the hero top`);
         if (!layout.incomeInside) errors.push(`${width}/${theme} received amount leaves the Income tile`);
         if (!layout.separate || layout.depOverlap) errors.push(`${width}/${theme} income track overlap ${JSON.stringify(layout)}`);
@@ -1494,7 +1469,7 @@ const composite = (fg, bg) => {
       || aug28.valueText !== '$1,675.00'
       || !aug28.shown.includes('$1,675.00') || /≈/.test(aug28.shown)
       || !aug28.headline.includes('$1,870.00') || aug28.headline.includes('$1,675.00')
-      || aug28.trust !== 'calculated' || aug28.chip || !aug28.lineChip || aug28.clip || !aug28.lineVisible
+      || aug28.trust !== 'calculated' || aug28.chip || aug28.lineChip || aug28.clip || !aug28.lineVisible
       || aug28.fontSize !== '15px' || aug28.color !== aug28.ink || aug28.valueWrap !== 'nowrap'
       || aug28.align == null || aug28.align > 2 || !aug28.abovePills
       || aug28.gap == null || aug28.gap < 4 || aug28.gap > 12
@@ -1603,7 +1578,7 @@ const composite = (fg, bg) => {
       || sep11.valueText !== '$0.00'
       || !sep11.shown.includes('$0.00') || /≈/.test(sep11.shown)
       || !sep11.headline.includes('$205.00') || sep11.headline.includes('$0.00')
-      || sep11.clip || !sep11.lineVisible || !sep11.lineChip
+      || sep11.clip || !sep11.lineVisible || sep11.lineChip
       || sep11.fontSize !== '15px' || sep11.valueWrap !== 'nowrap'
       || /After Planned Savings/.test(sep11.q07 + ' ' + sep11.label)
       || !/After proposed savings/.test(sep11.shown)) {
@@ -1873,13 +1848,12 @@ const composite = (fg, bg) => {
     const readTerms = () => termsPage.evaluate(() => {
       const read = key => {
         const slot = document.querySelector(`[data-blend-term="${key}"]`);
-        const chip = slot && slot.nextElementSibling && slot.nextElementSibling.classList.contains('blend-est')
-          ? (slot.nextElementSibling.textContent || '').trim() : '';
+        const chip = slot?.nextElementSibling?.classList.contains('blend-est');
         const style = slot ? getComputedStyle(slot) : null;
         return {
           shown: (slot?.textContent || '').replace(/\s+/g, ' ').trim(),
           chip,
-          muted: !!(slot && slot.classList.contains('is-unavailable')),
+          unavailable: !!(slot && slot.classList.contains('is-unavailable')),
           ink: style ? style.color : '',
         };
       };
@@ -1909,34 +1883,31 @@ const composite = (fg, bg) => {
     });
     await repaintTerms();
     const amountPath = await readTerms();
-    const beside = await termsPage.evaluate(() => {
-      const cents = document.querySelector('[data-blend-term="balanceAfterDeductions"] .blend-cents');
-      const chip = document.querySelector('[data-operating-question="07"] .budget-step-value > .blend-est');
-      if (!cents || !chip || chip.closest('.blend-clip')) return { missing: true };
-      const a = cents.getBoundingClientRect(), b = chip.getBoundingClientRect();
-      return { hidden: b.width <= 2 && b.height <= 2 && getComputedStyle(chip).overflow === 'hidden',
-        title: chip.previousElementSibling?.title || '', text: (chip.textContent || '').trim() };
-    });
-    if (amountPath.periodIncome.shown !== '$9.00' || amountPath.periodIncome.chip !== 'est.'
-      || amountPath.balanceAfterDeductions.shown !== '$1,632.01' || amountPath.balanceAfterDeductions.chip !== 'est.'
-      || /estimated|≈/.test(amountPath.periodIncome.shown + amountPath.balanceAfterDeductions.shown)
-      || beside.missing || beside.text !== 'est.' || !beside.hidden || !/^Estimated/.test(beside.title)) {
-      errors.push(`amount est path ${JSON.stringify({ amountPath, beside })}`);
+    const headline = await termsPage.locator('[data-blend-term="balanceAfterDeductions"]').evaluate(el => ({
+      cents: el.querySelector('.blend-cents')?.textContent,
+      title: el.title,
+      styled: el.classList.contains('is-estimated'),
+    }));
+    if (amountPath.periodIncome.shown !== '$9.00' || amountPath.periodIncome.chip
+      || amountPath.balanceAfterDeductions.shown !== '$1,632.01' || amountPath.balanceAfterDeductions.chip
+      || headline.title || headline.styled || headline.cents !== '.01') {
+      errors.push(`published term display ${JSON.stringify({ amountPath, headline })}`);
     }
     await termsPage.evaluate(() => {
       const income = document.querySelector('[data-bad-term="periodIncome"]');
       income.setAttribute('data-bad-term-trust', 'estimated');
       income.querySelector('[data-bad-term-amount]').textContent = ' \n ';
+      // Exercise the legacy value fallback with a plainly printed amount.
+      income.querySelector('[data-bad-term-amount]').after(document.createTextNode('$24.00'));
       const big = document.querySelector('[data-bad-term="balanceAfterDeductions"]');
       big.setAttribute('data-bad-term-trust', 'unavailable');
       big.querySelector('[data-bad-term-amount]').textContent = '$1,632.01';
     });
     await repaintTerms();
     const emptySpan = await readTerms();
-    if (!/≈ estimated/.test(emptySpan.periodIncome.shown) || emptySpan.periodIncome.chip
-      || /\$9\.00/.test(emptySpan.periodIncome.shown)
+    if (emptySpan.periodIncome.shown !== '$24.00' || emptySpan.periodIncome.chip
       || emptySpan.balanceAfterDeductions.shown !== 'Unavailable' || emptySpan.balanceAfterDeductions.chip
-      || !emptySpan.balanceAfterDeductions.muted) {
+      || !emptySpan.balanceAfterDeductions.unavailable) {
       errors.push(`empty or unavailable amount span ${JSON.stringify(emptySpan)}`);
     }
     await termsPage.evaluate(() => {
@@ -1946,7 +1917,7 @@ const composite = (fg, bg) => {
     });
     await repaintTerms();
     const blocked = await readTerms();
-    const blockedBad = Object.values(blocked).some(row => row.shown !== 'Unavailable' || row.chip || !row.muted);
+    const blockedBad = Object.values(blocked).some(row => row.shown !== 'Unavailable' || row.chip || !row.unavailable);
     if (blockedBad) errors.push(`unavailable block ${JSON.stringify(blocked)}`);
     await termsPage.evaluate(() => {
       const block = document.querySelector('[data-bad-terms]');
@@ -1955,9 +1926,10 @@ const composite = (fg, bg) => {
     });
     await repaintTerms();
     const one = await readTerms();
-    if (one.assignedBills.shown !== 'Unavailable' || one.assignedBills.chip || !one.assignedBills.muted
-      || one.householdBudgetHold.shown === 'Unavailable' || one.householdBudgetHold.muted
-      || !/≈ estimated/.test(one.periodIncome.shown) || one.periodIncome.chip) {
+    if (one.assignedBills.shown !== 'Unavailable' || one.assignedBills.chip || !one.assignedBills.unavailable
+      || one.assignedBills.ink !== one.householdBudgetHold.ink
+      || one.householdBudgetHold.shown === 'Unavailable' || one.householdBudgetHold.unavailable
+      || one.periodIncome.shown !== '$24.00' || one.periodIncome.chip) {
       errors.push(`one unavailable term ${JSON.stringify(one)}`);
     }
     await termsPage.close();
@@ -1966,6 +1938,8 @@ const composite = (fg, bg) => {
     const readPlan = async html => {
       await otherPlan.evaluate(source => {
         const row = document.querySelector('[data-budget-category-open="other-spending"][data-budget-browse-origin="spending"]');
+        row.setAttribute('data-budget-pair-actual', '22.99');
+        row.setAttribute('data-budget-pair-planned', '450');
         row.querySelector('.budget-category-meta').innerHTML = source;
         const mount = document.getElementById('operating-surface-body');
         const bento = document.querySelector('[data-budget-bento]');
@@ -1974,12 +1948,20 @@ const composite = (fg, bg) => {
         mount.appendChild(document.createTextNode(''));
       }, html);
       await otherPlan.locator('.blend-ring[data-blend-cat="other-spending"]').waitFor();
-      return (await otherPlan.locator('.blend-ring[data-blend-cat="other-spending"]').innerText()).replace(/\s+/g, ' ').trim();
+      return otherPlan.locator('.blend-ring[data-blend-cat="other-spending"] .blend-ring-pair').evaluate(node => {
+        const pair = node.cloneNode(true);
+        pair.querySelectorAll('.budget-cash-sr').forEach(label => label.remove());
+        return pair.textContent.replace(/\s+/g, ' ').trim();
+      });
     };
-    const plainPlan = await readPlan('<span class="budget-cash-sr">Spent </span>$22.99<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>$450.00');
-    const estimatedPlan = await readPlan('<span class="budget-cash-sr">Spent </span>$22.99<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span><span class="est"><span aria-hidden="true">≈</span><span class="budget-cash-sr">estimated </span></span>$450.00');
-    if (!/\$22\.99/.test(plainPlan) || /of planned/i.test(plainPlan)) errors.push(`other plan face ${plainPlan}`);
-    if (!/\$22\.99/.test(estimatedPlan || '') || /of planned/i.test(estimatedPlan || '')) errors.push(`future other plan ${estimatedPlan}`);
+    const publishedPair = trust => otherPlan.evaluate(t =>
+      '<span class="budget-cash-sr">Spent </span>' + budgetBrowseMoney(22.99, t)
+      + '<span aria-hidden="true"> / </span><span class="budget-cash-sr"> of planned </span>'
+      + budgetBrowseMoney(450, t), trust);
+    const plainPlan = await readPlan(await publishedPair('calculated'));
+    const estimatedPlan = await readPlan(await publishedPair('estimated'));
+    if (!/\$23\s*\/\s*\$450/.test(plainPlan) || /of planned/i.test(plainPlan)) errors.push(`other plan face ${plainPlan}`);
+    if (estimatedPlan !== plainPlan || /≈|estimat/i.test(estimatedPlan)) errors.push(`future other plan ${estimatedPlan}`);
     await otherPlan.close();
 
     const goalPage = await open(1440, 'light');
@@ -1987,10 +1969,16 @@ const composite = (fg, bg) => {
       const card = document.querySelector('[data-budget-savings-goals]');
       const rows = [...card.querySelectorAll('[data-budget-savings-goal]')];
       const row = rows[0];
-      row.querySelector('.budget-goal-amounts').innerHTML = '<span><span class="budget-goal-amount">Unavailable</span><small>Saved</small></span><span aria-hidden="true">/</span><span><span class="budget-goal-amount">≈ $745.75</span><small>Needed</small></span>';
+      const goalSide = (label, amount, trust) => `<span><span class="budget-goal-amount">${budgetV3Money(amount, trust)}</span><small>${label}</small></span>`;
+      const slash = '<span aria-hidden="true">/</span>';
+      row.querySelector('.budget-goal-amounts').innerHTML = goalSide('Saved', null, 'unavailable') + slash + goalSide('Needed', 745.75, 'estimated');
       const both = rows[1] || row.cloneNode(true);
       if (!rows[1]) row.after(both);
-      both.querySelector('.budget-goal-amounts').innerHTML = '<span><span class="budget-goal-amount"><span class="budget-v3-est">≈<span class="budget-cash-sr"> estimated</span></span> $100.00</span><small>Saved</small></span><span aria-hidden="true">/</span><span><span class="budget-goal-amount"><span class="budget-v3-est">≈<span class="budget-cash-sr"> estimated</span></span> $3,300.00</span><small>Needed</small></span>';
+      both.querySelector('.budget-goal-amounts').innerHTML = goalSide('Saved', 100, 'calculated') + slash + goalSide('Needed', 3300, 'estimated');
+      const peer = both.cloneNode(true);
+      peer.setAttribute('data-budget-savings-goal', 'trust-comparison');
+      peer.querySelector('.budget-goal-amounts').innerHTML = goalSide('Saved', 100, 'estimated') + slash + goalSide('Needed', 3300, 'calculated');
+      both.after(peer);
       card.querySelector('[data-blend-goals]')?.remove();
       card.querySelectorAll(':scope > .blend-tile-title').forEach(node => node.remove());
       card.querySelectorAll('.blend-goals-source').forEach(node => node.classList.remove('blend-goals-source'));
@@ -2002,42 +1990,30 @@ const composite = (fg, bg) => {
         const bothLine = lines[1] || lines[0];
         const savedLine = bothLine.querySelector('.blend-goal-saved');
         const neededLine = bothLine.querySelector('.blend-goal-needed');
-        const savedStyle = savedLine ? getComputedStyle(savedLine) : null;
-        const neededStyle = neededLine ? getComputedStyle(neededLine) : null;
-        const mark = neededLine && neededLine.querySelector('.budget-v3-est');
-        const probe = document.createElement('span');
-        probe.className = 'budget-v3-est';
-        probe.textContent = '≈';
-        document.body.appendChild(probe);
-        const markStyle = mark ? getComputedStyle(mark) : null;
-        const probeStyle = getComputedStyle(probe);
-        const markColor = markStyle ? markStyle.color : '';
-        const lineColor = neededStyle ? neededStyle.color : '';
-        const probeColor = probeStyle.color;
-        probe.remove();
+        // Compare the same slot across trust states. Saved and Needed have distinct typographic roles.
+        const peerLine = lines[2];
+        const pairOfStyles = selector => [bothLine, peerLine].map(row => getComputedStyle(row.querySelector(selector)));
+        const styles = [pairOfStyles('.blend-goal-saved'), pairOfStyles('.blend-goal-needed')];
+        const marks = card.querySelectorAll('.budget-v3-est, .est, .is-estimated');
+        const names = lines.map(line => line.querySelector('button')?.getAttribute('aria-label')).join(' ');
         resolve({
           legend,
-          kept: /≈ \$745\.75/.test(card.textContent || '') && /Unavailable/.test(card.textContent || ''),
+          kept: /\$745\.75/.test(card.textContent || '') && /Unavailable/.test(card.textContent || ''),
           bothText: bothLine ? (bothLine.innerText || '').replace(/\s+/g, ' ').trim() : '',
           savedText: savedLine ? (savedLine.innerText || '').replace(/\s+/g, ' ').trim() : '',
           neededText: neededLine ? (neededLine.innerText || '').replace(/\s+/g, ' ').trim() : '',
           order: !!(savedLine && neededLine && (savedLine.compareDocumentPosition(neededLine) & Node.DOCUMENT_POSITION_FOLLOWING)),
-          sameSize: !!(savedStyle && neededStyle && savedStyle.fontSize === neededStyle.fontSize && savedStyle.fontWeight === neededStyle.fontWeight),
-          sameColor: !!(savedStyle && neededStyle && savedStyle.color === neededStyle.color),
-          estTone: !!(markColor && markColor === probeColor && lineColor && markColor !== lineColor),
-          markColor,
-          lineColor,
-          probeColor,
-          estSize: !!(markStyle && neededStyle && markStyle.fontSize === neededStyle.fontSize),
-          hiddenEstimate: !/estimated|calculated/.test((legend[0] || '') + ' ' + (savedLine ? savedLine.textContent : '') + ' ' + (neededLine ? neededLine.textContent : '')),
+          sameSize: styles.every(([a, b]) => a.fontSize === b.fontSize && a.fontWeight === b.fontWeight),
+          sameColor: styles.every(([a, b]) => a.color === b.color && a.opacity === b.opacity),
+          plain: !marks.length && !/≈|estimated|calculated/i.test([card.textContent, names].join(' ')),
         });
       }));
     });
     const firstGoal = goalFace.legend[0] || '';
-    if (!/Needed ≈ \$745\.75/.test(firstGoal) || /Saved Unavailable/.test(firstGoal) || goalFace.legend.some(line => /Saved Unavailable/.test(line)) || !goalFace.kept) {
+    if (!/Needed \$745\.75/.test(firstGoal) || /Saved Unavailable/.test(firstGoal) || goalFace.legend.some(line => /Saved Unavailable/.test(line)) || !goalFace.kept) {
       errors.push(`goal needed line ${JSON.stringify(goalFace)}`);
     }
-    if (goalFace.savedText !== 'Saved ≈ $100.00' || goalFace.neededText !== 'Needed ≈ $3,300.00' || !goalFace.order || !goalFace.sameSize || !goalFace.sameColor || !goalFace.estTone || !goalFace.estSize || !goalFace.hiddenEstimate) {
+    if (goalFace.savedText !== 'Saved $100.00' || goalFace.neededText !== 'Needed $3,300.00' || !goalFace.order || !goalFace.sameSize || !goalFace.sameColor || !goalFace.plain) {
       errors.push(`goal line style ${JSON.stringify(goalFace)}`);
     }
     await goalPage.close();

@@ -13,18 +13,14 @@ const out = process.env.ATLAS_FUTURE_SAVINGS_PROOF || path.join(require('node:os
 fs.mkdirSync(out, { recursive: true });
 const cases = [], errors = [], external = [], writes = [], served = new Map();
 const hash = body => crypto.createHash('sha256').update(body).digest('hex');
-// #808 deliberately marks each row-owned Still to fund as an estimate.
-// Check that exact qualification before allowing only its "estimated" word
-// through the older close-copy guard. All other fields keep that guard.
-async function closeCopyWithoutGapMarks(tile, text) {
-  let copy = text.replace(/\s+/g, ' ');
+async function checkGapCopy(tile, text) {
+  const copy = text.replace(/\s+/g, ' ');
   for (const cell of await tile.locator('[data-budget-goal-still-to-fund]').all()) {
     const printed = (await cell.innerText()).replace(/\s+/g, ' ');
     if (printed.startsWith('Unknown')) continue;
-    assert.match(printed, /^≈ estimated \$[\d,]+\.\d{2} Estimate: Needed minus Saved\. It is a planning gap, not an unpaid balance\.$/,
-      'Still to fund carries its estimate mark and planning-gap reason');
+    assert.match(printed, /^\$[\d,]+\.\d{2} Needed minus Saved\. It is a planning gap, not an unpaid balance\.$/,
+      'Still to fund shows its published amount and planning-gap reason');
     assert.ok(copy.includes(printed), 'qualified Still to fund appears in the checked tile text');
-    copy = copy.replace(printed, printed.replace('estimated ', ''));
   }
   return copy;
 }
@@ -94,7 +90,7 @@ async function step(page, direction) {
     assert.doesNotMatch(current, /Savings at period close/);
     await step(page, 1);
     const first = await tile.innerText(); assert.match(first, /Savings at period close/);
-    assert.doesNotMatch(await closeCopyWithoutGapMarks(tile, first), /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus/i);
+    assert.doesNotMatch(await checkGapCopy(tile, first), /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus/i);
     if (mode === 'unknown') assert.match(first, /Unavailable/);
     else if (mode === 'owner-deficit' || mode === 'timing') { assert.match(first, /Unavailable/);
       assert.match(first, mode === 'timing' ? /Funding gap on 2026-10-29: \$200\.00/ : /Funding gap on 2026-10-29: \$200\.00/); }
@@ -147,16 +143,7 @@ async function step(page, direction) {
     await dialog.locator('[data-savings-inventory] > details > summary').click();
     const inventory = await dialog.locator('[data-savings-inventory]').innerText();
     assert.match(inventory, /Savings at period close/);
-    // ca16d79b keeps the estimated trust tag (<small>estimated</small>) on a
-    // projected period's Forecast figures on purpose. Only that tag is
-    // allowed: the prose bans, the word "estimated" anywhere else included,
-    // still apply to the rest of the inventory.
-    const inventoryWithoutTrustTags = await dialog.locator('[data-savings-inventory]').evaluate(node => {
-      const copy = node.cloneNode(true);
-      for (const tag of copy.querySelectorAll('small')) if (tag.textContent.trim() === 'estimated') tag.remove();
-      document.body.appendChild(copy); const text = copy.innerText; copy.remove(); return text;
-    });
-    if (mode !== 'unknown') assert.doesNotMatch(inventoryWithoutTrustTags, /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus|this scenario/i);
+    if (mode !== 'unknown') assert.doesNotMatch(inventory, /\bForecast\b|\bActual\b|estimated|assumptions|If eligible surplus|this scenario/i);
     if (mode === 'ready' || mode === 'group') assert.match(inventory, /2,199\.00/);
     if (mode === 'group') { assert.match(inventory, /1,500\.00/); assert.match(inventory, /699\.00/); }
     if (mode === 'expense') assert.match(inventory, /1,119\.00/);

@@ -35,7 +35,7 @@ fs.mkdirSync(out, { recursive: true });
 const ORIGIN = 'http://savings-goal-paid.test';
 const served = {}, cases = [], errors = [], external = [], writes = [];
 const OBSERVATION_AS_OF = '2026-10-07', LINK_EFFECTIVE = '2026-10-05';
-const ESTIMATE_REASON = 'Estimate: Needed minus Saved. It is a planning gap, not an unpaid balance.';
+const ESTIMATE_REASON = 'Needed minus Saved. It is a planning gap, not an unpaid balance.';
 const UNKNOWN_NEEDED = 'Still to fund is unavailable: the goal amount needed is not a known point value.';
 const UNKNOWN_SAVED = 'Still to fund is unavailable: the amount saved for this goal is not known.';
 const near = (actual, expected, message) =>
@@ -67,10 +67,8 @@ const EXPECT = {
   },
 };
 const MODE_GOALS = { evidence: GOALS, absent: GOALS, uncertain: GOALS, gap: GAP_GOALS };
-const gapText = amount => amount === 'Unknown' ? amount : '≈ estimated ' + amount;
-const faceGapText = amount => amount === 'Unknown' ? amount : '≈ ' + amount;
 function assertGap(facts, amount, reason, where) {
-  assert.equal(facts.stf, gapText(amount), `${where}: row-owned Still to fund with its qualification`);
+  assert.equal(facts.stf, amount, `${where}: row-owned Still to fund with its qualification`);
   assert.equal(facts.stfReason, reason || ESTIMATE_REASON, `${where}: Still to fund explanation`);
   if (amount === 'Unknown') assert.equal(facts.stfStamp, null, `${where}: no still-to-fund stamp when unknown`);
   else {
@@ -236,7 +234,7 @@ const rows = { A3: [], A4: [], A9: [] };
         const fb = face[keys.indexOf(goal.key)];
         // Read in the row's tap-to-explain window (moved behind the tap).
         assert.equal(fb.paid, 'Paid ' + e.paid, `${where}: window Paid matches the hand oracle`);
-        assert.equal(fb.stf, 'Still to fund ' + faceGapText(e.stf), `${where}: window retains the estimate mark or Unknown`);
+        assert.equal(fb.stf, 'Still to fund ' + e.stf, `${where}: window prints the gap or Unknown`);
         assert.equal(fb.stfReason, e.stfReason || ESTIMATE_REASON, `${where}: window retains the planning-gap or unknown reason`);
         if (e.faceBand) {
           assert.equal(fb.band, e.faceBand, `${where}: face bar band`);
@@ -259,7 +257,7 @@ const rows = { A3: [], A4: [], A9: [] };
       if (mode === 'gap') {
         // The headline case, isolated: D's Still to fund is the planning
         // gap 30, and F's fully-saved bar is full without being paid.
-        assert.equal(facts['goal-d'].stf, '≈ estimated $30.00', 'gap: D still to fund is the qualified planning gap');
+        assert.equal(facts['goal-d'].stf, '$30.00', 'gap: D still to fund is the qualified planning gap');
         assert.equal(facts['goal-f'].state, 'funding', 'gap: F fully saved is not paid');
       }
       if (mode === 'gap' || mode === 'evidence') {
@@ -324,7 +322,7 @@ const rows = { A3: [], A4: [], A9: [] };
             assert.notEqual(f.state, 'paid', `${tag}: ${id} not shown retired as paid outside the current period`);
             const fb = periodFace[periodKeys.indexOf('commitment:' + id)];
             assert.equal(fb.paid, 'Paid Unknown', `${tag}: ${id} window does not borrow today's Paid`);
-            assert.equal(fb.stf, 'Still to fund ' + faceGapText(amount), `${tag}: ${id} window prints that period's own gap`);
+            assert.equal(fb.stf, 'Still to fund ' + amount, `${tag}: ${id} window prints that period's own gap`);
             assert.equal(fb.stfReason, period === 'historical' ? UNKNOWN_NEEDED : ESTIMATE_REASON, `${tag}: ${id} window keeps the reason`);
           }
         };

@@ -119,8 +119,7 @@
     return copy;
   }
   // The Savings goal window: every fact plan.js printed on the goal's row,
-  // label beside figure, with the estimate wording spelled out. Verbatim
-  // copies only — no amount is parsed, compared or recomputed here.
+  // preserving the labels and figures from the original printed row.
   function explainGoal(button, row) {
     const content = document.createDocumentFragment();
     const status = text(row.querySelector('.budget-goal-state'));
@@ -242,8 +241,7 @@
     explainOpen(button, text(row.querySelector('strong')) || 'Goal', content);
   }
 
-  // Join the printed node's own pieces with spaces. Skip chips this skin
-  // added. Do not trim inside a piece, and do not drop "≈" or "estimated".
+  // Join the source row's text, skipping the duplicate face value.
   function separatedText(node) {
     if (!node) return '';
     const bits = [];
@@ -255,7 +253,7 @@
         return;
       }
       if (el.nodeType !== 1) return;
-      if (el.classList.contains('blend-est') || el.classList.contains('blend-term')) return;
+      if (el.classList.contains('blend-term')) return;
       for (const child of el.childNodes) walk(child);
     };
     walk(node);
@@ -323,15 +321,9 @@
     }).format(dollars);
   }
 
-  // One side of a face pair. A valid stamped value renders in whole
-  // dollars, keeping the estimated ≈ the print carries. Without one,
-  // the side is unknown: its printed word passes through verbatim,
-  // and a printed amount with no valid stamp fails closed to the
-  // unknown word — never cents on the face, never an invented zero.
+  // Without a valid stamp, keep the published unavailable word.
   function pairSideText(value, printed) {
-    if (Number.isFinite(value)) {
-      return (String(printed || '').includes('≈') ? '≈ ' : '') + wholeDollarAmount(value);
-    }
+    if (Number.isFinite(value)) return wholeDollarAmount(value);
     const word = String(printed || '');
     return moneyToken(word) ? 'Unavailable' : word;
   }
@@ -659,8 +651,7 @@
     });
     if (savings && savings.parentElement !== foot) foot.appendChild(savings);
     if (afterBills) afterBills.classList.remove('blend-clip');
-    // The closing card is moved into the Period figures sheet below (wirePeriodFigures), so its
-    // "How this estimate works" summary stays visible there; it is not clipped like a hero-face copy.
+    // Keep the closing card's disclosure available in the Period figures sheet.
     hero.querySelectorAll('.budget-bills-closing > .operating-note').forEach(node => {
       if (/Latest recorded Bills balance/i.test(text(node))) {
         node.classList.add('blend-panel-note');
@@ -766,7 +757,7 @@
     const walker = document.createTreeWalker(value, NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
-      if (node.parentElement && node.parentElement.closest('.budget-cash-sr, .est, .blend-clip')) continue;
+      if (node.parentElement && node.parentElement.closest('.budget-cash-sr, .blend-clip')) continue;
       if (/\$[\d,]+\.\d{2}/.test(node.textContent)) nodes.push(node);
     }
     nodes.forEach(textNode => {
@@ -850,22 +841,16 @@
     return /Completed pay period/i.test(text((root || document).querySelector('[data-budget-window-progress]')));
   }
 
-  // Path A: a non-empty [data-bad-term-amount] is the bare amount. An est.
-  // chip is added only when that row's trust is estimated. Only the span's
-  // own text is read, so the ≈ mark in the value is not copied again.
-  // An empty or whitespace-only amount span is absent.
-  // Unavailable trust is decided before the span is read.
-  // Path B: no usable amount span — the value text is copied verbatim,
-  // including "≈ estimated" when that is what was printed, and no chip is added.
+  // Withhold unavailable terms before considering either published amount field.
   function termDisplay(row, blockStatus) {
     const trust = row ? (row.getAttribute('data-bad-term-trust') || '') : '';
     if (blockStatus !== 'published' || !row || trust === 'unavailable') {
-      return { text: 'Unavailable', chip: false, unavailable: true };
+      return { text: 'Unavailable', unavailable: true };
     }
     const bare = text(row.querySelector('[data-bad-term-amount]'));
-    if (bare) return { text: bare, chip: trust === 'estimated', unavailable: false };
+    if (bare) return { text: bare, unavailable: false };
     const value = row.querySelector('[data-bad-term-value]');
-    return { text: text(value) || 'Unavailable', chip: false, unavailable: !text(value) };
+    return { text: text(value) || 'Unavailable', unavailable: !text(value) };
   }
 
   function paintTermFace(parent, name, display, className) {
@@ -875,16 +860,8 @@
     slot.setAttribute('data-blend-term', name);
     slot.textContent = display.text;
     slot.classList.toggle('is-unavailable', !!display.unavailable);
-    slot.classList.toggle('is-estimated', !!display.chip);
     slot.classList.toggle('is-negative', !!display.negative && !display.unavailable);
-    if (display.chip) slot.title = 'Estimated';
     parent.appendChild(slot);
-    if (display.chip) {
-      const pill = document.createElement('span');
-      pill.className = 'blend-est';
-      pill.textContent = 'est.';
-      slot.after(pill);
-    }
     return slot;
   }
 
@@ -920,7 +897,6 @@
     label.className = 'blend-term-label';
     label.setAttribute('data-blend-term-label', name);
     label.textContent = words;
-    // After the figure (and its est. chip): the heading text stays as printed.
     slot.parentElement.appendChild(label);
   }
 
@@ -1093,8 +1069,7 @@
     const amount = host.querySelector('[data-budget-result-amount]');
     if (!amount) return null;
     const trust = host.getAttribute('data-budget-result-trust') || '';
-    const shown = resultAmountDecision(trust, amount.textContent);
-    return { trust: trust, shown: shown, closed: shown === 'Unavailable' };
+    return resultAmountDecision(trust, amount.textContent);
   }
 
   function paintFinalResult(root) {
@@ -1133,13 +1108,7 @@
     line.className = 'blend-after-funding';
     const hook = budgetResultHook(hero);
     if (hook) {
-      appendAfterLine(line, value, hook.shown);
-      if (!hook.closed && hook.trust === 'estimated') {
-        const pill = document.createElement('span');
-        pill.className = 'blend-est';
-        pill.textContent = 'est.';
-        line.appendChild(pill);
-      }
+      appendAfterLine(line, value, hook);
       clip.remove();
       const dollars = bad.querySelector('.blend-dollars');
       const cents = bad.querySelector('.blend-cents');
@@ -1162,12 +1131,6 @@
       clip.remove();
     } else if (bare) {
       appendAfterLine(line, value, bare);
-      if (trust === 'estimated') {
-        const pill = document.createElement('span');
-        pill.className = 'blend-est';
-        pill.textContent = 'est.';
-        line.appendChild(pill);
-      }
       clip.remove();
     } else {
       appendAfterLine(line, value, copiedPrintedText(clip));
@@ -1270,7 +1233,7 @@
   function billState(row) {
     const state = text(row.querySelector('.budget-bill-state'));
     if (/\boverdue\b/i.test(state)) return 'overdue';
-    if (/^estimated\b/i.test(state)) return 'estimated';
+    if (/^settled by schedule\b/i.test(state)) return 'scheduled';
     if (/^carried\b/i.test(state)) return 'carried';
     if (!state || /status unavailable|unknown|unavailable|not observed/i.test(state)) return 'unknown';
     // A posted payment below plan is still to pay (budget-polish.js: Partly paid, never the Paid green).
@@ -1335,12 +1298,6 @@
         remain.classList.add('is-empty');
       } else if (leftMoney && planMoney) {
         remain.appendChild(document.createTextNode(leftMoney + ' left of ' + planMoney));
-        if (/estimated|≈/.test(leftRaw + ' ' + planRaw)) {
-          const est = document.createElement('span');
-          est.className = 'blend-est';
-          est.textContent = 'est.';
-          remain.appendChild(est);
-        }
       } else {
         remain.textContent = 'Unavailable';
         remain.classList.add('is-unavailable');
@@ -1398,12 +1355,6 @@
       when.setAttribute('data-blend-bill-when', '');
       if (iso) {
         when.textContent = new Date(printed + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        if (row.querySelector('.budget-bill-date.est')) {
-          const est = document.createElement('span');
-          est.className = 'blend-est';
-          est.textContent = 'est.';
-          when.appendChild(est);
-        }
       } else {
         when.textContent = 'No date';
       }
@@ -1414,8 +1365,7 @@
       const amount = document.createElement('span');
       amount.className = 'blend-bill-amount';
       amount.setAttribute('data-blend-bill-amount', '');
-      // A clone keeps the roster's own estimate mark and its screen-reader
-      // word ("estimated") exactly as printed; nothing is re-formatted.
+      // Preserve the source roster's printed amount and accessible text.
       const printedAmount = row.querySelector('.budget-bill-amount');
       if (printedAmount && text(printedAmount)) printedAmount.childNodes.forEach(node => amount.appendChild(node.cloneNode(true)));
       else amount.textContent = 'Unavailable';
@@ -1918,10 +1868,8 @@
     // The category's published Actual / Planned pair as PRINTED in
     // the source row's meta, screen-reader lead-ins stripped — the
     // same clone the geometry fallback reads. The printed sides are
-    // the source for the pair's words and qualifiers (Unavailable,
-    // the estimated ≈); the face's figures come from the row's
-    // stamped canonical amounts (pairSideText), never from parsing
-    // these tokens. A meta carrying no pair — Other Spending's
+    // the source for the pair's words. The figures come from the stamped
+    // canonical amounts. A meta carrying no pair — Other Spending's
     // unassigned note — yields null.
     const printedPair = row => {
       const metaNode = row.querySelector('.budget-category-meta');
@@ -1973,9 +1921,7 @@
         fillPair(pairSideText(actualValue, pair.actual),
           pairSideText(plannedValue, pair.planned));
       } else if (actualValue != null) {
-        // Synthesized pair: the spent side renders from its stamp
-        // (its ≈ qualifier, when the row is estimated, rides in the
-        // status print); the withheld plan side is Unavailable.
+        // The spent side has a stamp, but the plan side is withheld.
         fillPair(pairSideText(actualValue, status), 'Unavailable');
       } else {
         const spent = spentAmountText(row, status);
@@ -2330,11 +2276,7 @@
     const goals = [...card.querySelectorAll('[data-budget-savings-goal]')];
     // Clean main view; explanations on tap (owner direction, 2026-11-09).
     // A goal row shows its name, its bar, and Saved against Needed, each
-    // copied from plan.js's printed row with its estimate mark and its
-    // screen-reader trust word. Paid, Still to fund, its reason and the
-    // this-period wording open in the tap-to-explain window. Nothing is
-    // parsed, summed or recomputed, and a side that prints no figure keeps
-    // its printed unavailable word.
+    // copied from the printed row. Payment evidence opens in the detail window.
     goals.forEach(row => {
       const item = document.createElement('li');
       const button = document.createElement('button');
@@ -2358,24 +2300,14 @@
         clone.querySelectorAll('.budget-cash-sr').forEach(hidden => hidden.remove());
         return /\$[\d,]/.test(text(clone));
       };
-      // The printed amount, copied verbatim with its estimate mark. The
-      // screen-reader trust words stay off the visible line and are carried
-      // in the row's accessible name below, so no figure loses its tag.
+      // Copy the visible amount, leaving labels in the accessible name below.
       const appendPrintedAmount = (line, amountNode) => {
         const walk = node => {
           node.childNodes.forEach(child => {
             if (child.nodeType === 3) {
               const value = child.textContent.replace(/\s+/g, ' ');
               if (!value) return;
-              value.split('≈').forEach((part, index) => {
-                if (index > 0) {
-                  const mark = document.createElement('span');
-                  mark.className = 'budget-v3-est';
-                  mark.textContent = '≈';
-                  line.appendChild(mark);
-                }
-                if (part) line.appendChild(document.createTextNode(part));
-              });
+              line.appendChild(document.createTextNode(value));
               return;
             }
             if (child.nodeType === 1 && !child.classList.contains('budget-cash-sr')) walk(child);
@@ -2419,8 +2351,7 @@
       const figures = document.createElement('span');
       figures.className = 'blend-goal-status';
       figures.setAttribute('data-blend-goal-figures', '');
-      // The accessible name is the row's own printed text, trust words
-      // included ("calculated", "estimated"), joined in reading order.
+      // Build the accessible name from the labelled amounts in reading order.
       const spoken = [name.textContent];
       if (paidState) {
         // A paid goal says Paid. The published paid amount follows when
@@ -2697,7 +2628,6 @@
         amount: amount,
         label: closed ? 'Unavailable' : amount,
         unavailable: closed,
-        estimated: !closed && trust === 'estimated',
         negative: negative,
         tone: closed ? 'muted' : (negative ? 'short' : 'income'),
         magnitude: closed ? null : timelineGeometry(amount),
@@ -2857,7 +2787,7 @@
     const key = nodes.map(node => node.start + ':' + node.end).join('|');
     const periods = nodes.map(node => ({ ...node, bad: node.magnitude,
       state: node.unavailable ? 'unknown' : node.negative ? 'short' : 'healthy',
-      fullLabel: node.label + (node.estimated ? ', estimated' : '') + ', ' + (node.range || 'Pay period') }));
+      fullLabel: node.label + ', ' + (node.range || 'Pay period') }));
     const cur = nodes.findIndex(node => node.role === 'current');
     const dark = document.documentElement.dataset.theme === 'dark'
       || (!document.documentElement.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -2876,7 +2806,7 @@
       wrap.querySelector('[data-ph-range]').textContent = node ? nativeRiverRange(node)
         : text(document.querySelector('[data-budget-window-range]')) || 'Pay period';
       const value = wrap.querySelector('[data-ph-value]');
-      value.textContent = node?.label || '—'; value.classList.toggle('is-est', !!node?.estimated);
+      value.textContent = node?.label || '—';
       nav.dataset.state = !node || node.unavailable ? 'unknown' : node.negative ? 'short' : 'healthy';
       river.setAttribute('role', enabled ? 'slider' : 'group');
       river.setAttribute('aria-label', absent ? 'Pay periods. Balance After Deductions timeline unavailable.' : 'Pay period');

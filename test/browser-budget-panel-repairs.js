@@ -67,7 +67,7 @@ async function provePanelRepairs({ open, capture }) {
           chrome: ['.budget-today-cash', '.blend-hero-foot'].map(selector => { const n = hero.querySelector(selector), b = rect(n);
             return { selector, left: b.left, right: b.right, top: b.top, bottom: b.bottom,
               scroll: [n.scrollWidth, n.clientWidth, n.scrollHeight, n.clientHeight] }; }),
-          badgesHidden: [...hero.querySelectorAll('.blend-est')].every(node => rect(node).width <= 1.01 && rect(node).height <= 1.01),
+          noEstimateBadges: !hero.querySelector('.blend-est'),
           boardOverflow: document.documentElement.scrollWidth > innerWidth + 1 };
       });
       assert.equal(fit.terms.length, 4, `${width}/${theme} all four full amounts`);
@@ -75,10 +75,10 @@ async function provePanelRepairs({ open, capture }) {
         assert.equal(term.shown, term.expected, `${width}/${theme} ${term.key} copies native exact cents`);
         assert.ok(term.fits && term.labelFits && !term.labelOverlapsAmount,
           `${width}/${theme} ${term.key} fits without overlap: ${JSON.stringify(term)}`);
-        assert.equal(term.estimatedCue, term.nativeTrust === 'estimated', 'native estimate qualification survives');
-        if (term.estimatedCue) assert.match(term.title, /^Estimated/);
+        assert.equal(term.estimatedCue, false, 'published trust does not style the term');
+        assert.doesNotMatch(term.title, /estimat/i);
       }
-      assert.ok(fit.pillFits && fit.footerFits && fit.badgesHidden && !fit.boardOverflow, `${width}/${theme} hero chrome fits: ${JSON.stringify(fit)}`);
+      assert.ok(fit.pillFits && fit.footerFits && fit.noEstimateBadges && !fit.boardOverflow, `${width}/${theme} hero chrome fits: ${JSON.stringify(fit)}`);
       const rings = await page.locator('[data-blend-rings] .blend-ring').evaluateAll(els => els.map(el => ({
         id: el.getAttribute('data-blend-cat'),
         centre: (el.querySelector('.blend-ring-v')?.textContent || '').trim(),

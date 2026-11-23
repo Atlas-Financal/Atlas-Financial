@@ -489,21 +489,22 @@ check('C3: the 2027 Dale-payroll projection renders as estimate, not bare curren
   // 2,000 cash + the 3,860.69 January 2027 estimated cheque (CRA's published
   // 2027 contribution limits; tax on the 2026 table) = 5,860.69.
   assert.match(html, /\$5,860\.69/);
-  assert.match(html, /5,860\.69 <span class="trust-tag trust-estimated">estimate<\/span>/);
+  assert.doesNotMatch(html, /trust-estimated|>estimate</);
+  assert.match(html, /5,860\.69<\/span>/);
   assert.doesNotMatch(html, /unavailable/);
 });
 
-check('C4: every shell figure on the normal payday renders with its trust tag', () => {
+check('C4: every shell figure on the normal payday renders its unmarked amount', () => {
   const html = shell();
-  assert.match(html, /\$5,000\.00 <span class="trust-tag">calculated<\/span>/); // available
-  assert.match(html, /\$2,000\.00 <span class="trust-tag">calculated<\/span>/); // bills
-  assert.match(html, /\$800\.00 <span class="trust-tag">calculated<\/span>/); // household
-  assert.match(html, /\$1,200\.00 <span class="trust-tag">calculated<\/span>/); // planned
-  assert.match(html, /Keep at least \$500\.00 <span class="trust-tag">calculated<\/span>/); // buffer
-  assert.match(html, /\$300\.00 <span class="trust-tag">calculated<\/span>/); // other protected
-  assert.match(html, /\$250\.00 <span class="trust-tag">calculated<\/span>/); // extra debt
-  assert.match(html, /\$450\.00 <span class="trust-tag">calculated<\/span>/); // remainder
-  assert.doesNotMatch(html, /Every figure carries its trust tag/);
+  assert.match(html, /\$5,000\.00<\/(?:p|span)>/); // available
+  assert.match(html, /\$2,000\.00<\/(?:p|span)>/); // bills
+  assert.match(html, /\$800\.00<\/(?:p|span)>/); // household
+  assert.match(html, /\$1,200\.00<\/(?:p|span)>/); // planned
+  assert.match(html, /Keep at least \$500\.00<\/(?:p|span)>/); // buffer
+  assert.match(html, /\$300\.00<\/(?:p|span)>/); // other protected
+  assert.match(html, /\$250\.00<\/(?:p|span)>/); // extra debt
+  assert.match(html, /\$450\.00<\/(?:p|span)>/); // remainder
+  assert.doesNotMatch(html, /trust-estimated|>calculated<|Every figure carries its trust tag/);
 });
 
 check('C5: unpublished trust fails closed — figures render unavailable, never bare currency', () => {
@@ -518,7 +519,7 @@ check('C5: unpublished trust fails closed — figures render unavailable, never 
   assert.match(html, /Truly unassigned: unavailable/);
   // The live row still publishes its own trust, so the row-gated blocks
   // keep rendering — only the packet-gated blocks fail closed here.
-  assert.match(html, /\$1,200\.00 <span class="trust-tag">calculated<\/span>/);
+  assert.match(html, /\$1,200\.00<\/span>/);
   // A live row with no published trust fails the planned blocks closed too.
   const advice2 = adviceFixture();
   delete advice2.planSpendPaydayFunding.paydays[0].trust;
@@ -579,7 +580,7 @@ check('D2: $0 Nest Money payday is explicit — earmark shown, not unavailable',
   assert.doesNotMatch(blockHtml, /unavailable/);
 });
 
-check('D3: estimated-paycheck Nest Money instruction is tagged estimate, never verified', () => {
+check('D3: estimated-paycheck Nest Money instruction prints without an estimate tag', () => {
   const html = shell({}, { paydays: [{
     payday: '2026-09-25', contribution: 1200,
     allocations: [{ id: 'a', label: 'Property tax reserve', amount: 1200 }],
@@ -587,7 +588,7 @@ check('D3: estimated-paycheck Nest Money instruction is tagged estimate, never v
   }] });
   const blockHtml = nestMoneyBlock(html);
   assert.equal(headlineAmount(blockHtml), 1200);
-  assert.match(blockHtml, /trust-estimated">estimate</);
+  assert.doesNotMatch(blockHtml, /trust-estimated|>estimate</);
   assert.doesNotMatch(blockHtml, />calculated</);
 });
 
@@ -769,11 +770,11 @@ check('F1: the planned block shows the exact payday (2026-10-09), not the period
   assert.doesNotMatch(blockHtml, /2026-09-25 payday/);
 });
 
-check('F2: a trusted $0 on the exact payday carries the schedule-level trust tag', () => {
+check('F2: a trusted $0 on the exact payday prints its known amount', () => {
   // The 2026-10-09 row is not the live row (payday !== asOf), so by
   // Forecast's contract its figures carry fundingTrust, never borrowed.
   const blockHtml = nestMoneyBlock(exactShell());
-  assert.match(blockHtml, /\$0\.00 <span class="trust-tag trust-estimated">estimate<\/span>/);
+  assert.match(blockHtml, /\$0\.00<\/span>/);
 });
 
 check('F3: a null contribution on the exact payday fails closed — unknown is not $0', () => {

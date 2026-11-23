@@ -119,7 +119,7 @@ console.log('Rule 1: a shortfall reads Partly paid');
   const est = worldFor({ ...HYDRO, confidence: 'estimated' }, [pay(40)]).row;
   ok(est && est.paymentState === 'partly-paid' && est.shortfall === 50 && est.shortfallTrust === 'estimated', 'an estimated plan makes the shortfall estimated',
     est && est.shortfallTrust);
-  ok(/Partly paid/.test(text(ctx.rowHtml(est))) && /≈ \$50\.00 still to pay \(estimated\)/.test(text(ctx.rowHtml(est))), 'and the row marks it estimated', text(ctx.rowHtml(est)));
+  ok(/Partly paid/.test(text(ctx.rowHtml(est))) && /\$50\.00 still to pay/.test(text(ctx.rowHtml(est))) && !/≈|estimated/.test(text(ctx.rowHtml(est))), 'and the row gives the outstanding amount', text(ctx.rowHtml(est)));
   const unknown = worldFor({ ...HYDRO, confidence: 'unknown' }, [pay(40)]).row;
   ok(unknown && !('paymentState' in unknown) && unknown.status === 'PAID', 'an unestablished planned amount makes no shortfall claim (as no excess claim)',
     unknown && unknown.paymentState);
@@ -171,7 +171,7 @@ console.log('Scheduled fees (Grok Bot, rule 17, LEDGER A item 1), and no shortfa
   const Live = require('../scripts/live-plan');
   const feeFixture = require('./fixtures/scheduled-fee-routing-data');
   const expected = {
-    16: { state: 'partly-paid', shortfall: 8, printed: 'Partly paid · ≈ $8.00 still to pay (estimated)', paid: 16, remaining: 8, total: 24 },
+    16: { state: 'partly-paid', shortfall: 8, printed: 'Partly paid · $8.00 still to pay', paid: 16, remaining: 8, total: 24 },
     24: { state: undefined, shortfall: undefined, printed: 'Paid', paid: 24, remaining: 0, total: 24 },
     28: { state: undefined, shortfall: undefined, printed: 'Paid · $4.00 over planned · Review in Lunch Money', paid: 28, remaining: 0, total: 28 },
   };
@@ -189,7 +189,7 @@ console.log('Scheduled fees (Grok Bot, rule 17, LEDGER A item 1), and no shortfa
     fee && JSON.stringify({ s: fee.paymentState, sf: fee.shortfall, t: fee.shortfallTrust }));
     ok(fee && (posted === 28) === (fee.excessReview === true), `review flag only above the allowance (${posted})`, fee && String(fee.excessReview));
     const printed = text(ctx.rowHtml(fee));
-    ok(printed.includes(want.printed), `its row prints "${want.printed}" (${posted})`, printed);
+    ok(printed.includes(want.printed) && !/≈|estimated/i.test(printed), `its row prints "${want.printed}" (${posted})`, printed);
     if (posted === 16) ok(!/\bPaid\b/.test(printed.replace('Partly paid', '')), 'the 16 row is never called Paid', printed);
     if (posted !== 28) ok(!/Review in Lunch Money/.test(printed), `no review pointer at or below the allowance (${posted})`, printed);
     ok(period.paidBills === want.paid && period.remainingBills === want.remaining && period.totalBillsThisPeriod === want.total,

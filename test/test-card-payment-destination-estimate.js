@@ -229,8 +229,9 @@ console.log('7. The Budget payment section shows the To-confirm row');
   check(rows.length === 1, 'one To-confirm row on the page');
   check(html.includes('To confirm: which card did this pay?') && html.includes('2026-09-20') && html.includes('$105.00')
     && html.includes('from Bills'), 'it shows the question, date, amount and the account it left');
-  check(/counts toward no card/.test(html) && /estimates/.test(html), 'it says the payment counts toward no card and the figures are estimates');
-  check(/data-card-payment-to-confirm data-trust="estimated"/.test(html), 'the block is tagged as an estimate');
+  check(html.includes('it counts toward no card, so card purchases stay set aside.'), 'the payment explains why card purchases stay set aside');
+  check(!/≈|\bestimat(?:e|ed|es)\b/i.test(html.replace(/<[^>]*>/g, ' ')), 'the payment prints no estimate mark or wording');
+  check(/data-card-payment-to-confirm data-trust="estimated"/.test(html), 'the block retains its internal trust');
   // Every printed string is escaped: a planted markup string never reaches the page raw.
   const planted = { ...degraded.period.cardPurchaseCoverage, toConfirm: [{ question: '<img src=x onerror=alert(1)>',
     date: '2026-09-20', amount: 105, fromAccount: '<b>x</b>' }] };

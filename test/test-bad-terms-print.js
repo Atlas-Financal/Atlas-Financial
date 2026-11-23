@@ -41,7 +41,7 @@ const terms=b=>KEYS.map((key,i)=>{const m=b.match(new RegExp(`data-bad-term="${k
  else{assert.equal(m[3],LABELS[i]);assert.equal(m[2],undefined,'only the household term carries face words');}
  // label is non-enumerable: qualification comparisons stay trust/text/amount.
  return Object.defineProperty({trust:m[1],text:(m[4]+m[5]).replace(/<[^>]+>/g,''),amount:m[5]},'label',{value:m[3]});});
-const cents=text=>{const m=text.match(/^(?:≈ estimated )?(−?)\$([\d,]+)\.(\d\d)$/);assert.ok(m,'money text: '+text);
+const cents=text=>{const m=text.match(/^(−?)\$([\d,]+)\.(\d\d)$/);assert.ok(m,'money text: '+text);
  return (m[1]?-1:1)*(Number(m[2].replace(/,/g,''))*100+Number(m[3]));};
 
 const f=fx.build(618.73);
@@ -75,8 +75,7 @@ expected.forEach(([role,income,bills,hold,future],i)=>{
   // remainder built on it, read estimated (planned amount unchanged).
   assert.equal(t[0].trust,role==='current'?'estimated':'calculated',`${v.id}: an unposted paycheque reads estimated`);
   assert.equal(t[3].trust,future||role==='current'?'estimated':'calculated');
-  t.forEach(x=>assert.equal(x.text.startsWith('≈ estimated'),x.trust==='estimated'));
-  t.forEach(x=>assert.equal(x.text,(x.trust==='estimated'?'≈ estimated ':'')+x.amount));
+  t.forEach(x=>assert.equal(x.text,x.amount));
   assert.equal(JSON.stringify(v),sealed,'printing cannot rewrite the publication');
  }
 });
@@ -115,14 +114,14 @@ OCT8.forEach(([I,B,H,R,bad],i)=>{const v={...cur,predictedEndingBalanceTerms:{..
  for(const compact of [true,false]){const t=terms(block(render(v,f.plan,compact),v.id));
   assert.equal(t[3].amount,bad);
   assert.deepEqual(t.map(x=>x.trust),['estimated','estimated',i?'estimated':'calculated','estimated']);
-  t.forEach(x=>{assert.ok(!/[≈a-z]/i.test(x.amount),'plain amount '+x.amount);assert.equal(x.text,(x.trust==='estimated'?'≈ estimated ':'')+x.amount);});
+  t.forEach(x=>{assert.ok(!/[≈a-z]/i.test(x.amount),'plain amount '+x.amount);assert.equal(x.text,x.amount);});
   const [ci,cb,ch,cr]=t.map(x=>cents(x.amount));assert.equal(ci-cb-ch,cr);}
 });
 // Unavailable terms leave the amount hook empty.
 for(const b of [one,untrusted])terms(b).filter(x=>x.trust==='unavailable').forEach(x=>assert.equal(x.amount,''));
 // (d) Q07 result hooks: data-budget-result-trust plus [data-budget-result-amount]
 // (plain money2, empty when unavailable) on the Q07 step (both layouts) and the
-// non-compact hero. Visible text stays (≈ estimated) + amount, or Unavailable.
+// non-compact hero. Visible text is the amount or Unavailable.
 const result=(html,compact)=>{const strip=x=>x.replace(/<[^>]+>/g,'');
  const out=[html.match(/data-operating-question="07"[^>]*?data-budget-result-trust="([a-z]+)"[^]*?<span class="budget-step-value"[^>]*>(.*?)<span data-budget-result-amount>([^<]*)<\/span><\/span>/)];
  if(!compact)out.push(html.match(/data-budget-period-result data-budget-result-trust="([a-z]+)">[^]*?<p class="budget-period-result-value"[^>]*>(.*?)<span data-budget-result-amount>([^<]*)<\/span><\/p>/));
@@ -131,7 +130,7 @@ const funded={...cur,plannedCostFunding:{status:'ready',start:cur.start,end:cur.
 for(const [v,trust,amount] of [[cur,'estimated','$0.21'],[views[1],'estimated','$174.45'],[funded,'estimated','$1,675.00'],[{...cur,...failClosed},'unavailable','']])
  for(const compact of [true,false]){const r=result(render(v,f.plan,compact),compact);assert.equal(r.length,compact?1:2);
   r.forEach(x=>{assert.deepEqual([x.trust,x.amount],[trust,amount]);assert.ok(!/≈/.test(x.amount));
-   assert.equal(x.text,trust==='unavailable'?'Unavailable':(trust==='estimated'?'≈ estimated ':'')+amount);});}
+   assert.equal(x.text,trust==='unavailable'?'Unavailable':amount);});}
 // (e) Hidden all-period timeline: one <ol data-bad-timeline> per Budget render
 // (payPeriodTimelineHtml), one <li> per advice.payPeriodViews row in order,
 // carrying the same BAD trust, face and visible text as that period's terms block.
@@ -180,7 +179,7 @@ for(const compact of [true,false]){
  const o8=rowsOf(advice).map(v=>{const i=views.findIndex(w=>w.id===v.id);return i>=0&&i<4?{...v,predictedEndingBalanceTerms:{...v.predictedEndingBalanceTerms,balanceAfterDeductions:OCT8[i][3]},balanceAfterDeductionsTrust:'estimated'}:v;});
  const l8=checkTimeline({...advice,payPeriodViews:o8},compact).filter(x=>x.role!=='past').slice(0,4);
  assert.deepEqual(l8.map(x=>[x.trust,x.amount]),OCT8.map(r=>['estimated',r[4]]));
- l8.forEach(x=>assert.ok(x.text.startsWith('≈ estimated')&&!/≈/.test(x.amount)));
+ l8.forEach(x=>assert.ok(x.text===x.amount&&!/≈/.test(x.text)));
 }
 // No payPeriodViews rows: no list.
 assert.equal(vm.runInContext('badTimelineHtml({payPeriodViews:[]},true,null)+badTimelineHtml({},false,null)',context),'');
@@ -237,7 +236,7 @@ const qualifiedPast = {...cur,timelineRole:'past',lookback:true,
  budgetProgress:{source:'Forecast.budgetPeriodProgress',start:cur.start,end:cur.end,
   income:{actual:completePart(4050)},bills:{actual:completePart(1665)},household:{actual:completePart(752.99)}}};
 // Owner decision on #866: an uncaptured close is a reconstruction, so the
-// qualified aggregate prints as ≈ estimated; its source terms are unchanged.
+// qualified aggregate prints its amount; its source terms are unchanged.
 // A captured close (#818) keeps its native trust.
 const capturedPast = {...qualifiedPast,capturedClose:{source:'period-history',kind:'closing'}};
 for (const compact of [true,false]) {
@@ -245,7 +244,7 @@ for (const compact of [true,false]) {
  const nativeTerms=terms(block(render(cur,f.plan,compact),cur.id));
  assert.deepEqual(t.slice(0,3),nativeTerms.slice(0,3),'uncaptured source terms keep their own qualifications');
  assert.deepEqual([t[3].trust,t[3].amount],['estimated',nativeTerms[3].amount],'uncaptured qualified close is estimated, same amount');
- assert.match(t[3].text,/^≈/);
+ assert.equal(t[3].text,t[3].amount);
  assert.doesNotMatch(html,/data-bad-historical-withheld/);
  assert.match(html,/data-bad-historical-reconstructed/);
  const published=timeline({payPeriodViews:[qualifiedPast]},compact,cur.id)[0];

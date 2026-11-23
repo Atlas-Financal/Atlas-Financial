@@ -73,8 +73,8 @@ console.log('=== today unconfirmed: the unavailable card stays, later periods sh
     'the Budget still says today\'s plan is unavailable');
   const card = laterCard(html);
   ok(!!card && /Later pay periods/.test(card), 'a Later pay periods card is shown');
-  ok(/data-estimated-later-reason>estimate — /.test(card) && /Today&#39;s cash is not confirmed/.test(card),
-    'it says why: today\'s cash is not confirmed, so these are estimates');
+  ok(/data-estimated-later-reason>/.test(card) && !/\bestimat(?:e|ed)\b/i.test(card.replace(/<[^>]+>/g, '')) && /Today&#39;s cash is not confirmed/.test(card),
+    'it says why: today\'s cash is not confirmed, and values have no estimate qualifier');
   const expected = [
     { start: '2026-10-23', range: 'Oct 23–Nov 5', income: '$3,000.00', bills: '$1,200.00', household: '$200.00', bad: '$1,600.00' },
     { start: '2026-11-06', range: 'Nov 6–Nov 19', income: '$3,000.00', bills: '$0.00', household: '$200.00', bad: '$2,800.00' },
@@ -90,7 +90,7 @@ console.log('=== today unconfirmed: the unavailable card stays, later periods sh
     ok(got.every(Boolean) && got[0].text === e.income && got[1].text === e.bills && got[2].text === e.household
       && got[3].text === e.bad, `${e.start}: income, bills, Household and Balance After Deductions are the hand-derived figures`,
       JSON.stringify(got.map(g => g && g.text)));
-    ok(got.every(g => g && g.estimated), `${e.start}: every figure carries the estimate tag`);
+    ok(got.every(g => g && !g.estimated), `${e.start}: every figure prints without the estimate tag`);
   }
   ok(!period(card, '2026-10-09'), 'today\'s own period is not listed');
   ok(!/calculated|verified|confirmed/i.test(card.replace(/not confirmed/g, '')),

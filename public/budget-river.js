@@ -48,7 +48,7 @@
   }
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const publicationKey = periods => JSON.stringify(periods.map(p =>
-    [p.start, p.end, p.bad, p.state, p.role, p.label, p.fullLabel, p.estimated]));
+    [p.start, p.end, p.bad, p.state, p.role, p.label, p.fullLabel]));
 
   const River = {
     init(o) {
@@ -210,7 +210,8 @@
       this._stepEl = null; // rebuilt label nodes carry no step-aside transform
       this._stepBox = null; // ... and no stepped-label hit box (see hitIndex)
       this._yielded = new Set(); // ... and no yielded (faded-out) state
-      this.valEls.forEach((el, i) => { el.title = this.periods[i].fullLabel || ''; el.classList.toggle('is-est', !!this.periods[i].estimated);
+      this.valEls.forEach((el, i) => {
+        el.title = this.periods[i].fullLabel || '';
         if (this.periods[i].label != null) el.dataset.riverNativeValue = this.periods[i].label;
       });
       this.mark(this.index);

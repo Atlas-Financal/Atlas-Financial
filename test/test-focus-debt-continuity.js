@@ -180,7 +180,7 @@ check('B1: positive extra — focus debt and exact allocation visible', () => {
   const block = extraBlock(shell());
   assert.match(block, /Travel Visa/, 'current focus debt named');
   assert.match(block, /\$450\.00/, 'exact extra allocation reprinted');
-  assert.match(block, /<span class="trust-tag">calculated<\/span>/, 'published trust carried');
+  assert.match(block, /<span class="instruction-amount">\$450\.00<\/span>/, 'calculated allocation prints as plain currency');
   assert.doesNotMatch(block, /\[object Object\]/, 'target object never interpolated raw');
 });
 
@@ -220,7 +220,7 @@ check('B4: no published next target — silence, never "debt free"', () => {
 check('B5: unavailable priority fails closed — published state rendered, no invented focus target', () => {
   const block = extraBlock(shell({ extraDebt: { allocated: 0, target: null, status: 'unavailable',
     reason: 'Travel Visa has an unknown balance.' } }));
-  assert.match(block, /\$0\.00/, 'published $0 figure kept with its trust tag');
+  assert.match(block, /<span class="instruction-amount">\$0\.00<\/span>/, 'published $0 prints as plain currency');
   assert.match(block, /Travel Visa has an unknown balance/, 'published strategy state rendered');
   assert.doesNotMatch(block, /Focus debt:/, 'no focus invented');
   assert.doesNotMatch(block, /After this debt clears/, 'no next target invented');
@@ -237,8 +237,8 @@ check('B6: unknown pending exposure — uncertainty stays visible; $0 stays non-
   // The compact summary keeps the published uncertainty visible in its own
   // element. It never becomes the amount's trust tag or a reason for $0.
   const summary = block.split('</summary>')[0];
-  assert.match(summary, /<span class="instruction-amount">\$0\.00 <span class="trust-tag">calculated<\/span><\/span>/,
-    'the exact $0 figure and its published trust remain a separate headline');
+  assert.match(summary, /<span class="instruction-amount">\$0\.00<\/span>/,
+    'the exact $0 figure remains a separate headline without a trust label');
   assert.match(summary, /<span class="instruction-warning">Strategy note: Travel Visa has unknown pending exposure; cash beyond the proven posted balance is not true surplus\.<\/span>/,
     'the verbatim published uncertainty remains a separate, visible summary note');
   assert.match(block.split('</summary>')[1], /Focus debt: Travel Visa\. No extra principal this payday\./,

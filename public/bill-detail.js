@@ -212,9 +212,9 @@
         + ' another bill too and ' + (left === 1 ? 'is' : 'are') + ' left out.</p>' : '';
     return '<section class="bill-detail-history" data-bill-history data-bill-history-status="complete">'
       + '<h4>Last 6 months</h4>'
-      + '<p class="bill-history-source">Calculated · source: Lunch Money posted payments · read ' + read + '</p>'
+      + '<p class="bill-history-source">Source: Lunch Money posted payments · read ' + read + '</p>'
       + '<ol class="bill-history-months">' + bars + '</ol>'
-      + '<p data-bill-history-stats>' + escape(stats) + ' · calculated · Lunch Money, read ' + read + '.</p>'
+      + '<p data-bill-history-stats>' + escape(stats) + ' · Lunch Money, read ' + read + '.</p>'
       + leftNote
       + '<p>An empty month means no payment was identified for this bill, not that $0 was paid. A month marked left out had a payment that also matched another bill.</p></section>';
   }
@@ -248,7 +248,7 @@
       + '</dl>' : '';
     const trusted = paid && row.settlementBasis === 'schedule-trust-on-due';
     const missing = trusted
-      ? 'Estimated · Trusted on due date (not seen). Your schedule-trust rule counts this bill as settled on its due date at the scheduled amount. No bank transaction was seen, so this is not a confirmed payment.'
+      ? 'Settled by schedule · payment not observed. The schedule counts this bill as settled on its due date at the scheduled amount.'
       : paid
         ? 'This bill is marked PAID by Forecast. Transaction evidence is unavailable.'
         : 'Transaction evidence is unavailable for this bill occurrence.';
@@ -299,11 +299,11 @@
       + '<span>' + escape(summary.amount) + '</span>'
       + '</summary>'
       + '<div class="bill-detail-body"><h4>' + escape(text(row.label) || 'Bill details') + '</h4><dl>'
-      + fact('Published status', trusted ? 'Estimated (trusted on due date, not seen)' : text(row.status) || 'Unavailable')
+      + fact('Published status', trusted ? 'Settled by schedule' : text(row.status) || 'Unavailable')
       + fact('Settlement', text(row.settlement) || 'Unavailable')
-      + (trusted ? fact('Settlement basis', 'Trusted on due date (not seen) · estimated') : '')
+      + (trusted ? fact('Settlement basis', 'Settled by schedule · payment not observed') : '')
       + fact('Due date', date(row.scheduledDue || row.date)
-        ? (row.scheduledDue || row.date) + (row.dateConfidence === 'estimated' ? ' · estimated' : '')
+        ? (row.scheduledDue || row.date)
         : 'Unavailable')
       + (date(row.scheduledDue) && date(row.date) && row.scheduledDue !== row.date
         ? fact('Occurrence date', row.date) : '')
@@ -311,13 +311,12 @@
       + fact('Remaining', money(row.remaining))
       + (row.paymentState === 'partly-paid' && typeof row.shortfall === 'number' && row.shortfall > 0
         && (row.shortfallTrust === 'calculated' || row.shortfallTrust === 'estimated')
-        ? fact('Partly paid', money(row.shortfall) + ' still to pay · ' + row.shortfallTrust) : '')
+        ? fact('Partly paid', money(row.shortfall) + ' still to pay') : '')
       + (typeof row.excess === 'number' && row.excess > 0
         && (row.excessTrust === 'calculated' || row.excessTrust === 'estimated')
-        ? fact('Paid over planned', money(row.excess) + ' excess · ' + row.excessTrust
+        ? fact('Paid over planned', money(row.excess) + ' excess'
           + (row.excessReview === true ? ' · Review in Lunch Money' : '')) : '')
       + fact('Planned payer', text(row.payerLabel) || 'Unavailable')
-      + fact('Published confidence', text(row.confidence) || 'Unavailable')
       + '</dl><h4>Payment evidence</h4>' + recordedProof + proof + candidateProof + otherProof
       + historyHtml(row, data) + '</div></details>';
   }
@@ -372,7 +371,7 @@
     const listedNote = listedElsewhere
       ? '<p data-card-payment-listed-under-held>' + escape(String(listedElsewhere))
         + (listedElsewhere === 1 ? ' card payment whose card is not confirmed is' : ' card payments whose card is not confirmed are')
-        + ' listed under To confirm. Until confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p>'
+        + ' listed under To confirm. Until confirmed, it counts toward no card, so card purchases stay set aside.</p>'
       : '';
     const toConfirm = (pendingRows.length
       ? '<div class="visa-payment-to-confirm" data-card-payment-to-confirm data-trust="estimated"><h4>To confirm</h4>'
@@ -381,7 +380,7 @@
           + escape(date(row.date) ? row.date : 'Date unavailable') + ' · ' + escape(money(row.amount))
           + (text(row.onCard) ? ' · on ' + escape(text(row.onCard)) : ' · from ' + escape(fromLabel(row.fromAccount)))
           + '</span></div>').join('')
-        + '<p>Until each row is confirmed, it counts toward no card, so card purchases stay set aside and the figures it affects are estimates.</p></div>'
+        + '<p>Until each row is confirmed, it counts toward no card, so card purchases stay set aside.</p></div>'
       : '') + listedNote;
     if (!payments.length) return carry + toConfirm;
     const blocks = payments.map(row => {

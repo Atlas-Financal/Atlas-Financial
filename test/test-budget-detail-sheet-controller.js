@@ -540,26 +540,26 @@ for (const choice of ['paid', 'check', 'all']) {
   assert.equal(freshCard.panel.parentNode, freshCard.strip);
   assert.equal(freshCard.panel.hidden, true);
 }
-// Grok ruling (b): the Estimated pill is a real filter. Applying it presses
-// only that pill, shows only the Estimated bucket, prints its own status
+// Grok ruling (b): the Settled by schedule pill is a real filter. Applying it presses
+// only that pill, shows only the Settled by schedule bucket, prints its own status
 // sentence, and survives a save/restore of the drawer state.
 {
   const f = filterFixture();
   openBills(f);
   f.context.budgetApplyBillFilter(f.panel, 'estimated');
-  assert.equal(f.estimatedFilter.getAttribute('aria-pressed'), 'true', 'the Estimated pill is pressed');
+  assert.equal(f.estimatedFilter.getAttribute('aria-pressed'), 'true', 'the Settled by schedule pill is pressed');
   assert.equal(f.allFilter.getAttribute('aria-pressed'), 'false', 'it does not fall back to All');
   assert.equal(f.paidFilter.getAttribute('aria-pressed'), 'false');
-  assert.equal(f.estimatedBucket.hidden, false, 'the Estimated bucket is visible');
+  assert.equal(f.estimatedBucket.hidden, false, 'the Settled by schedule bucket is visible');
   assert.equal(f.paidBucket.hidden, true, 'the Paid bucket is hidden');
   assert.equal(f.notPaidBucket.hidden, true, 'the To confirm bucket is hidden');
-  assert.match(f.filterStatus.textContent, /^Showing estimated bills: .*no bank payment was seen\.$/);
+  assert.equal(f.filterStatus.textContent, 'Settled by schedule on the due date. Payment not observed.');
   const saved = f.sheet.snapshot();
-  assert.equal(saved.frames[0].billsFilter, 'estimated', 'the saved drawer state keeps the Estimated choice');
+  assert.equal(saved.frames[0].billsFilter, 'estimated', 'the saved drawer state keeps the Settled by schedule choice');
   f.sheet.close(false);
   const fresh = filterFixture();
   assert.equal(fresh.sheet.restore(saved), true);
-  assert.equal(fresh.estimatedFilter.getAttribute('aria-pressed'), 'true', 'the restored drawer shows Estimated pressed');
+  assert.equal(fresh.estimatedFilter.getAttribute('aria-pressed'), 'true', 'the restored drawer shows Settled by schedule pressed');
   assert.equal(fresh.paidBucket.hidden, true);
   assert.equal(fresh.estimatedBucket.hidden, false);
   fresh.sheet.close(false);

@@ -198,8 +198,8 @@ console.log('Budget printers');
     'confirmed plan: the Bills row reads "Paid · $10.00 over planned", unqualified', confirmedText);
   const estimated = rowsFor({ ...HYDRO, confidence: 'estimated', rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
   const estimatedText = text(ctx.rowHtml(estimated));
-  ok(/Paid · ≈ \$10\.00 over planned \(estimated\)/.test(estimatedText),
-    'estimated plan: the Bills row marks the excess estimated', estimatedText);
+  ok(/Paid · \$10\.00 over planned/.test(estimatedText) && !/estimated|≈/.test(estimatedText),
+    'estimated plan: the Bills row prints the same excess', estimatedText);
   const unknown = rowsFor({ ...HYDRO, confidence: 'unknown', rule: { settlesWhen: 'amount-at-least' } }, [pay(100)]).row;
   const unknownText = text(ctx.rowHtml(unknown));
   ok(/Paid/.test(unknownText) && !/over planned/.test(unknownText),
@@ -210,7 +210,7 @@ console.log('Budget printers');
   ok(!untagged.qualifier, 'a row excess with no trust tag prints nothing', JSON.stringify(untagged));
   const trusted = ctx.present({ status: 'PAID', settlement: 'represented', settlementBasis: 'schedule-trust-on-due',
     excess: 10, excessTrust: 'calculated' });
-  ok(trusted.label === 'Estimated' && trusted.qualifier === 'Trusted on due date (not seen)',
+  ok(trusted.label === 'Settled by schedule' && trusted.qualifier === 'Payment not observed',
     'a schedule-trusted row prints the not-seen marker, never an excess', JSON.stringify(trusted));
 
   const detailCtx = { console, Intl, Number, Math, String, Object, Array, JSON };
@@ -221,10 +221,10 @@ console.log('Budget printers');
   ok(BD && typeof BD.html === 'function', 'positive control: BillDetail.html loaded');
   const html = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'calculated' }, {}, {});
-  ok(/Paid over planned<\/dt><dd>\$10\.00 excess · calculated/.test(html), 'the bill detail discloses the 10.00 excess as calculated');
+  ok(/Paid over planned<\/dt><dd>\$10\.00 excess<\/dd>/.test(html), 'the bill detail discloses the 10.00 excess');
   const est = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'estimated' }, {}, {});
-  ok(/Paid over planned<\/dt><dd>\$10\.00 excess · estimated/.test(est), 'an estimated excess prints as estimated');
+  ok(/Paid over planned<\/dt><dd>\$10\.00 excess<\/dd>/.test(est) && est === html, 'both excess trust states print identically');
   const unknownDetail = BD.html({ id: 'hydro', label: 'Invented hydro', status: 'PAID', settlement: 'represented',
     date: '2026-10-12', planned: 90, actual: 100, remaining: 0, excess: 10, excessTrust: 'unknown' }, {}, {});
   ok(!/over planned/.test(unknownDetail), 'the bill detail prints no excess without calculated/estimated trust');

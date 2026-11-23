@@ -30,8 +30,8 @@ assert.match(html, /<details class="bill-detail" data-bill-detail><summary class
 // published status stays PAID in the detail; amounts and remaining are unchanged).
 assert.match(html, /data-period-bill="bill" data-bill-status="partly paid" data-bill-date="2026-08-19"/);
 assert.match(html, /Published status<\/dt><dd>PAID/);
-assert.match(html, /Partly paid<\/dt><dd>\$2.50 still to pay · estimated/);
-assert.match(html, /about −\$97.50<\/span><\/summary>/, 'incumbent estimated signed amount');
+assert.match(html, /Partly paid<\/dt><dd>\$2.50 still to pay<\/dd>/);
+assert.match(html, /<span>−\$97.50<\/span><\/summary>/, 'published signed amount with no trust prefix');
 assert.match(html, /Planned<\/dt><dd>\$100.00/);
 assert.match(html, /Actual<\/dt><dd>\$97.50/);
 assert.match(html, /Remaining<\/dt><dd>\$0.00/);

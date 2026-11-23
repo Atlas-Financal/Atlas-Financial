@@ -106,23 +106,13 @@ console.log('\n=== the sheet and the published pay periods agree ===');
   // The headline contribution equals the published period contribution.
   ok(new RegExp('Nest Money funding plan — August 28 payday ' + money(next.plannedCostFunding.contribution).replace(/[$.]/g, '\\$&')).test(sheet),
     'the sheet total equals the published Aug 28 period contribution', sheet.slice(sheet.indexOf('Nest Money'), sheet.indexOf('Nest Money') + 120));
-  // The TRUST TAG matches as well as the amount. Each period publishes its funding trust
-  // (the schedule's trust combined with the selected Budget periods' income, bills, hold and
-  // balance trust); the sheet prints that same tag on every figure it reprints. The invented
-  // fixture holds estimated hydro and estimated partner pay, so every period publishes estimated.
-  const word = trust => trust === 'estimated' ? 'estimate' : trust === 'calculated' ? 'calculated' : null;
-  const wantTag = word(next.plannedCostFunding.trust);
-  ok(wantTag === 'estimate', 'control: the period publishes an estimated plan (estimated Budget inputs)', String(next.plannedCostFunding.trust));
-  const after = (label, amount) => (sheet.match(new RegExp(label.replace(/[()]/g, '\\$&') + ' ' + amount.replace(/[$.]/g, '\\$&') + ' (estimate|calculated)')) || [])[1];
-  ok(after('Nest Money funding plan — August 28 payday', money(next.plannedCostFunding.contribution)) === wantTag,
-    'the payday total carries the period\'s published tag (' + wantTag + ')');
-  ok(after('School trip', money(schoolNext)) === wantTag, 'the School trip figure carries the published tag');
-  const stillToFund = (sheet.match(/Still to fund (\$[\d,.]+) (estimate|calculated)/) || []);
-  const protectedMatch = (sheet.match(/Projected protected (\$[\d,.]+) (estimate|calculated)/) || []);
-  ok(protectedMatch[2] === wantTag && stillToFund[2] === wantTag,
-    'Projected protected and Still to fund carry the published tag', protectedMatch[2] + ' / ' + stillToFund[2]);
-  ok(/Next scheduled contribution \$[\d,.]+ estimate/.test(costBlock(sheet, 'Winter tires')),
-    'Winter tires\' next scheduled contribution carries the published tag');
+  ok(next.plannedCostFunding.trust === 'estimated', 'the period still publishes its estimated trust');
+  const schedule = periods.find(row => row.timelineRole === 'current').paydaySchedule;
+  const payday = schedule.paydays.find(row => row.payday === next.start);
+  ok(sheet.includes('Projected protected ' + money(payday.protectedAfterPayday))
+    && sheet.includes('Still to fund ' + money(payday.stillToFund)), 'the sheet prints the published protected and remaining amounts');
+  const fundingText = sheet.slice(sheet.indexOf('Nest Money'), sheet.indexOf('Protected cash'));
+  ok(!/≈|\b(?:estimate|estimated|calculated)\b/.test(fundingText), 'the funding amounts carry no trust labels');
   // Winter tires: no funding this payday, and its next scheduled contribution
   // is the published one for the later period that carries it.
   const tires = costBlock(sheet, 'Winter tires');
@@ -132,7 +122,6 @@ console.log('\n=== the sheet and the published pay periods agree ===');
   ok(tires.includes('Next scheduled contribution ' + money(tiresNext)) && /on September 25/.test(tires),
     'its next scheduled contribution is the published Sep 25 period contribution (' + money(tiresNext) + ')', tires.slice(0, 220));
   // Every published payday row of the schedule equals its period's contribution.
-  const schedule = periods.find(row => row.timelineRole === 'current').paydaySchedule;
   const rows = schedule.paydays.filter(row => periods.some(period => period.start === row.payday && period.plannedCostFunding.status === 'ready'));
   ok(schedule.status === 'ready' && rows.length >= 6 && rows.every(row =>
     Math.round(row.contribution * 100) === Math.round(periods.find(period => period.start === row.payday).plannedCostFunding.contribution * 100)),
@@ -158,12 +147,12 @@ console.log('\n=== the sheet and the published pay periods agree ===');
     'no published schedule: the sheet is unavailable, never a page-computed plan');
 }
 
-console.log('\n=== one estimated bill is the only estimated input: the sheet says estimate everywhere the periods do ===');
+console.log('\n=== one estimated source leaves the funding figures visible without qualifiers ===');
 {
   // Both planned costs and the partner pay are confirmed here, so the schedule's own trust is
   // calculated; the invented hydro bill (estimated) is the only estimated Budget input. Each period
   // publishes its funding as estimated (the Budget's trust is part of it), and the Today sheet must
-  // print the same tag on every figure, not the schedule's own calculated.
+  // continue to show the published amounts without the internal trust tag.
   const data = fx.served();
   data.plan.commitments.forEach(row => { row.confidence = 'confirmed'; });
   data.plan.income.find(row => row.id === 'partner').confidence = 'confirmed';
@@ -181,9 +170,9 @@ console.log('\n=== one estimated bill is the only estimated input: the sheet say
   const sheet = text(todaySection(html));
   // The Nest Money plan block only, up to the separate Protected cash line (its own figure).
   const funding = sheet.slice(sheet.indexOf('Nest Money'), sheet.indexOf('Protected cash'));
-  const tagged = funding.match(/\$[\d,.]+ (?:estimate|calculated)/g) || [];
-  ok(tagged.length >= 4 && tagged.every(x => / estimate$/.test(x)),
-    'every funding figure the sheet prints is tagged estimate, as the periods publish', tagged.join(' | '));
+  const figures = funding.match(/\$[\d,.]+/g) || [];
+  ok(figures.length >= 4 && !/≈|\b(?:estimate|estimated|calculated)\b/.test(funding),
+    'each published funding figure is shown without a trust qualifier');
 }
 
 console.log('\n=== withheld funding is withheld in both places ===');

@@ -124,7 +124,7 @@ console.log('2. The box, against the hand values');
   const oct = read(twice).months[5];
   ok(oct.paid && oct.amount === '$45.50' && oct.dates === '2026-10-01 $20.00, 2026-10-13 $25.50',
     'two payments in a month: the bar is 20 + 25.50 = $45.50 and each date and amount is listed', JSON.stringify(oct));
-  ok(internet.stats.startsWith('Average payment: $80.92 · Range: $80.00 – $85.50 · calculated · Lunch Money, read 2026-10-14'),
+  ok(internet.stats.startsWith('Average payment: $80.92 · Range: $80.00 – $85.50 · Lunch Money, read 2026-10-14'),
     'internet: average $80.92, range $80.00 – $85.50, calculated, read 2026-10-14', internet.stats);
   const insurance = read(s.box('insurance'));
   ok(JSON.stringify(insurance.months.map(m => m.paid)) === JSON.stringify([false, true, false, false, true, false])
@@ -148,7 +148,7 @@ console.log('2. The box, against the hand values');
   ok(JSON.stringify(waterMonths.map(m => m.dates)) === JSON.stringify(['No payment identified', 'No payment identified', 'No payment identified',
     'Payment left out (shared payee)', 'Payment left out (shared payee)', 'Payment left out (shared payee)']),
   'water: Aug, Sep and Oct read "Payment left out (shared payee)"; May to Jul read "No payment identified"', JSON.stringify(waterMonths.map(m => m.dates)));
-  ok(/Calculated · source: Lunch Money posted payments · read 2026-10-14/.test(s.box('internet')), 'the box is tagged calculated, source Lunch Money, with the read date');
+  ok(/Source: Lunch Money posted payments · read 2026-10-14/.test(s.box('internet')) && !/calculated/i.test(s.box('internet')), 'the box names its source and read date without a trust label');
   // The page's own summary: Forecast owns the arithmetic, BillDetail only prints it.
   const sum = F.billPaymentHistorySummary(s.series.bills.find(b => b.billId === 'insurance'), s.series.months);
   ok(sum && sum.average === 305.13 && sum.min === 300 && sum.max === 310.25 && sum.count === 2
