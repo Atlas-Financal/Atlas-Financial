@@ -233,7 +233,7 @@ console.log('4. (B) A pending hold superseded by its posted final charge');
     'a posted row with fractional cents does not supersede');
   ok(sup([row('hold', HOLD, { ...store }), posted('final', REAL, { ...store, currency: 'CAD' })]).length === 1,
     'control: a genuine posted CAD final does supersede');
-  // Review 7090113373: the card publication's own money qualification (CardPeriodMovement.qualifiedMoney) gates both rules.
+  // Review 7090113373: the card publication's own money qualification (Forecast's cardMoneyCents) gates both rules.
   const unqualified = [['a missing currency', { currency: undefined }], ['a currency conflict flag', { coverageCurrencyConflict: true }],
     ['an unconfirmed settlement flag', { currencySettlementUnconfirmed: true }]];
   for (const [label, flaw] of unqualified) {

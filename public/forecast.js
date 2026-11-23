@@ -45,7 +45,7 @@
       paymentAllocations: reconciliation.paymentAllocations,
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
-      date: savingsDate, cents: savingsCents, addDays, skipParent: skipSplitParent,
+      date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
@@ -1177,6 +1177,13 @@
   // Forecast reconciles it. Neither history nor a proposal is a balance.
   const SAVINGS_INSTRUCTIONS_HELD = 'Additional savings proposals are withheld until the funding plan accounts for existing assignments and the cash used to pay each cost.';
   const SAVINGS_ALIAS = /^[a-z][a-z0-9-]{0,63}$/;
+  // The one money qualification for a card row: explicit CAD, no currency conflict or unconfirmed settlement, and
+  // strict signed cents, else null. The card publication reads it as its money primitive and
+  // pendingHoldReleases reads it for every leg and final, so a row the card would withhold never drops a hold.
+  function cardMoneyCents(tx) {
+    return tx?.coverageCurrencyConflict !== true && tx?.currencySettlementUnconfirmed !== true
+      && typeof tx?.currency === 'string' && tx.currency.trim().toLowerCase() === 'cad' ? savingsCents(tx.amount, true) : null;
+  }
   function savingsCents(value, signed) {
     if (typeof value !== 'number' || !Number.isFinite(value) || (value < 0 && !signed)) return null;
     const cents = Math.round(value * 100);
@@ -7144,9 +7151,9 @@
       // Card accounts only: an authorization hold is card behaviour. A pending row on household cash (a bill payment,
       // a transfer) stays with its incumbent owners and is never a leg (test-pending-then-posted-bill-once).
       if (tx.accountRole !== 'revolving-credit') return null;
-      // The card publication's own money qualification (CardPeriodMovement.qualifiedMoney): a row it would withhold is
+      // The card publication's own money qualification (cardMoneyCents): a row it would withhold is
       // never a leg (review 7090113373).
-      const cents = CardPeriodMovement.qualifiedMoney(tx, savingsCents);
+      const cents = cardMoneyCents(tx);
       if (!account || cents === null || cents === 0 || !isFinite(at)) return null;
       return { tx, id: String(tx.id), account: String(account), cents, at, date: tx.date,
         category: normalizeCategoryLabel(tx.categoryLabel) };
@@ -7191,7 +7198,7 @@
       const at = day(tx.date);
       const merchant = merchantOf(tx);
       // The same money qualification as a pending leg, the card publication's own.
-      const cents = CardPeriodMovement.qualifiedMoney(tx, savingsCents);
+      const cents = cardMoneyCents(tx);
       if (!account || cents === null || cents <= 0 || !isFinite(at) || !merchant) continue;
       posted.push({ id: String(tx.id), account: String(account), cents, at, date: tx.date, merchant });
     }
