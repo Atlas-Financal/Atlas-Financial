@@ -19027,7 +19027,9 @@
   function planDefaultView(plan, asOf, alloc, action, plans, debts, opts) {
     // An unknown chequing opening withholds the allocation; its null
     // available amount is never a $0.00 leftover (roundCent(null) is 0).
-    const openingUnknown = !!(alloc && alloc.openingCash && alloc.openingCash.status === 'unavailable');
+    // H2-10: so does a live payday balance that cannot tell whether today's payroll is in it.
+    const openingUnknown = !!(alloc && ((alloc.openingCash && alloc.openingCash.status === 'unavailable')
+      || (alloc.paydayBalance && alloc.paydayBalance.status === 'unavailable')));
     const leftover = openingUnknown ? { currentBalance: null, afterBills: null,
       afterHouseholdBudget: null, afterDebtRepayment: null, afterBigPurchases: null }
       : (alloc && alloc.runningLeftover) || runningLeftoverFromAlloc(
@@ -21032,8 +21034,27 @@
       if (e.confidence !== 'confirmed') todayIncomeEstimated = true;
       todayIncome += amount;
     }
-    const availableTrust = todayIncomeEstimated ? 'estimated' : 'calculated';
-    const available = roundCent(opening + todayIncome);
+    let availableTrust = todayIncomeEstimated ? 'estimated' : 'calculated';
+    let available = roundCent(opening + todayIncome);
+    // Hunt 2 H2-10, desk ruling (Plan #6, choice (a)): a live provider stock dated on the payday
+    // with the payroll unrepresented may already hold that payroll, so it is not added onto it.
+    // The independently qualified pre-payday base supplies the Bills part when it exists;
+    // otherwise the allocation withholds (below). A dated or owner opening keeps the
+    // established pre-payroll reading.
+    const sameDayLive = liveSameDayPaydayStock(plan, asOf, opts);
+    let paydayBalanceUnproven = false;
+    if (sameDayLive) {
+      const posted = postedBillsAccountCash(plan);
+      const otherIncomeToday = todayEvents.some(e => e && e.kind === 'income' && e.date === today
+        && e.id !== sameDayLive.payroll.id);
+      if (sameDayLive.qualified && currentBalancePublication.status === 'planned-dale-payday'
+          && currentBalancePublication.amount != null && posted != null && !otherIncomeToday) {
+        available = roundCent(opening - posted + currentBalancePublication.amount);
+        availableTrust = 'estimated';
+      } else {
+        paydayBalanceUnproven = true;
+      }
+    }
 
     const cal = paydayCalendar(plan, asOf, opts);
     const todayIsPayday = cal.todayIsPayday;
@@ -21673,10 +21694,54 @@
       result.runningLeftover = null;
       result.paydayShellTrust.extraDebt = result.paydayShellTrust.optional = result.paydayShellTrust.remainder = 'unknown';
     }
-    return withholdBudgetTargetAllocationClaims(withholdOpeningCashAllocationClaims(
+    return withholdPaydayBalanceAllocationClaims(withholdBudgetTargetAllocationClaims(withholdOpeningCashAllocationClaims(
       withholdScheduledAmountAllocationClaims(
         withholdIncomeAllocationClaims(result, incomeReconciliationState(plan, asOf)),
-        scheduledAmounts), openingCashState(plan)), essentialNeed.withheld);
+        scheduledAmounts), openingCashState(plan)), essentialNeed.withheld), paydayBalanceUnproven);
+  }
+
+  // Hunt 2 H2-10, the desk's predicate (Plan #6): a live operating plan whose opening and observed
+  // cash are both dated on today's payday, with exactly one qualified observed chequing-a row on that
+  // date whose finite posted value matches the opening's Bills row, and Dale's payroll for that
+  // payday not represented under Forecast's existing rule. A fetch timestamp, the opening date,
+  // priorAsOf or a matching amount alone is not proof. Returns { payroll, qualified } or null (not live,
+  // not a payday opening, or the payroll already represented: the established reading applies).
+  function liveSameDayPaydayStock(plan, asOf, opts) {
+    if (!opts || opts.operatingPlan !== 'live') return null;
+    const day = financialDate(asOf);
+    if (!day || financialDate(plan && plan.opening && plan.opening.asOf) !== day) return null;
+    const cycle = spendingCycle(plan, day);
+    if (!cycle || cycle.start !== day) return null;
+    const payroll = dalePayrollEventOn(plan, day, opts);
+    if (!payroll || dalePayrollRepresented(plan, payroll, day, opts)) return null;
+    // The opening is proven to be that same-day provider stock only by a complete observation with
+    // one qualified row per household chequing account (chequing-a, the Bills row, included), each
+    // dated today and equal to its opening row to the cent: the pre-payday recovery keeps every other
+    // retained cash component, so each must be qualified too (#1591 review). An incomplete live feed
+    // is not a dated opening (qualified: false withholds).
+    const observed = opts.observedCash;
+    const accounts = observed && observed.complete === true && financialDate(observed.asOf) === day
+      && Array.isArray(observed.accounts) ? observed.accounts : null;
+    const opening = householdChequingOpeningRows((plan && plan.startingCash) || {});
+    const rowQualified = (id, expected) => {
+      const found = accounts ? accounts.filter(row => row && row.id === id) : [];
+      if (found.length !== 1 || expected == null) return false;
+      const row = found[0];
+      const value = row.value == null || row.value === '' || typeof row.value === 'boolean' ? NaN : Number(row.value);
+      return Number.isFinite(value) && row.unknown !== true && financialDate(row.evidenceDate) === day
+        && ![row.confidence, row.status].some(tag => tag != null && !['verified', 'confirmed', 'calculated'].includes(tag))
+        && Math.round(value * 100) === Math.round(expected * 100);
+    };
+    const qualified = !!accounts && opening.length > 0
+      && opening.some(row => row.id === BILLS_ACCOUNT_ID)
+      && opening.every(row => rowQualified(row.id, row.value));
+    return { payroll, qualified };
+  }
+  function withholdPaydayBalanceAllocationClaims(alloc, unproven) {
+    if (!alloc || !unproven) return alloc;
+    return withholdAllocationClaims(alloc, { status: 'unavailable', code: 'payday-balance-unproven',
+      reason: 'Today is payday and the payroll deposit is not yet confirmed, so whether it is already in the balance is unknown.' },
+      'paydayBalance');
   }
 
   // A withheld monthly Other target: the essential need is unknown, so the
