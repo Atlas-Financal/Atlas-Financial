@@ -1,0 +1,158 @@
+'use strict';
+/* Desk ruling (E) for #1573 (Plan #6), quoted: "Forecast owns one card-target publication per view. The Credit tile and the
+ * income dropdown read the same per-card targets. The Credit deduction is their sum minus the qualifying charges already
+ * counted above, each deducted from that sum only once. The waterfall, snapshot and assistant packet read the same Forecast
+ * surplus, and `stackSurplus` still equals `balanceAfterDeductions`. Missing evidence must not become zero or gain trust."
+ *
+ * Per card (lead, on the ruling):
+ *   due       = max(0, target − charges already counted above)          (a refund never hands cash back: floored)
+ *   deduction = due − min(paid beyond the minimum, max(0, due − minimum)) (only the part of a beyond-minimum payment that
+ *                                                                           pays the target above the minimum is netted)
+ * Balance After Deductions takes one named term, cardRepaymentAdjustment = Σ deductions − Σ minimums (the bills already hold
+ * the minimums). Surplus keeps its identity: Surplus = BAD + held outflows + cash paid beyond a minimum, the same Credit term
+ * in both. Current and upcoming views only; a completed view keeps its remainder.
+ *
+ * Invented data only; every expected figure is worked by hand. `node test/test-card-target-credit-deduction.js`
+ */
+const assert = require('node:assert/strict');
+const cp = require('node:child_process');
+const vm = require('node:vm');
+const path = require('node:path');
+const F = require('../public/forecast');
+const Live = require('../scripts/live-plan');
+const fx = require('./fixtures/card-posted-period-movement-data');
+const { world } = require('./fixtures/card-coverage-aggregate-world');
+
+let checks = 0;
+const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
+const cents = v => Math.round(v * 100);
+
+// The previous engine (main before this change), for the byte-equal controls.
+const BASE = '006b2c3b57ffaed2e6ce82ca102dd288f768c6e7';
+const show = file => cp.execFileSync('git', ['show', BASE + ':' + file], { cwd: path.join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const prior = { console };
+prior.window = prior;
+vm.createContext(prior);
+for (const file of ['public/display-name.js', 'public/forecast-card-period.js', 'public/forecast.js']) vm.runInContext(show(file), prior);
+const OLD = prior.Forecast;
+
+console.log('1. The per-card deduction, on the invented card week (Forecast.stackCreditLines)');
+const MINIMUMS = [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'tdcc', amount: 40 }, { debtId: 'triangle', amount: 30 },
+  { debtId: 'heloc', amount: 50 }];
+const lines = (x, beyond) => {
+  const pub = F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
+    { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay });
+  const util = F.utilisation(x.debts, null, x.plan);
+  return require('../public/forecast-card-period').stackCreditLines(pub, { cardMinimums: MINIMUMS, trust: 'calculated' },
+    util.rows, beyond || new Map());
+};
+const lineOf = (r, id) => r.lines.find(l => l.id === id);
+{
+  const r = lines(fx.fixture());
+  // Travel: Spent 236.00 = charges 172.40 + 63.75 + 28.60 (pending) + interest 6.25 − refund 35.00; charges counted
+  // above 264.75; due = max(0, 236.00 − 264.75) = 0.
+  const t = lineOf(r, 'travelvisa');
+  ok(cents(t.deduction.alreadyCounted) === 26475 && t.deduction.amount === 0,
+    'refund floor: Travel 236.00 target, 264.75 already counted above, deduction 0 (never −28.75)', JSON.stringify(t.deduction));
+  const c = lineOf(r, 'cashback');
+  ok(cents(c.deduction.alreadyCounted) === 11420 && c.deduction.amount === 0,
+    'charge counted once: Cash Back 114.20 target, all of it already counted above, deduction 0', JSON.stringify(c.deduction));
+  const e = lineOf(r, 'tdcc');
+  ok(cents(e.deduction.amount) === 4000 && e.deduction.trust === 'calculated',
+    'target equal to the minimum: Emerald, nothing spent, deduction 40.00, its minimum', JSON.stringify(e.deduction));
+  const tri = lineOf(r, 'triangle');
+  ok(cents(tri.deduction.amount) === 3000 && tri.deduction.trust === 'estimated' && tri.deduction.alreadyCounted === null
+    && tri.deduction.reasons.includes('already-counted-unavailable'),
+    'counted charges withheld: Triangle deducts its full 30.00 target, estimated with its reason (the cautious side)', JSON.stringify(tri.deduction));
+  ok(cents(lineOf(r, 'heloc').deduction.amount) === 5000, 'the HELOC: its 50.00 minimum');
+}
+{
+  // Beyond-minimum netting. (1) Emerald, min 40, nothing spent, 15 paid beyond: due 40, overlap min(15, 0) = 0, deduction 40.
+  const r1 = lines(fx.fixture(), new Map([['tdcc', 1500]]));
+  ok(cents(lineOf(r1, 'tdcc').deduction.amount) === 4000, 'a payment beyond the target stays cash: Emerald deduction 40.00 beside its 15.00 term');
+  // (3) Travel over an 800.00 limit: target 236.00 + 127.40 = 363.40; due 363.40 − 264.75 = 98.65; min 25; 100 paid beyond:
+  // overlap min(100.00, 73.65) = 73.65; deduction 25.00; with the 100.00 term the card takes 125.00 = the cash paid.
+  const x = fx.fixture(); x.debts.find(d => d.id === 'travelvisa').limit = 800;
+  const t3 = lineOf(lines(x, new Map([['travelvisa', 10000]])), 'travelvisa');
+  ok(cents(t3.target.amount) === 36340 && cents(t3.deduction.amount) === 2500,
+    'beyond-minimum cash that pays the target above the minimum is netted once: deduction 25.00 beside the 100.00 term', JSON.stringify(t3.deduction));
+  const t3b = lineOf(lines(x, new Map([['travelvisa', 5000]])), 'travelvisa');
+  ok(cents(t3b.deduction.amount) === 4865, 'with 50.00 beyond instead: 98.65 − min(50.00, 73.65) = 48.65');
+}
+{
+  // A withheld target withholds the deduction and the total, never 0.
+  const x = fx.fixture();
+  const pub = F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
+    { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay });
+  // No bills split: every minimum is withheld (bills-split-unavailable), so every target is.
+  const r = require('../public/forecast-card-period').stackCreditLines(pub, null, null, new Map());
+  const t = lineOf(r, 'travelvisa');
+  ok(t.target.amount === null && t.deduction.amount === null && t.deduction.trust === 'unavailable'
+    && r.totals.deduction.amount === null && r.totals.deduction.trust === 'unavailable',
+    'missing target: the deduction and the Credit total are withheld (null, unavailable), never zero', JSON.stringify(r.totals.deduction));
+}
+
+console.log('2. Through recommend, the period Balance After Deductions reads (invented card-coverage world)');
+// Income 1,000, the 25 card minimum due on the as-of (the only bill), groceries 150 hold: main's remainder 825.
+const synced = x => { x.payload.accounts[3].last_fetch = x.asOf + 'T17:00:00Z'; x.payload.accounts[3].plaid_last_successful_update = x.asOf + 'T17:00:00Z'; };
+function advise(rows, engine = F, extra = {}) {
+  const x = world(rows, { edit: synced, ...extra });
+  const o = Live.fromObservation(x);
+  const ov = o.data.liveOverlay;
+  return engine.recommend(o.data.plan, x.asOf, { debts: o.data.debts, currentPeriodActuals: ov.currentPeriodActuals,
+    cardPeriodBalanceEvidence: ov.cardPeriodBalanceEvidence, cardLiveOverlay: { applied: true, overlays: ov.overlays } });
+}
+const active = r => r.payPeriodViews.find(p => p.role === 'active') || r.payPeriodViews.find(p => p.evidenceState === 'live');
+{
+  // An 80 grocery purchase on the card: target max(25, 80) = 80, all already in the groceries hold: deduction 0. The
+  // minimum is no longer counted beside the purchase it repays: 1,000 − 25 − 150 + 25 = 850, adjustment −25.
+  const r = advise([['card', 80, null, 'purchase']]), v = active(r), old = active(advise([['card', 80, null, 'purchase']], OLD));
+  ok(cents(old.balanceAfterDeductions) === 82500, 'main: 825.00 (the 25 minimum and the 80 purchase both deducted)');
+  ok(cents(v.balanceAfterDeductions) === 85000 && cents(v.predictedEndingBalanceTerms.cardRepaymentAdjustment) === -2500
+    && v.predictedEndingBalanceTerms.closes === true, 'target above the minimum, charge counted once: 850.00, adjustment −25.00, terms close',
+    JSON.stringify(v.predictedEndingBalanceTerms));
+  const s = v.stackSummary.surplus, b = v.stackSummary.creditBreakdown;
+  ok(cents(s.amount) === cents(v.balanceAfterDeductions) && s.terms.credit === 0,
+    'Surplus = Balance After Deductions (nothing held, nothing beyond), its Credit term 0.00');
+  ok(b && b.rows.length === 1 && cents(b.rows[0].amount) === 8000 && cents(b.alreadyCounted.amount) === -8000 && b.total === 0,
+    'the dropdown: Travel at its 80.00 target, "Already counted above" −80.00, summing to the 0.00 Credit', JSON.stringify(b));
+  const line = v.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  ok(cents(line.target.amount) === cents(b.rows[0].amount), 'the dropdown row is the Credit tile\'s target, one figure');
+}
+{
+  // Plus 9.00 of interest (not counted above): target 89, counted 80, deduction 9; 1,000 − 25 − 150 − (9 − 25) = 841.
+  const v = active(advise([['card', 80, null, 'purchase'], ['card', 9, null, 'purchase', { payee: 'INTEREST CHARGES', category_name: 'Interest' }]]));
+  ok(cents(v.balanceAfterDeductions) === 84100 && cents(v.stackSummary.surplus.terms.credit) === 900,
+    'interest is not counted above: Credit 9.00, Balance After Deductions 841.00', JSON.stringify([v.balanceAfterDeductions, v.stackSummary.surplus.terms]));
+}
+{
+  // No card activity: the target is the minimum, so the remainder and its terms are main's exactly.
+  const v = active(advise([])), old = active(advise([], OLD));
+  ok(cents(v.balanceAfterDeductions) === 82500 && JSON.stringify(v.predictedEndingBalanceTerms) === JSON.stringify(old.predictedEndingBalanceTerms)
+    && v.balanceAfterDeductionsTrust === old.balanceAfterDeductionsTrust,
+    'target equal to the minimum: Balance After Deductions and its terms byte-equal to main (825.00)');
+  ok(JSON.stringify(v.stackSummary.surplus) === JSON.stringify(old.stackSummary.surplus), 'and the Surplus byte-equal to main');
+}
+{
+  // A completed view keeps its published remainder: every lookback view byte-equal to main.
+  const r = advise([['card', 80, null, 'purchase']]), old = advise([['card', 80, null, 'purchase']], OLD);
+  const past = r.payPeriodViews.filter(p => p.role === 'lookback' || p.evidenceState === 'historical');
+  const pastOld = old.payPeriodViews.filter(p => p.role === 'lookback' || p.evidenceState === 'historical');
+  ok(past.length > 0 && past.length === pastOld.length && past.every((v, i) => JSON.stringify([v.balanceAfterDeductions, v.predictedEndingBalanceTerms,
+    v.stackSummary.surplus]) === JSON.stringify([pastOld[i].balanceAfterDeductions, pastOld[i].predictedEndingBalanceTerms, pastOld[i].stackSummary.surplus])),
+  'a past view\'s Balance After Deductions, terms and Surplus are byte-equal to main', `${past.length} past views`);
+}
+{
+  // A manual-card payment of 60 against the 25 minimum (35 beyond, its own term): target 25, deduction 25, so the card
+  // takes 25 + 35 = 60, the cash paid; the remainder is main's 790; Surplus = BAD + 35.
+  const pay = ['bills', 60, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }];
+  const opts = { card: 'mbna', payDownOnly: ['mbna', 'triangle'] };
+  const v = active(advise([pay], F, opts)), old = active(advise([pay], OLD, opts));
+  ok(cents(old.balanceAfterDeductions) === 79000 && cents(v.balanceAfterDeductions) === 79000
+    && v.predictedEndingBalanceTerms.manualCardPaymentBeyondMinimum === 35,
+    'a payment beyond the target stays cash: 790.00, as main (25 + 35 = the 60 paid)', JSON.stringify(v.predictedEndingBalanceTerms));
+  ok(cents(v.stackSummary.surplus.amount) === cents(v.balanceAfterDeductions) + 3500,
+    'the identity: Surplus = Balance After Deductions + the 35.00 paid beyond the minimum (owner decision above stackSurplus)');
+}
+
+console.log(`\nPASS card target Credit deduction (${checks})`);
