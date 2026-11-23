@@ -3680,6 +3680,14 @@
         unknowns.push({ carrier: 'obligation', id: o.id || null, date,
           scheduledDate: null, cashMinimum: true, reason: 'scheduled-amount-unknown' });
       }
+      // A dated principal-share schedule that fails closed: from the first
+      // payment whose split is unknown, that debt's remaining balance is
+      // unknown, so how much each later payment can absorb is unknown too.
+      // Only a debt that authors a principalShareSchedule can reach this.
+      for (const date of principalShareUnknownPaymentDates(o, start, end, periodStart, opts)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date,
+          scheduledDate: null, principalShareUnknown: true, reason: 'scheduled-amount-unknown' });
+      }
     }
     // Phase 2 (ATLAS-080): the settlement relief index is judged at this
     // scan's own start — the same pin expandEvents applies to the walk
@@ -4441,14 +4449,18 @@
   // bills and obligations share shape, key allow-list, real calendar dates,
   // inclusive `from` / exclusive `until`, the size bound, sort and the
   // non-overlap rule. Null means invalid; callers fail closed.
-  function amountScheduleTermsFrom(raw, allowedKeys) {
+  // `valueKey` names the one required value key of a term: 'amount' for
+  // bills and obligations (the default), 'principalShare' for a debt's
+  // dated principal-share terms. The interval rules are identical.
+  function amountScheduleTermsFrom(raw, allowedKeys, valueKey) {
+    const requiredKey = valueKey === undefined ? 'amount' : valueKey;
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > AMOUNT_SCHEDULE_MAX_TERMS) return null;
     const terms = [];
     for (const term of raw) {
       if (!term || typeof term !== 'object' || Array.isArray(term)
           || Object.getPrototypeOf(term) !== Object.prototype) return null;
       if (!Object.keys(term).every(key => allowedKeys.includes(key))) return null;
-      if (!Object.hasOwn(term, 'amount')) return null;
+      if (!Object.hasOwn(term, requiredKey)) return null;
       if (!amountScheduleDay(term.from) || !amountScheduleDay(term.until) || !(term.from < term.until)) return null;
       if (Object.hasOwn(term, 'confidence')
           && term.confidence !== 'confirmed' && term.confidence !== 'estimated') return null;
@@ -4497,6 +4509,60 @@
   // a string or a negative is unknown, never silently zero or rounded.
   function obligationTermValue(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && savingsCents(value) != null ? value : null;
+  }
+  // Dated principal share (the ONE home for dated principal-share terms).
+  // An `interestByEvent` debt's payment is part interest, part principal;
+  // debt.principalShare is the REGULAR split. debt.principalShareSchedule is
+  // 1..24 terms { from, until, principalShare, confidence? } validated by the
+  // shared interval validator above (from inclusive, until exclusive, real
+  // dates, non-overlap, size bound). The PAYMENT EVENT's date selects the
+  // term: for a blended amortising payment the lender sets the split per
+  // payment, so the date of payment chooses the term (desk ruling: only
+  // where the lender contract says so; a schedule is authored only then).
+  // Outside every term the regular share applies. Fail closed: a malformed
+  // schedule, a term share that is not a finite number in [0, 1], or a
+  // schedule on a debt that is not interestByEvent makes that payment's
+  // split UNKNOWN, never the regular share. No share is ever inferred from
+  // `rate`. An 'estimated' term lowers trust; it never promotes.
+  const PRINCIPAL_SHARE_SCHEDULE_TERM_KEYS = ['from', 'until', 'principalShare', 'confidence'];
+  // { share, estimated } | { unknown: true }. share null = no split (the
+  // whole payment is principal), exactly the incumbent unscheduled rule.
+  // Payment dates of obligation `o` from the first one whose dated split is
+  // unknown. Empty unless the debt it pays (in opts.debts) authors a
+  // principalShareSchedule, so unscheduled households are untouched.
+  // Payment dates of obligation `o` whose absorbed amount the debt walk
+  // published as UNKNOWN (an explicit null in opts.obligationAbsorbed, from a
+  // dated principal split that failed closed). This reads the walk's own
+  // qualified result, so a debt the walk proves paid off (a known zero) is
+  // never withheld, and a household with no schedule has no null caps.
+  function principalShareUnknownPaymentDates(o, start, end, periodStart, opts) {
+    const caps = opts && opts.obligationAbsorbed;
+    if (!caps || !o || o.nonCash || !o.debtId) return [];
+    return obligationOccurrences(o, start, end, periodStart).map(occ => occ.date)
+      .filter(date => date && Object.prototype.hasOwnProperty.call(caps, date + ':' + o.id) && caps[date + ':' + o.id] === null);
+  }
+  function debtPrincipalShareFor(debt, date) {
+    const regular = debt ? debt.principalShare : undefined;
+    const regularShare = regular != null ? regular : null;
+    if (!debt || debt.principalShareSchedule === undefined) return { share: regularShare, estimated: false };
+    if (!debt.interestByEvent) return { unknown: true };
+    const terms = amountScheduleTermsFrom(debt.principalShareSchedule,
+      PRINCIPAL_SHARE_SCHEDULE_TERM_KEYS, 'principalShare');
+    if (!terms) return { unknown: true };
+    const day = String(date || '');
+    if (!ISO_CALENDAR_DATE.test(day)) return { unknown: true };
+    const term = terms.find(t => t.from <= day && day < t.until);
+    if (!term) {
+      // An authored schedule never falls back to an invalid regular share:
+      // outside every term the regular split must itself be null (no split)
+      // or a finite number in [0, 1]. Unscheduled rows keep the incumbent rule.
+      if (regularShare != null && (typeof regularShare !== 'number' || !Number.isFinite(regularShare)
+          || regularShare < 0 || regularShare > 1)) return { unknown: true };
+      return { share: regularShare, estimated: false };
+    }
+    const share = term.principalShare;
+    if (typeof share !== 'number' || !Number.isFinite(share) || share < 0 || share > 1) return { unknown: true };
+    return { share, estimated: term.confidence === 'estimated' };
   }
   // The base (pre-statement) amount and confidence of one occurrence. With no
   // schedule this is exactly the row's regular amount and confidence.
@@ -4753,6 +4819,12 @@
         // there is one rule for "a payment cannot exceed the debt it pays"
         // rather than two that can drift apart.
         const cap = opts.obligationAbsorbed;
+        // An explicit null cap is UNKNOWN (a dated principal split failed
+        // closed upstream), never zero: the occurrence goes on the same
+        // omission path as an unknown amount, and scheduledAmountState names
+        // it, so only its dependent claims are withheld.
+        const capUnknown = !sent && !!cap && Object.prototype.hasOwnProperty.call(cap, date + ':' + o.id)
+          && cap[date + ':' + o.id] === null;
         const amount = sent ? 0 : cap ? (cap[date + ':' + o.id] || 0) : occurrence.amount;
         // The effective amount at source selection: the occurrence amount
         // after statement replacement, before coercion or caps (ATLAS-077).
@@ -4775,7 +4847,7 @@
         // excluded loudly via scheduledAmountState, never pushed as NaN
         // and never silently treated as a deleted row. A sent minimum
         // still records its (already moved) cash at 0 below.
-        if (occurrenceAmount == null && !sent) {
+        if ((occurrenceAmount == null || capUnknown) && !sent) {
           if (omissions) {
             const before = events.length;
             if (!omissions.has(before)) omissions.set(before, []);
@@ -4805,6 +4877,9 @@
       // second copy of the capitalise row and not a Forecast bill.
       for (const occ of capitalisingCashMinimumOccurrences(o, start, end)) {
         const cashCap = opts.obligationAbsorbed;
+        // An explicit null cap is unknown, never zero (see the payment leg).
+        if (cashCap && Object.prototype.hasOwnProperty.call(cashCap, occ.date + ':' + o.id)
+          && cashCap[occ.date + ':' + o.id] === null) continue;
         const cashAmount = cashCap ? (cashCap[occ.date + ':' + o.id] || 0) : occ.amount;
         if (cashAmount <= 0) continue;
         events.push({
@@ -24931,7 +25006,9 @@
         id: x.id, label: x.label, secured: !!x.secured, rate: x.rate || 0,
         limit: x.limit, opening, balance: opening,
         postedBalance: x.balance, pending, pendingUnknown: unknownPending,
-        interestByEvent: !!x.interestByEvent, principalShare: x.principalShare,
+        interestByEvent: !!x.interestByEvent,
+        // Every split read goes through the one resolver (never x.principalShare).
+        shareFor: date => debtPrincipalShareFor(x, date),
         interest: 0, paid: 0, capitalised: 0, drawn: 0,
         // The day the balance actually crosses the limit. Tracked on the daily
         // walk, not read off the 30-day snapshots — a month-end capitalisation
@@ -25138,6 +25215,11 @@
     // The same, for dated minimums, keyed by date and obligation id — one
     // obligation can fall several times in a window.
     const obligationAbsorbed = {};
+    // Debts whose payment split is unknown (dated principal share failed
+    // closed), by the first walk date it applies; and debts that used an
+    // estimated principal-share term.
+    const principalShareUnknownFrom = {};
+    const principalShareEstimated = new Set();
     const snapshot = (day, date) => ({
       day, date,
       debts: state.map(s => ({
@@ -25259,6 +25341,15 @@
           // are not payments anyone makes. Applying the interest share
           // first, then only capping the principal remainder, left later
           // interest draining cash after payoff.
+          // An earlier payment's unknown split makes this debt's balance
+          // unknown, so a payoff the placeholder walk reached is not evidence:
+          // check the inherited unknown BEFORE certifying "nothing left to pay".
+          if (principalShareUnknownFrom[t.id] != null && e.date >= principalShareUnknownFrom[t.id]) {
+            obligationAbsorbed[e.date + ':' + e.id] = null;
+            remainderDependent.add(t.id);
+            unabsorbedUnknown = true;
+            continue;
+          }
           if (!(t.balance > EPSILON)) {
             obligationAbsorbed[e.date + ':' + e.id] = 0;
             continue;
@@ -25266,11 +25357,34 @@
           // An amortising payment is part interest, part principal; only the
           // principal share moves the balance. The interest share is a real
           // cost, so it is not carried on to another debt.
-          const principal = t.principalShare != null ? amount * t.principalShare : amount;
+          // The PAYMENT EVENT's date selects a dated principal-share term.
+          const split = principalShareUnknownFrom[t.id] != null && e.date >= principalShareUnknownFrom[t.id]
+            ? { unknown: true } : t.shareFor(e.date);
+          if (split.unknown) {
+            // How much this payment (and every later one on this debt)
+            // absorbs is unknown: recorded as an explicit null, never a
+            // number from the placeholder walk, so the cash walk withholds
+            // the dependent claim instead of reading a missing cap as zero.
+            obligationAbsorbed[e.date + ':' + e.id] = null;
+            // Fail closed: the split is unknown, so this debt's balance,
+            // paid and interest from this date are withheld in the
+            // publication pass below, and the remainder is not certified.
+            // The internal walk carries the whole payment as principal only
+            // so it can continue; that number is never published.
+            if (principalShareUnknownFrom[t.id] == null || date < principalShareUnknownFrom[t.id]) {
+              principalShareUnknownFrom[t.id] = date;
+            }
+            remainderDependent.add(t.id);
+            unabsorbedUnknown = true;
+          } else if (split.estimated) {
+            principalShareEstimated.add(t.id);
+          }
+          const share = split.unknown ? null : split.share;
+          const principal = share != null ? amount * share : amount;
           // The interest share of an amortising payment is a real cost and is
           // genuinely paid, so it counts as absorbed even though it moves no
           // balance. Only the principal has to find somewhere to land.
-          const interestShare = t.principalShare != null ? amount - principal : 0;
+          const interestShare = share != null ? amount - principal : 0;
           if (interestShare) { t.interest += interestShare; t.paid += interestShare; }
           // Its NAMED balance only — never the cascade. A minimum is a demand
           // from one lender about one account: when that account is paid off
@@ -25284,7 +25398,7 @@
           // go next. The two look alike in the ledger and are not alike at all.
           const left = payDown([t], principal);
           unabsorbed += left;
-          obligationAbsorbed[e.date + ':' + e.id] = amount - left;
+          if (!split.unknown) obligationAbsorbed[e.date + ':' + e.id] = amount - left;
         } else if (e.kind === 'extra') {
           const isHyp = e.id === 'hypothetical-extra';
           const target = isHyp ? (hypExtraTarget || policyExtraTarget) : policyExtraTarget;
@@ -25368,7 +25482,7 @@
     let pubMarks = marks, pubById = byId, pubExtraDebtAllocation = extraDebtAllocation;
     const pubUnabsorbed = unabsorbedUnknown ? null : unabsorbed;
     const pubExtraAbsorbedUnknown = {};
-    if (scheduledAmounts.status === 'unavailable') {
+    if (scheduledAmounts.status === 'unavailable' || Object.keys(principalShareUnknownFrom).length) {
       // The marker alone does not withhold (B1): an unknown scheduled
       // payment leaves the affected debt's post-due balance, paid and
       // headroom claims unknown — publishing them unchanged is
@@ -25383,6 +25497,11 @@
         if (unknownFrom[row.debtId] == null || u.date < unknownFrom[row.debtId]) {
           unknownFrom[row.debtId] = u.date;
         }
+      }
+      // An unknown payment split withholds the same dependent outputs as an
+      // unknown scheduled amount, from the payment's walk date.
+      for (const [id, date] of Object.entries(principalShareUnknownFrom)) {
+        if (unknownFrom[id] == null || date < unknownFrom[id]) unknownFrom[id] = date;
       }
       const affectedIds = Object.keys(unknownFrom);
       if (affectedIds.length) {
@@ -25611,6 +25730,12 @@
       // A walk from a stale card balance is an estimate (marks, headroom,
       // consumer totals, interest and crossings all start from it).
       ...(staleCardBalances.length ? { trust: 'estimated', staleBalances: staleCardBalances } : {}),
+      // A dated principal-share split that failed closed, or an estimated
+      // term, is named; an estimated term lowers the walk's trust.
+      ...(Object.keys(principalShareUnknownFrom).length
+        ? { principalShareUnknownFrom: { ...principalShareUnknownFrom } } : {}),
+      ...(principalShareEstimated.size
+        ? { trust: 'estimated', principalShareEstimated: [...principalShareEstimated] } : {}),
     };
   }
 
@@ -31082,7 +31207,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, stackCardSummary, stackCreditLines, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
