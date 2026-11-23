@@ -7776,6 +7776,11 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       row.transactionId = localIds[0];
       if (localIds.length > 1) row.transactionIds = localIds;
       for (const localId of localIds) linkedLocalIds.add(localId);
+      // H2-6 (Grok Bot, Plan #6, 2026-11-23; desk adoption): a closed provenance label, set only when this tie is
+      // the provider's own matched occurrence: the candidate's relation is Lunch Money's unique, qualified match for
+      // this exact occurrence (stampLunchMoneyMatched, LM_MATCHED_RELATION) with exactly one payment. Never on a rule
+      // opt-in, a recurring item id alone, or Atlas's payee or date inference. It carries no provider id.
+      if (candidate.postingDateRelation === LM_MATCHED_RELATION && localIds.length === 1) row.occurrenceLink = 'provider-matched';
     } else if (candidate.settlesWhen === SETTLES_WHEN_SCHEDULE_TRUST_ON_DUE) {
       // The owner's rule settles this occurrence on its due date at the
       // scheduled amount; no bank transaction was seen. Say so on the

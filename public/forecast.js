@@ -2951,6 +2951,20 @@
     // occurrence after this opening, the posting is already in opening cash:
     // the walk must not add it again. Derived keys are tagged so the Budget
     // pairing can still attach its observed actual to that occurrence.
+    // H2-6: a card-paid bill's future occurrence that the ledger already ties to one early card posting
+    // (currentPeriodActuals.representedActuals) is settled from that tie itself. Its postedOn is the posting proof, on
+    // or before this start and before the scheduled date, and it counts only against the current opening (the opening
+    // dated this start), the one proven to include that posting; a stale or missing opening credits nothing. No plan
+    // receipt is added for a future card purchase (the overlay adds no cash-omit receipt,
+    // test-card-bill-protection-lifecycle); prepaidCardPaidBill holds every check.
+    const tiePacket = opening && opening.asOf === start ? currentPeriodActualsPacket(opts) : null;
+    for (const row of (tiePacket && Array.isArray(tiePacket.representedActuals) ? tiePacket.representedActuals : [])) {
+      if (!row || !row.id || !row.date || !start || row.date <= start) continue;
+      const proof = { id: row.id, date: row.date, postedOn: row.postedOn, effectiveAsOf: start };
+      if (earlyIncomeReceiptProven(proof, start) && prepaidCardPaidBill(plan, row.id, row.date, start, opts)) {
+        keys.add(row.id + '@' + row.date);
+      }
+    }
     const earlyChildBenefit = childBenefitPrepaidKeys(plan, opts, start, keys);
     if (earlyChildBenefit.size) {
       for (const key of earlyChildBenefit) keys.add(key);
@@ -4289,6 +4303,46 @@
         : Number(item.amount) > 0));
     if (!bill || !billAffectsJointCash(bill, plan) || billNeedsDate(bill)) return false;
     return outflowDates(bill, date, date).some(d => d === date);
+  }
+
+  // H2-6 (Grok Bot's answer, Plan #6, relayed by the lead 2026-11-23): an early card posting of a card-paid bill settles
+  // that bill's next scheduled occurrence only when every condition holds. Nothing is matched here: the ledger's own
+  // link (currentPeriodActuals.representedActuals) names the occurrence and its posting.
+  //   1. The tied row is posted (not pending) on the bill's own card, and the ledger already ties it to this occurrence.
+  //      Posted means the native posting evidence, as #1578's finals read it: pending false and
+  //      savingsPostingEvidence 'posted'.
+  //   2. One posting settles one occurrence: its transaction is tied to no other occurrence. A refund or reversal
+  //      un-settles it when the ledger removes or changes that tie; Atlas never infers a refund of this charge from an
+  //      amount (ChatGPT review 7094928044; the ledger names no refund-to-charge link).
+  //   3. Only the card charge settles it: a card-payment transfer from chequing is not a row on the bill's card, so it
+  //      never does.
+  //   4. Exact means the occurrence's identity: the tie names this bill and this occurrence date. A key at any other
+  //      date matches no scheduled occurrence, so a nearby date settles nothing.
+  // It settles the occurrence (Paid, nothing remaining) only; the Stack "confirmed paid" check is unchanged.
+  function prepaidCardPaidBill(plan, id, date, start, opts) {
+    if (!plan || !id || !date || !start || date <= start) return false;
+    const bill = (plan.bills || []).find(item => item && item.id === id && Number(item.amount) > 0);
+    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return false;
+    const packet = currentPeriodActualsPacket(opts);
+    const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
+      .filter(row => row && row.id === id && row.date === date);
+    // Only the provider's own matched occurrence (the observer's closed occurrenceLink label) is the ledger's tie;
+    // an Atlas payee or early-date inference shares the row shape and never settles it (ChatGPT 7095651061).
+    if (ties.length !== 1 || ties[0].occurrenceLink !== 'provider-matched' || ties[0].transactionId == null
+      || Array.isArray(ties[0].transactionIds)) return false;
+    const txId = String(ties[0].transactionId);
+    const transactions = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const rows = transactions.filter(tx => tx && tx.id != null && String(tx.id) === txId);
+    if (rows.length !== 1) return false;
+    const tx = rows[0];
+    const account = tx.atlasAccountId || tx.accountId || tx.account;
+    if (tx.pending !== false || tx.savingsPostingEvidence !== 'posted' || !isRevolvingCardAccount(tx)
+      || !account || String(account) !== String(bill.payingAccount)) return false;
+    const cents = savingsCents(Number(tx.amount), true);
+    if (cents == null || cents <= 0 || !savingsDate(tx.date) || tx.date > start) return false;
+    const elsewhere = (packet.representedActuals || []).filter(row => row && (String(row.transactionId) === txId
+      || (Array.isArray(row.transactionIds) && row.transactionIds.map(String).includes(txId))));
+    return elsewhere.length === 1;
   }
 
   // Early receipt of a still-upcoming scheduled income occurrence: the
@@ -22822,7 +22876,11 @@
     for (const period of periods || []) for (const row of period.bills || []) {
       const observed = row.status === 'PAID' && row.settlement === 'represented'
         && typeof row.actual === 'number' && isFinite(row.actual);
-      const posted = observed && budgetBillHasPostedActual(row, asOf, opts);
+      // H2-6 scope (a) only: a card-paid occurrence after the as-of reads Paid only through an early card posting
+      // (prepaidCardPaidBill). Its amount is never promoted to the posted, confirmed basis here, so the Stack
+      // "confirmed paid" check stays as before (scope (b) is owner-reserved, stop 2).
+      const earlyCardPaid = observed && row.cardPaid === true && typeof row.date === 'string' && row.date > asOf;
+      const posted = observed && !earlyCardPaid && budgetBillHasPostedActual(row, asOf, opts);
       row.displayAmountBasis = posted ? 'posted-actual' : observed ? 'unconfirmed-actual' : 'schedule';
       row.displayAmountTrust = posted ? 'calculated' : observed ? 'estimated' : billScheduleDisplayTrust(row);
       // Grok Bot's "bill verified" marker on the posted payment (billPaymentVerified): read by the payment evidence
