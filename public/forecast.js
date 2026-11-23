@@ -17913,8 +17913,11 @@
           }
           if (u.carrier === 'obligation') {
             const o = (plan.obligations || []).find(row => row && row.id === u.id);
-            if (o && (o.nonCash || o.effect === 'capitalise'
-              || (o.jointCash === false && !o.cardPaid))) return false;
+            // A capitalising row's interest never leaves cash, but its
+            // cash minimum does: an unknown cash leg withholds the load
+            // like any unknown amount, never a silent known zero.
+            if (o && o.jointCash === false && !o.cardPaid) return false;
+            if (o && !u.cashMinimum && (o.nonCash || o.effect === 'capitalise')) return false;
             return true;
           }
           return false;
