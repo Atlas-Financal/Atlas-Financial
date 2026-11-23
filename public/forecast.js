@@ -2922,6 +2922,8 @@
         keys.add(item.id + '@' + item.date);
       } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
+      } else if (earlyIncomeReceiptProven(item, start) && prepaidCardPaidBill(plan, item.id, item.date, start, opts)) {
+        keys.add(item.id + '@' + item.date);
       } else if (earlyIncomeReceiptProven(item, start)
           && prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
@@ -4267,6 +4269,44 @@
         : Number(item.amount) > 0));
     if (!bill || !billAffectsJointCash(bill, plan) || billNeedsDate(bill)) return false;
     return outflowDates(bill, date, date).some(d => d === date);
+  }
+
+  // H2-6 (Grok Bot's answer, Plan #6, relayed by the lead 2026-11-23): an early card posting of a card-paid bill settles
+  // that bill's next scheduled occurrence only when every condition holds. Nothing is matched here: the ledger's own
+  // link (currentPeriodActuals.representedActuals) names the occurrence and its posting.
+  //   1. The tied row is posted (not pending) on the bill's own card, and the ledger already ties it to this occurrence.
+  //   2. One posting settles one occurrence: its transaction is tied to no other occurrence, and a later posted credit
+  //      of the exact opposite amount on that card (a refund or reversal) un-settles it.
+  //   3. Only the card charge settles it: a card-payment transfer from chequing is not a row on the bill's card, so it
+  //      never does.
+  //   4. Exact means the occurrence's identity: the tie names this bill and this occurrence date. A key at any other
+  //      date matches no scheduled occurrence, so a nearby date settles nothing.
+  // It settles the occurrence (Paid, nothing remaining) only; the Stack "confirmed paid" check is unchanged.
+  function prepaidCardPaidBill(plan, id, date, start, opts) {
+    if (!plan || !id || !date || !start || date <= start) return false;
+    const bill = (plan.bills || []).find(item => item && item.id === id && Number(item.amount) > 0);
+    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return false;
+    const packet = currentPeriodActualsPacket(opts);
+    const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
+      .filter(row => row && row.id === id && row.date === date);
+    if (ties.length !== 1 || ties[0].transactionId == null || Array.isArray(ties[0].transactionIds)) return false;
+    const txId = String(ties[0].transactionId);
+    const transactions = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
+    const rows = transactions.filter(tx => tx && tx.id != null && String(tx.id) === txId);
+    if (rows.length !== 1) return false;
+    const tx = rows[0];
+    const account = tx.atlasAccountId || tx.accountId || tx.account;
+    if (tx.pending !== false || !isRevolvingCardAccount(tx)
+      || !account || String(account) !== String(bill.payingAccount)) return false;
+    const cents = savingsCents(Number(tx.amount), true);
+    if (cents == null || cents <= 0 || !savingsDate(tx.date) || tx.date > start) return false;
+    const elsewhere = (packet.representedActuals || []).filter(row => row && (String(row.transactionId) === txId
+      || (Array.isArray(row.transactionIds) && row.transactionIds.map(String).includes(txId))));
+    if (elsewhere.length !== 1) return false;
+    const reversed = transactions.some(other => other && other !== tx && other.pending === false
+      && String(other.atlasAccountId || other.accountId || other.account) === String(account)
+      && savingsCents(Number(other.amount), true) === -cents && savingsDate(other.date) && other.date >= tx.date);
+    return !reversed;
   }
 
   // Early receipt of a still-upcoming scheduled income occurrence: the
