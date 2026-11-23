@@ -125,14 +125,24 @@
   }
   // The planned amount of one occurrence: the fixed amount where the rule applies, never below the issuer's
   // statement minimum (max of the two); otherwise the statement minimum or the row's estimate as before.
-  function plannedOccurrenceAmount(row, statement, fixed) {
-    if (fixed == null) return statement ? statement.minimum : row.amount;
+  // `base` is the dated-schedule resolution of the ORIGINAL scheduled date
+  // (obligationScheduledBase): the regular row.amount with no schedule. A
+  // statement minimum still replaces it exactly as before. An invalid
+  // schedule is unknown, except where a statement alone fixes the amount.
+  function plannedOccurrenceAmount(row, statement, fixed, base) {
+    if (base.invalid) return statement && fixed == null ? statement.minimum : null;
+    if (fixed == null) return statement ? statement.minimum : base.amount;
     return statement ? Math.max(fixed, statement.minimum) : fixed;
   }
   function resolveOccurrences(row, start, end, occurrences, outflowDates) {
-    const fixed = fixedInterestMinimum(row);
-    if (row.statementOccurrences == null) return outflowDates(row, start, end).map(scheduledDate => ({
-      scheduledDate, date: scheduledDate, amount: plannedOccurrenceAmount(row, null, fixed), confidence: row.confidence, statement: false }));
+    // A schedule with a fixed interest minimum is invalid (fail closed), so
+    // the fixed rule is not evaluated on that row.
+    const fixed = obligationHasAmountSchedule(row) ? null : fixedInterestMinimum(row);
+    if (row.statementOccurrences == null) return outflowDates(row, start, end).map(scheduledDate => {
+      const base = obligationScheduledBase(row, scheduledDate);
+      return { scheduledDate, date: scheduledDate, amount: plannedOccurrenceAmount(row, null, fixed, base),
+        confidence: base.confidence, statement: false };
+    });
     const statements = statementRows(row, occurrences);
     const byScheduled = new Map(statements.map(record => [record.scheduledDate, record]));
     const candidates = new Set(outflowDates(row, start, end));
@@ -150,10 +160,11 @@
       const dateConfidence = statement
         ? (Object.prototype.hasOwnProperty.call(statement, 'dateConfidence') ? statement.dateConfidence : 'confirmed')
         : null;
+      const base = obligationScheduledBase(row, scheduledDate);
       return { scheduledDate, date: statement ? statement.dueDate : scheduledDate,
-        amount: plannedOccurrenceAmount(row, statement, fixed),
+        amount: plannedOccurrenceAmount(row, statement, fixed, base),
         // A statement's confirmation covers the amount only when the statement minimum is the amount paid.
-        confidence: statement && (fixed == null || statement.minimum >= fixed) ? statement.confidence : row.confidence,
+        confidence: statement && (fixed == null || statement.minimum >= fixed) ? statement.confidence : base.confidence,
         ...(dateConfidence ? { dateConfidence } : {}),
         statement: !!statement };
     }).filter(record => record.date <= end && (record.date >= start || row.frequency === 'once'))
@@ -1060,8 +1071,42 @@
   // once, and the Credit page reads `nextCashMinimum`, so those surfaces
   // cannot invent different dates or amounts. Empty when the obligation
   // is not capitalising or declares no cash minimum.
+  // A dated amountSchedule resolves each cash date's amount from the cycle it
+  // pays (capitalisingCashLegAmount); an invalid schedule or an unresolvable
+  // cycle emits nothing for the row, and capitalisingCashMinimumUnknowns
+  // names it so dependent answers withhold.
+  function capitalisingCashMinimumDates(o, start, end) {
+    return outflowDates({
+      frequency: o.frequency,
+      day: o.cashDay,
+      firstDue: o.cashFirstDue || o.firstDue || null,
+      ...(o.cashTimingBefore ? { timingBefore: o.cashTimingBefore } : {}),
+    }, start, end);
+  }
+  function capitalisingCashMinimumUnknowns(o, start, end) {
+    if (!o || !o.nonCash || o.cashDay == null || !obligationHasAmountSchedule(o)
+        || !capitalisingCashLegMayBePositive(o)) return [];
+    const legs = capitalisingCashMinimumDates(o, start, end).map(date => ({ date, leg: capitalisingCashLegAmount(o, date) }));
+    if (legs.some(row => row.leg.invalid)) return legs.length ? [legs[0].date] : [start];
+    return legs.filter(row => row.leg.amount == null).map(row => row.date);
+  }
   function capitalisingCashMinimumOccurrences(o, start, end) {
-    const cashAmt = Number(o && o.cashPayment) || 0;
+    if (o && obligationHasAmountSchedule(o)) {
+      if (!o.nonCash || o.cashDay == null || !capitalisingCashLegMayBePositive(o)) return [];
+      const legs = capitalisingCashMinimumDates(o, start, end).map(date => ({ date, leg: capitalisingCashLegAmount(o, date) }));
+      if (legs.some(row => row.leg.invalid)) return [];
+      return legs.filter(row => row.leg.amount != null && row.leg.amount > EPSILON).map(({ date, leg }) => ({
+        date,
+        amount: roundCent(leg.amount),
+        label: o.cashLabel || o.label,
+        confidence: leg.term && leg.term.confidence === 'estimated' ? 'estimated'
+          : confidenceOrEstimated(o.cashConfidence ?? o.confidence),
+        payingAccount: o.payingAccount || null,
+        debtId: o.debtId || null,
+        id: o.id,
+      }));
+    }
+    const cashAmt = capitalisingCashLegAmount(o, null).amount;
     if (!o || !o.nonCash || !(cashAmt > EPSILON) || o.cashDay == null) return [];
     const dates = outflowDates({
       frequency: o.frequency,
@@ -3602,6 +3647,12 @@
           date: occurrence.date, scheduledDate: occurrence.scheduledDate || null,
           reason: 'scheduled-amount-unknown' });
       }
+      // A dated schedule's cash leg: a malformed schedule, an unresolvable
+      // cycle or an unknown term cashPayment is unknown, never the regular.
+      for (const date of capitalisingCashMinimumUnknowns(o, start, end)) {
+        unknowns.push({ carrier: 'obligation', id: o.id || null, date,
+          scheduledDate: null, cashMinimum: true, reason: 'scheduled-amount-unknown' });
+      }
     }
     // Phase 2 (ATLAS-080): the settlement relief index is judged at this
     // scan's own start — the same pin expandEvents applies to the walk
@@ -4163,7 +4214,7 @@
     const obligation = (plan.obligations || []).find(item => item && item.id === id
       && item.frequency === 'once' && item.date === date
       && item.nonCash !== true
-      && (scheduledAmountValue(item.amount) == null || Number(item.amount) > 0));
+      && (obligationHasAmountSchedule(item) || obligationRegularAmountUnknown(item) || obligationMayBePositive(item)));
     if (obligation) return true;
     const bill = (plan.bills || []).find(item => {
       if (!item || item.id !== id || item.frequency !== 'once' || item.date !== date
@@ -4186,12 +4237,13 @@
     date = statementOccurrenceDate(plan, id, date);
     if (!plan || !id || !date || !start || date <= start) return false;
     const obligation = (plan.obligations || []).find(item => item && item.id === id
-      && item.nonCash !== true && Number(item.amount) > 0);
+      && item.nonCash !== true && obligationMayBePositive(item));
     if (obligation) {
-      return obligationOccurrences(obligation, date, date).some(occ => occ.date === date);
+      return obligationOccurrences(obligation, date, date)
+        .some(occ => occ.date === date && obligationOccurrencePositive(obligation, occ));
     }
     const capitalising = (plan.obligations || []).find(item => item && item.id === id
-      && item.nonCash === true && Number(item.cashPayment) > 0);
+      && item.nonCash === true && capitalisingCashLegMayBePositive(item));
     if (capitalising) {
       return capitalisingCashMinimumOccurrences(capitalising, date, date)
         .some(occ => occ && occ.date === date);
@@ -4358,14 +4410,17 @@
   function amountScheduleDay(value) {
     return typeof value === 'string' && ISO_CALENDAR_DATE.test(value) && savingsDate(value);
   }
-  function billAmountScheduleTerms(bill) {
-    const raw = bill && bill.amountSchedule;
+  // The ONE interval validator (desk ruling on dated obligation amounts):
+  // bills and obligations share shape, key allow-list, real calendar dates,
+  // inclusive `from` / exclusive `until`, the size bound, sort and the
+  // non-overlap rule. Null means invalid; callers fail closed.
+  function amountScheduleTermsFrom(raw, allowedKeys) {
     if (!Array.isArray(raw) || raw.length < 1 || raw.length > AMOUNT_SCHEDULE_MAX_TERMS) return null;
     const terms = [];
     for (const term of raw) {
       if (!term || typeof term !== 'object' || Array.isArray(term)
           || Object.getPrototypeOf(term) !== Object.prototype) return null;
-      if (!Object.keys(term).every(key => AMOUNT_SCHEDULE_TERM_KEYS.includes(key))) return null;
+      if (!Object.keys(term).every(key => allowedKeys.includes(key))) return null;
       if (!Object.hasOwn(term, 'amount')) return null;
       if (!amountScheduleDay(term.from) || !amountScheduleDay(term.until) || !(term.from < term.until)) return null;
       if (Object.hasOwn(term, 'confidence')
@@ -4377,6 +4432,104 @@
       if (sorted[i].from < sorted[i - 1].until) return null;
     }
     return sorted;
+  }
+  function billAmountScheduleTerms(bill) {
+    return amountScheduleTermsFrom(bill && bill.amountSchedule, AMOUNT_SCHEDULE_TERM_KEYS);
+  }
+  // Dated obligation amounts: plan.obligations[].amountSchedule reuses the
+  // bill interval contract above (same validator and selector rule). The
+  // row's `amount` / `cashPayment` stay the REGULAR values that apply outside
+  // every term. A term is { from, until, amount, cashPayment?, confidence? }:
+  // `amount` is the occurrence amount (the capitalised interest on a nonCash
+  // row); `cashPayment` is the cash minimum of a capitalising row's cycle.
+  // The ORIGINAL scheduled date selects the term (never asOf, never a
+  // statement-moved due date). Fail closed, never the regular fallback, when
+  // the schedule is malformed, on a `once` row, or combined with
+  // `fixedInterestMinimum` (that combination is not yet defined).
+  const OBLIGATION_AMOUNT_SCHEDULE_TERM_KEYS = ['from', 'until', 'amount', 'cashPayment', 'confidence'];
+  function obligationHasAmountSchedule(o) {
+    return !!(o && o.amountSchedule !== undefined);
+  }
+  function obligationAmountScheduleTerms(o) {
+    if (!obligationHasAmountSchedule(o) || o.frequency === 'once' || o.fixedInterestMinimum != null) return null;
+    return amountScheduleTermsFrom(o.amountSchedule, OBLIGATION_AMOUNT_SCHEDULE_TERM_KEYS);
+  }
+  // { invalid } | { term } | { regular } for one ORIGINAL scheduled date.
+  function obligationAmountScheduleSelect(o, scheduledDate) {
+    if (!obligationHasAmountSchedule(o)) return { regular: true };
+    const terms = obligationAmountScheduleTerms(o);
+    if (!terms) return { invalid: true };
+    const day = String(scheduledDate || '');
+    const term = day ? terms.find(t => t.from <= day && day < t.until) : null;
+    return term ? { term } : { regular: true };
+  }
+  // A term value is a known amount only as a finite number of at least zero;
+  // anything else (null, a string, a negative) is unknown, never zero.
+  function obligationTermValue(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  // The base (pre-statement) amount and confidence of one occurrence. With no
+  // schedule this is exactly the row's regular amount and confidence.
+  function obligationScheduledBase(o, scheduledDate) {
+    const sel = obligationAmountScheduleSelect(o, scheduledDate);
+    if (sel.invalid) return { invalid: true, amount: null, confidence: o.confidence };
+    if (sel.term) return { term: sel.term, amount: obligationTermValue(sel.term.amount),
+      confidence: sel.term.confidence === 'estimated' ? 'estimated' : o.confidence };
+    return { amount: o.amount, confidence: o.confidence };
+  }
+  // The cash minimum of a capitalising row for one cash date. The CYCLE the
+  // cash pays selects the term: the latest capitalise occurrence of the row's
+  // own schedule on or before the cash date. Term cashPayment wins (explicit
+  // 0 is no payment); omitted takes the documented default, the row's regular
+  // cashPayment. { amount } known, { amount: null } unknown, { invalid } when
+  // the schedule is malformed or the cycle cannot be resolved.
+  function capitalisingCashLegAmount(o, cashDate) {
+    const regular = Number(o && o.cashPayment) || 0;
+    if (!obligationHasAmountSchedule(o)) return { amount: regular };
+    if (!obligationAmountScheduleTerms(o)) return { invalid: true };
+    const cycles = outflowDates(o, addDays(cashDate, -400), cashDate);
+    const cycle = cycles.length ? cycles[cycles.length - 1] : null;
+    if (!cycle) return { invalid: true };
+    const sel = obligationAmountScheduleSelect(o, cycle);
+    if (sel.invalid) return { invalid: true };
+    if (sel.term && Object.hasOwn(sel.term, 'cashPayment')) {
+      return { amount: obligationTermValue(sel.term.cashPayment), cycle, term: sel.term };
+    }
+    return { amount: regular, cycle, ...(sel.term ? { term: sel.term } : {}) };
+  }
+  // Row-level presence gates. With no schedule they are exactly the incumbent
+  // regular-field tests; with one, presence is decided per occurrence.
+  function obligationMayBePositive(o) {
+    return obligationHasAmountSchedule(o) ? true : Number(o.amount) > 0;
+  }
+  function obligationOccurrencePositive(o, occ) {
+    return obligationHasAmountSchedule(o) ? !!occ && Number(occ.amount) > 0 : Number(o.amount) > 0;
+  }
+  function capitalisingCashLegMayBePositive(o) {
+    if (!obligationHasAmountSchedule(o)) return Number(o.cashPayment) > 0;
+    return Number(o.cashPayment) > EPSILON
+      || (Array.isArray(o.amountSchedule) && o.amountSchedule.some(t => t && Number(t.cashPayment) > EPSILON));
+  }
+  // Raw-row knownness for scans that gate on the authored row as a whole.
+  function obligationRegularAmountUnknown(o) {
+    return scheduledAmountValue(o.amount) == null;
+  }
+  // The operating answer's amount-evidence scan: the regular amount, and,
+  // when a schedule exists, its validity and every term value in cents.
+  function obligationAmountEvidenceUnavailable(o) {
+    if (o.amount == null || savingsCents(o.amount) == null) return true;
+    if (!obligationHasAmountSchedule(o)) return false;
+    const terms = obligationAmountScheduleTerms(o);
+    return !terms || terms.some(t => t.amount == null || savingsCents(t.amount) == null
+      || (Object.hasOwn(t, 'cashPayment') && (t.cashPayment == null || savingsCents(t.cashPayment) == null)));
+  }
+  // The amount of a named cycle: the row's first occurrence on or after asOf.
+  // Regular rows keep the incumbent regular amount exactly.
+  function obligationCycleAmount(o, asOf) {
+    if (!obligationHasAmountSchedule(o)) return o.amount;
+    if (!asOf) return null;
+    const next = obligationOccurrences(o, asOf, addDays(asOf, 400))[0];
+    return next ? scheduledAmountValue(next.amount) : null;
   }
   // { invalid } | { term } | { regular } for one occurrence date.
   function billAmountScheduleSelect(bill, date) {
@@ -4561,12 +4714,13 @@
         // shown on the calendar but never deducted from cash. Capping never
         // applies to it — it adds to a balance rather than reducing one.
         if (o.nonCash) {
-          const nonCashAmount = scheduledAmountValue(o.amount);
+          // The resolved occurrence (dated schedule term or regular amount).
+          const nonCashAmount = scheduledAmountValue(occurrence.amount);
           // An unparseable amount is never emitted as a NaN event;
           // scheduledAmountState names it unknown and consumers withhold.
           if (nonCashAmount == null) continue;
           events.push({ date, amount: -nonCashAmount, kind: 'noncash',
-            label: o.label, id: o.id, confidence: o.confidence,
+            label: o.label, id: o.id, confidence: occurrence.confidence,
             debtId: o.debtId || null, effect: o.effect || null });
           continue;
         }
@@ -7346,9 +7500,9 @@
     const cycle = day ? spendingCycle(plan, day) : null;
     if (!cycle || !cycle.start || !cycle.end) return false;
     return ((plan && plan.obligations) || []).some(o => o
-      && (o.debtId === 'mortgage' || o.id === 'mortgage') && Number(o.amount) > 0
+      && (o.debtId === 'mortgage' || o.id === 'mortgage') && obligationMayBePositive(o)
       && obligationOccurrences(o, cycle.start, cycle.end)
-        .some(r => r && r.date >= cycle.start && r.date <= cycle.end));
+        .some(r => r && r.date >= cycle.start && r.date <= cycle.end && obligationOccurrencePositive(o, r)));
   }
 
   // Display-only (Grok Bot, Plan #6 thread): a Mortgage-labelled debit in a
@@ -7372,9 +7526,9 @@
     }
     let latest = null;
     for (const o of ((plan && plan.obligations) || [])) {
-      if (!o || !(o.debtId === 'mortgage' || o.id === 'mortgage') || !(Number(o.amount) > 0)) continue;
+      if (!o || !(o.debtId === 'mortgage' || o.id === 'mortgage') || !obligationMayBePositive(o)) continue;
       for (const r of obligationOccurrences(o, from, to)) {
-        if (!r || !r.date || r.date < from || r.date > to) continue;
+        if (!r || !r.date || r.date < from || r.date > to || !obligationOccurrencePositive(o, r)) continue;
         if (!latest || r.date > latest.date) latest = { date: r.date, key: (o.id || '') + '@' + (r.scheduledDate || r.date) };
       }
     }
@@ -24798,7 +24952,8 @@
     for (const u of scheduledAmounts.unknowns) {
       if (u.carrier !== 'obligation') continue;
       const row = (plan.obligations || []).find(o => o && (o.id || null) === u.id);
-      if (row && row.nonCash && scheduledAmountValue(row.amount) == null) {
+      if (row && row.nonCash && !u.cashMinimum && (obligationHasAmountSchedule(row)
+        ? u.reason === 'scheduled-amount-unknown' : obligationRegularAmountUnknown(row))) {
         const applyOn = u.date < start ? start : u.date;
         if (!noncashUnknownByDate.has(applyOn)) noncashUnknownByDate.set(applyOn, []);
         noncashUnknownByDate.get(applyOn).push(row.debtId);
@@ -26084,7 +26239,7 @@
         id: drawn > 0 ? 'helocDrawn' : 'helocNoDraw',
         date: helocCrossing.date,
         drawn,
-        monthlyInterest: helocObl ? helocObl.amount : 0,
+        monthlyInterest: helocObl ? obligationCycleAmount(helocObl, opening) : 0,
         alternative: drawAlt && drawAlt.applies
           ? {
               displaces: drawAlt.displaces,
@@ -28815,7 +28970,7 @@
         || dates.some(date => billOccurrenceRequirementUnknown(b, date, value => value != null && savingsCents(value) != null)))(
         occurrences(b, cycle.start, bound.through))
       : b.amount == null || savingsCents(b.amount) == null)) return unknown('A required operating bill amount is unavailable.');
-    if ((plan.obligations || []).some(o => o.amount == null || savingsCents(o.amount) == null)
+    if ((plan.obligations || []).some(o => obligationAmountEvidenceUnavailable(o))
         || (plan.commitments || []).some(c => !commitmentSettledBy(c, day) && !(opts.disabled || []).includes(c.id)
           && c.flexibility !== 'optional' && savingsCents(c.amount) == null
           && (savingsCents(c.amountMin) == null || savingsCents(c.amountMax) == null || c.amountMax < c.amountMin))) {
@@ -30695,7 +30850,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, stackCardSummary, stackCreditLines,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

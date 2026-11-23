@@ -739,5 +739,7 @@
   ["Stack page honours savedHistoryUnavailable: a completed period whose saved close could not be read prints no amount (a dash on its chip, nothing in the waterfall, cards or credit block), never the rebuild from today's plan; current and future periods are unaffected; two shell mutants are caught","test-stack-saved-history.js"],
   ["A live refresh resolves its waiter before worker cleanup: a slow stubbed teardown never delays the response, cleanup still completes, and the lifecycle line splits cleanupMs into resolve, main-thread busy and teardown (response-phase timing)","test-live-refresh-resolve-before-teardown.js"],
   ["The live Lunch Money acquisition runs its independent reads in parallel (at most four in flight): the same requests and payload, acquire near the slowest read, manual_accounts -> /assets fallback kept, a late required failure and an outer abort fail closed and cancel every read","test-provider-acquire-parallel.js"],
-  ["Forecast pay-period invariants over seeded invented households","test-forecast-invariants.js"]
+  ["Forecast pay-period invariants over seeded invented households","test-forecast-invariants.js"],
+  ["Dated obligation amounts: an obligation amountSchedule term selects by original scheduled date (inclusive from, exclusive until), the capitalising cash minimum takes the term of the cycle it pays, statements and sent payments still win, and a malformed schedule fails closed","test-obligation-amount-schedule.js"],
+  ["Obligation .amount / .cashPayment are read only through the dated-schedule resolver (static guard; catches direct, destructured and aliased reads)","test-obligation-amount-read-guard.js"]
 ]
