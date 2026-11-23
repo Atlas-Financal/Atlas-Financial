@@ -15045,22 +15045,23 @@
     const link = budgetBillPostedLink(row, asOf, opts);
     return !!(link && link.verified);
   }
-  // The amount an assigned bill row deducts. A verified posted payment IS the occurrence's amount, above or below
-  // the plan (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot's "bill verified" marker; lead ruling (A)): the
-  // check then always stands beside what was paid. Otherwise unchanged: the plan, or a posted payment above it.
-  // H2-5 (desk ruling, Plan #6): a future-period card minimum keeps its
-  // Planned row and gross scheduled amount, but once Forecast's own
-  // settlement decision proves the issuer satisfied this exact statement
-  // occurrence AND the sent debit is already inside the cash base
-  // (additionalCashRequired 0), the period's remaining requirement, close
-  // and bill load do not deduct it again. Sent alone, another cycle or
-  // unproven inclusion gets no relief: those rows carry no 0 here.
+  // H2-5 (desk ruling, Plan #6, narrowed by the lead to the cash close): a
+  // future-period card minimum keeps its Planned row, its gross scheduled
+  // amount, its remaining requirement and its place in the planned bill load.
+  // Only the period's cash close (and the sweep built on it) skips it, once
+  // Forecast's own settlement decision proves the issuer satisfied this exact
+  // statement occurrence AND the sent debit is already inside the cash base
+  // (additionalCashRequired 0). Sent alone, another cycle or unproven
+  // inclusion gets no relief: those rows carry no 0 here.
   function minimumAlreadyInFutureCash(row) {
     return !!(row && row.status !== 'PAID' && row.cashPaymentStatus === 'sent'
       && row.issuerMinimumStatus === 'satisfied' && row.cashInclusionStatus === 'included'
       && row.additionalCashRequired === 0);
   }
 
+  // The amount an assigned bill row deducts. A verified posted payment IS the occurrence's amount, above or below
+  // the plan (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot's "bill verified" marker; lead ruling (A)): the
+  // check then always stands beside what was paid. Otherwise unchanged: the plan, or a posted payment above it.
   function billAssignedAmount(row, asOf, opts) {
     if (!row) return 0;
     let planned = null;
