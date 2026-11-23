@@ -15787,10 +15787,16 @@
           status: row.status === 'PAID' ? 'paid' : 'partial', due: row.minimumCoverage.due,
           covered: row.minimumCoverage.covered, remaining: row.remaining,
           paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
-        const amount = Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
+        // H2-8b: a scheduled fee allowance (tdfees) still holds its unspent
+        // allowance after a fee posts, exactly as the period view's
+        // remainingTotal reads it; being represented does not drop it.
+        const feeAllowance = row.scheduledFeeAllowance && Number.isFinite(Number(row.scheduledFeeAllowance.remainingAllowance))
+          ? row.scheduledFeeAllowance : null;
+        const amount = feeAllowance ? roundCent(Number(feeAllowance.remainingAllowance))
+          : Object.hasOwn(row, 'additionalCashRequired') ? row.additionalCashRequired : row.remaining;
         // D2: a fixed bill paid in part is represented for its paid part only;
         // its remainder is still cash Bills must hold.
-        if ((row.settlement === 'represented' && !Object.hasOwn(row, 'additionalCashRequired')
+        if ((row.settlement === 'represented' && !feeAllowance && !Object.hasOwn(row, 'additionalCashRequired')
           && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
