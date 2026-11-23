@@ -4326,7 +4326,10 @@
     const packet = currentPeriodActualsPacket(opts);
     const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
       .filter(row => row && row.id === id && row.date === date);
-    if (ties.length !== 1 || ties[0].transactionId == null || Array.isArray(ties[0].transactionIds)) return false;
+    // Only the provider's own matched occurrence (the observer's closed occurrenceLink label) is the ledger's tie;
+    // an Atlas payee or early-date inference shares the row shape and never settles it (ChatGPT 7095651061).
+    if (ties.length !== 1 || ties[0].occurrenceLink !== 'provider-matched' || ties[0].transactionId == null
+      || Array.isArray(ties[0].transactionIds)) return false;
     const txId = String(ties[0].transactionId);
     const transactions = packet && Array.isArray(packet.transactions) ? packet.transactions : [];
     const rows = transactions.filter(tx => tx && tx.id != null && String(tx.id) === txId);
@@ -22802,7 +22805,11 @@
     for (const period of periods || []) for (const row of period.bills || []) {
       const observed = row.status === 'PAID' && row.settlement === 'represented'
         && typeof row.actual === 'number' && isFinite(row.actual);
-      const posted = observed && budgetBillHasPostedActual(row, asOf, opts);
+      // H2-6 scope (a) only: a card-paid occurrence after the as-of reads Paid only through an early card posting
+      // (prepaidCardPaidBill). Its amount is never promoted to the posted, confirmed basis here, so the Stack
+      // "confirmed paid" check stays as before (scope (b) is owner-reserved, stop 2).
+      const earlyCardPaid = observed && row.cardPaid === true && typeof row.date === 'string' && row.date > asOf;
+      const posted = observed && !earlyCardPaid && budgetBillHasPostedActual(row, asOf, opts);
       row.displayAmountBasis = posted ? 'posted-actual' : observed ? 'unconfirmed-actual' : 'schedule';
       row.displayAmountTrust = posted ? 'calculated' : observed ? 'estimated' : billScheduleDisplayTrust(row);
       // Grok Bot's "bill verified" marker on the posted payment (billPaymentVerified): read by the payment evidence
