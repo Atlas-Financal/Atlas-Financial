@@ -334,6 +334,26 @@ function assertFreshLivePacket(data, report, liveAsOf) {
   }
 }
 
+// A same-day refresh publishes exact figures only when every required cash
+// balance it reads is known and dated the live household day: one lagging
+// sibling (a transfer seen on one side only) is withheld, never served with
+// a caution. The same freshness predicate as assertFreshLivePacket; the
+// missing-savings and pending rules stay advancing-only.
+function assertSameDayCashFresh(data, report, liveAsOf) {
+  for (const id of POSTED_CASH) {
+    if (id === 'savings' && Forecast.savingsEarmarksState(data && data.plan, liveAsOf).status !== 'setup-unknown') continue;
+    const locator = `cash:${id}`;
+    const rows = postedRowsForLocator(report, locator);
+    if (!rows.length && id === 'savings') continue;
+    if (!rows.length) fail(`missing-live-cash-evidence: ${locator}`);
+    if (!rows.some(row => trustworthyNumeric(row) && liveEvidenceDate(row) === liveAsOf)) {
+      const sample = rows.find(row => trustworthyNumeric(row)) || rows[0];
+      const dated = liveEvidenceDate(sample) || 'unknown (no usable balance date)';
+      fail(`stale-live-cash-evidence: ${locator} dated ${dated}; MATCH is not freshness`);
+    }
+  }
+}
+
 function sanitizedUnmapped(entry) {
   return {
     locator: null,
@@ -1441,11 +1461,10 @@ function overlayLiveState(input) {
   const { proposed, refused } = proposeOverlay(report, historicalOpeningAsOf, liveAsOf);
   const postingRefused = refuseNonLiveRepresented(
     report, historicalOpeningAsOf, liveAsOf, data.plan);
-  // One freshness rule for every refresh on or after the opening: a
-  // same-day refresh with a lagging required balance is withheld exactly
-  // as an advancing one is, never published with a caution.
-  if (historicalOpeningAsOf && liveAsOf && liveAsOf >= historicalOpeningAsOf) {
+  if (historicalOpeningAsOf && liveAsOf && liveAsOf > historicalOpeningAsOf) {
     assertFreshLivePacket(data, report, liveAsOf);
+  } else if (historicalOpeningAsOf && liveAsOf && liveAsOf === historicalOpeningAsOf) {
+    assertSameDayCashFresh(data, report, liveAsOf);
   }
   const next = clone(data);
   applyLedgerNames(next.debts, report);
