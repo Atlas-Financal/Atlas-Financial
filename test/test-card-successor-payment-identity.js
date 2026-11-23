@@ -101,10 +101,23 @@ ok(payments(withTx(fixture('triangle', 'triangle-td3'), { notes: 'card payment: 
       .filter(e => e.kind === 'obligation' && ids.has(e.id))
       .map(e => ({ id: e.id, from: closeBefore(e.date, close), due: e.date, to: F.addDays(e.date, 7) }))
       .sort((a, b) => a.due.localeCompare(b.due));
-    const clash = windows.filter((w, i) => i && w.id !== windows[i - 1].id
-      && w.from <= windows[i - 1].to);
+    const overlaps = windows.map((w, i) => i && w.id !== windows[i - 1].id && w.from <= windows[i - 1].to
+      ? { before: windows[i - 1], after: w, from: w.from, to: windows[i - 1].to } : null).filter(Boolean);
+    // The one dated exception (owner 2026-11-23; Grok Bot, Plan #6, to the lead): "yes to (i), and no ledger
+    // objection to moving Nov 30 onto `mbna-auto30` (item 3709492) with the old `mbna` row still ending Oct 31.
+    // My conditions: the exception names both rows, covers Nov 6–7, 2026 only, and fails if it ever matches
+    // anything else. Neither November payment gets counted against the Nov 30 row's window."
+    // The second condition is proved in test-issuer-minimum-payments-reflected.js.
+    const excused = o => card === 'mbna' && o.before.id === 'mbna' && o.before.due === '2026-10-31'
+      && o.after.id === 'mbna-auto30' && o.after.due === '2026-11-30'
+      && o.from === '2026-11-06' && o.to === '2026-11-07';
+    const clash = overlaps.filter(o => !excused(o));
     ok(windows.length > 0 && clash.length === 0, `${card}: no two rows' payment windows overlap in the committed schedule`,
-      JSON.stringify(clash.map(w => [w.id, w.due])));
+      JSON.stringify(clash.map(o => [o.after.id, o.after.due])));
+    if (card === 'mbna') {
+      ok(overlaps.filter(excused).length === 1,
+        'mbna: the one dated exception (mbna@2026-10-31 / mbna-auto30@2026-11-30, 2026-11-06 to 11-07) is the overlap it names');
+    }
   }
 }
 
