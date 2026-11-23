@@ -21,7 +21,8 @@ const ok = (cond, label, detail = '') => { checks++; if (!cond) failures++;
 const J = JSON.stringify;
 const ID = '7123461';
 const BILL = { id: 'studio', label: 'Invented studio', amount: 70, frequency: 'monthly', day: 20, firstDue: '2026-10-01',
-  confidence: 'estimated', dateConfidence: 'estimated', payingAccount: 'chequing-a', householdObligation: true };
+  confidence: 'estimated', dateConfidence: 'estimated', payingAccount: 'chequing-a', householdObligation: true,
+  budgetCategory: 'utilities' };
 const item = (amount, anchor = '2026-01-01', expected = ['2026-11-01']) => ({ providerId: ID, status: 'reviewed', unavailableFields: [],
   criteria: { startDate: anchor, endDate: null, granularity: 'month', quantity: 1, anchorDate: anchor,
     currency: 'CAD', plaidAccountId: '9001', manualAccountId: null, ...(amount === undefined ? {} : { amount }) },
@@ -32,11 +33,14 @@ const rule = linkedFrom => ({ eventId: 'studio', lunchMoneyRecurringIds: [ID], l
   direction: 'debit', requiredCurrency: 'cad', requiredPostingEvidence: 'posted',
   postingDateRule: 'covers-early-or-due-on-or-before-posting' });
 
-function serve(items, { bill = {}, linkedFrom = '2026-11-01' } = {}) {
+function serve(items, { bill = {}, linkedFrom = '2026-11-01', asOf = null, transactions = [] } = {}) {
   const w = H.baseWorld();
+  if (asOf) w.asOf = asOf;
   w.bills = [{ ...BILL, ...bill }];
+  w.budget = w.budget.concat([{ id: 'utilities', label: 'Utilities', class: 'essential', plannedPayday: 0, confidence: 'confirmed', from: ['Utilities'] }]);
   w.identityRules = w.identityRules.concat([rule(linkedFrom)]);
-  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+  w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })]
+    .concat(transactions);
   H.productionOpening(w);
   const canonical = H.canonicalOf(w, H.planOf(w));
   const before = J(canonical);
@@ -45,8 +49,11 @@ function serve(items, { bill = {}, linkedFrom = '2026-11-01' } = {}) {
   const plan = r.data.plan;
   const adv = F.recommend(plan, w.asOf, { currentPeriodActuals: r.data.liveOverlay.currentPeriodActuals, debts: r.data.debts });
   const rows = start => ((adv.defaultView.calendarPeriods.find(p => p.start === start) || {}).bills || []).filter(b => b.id === 'studio');
+  // The Budget category the bill sits in (budgetBreakdown, the Budget page's categorized figures).
+  const bd = F.budgetBreakdown(plan, { periods: { ytd: { months: 6, spending: [] } } }, { asOf: w.asOf });
+  const utilities = (bd.categories || []).find(c => c.id === 'utilities');
   return { bill: plan.bills.find(b => b.id === 'studio'), rows, unchanged: J(canonical) === before,
-    schedules: r.report.recurringBillSchedules || [] };
+    schedules: r.report.recurringBillSchedules || [], utilities, plan, asOf: w.asOf };
 }
 const at = (bill, date) => F.billOccurrenceAmount(bill, date).amount;
 
@@ -72,7 +79,7 @@ console.log('2. The previous behaviour is reproduced: one scalar amount took Oct
 {
   const s = serve([item('93.0000')]);
   const previous = { ...s.bill, amount: 93 };
-  delete previous.amountSchedule;
+  delete previous.providerPriceCutover;
   ok(at(previous, '2026-10-20') === 93, 'the previous served bill priced Oct 20 at the item\'s 93.00');
 }
 
@@ -128,6 +135,69 @@ console.log('6. No item amount: the plan amount stands on both sides');
   const s = serve([item(undefined)]);
   ok(s.bill.amount === 70 && s.bill.amountSchedule === undefined && at(s.bill, '2026-10-20') === 70 && at(s.bill, '2026-11-01') === 70,
     'plan 70.00 throughout, no schedule');
+}
+
+console.log('7. The Budget category (desk ruling (b)): one side of the cutover takes its monthly equivalent; a window across it takes its date-priced occurrences');
+{
+  // The window is [as of, as of + windowDays - 1]: Oct 14 to Jan 12 with the invented 91 days, 91 / (365.25 / 12) months.
+  const months = s => (s.plan.windowDays || 91) / (365.25 / 12);
+  const near = (a, b) => a != null && Math.abs(a - b) < 0.005;
+  // Timing and price (plan on the 20th, item on the 1st, cutover Nov 1): Oct 20 at 70.00; Nov 1, Dec 1, Jan 1 at 93.00.
+  const both = serve([item('93.0000')]);
+  ok(both.utilities && near(both.utilities.dated, (70 + 3 * 93) / months(both)) && both.utilities.datedItems[0].amount != null,
+    'timing and price across the window: (70.00 + 3 x 93.00) / the window\'s months', J(both.utilities && both.utilities.dated));
+  // Price only (both on the 20th, cutover Nov 1): Oct 20 at 70.00; Nov 20, Dec 20 at 93.00.
+  const price = serve([item('93.0000', '2026-01-20', ['2026-11-20'])], { bill: { day: 20 } });
+  ok(near(price.utilities.dated, (70 + 2 * 93) / months(price)), 'price only across the window: (70.00 + 2 x 93.00) / months',
+    J(price.utilities.dated));
+  // Wholly after the cutover: the item's monthly equivalent.
+  const after = serve([item('93.0000', '2026-01-20', ['2026-10-20'])], { bill: { day: 20 }, linkedFrom: '2026-10-01' });
+  ok(near(after.utilities.dated, 93), 'wholly after the cutover: 93.00 a month', J(after.utilities.dated));
+  // Wholly before the cutover (Feb 1): the plan's own monthly equivalent and cadence.
+  const before = serve([item('93.0000', '2026-01-01', ['2027-02-01'])], { linkedFrom: '2027-02-01' });
+  ok(before.bill.providerPriceCutover && near(before.utilities.dated, 70), 'wholly before the cutover: 70.00 a month (the plan\'s)',
+    J([before.bill.providerPriceCutover, before.utilities.dated]));
+  // The same served bill reaches the pay-period views at the same prices (section 1), and the Budget figure is published,
+  // not withheld as an amount schedule's would be (the reviewed head's shape).
+  ok(both.utilities.dated != null && !both.utilities.datedItems.some(i => i.reason === 'amount-schedule-unsupported'),
+    'the cutover is not an amount schedule: the categorized figure is published');
+  // Controls. The owner's schedule keeps precedence: no item amount, no cutover, ATLAS-075 unchanged.
+  const owner = [{ from: '2026-10-01', until: '2026-12-01', amount: 55 }];
+  const owned = serve([item('93.0000')], { bill: { amountSchedule: owner } });
+  ok(owned.bill.providerPriceCutover === undefined && owned.bill.amount === 70
+    && owned.utilities.dated === null && owned.utilities.datedItems[0].reason === 'amount-schedule-unsupported',
+    'an owner amountSchedule: no cutover, and its Budget figure withholds exactly as ATLAS-075 does today');
+  // In Forecast itself, an owner schedule beside a cutover wins (precedence, not a merge).
+  const both2 = { ...both.bill, amountSchedule: owner };
+  ok(at(both2, '2026-10-20') === 55 && at(both2, '2026-12-20') === 93, 'Forecast: an owner schedule beside a cutover prices from the schedule');
+  // And in the Budget figure: an owner schedule whose term lies outside the window keeps the regular monthly price, and
+  // the cutover beside it is ignored (not the cutover's date-priced sum).
+  const outside = [{ from: '2025-01-01', until: '2025-02-01', amount: 55 }];
+  const plan2 = { ...both.plan, bills: both.plan.bills.map(b => b.id === 'studio' ? { ...b, amountSchedule: outside } : b) };
+  const u2 = F.budgetBreakdown(plan2, { periods: { ytd: { months: 6, spending: [] } } }, { asOf: both.asOf }).categories.find(c => c.id === 'utilities');
+  ok(near(u2.dated, 93), 'Budget: an owner schedule outside the window beside a cutover takes the regular 93.00, not the cutover', J(u2.dated));
+  // An unknown price on the earlier side: unknown, never 0 and never the item's price.
+  const unknown = serve([item('93.0000')], { bill: { amount: null } });
+  ok(unknown.bill.providerPriceCutover && unknown.bill.providerPriceCutover.amountBefore === null
+    && at(unknown.bill, '2026-10-20') === null && unknown.utilities.dated === null
+    && unknown.utilities.datedItems[0].reason === 'scheduled-amount-unknown',
+    'an unknown plan price before the cutover: that occurrence and the Budget figure are unknown', J(unknown.utilities.datedItems));
+  // A malformed cutover fails closed.
+  const bad = { ...both.bill, providerPriceCutover: { from: '2026-11-31', amountBefore: 70 } };
+  ok(at(bad, '2026-10-20') === null && at(bad, '2026-11-20') === null, 'a malformed cutover: every occurrence unknown');
+}
+
+console.log('8. A posted payment settles its occurrence at the price that occurrence carries');
+{
+  // As of Oct 21, a posted 70.00 on Oct 20 tied to the item settles Oct 20 (before the cutover, priced 70.00).
+  const paid = H.lm({ id: 78124, date: '2026-10-20', amount: 70, account: 'chequing-a', payee: 'Invented studio', raw: { recurring_id: Number(ID) } });
+  const s = serve([item('93.0000')], { asOf: '2026-10-21', transactions: [paid] });
+  const oct = s.rows('2026-10-09');
+  ok(oct.length === 1 && oct[0].date === '2026-10-20' && oct[0].amount === 70 && oct[0].status === 'PAID' && oct[0].remaining === 0,
+    'the posted 70.00 settles Oct 20 at its 70.00 price, nothing remaining', J(oct.map(b => [b.date, b.amount, b.status, b.actual, b.remaining])));
+  const nov = s.rows('2026-10-23');
+  ok(nov.length === 1 && nov[0].date === '2026-11-01' && nov[0].amount === 93 && nov[0].status !== 'PAID',
+    'Nov 1 is still owed at 93.00', J(nov.map(b => [b.date, b.amount, b.status])));
 }
 
 console.log(`\n${checks - failures}/${checks} passed`);
