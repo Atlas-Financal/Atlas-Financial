@@ -12676,8 +12676,8 @@
   //            on is withheld: the pour never skips an unknown).
   //   rows     savingsFunding.rows, each the sum of its member items, listed
   //            in pour order; unallocated is what is left after the last item.
-  //            A row the owner confirmed paid (every member paid) is left off:
-  //            there is nothing left to save for it.
+  //            Paid goals leave the pour and the rows. A group keeps its
+  //            unpaid members in their own pour order.
   // Every figure is null when withheld, never 0; the goal names always show.
   // A tag is never more certain than its inputs: an item's saved depends on
   // the balance and on every need poured before it, so it carries the
@@ -12715,18 +12715,24 @@
     const periodEnd = typeof view.end === 'string' ? view.end : null;
     const pourStart = current && typeof current.start === 'string' ? current.start : null;
     const bounded = periodEnd !== null && pourStart !== null;
-    const allItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
+    const fundingItems = [...(funding && funding.backing && Array.isArray(funding.backing.items) ? funding.backing.items : []),
       ...(funding && Array.isArray(funding.unresolved) ? funding.unresolved : [])];
+    // Settlement-paid goals may still have a backing item, including inside
+    // a partly paid group. Owner-confirmed goals may have only a paid row.
+    const paidKeys = new Set(fundingItems.filter(item => item?.paymentStatus === 'paid').map(item => item.key));
+    const allItems = fundingItems.filter(item => item?.paymentStatus !== 'paid');
     const dated = item => item && typeof item.key === 'string' && typeof item.date === 'string';
     const gone = new Set(!bounded ? [] : allItems.filter(item => dated(item) && item.date < pourStart).map(item => item.key));
     const hidden = new Set(!bounded ? [] : allItems.filter(item => dated(item) && !gone.has(item.key) && item.date <= periodEnd).map(item => item.key));
     const items = allItems.filter(item => !(item && gone.has(item.key)));
     const allRows = (funding && Array.isArray(funding.rows) ? funding.rows : [])
-      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid');
+      .filter(row => row && typeof row.key === 'string' && row.paymentStatus !== 'paid')
+      .map(row => paidKeys.size && Array.isArray(row.members)
+        ? { ...row, members: row.members.filter(key => !paidKeys.has(key)) } : row);
     const balance = !bounded ? { cents: null, trust: 'unavailable', reason: 'period-bounds-unknown' } : stackSavingsBalance(funding);
     const reasons = ['owner-rule:balance-poured-nearest-due-first', balance.reason, ...(gone.size || hidden.size ? ['items-due-this-period-left'] : [])];
-    // The rows must name every item exactly once, or the card would print
-    // goals that do not add up to the pour. Checked before anything leaves.
+    // The unpaid rows must name every unpaid item exactly once. Check before
+    // removing members by date, so a hidden mismatch still withholds figures.
     const members = allRows.flatMap(row => Array.isArray(row.members) ? row.members : [null]);
     const keys = allItems.map(item => item && item.key);
     const coherent = members.length === keys.length && new Set(members).size === members.length
