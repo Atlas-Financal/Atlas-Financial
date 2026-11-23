@@ -25,11 +25,11 @@
   let ctx = null, lastRow = null, container = null;
   const view = () => (ctx && ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews)
     ? ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey) : null) || null;
-  // cls: the shell's trust treatment for the value (' stack-est' or ''), from the value's published trust.
+  // cls: the shell's trust treatment for the value (StackBlocks.estClass: now always ''), from the value's published trust.
   // labelCls: the same treatment for a label that carries a figure of its own (Credit's "Minimum $30").
   const row = (label, value, cls = '', labelCls = '') => {
     if (value === '' || value == null) return '';
-    // Class tokens only: the shell's trust treatment (' stack-est' or ''), never a published string.
+    // Class tokens only: the shell's trust treatment (StackBlocks.estClass: now always ''), never a published string.
     const labelClass = labelCls.trim();
     return `<div><dt${labelClass ? ` class="${labelClass}"` : ''}>${esc(label)}</dt><dd class="stack-n${cls}">${esc(value)}</dd></div>`;
   };
@@ -113,7 +113,7 @@
   function budgetHtml(item, v) {
     const over = num(item.overspend) && item.overspend > 0;
     const t = window.StackBlocks.budgetTrust ? window.StackBlocks.budgetTrust(item) : {};
-    // The shell's trust treatment for each figure (' stack-est' or ''): class tokens, trimmed for the class attribute.
+    // The shell's trust treatment for each figure (StackBlocks.estClass: now always ''): class tokens, trimmed for the class attribute.
     const spent = est(t.spent, v), planned = est(t.planned, v), rest = est(t.remaining, v);
     const spentClass = spent.trim(), plannedClass = planned.trim();
     // Spent and planned each carry their own treatment, side by side (never nested, so neither inherits the other's).

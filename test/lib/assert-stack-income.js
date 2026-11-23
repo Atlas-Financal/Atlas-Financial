@@ -19,8 +19,15 @@ async function assertStackIncome({ payday, plan, debts, actuals }, amounts, esti
     assert.equal(cells.length, 1, 'one printed amount for ' + name);
     assert.equal(cells[0][2], '$' + amount.toLocaleString('en-CA', { maximumFractionDigits: 0 }),
       name + ' prints the independently expected income');
-    assert.equal(cells[0][1].split(/\s+/).includes('stack-est'), estimatedRows.includes(name),
-      name + ' shows the expected income trust');
+    // The trust is still published and read (StackBlocks.isEstimated on the selected period's stackSummary), but no
+    // row is drawn differently for it (owner decision, Dale, 2026-11-23: no estimate styling).
+    const ctx = page.context();
+    const view = ctx.recommendation.payPeriodViews.find(v => v && v.start === ctx.selectedPeriodKey)
+      || ctx.recommendation.payPeriodViews.find(v => v && v.role === 'active');
+    const income = view && view.stackSummary && view.stackSummary.income ? view.stackSummary.income[name] : null;
+    assert.equal(page.sandbox.StackBlocks.isEstimated(income ? income.trust : null, view), estimatedRows.includes(name),
+      name + ' publishes the expected income trust');
+    assert.equal(cells[0][1].split(/\s+/).includes('stack-est'), false, name + ' draws plain whatever its trust');
   }
 }
 module.exports = { assertStackIncome };

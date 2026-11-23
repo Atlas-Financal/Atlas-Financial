@@ -64,8 +64,12 @@
   };
   // B5: the shell's one trust treatment, from the published trust of the figures printed (never inferred).
   const trustOf = figure => (figure && typeof figure === 'object' ? figure.trust : undefined);
-  const est = (view, ...trusts) => (window.StackBlocks.estClass && trusts.some(t => window.StackBlocks.isEstimated(t, view))
-    ? ' stack-est' : '');
+  // The shell's one trust treatment (StackBlocks.estClass), now none (owner decision, Dale, 2026-11-23).
+  const est = (view, ...trusts) => {
+    const B = window.StackBlocks;
+    const i = B.estClass ? trusts.findIndex(t => B.isEstimated(t, view)) : -1;
+    return i >= 0 ? B.estClass(trusts[i], view) : '';
+  };
 
   // Coverage is read only from the published check (minimumCovered.value): true, false, or null for 'unknown' or absent.
   // An unknown must read as neither covered nor short, so it prints no ✓ and no colour.
@@ -74,7 +78,7 @@
   const COVERAGE_TRUST = ['calculated', 'verified', 'estimated'];
   const coverage = line => (line.minimumCovered && (line.minimumCovered.value === true || line.minimumCovered.value === false)
     && COVERAGE_TRUST.includes(line.minimumCovered.trust) ? line.minimumCovered.value : null);
-  const dash = '<span class="stack-credit-dash stack-est" role="img" aria-label="not available">—</span>';
+  const dash = '<span class="stack-credit-dash" role="img" aria-label="not available">—</span>';
 
   // One line, read for the design's right-hand figure "X / minimum" (Dale, 2026-11-20: he approved the Credit Minimum
   // mock-up). Only published values are compared or printed; nothing is added or subtracted here:
@@ -97,7 +101,7 @@
     const min = published === 0 ? null : published;
     const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
     const notDue = published === 0 || (published == null && minReasons.includes('no-minimum-due-in-period'));
-    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, x: null, tone: '', ok: false, xSoft: ' stack-est', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
+    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, x: null, tone: '', ok: false, xSoft: '', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
     // The ✓ circle means "minimum covered" and nothing else (Dale: "once that minimum is paid I want a check mark"): a
     // published true on trust the page may show, with a minimum due. The colour then shows over or under, so a red row can
     // carry the ✓ too. It agrees with the head bar and the waterfall, which count the same check.
@@ -134,7 +138,7 @@
   const signed = r => (r.tone === 'bad' ? '\u2212' + money(r.x) : r.x > 0 ? '+' + money(r.x) : money(r.x));
   const figureHtml = r => {
     // Class tokens only, from this file's fixed vocabulary: the tone ('', 'good', 'bad') and the shell's trust treatment
-    // (' stack-est' or ''), never a published string.
+    // (StackBlocks.estClass: now always ''), never a published string.
     const tone = r.tone ? ` is-${r.tone}` : '';
     const xSoft = r.x == null ? '' : r.xSoft;
     const minSoft = r.minSoft;
@@ -176,7 +180,7 @@
     const paidShown = !!mp && num(mp.amount);
     const md = t.minimumsDue && typeof t.minimumsDue === 'object' ? t.minimumsDue : null;
     const due = md && num(md.amount) ? md.amount : null;
-    // The shell's trust treatment for the minimums due (' stack-est' or ''): a class token, trimmed for the class list.
+    // The shell's trust treatment for the minimums due (StackBlocks.estClass: now always ''): a class token, trimmed for the class list.
     const dueClass = est(view, md ? md.trust : null).trim();
     const countsShown = num(t.minimumsDueCount) && num(t.minimumsCoveredCount);
     return `<section class="stack-credit${open ? ' is-open' : ''}" data-stack-credit>`
@@ -188,7 +192,7 @@
       + (paidShown || due != null
         ? `<span class="stack-credit-figure stack-n" data-stack-credit-total>${paidShown ? `<span>${esc(money(mp.amount))}</span>` : dash}`
           + (due != null ? `<i class="${dueClass}"> / ${esc(money(due))}</i>` : `<i> / ${dash}</i>`) + '</span>'
-        : '<span class="stack-credit-figure stack-n stack-est" data-stack-credit-total data-unpublished>—</span>')
+        : '<span class="stack-credit-figure stack-n" data-stack-credit-total data-unpublished>—</span>')
       + '</span><span class="stack-credit-go">' + CHEV + '</span></button>'
       // A bar with no ratio to draw (counts withheld, or nothing due) is an empty track, never a guessed fill.
       + ((countsShown && bar(t.minimumsCoveredCount, t.minimumsDueCount, 'stack-credit-bar' + est(view, t.minimumsCoveredTrust)))
@@ -206,7 +210,7 @@
     // The sheet's own helpers (stack-sheet.js): escape and the shell's money and date formats.
     const { esc: escape, money: formatMoney, txMoney, date: formatDate, head } = h;
     const rowHtml = (label, valueHtml) => `<div><dt>${escape(label)}</dt><dd class="stack-n">${valueHtml}</dd></div>`;
-    // cls is the shell's trust treatment (' stack-est' or ''), a class token from this file's fixed vocabulary.
+    // cls is the shell's trust treatment (StackBlocks.estClass: now always ''), a class token from this file's fixed vocabulary.
     const soft = (text, cls) => { const tokens = cls.trim(); return `<span class="${tokens}">${escape(text)}</span>`; };
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return head('Credit', line.label || '')

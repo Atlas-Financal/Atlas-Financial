@@ -160,8 +160,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     ok(frame.pile.join() === 'timeline,waterfall,cards,credit' && frame.overlay,
       'mount order: timeline, waterfall, cards, credit in the pile; the sheet outside it', JSON.stringify(frame));
     // Main's engine (#1426) publishes stackSummary.surplus: each chip prints its view's published amount in the page's one
-    // money format (StackBlocks.money, signed; its rounding is proved in test-stack-shell §7), and a soft dash where
-    // none is published (never $0, never a blank).
+    // money format (StackBlocks.money, signed; its rounding is proved in test-stack-shell §7), and a dash where none is
+    // published (never $0, never a blank), drawn like every other chip value (owner decision, Dale, 2026-11-23).
     const expected = await page.evaluate(list => list.map(a => (typeof a === 'number' && Number.isFinite(a)
       ? StackBlocks.money(a, { signed: true }) : '—')), views.map(v => (v.stackSummary && v.stackSummary.surplus ? v.stackSummary.surplus.amount : null)));
     ok(view.chips.length === expected.length && view.chips.every((c, i) => c.amount === expected[i]) && expected.some(t => t !== '—'),
@@ -169,8 +169,8 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       JSON.stringify({ chips: view.chips.map(c => c.amount), expected }));
     ok(view.chips.every((c, i) => {
       const s = views[i].stackSummary && views[i].stackSummary.surplus;
-      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '—' : c.amount === '—' && c.soft;
-    }), 'a chip with no published surplus prints a soft dash, never $0 and never a blank', JSON.stringify(view.chips.map(c => [c.amount, c.soft])));
+      return s && typeof s.amount === 'number' ? c.amount !== '' && c.amount !== '—' : c.amount === '—' && !c.soft;
+    }), 'a chip with no published surplus prints a dash (not faded), never $0 and never a blank', JSON.stringify(view.chips.map(c => [c.amount, c.soft])));
 
     console.log('3. every printed amount is the published value it names');
     const invented = [1000, -250.5, null, 0.25, -3];
@@ -197,13 +197,13 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
     const want = { 1000: '+$1,000', '-250.5': '−$251', 0.25: '$0', '-3': '−$3' };
     ok(printed.every((p, i) => {
       const v = invented[i % invented.length];
-      return v === null ? p.text === '\u2014' && p.soft && !p.neg : p.text === want[v] && p.neg === (v < 0) && p.valueNeg === (v < 0);
+      return v === null ? p.text === '\u2014' && !p.soft && !p.neg : p.text === want[v] && !p.soft && p.neg === (v < 0) && p.valueNeg === (v < 0);
     }), 'each chip prints its published surplus in whole dollars (+$1,000, −$251, $0, −$3), coral when negative, a dash when absent',
     JSON.stringify(printed.slice(0, 5)));
 
-    // The selected chip keeps the soft treatment on an estimate, readable on its fill: the value's ink, blended at its
-    // own opacity over the chip's fill, clears 4.5:1 contrast, positive and negative, in light and dark. Each scheme
-    // is its own page load, so no theme switch happens mid-page.
+    // An estimated surplus on the selected chip draws exactly as a calculated one (owner decision, Dale, 2026-11-23: no
+    // estimate styling): full opacity, no estimate class, and its ink still clears 4.5:1 on the fill, positive and
+    // negative, in light and dark. Each scheme is its own page load, so no theme switch happens mid-page.
     const ratios = [];
     for (const theme of ['light', 'dark']) {
       const t = await open(browser, { query: '?view=stack', theme });
@@ -237,9 +237,9 @@ const settle = page => page.evaluate(() => new Promise(r => requestAnimationFram
       }
       await t.page.close();
     }
-    ok(ratios.length === 4 && ratios.every(r => r.soft && r.opacity < 1 && r.ratio >= 4.5 && r.errors === 0)
+    ok(ratios.length === 4 && ratios.every(r => !r.soft && r.opacity === 1 && r.ratio >= 4.5 && r.errors === 0)
       && ratios.filter(r => r.neg).length === 2,
-      'the selected chip keeps the soft treatment on an estimate and still clears 4.5:1 contrast (light and dark, + and −)',
+      'an estimated surplus on the selected chip draws at full opacity, unmarked, and clears 4.5:1 (light and dark, + and −)',
       JSON.stringify(ratios.map(r => [r.theme, r.neg, r.opacity, Math.round(r.ratio * 100) / 100])));
 
     console.log('4. selection drives every block');
