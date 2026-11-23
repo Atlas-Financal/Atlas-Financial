@@ -316,6 +316,7 @@
   ["opening-gap recovery does not auto-borrow","test-opening-gap-no-auto-borrow.js"],
   ["quarterly recurrence (every 3 months)","test-quarterly-recurrence.js"],
   ["owner-confirmed subscription bills","test-owner-subscription-bills.js"],
+  ["A live payday stock dated today does not add unrepresented payroll onto itself (H2-10, desk ruling)","test-payday-live-same-day-stock.js"],
   ["MBNA November issuer minimum","test-mbna-november-minimum.js"],
   ["An issuer minimum still owing is not credited again by payments it already reflects (paymentsReflectedThrough)","test-issuer-minimum-payments-reflected.js"],
   ["Amazon Prime membership subscription","test-amazon-prime-membership.js"],
