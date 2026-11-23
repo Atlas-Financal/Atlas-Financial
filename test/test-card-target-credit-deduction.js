@@ -128,10 +128,14 @@ const active = r => r.payPeriodViews.find(p => p.role === 'active') || r.payPeri
 {
   // No card activity: the target is the minimum, so the remainder and its terms are main's exactly.
   const v = active(advise([])), old = active(advise([], OLD));
-  ok(cents(v.balanceAfterDeductions) === 82500 && JSON.stringify(v.predictedEndingBalanceTerms) === JSON.stringify(old.predictedEndingBalanceTerms)
-    && v.balanceAfterDeductionsTrust === old.balanceAfterDeductionsTrust,
-    'target equal to the minimum: Balance After Deductions and its terms byte-equal to main (825.00)');
-  ok(JSON.stringify(v.stackSummary.surplus) === JSON.stringify(old.stackSummary.surplus), 'and the Surplus byte-equal to main');
+  ok(cents(v.balanceAfterDeductions) === 82500 && JSON.stringify(v.predictedEndingBalanceTerms) === JSON.stringify(old.predictedEndingBalanceTerms),
+    'no card activity: Balance After Deductions and its terms equal main (825.00, no card term)');
+  // Review 7106640633: the zero term here is the fall-back of unknown card evidence (the card's Spent is withheld), not
+  // proof that the target is the minimum, so the remainder keeps that uncertainty: estimated, never calculated.
+  ok(old.balanceAfterDeductionsTrust == null && v.balanceAfterDeductionsTrust === 'estimated' && v.stackSummary.surplus.trust === 'estimated'
+    && cents(v.stackSummary.surplus.amount) === cents(old.stackSummary.surplus.amount),
+    'a zero term from unknown card evidence keeps its uncertainty: Balance After Deductions and Surplus estimated (main read calculated)',
+    JSON.stringify([old.balanceAfterDeductionsTrust, v.balanceAfterDeductionsTrust, v.stackSummary.surplus.trust]));
 }
 {
   // A completed view keeps its published remainder: every lookback view byte-equal to main.
@@ -212,6 +216,82 @@ console.log('4. Grok Bot\'s three conditions on the cash paid beyond a minimum (
   const v3 = active(advise([exact], F, opts)), o3 = active(advise([exact], OLD, opts));
   ok(line(v3).deduction.beyondMinimumPaid === 0 && cents(v3.balanceAfterDeductions) === cents(o3.balanceAfterDeductions),
     'condition 3: the payment of the minimum (counted as the bill) is not netted again; remainder as main', JSON.stringify(line(v3).deduction));
+}
+
+console.log('5. Consumers carry the signed card term as published (review 7106640633): the assistant packet and the classic breakdown');
+{
+  const A = require('../scripts/assistant-packet');
+  const fs = require('node:fs');
+  // The classic Budget page's terms block, rendered by public/plan.js on the period Forecast published.
+  const stub = () => ({ innerHTML: '', value: '', dataset: {}, style: {}, classList: { add() {}, remove() {}, toggle() {} },
+    addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; }, appendChild() {}, replaceChildren() {} });
+  const page = vm.createContext({ Forecast: F, console, setTimeout, clearTimeout, addEventListener() {},
+    document: { getElementById: stub, querySelectorAll() { return []; }, addEventListener() {}, documentElement: { dataset: {}, style: {} } },
+    localStorage: { getItem() { return null; }, setItem() {} }, location: { pathname: '/', search: '' } });
+  page.window = page; page.matchMedia = () => ({ matches: false, addEventListener() {} });
+  const script = name => fs.readFileSync(path.join(__dirname, '..', 'public', name + '.js'), 'utf8');
+  vm.runInContext(script('app'), page); vm.runInContext('App.boot=()=>{};', page);
+  for (const name of ['bill-detail', 'savings-inventory', 'budget-surface', 'plan']) vm.runInContext(script(name), page);
+  const termsOf = (view, plan) => {
+    page.period = view; page.plan = plan;
+    const html = vm.runInContext('calendarWaterfallHtml(period,null,null,plan,false)', page);
+    const block = html.split(`data-bad-terms-period="${view.id}"`)[1] || '';
+    const out = {};
+    for (const m of block.matchAll(/data-bad-term="([A-Za-z]+)" data-bad-term-trust="[a-z]+"[^>]*>.*?<span data-bad-term-amount>([^<]*)<\/span>/g)) {
+      const t = m[2].match(/^(−|-)?\$([\d,]+)\.(\d\d)$/);
+      out[m[1]] = t ? (t[1] ? -1 : 1) * (Number(t[2].replace(/,/g, '')) * 100 + Number(t[3])) : null;
+    }
+    return out;
+  };
+  const interest = n => ['card', n, null, 'purchase', { payee: 'INTEREST CHARGES', category_name: 'Interest' }];
+  // Invented: income 1,000, the 25 minimum, groceries 150. Purchase 80: term −25, 850. Interest 40: target 40, term +15,
+  // 810. Interest 25: target 25 = the minimum, no term, 825.
+  for (const [name, rows, term, bad] of [['purchase 80', [['card', 80, null, 'purchase']], -2500, 85000],
+    ['interest 40', [interest(40)], 1500, 81000], ['interest 25', [interest(25)], null, 82500]]) {
+    const x = world(rows, { edit: synced });
+    const o = Live.fromObservation(x);
+    const data = { ...o.data, meta: { ...(o.data.meta || {}), asOf: x.asOf } };
+    const packet = A.buildPacket({ data, periods: { periods: {} }, questionsMarkdown: '', env: {}, now: x.asOf + 'T19:00:00Z' });
+    const p0 = packet.forecast.payPeriodTotals.periods.find(p => p.offset === 0).balanceAfterDeductions;
+    ok(p0.status === 'ok' && cents(p0.amount) === bad
+      && (term === null ? !Object.hasOwn(p0.terms, 'cardRepaymentAdjustment') : cents(p0.terms.cardRepaymentAdjustment) === term),
+    `packet, ${name}: Balance After Deductions ${bad / 100} with its signed card term ${term === null ? 'absent' : term / 100}`, JSON.stringify(p0));
+    const advice = F.recommend(o.data.plan, x.asOf, F.budgetRecommendInputs(data, {}));
+    const view = active(advice);
+    const printed = termsOf(view, o.data.plan);
+    const sum = printed.periodIncome - printed.assignedBills - printed.householdBudgetHold - (printed.cardRepaymentAdjustment || 0);
+    ok(printed.balanceAfterDeductions === bad && (term === null ? !('cardRepaymentAdjustment' in printed) : printed.cardRepaymentAdjustment === term)
+      && sum === bad, `classic breakdown, ${name}: the printed terms (card term ${term === null ? 'absent' : 'printed'}) add up to the printed ${bad / 100}`,
+    JSON.stringify(printed));
+  }
+}
+
+console.log('6. Which card evidence the remainder\'s trust reads (review 7106640633, the lead\'s option (c))');
+// Rule: Balance After Deductions and the Surplus take the weakest Credit deduction among the cards the household holds,
+// except a manual card with no minimum due (unseen by design, counted $0 in normal font by Dale's decision).
+{
+  const interest = n => ['card', n, null, 'purchase', { payee: 'INTEREST CHARGES', category_name: 'Interest' }];
+  const trustOf = v => v.balanceAfterDeductionsTrust || 'calculated';
+  // Complete evidence, target equal to the minimum (interest 25 against the 25 minimum): no term, and calculated, as main.
+  const full = active(advise([interest(25)])), fullOld = active(advise([interest(25)], OLD));
+  ok(cents(full.balanceAfterDeductions) === 82500 && trustOf(full) === 'calculated' && trustOf(fullOld) === 'calculated'
+    && full.stackSummary.surplus.trust === 'calculated', 'complete card evidence, zero term: 825.00, calculated, as main');
+  // A held feed card whose sync is not proven: its unknown new charges keep the remainder estimated.
+  const unsynced = active(advise([], F, { edit: () => {} }));
+  ok(trustOf(unsynced) === 'estimated' && unsynced.stackSummary.surplus.trust === 'estimated',
+    'a feed card without a proven sync keeps Balance After Deductions and the Surplus estimated');
+  // A manual card the household holds with no minimum due (the second invented card): adds no uncertainty.
+  const manual = active(advise([interest(25)], F, { twoCards: true }));
+  const mbna = manual.stackSummary.credit.lines.find(l => l.id === 'mbna');
+  ok(mbna && mbna.deduction.trust === 'estimated' && mbna.minimum.reasons.includes('no-minimum-due-in-period')
+    && trustOf(manual) === 'calculated' && manual.stackSummary.surplus.trust === 'calculated',
+    'a manual card with no minimum due (its own deduction estimated) leaves the remainder calculated');
+  // A fall-back target: the manual card's 25 minimum stands in for its unseen new charges. Estimated.
+  const fallback = active(advise([], F, { card: 'mbna', payDownOnly: ['mbna', 'triangle'] }));
+  const fm = fallback.stackSummary.credit.lines.find(l => l.id === 'mbna');
+  ok(cents(fm.target.amount) === 2500 && fm.target.trust === 'estimated' && trustOf(fallback) === 'estimated'
+    && fallback.stackSummary.surplus.trust === 'estimated' && !fallback.predictedEndingBalanceTerms.cardRepaymentAdjustment,
+  'a fall-back target (the 25 minimum for unseen charges, zero term) keeps the remainder estimated');
 }
 
 console.log(`\nPASS card target Credit deduction (${checks})`);

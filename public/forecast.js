@@ -15512,6 +15512,26 @@
   function cardTargetBeyondMinimum(cardCoverage, window, asOf) {
     return window ? manualCardBeyondMinimumCycle(cardCoverage, { start: window.start, end: window.end }, asOf) : null;
   }
+  // The trust the Credit deduction lends Balance After Deductions and the Surplus (#1573 review 7106640633; the lead's
+  // option (c)): the weakest deduction of the lines that can carry uncertainty. Each card the household holds counts,
+  // including a feed card whose sync failed and a fall-back target (a minimum standing in for unknown new charges). Two
+  // kinds count no uncertainty, because nothing here can see them: a card the household does not hold, and a manual card
+  // with no minimum due this period (Dale's decision that an unseen manual card counts $0 in normal font).
+  function cardCreditTrust(credit, publication, debts) {
+    const held = new Set((Array.isArray(debts) ? debts : []).map(debt => debt && String(debt.id)));
+    const manual = new Set(((publication && publication.cards) || []).filter(card => card && card.manualStatement === true)
+      .map(card => String(card.id)));
+    const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
+    let worst = 'calculated';
+    for (const line of credit.lines) {
+      const id = String(line.id);
+      const noneDue = line.minimum.amount === null && line.minimum.reasons.includes('no-minimum-due-in-period');
+      if (!held.has(id) || (manual.has(id) && noneDue)) continue;
+      const t = Object.hasOwn(RANK, line.deduction.trust) ? line.deduction.trust : 'unavailable';
+      if (RANK[t] > RANK[worst]) worst = t;
+    }
+    return worst;
+  }
   function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum) {
     // The card module is loaded with Forecast on every page (index.html) and in node (require); a harness that evaluates
     // this file alone publishes no card target and keeps the minimums, as before this ruling.
@@ -15544,7 +15564,7 @@
     const deduction = credit.totals.deduction;
     if (!deduction || deduction.amount === null) return { credit, adjustmentCents: null, trust: 'unavailable' };
     const creditCents = Math.round(deduction.amount * 100) + unlinedCents;
-    return { credit, creditCents, adjustmentCents: creditCents - minimumCents, trust: deduction.trust };
+    return { credit, creditCents, adjustmentCents: creditCents - minimumCents, trust: cardCreditTrust(credit, publication, debts) };
   }
 
   function composeBalanceAfterDeductionsTerms(
@@ -18637,9 +18657,11 @@
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
-      // A non-zero card adjustment is only as sure as the Credit deduction it comes from; a zero one changes nothing.
+      // The remainder is only as sure as the Credit deduction it takes, whatever its value: a zero adjustment can be the
+      // fallback of unknown evidence (a withheld Spent deducts the target as the minimum), not proof that the target is the
+      // minimum (#1573 review 7106640633). Complete card evidence keeps the deduction's own (calculated) trust.
       const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust,
-        ...(cardAdjusts && cardAdjustmentCents !== 0 ? [cardCredit.trust] : []));
+        ...(cardAdjusts ? [cardCredit.trust] : []));
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
       // own provenance only when it really is the carry. Any other projected

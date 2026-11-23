@@ -548,7 +548,9 @@ function projectPredictedEndingBalance(advice) {
 // otherwise withheld with a reason rather than shown without its terms.
 const PAY_PERIOD_TOTAL_OFFSETS = [0, 1, 2];
 const BAD_TERM_KEYS = ['periodIncome', 'assignedBills', 'householdBudgetHold',
-  'savingsItemSpending', 'heldOutflowSpending', 'manualCardPaymentBeyondMinimum'];
+  'savingsItemSpending', 'heldOutflowSpending', 'manualCardPaymentBeyondMinimum',
+  // Desk ruling (E) (#1573): the card targets less the minimums the bills hold, signed, copied as published.
+  'cardRepaymentAdjustment'];
 const SURPLUS_TERM_KEYS = ['income', 'bills', 'household', 'mortgage', 'credit', 'savingsItemSpending'];
 const BILLS_ENDING_TERM_KEYS = ['observedCash', 'futureIncome', 'remainingBills', 'householdRemaining',
   'otherOutflows', 'additionalCardCash'];
