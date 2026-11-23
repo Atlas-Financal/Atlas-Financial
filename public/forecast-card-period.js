@@ -152,6 +152,9 @@
           || tx.accountRole !== (id === 'heloc' ? 'heloc' : 'revolving-credit')) continue;
         if (!date(tx.date)) { issues.push('transaction-date-unqualified'); continue; }
         if (tx.date < start || tx.date > through) continue;
+        // A pending hold and its release (Forecast's pendingHoldReleases, owner decision 2026-11-23): neither leg is a
+        // charge or an unconfirmed credit on the card, so neither is listed or counted, and Spent is not withheld for it.
+        if (tx.pending === true && typeof primitives.holdReleaseLeg === 'function' && primitives.holdReleaseLeg(tx) === true) continue;
         // A pending row Forecast's one pending/posted pairing calls replaced by its posted twin (the household budget's rule,
         // `replacedPending`) is that same charge: it is never counted, and its posted twin counts once (Dale, 2026-11-22: "when
         // the actual charge comes in, I don't want to have that doubled up"). Every flag still withholds the posted movement
