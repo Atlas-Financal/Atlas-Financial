@@ -5843,7 +5843,7 @@ function identifiedHistoryPayments(history, opts) {
   // The candidates: plan bills, and plain payment obligations (lead ruling on
   // #1355: the mortgage). An obligation with statement occurrences (a card
   // minimum), a revolving card's debt, a non-cash or capitalising leg (the
-  // HELOC), or a once schedule is never a candidate.
+  // HELOC), a dated amountSchedule, or a once schedule is never a candidate.
   // An id named by more than one plan row (two bills, two obligations, or a
   // bill and an obligation) is ambiguous, so it is never a candidate.
   const idCount = new Map();
@@ -5860,6 +5860,7 @@ function identifiedHistoryPayments(history, opts) {
   };
   const plainObligation = o => o && typeof o.id === 'string' && o.effect === 'payment' && o.frequency !== 'once'
     && o.statementOccurrences === undefined && o.nonCash === undefined && o.cashPayment === undefined
+    && o.amountSchedule === undefined
     && !revolving(o);
   const bills = new Map();
   for (const b of plan.bills || []) {
