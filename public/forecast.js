@@ -2936,8 +2936,6 @@
         keys.add(item.id + '@' + item.date);
       } else if (prepaidJointCashOutflow(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
-      } else if (earlyIncomeReceiptProven(item, start) && prepaidCardPaidBill(plan, item.id, item.date, start, opts)) {
-        keys.add(item.id + '@' + item.date);
       } else if (earlyIncomeReceiptProven(item, start)
           && prepaidIncomeOccurrence(plan, item.id, item.date, start)) {
         keys.add(item.id + '@' + item.date);
@@ -2953,6 +2951,20 @@
     // occurrence after this opening, the posting is already in opening cash:
     // the walk must not add it again. Derived keys are tagged so the Budget
     // pairing can still attach its observed actual to that occurrence.
+    // H2-6: a card-paid bill's future occurrence that the ledger already ties to one early card posting
+    // (currentPeriodActuals.representedActuals) is settled from that tie itself. Its postedOn is the posting proof, on
+    // or before this start and before the scheduled date, and it counts only against the current opening (the opening
+    // dated this start), the one proven to include that posting; a stale or missing opening credits nothing. No plan
+    // receipt is added for a future card purchase (the overlay adds no cash-omit receipt,
+    // test-card-bill-protection-lifecycle); prepaidCardPaidBill holds every check.
+    const tiePacket = opening && opening.asOf === start ? currentPeriodActualsPacket(opts) : null;
+    for (const row of (tiePacket && Array.isArray(tiePacket.representedActuals) ? tiePacket.representedActuals : [])) {
+      if (!row || !row.id || !row.date || !start || row.date <= start) continue;
+      const proof = { id: row.id, date: row.date, postedOn: row.postedOn, effectiveAsOf: start };
+      if (earlyIncomeReceiptProven(proof, start) && prepaidCardPaidBill(plan, row.id, row.date, start, opts)) {
+        keys.add(row.id + '@' + row.date);
+      }
+    }
     const earlyChildBenefit = childBenefitPrepaidKeys(plan, opts, start, keys);
     if (earlyChildBenefit.size) {
       for (const key of earlyChildBenefit) keys.add(key);
@@ -4289,26 +4301,20 @@
   // that bill's next scheduled occurrence only when every condition holds. Nothing is matched here: the ledger's own
   // link (currentPeriodActuals.representedActuals) names the occurrence and its posting.
   //   1. The tied row is posted (not pending) on the bill's own card, and the ledger already ties it to this occurrence.
-  //   2. One posting settles one occurrence: its transaction is tied to no other occurrence, and a later posted credit
-  //      of the exact opposite amount on that card (a refund or reversal) un-settles it.
+  //      Posted means the native posting evidence, as #1578's finals read it: pending false and
+  //      savingsPostingEvidence 'posted'.
+  //   2. One posting settles one occurrence: its transaction is tied to no other occurrence. A refund or reversal
+  //      un-settles it when the ledger removes or changes that tie; Atlas never infers a refund of this charge from an
+  //      amount (ChatGPT review 7094928044; the ledger names no refund-to-charge link).
   //   3. Only the card charge settles it: a card-payment transfer from chequing is not a row on the bill's card, so it
   //      never does.
   //   4. Exact means the occurrence's identity: the tie names this bill and this occurrence date. A key at any other
   //      date matches no scheduled occurrence, so a nearby date settles nothing.
   // It settles the occurrence (Paid, nothing remaining) only; the Stack "confirmed paid" check is unchanged.
-  // The one home for "a card-paid bill's future occurrence that an early posting may settle": a dated card-paid bill
-  // with a positive amount, and a date after this start that its own schedule produces. live-plan reads it to carry
-  // such a candidate (with its posting date) to the engine; that admits nothing by itself, and only
-  // prepaidCardPaidBill below, with the ledger's tie, settles the occurrence.
-  function prepaidCardPaidBillCandidate(plan, id, date, start) {
-    if (!plan || !id || !date || !start || date <= start) return null;
-    const bill = (plan.bills || []).find(item => item && item.id === id && Number(item.amount) > 0);
-    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return null;
-    return outflowDates(bill, date, date).some(d => d === date) ? bill : null;
-  }
   function prepaidCardPaidBill(plan, id, date, start, opts) {
-    const bill = prepaidCardPaidBillCandidate(plan, id, date, start);
-    if (!bill) return false;
+    if (!plan || !id || !date || !start || date <= start) return false;
+    const bill = (plan.bills || []).find(item => item && item.id === id && Number(item.amount) > 0);
+    if (!bill || !isCardPaidBill(bill, plan) || billNeedsDate(bill)) return false;
     const packet = currentPeriodActualsPacket(opts);
     const ties = (packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : [])
       .filter(row => row && row.id === id && row.date === date);
@@ -4319,19 +4325,13 @@
     if (rows.length !== 1) return false;
     const tx = rows[0];
     const account = tx.atlasAccountId || tx.accountId || tx.account;
-    if (tx.pending !== false || !isRevolvingCardAccount(tx)
+    if (tx.pending !== false || tx.savingsPostingEvidence !== 'posted' || !isRevolvingCardAccount(tx)
       || !account || String(account) !== String(bill.payingAccount)) return false;
     const cents = savingsCents(Number(tx.amount), true);
     if (cents == null || cents <= 0 || !savingsDate(tx.date) || tx.date > start) return false;
     const elsewhere = (packet.representedActuals || []).filter(row => row && (String(row.transactionId) === txId
       || (Array.isArray(row.transactionIds) && row.transactionIds.map(String).includes(txId))));
-    if (elsewhere.length !== 1) return false;
-    // A card payment, transfer or bill payment of the same amount is not a refund or reversal (Grok 2): it never
-    // un-settles the occurrence.
-    const reversed = transactions.some(other => other && other !== tx && other.pending === false && !cardPaymentOrTransferRow(other)
-      && String(other.atlasAccountId || other.accountId || other.account) === String(account)
-      && savingsCents(Number(other.amount), true) === -cents && savingsDate(other.date) && other.date >= tx.date);
-    return !reversed;
+    return elsewhere.length === 1;
   }
 
   // Early receipt of a still-upcoming scheduled income occurrence: the
@@ -7387,8 +7387,10 @@
     // A hold is an authorization on a card purchase. An issuer charge (interest, a finance charge), a represented
     // card bill, a transfer or excluded-from-totals row, or a payment or refund is never a leg or a final: each stays
     // with its incumbent owner (the pending card exposure check counts it, test-budget-pending-card-funding).
-    const notPurchase = tx => isRevolvingCardFinanceCharge(tx) || tx.representedBill === true || cardPaymentOrTransferRow(tx)
-      || NOT_PURCHASE_HINTS.has(cardRowKindHint(tx));
+    const NOT_PURCHASE_HINTS = new Set(['finance-charge', 'transfer', 'payment', 'card-payment', 'bill-payment', 'refund']);
+    const notPurchase = tx => isRevolvingCardFinanceCharge(tx) || tx.representedBill === true || tx.excludeFromTotals === true
+      || tx.cardPaymentIdentity === true
+      || NOT_PURCHASE_HINTS.has(typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '');
     const leg = tx => {
       if (!tx || tx.id == null || String(tx.id) === '' || transactionPendingState(tx) !== 'pending'
         || tx.isGroup === true || duplicateIds.has(String(tx.id)) || repeatedId(tx)
@@ -7828,20 +7830,6 @@
     'cash interest',
     'finance charge',
   ]);
-
-  // The card-row kinds that are never a purchase (#1578, review 7092825238): an issuer finance charge and a refund,
-  // plus the payment and transfer identities below.
-  const NOT_PURCHASE_HINTS = new Set(['finance-charge', 'transfer', 'payment', 'card-payment', 'bill-payment', 'refund']);
-  const PAYMENT_OR_TRANSFER_HINTS = new Set(['transfer', 'payment', 'card-payment', 'bill-payment']);
-  function cardRowKindHint(tx) {
-    return tx && typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '';
-  }
-  // A card row that is a payment or transfer identity: excluded from totals, a card-payment identity, or a payment
-  // or transfer kind. One home, read by the hold/release legs (#1578) and by the early card-paid bill reversal (H2-6).
-  function cardPaymentOrTransferRow(tx) {
-    return !!tx && (tx.excludeFromTotals === true || tx.cardPaymentIdentity === true
-      || PAYMENT_OR_TRANSFER_HINTS.has(cardRowKindHint(tx)));
-  }
 
   function isRevolvingCardAccount(tx) {
     if (!tx) return false;
@@ -31145,7 +31133,7 @@
     };
   }
 
-  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidCardPaidBillCandidate, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
+  const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
     cardPeriodMovements, stackCardSummary, stackCreditLines, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,

@@ -772,18 +772,7 @@ function representedCandidateAllowed(candidate, historicalOpeningAsOf, liveAsOf,
     || currentOpeningProof
     || Forecast.carriedOnceJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf)
     || Forecast.prepaidJointCashOutflow(plan, candidate.id, candidate.date, liveAsOf)
-    || earlyIncomeReceipt(candidate, liveAsOf, plan)
-    || earlyCardPaidBillPosting(candidate, liveAsOf, plan);
-}
-
-// H2-6: a card-paid bill's future occurrence whose identity-linked card posting is on or before this live opening.
-// Carried to the engine with its posting date only; Forecast.prepaidCardPaidBill settles it, and only when the ledger
-// ties that posting to exactly this occurrence under Grok Bot's conditions. Fails closed without a posting date.
-function earlyCardPaidBillPosting(candidate, liveAsOf, plan) {
-  if (!candidate || !liveAsOf) return false;
-  const posted = candidate.postingDate || null;
-  if (!posted || posted > liveAsOf || posted >= candidate.date) return false;
-  return !!Forecast.prepaidCardPaidBillCandidate(plan, candidate.id, candidate.date, liveAsOf);
+    || earlyIncomeReceipt(candidate, liveAsOf, plan);
 }
 
 // An identity-linked income receipt that posted on or before this live
@@ -956,11 +945,9 @@ function applyLiveCutover(next, report, historicalOpeningAsOf) {
       next.plan, candidate.id, candidate.date, liveAsOf)
       || Forecast.prepaidJointCashOutflow(
         next.plan, candidate.id, candidate.date, liveAsOf)
-      || earlyIncomeReceipt(candidate, liveAsOf, next.plan)
-      || earlyCardPaidBillPosting(candidate, liveAsOf, next.plan)) {
-      const posted = earlyIncomeReceipt(candidate, liveAsOf, next.plan) || earlyCardPaidBillPosting(candidate, liveAsOf, next.plan);
+      || earlyIncomeReceipt(candidate, liveAsOf, next.plan)) {
       represented.push({ id: candidate.id, date: Forecast.statementOccurrenceIdentity(next.plan, candidate.id, candidate.date), effectiveAsOf: liveAsOf,
-        ...(posted ? { postedOn: candidate.postingDate } : {}) });
+        ...(earlyIncomeReceipt(candidate, liveAsOf, next.plan) ? { postedOn: candidate.postingDate } : {}) });
     }
   }
   for (const event of windowEvents) {

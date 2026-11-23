@@ -5,9 +5,11 @@
 // conditions (Plan #6, relayed by the lead 2026-11-23) each have a control below.
 // `node test/test-card-paid-early-next-period.js`
 //
-// Failure it detects: an early-posted, represented card-paid occurrence shown unpaid next period (status planned,
-// Stack paid 0); a represented row without posting proof, at a non-scheduled date, or posted after the start settling
-// it; a joint-cash bill's prepaid behaviour changing. Release decision: any failure blocks.
+// Failure it detects: an early-posted card-paid occurrence that the ledger ties to one posted card charge shown unpaid
+// next period (status planned); anything short of that tie settling it (pending or unknown posting, another card, a
+// non-card row, a tie without posting proof or posted after the start, a shared or doubled tie, a stale opening); an
+// amount-matched credit un-settling a tied occurrence; the Stack check moving; a joint-cash bill's prepaid behaviour
+// changing. Release decision: any failure blocks.
 //
 // Invented input (from the hunt's repro, with invented amounts): periods 2026-10-09..10-22 and 10-23..11-05, viewed
 // 2026-10-21. A monthly card-paid bill on day 28 for 23.47, payingAccount the card; it posts to the card on 10-20.
@@ -18,7 +20,7 @@ let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
 const AMOUNT = 23.47;
 function world({ payingAccount = 'triangle', represented = { id: 'streaming', date: '2026-10-28', postedOn: '2026-10-20', effectiveAsOf: '2026-10-20' },
-  account = 'triangle', role = 'revolving-credit', pending = false, txDate = '2026-10-20', tie = true, extraTx = [], extraTies = [], jointCash } = {}) {
+  account = 'triangle', role = 'revolving-credit', pending = false, evidence = 'posted', txDate = '2026-10-20', tie = true, extraTx = [], extraTies = [], jointCash } = {}) {
   const plan = {
     opening: { asOf: '2026-10-21', paydaySnapshot: { periodStart: '2026-10-09', asOf: '2026-10-09', opening: 1013.29 } },
     startingCash: { asOf: '2026-10-21', breakdown: [
@@ -32,9 +34,11 @@ function world({ payingAccount = 'triangle', represented = { id: 'streaming', da
   };
   const packet = { schema: 'atlas-current-period-actuals/v1', observationAsOf: '2026-10-21',
     coverageStart: '2026-10-09', coverageThrough: '2026-10-21', transactionCoverage: 'complete', pendingCoverage: 'complete',
-    transactions: [{ id: 'tx-s', date: txDate, amount: AMOUNT, currency: 'CAD', accountId: account, accountRole: role, pending }, ...extraTx],
+    transactions: [{ id: 'tx-s', date: txDate, amount: AMOUNT, currency: 'CAD', accountId: account, accountRole: role, pending,
+      savingsPostingEvidence: evidence }, ...extraTx],
     representedActuals: [...(represented && tie ? [{ id: 'streaming', date: represented.date, actual: AMOUNT, postedOn: represented.postedOn, transactionId: 'tx-s' }] : []), ...extraTies] };
-  const opts = { weeklyVariable: 0, currentPeriodActuals: packet, representedEvents: represented ? [represented] : [],
+  // The ledger's tie is the only settlement input: no plan receipt (representedEvents) is given.
+  const opts = { weeklyVariable: 0, currentPeriodActuals: packet, representedEvents: [],
     debts: [{ id: 'triangle', label: 'Invented card', structure: 'Revolving', secured: false, balance: 503.11, pending: 0, rate: 0.2, limit: 3000 }] };
   return { plan, opts };
 }
@@ -65,6 +69,7 @@ const unpaid = (label, w) => {
 };
 // 1. Posted, not pending, and already tied to that bill in the ledger.
 unpaid('condition 1: a pending card row', world({ pending: true }));
+unpaid('condition 1: a card row whose native posting evidence is unknown', world({ evidence: 'unknown' }));
 unpaid('condition 1: a posting the ledger has not tied to the occurrence', world({ tie: false }));
 unpaid('condition 1: a represented row without posting proof (legacy id and date)', world({ represented: { id: 'streaming', date: '2026-10-28' } }));
 unpaid('condition 1: a posting after this start', world({ represented: { id: 'streaming', date: '2026-10-28', postedOn: '2026-10-22', effectiveAsOf: '2026-10-22' } }));
@@ -78,37 +83,52 @@ unpaid('condition 1: a tie on another card than the one that pays the bill', wor
 unpaid('condition 1: a tied card row dated after the as-of', world({ txDate: '2026-10-22' }));
 // 2. One posting settles one occurrence; a later refund or reversal un-settles it.
 unpaid('condition 2: one posting tied to two occurrences', world({ extraTies: [{ id: 'streaming', date: '2026-11-28', actual: AMOUNT, postedOn: '2026-10-20', transactionId: 'tx-s' }] }));
-unpaid('condition 2: two postings tied to one occurrence', world({ extraTx: [{ id: 'tx-t', date: '2026-10-20', amount: AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false }],
+unpaid('condition 2: two postings tied to one occurrence', world({ extraTx: [{ id: 'tx-t', date: '2026-10-20', amount: AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, savingsPostingEvidence: 'posted' }],
   extraTies: [{ id: 'streaming', date: '2026-10-28', actual: AMOUNT, postedOn: '2026-10-20', transactionId: 'tx-t' }] }));
-unpaid('condition 2: a later posted refund of that charge on the card', world({ extraTx: [{ id: 'tx-r', date: '2026-10-21', amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false }] }));
+// A refund un-settles it through the ledger: once the ledger removes (or moves) the tie, nothing settles it.
+unpaid('condition 2: a refund the ledger has untied from the occurrence', world({ tie: false,
+  extraTx: [{ id: 'tx-r', date: '2026-10-21', amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, savingsPostingEvidence: 'posted' }] }));
+unpaid('condition 2: a refund after which the ledger re-tied the occurrence to a posting after this start', world({ tie: false,
+  extraTx: [{ id: 'tx-other-bill', date: '2026-10-22', amount: AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, savingsPostingEvidence: 'posted' }],
+  extraTies: [{ id: 'streaming', date: '2026-10-28', actual: AMOUNT, postedOn: '2026-10-22', transactionId: 'tx-other-bill' }] }));
 // 3. The card-payment transfer from chequing never settles the bill a second time.
 unpaid('condition 3: a tie to a card-payment transfer out of chequing', world({ account: 'chequing-a', role: 'household-cash' }));
 // 4. Exact means the occurrence's identity, not a matching date.
 unpaid('condition 4: a tie at a date that is not the scheduled occurrence', world({ represented: { id: 'streaming', date: '2026-10-27', postedOn: '2026-10-20', effectiveAsOf: '2026-10-20' } }));
 unpaid('control: no represented row at all', world({ represented: null }));
-for (const [label, extra] of [['kindHint card-payment', { kindHint: 'card-payment' }], ['kindHint payment', { kindHint: 'payment' }],
-  ['kindHint transfer', { kindHint: 'transfer' }], ['card-payment identity', { cardPaymentIdentity: true }], ['excluded from totals', { excludeFromTotals: true }]]) {
-  const { row } = next(world({ extraTx: [{ id: 'tx-pay', date: '2026-10-21', amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, ...extra }] }));
-  ok(row.status === 'PAID' && cents(row.remaining) === 0, 'control: a same-amount card payment (' + label + ') is not a reversal and does not un-settle it',
+{
+  // The tie counts only against the current opening, the one proven to include the posting.
+  const w = world();
+  w.plan.opening = { ...w.plan.opening, asOf: '2026-10-20' };
+  unpaid('control: a stale opening (dated before this start)', w);
+  const m = world();
+  delete m.plan.opening.asOf;
+  unpaid('control: an opening with no date', m);
+}
+// Atlas never infers a refund of this charge from an amount (ChatGPT review 7094928044): with the tie still in
+// place, none of these credits un-settles it.
+for (const [label, credit] of [
+  ['an equal-value refund from another merchant', { id: 'tx-r1', date: '2026-10-21', payee: 'Invented other merchant', kindHint: 'refund' }],
+  ['an equal-value credit whose native posting evidence is unknown', { id: 'tx-r2', date: '2026-10-21', savingsPostingEvidence: 'unknown' }],
+  ['an equal-value credit dated after the as-of', { id: 'tx-r3', date: '2026-10-25' }],
+  ['a same-amount card payment', { id: 'tx-r4', date: '2026-10-21', kindHint: 'card-payment' }]]) {
+  const { row } = next(world({ extraTx: [{ amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit',
+    pending: false, savingsPostingEvidence: 'posted', ...credit }] }));
+  ok(row.status === 'PAID' && cents(row.remaining) === 0, 'control: ' + label + ' does not un-settle a tied occurrence',
     JSON.stringify({ s: row.status, r: row.remaining }));
-}
-{
-  const { row } = next(world({ extraTx: [{ id: 'tx-r', date: '2026-10-21', amount: -AMOUNT, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false, kindHint: 'refund' }] }));
-  ok(row.status !== 'PAID', 'condition 2: a credit the ledger marks as a refund still un-settles it', JSON.stringify({ s: row.status }));
-}
-{
-  const { row } = next(world({ extraTx: [{ id: 'tx-other', date: '2026-10-21', amount: -11.02, currency: 'CAD', accountId: 'triangle', accountRole: 'revolving-credit', pending: false }] }));
-  ok(row.status === 'PAID', 'control: an unrelated card credit of another amount does not un-settle it', JSON.stringify({ s: row.status }));
 }
 
 console.log('3. Control: a joint-cash bill keeps its incumbent prepaid behaviour');
 {
-  const { row } = next(world({ payingAccount: 'chequing-a', account: 'chequing-a', role: 'household-cash' }));
+  // A joint-cash bill keeps its incumbent path: a plan receipt with posting proof (prepaidJointCashOutflow).
+  const w = world({ payingAccount: 'chequing-a', account: 'chequing-a', role: 'household-cash' });
+  w.opts.representedEvents = [{ id: 'streaming', date: '2026-10-28', postedOn: '2026-10-20', effectiveAsOf: '2026-10-20' }];
+  const { row } = next(w);
   ok(row.status === 'PAID' && cents(row.remaining) === 0, 'an early-posted joint-cash bill still reads PAID (prepaidJointCashOutflow)',
     JSON.stringify({ s: row.status, r: row.remaining }));
 }
 
-console.log('4. The production path: observer report -> live-plan overlay (applyLiveCutover) -> recommend');
+console.log('4. The production path: observer report -> live-plan overlay -> recommend, settled from the ledger tie alone');
 {
   // The invented early-income ledger (test/fixtures/early-income-data, payroll, no receipt) gives a real observer
   // report. The observer's own matching is out of scope (rule 17), so one represented candidate for the card bill and
@@ -129,7 +149,7 @@ console.log('4. The production path: observer report -> live-plan overlay (apply
       { id: 'streaming', date: occurrence, postingDate: posted, observedAmount: AMOUNT, transactionIds: ['invented-card-posting'] }];
     const packet = clone(report.currentPeriodActuals || {});
     packet.transactions = [...(packet.transactions || []), { id: 'tx-live', date: posted, amount: AMOUNT, currency: 'CAD',
-      accountId: 'triangle', accountRole: 'revolving-credit', pending: false }];
+      accountId: 'triangle', accountRole: 'revolving-credit', pending: false, savingsPostingEvidence: 'posted' }];
     packet.representedActuals = [...(packet.representedActuals || []),
       ...(tie ? [{ id: 'streaming', date: occurrence, actual: AMOUNT, postedOn: posted, transactionId: 'tx-live' }] : [])];
     report.currentPeriodActuals = packet;
@@ -140,18 +160,18 @@ console.log('4. The production path: observer report -> live-plan overlay (apply
     return { plan, row: view && view.bills.find(b => b.id === 'streaming' && b.date === occurrence) };
   };
   const carried = live();
-  ok(carried.plan.opening.representedEvents.some(e => e.id === 'streaming' && e.date === occurrence && e.postedOn),
-    'the overlay carries the early card posting to the engine with its posting date',
+  ok(!(carried.plan.opening.representedEvents || []).some(e => e.id === 'streaming'),
+    'the overlay adds no plan receipt for the future card purchase (test-card-bill-protection-lifecycle)',
     JSON.stringify(carried.plan.opening.representedEvents));
   ok(carried.row && carried.row.status === 'PAID' && cents(carried.row.remaining) === 0 && carried.row.stackBillPaid === false,
     'live: the occurrence reads PAID, 0 remaining, and the Stack check stays pending', JSON.stringify(carried.row));
   const untied = live({ tie: false });
   ok(untied.row && untied.row.status !== 'PAID' && cents(untied.row.remaining) === cents(AMOUNT),
-    'live control: carried without the ledger tie, the engine leaves it unpaid (the overlay settles nothing)',
+    'live control: without the ledger tie, the occurrence stays unpaid',
     JSON.stringify(untied.row));
   const late = live({ postingDate: '2027-01-01' });
-  ok(!late.plan.opening.representedEvents.some(e => e.id === 'streaming') && late.row && late.row.status !== 'PAID',
-    'live control: a posting after the live as-of is not carried and the occurrence stays unpaid',
+  ok(late.row && late.row.status !== 'PAID',
+    'live control: a tie posted after the live as-of leaves the occurrence unpaid',
     JSON.stringify({ rep: late.plan.opening.representedEvents, row: late.row && late.row.status }));
 }
 
