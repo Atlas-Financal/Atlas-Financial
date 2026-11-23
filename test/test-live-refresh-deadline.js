@@ -58,7 +58,10 @@ async function stalled(mode,fn){
   timings[mode+'DeadlineMs']=Math.round(performance.now()-start);
   assert.ok(performance.now()-start<1800,'absolute budget cannot be reset by activity/pages');checks++;
   await pause(150);check(state.active,0,mode+' deadline closes provider sockets');
-  if(mode==='cumulative'){assert.ok(state.calls>1&&state.calls<7,'shared budget covers successive GETs');checks++;}
+  // Reads after /me run in parallel (at most 4 in flight), so several start before the shared deadline; the
+  // deadline (asserted above: rejected well under 1.8 s although every GET takes 250 ms) still covers them all.
+  // /me first, then at most the ten reads one refresh issues (manual_accounts and its /assets fallback included).
+  if(mode==='cumulative'){assert.ok(state.calls>1&&state.calls<=11,'shared budget covers successive and parallel GETs: '+state.calls);checks++;}
  });
  await stalled('trickle',async(env,state)=>{
   const controller=new AbortController();

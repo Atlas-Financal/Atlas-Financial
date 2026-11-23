@@ -39,13 +39,17 @@ if (!threads.isMainThread) {
   const O = require('../scripts/provider-observe'), F = require('../public/forecast');
   const Live = require('../scripts/live-plan');
   const fields = ['providerAcquireMs', 'normalizeMs', 'overlayMs', 'forecastMs', 'sourceReplayMs'];
-  const snapshotKeys = ['workerComplete', ...fields].sort();
+  const reads = ['plaidBalances', 'manualBalances', 'categories', 'tags', 'transactions', 'pending', 'recurring', 'budgets', 'amountHistory'];
+  const snapshotKeys = ['workerComplete', ...fields, 'providerReads'].sort();
   const recordKeys = ['type', 'source', 'outcome', 'qualified', ...snapshotKeys, 'publicationMs'].sort();
-  const empty = Object.fromEntries([['workerComplete', false], ...fields.map(key => [key, null])]);
+  const emptyReads = Object.fromEntries(reads.map(name => [name, null]));
+  const empty = Object.fromEntries([['workerComplete', false], ...fields.map(key => [key, null]), ['providerReads', emptyReads]]);
   function validSnapshot(value) {
     assert.deepEqual(Object.keys(value).sort(), snapshotKeys);
     assert.equal(typeof value.workerComplete, 'boolean');
     for (const key of fields) assert(value[key] === null || Number.isFinite(value[key]) && value[key] >= 0, key);
+    assert.deepEqual(Object.keys(value.providerReads).sort(), [...reads].sort());
+    for (const name of reads) assert(value.providerReads[name] === null || Number.isFinite(value.providerReads[name]) && value.providerReads[name] >= 0, name);
   }
   function validRecord(value) {
     assert.deepEqual(Object.keys(value).sort(), recordKeys);
@@ -78,6 +82,10 @@ if (!threads.isMainThread) {
     assert.deepEqual(Timing.accept(empty), empty);
     for (const value of [null, {}, { ...empty, privateValue: 'canary' }, { ...empty, workerComplete: 1 }]) assert.equal(Timing.accept(value), null);
     for (const key of fields) for (const value of [NaN, Infinity, -1, '1', undefined]) assert.equal(Timing.accept({ ...empty, [key]: value }), null);
+    assert.deepEqual(Timing.READS, reads, 'the per-read names are closed');
+    for (const value of [NaN, Infinity, -1, '1', undefined]) assert.equal(Timing.accept({ ...empty, providerReads: { ...emptyReads, tags: value } }), null);
+    for (const value of [null, [], {}, { ...emptyReads, privateRead: 1 }]) assert.equal(Timing.accept({ ...empty, providerReads: value }), null);
+    assert.equal(Timing.accept({ ...empty, providerReads: undefined }), null);
     const record = Timing.record({ ...empty, raw: 'SYNTHETIC-PRIVATE-CANARY' }, 'unknown', 'private-error', 'true', NaN);
     validRecord(record);
     assert.equal(record.source, 'provider'); assert.equal(record.outcome, 'live-refresh-unavailable');
