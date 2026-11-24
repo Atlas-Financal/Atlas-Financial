@@ -80,7 +80,7 @@ function checkPayment(page, amount, trust, reason, cardId = 'travelvisa') {
   const head = page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)?.[1];
   assert.ok(head, 'the Credit head has a published amount');
   assert.equal(plain(head), '$' + amount + ' / $20');
-  assert.match(plain(page.sheet(cardId)), new RegExp('Paid back [+$−]*' + amount + '(?![\\d.])'));
+  assert.match(plain(page.sheet(cardId)), new RegExp('Paid back \\+?\\$' + amount + '(?![\\d.])'));
 }
 
 test('a ledger-named paying transfer pays its own card before the issuer posts and exactly once afterwards', async () => {
