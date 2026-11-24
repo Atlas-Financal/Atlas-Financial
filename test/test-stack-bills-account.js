@@ -129,7 +129,7 @@ for (const [mode, code] of [['stale', 'operating-plan-unavailable'], ['misaligne
     && b.householdToMove.amount === null, mode + ': the lists are withheld with the close', JSON.stringify(b.status));
 }
 
-console.log('2b. A close withheld for another reason (review 7140127860): no reading either, only the close\'s reason');
+console.log('2b. A close withheld for another reason (lead ruling on #1627): the reading still shows; the lists do not');
 const unknownBill = d => { d.plan.bills.push({ id: 'unknown-amount', label: 'Invented unknown bill', frequency: 'once', date: '2026-08-26',
   amount: null, confidence: 'confirmed', payingAccount: 'chequing-a' }); return d; };
 {
@@ -137,8 +137,9 @@ const unknownBill = d => { d.plan.bills.push({ id: 'unknown-amount', label: 'Inv
   const pub = v.billsAccountPeriodBalance, b = v.stackSummary.billsAccount;
   ok(pub.status === 'unavailable' && !pub.issues.some(i => ['operating-plan-unavailable', 'cash-observation-misaligned', 'bills-cash-unavailable'].includes(i.code))
     && pub.observedCash !== null, 'the world: the close is withheld (an unknown bill amount) while the reading itself is fine', JSON.stringify(pub.issues));
-  ok(b.now.amount === null && b.now.asOf === null && b.now.trust === 'unavailable' && b.now.reason === pub.reason && b.status === 'unavailable',
-    'no reading is published; the reason is the close\'s own', JSON.stringify(b.now));
+  ok(b.now.amount === pub.observedCash && b.now.asOf === pub.observedAsOf && b.now.trust === 'estimated' && b.status === 'unavailable'
+    && b.comingIn === null && b.comingOut === null && b.alreadyOut === null && b.reason === pub.reason,
+    'the reading is published (gated on the reading alone); the lists are withheld with the close\'s reason', JSON.stringify(b.now));
 }
 
 console.log('2c. A settled bill with an unknown payer is not listed and never withholds the close (review 4684284216)');
@@ -200,8 +201,9 @@ for (const mode of ['stale', 'misaligned', 'missing']) {
 }
 {
   const v = activeOf(advise(F, unknownBill(world()))), h = cardOf(v);
-  ok(h && head(h) === 'Bills account ' + v.billsAccountPeriodBalance.reason + ' \u2014' && !/\$/.test(h),
-    'a close withheld for another reason: the head is a dash with the close\'s reason; no amount anywhere', head(h || ''));
+  const body2 = text(h.slice(h.indexOf('</summary>')));
+  ok(h && head(h) === 'Bills account Bank reading Aug 20 $1,373 now' && body2 === v.billsAccountPeriodBalance.reason,
+    'a close withheld for another reason: the head shows the reading; the open card shows only the close\'s reason', head(h || '') + ' | ' + body2);
 }
 {
   const other = advice.payPeriodViews.find(v => v.role !== 'active' && v.stackSummary);
@@ -226,7 +228,7 @@ mutant('a settled bill from another account listed', 'public/forecast.js',
     return !b.alreadyOut.some(r => r.id === 'weekly-bill'); });
 mutant('the late word dropped', 'public/forecast.js', "item.date && item.date < day ? 'late' : 'due'", "'due'",
   sources => fresh(sources).comingOut.find(r => r.id === 'late-bill').status === 'late');
-mutant('the reading guard dropped', 'public/forecast.js', "const now = pub.status === 'ready' && !readingIssue && finite(pub.observedCash)", 'const now = finite(pub.observedCash)',
+mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && finite(pub.observedCash)', 'const now = finite(pub.observedCash)',
   sources => activeOf(advise(engine(sources), world('misaligned'))).stackSummary.billsAccount.now.amount === null);
 mutant('the lists published with a withheld close', 'public/forecast.js', "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
   'const ready = Array.isArray(pubItems);',
@@ -234,9 +236,6 @@ mutant('the lists published with a withheld close', 'public/forecast.js', "const
 mutant('the settled line uses the scope check that records an issue', 'public/forecast.js',
   "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", '&& billsCashScope(row))',
   sources => activeOf(advise(engine(sources), externalSettled(world()))).billsAccountPeriodBalance.status === 'ready');
-mutant('the reading printed with a withheld close', 'public/forecast.js',
-  "const now = pub.status === 'ready' && !readingIssue", 'const now = !readingIssue',
-  sources => activeOf(advise(engine(sources), unknownBill(world()))).stackSummary.billsAccount.now.amount === null);
 {
   const src = read('public/stack-cards.js');
   const from = "accountRow(r, r.status === 'late' ? 'late' : null, false)";

@@ -39,7 +39,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: 'c5593443205b3ceecc8d9dae842a617aba1f1cc899abe0a8c0241e3544af47d6',
+    forecast: '39493c4d83563ec16a1ad86d660e0664eb5ca35d7f104dfc56b2a39c7839d896',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -54,7 +54,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '990ea67fb9c7656de3b7818fd5cf6efdcf94baf3dd17812d6fba6e9b00d35bce',
+    forecast: 'b8a8fb7b0370f115cf91e72416fa4b70c7cc1f1b93ef9f28513a9d91604c1668',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

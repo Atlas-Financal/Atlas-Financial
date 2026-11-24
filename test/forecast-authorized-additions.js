@@ -262,8 +262,8 @@ function proveStackBillsAccount(view, account) {
   const cents = v => Math.round(v * 100);
   const now = account.now;
   assert.ok(now.amount === null ? now.asOf === null && now.trust === 'unavailable' && typeof now.reason === 'string' && now.reason
-    : close.status === 'ready' && now.amount === close.observedCash && now.asOf === close.observedAsOf && now.trust === 'estimated' && now.reason === null,
-  'authorized addition: the Bills reading is the close\'s observedCash and date with a ready close, or nothing with a reason');
+    : now.amount === close.observedCash && now.asOf === close.observedAsOf && now.trust === 'estimated' && now.reason === null,
+  'authorized addition: the Bills reading is the close\'s observedCash and date, or nothing with a reason');
   if (account.status !== 'ready') {
     assert.ok(account.comingIn === null && account.comingOut === null && account.alreadyOut === null && account.householdToMove.amount === null,
       'authorized addition: a withheld card publishes no lists');
