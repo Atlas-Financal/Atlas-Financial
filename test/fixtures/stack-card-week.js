@@ -2,7 +2,7 @@
 // A week with known spending for numeric Stack controls. Use smaller purchases
 // and no standalone credits, keeping the same posted movements and balances
 // as the card-period fixture (Travel 107.40 and Amazon 44.00).
-const { fixture: ledgerWeek, copy, served } = require('./card-posted-period-movement-data');
+const { fixture: ledgerWeek, copy } = require('./card-posted-period-movement-data');
 function fixture() {
   const week = ledgerWeek();
   week.packet.transactions = week.packet.transactions.filter(tx => tx.id !== 'refund-a' && tx.id !== 'amazon-refund');
@@ -10,4 +10,4 @@ function fixture() {
   week.packet.transactions.find(tx => tx.id === 'amazon-a').amount = 44;
   return week;
 }
-module.exports = { fixture, copy, served };
+module.exports = { fixture, copy };

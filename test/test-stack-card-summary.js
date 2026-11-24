@@ -125,7 +125,7 @@ console.log('5. Ledger rules on a hand-built publication (trust, unconfirmed cre
 
 console.log('6. recommend is unchanged: it carries no stack summary');
 {
-  const data = fx.served();
+  const data = require('./fixtures/card-posted-period-movement-data').served();
   const advice = F.recommend(data.plan, data.meta.asOf, F.budgetRecommendInputs(data, {}));
   const views = Array.isArray(advice.payPeriodViews) ? advice.payPeriodViews : [];
   ok(!JSON.stringify(advice).includes('stackCard') && views.every(v => !(v.stackSummary && 'cards' in v.stackSummary)),
