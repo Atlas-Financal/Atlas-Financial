@@ -16159,10 +16159,11 @@
         // its remainder is still cash Bills must hold.
         if ((row.settlement === 'represented' && !feeAllowance && !Object.hasOwn(row, 'additionalCashRequired')
           && row.partlyPaidRemainder !== true) || row.settlement === 'opening') {
-          // Already out of Bills this period: the bill's own settled occurrence, paid from Bills (or with no other payer,
-          // the owner's Bills anchor). A side-effect-free test: a display line never adds an issue to the close
-          // (billsCashScope records one for an unknown payer; review 4684284216).
-          if (row.settlement === 'represented' && row.id && row.date
+          // Already out of Bills this period: the bill's own settled occurrence, paid in cash from Bills (or with no other
+          // payer, the owner's Bills anchor), never a card-paid bill, whose charge went on a card (Neon, #1607 7141216339).
+          // A side-effect-free test: a display line never adds an issue to the close (billsCashScope records one for an
+          // unknown payer; review 4684284216).
+          if (row.settlement === 'represented' && row.id && row.date && row.cardPaid !== true
             && (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))
             items.push({ id: row.id, kind: 'settled', label: row.label || null, date: row.date, amount: null, status: 'settled', trust: null });
           continue;

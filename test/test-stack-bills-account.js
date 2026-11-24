@@ -158,6 +158,23 @@ const externalSettled = d => {
     'the bill paid elsewhere is not on Already out; the Bills one still is');
 }
 
+console.log('2d. A settled card-paid bill is not Already out of Bills: the charge went on a card (Neon, #1607 7141216339)');
+const cardSettled = (how) => d => {
+  d.plan.bills.push({ id: 'card-settled', label: 'Invented card bill', frequency: 'once', date: '2026-08-17', amount: 30.00,
+    confidence: 'confirmed', ...(how === 'payer' ? { payingAccount: 'travelvisa' } : { jointCash: false }) });
+  d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'card-settled', date: '2026-08-17', actual: 30.00 });
+  return d;
+};
+for (const how of ['payer', 'jointCash']) {
+  const v = activeOf(advise(F, cardSettled(how)(world())));
+  const oldV = activeOf(advise(OLD, cardSettled(how)(world())));
+  ok(JSON.stringify(v.billsAccountPeriodBalance) === JSON.stringify(oldV.billsAccountPeriodBalance),
+    how + ': the close is byte-equal to main', JSON.stringify(v.billsAccountPeriodBalance.issues));
+  ok(v.stackSummary.billsAccount.status === 'ready' && (!v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'card-settled')
+    && v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'paid-bills')),
+    how + ': the card-paid bill is not on Already out; the Bills one still is', JSON.stringify(v.stackSummary.billsAccount.alreadyOut));
+}
+
 console.log('3. Through the real stack-cards.js');
 const shellBox = { window: {}, location: { search: '' }, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON, Math, console };
 vm.runInNewContext(read('public/stack-shell.js'), shellBox);
@@ -236,6 +253,9 @@ mutant('the lists published with a withheld close', 'public/forecast.js', "const
 mutant('the settled line uses the scope check that records an issue', 'public/forecast.js',
   "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", '&& billsCashScope(row))',
   sources => activeOf(advise(engine(sources), externalSettled(world()))).billsAccountPeriodBalance.status === 'ready');
+mutant('a settled card-paid bill listed as Already out', 'public/forecast.js',
+  "&& row.cardPaid !== true\n", '\n',
+  sources => !activeOf(advise(engine(sources), cardSettled('jointCash')(world()))).stackSummary.billsAccount.alreadyOut.some(r => r.id === 'card-settled'));
 {
   const src = read('public/stack-cards.js');
   const from = "accountRow(r, r.status === 'late' ? 'late' : null, false)";
