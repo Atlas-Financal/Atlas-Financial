@@ -78,8 +78,8 @@ for (const mode of ['posted', 'split', 'unknown', 'pending', 'refund', 'reversal
   context.period = advice.defaultView.calendarPeriods[0];
   const output = render();
   if (mode === 'posted' || mode === 'split' || mode === 'unknown') {
-    assert.match(output, mode === 'split' ? /\$-125\.00 \(credit\)/ : /\$-250\.00 \(credit\)/);
-    assert.match(output, /Actual<\/dt><dd>\$-250\.00/);
+    assert.match(output, mode === 'split' ? /\u2212\$125\.00 \(credit\)/ : /\u2212\$250\.00 \(credit\)/);
+    assert.match(output, /Actual<\/dt><dd>\u2212\$250\.00/);
     assert.match(output, /−\$250.00<\/span><\/summary>/, 'Forecast movement remains its supplied outflow');
     assert.doesNotMatch(output, /about −\$250.00<\/span><\/summary>/,
       'linked posted card actual is independent of estimated schedule confidence');

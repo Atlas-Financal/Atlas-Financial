@@ -143,10 +143,10 @@ function run() {
       assert.doesNotMatch(output, /Transaction amount<|\(credit\)/);
     } else {
       assert.deepEqual(payments.map(p => p.amount), mode === 'split' ? [-125, -125] : [-250]);
-      assert.match(output, mode === 'split' ? /\$-125\.00 \(credit\)/ : /\$-250\.00 \(credit\)/);
+      assert.match(output, mode === 'split' ? /\u2212\$125\.00 \(credit\)/ : /\u2212\$250\.00 \(credit\)/);
       assert.match(output, /Debits are positive and credits negative for the transaction account/);
       assert.match(output, /sign alone does not identify a payment, refund or reversal/);
-      assert.match(output, /Actual<\/dt><dd>\$-250\.00/, 'Forecast signed actual is untouched');
+      assert.match(output, /Actual<\/dt><dd>\u2212\$250\.00/, 'Forecast signed actual is untouched');
       if (mode === 'split') assert.equal((output.match(/\(credit\)/g) || []).length, 2);
       assert.doesNotMatch(output, /Synthetic private note|8101|8102|8002/);
       freeze(card); freeze(row); Detail.html(row, card);
@@ -170,7 +170,7 @@ function run() {
       Object.assign(signed.liveOverlay.currentPeriodActuals.transactions[0], { amount, kindHint,
         direction: '<svg onload=bad>', accountRole: '<img src=x onerror=bad>' });
       const output = Detail.html(row, signed);
-      assert.match(output, amount < 0 ? /\$-250\.00 \(credit\)/ : amount > 0
+      assert.match(output, amount < 0 ? /\u2212\$250\.00 \(credit\)/ : amount > 0
         ? /\$250\.00 \(debit\)/ : /\$0\.00 \(direction unavailable\)/);
       // Owner direction 2026-11-11 (cautions print only where they apply):
       // the sign note prints, word for word, whenever a linked amount is
@@ -206,7 +206,7 @@ function run() {
   pending.liveOverlay.currentPeriodActuals.representedActuals[0].postedOn = '2026-08-19';
   assert.match(Detail.html(row, pending), /Pending — not a posted payment/);
   pending.liveOverlay.currentPeriodActuals.transactions[0].amount = -250;
-  assert.match(Detail.html(row, pending), /\$-250\.00 \(credit\)/);
+  assert.match(Detail.html(row, pending), /\u2212\$250\.00 \(credit\)/);
   assert.match(Detail.html(row, pending), /Pending — not a posted payment/);
   assert.match(Detail.html(row, pending), /Published status<\/dt><dd>PAID/);
   assert.match(Detail.html(row, pending), /Transaction date<\/dt><dd>2026-08-18/,

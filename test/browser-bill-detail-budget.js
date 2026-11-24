@@ -218,8 +218,8 @@ function servedFixture() {
         const before = await snapshot();
         const printed = await readBill();
         if (['posted', 'split', 'unknown'].includes(mode)) {
-          assert.match(printed, mode === 'split' ? /\$-125\.00 \(credit\)/ : /\$-250\.00 \(credit\)/);
-          assert.match(printed, /Actual\s+\$-250\.00/);
+          assert.match(printed, mode === 'split' ? /\u2212\$125\.00 \(credit\)/ : /\u2212\$250\.00 \(credit\)/);
+          assert.match(printed, /Actual\s+\u2212\$250\.00/);
           assert.match(printed, /sign alone does not identify a payment, refund or reversal/);
           // A posted provider payment is a calculated actual: Forecast's
           // displayAmountTrust is 'calculated', so the row prints it bare, not "about".
@@ -242,8 +242,8 @@ function servedFixture() {
           kindHint: '<img src=x onerror="window.hacked=true">', direction: '<svg onload=bad>', notes: 'PRIVATE SIGN NOTE' });
         await load(); await openBill();
         const printed = await readBill();
-        assert.ok(printed.includes(`${amount < 0 ? '$-250.00' : amount > 0 ? '$250.00' : '$0.00'} (${direction})`));
-        assert.match(printed, /Actual\s+\$-250\.00/);
+        assert.ok(printed.includes(`${amount < 0 ? '−$250.00' : amount > 0 ? '$250.00' : '$0.00'} (${direction})`));
+        assert.match(printed, /Actual\s+\u2212\$250\.00/);
         if (pending) assert.match(printed, /Pending — not a posted payment/);
         assert.doesNotMatch(printed, /PRIVATE|onerror|onload/);
         assert.equal(await details().locator('img,script').count(), 0);

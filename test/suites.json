@@ -293,6 +293,7 @@
   ["card purchase markers retain expense and whole-ledger trust","test-card-purchase-tracker.js"],
   ["read-only bill payment evidence and exact sanitized links","test-bill-detail.js"],
   ["Budget bill payment evidence integration and hooks","test-bill-detail-budget-integration.js"],
+  ["bill detail prints a negative amount with the sign before the dollar sign","test-bill-detail-sign.js"],
   ["from-today Budget savings arithmetic and evidence","test-from-today-funding.js"],
   ["from-today observation to Budget integration","test-from-today-integration.js"],
   ["savings evidence holds and independent gates","test-savings-evidence.js"],
