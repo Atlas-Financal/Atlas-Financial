@@ -638,12 +638,14 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
         // The paid figure the row prints and the head sums (one rule), with its trust.
         put(c + '.paidToward', line.paidToward.amount);
         put(c + '.paidTowardTrust', line.paidToward.trust);
-        // OD-033: the row's Total to pay back (the target), whether paid back has reached it, and the card's Still to pay
+        // OD-033: the row's Paid back and Total to pay back (the target), whether paid back has reached it, and the card's Still to pay
         // back (display only), each as published.
         put(c + '.target', line.target.amount);
         put(c + '.targetTrust', line.target.trust);
         put(c + '.targetCovered', String(line.targetCovered.value));
         put(c + '.targetCoveredTrust', line.targetCovered.trust);
+        put(c + '.paidBack', line.paidBack.amount);
+        put(c + '.paidBackTrust', line.paidBack.trust);
         put(c + '.stillToPayBack', line.stillToPayBack.amount);
         put(c + '.stillToPayBackTrust', line.stillToPayBack.trust);
         put(c + '.balance', line.balance.amount);

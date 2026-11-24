@@ -155,12 +155,16 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
       // OD-033: Still to pay back = max(0, target − paid back), unknown when either is; targetCovered = paid back ≥ a target
       // above $0. Worked here from the line's own published target and paidToward.
-      const t = line.target.amount, w = line.paidToward ? line.paidToward.amount : null;
+      // Paid back is paidToward qualified for display: never negative (withheld instead), else paidToward itself.
+      assert.ok(line.paidBack && (line.paidBack.amount === null || (line.paidBack.amount >= 0 && line.paidBack.amount === line.paidToward.amount)),
+        'authorized addition: Paid back is never negative, and where published it is the line\'s paidToward');
+      const t = line.target.amount, w = line.paidBack.amount;
       assert.ok(line.stillToPayBack && line.targetCovered, 'authorized addition: each Credit line carries stillToPayBack and targetCovered');
       if (t === null || w === null) {
         assert.ok(line.stillToPayBack.amount === null && line.targetCovered.value === 'unknown', 'authorized addition: an unknown side leaves Still to pay back unknown, never $0');
       } else {
         assert.equal(cents(line.stillToPayBack.amount), Math.max(0, cents(t) - cents(w)), 'authorized addition: Still to pay back is target − paid back, floored at 0');
+        assert.ok(line.stillToPayBack.amount <= t, 'authorized addition: Still to pay back never exceeds the target');
         assert.equal(line.targetCovered.value, cents(t) > 0 && cents(w) >= cents(t), 'authorized addition: targetCovered is paid back ≥ a target above $0');
       }
       // The deduction's two published parts close it per line, so no reader needs the totals to show them.

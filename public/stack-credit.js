@@ -73,7 +73,7 @@
 
   // One line, read for the row's figure "Paid back / Total to pay back" (OD-033, Dale, 2026-11-23). Only published values
   // are compared or printed; nothing is added or subtracted here:
-  //   * X is Forecast's published paidToward: posted payments onto this card in this period, never a net (a $0 when nothing
+  //   * X is Forecast's published paidBack: posted payments onto this card in this period, never a net (a $0 when nothing
   //     was paid or the card cannot be seen, the HELOC's posted payments); a dash only when Forecast withholds it;
   //   * after the slash, the published target (OD-028); nothing after it when the target is $0, a dash when withheld;
   //   * X is green only when Forecast publishes targetCovered true and the period is not upcoming; otherwise plain ink;
@@ -101,11 +101,12 @@
       out.ok = true;
       out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid));
     }
-    // OD-033 (Dale, 2026-11-23): X is Paid back, Forecast's published paidToward (posted payments onto this card in this
-    // period, never a net, never negative; $0 for a card Forecast cannot see; a dash when withheld). Green only when Forecast
+    // OD-033 (Dale, 2026-11-23): X is Paid back, Forecast's published paidBack (posted payments onto this card in this
+    // period, never a net, never negative; $0 for a card Forecast cannot see; a dash when withheld, including when a posted
+    // payment row debits the card). Green only when Forecast
     // publishes targetCovered true (paid back has reached the target), never from the minimum alone (Neon REPORT 4). No red:
     // what is left is the card's Still to pay back, in the Credit dropdown.
-    const toward = amountOf(line.paidToward);
+    const toward = amountOf(line.paidBack);
     if (toward != null) out.x = toward;
     const covered = line.targetCovered && line.targetCovered.value === true && COVERAGE_TRUST.includes(line.targetCovered.trust);
     if (out.x != null && covered && line.status !== 'upcoming') out.tone = 'good';
@@ -209,7 +210,7 @@
       + (r.x != null || r.target != null || r.min != null || !balanceShown(line)
         ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
         : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${escape(formatMoney(amountOf(line.balance)))}</div>`)
-      + '<dl>' + (heloc ? '' : (r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidToward)))) : '')
+      + '<dl>' + (heloc ? '' : (r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidBack)))) : '')
         + (r.spent != null ? rowHtml('New charges', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : ''))
       + (r.min != null
         ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))

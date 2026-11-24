@@ -65,10 +65,10 @@ const UTIL = [{ id: 'a', overLimitBy: 100, used: 1100, limit: 1000, balanceTrust
 const credit = M.stackCreditLines(worked, BILLS, UTIL, new Map([['a', 5000]]));
 const A = credit.lines.find(l => l.id === 'a'), B = credit.lines.find(l => l.id === 'b');
 ok(cents(A.target.amount) === 10000 && cents(A.deduction.amount) === 5000 && cents(A.deduction.alreadyCounted) === 0
-  && cents(A.deduction.beyondNetted) === 5000 && cents(A.paidToward.amount) === 7500,
-  'card A: target 100.00, nothing counted above, 50.00 beyond netted, deduction 50.00, paid back 75.00', JSON.stringify([A.target.amount, A.deduction, A.paidToward]));
+  && cents(A.deduction.beyondNetted) === 5000 && cents(A.paidBack.amount) === 7500,
+  'card A: target 100.00, nothing counted above, 50.00 beyond netted, deduction 50.00, paid back 75.00', JSON.stringify([A.target.amount, A.deduction, A.paidBack]));
 ok(cents(B.target.amount) === 10000 && cents(B.deduction.amount) === 0 && cents(B.deduction.alreadyCounted) === 15000
-  && cents(B.deduction.countedOffset) === 10000 && cents(B.paidToward.amount) === 0,
+  && cents(B.deduction.countedOffset) === 10000 && cents(B.paidBack.amount) === 0,
   'card B: target 100.00, 150.00 counted above (100.00 of it covers the target), deduction 0, paid back 0', JSON.stringify([B.target.amount, B.deduction]));
 ok(cents(A.stillToPayBack.amount) === 2500 && cents(B.stillToPayBack.amount) === 10000,
   'Still to pay back: A 100.00 − 75.00 = 25.00; B 100.00 − 0 = 100.00', JSON.stringify([A.stillToPayBack, B.stillToPayBack]));
@@ -79,7 +79,7 @@ const drop = F.stackCreditBreakdown(entry, BILLS);
 // Proof 1: each card's dropdown row is that card's target − paid back.
 ok(drop.rows.length === 2 && drop.rows.every(r => {
   const line = credit.lines.find(l => l.id === r.debtId);
-  return cents(r.amount) === Math.max(0, cents(line.target.amount) - cents(line.paidToward.amount));
+  return cents(r.amount) === Math.max(0, cents(line.target.amount) - cents(line.paidBack.amount));
 }), 'proof 1: each card row is that card\'s target − paid back (A 25.00, B 100.00), worked from its own line', JSON.stringify(drop.rows));
 // Proof 2: the "Already counted above" row is Σ each card's charges counted above (A 0 + B 150), Grok Bot's condition 2.
 ok(cents(drop.alreadyCounted.amount) === -(cents(A.deduction.alreadyCounted) + cents(B.deduction.alreadyCounted)) && cents(drop.alreadyCounted.amount) === -15000,
@@ -90,14 +90,14 @@ ok(cents(drop.total) === cents(A.deduction.amount) + cents(B.deduction.amount) &
 ok(cents(drop.rows[0].amount) + cents(drop.rows[1].amount) + cents(drop.alreadyCounted.amount) !== cents(drop.total),
   'the rows are display only and do not add up to the Credit line (25 + 100 − 150 ≠ 50), which the caption says');
 // Grok Bot condition 3: one payment, one row. A's 75 is paid back on A alone; B shows none.
-ok(cents(A.paidToward.amount) + cents(B.paidToward.amount) === 7500, 'condition 3: the one 75.00 payment shows as paid back on card A only');
+ok(cents(A.paidBack.amount) + cents(B.paidBack.amount) === 7500, 'condition 3: the one 75.00 payment shows as paid back on card A only');
 // Grok Bot condition 1: a pending payment is not paid back.
 {
   const pend = pub([['a', []]]);
   pend.cards[0].pending = [row('payment', -75, RECONCILED)];
   const line = M.stackCreditLines(pend, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
-  ok(cents(line.paid.amount) === 7500 && cents(line.paidToward.amount) === 0 && cents(line.stillToPayBack.amount) === 10000,
-    'condition 1: a pending 75.00 payment is in Paid but not Paid back: 0 paid back, 100.00 still to pay back', JSON.stringify([line.paid, line.paidToward]));
+  ok(cents(line.paid.amount) === 7500 && cents(line.paidBack.amount) === 0 && cents(line.stillToPayBack.amount) === 10000,
+    'condition 1: a pending 75.00 payment is in Paid but not Paid back: 0 paid back, 100.00 still to pay back', JSON.stringify([line.paid, line.paidBack]));
 }
 // Unknown stays unknown: a withheld paid back or target withholds Still to pay back, never $0.
 {
@@ -105,7 +105,7 @@ ok(cents(A.paidToward.amount) + cents(B.paidToward.amount) === 7500, 'condition 
   failed.cards[0].postedMovement = { trust: 'unavailable', completeness: 'none', reasons: ['sync-failed'] };
   const past = { ...failed, role: 'past' };
   const line = M.stackCreditLines(past, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
-  ok(line.paidToward.amount === null && line.stillToPayBack.amount === null && line.stillToPayBack.trust === 'unavailable'
+  ok(line.paidBack.amount === null && line.stillToPayBack.amount === null && line.stillToPayBack.trust === 'unavailable'
     && line.targetCovered.value === 'unknown', 'a withheld paid back leaves Still to pay back unknown (null), never $0', JSON.stringify(line.stillToPayBack));
   const noBills = M.stackCreditLines(worked, null, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(noBills.target.amount === null && noBills.stillToPayBack.amount === null, 'a withheld target leaves Still to pay back unknown');
@@ -133,8 +133,8 @@ const advice = F.recommend(x.plan, x.asOf, opts), oldAdvice = OLD.recommend(x.pl
 const view = advice.payPeriodViews.find(v => v.role === 'active'), oldView = oldAdvice.payPeriodViews.find(v => v.role === 'active');
 const b = view.stackSummary.creditBreakdown;
 const travel = view.stackSummary.credit.lines.find(l => l.id === 'travelvisa'), cash = view.stackSummary.credit.lines.find(l => l.id === 'cashback');
-ok(cents(travel.target.amount) === 23600 && cents(travel.paidToward.amount) === 10000 && cents(travel.stillToPayBack.amount) === 13600
-  && cents(cash.target.amount) === 11420 && cents(cash.paidToward.amount) === 25000 && cash.stillToPayBack.amount === 0,
+ok(cents(travel.target.amount) === 23600 && cents(travel.paidBack.amount) === 10000 && cents(travel.stillToPayBack.amount) === 13600
+  && cents(cash.target.amount) === 11420 && cents(cash.paidBack.amount) === 25000 && cash.stillToPayBack.amount === 0,
   'Travel 100 paid back of 236, 136 still; Cash Back 250 paid back of 114.20, 0 still', JSON.stringify([travel.stillToPayBack, cash.stillToPayBack]));
 ok(cents(b.alreadyCounted.amount) === -37895, 'the honest row: "Already counted above" −378.95, the two cards\' own counted charges', JSON.stringify(b.alreadyCounted));
 const plug = b.rows.reduce((sum, r) => {
@@ -205,6 +205,43 @@ ok(creditLine(live.wf) !== '' && creditLine(live.wf) === creditLine(mainPage.wf)
 ok(/Already counted above −\$350/.test(text(mainPage.wf)) && /\$236\b/.test(text(mainPage.wf)),
   'control: main\'s page printed Travel at its 236 target and "Already counted above −$350" (the plug)', text(mainPage.wf).slice(0, 200));
 
+console.log('2b. A posted payment row that debits the card (ChatGPT, #1617 7120269248): Paid back withheld, never negative');
+// The same invented card week, with Travel's posted 100.00 payment flipped from a credit to a debit, its explicit payment hint
+// kept. Before the repair: Paid back −100.00 and Still to pay back 336.00 (more than the 236.00 target), printed in the
+// dropdown. Now: Paid back is withheld (direction unresolved), so Still to pay back is too: a dash on both views, never a
+// negative and never above the target. paidToward, the head's minimumsPaid and the minimum check are unchanged.
+let flipped;
+{
+  const y = fx.fixture();
+  y.packet.transactions.find(t => t.id === 'payment-a').amount = 100;
+  const yOpts = { debts: y.debts, currentPeriodActuals: y.packet, cardPeriodBalanceEvidence: y.balanceEvidence, cardLiveOverlay: y.overlay };
+  const yr = F.recommend(y.plan, y.asOf, yOpts), yOld = OLD.recommend(y.plan, y.asOf, yOpts);
+  flipped = yr;
+  const yv = yr.payPeriodViews.find(v => v.role === 'active'), yo = yOld.payPeriodViews.find(v => v.role === 'active');
+  const t = yv.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  ok(t.paidBack.amount === null && t.paidBack.reasons.includes('payment-direction-unresolved') && t.stillToPayBack.amount === null
+    && t.targetCovered.value === 'unknown', 'a posted payment debit: Paid back withheld (payment-direction-unresolved), Still to pay back withheld, never −100 / 336',
+    JSON.stringify([t.paidBack, t.stillToPayBack]));
+  const row = yv.stackSummary.creditBreakdown.rows.find(r => r.debtId === 'travelvisa');
+  ok(row && row.amount === null, 'the dropdown\'s Travel row is withheld too (a dash), never 336', JSON.stringify(row));
+  const ot = yo.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  ok(cents(t.paidToward.amount) === cents(ot.paidToward.amount) && JSON.stringify(yv.stackSummary.credit.totals.minimumsPaid) === JSON.stringify(yo.stackSummary.credit.totals.minimumsPaid)
+    && JSON.stringify(t.minimumCovered) === JSON.stringify(ot.minimumCovered),
+    'paidToward, the head\'s minimumsPaid and the minimum check are as main (only the display value is qualified)');
+  ok(yr.payPeriodViews.every((v, i) => JSON.stringify([v.balanceAfterDeductions, v.stackSummary && v.stackSummary.surplus, v.stackSummary && v.stackSummary.credit && v.stackSummary.credit.totals.deduction])
+    === JSON.stringify([yOld.payPeriodViews[i].balanceAfterDeductions, yOld.payPeriodViews[i].stackSummary && yOld.payPeriodViews[i].stackSummary.surplus,
+      yOld.payPeriodViews[i].stackSummary && yOld.payPeriodViews[i].stackSummary.credit && yOld.payPeriodViews[i].stackSummary.credit.totals.deduction])),
+  'Credit, Balance After Deductions and Surplus are byte-equal to main with the debit too');
+  // Control: the ordinary credit (the unedited week, section 2) still publishes Paid back 100.00, so only the debit withholds.
+  ok(cents(travel.paidBack.amount) === 10000, 'control: the same payment as an ordinary credit is Paid back 100.00 (section 2)');
+  // The page: both views print a dash for Travel, no minus anywhere.
+  const pg = render(read, yr);
+  const travelCard = (pg.card.match(/<li><button class="stack-credit-line" type="button" data-stack-sheet="card:travelvisa">[\s\S]*?<\/li>/) || [''])[0];
+  ok(/— \/ \$236/.test(text(travelCard)) && !/−|\u2212|-\$/.test(text(travelCard)), 'the Credit card row reads "— / $236": no negative paid back', text(travelCard));
+  const dropTravel = items(pg.wf).find(r => /^Synthetic card|^travelvisa|^Travel/i.test(r)) || items(pg.wf)[1];
+  ok(!/\$336/.test(pg.wf) && !/−\$100/.test(pg.wf) && /—/.test(dropTravel), 'the dropdown prints a dash for Travel, never $336', JSON.stringify(items(pg.wf)));
+}
+
 console.log('3. Mutants: each must fail a check above');
 {
   const src = read('public/forecast.js');
@@ -224,6 +261,28 @@ console.log('3. Mutants: each must fail a check above');
   pend.cards[0].pending = [row('payment', -75, RECONCILED)];
   const line = PM.stackCreditLines(pend, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(cents(line.stillToPayBack.amount) === 2500, 'MUTANT: Still to pay back from line.paid (the pending 75 counted) reads 25.00, not the 100.00 condition 1 pins', JSON.stringify(line.stillToPayBack));
+  const debitBlind = cp2.replace('const debit = card.postedPaymentDebit === true;', 'const debit = false;');
+  ok(debitBlind !== cp2, 'the debit mutant targets the paid-back qualification');
+  const PD = engine(file => (file === 'public/forecast-card-period.js' ? debitBlind : read(file)));
+  const y = fx.fixture(); y.packet.transactions.find(t => t.id === 'payment-a').amount = 100;
+  const dl = PD.recommend(y.plan, y.asOf, { debts: y.debts, currentPeriodActuals: y.packet, cardPeriodBalanceEvidence: y.balanceEvidence, cardLiveOverlay: y.overlay })
+    .payPeriodViews.find(v => v.role === 'active').stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  ok(dl.paidBack.amount === null, 'MUTANT (debit flag off): the negative-floor still withholds a net −100 (belt and braces), so the next mutant drops both');
+  // A mixed card: a 150.00 posted payment credit and a 50.00 posted payment debit net to +100.00; the debit leaves the
+  // direction unresolved, so Paid back is withheld. With the debit flag off it would print a confident +100.00.
+  const mixed = pub([['a', [row('payment', -150, RECONCILED), row('payment', 50, RECONCILED)]]]);
+  const real = M.stackCreditLines(mixed, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
+  const mut = realm(file => (file === 'public/forecast-card-period.js' ? debitBlind : read(file))).ForecastCardPeriod
+    .stackCreditLines(mixed, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
+  ok(real.paidBack.amount === null && real.paidBack.reasons.includes('payment-direction-unresolved') && cents(real.paidToward.amount) === 10000,
+    'a mixed card (150 credit, 50 debit): Paid back withheld; paidToward stays the incumbent 100.00', JSON.stringify(real.paidBack));
+  ok(cents(mut.paidBack.amount) === 10000, 'MUTANT (debit flag off): the mixed card prints a confident +100.00, which the check above rejects');
+  const bothOff = debitBlind.replace('(debit || cents(paidToward.amount) < 0)', '(debit)');
+  const PB = engine(file => (file === 'public/forecast-card-period.js' ? bothOff : read(file)));
+  const bl = PB.recommend(y.plan, y.asOf, { debts: y.debts, currentPeriodActuals: y.packet, cardPeriodBalanceEvidence: y.balanceEvidence, cardLiveOverlay: y.overlay })
+    .payPeriodViews.find(v => v.role === 'active').stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  ok(bothOff !== debitBlind && cents(bl.paidBack.amount) === -10000 && cents(bl.stillToPayBack.amount) === 33600,
+    'MUTANT (no qualification): Paid back −100.00 and Still to pay back 336.00 come back, which section 2b rejects', JSON.stringify([bl.paidBack, bl.stillToPayBack]));
   const wsrc = read('public/stack-waterfall.js');
   const noCaption = wsrc.replace("const caption = cards ?", "const caption = false ?");
   ok(noCaption !== wsrc, 'the caption mutant targets the caption');

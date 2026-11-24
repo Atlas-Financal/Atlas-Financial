@@ -36,7 +36,7 @@ const STUB = `;(function (F) {
     // OD-033: Paid back (posted, here the line's paid) and whether it has reached the target, as Forecast publishes them.
     const paidToward = l.paid && l.paid.amount != null ? fig(l.paid.amount) : { amount: null, trust: 'unavailable', reasons: [] };
     const known = paidToward.amount != null && target.amount != null;
-    return { ...l, target, paidToward, targetCovered: { value: known ? target.amount > 0 && paidToward.amount >= target.amount : 'unknown', trust: known ? 'calculated' : 'unavailable', reasons: [] },
+    return { ...l, target, paidToward, paidBack: paidToward, targetCovered: { value: known ? target.amount > 0 && paidToward.amount >= target.amount : 'unknown', trust: known ? 'calculated' : 'unavailable', reasons: [] },
       stillToPayBack: known ? fig(Math.max(0, target.amount - paidToward.amount)) : { amount: null, trust: 'unavailable', reasons: [] } };
   };
   const lines = () => ({

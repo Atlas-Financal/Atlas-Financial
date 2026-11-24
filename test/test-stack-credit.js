@@ -477,7 +477,7 @@ console.log('5b. mutants: the checks above must catch each of these (a failing m
   const greenTrustBlind = src.replace('line.targetCovered.value === true && COVERAGE_TRUST.includes(line.targetCovered.trust)', 'line.targetCovered.value === true');
   ok(greenTrustBlind !== src && run(greenTrustBlind) === false, 'MUTANT: targetCovered read without its trust (green on trust unavailable) is caught');
   // Paid back is posted only (Grok Bot's condition 1): X reads paidToward, never line.paid (which counts pending payments).
-  const paidWithPending = src.replace('const toward = amountOf(line.paidToward);', 'const toward = amountOf(line.paid) != null ? amountOf(line.paid) : amountOf(line.paidToward);');
+  const paidWithPending = src.replace('const toward = amountOf(line.paidBack);', 'const toward = amountOf(line.paid) != null ? amountOf(line.paid) : amountOf(line.paidBack);');
   ok(paidWithPending !== src && run(paidWithPending) === false, 'MUTANT: Paid back read from line.paid (pending counted) is caught');
   // The defect on Dale's live screenshot: the old 'to-go' branch (X = the published toGo, red) restored.
   const toGoBack = src.replace('if (toward != null) out.x = toward;',

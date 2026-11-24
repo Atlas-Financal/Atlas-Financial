@@ -361,6 +361,9 @@
         : movement && movement.trust === 'calculated' && movement.completeness === 'complete'
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
       let paidCents = 0, spentCents = 0, postedPaidCents = 0, chargeCents = 0;
+      // A posted payment that takes money off the card (a debit: a reversal or a misread direction). OD-033's Paid back is
+      // never negative and never a net of such a row (ChatGPT, #1617 7120269248): it reads this and withholds. Internal.
+      let postedPaymentDebit = false;
       const paidReasons = [], spentReasons = [], postedPaidReasons = [];
       let paidTrust = 'calculated', spentTrust = 'calculated', postedPaidTrust = 'calculated';
       for (const row of rows) {
@@ -385,6 +388,7 @@
             if (!row.pending) { postedPaidTrust = 'estimated'; postedPaidReasons.push('card-payment-unconfirmed'); }
           }
           if (!row.pending) postedPaidCents += -value;
+          if (!row.pending && value > 0) postedPaymentDebit = true;
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') {
           spentCents += value;
           // A charge is a household purchase, a card-paid bill or a savings item (the classifier's spend / bill / savings-item):
@@ -416,7 +420,7 @@
       const state = net.amount == null ? null
         : !rows.length ? 'no-activity'
         : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
-      return { id: card.id, label: card.label, paid, paidPosted, chargesCounted, spent, net, state,
+      return { id: card.id, label: card.label, paid, paidPosted, chargesCounted, postedPaymentDebit, spent, net, state,
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
     });
   }
@@ -659,21 +663,28 @@
       // onto this card in this period only (Grok Bot's condition 1), never a net. Still to pay back = max(0, target − paid
       // back); unknown when either is (never $0). targetCovered is the row's green and ✓: paid back has reached a target
       // above $0 (Neon REPORT 4: never keyed off the minimum alone).
+      // Paid back (the row's left side, OD-033): paidToward, qualified for display. A posted payment row that debits the card
+      // leaves its direction unresolved, so Paid back is withheld (a dash, never a negative), as is any paidToward below $0;
+      // paidToward itself, the head's minimumsPaid and the minimum check are unchanged (ChatGPT, #1617 7120269248).
+      const debit = card.postedPaymentDebit === true;
+      const paidBack = paidToward.amount !== null && (debit || cents(paidToward.amount) < 0)
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set(['payment-direction-unresolved'].concat(paidToward.reasons))] }
+        : paidToward;
       const targetCents = target.amount === null ? null : cents(target.amount);
-      const towardCents = paidToward.amount === null ? null : cents(paidToward.amount);
+      const towardCents = paidBack.amount === null ? null : cents(paidBack.amount);
       const shortOf = targetCents === null || towardCents === null;
       const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? paidToward.reasons : []))] }
-        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, paidToward.trust), reasons: [] };
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? paidBack.reasons : []))] }
+        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, paidBack.trust), reasons: [] };
       const targetCovered = shortOf
         ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
-        : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, paidToward.trust), reasons: [] };
+        : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, paidBack.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
       const paidForMinimum = card.paidPosted || paid;
       const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
         : cents(paidForMinimum.amount) >= cents(minimum.amount);
-      const { paidPosted, chargesCounted, ...shown } = card;
-      return { ...shown, balance, minimum, target, deduction, paidToward, stillToPayBack, targetCovered, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      const { paidPosted, chargesCounted, postedPaymentDebit, ...shown } = card;
+      return { ...shown, balance, minimum, target, deduction, paidToward, paidBack, stillToPayBack, targetCovered, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paidForMinimum.reasons.concat(minimum.reasons))] : [] } };
