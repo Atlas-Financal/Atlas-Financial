@@ -299,7 +299,9 @@ console.log('9. Every published figure, never above the truth, whichever card it
   // Debt owed is cautious when higher too. (Where the truth world adds the
   // second card's own payment credit, that card's provider balance itself
   // differs: an input difference, not card coverage.)
-  const CAUTIOUS = [/^totals\.obligations$/, /^payday\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
+  const CAUTIOUS = [/^totals\.obligations$/, /^payday\.obligations$/, /^period\.[^.]+\.remainingBills$/,
+    // The Bills account card's owed lines (Household budget still to move, Coming out) are what still leaves Bills: higher is cautious.
+    /^period\.[^.]+\.stackBillsAccountHousehold$/, /^period\.[^.]+\.stackBillsAccountOut\.[^.]+\.amount$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
     /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/,
     // The Stack credit lines' balance snapshot is the same card stock as
     // revolving.<id>.posted (the debt's balance, #1447), and its total is a sum of it.
