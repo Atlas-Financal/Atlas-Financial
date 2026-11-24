@@ -76,7 +76,8 @@ assert((() => { try { goText('<summary></summary>'); return false; } catch (e) {
   require("../public/stack-cards.js").render(c, ctx(view));
   const attrs = { 'aria-expanded': 'false' };
   const sum = { setAttribute: (n, v) => { attrs[n] = v; } };
-  const det = { querySelector: () => sum, hasAttribute: () => true };
+  // A card (the handler listens on the pile and acts only on a card: reorderable stacks put each card in its own slot).
+  const det = { querySelector: () => sum, hasAttribute: () => true, classList: { contains: c => c === 'sc-card' } };
   listeners.toggle[0].fn({ target: det });
   assert(listeners.toggle[0].cap === true && attrs['aria-expanded'] === 'true', 'opening a card sets aria-expanded on its head');
   det.hasAttribute = () => false; listeners.toggle[0].fn({ target: det });
@@ -256,9 +257,13 @@ assert(!savingsOf(withSavings(POURED)).includes('data-stack-sheet'));
   const cont = { addEventListener: (n, f) => { if (n === 'keydown') handler = f; }, innerHTML: '' };
   require(file).render(cont, ctx(view));
   assert(handler && cont.innerHTML.includes('data-stack-sheet'));
-  const row = { getAttribute: () => 'bill:hydro@2026-01-05', click: () => clicked++ };
+  // A row inside a card (the handler listens on the pile, so it acts only on rows of this block's cards).
+  const row = { getAttribute: () => 'bill:hydro@2026-01-05', click: () => clicked++, closest: sel => (sel === '.sc-card' ? {} : null) };
   ['Enter', ' ', 'a'].forEach(key => handler({ key, target: row, preventDefault() {} }));
   assert.strictEqual(clicked, 2, 'Enter and Space click; other keys do not');
+  const outside = { getAttribute: () => 'card:visa', click: () => clicked++, closest: () => null };
+  handler({ key: 'Enter', target: outside, preventDefault() {} });
+  assert.strictEqual(clicked, 2, 'a sheet row outside the cards (Credit\'s own button) is left to its own handler');
 }
 
 // 2c. trust has no look (owner decision, Dale, 2026-11-23: "remove all estimate styling"). These views differ from the

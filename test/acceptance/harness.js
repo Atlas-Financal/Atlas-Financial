@@ -393,7 +393,9 @@ async function openBudget(dataDocs, opts = {}) {
     // The Stack page (view 'stack'): the text of one block (waterfall, cards, credit, sheet) or of the whole page, the
     // textContent of every match inside it, the pay periods it offers, and the household pressing a period chip.
     async stackText(block) {
-      const sel = block ? `#stack-root [data-stack-block="${block}"]` : '#stack-root';
+      // The cards block's cards each sit in their own slot of the pile (reorderable stacks): its text is its frame and its slots.
+      const sel = block === 'cards' ? '#stack-root [data-stack-block="cards"], #stack-root [data-stack-slot-card]'
+        : block ? `#stack-root [data-stack-block="${block}"]` : '#stack-root';
       const loc = page.locator(sel);
       return (await loc.count()) ? (await loc.allInnerTexts()).join('\n') : '';
     },

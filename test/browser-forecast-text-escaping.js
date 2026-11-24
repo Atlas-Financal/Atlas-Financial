@@ -47,7 +47,7 @@ const worlds = {
   'Stack page': {
     stack: true,
     data: () => H.hostileStack(),
-    reach: ['#stack-root [data-stack-block="credit"]', '#stack-root [data-stack-block="cards"]', '#stack-root [data-stack-block="waterfall"]'],
+    reach: ['#stack-root [data-stack-block="credit"]', '#stack-root [data-stack-slot-card]', '#stack-root [data-stack-block="waterfall"]'],
   },
 };
 

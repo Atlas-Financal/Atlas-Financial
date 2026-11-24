@@ -304,16 +304,20 @@
   function render(container, ctx) {
     if (!container) return;
     container.innerHTML = buildCardsHTML(ctx);
-    // Enter or Space on a focused row acts as a click (once per container); a card's open state is mirrored onto its head.
-    if (!container.__stackCardsKeys && typeof container.addEventListener === 'function') {
-      container.__stackCardsKeys = true;
-      container.addEventListener('toggle', function (e) {
-        var d = e.target, sum = d && d.querySelector && d.querySelector(':scope > summary');
+    // Enter or Space on a focused row acts as a click; a card's open state is mirrored onto its head. Listened for on the
+    // pile (once), because the shell places each card in its own slot of the pile (reorderable stacks), outside this
+    // container; only this block's cards are handled.
+    var host = (container.closest && container.closest('[data-stack-pile]')) || container;
+    if (!host.__stackCardsKeys && typeof host.addEventListener === 'function') {
+      host.__stackCardsKeys = true;
+      host.addEventListener('toggle', function (e) {
+        var d = e.target, sum = d && d.querySelector && d.classList && d.classList.contains('sc-card') && d.querySelector(':scope > summary');
         if (sum && d.hasAttribute) sum.setAttribute('aria-expanded', d.hasAttribute('open') ? 'true' : 'false');
       }, true);
-      container.addEventListener('keydown', function (e) {
+      host.addEventListener('keydown', function (e) {
         var t = e.target;
-        if ((e.key === 'Enter' || e.key === ' ') && t && t.getAttribute && t.getAttribute('data-stack-sheet') && typeof t.click === 'function') {
+        if ((e.key === 'Enter' || e.key === ' ') && t && t.getAttribute && t.getAttribute('data-stack-sheet') && t.closest && t.closest('.sc-card')
+          && typeof t.click === 'function') {
           e.preventDefault();
           t.click();
         }
