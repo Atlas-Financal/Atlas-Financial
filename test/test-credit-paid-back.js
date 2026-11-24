@@ -336,16 +336,16 @@ console.log('3. Mutants: each must fail a check above');
   ok(figBack !== src && Object.hasOwn(engine(file => (file === 'public/forecast.js' ? figBack : read(file))).stackCreditBreakdown(entry, BILLS), 'alreadyCounted'),
     'MUTANT: the "Already counted above" figure restored in the breakdown is published, which proof 2 rejects');
   const cp2 = read('public/forecast-card-period.js');
-  const pendingMutant = cp2.replace('const paidToward = paidTowardOf(card, published(card.id));',
-    'const paidToward = card.paid.amount !== null ? { amount: card.paid.amount, trust: card.paid.trust, reasons: [] } : paidTowardOf(card, published(card.id));');
+  const payerRead = 'paidTowardOf(card, published(card.id))';
+  const pendingMutant = cp2.replace(payerRead,
+    `(card.paid.amount !== null ? { amount: card.paid.amount, trust: card.paid.trust, reasons: [] } : ${payerRead})`);
   ok(pendingMutant !== cp2, 'the pending mutant targets paid back');
   const PM = realm(file => (file === 'public/forecast-card-period.js' ? pendingMutant : read(file))).ForecastCardPeriod;
   const pend = pub([['a', []]]);
   pend.cards[0].pending = [row('payment', -75, RECONCILED)];
   const line = PM.stackCreditLines(pend, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(cents(line.stillToPayBack.amount) === 2500, 'MUTANT: Still to pay back from line.paid (the pending 75 counted) reads 25.00, not the 100.00 condition 1 pins', JSON.stringify(line.stillToPayBack));
-  const receiptMutant = cp2.replace('const paidToward = paidTowardOf(card, published(card.id));',
-    'const paidToward = card.paidPosted || paidTowardOf(card, published(card.id));');
+  const receiptMutant = cp2.replace(payerRead, `(card.paidPosted || ${payerRead})`);
   const receiptModule = realm(file => (file === 'public/forecast-card-period.js' ? receiptMutant : read(file))).ForecastCardPeriod;
   const receiptLine = receiptModule.stackCreditLines(receiptOnly, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(receiptMutant !== cp2 && receiptLine.paidBack.amount === 75 && receiptLine.minimumCovered.value === true,
