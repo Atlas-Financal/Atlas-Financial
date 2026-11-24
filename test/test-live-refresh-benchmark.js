@@ -15,19 +15,34 @@ const snapshots = {
     // balanceAfterDeductionsTrust null -> estimated and stackSummary.surplus.trust calculated -> estimated (toward caution).
     // Re-pinned for the desk's over-limit ruling (Neon 7113251603 item 2): a whole-document diff against b68bd89e shows only
     // one card target's reasons gaining over-limit-payments-unproven in two views; no figure or trust word moved.
-    forecast: '8dbb0ab9ff652084412ca9b00ca9549df85b42ac00fb4e49ee863ca48022f763',
+    // Re-pinned for OD-033 (the Credit rows): a whole-document diff against e4c7b1a3 shows each Credit line gaining
+    // stillToPayBack, targetCovered and its deduction's countedOffset / beyondNetted, and the dropdown's card rows reading
+    // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
+    // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
+    // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
+    forecast: '74354fb84cc96226432a9ebbe74046e5537825149ab07b53ac7648d87e671f51',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
     // Re-pinned for desk ruling (E) (#1573): each view adds stackSummary.credit / creditBreakdown and the options carry the
     // card publication's evidence; a whole-document diff against main shows only those additions (no figure moved).
-    forecast: 'b6d14ae184ef6c83be12374865f0a5188f93e029eb31114e4edd63d7733cd3c4',
+    // Re-pinned for OD-033 (the Credit rows): a whole-document diff against e4c7b1a3 shows each Credit line gaining
+    // stillToPayBack, targetCovered and its deduction's countedOffset / beyondNetted, and the dropdown's card rows reading
+    // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
+    // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
+    // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
+    forecast: '1e16f48cea779c0dc153fe08b81b7c516cfbd80d822ec01d6113f0cf1bf09fcb',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
     // Re-pinned for desk ruling (E) (#1573): each view adds stackSummary.credit / creditBreakdown and the options carry the
     // card publication's evidence; a whole-document diff against main shows only those additions (no figure moved).
-    forecast: '83a1019704214a04533523ea328ecefb29c8ab1dceee997d19e55c28b8a8e103',
+    // Re-pinned for OD-033 (the Credit rows): a whole-document diff against e4c7b1a3 shows each Credit line gaining
+    // stillToPayBack, targetCovered and its deduction's countedOffset / beyondNetted, and the dropdown's card rows reading
+    // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
+    // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
+    // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
+    forecast: 'a4271c92771a20a8f2f73ed73bfccf84466cb6cb10855629cb7c055b705fbcc2',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

@@ -13,7 +13,35 @@ function targetFromMinimum(line) {
     : { amount: null, trust: 'unavailable', reasons: ['minimum-unavailable'] };
   return { ...line, target: { ...target, newCharges: null, minimum: m.amount, overLimitBy: 0 } };
 }
-const withTargets = lines => (Array.isArray(lines) ? lines.map(targetFromMinimum) : lines);
+// OD-033: each stub line also gets the two fields Forecast publishes beside the target, worked here by hand the way Forecast
+// works them, unless the stub sets them itself: paidToward, paidBack (posted payments onto the card; the stub's paid stands in for it,
+// a withheld paid withholds it) and targetCovered (paid back has reached a target above $0). stillToPayBack likewise.
+const cents = v => Math.round(v * 100);
+function paidBackFields(line) {
+  if (!line || typeof line !== 'object') return line;
+  const out = { ...line };
+  if (!Object.hasOwn(out, 'paidToward')) {
+    out.paidToward = out.paid && out.paid.amount != null ? { amount: out.paid.amount, trust: out.paid.trust, reasons: [] }
+      : { amount: null, trust: 'unavailable', reasons: ['paid-unavailable'] };
+  }
+  // paidBack: paidToward qualified for display (never negative), as Forecast publishes it.
+  if (!Object.hasOwn(out, 'paidBack')) {
+    out.paidBack = out.paidToward && out.paidToward.amount != null && out.paidToward.amount < 0
+      ? { amount: null, trust: 'unavailable', reasons: ['payment-direction-unresolved'] } : out.paidToward;
+  }
+  const t = out.target && out.target.amount, w = out.paidBack && out.paidBack.amount;
+  const known = t != null && w != null;
+  if (!Object.hasOwn(out, 'targetCovered')) {
+    out.targetCovered = known ? { value: cents(t) > 0 && cents(w) >= cents(t), trust: 'calculated', reasons: [] }
+      : { value: 'unknown', trust: 'unavailable', reasons: [] };
+  }
+  if (!Object.hasOwn(out, 'stillToPayBack')) {
+    out.stillToPayBack = known ? { amount: Math.max(0, cents(t) - cents(w)) / 100, trust: 'calculated', reasons: [] }
+      : { amount: null, trust: 'unavailable', reasons: [] };
+  }
+  return out;
+}
+const withTargets = lines => (Array.isArray(lines) ? lines.map(line => paidBackFields(targetFromMinimum(line))) : lines);
 // Desk ruling (E) (#1573): Forecast publishes each view's Credit lines on the view (stackSummary.credit) and the page reads
 // them there, calling no Forecast function. Page tests that stub Forecast.cardPeriodMovements / stackCreditLines keep their
 // stubs: this stand-in plays Forecast, calling the stubs as Forecast does and placing the result on the selected view before
@@ -40,4 +68,4 @@ const standIn = fn => (first, c, ...rest) => {
   publishCredit(ctx);
   return fn(first, c, ...rest);
 };
-module.exports = { targetFromMinimum, withTargets, publishCredit, standIn };
+module.exports = { targetFromMinimum, paidBackFields, withTargets, publishCredit, standIn };
