@@ -382,6 +382,10 @@ try {
   // "Move down" pair per card (out of the Tab order, no visible buttons); each move is announced.
   const ORDER_KEY = 'atlas.stackOrder.v1';
   const HOLD_MS = 450, SLOP = 10;
+  // Auto-scroll while dragging (Dale's stacks, #1629 note): within EDGE px of the top or bottom of the screen, a held
+  // card scrolls the page, faster the closer it is to the edge (up to MAX_STEP px a frame), so it can be dropped
+  // anywhere in the pile. Pixels, not figures.
+  const EDGE = 72, MAX_STEP = 18;
   function savedOrder() {
     try {
       const raw = window.localStorage && window.localStorage.getItem(ORDER_KEY);
@@ -502,7 +506,29 @@ try {
       if (slot && moveSlot(el, pile, slot, button.getAttribute('data-stack-move') === 'up' ? -1 : 1)) button.focus();
     }, true);
     // Press and hold, then drag. A tap (released before the hold) and a scroll (moved before the hold) are left alone.
-    let press = null, lifted = null, swallowClick = false;
+    let press = null, lifted = null, swallowClick = false, frame = null;
+    const scrollTop = () => window.pageYOffset || document.documentElement.scrollTop || 0;
+    // The held card follows the finger in page terms, so it stays under the finger while the page scrolls beneath it.
+    const follow = () => {
+      if (lifted) lifted.slot.style.transform = 'translateY(' + (lifted.y - lifted.startY + scrollTop() - lifted.startScroll) + 'px)';
+    };
+    const edgeStep = y => {
+      const bottom = window.innerHeight || document.documentElement.clientHeight || 0;
+      if (y < EDGE) return -MAX_STEP * Math.min(1, (EDGE - y) / EDGE);
+      if (y > bottom - EDGE) return MAX_STEP * Math.min(1, (y - (bottom - EDGE)) / EDGE);
+      return 0;
+    };
+    const autoScroll = () => {
+      frame = null;
+      if (!lifted) return;
+      const step = edgeStep(lifted.y);
+      if (!step) return;
+      // Within the page as it was when the card was lifted: the moving card itself must not stretch the page.
+      const before = scrollTop();
+      window.scrollTo(0, Math.max(0, Math.min(lifted.maxScroll, before + step)));
+      follow();
+      if (scrollTop() !== before) frame = window.requestAnimationFrame(autoScroll);
+    };
     const clear = () => {
       if (press && press.timer) clearTimeout(press.timer);
       press = null;
@@ -511,6 +537,7 @@ try {
       const slot = lifted && lifted.slot;
       if (!slot) return;
       const y = lifted.y;
+      if (frame != null) { window.cancelAnimationFrame(frame); frame = null; }
       slot.classList.remove('is-lifted');
       slot.style.transform = '';
       root.classList.remove('stack-dragging');
@@ -538,7 +565,9 @@ try {
       press = { slot, x: event.clientX, y: event.clientY, id: event.pointerId };
       press.timer = setTimeout(() => {
         if (!press) return;
-        lifted = { slot: press.slot, startY: press.y, y: press.y, id: press.id };
+        const page = document.documentElement;
+        lifted = { slot: press.slot, startY: press.y, y: press.y, id: press.id, startScroll: scrollTop(),
+          maxScroll: Math.max(0, page.scrollHeight - (window.innerHeight || page.clientHeight || 0)) };
         press = null;
         swallowClick = true;
         slot.classList.add('is-lifted');
@@ -552,7 +581,8 @@ try {
       if (press && event.pointerId === press.id && (dx > SLOP || dx < -SLOP || dy > SLOP || dy < -SLOP)) clear();
       if (lifted && event.pointerId === lifted.id) {
         lifted.y = event.clientY;
-        lifted.slot.style.transform = 'translateY(' + (event.clientY - lifted.startY) + 'px)';
+        follow();
+        if (frame == null && edgeStep(lifted.y)) frame = window.requestAnimationFrame(autoScroll);
       }
     });
     const end = event => {
