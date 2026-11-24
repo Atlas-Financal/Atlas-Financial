@@ -101,9 +101,8 @@ ok(advice.payPeriodViews.filter(v => v.role !== 'active').every(v => !v.stackSum
 // The close itself (every published field but the new display list) is byte-equal to main.
 const OLD = engine(show);
 const oldClose = activeOf(advise(OLD, world())).billsAccountPeriodBalance;
-const { items, ...closeRest } = close;
-ok(JSON.stringify(closeRest) === JSON.stringify(oldClose) && !Object.hasOwn(oldClose, 'items'),
-  'billsAccountPeriodBalance is byte-equal to main apart from the new items list');
+ok(JSON.stringify(close) === JSON.stringify(oldClose),
+  'billsAccountPeriodBalance is byte-equal to main: the lines are kept beside it, never on it (its saved records stay exact)');
 ok(JSON.stringify(advice.defaultView.billsAccountPeriodBalance) === JSON.stringify(close),
   'the default view publishes the same close');
 
@@ -197,8 +196,8 @@ mutant('the late word dropped', 'public/forecast.js', "item.date && item.date < 
   sources => fresh(sources).comingOut.find(r => r.id === 'late-bill').status === 'late');
 mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && finite(pub.observedCash)', 'const now = finite(pub.observedCash)',
   sources => activeOf(advise(engine(sources), world('misaligned'))).stackSummary.billsAccount.now.amount === null);
-mutant('the lists published with a withheld close', 'public/forecast.js', "const ready = pub.status === 'ready' && Array.isArray(pub.items);",
-  'const ready = Array.isArray(pub.items);',
+mutant('the lists published with a withheld close', 'public/forecast.js', "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
+  'const ready = Array.isArray(pubItems);',
   sources => activeOf(advise(engine(sources), world('stale'))).stackSummary.billsAccount.comingOut === null);
 {
   const src = read('public/stack-cards.js');

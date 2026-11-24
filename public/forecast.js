@@ -13636,14 +13636,15 @@
       ? { amount: pub.observedCash, asOf: pub.observedAsOf, trust: 'estimated', reason: null }
       : { amount: null, asOf: null, trust: 'unavailable',
         reason: readingIssue ? readingIssue.message : 'A dated posted Bills account balance is unavailable.' };
-    const ready = pub.status === 'ready' && Array.isArray(pub.items);
+    const pubItems = billsAccountItemsByPublication.get(pub);
+    const ready = pub.status === 'ready' && Array.isArray(pubItems);
     const reason = ready ? null : pub.reason || 'The Bills account lines are unavailable.';
     const rows = new Map((Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.id && row.date)
       .map(row => [row.id + '@' + row.date, row]));
     const line = item => ({ id: item.id, label: item.label, date: item.date, amount: item.amount, trust: item.trust,
       billRow: item.kind === 'bill' && rows.has(item.id + '@' + item.date) });
     // Each list in date order (then name), as the card reads it.
-    const items = ready ? pub.items.slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
+    const items = ready ? pubItems.slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
       || String(a.label || '').localeCompare(String(b.label || ''))) : [];
     const household = pub.household || {};
     return { status: ready ? 'ready' : 'unavailable', reason, now,
@@ -15875,6 +15876,11 @@
   }
 
 
+  // The Bills account card's lines for each billsAccountPeriodBalance publication (lead dispatch 2026-11-24), kept beside
+  // the publication, never on it: the close and every saved record of it stay exactly as before. Read only by
+  // stackBillsAccount; a publication without an entry (a copy, a saved record) has no lines.
+  const billsAccountItemsByPublication = new WeakMap();
+
   // Owner 2026-10-07: expected period-end stock of BILLS only. This
   // derives a separate estimate; it never replaces the period-income BAD,
   // Savings capacity, Month, or the signed A+B simulation opening.
@@ -16034,7 +16040,7 @@
     const futureCashKeys = new Set(), evidence = [], coveredMinimums = [];
     // The Bills account stack card (lead dispatch 2026-11-24): each counted occurrence, named and dated, exactly as
     // it enters the close above (the same amount, kind and Bills scope), plus the Bills bills already settled this
-    // period. Display only: the close reads none of it.
+    // period. Display only: the close reads none of it, and it is kept beside the publication (billsAccountItemsByPublication).
     const items = [];
     const addCash = (key, amount, kind, source, item) => {
       if (futureCashKeys.has(key)) { issue('future-cash-identity-reused', 'A remaining cash occurrence is duplicated.'); return; }
@@ -16199,7 +16205,7 @@
     }
     const amount = issues.length || cash == null || remainingHousehold == null || additionalCardCash == null ? null
       : roundCent(cash + futureIncome - remainingBills - remainingHousehold - otherOutflows - additionalCardCash);
-    return { source: 'Forecast.billsAccountPeriodBalance', scope: 'bills-only', accountId: BILLS_ACCOUNT_ID,
+    const publication = { source: 'Forecast.billsAccountPeriodBalance', scope: 'bills-only', accountId: BILLS_ACCOUNT_ID,
       currency: 'CAD', asOf: day, start: cycle && cycle.start, end: cycle && cycle.end,
       status: amount == null ? 'unavailable' : 'ready', trust: amount == null ? 'unknown' : 'estimated', amount,
       observedCash: cash, observedAsOf: cashDate, futureIncome, remainingBills, otherOutflows,
@@ -16211,10 +16217,12 @@
       accountAssumption: 'Unassigned household outflows follow the owner\'s Bills funding anchor. Explicit other cash payers do not imply a Bills transfer.'
         + ((plan.bills || []).some(b => billFundingAccount(b, plan))
           ? ' Explicit bill fundingAccount attributes the individual planned funding requirement to Bills; merchant payment remains held elsewhere.' : ''),
-      issues, reason: issues.length ? issues[0].message : null, evidence, items,
+      issues, reason: issues.length ? issues[0].message : null, evidence,
       provenance: ['Forecast.postedBillsAccountCash', 'Forecast.postedAccountMovements', 'Forecast.householdInternalMovements',
         'Forecast.calendarHouseholdBudget', 'Forecast.reconcileCardPurchases', 'Forecast.cardMinimumState', 'Forecast.expandEvents'],
       grantsSpendPermission: false };
+    billsAccountItemsByPublication.set(publication, items);
+    return publication;
   }
 
   function billsLocationEffectForMovement(movement) {
