@@ -20,8 +20,13 @@ const withTargets = lines => (Array.isArray(lines) ? lines.map(targetFromMinimum
 // the page reads it (no stub: no publication). Wrap a block renderer or a sheet's html with standIn.
 function publishCredit(c) {
   const views = c && c.recommendation && Array.isArray(c.recommendation.payPeriodViews) ? c.recommendation.payPeriodViews : [];
-  const view = views.find(v => v && v.start === c.selectedPeriodKey) || (c && !c.selectedPeriodKey ? views.find(v => v && v.role === 'current') : null);
-  if (!view) return;
+  // Nothing to publish (no recommendation, or no payPeriodViews): a genuine no-op, e.g. a test that never renders Credit.
+  if (!views.length) return;
+  // Forecast marks the current view timelineRole 'current' (public/forecast.js:20011) and role 'active' (:602); it never uses role 'current'.
+  const isCurrent = v => v && (v.timelineRole === 'current' || v.role === 'active');
+  const view = c.selectedPeriodKey ? views.find(v => v && v.start === c.selectedPeriodKey) : views.find(isCurrent);
+  // Views exist but none match: fail loudly rather than skip, or the test passes without ever exercising Credit.
+  if (!view) throw new Error('stack-credit-target: no pay-period view matches ' + (c.selectedPeriodKey ? 'selectedPeriodKey ' + JSON.stringify(c.selectedPeriodKey) : 'the current view (timelineRole current / role active)') + '; views: ' + views.map(v => v && v.start).join(', '));
   const F = (c && c.Forecast) || {};
   const pub = typeof F.cardPeriodMovements === 'function'
     ? F.cardPeriodMovements(c.plan, c.data && c.data.debts, c.data && c.data.meta && c.data.meta.asOf, { start: view.start, end: view.end },
