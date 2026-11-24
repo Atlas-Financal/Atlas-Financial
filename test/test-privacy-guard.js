@@ -86,6 +86,48 @@ ok(/LUNCHMONEY_ACCESS_TOKEN/.test(guardSrc)
 ok(!/CONTENT_PATTERNS/.test(workflowSrc), 'workflow does not embed the content-policy constant');
 ok(!/CONTENT_PATTERNS/.test(staticSrc), 'static suite does not copy the incumbent identifier list');
 
+console.log('\n=== household identifiers are fingerprints, never readable ===');
+{
+  // Owner decision 2026-11-24: the engine keeps no readable household identifier.
+  // Its only long digit runs may sit inside 64-hex fingerprints.
+  // The git symlink file mode is the one legitimate six-digit literal.
+  const withoutHashes = guardSrc.replace(/'[0-9a-f]{64}'/g, "''").replace(`SYMLINK_MODE = '120000'`, '');
+  ok(!/[0-9]{6,}/.test(withoutHashes), 'engine holds no run of six or more digits outside a fingerprint');
+  ok(Array.isArray(guard.HOUSEHOLD_FINGERPRINTS) && guard.HOUSEHOLD_FINGERPRINTS.length >= 16,
+    'engine still carries every household identifier as a fingerprint',
+    `${(guard.HOUSEHOLD_FINGERPRINTS || []).length} entries`);
+  ok(guard.HOUSEHOLD_FINGERPRINTS.every((fp) => /^[0-9a-f]{64}$/.test(fp.sha256) && Number.isInteger(fp.len)),
+    'every fingerprint entry is well formed');
+  ok(!/\|[0-9]{6,}\|/.test(guard.CONTENT_PATTERNS), 'the plain pattern holds no identifier number');
+
+  // Synthetic identifiers, one per class, matched only through fingerprints.
+  const synth = [
+    ['zqxwvj', 'alpha'], ['8675309', 'digit'], ['q7z9k2x', 'alnum'],
+    ['zzsynth@', 'email'], ['qqmain zz', 'alphaspace'], ['4321 98', 'digitspace'],
+  ];
+  const fps = synth.map(([v, cls]) => ({ len: v.length, cls, sha256: guard.fingerprintOf(v) }));
+  const idx = guard.fingerprintIndex(fps);
+  for (const [v] of synth) {
+    ok(guard.fingerprintHit(`line ${v} here`, idx), `fingerprint catches a planted value (${v})`);
+    ok(guard.fingerprintHit(v.toUpperCase(), idx), `fingerprint match ignores case (${v})`);
+  }
+  ok(guard.fingerprintHit('acct 908675309123 ok', idx), 'a number inside a longer number still matches');
+  ok(guard.fingerprintHit('prezqxwvjpost', idx), 'a name inside a longer word still matches');
+  ok(!guard.fingerprintHit('8675 309 and zqxwv j', idx), 'a broken-up value does not match');
+  ok(!guard.fingerprintHit('nothing household here 1234567', idx), 'ordinary text does not match');
+  const findings = guard.scanFiles({
+    files: ['docs/leak.txt'],
+    patterns: 'NEVER_MATCH_SYNTHETIC_ONLY',
+    fingerprints: fps,
+    readFile: () => 'safe line\nleaked 8675309 here\n',
+  });
+  ok(findings.length === 1 && findings[0].kind === 'content' && findings[0].line === 2,
+    'scanFiles reports a fingerprint hit as content on the right line');
+  let threw = false;
+  try { guard.fingerprintIndex([{ len: 3, cls: 'nope', sha256: '0'.repeat(64) }]); } catch { threw = true; }
+  ok(threw, 'an unknown fingerprint class fails closed');
+}
+
 console.log('\n=== tracked tree stays inside the incumbent policy ===');
 {
   const tracked = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })

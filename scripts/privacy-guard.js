@@ -20,12 +20,44 @@
  */
 
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 // Incumbent content policy, moved here from `.githooks/pre-commit` so the
 // hook and CI share one list. Household identifiers stay in this file only.
-const CONTENT_PATTERNS = "NAUDI|CUTLER PL|V2X8R1|dnaudi@|privaterelay\\.appleid|6355425|6012135|6353074|1650429|3225135|9107573|9107595|452005|5446 ?12|14J2W4V|214JL|SITE_PASSWORD *= *[\"']|SESSION_SECRET *= *[\"']|LUNCHMONEY_ACCESS_TOKEN *= *[\"']|ATLAS_PROVIDER_ACCOUNT_MAP_JSON *= *[\"']|ATLAS_ASSISTANT_TOKEN *= *[\"']|ATLAS_TALK_GEMINI_API_KEY *= *[\"']";
+// Generic secret-assignment forms and the generic private-relay domain stay a
+// plain regex. Household identifiers are never stored here in readable form:
+// HOUSEHOLD_FINGERPRINTS holds only SHA-256 fingerprints of them (see
+// fingerprintHits). Owner decision, 2026-11-24 (lead session).
+const CONTENT_PATTERNS = "privaterelay\\.appleid|SITE_PASSWORD *= *[\"']|SESSION_SECRET *= *[\"']|LUNCHMONEY_ACCESS_TOKEN *= *[\"']|ATLAS_PROVIDER_ACCOUNT_MAP_JSON *= *[\"']|ATLAS_ASSISTANT_TOKEN *= *[\"']|ATLAS_TALK_GEMINI_API_KEY *= *[\"']";
+
+// One entry per household identifier: its length, its character class and
+// sha256(FINGERPRINT_PREFIX + lowercase value). A window of a scanned line
+// matches when it has that length, every character is in that class, and its
+// fingerprint is listed. Matching is case-insensitive and finds the value
+// anywhere in a line, as the regex it replaced did. A value of this kind has
+// few possible spellings, so a fingerprint hides it from a reader, not from a
+// determined search; the repository history is unchanged.
+const FINGERPRINT_PREFIX = 'atlas-privacy-guard-v1:';
+const HOUSEHOLD_FINGERPRINTS = Object.freeze([
+  { len: 5, cls: 'alpha', sha256: '87ec2a12edbbf1c9eea5559775a5d8c06ab4f65c29f4c41dea25d1aceaea6fcb' },
+  { len: 9, cls: 'alphaspace', sha256: 'd211535a11970edc7f7c5cae68a21f8cad37ed25de294f91178c97060e4fd75d' },
+  { len: 6, cls: 'alnum', sha256: '0970d4ce3acea9102909eeebf62f0f21b34a2d1939ab64e11afb13f563dd6eca' },
+  { len: 7, cls: 'email', sha256: 'e0c4f3add433860211ecefd67a327c9f8849338d0631b6f32226292713c0ad1b' },
+  { len: 7, cls: 'digit', sha256: 'e2f813e9665032085833cff18c38b86087ac03674a9f4c85ab5992502158936e' },
+  { len: 7, cls: 'digit', sha256: 'd55e54211f49f6643c887254cc1e52fd6de171914139e7d7bf30b4dae452120a' },
+  { len: 7, cls: 'digit', sha256: '4eba07849c16d7a130dc50b3abfe1f0194210b974d90ac9c4642b3b089de2779' },
+  { len: 7, cls: 'digit', sha256: '4e9e2a8660554f1c40196290a47c3a6d039b6eb362991c512c610ab195825eee' },
+  { len: 7, cls: 'digit', sha256: 'bde3c3349a88169b869edf284b6b112b018b7e5c66a6a5b40a6aa635ef118dd0' },
+  { len: 7, cls: 'digit', sha256: '61601206f983890069762ec5a717effcbbbd2e2ff88f57f57553db752cbed3c2' },
+  { len: 7, cls: 'digit', sha256: 'face9c56165d8761c23de3dfa5a327bd5057f7315ba414be4e714da8b19052b4' },
+  { len: 6, cls: 'digit', sha256: 'abfd558abe7d6b90a30f433fff2b7ed561bc0636e0ecd1417dcc9967c3275b7d' },
+  { len: 6, cls: 'digit', sha256: 'f17983a3552f9946102429ec9b614535d9f308d2e5f9185a8e5a1cd7f5712633' },
+  { len: 7, cls: 'digitspace', sha256: '8618dfbb7917f720995b1df33500a157980b6a09e133c444d2c01495194451f1' },
+  { len: 7, cls: 'alnum', sha256: '1232c23081f1dc49fea920aaa0c049adc28694669077be3a15f1aaf42cd8db6a' },
+  { len: 5, cls: 'alnum', sha256: 'b7e75d56363bc8921dc82eb3216cc23a3b0522cef274f248e2e7806f328b8885' },
+]);
 
 const PATH_BLOCK_RE = /^(raw|derived)\/|\.pdf$|^statements/i;
 const SKIP_CONTENT_RE = /^scripts\/privacy-guard\.js$/;
@@ -163,12 +195,84 @@ function symlinkBlocked(file, target) {
   return resolved == null || PATH_BLOCK_RE.test(resolved) || PATH_BLOCK_RE.test(`${resolved}/`);
 }
 
-function contentHits(body, patterns) {
+// The characters each fingerprint class may contain. A window can only match a
+// fingerprint when every character is in its class, so only those windows are
+// hashed.
+const FINGERPRINT_CLASSES = Object.freeze({
+  digit: /[0-9]/,
+  alpha: /[a-z]/,
+  alnum: /[a-z0-9]/,
+  email: /[a-z0-9@]/,
+  alphaspace: /[a-z ]/,
+  digitspace: /[0-9 ]/,
+});
+
+function fingerprintOf(value) {
+  return crypto.createHash('sha256').update(FINGERPRINT_PREFIX + String(value).toLowerCase()).digest('hex');
+}
+
+// Source text repeats the same words, so window fingerprints are cached. The
+// cache is cleared when full; it only saves work and never changes a result.
+const FINGERPRINT_CACHE_MAX = 2e5;
+const fingerprintCache = new Map();
+function cachedFingerprint(window) {
+  let hash = fingerprintCache.get(window);
+  if (hash === undefined) {
+    if (fingerprintCache.size >= FINGERPRINT_CACHE_MAX) fingerprintCache.clear();
+    hash = fingerprintOf(window);
+    fingerprintCache.set(window, hash);
+  }
+  return hash;
+}
+
+// Group fingerprints by class and length once per list.
+function fingerprintIndex(fingerprints) {
+  const index = new Map();
+  for (const fp of fingerprints) {
+    if (!FINGERPRINT_CLASSES[fp.cls]) throw new Error(`unknown fingerprint class: ${fp.cls}`);
+    if (!Number.isInteger(fp.len) || fp.len < 1 || !/^[0-9a-f]{64}$/.test(fp.sha256)) {
+      throw new Error('malformed fingerprint entry');
+    }
+    if (!index.has(fp.cls)) index.set(fp.cls, new Map());
+    const byLen = index.get(fp.cls);
+    if (!byLen.has(fp.len)) byLen.set(fp.len, new Set());
+    byLen.get(fp.len).add(fp.sha256);
+  }
+  return index;
+}
+
+// True when some window of the line is a listed household identifier: a
+// lowercase run of the fingerprint's class, of its length, anywhere in a run of
+// that class (so a value inside a longer word or number still matches).
+function fingerprintHit(line, index) {
+  const text = String(line).toLowerCase();
+  for (const [cls, byLen] of index) {
+    const inClass = FINGERPRINT_CLASSES[cls];
+    let start = 0;
+    while (start < text.length) {
+      while (start < text.length && !inClass.test(text[start])) start++;
+      let end = start;
+      while (end < text.length && inClass.test(text[end])) end++;
+      const run = text.slice(start, end);
+      for (const [len, hashes] of byLen) {
+        for (let i = 0; i + len <= run.length; i++) {
+          if (hashes.has(cachedFingerprint(run.slice(i, i + len)))) return true;
+        }
+      }
+      start = end;
+    }
+  }
+  return false;
+}
+
+const DEFAULT_FINGERPRINT_INDEX = fingerprintIndex(HOUSEHOLD_FINGERPRINTS);
+
+function contentHits(body, patterns, index = DEFAULT_FINGERPRINT_INDEX) {
   const re = new RegExp(patterns, 'i');
   const hits = [];
   const lines = String(body).split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    if (re.test(lines[i])) {
+    if (re.test(lines[i]) || fingerprintHit(lines[i], index)) {
       hits.push({ line: i + 1, excerpt: lines[i].slice(0, EXCERPT_LEN) });
       if (hits.length >= 5) break;
     }
@@ -178,7 +282,8 @@ function contentHits(body, patterns) {
 
 // `files` holds plain path strings, or entries { file, mode, commit } from
 // the git listings. readFile receives the entry and returns its content.
-function scanFiles({ files, patterns, readFile }) {
+function scanFiles({ files, patterns, readFile, fingerprints }) {
+  const index = fingerprints ? fingerprintIndex(fingerprints) : DEFAULT_FINGERPRINT_INDEX;
   const findings = [];
   for (const item of files) {
     const entry = typeof item === 'string' ? { file: item } : item;
@@ -197,7 +302,7 @@ function scanFiles({ files, patterns, readFile }) {
     if (entry.mode === SYMLINK_MODE && symlinkBlocked(file, body)) {
       findings.push({ file, kind: 'symlink', target: String(body).slice(0, EXCERPT_LEN), ...where });
     }
-    for (const hit of contentHits(body, patterns)) {
+    for (const hit of contentHits(body, patterns, index)) {
       findings.push({ file, kind: 'content', line: hit.line, excerpt: hit.excerpt, ...where });
     }
   }
@@ -265,6 +370,11 @@ if (require.main === module) {
 
 module.exports = {
   CONTENT_PATTERNS,
+  HOUSEHOLD_FINGERPRINTS,
+  FINGERPRINT_PREFIX,
+  fingerprintOf,
+  fingerprintIndex,
+  fingerprintHit,
   PATH_BLOCK_RE,
   SKIP_CONTENT_RE,
   MAX_READ_BYTES,

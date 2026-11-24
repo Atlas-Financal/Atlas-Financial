@@ -183,6 +183,7 @@
   ["Stack Wallet A6: Forecast.stackCardSummary states, per card and pay period, paid onto against spent on, from one cardPeriodMovements publication: posted only, null with a reason and never 0, pending listed and moving nothing (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-card-summary.js"],
   ["Stack card repayment target: max(minimum, new charges, over-limit), counted once (Dale, 2026-11-23, OD-028; desk ruling on Neon 7113251603)","test-stack-card-repayment-target.js"],
   ["Desk ruling (E): one card-target publication per view; Balance After Deductions and the Surplus take the Credit deduction (targets less what is already counted above, once)","test-card-target-credit-deduction.js"],
+  ["OD-033: Credit rows read Paid back / Total to pay back; the dropdown shows each card's Still to pay back (display only) and the charges already counted above, never a catch-all offset","test-credit-paid-back.js"],
   ["Stack card Spent and Paid count pending rows, a replaced pending once (Dale, 2026-11-22; ATLAS LEAD 12)","test-stack-card-spent-pending.js"],
   ["Stack Credit one membership: the Credit card head (minimums due and paid) spans every listed credit line, the HELOC included, so its due is the waterfall Credit for every published period; the HELOC paid side stays withheld or estimated (lead ruling, ATLAS LEAD 12, 2026-11-22)","test-stack-credit-one-membership.js"],
   ["Stack Wallet A6b: Forecast.stackCreditLines states per credit line the card's minimum (derived from the bills split), status, amount to go and minimum covered, with totals over stated cards and explicit completeness (lead dispatch, ATLAS LEAD 11, 2026-11-19)","test-stack-credit-lines.js"],
@@ -769,5 +770,6 @@
   ["Bills-only period balance keeps a scheduled fee allowance's unspent part after a fee posts, matching the period view (H2-8b)","test-bills-balance-fee-allowance.js"],
   ["A card statement due date moved later keeps its own statement: the known close day is used, and a 7-day minimum gap only picks which month's close applies (H2-3, as Grok agreed)","test-statement-close-grace.js"],
   ["A fixed-interest card snapshot whose rate differs from its debt's recorded rate is named (data check; never recomputes an amount or moves a figure)","test-fixed-interest-snapshot-rate.js"],
-  ["A once card minimum moved by its statement and already represented is not replayed in the cash walk (Gemini hunt 4, finding 2)","test-once-minimum-moved-represented.js"]
+  ["A once card minimum moved by its statement and already represented is not replayed in the cash walk (Gemini hunt 4, finding 2)","test-once-minimum-moved-represented.js"],
+  ["The Credit stand-in finds the selected pay-period view as Forecast publishes it and throws when none matches, instead of silently skipping (F7, #1607)","test-stack-credit-standin-lookup.js"]
 ]

@@ -67,6 +67,13 @@ const measureWaterfall = page => page.evaluate(() => {
   const ink = el => { const r = document.createRange(); r.selectNodeContents(el); return [...r.getClientRects()].filter(x => x.width > 0); };
   const wf = document.querySelector('#stack-root [data-block="waterfall"]');
   for (const n of wf.querySelectorAll('.wf-line .n:not([data-unpublished]), .wf-card .n:not([data-unpublished])')) n.textContent = '$12,345.67';
+  // A card row whose figure is withheld prints a dash (OD-033: a card's Still to pay back is unknown when its paid back is,
+  // as in this invented world, which has no card ledger). This check is about layout, so the long amount is written into
+  // that row's figure too, and the row is measured as a published one would draw.
+  for (const n of wf.querySelectorAll('.wf-card[data-row="card"] .n[data-unpublished]')) {
+    n.removeAttribute('data-unpublished'); n.textContent = '$12,345.67';
+    const dash = n.nextElementSibling; if (dash && /wf-dash/.test(dash.className)) dash.remove();
+  }
   return [...wf.querySelectorAll('.wf-line, .wf-card')].map(li => {
     const lab = li.querySelector('.lab, b'), n = li.querySelector('.n:not([data-unpublished])');
     if (!lab || !n) return null; // a row with no published amount has nothing to fit

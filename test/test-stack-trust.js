@@ -142,9 +142,9 @@ console.log('4. credit card and its sheet (the design\'s "X / minimum"): estimat
     'estimated totals: the paid figure and the bar draw in normal type');
   const ctx = context(view('actual'));
   const green = win.StackSheet.html(ctx, 'card:cashback');
-  ok(/stack-credit-x is-bad"[^>]*>−\$160</.test(green) && /<dt>New charges<\/dt><dd class="stack-n"><span class="">\$260<\/span>/.test(green)
-    && /<dt>Paid onto it<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="">\$30<\/span><\/dd>/.test(green),
-  'Green Card sheet: the estimated figures draw exactly as the calculated "Paid onto it"');
+  ok(/stack-credit-x[^"]*"[^>]*>\+\$100</.test(green) && /<dt>New charges<\/dt><dd class="stack-n"><span class="">\$260<\/span>/.test(green)
+    && /<dt>Paid back<\/dt><dd class="stack-n"><span class="">\$100<\/span>/.test(green) && /<dt>Minimum<\/dt><dd class="stack-n"><span class="">\$30<\/span><\/dd>/.test(green),
+  'Green Card sheet: the estimated figures draw exactly as the calculated "Paid back"');
   ok(!/stack-est/.test(win.StackSheet.html(ctx, 'card:travelvisa')), 'Blue Visa sheet: no estimate class');
   const projected = context(view('projected'));
   const pEl = container();
@@ -162,7 +162,7 @@ console.log('4b. the covered ✓ always shows when covered, drawn plain whatever
     minimum: fig(25, 'calculated'), toGo: fig(0, 'calculated'), status: 'paid-back', minimumCovered: { value: true, trust: 'calculated' }, transactions: [] }];
   const render = (v, lines) => {
     const ctx = context(v);
-    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines, totals: { paid: 400, spent: 400, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
+    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(lines), totals: { paid: 400, spent: 400, trust: 'calculated', completeness: 'complete', excluded: [], reasons: [] } }) };
     const el = container(); fns.credit(el, ctx);
     return { row: el.innerHTML.split('<li>')[1], sheet: win.StackSheet.html(ctx, 'card:travelvisa') };
   };
@@ -536,7 +536,7 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     // the two head subtitles from the approved design, exactly (no other wording)
     t = t.split('paid / card minimums due').join(' ').split('spent / budget').join(' ');
     // the design's Credit wording (Dale, 2026-11-20, the Credit Minimum mock-up), exactly: the row lines and the sheet rows
-    for (const phrase of ['New charges', 'Over the limit by', 'Target', 'Paid onto it', 'Not due this period']) t = t.split(phrase).join(' ');
+    for (const phrase of ['New charges', 'Over the limit by', 'Target', 'Paid back', 'Not due this period']) t = t.split(phrase).join(' ');
     t = t.replace(/[−+-]?\$[\d,]+(\.\d\d)?/g, ' ').replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}( \u2013 ((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) )?\d{1,2})?\b/g, ' ')
       .replace(/[✓=−+\/—·]/g, ' ');
     return t.split(/\s+/).filter(w => w && !PAGE.has(w));
@@ -546,9 +546,9 @@ console.log('8. no explanatory text anywhere on the page (owner, 2026-11-20)');
     String(texts.filter(t => text(t) === '').length));
   ok(texts.length === 156 && words.length === 0, 'the rendered Stack blocks and sheets hold only names, numbers and ✓', words.join(' | '));
   const control = leftover('<p>Paid back $5 to go Upcoming excludes Red Card Covered ✓ Not yet unavailable Due Mar 5 Comes out of Chequing Paid in full Minimum met Not due this period Paid onto it</p>');
-  ok(['Upcoming', 'excludes', 'unavailable', 'Due', 'Comes', 'out', 'full', 'met', 'back', 'to', 'go', 'Covered', 'yet'].every(w => control.includes(w))
-    && !control.includes('onto') && !control.includes('Not due') && !control.includes('period'),
-    'control: other status, reason and label words (including the old "Paid back", "to go", "Covered" and "Not yet") are caught as leftovers; only the design\'s exact Credit phrases pass', control.join(' '));
+  ok(['Upcoming', 'excludes', 'unavailable', 'Due', 'Comes', 'out', 'full', 'met', 'onto', 'to', 'go', 'Covered', 'yet'].every(w => control.includes(w))
+    && !control.includes('back') && !control.includes('Not due') && !control.includes('period'),
+    'control: other status, reason and label words (including the old "Paid onto it", "to go", "Covered" and "Not yet") are caught as leftovers; only the design\'s exact Credit phrases ("Paid back", OD-033) pass', control.join(' '));
 }
 
 console.log(`\nPASS Stack trust treatment (${checks})`);
