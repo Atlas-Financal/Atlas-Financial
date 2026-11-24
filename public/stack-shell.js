@@ -367,7 +367,7 @@ try {
     }
     // Display order only: a failure here leaves the blocks where they were drawn (the default order).
     try { arrangePile(el); } catch (error) {
-      if (typeof console !== 'undefined') console.error('stack order failed; default order kept', error);
+      if (typeof console !== 'undefined') console.warn('stack order failed; default order kept', error);
     }
   }
 
@@ -424,12 +424,12 @@ try {
       slot.appendChild(card);
       slots.push(slot);
     }
-    // The cards' frame is left empty (the pile hides an empty block); Credit is its own slot.
-    cards.innerHTML = '';
+    // Once its cards are in their slots the cards' frame is emptied (the pile hides an empty block); Credit is its own slot.
+    if (slots.length) cards.innerHTML = '';
     for (const old of credit.querySelectorAll(':scope > [data-stack-move]')) old.remove();
     const creditShown = !!credit.firstElementChild;
-    credit.toggleAttribute('data-stack-slot', creditShown);
     if (creditShown) credit.setAttribute('data-stack-slot', 'credit');
+    else credit.removeAttribute('data-stack-slot');
     credit.classList.toggle('stack-slot', creditShown);
     if (creditShown) slots.push(credit);
     const byId = new Map(slots.map(slot => [slot.getAttribute('data-stack-slot'), slot]));
