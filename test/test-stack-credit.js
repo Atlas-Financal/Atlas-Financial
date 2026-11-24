@@ -200,8 +200,9 @@ const STATES = [
   { ...fig6('weaktgt', 'Weak Target Card', 100, 100, 50, 0, 'paid-back', false), targetCovered: { value: true, trust: 'unavailable', reasons: [] } }, // targetCovered on trust unavailable: no green
   { ...fig6('pend', 'Pending Pay Card', 150, 120, 25, 0, 'paid-back', true), target: { amount: 120, trust: 'calculated', reasons: [], newCharges: 120, minimum: 25, overLimitBy: 0 },
     paidToward: { amount: 100, trust: 'calculated', reasons: [] } }, // 50 of the 150 paid is pending: Paid back is the posted 100, plain (100 < 120)
-  // Dale's live screenshot on e4c7b1a3 (lead, 2026-11-24): charges equal to the target and nothing paid yet read a red
-  // "−$80 / $80". Under OD-033 the left side is paid back only: "$0 / $80", plain, no minus.
+  // The defect Dale's live screenshot showed on e4c7b1a3 (lead, 2026-11-24): charges equal to the target and nothing paid yet
+  // read a red "−$X / $X" (the screenshot's figure is not recorded here; the 80 below is invented). Under OD-033 the left
+  // side is paid back only: "$0 / $80", plain, no minus.
   { ...fig6('charged', 'Charged Card', 0, 80, 25, 80, 'to-go', false), target: { amount: 80, trust: 'calculated', reasons: [], newCharges: 80, minimum: 25, overLimitBy: 0 } },
 ];
 function states(creditSrc) {
@@ -325,7 +326,7 @@ console.log('3. the row states (OD-033: "Paid back / Total to pay back", green w
     weak: 'a minimum check on trust unavailable or an unrecognised word shows no ✓ (the in-house reviewer\'s cross-check)',
     weakTarget: 'targetCovered on trust unavailable is no check: no green',
     pend: 'a pending payment is not paid back (Grok Bot condition 1): "+$100 / $120" from the posted paidToward, plain',
-    charged: 'charges equal to the target and nothing paid yet (Dale\'s live screenshot): "$0 / $80", plain, no minus, no red, named "Paid back $0"',
+    charged: 'charges equal to the target and nothing paid yet (the defect on Dale\'s live screenshot; invented 80): "$0 / $80", plain, no minus, no red, named "Paid back $0"',
     minoff: 'a withheld minimum (bills split unavailable) reads "$100 / —", not "not due" (Codex on #1481)',
     sheetMinoff: 'the sheet\'s Minimum row is a dash for a withheld minimum, "Not due this period" only for the explicit no-minimum-due reason',
     sheetOver: 'the sheet\'s big figure is the same "Paid back / target" with the same colour',

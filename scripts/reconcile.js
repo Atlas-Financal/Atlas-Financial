@@ -118,7 +118,7 @@ const META_ASOF_FRESHNESS_FACTS = new Set([
 ]);
 
 const EPSILON = 0.005;
-const near = (a, b) => Math.abs(Number(a) - Number(b)) <= EPSILON;
+const near = (a, b) => a != null && b != null && Math.abs(Number(a) - Number(b)) <= EPSILON;
 const n2 = v => (Math.round(Number(v) * 100) / 100).toFixed(2);
 const STATUSES = ['MATCH', 'STALE', 'CHANGE', 'CONFLICT', 'MISSING'];
 
@@ -139,6 +139,17 @@ function cashRows(data) {
   return (cash.breakdown || []).concat(cash.heldElsewhere || []);
 }
 
+function canonicalNumber(raw) {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function incomeExpected(stream) {
+  return canonicalNumber(stream?.scenarioMonthly?.expected ?? stream?.amount);
+}
+
 function readCanonical(data, target) {
   const locator = target && target.collection && target.id
     ? `${target.collection}:${target.id}`
@@ -146,23 +157,20 @@ function readCanonical(data, target) {
   if (!target || !target.collection || !target.id) {
     return { found: false, value: null, locator };
   }
+  const reading = value => ({ found: value !== null, value, locator });
   if (target.collection === 'cash') {
     const row = cashRows(data).find(r => r.id === target.id);
-    return row
-      ? { found: true, value: Number(row.value), locator }
-      : { found: false, value: null, locator };
+    return reading(canonicalNumber(row?.value));
   }
   if (target.collection === 'debts') {
     const row = (data.debts || []).find(r => r.id === target.id);
-    return row
-      ? { found: true, value: Number(row.balance), locator }
-      : { found: false, value: null, locator };
+    return reading(canonicalNumber(row?.balance));
   }
   if (target.collection === 'commitments') {
     const row = (((data.plan || {}).commitments) || []).find(r => r.id === target.id);
     if (!row) return { found: false, value: null, settledOn: null, locator };
     const settledOn = isSettledOnDate(row.settledOn) ? row.settledOn : null;
-    return { found: true, value: Number(row.amount), settledOn, locator };
+    return { ...reading(canonicalNumber(row.amount)), settledOn };
   }
   if (target.collection === 'bills') {
     const row = (((data.plan || {}).bills) || []).find(r => r.id === target.id);
@@ -173,32 +181,19 @@ function readCanonical(data, target) {
       };
     }
     return {
-      found: true,
-      value: Number(row.amount),
+      ...reading(canonicalNumber(row.amount)),
       date: row.date || row.firstDue || null,
       payingAccount: row.payingAccount || null,
       householdObligation: row.householdObligation !== false,
-      locator,
     };
   }
   if (target.collection === 'obligations') {
     const row = (((data.plan || {}).obligations) || []).find(r => r.id === target.id);
-    return row
-      ? { found: true, value: Number(row.amount), debtId: row.debtId || null, locator }
-      : { found: false, value: null, debtId: null, locator };
+    return { ...reading(canonicalNumber(row?.amount)), debtId: row?.debtId || null };
   }
   if (target.collection === 'income') {
     const row = ((((data || {}).plan) || {}).income || []).find(r => r.id === target.id);
-    if (!row) return { found: false, value: null, scenarioMonthly: null, locator };
-    const expected = row.scenarioMonthly && row.scenarioMonthly.expected != null
-      ? Number(row.scenarioMonthly.expected)
-      : Number(row.amount);
-    return {
-      found: true,
-      value: isFinite(expected) ? expected : null,
-      scenarioMonthly: row.scenarioMonthly || null,
-      locator,
-    };
+    return { ...reading(incomeExpected(row)), scenarioMonthly: row?.scenarioMonthly || null };
   }
   if (target.collection === 'representedEvents') {
     const opening = (((data || {}).plan) || {}).opening || null;
@@ -324,7 +319,7 @@ function matchingAmandaSalaryStream(row, data) {
     return streams.find(s => Number(s.day) === 31) || null;
   }
   if (row && row.evidenceValue != null && isFinite(Number(row.evidenceValue))) {
-    return streams.find(s => near(Number(s.amount), Number(row.evidenceValue))) || null;
+    return streams.find(s => near(canonicalNumber(s.amount), row.evidenceValue)) || null;
   }
   return null;
 }
@@ -333,15 +328,9 @@ function amandaTransferAuthorityContext(data) {
   const transfer = amandaTransferStream(data);
   const salary = incomeStreams(data).filter(isAmandaSalaryStream);
   const doubleCount = forecastHasAmandaDoubleCount(data);
-  const salaryTotal = salary.reduce((sum, s) => {
-    const v = s.scenarioMonthly && s.scenarioMonthly.expected != null
-      ? Number(s.scenarioMonthly.expected)
-      : Number(s.amount);
-    return sum + (finiteNumber(v) ? v : 0);
-  }, 0);
-  const transferExpected = transfer && transfer.scenarioMonthly && transfer.scenarioMonthly.expected != null
-    ? Number(transfer.scenarioMonthly.expected)
-    : (transfer && transfer.amount != null ? Number(transfer.amount) : null);
+  const salaryAmounts = salary.map(incomeExpected);
+  const salaryTotal = salaryAmounts.every(finiteNumber)
+    ? round2(salaryAmounts.reduce((sum, amount) => sum + amount, 0)) : null;
   const present = salary.length > 0;
   return {
     present,
@@ -353,13 +342,11 @@ function amandaTransferAuthorityContext(data) {
       : (transfer ? `income:${AMANDA_TRANSFER_ID}` : null),
     streams: salary.map(s => ({
       id: s.id,
-      day: s.day == null ? null : Number(s.day),
-      amount: finiteNumber(Number(s.amount)) ? Number(s.amount) : null,
+      day: canonicalNumber(s.day),
+      amount: canonicalNumber(s.amount),
     })),
-    canonicalExpected: salary.length
-      ? round2(salaryTotal)
-      : (finiteNumber(transferExpected) ? transferExpected : null),
-    independentlyVerifiedByPaydayEvidence: salary.length > 0 && !doubleCount && !transfer,
+    canonicalExpected: salary.length ? salaryTotal : incomeExpected(transfer),
+    independentlyVerifiedByPaydayEvidence: salary.length > 0 && salaryTotal !== null && !doubleCount && !transfer,
     note: doubleCount
       ? 'Salary plus amandaTransfer would double-count household income.'
       : (salary.length
@@ -528,10 +515,10 @@ function scheduledBills(data) {
 function compareAccountBalance(row, data) {
   const amount = row.evidenceValue;
   const forbidden = row.forbiddenBillIds || [];
-  const scheduled = scheduledBills(data).filter(b =>
-    forbidden.includes(b.id)
-    && amount != null && isFinite(amount) && near(Number(b.amount), amount));
+  const candidates = scheduledBills(data).filter(b => forbidden.includes(b.id));
+  const scheduled = candidates.filter(b => near(canonicalNumber(b.amount), amount));
   const scheduledWrongly = scheduled.length > 0;
+  const unknownAmount = candidates.some(b => canonicalNumber(b.amount) === null);
   return {
     observationId: row.observationId,
     fact: 'account-balance',
@@ -543,12 +530,12 @@ function compareAccountBalance(row, data) {
     canonicalValue: null,
     canonicalTarget: '(informational — not a scheduled amount)',
     difference: null,
-    status: scheduledWrongly ? 'CONFLICT' : 'MATCH',
+    status: scheduledWrongly ? 'CONFLICT' : unknownAmount ? 'MISSING' : 'MATCH',
     scheduled: scheduledWrongly,
     scheduledIds: scheduled.map(b => b.id),
     note: scheduledWrongly
       ? 'account balance must not be scheduled as a cash event'
-      : 'informational / not scheduled amount',
+      : unknownAmount ? 'scheduled bill amount is unknown' : 'informational / not scheduled amount',
   };
 }
 
@@ -669,11 +656,7 @@ function compareEmploymentDeposit(row, data) {
   const salaryStreams = incomeStreams(data).filter(isAmandaSalaryStream);
   const doubleCount = forecastHasAmandaDoubleCount(data);
   const match = matchingAmandaSalaryStream(row, data);
-  const canonicalValue = match
-    ? (match.scenarioMonthly && match.scenarioMonthly.expected != null
-      ? Number(match.scenarioMonthly.expected)
-      : Number(match.amount))
-    : null;
+  const canonicalValue = incomeExpected(match);
   const evidence = row.evidenceValue != null && isFinite(Number(row.evidenceValue))
     ? Number(row.evidenceValue) : null;
   let status;
@@ -732,8 +715,9 @@ function compareHouseholdTransfer(row, data) {
     status = 'MATCH';
   } else if (observed && canonical.scenarioMonthly) {
     const keys = ['conservative', 'expected', 'optimistic'];
-    const same = keys.every(k => near(observed[k], canonical.scenarioMonthly[k]));
-    status = same ? 'MATCH' : 'CHANGE';
+    const baselines = keys.map(k => canonicalNumber(canonical.scenarioMonthly[k]));
+    if (baselines.includes(null)) status = 'MISSING';
+    else status = keys.every((k, i) => near(observed[k], baselines[i])) ? 'MATCH' : 'CHANGE';
   } else if (observedAmount != null && canonical.value != null) {
     status = near(observedAmount, canonical.value) ? 'MATCH' : 'CHANGE';
   } else status = 'MISSING';
@@ -889,13 +873,13 @@ function readDebtCard(data, id) {
       limit: null, locator,
     };
   }
-  const pendingPresent = row.pending != null && row.pending !== '' && isFinite(Number(row.pending));
+  const pending = canonicalNumber(row.pending);
   return {
     found: true,
-    posted: Number(row.balance),
-    pending: pendingPresent ? Number(row.pending) : null,
-    pendingPresent,
-    limit: row.limit == null || row.limit === '' ? null : Number(row.limit),
+    posted: canonicalNumber(row.balance),
+    pending,
+    pendingPresent: pending !== null,
+    limit: canonicalNumber(row.limit),
     locator,
   };
 }
@@ -991,7 +975,7 @@ function comparePostedBalanceGroup(rows, data) {
     .map(r => r.evidenceValue);
   const distinct = distinctFinite(amounts);
   let status;
-  if (!debt.found) status = 'MISSING';
+  if (debt.posted === null) status = 'MISSING';
   else if (distinct.length > 1) status = 'CONFLICT';
   else if (!amounts.length) status = 'MISSING';
   else if (near(distinct[0], debt.posted)) status = 'MATCH';
@@ -1004,9 +988,9 @@ function comparePostedBalanceGroup(rows, data) {
     evidenceValue: row.unknown ? null : row.evidenceValue,
     observedAsOf: row.observedAsOf || null,
     evidenceDate: row.evidenceDate,
-    canonicalValue: debt.found ? debt.posted : null,
+    canonicalValue: debt.posted,
     canonicalTarget: debt.locator,
-    difference: debt.found && row.evidenceValue != null && isFinite(row.evidenceValue)
+    difference: debt.posted !== null && row.evidenceValue != null && isFinite(row.evidenceValue)
       ? round2(row.evidenceValue - debt.posted)
       : null,
     status,
@@ -1706,7 +1690,7 @@ function formatReport(result) {
     const canonical = row.fact === 'settlement'
       ? (row.canonicalSettledOn || 'unsettled')
       : row.fact === 'account-balance'
-        ? 'not scheduled'
+        ? (row.status === 'MISSING' ? 'unknown' : 'not scheduled')
         : row.fact === 'paying-account'
           ? (row.canonicalPayingAccount || (row.status === 'MISSING' ? 'missing' : '—'))
           : row.fact === 'employment-deposit'

@@ -173,7 +173,9 @@ function proveStackCredit(view, credit, breakdown, surplus) {
     }
   }
   if (breakdown === null) return;
-  assert.ok(breakdown && Array.isArray(breakdown.rows) && breakdown.alreadyCounted, 'authorized addition: a Credit breakdown lists rows');
+  assert.ok(breakdown && Array.isArray(breakdown.rows), 'authorized addition: a Credit breakdown lists rows');
+  // No "Already counted above" row (Dale, 2026-11-24, #1617 7121410691): the breakdown publishes no catch-all and no counted row.
+  assert.deepEqual(Object.keys(breakdown).sort(), ['rows', 'total', 'trust'], 'authorized addition: the Credit breakdown carries only its card rows, total and trust');
   // Display only (OD-033; desk ruling (1)): every row is checked against the per-line figures, never against the total, so
   // a catch-all offset (the targets minus the Credit term) fails here.
   const lines = credit ? credit.lines : [];
@@ -182,9 +184,6 @@ function proveStackCredit(view, credit, breakdown, surplus) {
     const line = byId.get(String(row.debtId));
     if (line) assert.equal(row.amount, line.stillToPayBack.amount, 'authorized addition: a card row is that card\'s Still to pay back');
   }
-  const counted = lines.reduce((sum, line) => sum + (line.deduction.alreadyCounted == null ? 0 : cents(line.deduction.alreadyCounted)), 0);
-  assert.equal(cents(breakdown.alreadyCounted.amount) + 0, 0 - counted, 'authorized addition: the already-counted row is Σ each card\'s charges already counted above');
-  assert.ok(breakdown.alreadyCounted.amount <= 0, 'authorized addition: the already-counted row only takes off');
   if (credit) {
     const unlined = (view.stackSummary && view.stackSummary.bills && Array.isArray(view.stackSummary.bills.cardMinimums) ? view.stackSummary.bills.cardMinimums : [])
       .filter(card => !byId.has(String(card.debtId))).reduce((sum, card) => sum + cents(card.amount), 0);
@@ -394,7 +393,7 @@ function authorizedTagKey(key, value) {
   // Desk ruling (E) (#1573): the view's card-target publication and the Credit breakdown, each figure with its own trust
   // word (a card line's figures, totals and deduction; a breakdown row), proved in proveStackCredit.
   if (/\.stackSummary\.credit\.(lines\.\d+|totals)(\.[A-Za-z]+)*\.(trust|[a-zA-Z]+Trust)$/.test(key)
-    || /\.stackSummary\.creditBreakdown\.(rows\.\d+\.trust|alreadyCounted\.trust|trust)$/.test(key)) {
+    || /\.stackSummary\.creditBreakdown\.(rows\.\d+\.trust|trust)$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }
