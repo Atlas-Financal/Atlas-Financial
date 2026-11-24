@@ -7810,6 +7810,16 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // held reader can see a category/note conflict (cardPaymentDestinationConflict).
       ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
     };
+    const explicitCardKind = kindHint === 'payment' && String(tx.kind).toLowerCase() === 'card-payment';
+    if (amount > 0 && emittedRow.savingsPostingEvidence === 'posted' && (flags.cardPaymentNoteDestination || explicitCardKind)) {
+      const payment = Forecast.payingSidePayment(emittedRow);
+      if (payment?.cardId && typeof flags.cardPaymentNoteByAmount === 'boolean') {
+        emittedRow.cardPaymentNoteByAmount = flags.cardPaymentNoteByAmount;
+      } else if (!payment && explicitCardKind && Forecast.payingSidePayment({ ...emittedRow, kindHint: 'card-payment' })) {
+        // The generic hint also covers ordinary bills. Keep the explicit kind if the category and note lost that distinction.
+        emittedRow.payingSideCardPaymentKind = true;
+      }
+    }
     txs.push(emittedRow);
     const distinctPending = distinctPendingByPosted.get(tx);
     if (distinctPending) distinctPendingRows.push([emittedRow, distinctPending.providerTransactionId]);

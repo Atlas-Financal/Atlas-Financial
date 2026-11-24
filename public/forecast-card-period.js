@@ -11,6 +11,76 @@
   const BALANCE_VERDICTS = ['stale', 'current', 'not-assessed', 'undated', 'after-as-of'];
   const cardIdentities = [['travelvisa', 'Travel'], ['cashback', 'Cash Back'], ['tdcc', 'Emerald'],
     ['triangle', 'Triangle'], ['mbna', 'Amazon Mastercard']];
+  // The paying account owns this figure. Card postings, allocations and balances cannot establish who sent a payment.
+  function periodPayerPayments(packet, start, through, observed, primitives) {
+    const unconfirmedPayments = [];
+    const byCard = new Map(cardIdentities.map(([id]) => [id, { cents: 0, reasons: new Set(), gaps: new Set() }]));
+    const globalGaps = new Set();
+    const query = packet?.transactionWindow;
+    const syncRows = Array.isArray(packet?.syncEvidence) ? packet.syncEvidence : [];
+    const payerSync = syncRows.filter(row => ['household-cash', 'household-reserve'].includes(row?.role));
+    if (!observed || !query || query.complete !== true || query.hasMore !== false || query.truncated !== false
+      || (typeof primitives.coverageComplete === 'function' && !primitives.coverageComplete(query))
+      || query.startDate !== packet.coverageStart || query.endDate !== packet.coverageThrough
+      || payerSync.some(row => row.syncEvidence === 'failed')
+      || typeof primitives.payingSidePayment !== 'function') {
+      globalGaps.add('paying-side-coverage-incomplete');
+    } else {
+      // A page can be complete while the paying account is unseen. Require a proven payer sync or an observed debit.
+      let payerObserved = payerSync.some(row => row.id && row.syncEvidence === 'proven' && !row.reason
+        && (row.fields?.last_fetch === true || row.fields?.plaid_last_successful_update === true)
+        && syncRows.filter(other => other?.id === row.id).length === 1);
+      const candidates = [];
+      const seen = new Set(), duplicates = new Set();
+      for (const tx of packet.transactions) {
+        if (!tx || (tx.pending === true && tx.savingsPostingEvidence !== 'posted') || primitives.skipParent(tx, packet)) continue;
+        // Register every posted row before checking its role, category or period. Conflicting copies can disagree on all three.
+        const id = tx.id == null ? '' : String(tx.id).trim();
+        const keys = id ? ['id:' + id] : [];
+        if (typeof tx.coverageRef === 'string' && tx.coverageRef.trim()) keys.push('ref:' + tx.coverageRef.trim());
+        for (const key of keys) {
+          if (seen.has(key)) duplicates.add(key);
+          seen.add(key);
+        }
+        const destination = primitives.payingSidePayment(tx);
+        if (destination) candidates.push({ tx, destination, id, keys });
+      }
+      for (const { tx, destination, id, keys } of candidates) {
+        const bucket = byCard.get(destination.cardId);
+        const gaps = bucket ? bucket.gaps : globalGaps;
+        if (!primitives.date(tx.date)) { gaps.add('transaction-date-unqualified'); continue; }
+        if (tx.date < start || tx.date > through) continue;
+        const value = primitives.money(tx);
+        if (value === null) { gaps.add('transaction-amount-unqualified'); continue; }
+        if (value <= 0) continue;
+        const aliases = [tx.atlasAccountId, tx.account, tx.accountId].filter(v => v != null).map(String);
+        if (!id || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
+          || new Set(aliases).size > 1 || tx.isGroup === true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) {
+          gaps.add('paying-side-evidence-unconfirmed');
+        } else if (keys.some(key => duplicates.has(key))) {
+          gaps.add('duplicate-identity');
+        } else if (!bucket) {
+          payerObserved = true;
+          unconfirmedPayments.push({ date: tx.date, amount: value / 100 });
+        } else {
+          payerObserved = true;
+          bucket.cents += value;
+          if (!Number.isSafeInteger(bucket.cents)) bucket.gaps.add('transaction-amount-unqualified');
+          if (destination.trust === 'estimated') bucket.reasons.add(destination.reason || 'card-payment-by-amount');
+        }
+      }
+      if (!payerObserved) globalGaps.add('paying-account-not-observed');
+    }
+    const paid = id => {
+      const { cents, reasons, gaps } = byCard.get(id);
+      if (globalGaps.size || gaps.size) return { amount: null, trust: 'unavailable', reasons: [...new Set([...globalGaps, ...gaps])] };
+      if (unconfirmedPayments.length) reasons.add('card-payment-destination-unconfirmed');
+      // An empty interval proves no named debit was seen. It cannot establish payment from an unseen account.
+      if (!cents && !reasons.size) reasons.add('no-confirmed-paying-side-payments');
+      return { amount: cents / 100, trust: reasons.size ? 'estimated' : 'calculated', reasons: [...reasons] };
+    };
+    return { paid, unconfirmedPayments };
+  }
   function publish(input, primitives) {
     const { date, cents, addDays, skipParent, classify } = primitives;
     // PA-4a-2a: read coverage evidence with Forecast's one strict rule, so this
@@ -36,6 +106,7 @@
     const coverage = packetCurrent && ledgerValid && covered(packet.transactionCoverage)
       && date(packet.coverageStart) && date(packet.coverageThrough)
       && packet.coverageStart <= start && packet.coverageThrough >= through;
+    const payer = periodPayerPayments(packet, start, through, windowKnown && through && coverage, primitives);
     const known = new Set(identities.map(([id]) => id));
     const movementRole = tx => tx?.accountRole === 'revolving-credit' || tx?.accountRole === 'heloc';
     const duplicateCards = new Set();
@@ -85,7 +156,7 @@
       const issues = [];
       const card = { id, label, status: role === 'future' ? 'not-observed' : 'unavailable',
         netChange: { amount: null, magnitude: null, direction: null, trust: 'unavailable', completeness: 'unavailable' },
-        ...(id !== 'heloc' ? { postedMovement: { amount: null, magnitude: null, direction: null,
+        ...(id !== 'heloc' ? { payerPaid: payer.paid(id), postedMovement: { amount: null, magnitude: null, direction: null,
           trust: 'unavailable', completeness: 'unavailable', reasons: issues } } : {}),
         opening: null, closing: null, reportedBalance: null, posted: [], pending: [],
         postedCoverage: coverage ? 'complete-provider-response' : 'incomplete',
@@ -312,7 +383,7 @@
     });
     return { schema: 'atlas-card-period-movements/v1', source: 'Forecast.cardPeriodMovements', currency: 'CAD',
       asOf: date(asOf) ? asOf : null, start: date(start) ? start : null, end: date(end) ? end : null,
-      through: date(through) ? through : null, role, cards,
+      through: date(through) ? through : null, role, cards, unconfirmedPayments: payer.unconfirmedPayments,
       observationAsOf: date(packet?.observationAsOf) ? packet.observationAsOf : null,
       semantics: 'Posted liability movement, not spending-only totals, available cash, payment instructions or minimum settlement.' };
   }
@@ -331,11 +402,11 @@
   // estimated. 'unavailable' (or any other word) is not covered.
   const COVERED_TRUST = ['calculated', 'verified', 'estimated'];
   const coveredOn = line => line.minimumCovered.value === true && COVERED_TRUST.includes(line.minimumCovered.trust);
-  // The published card summary leaves out the internal inputs (paidPosted, chargesCounted, postedPaymentDebit), so its shape
+  // The published card summary leaves out the internal inputs (paidPosted, chargesCounted), so its shape
   // is unchanged.
   function stackCards(publication) {
     const cards = stackCardFigures(publication);
-    return cards && cards.map(({ paidPosted, chargesCounted, postedPaymentDebit, ...card }) => card);
+    return cards && cards.map(({ paidPosted, chargesCounted, ...card }) => card);
   }
   function stackCardFigures(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
@@ -361,9 +432,6 @@
         : movement && movement.trust === 'calculated' && movement.completeness === 'complete'
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
       let paidCents = 0, spentCents = 0, postedPaidCents = 0, chargeCents = 0;
-      // A posted payment that takes money off the card (a debit: a reversal or a misread direction). OD-033's Paid back is
-      // never negative and never a net of such a row (ChatGPT, #1617 7120269248): it reads this and withholds. Internal.
-      let postedPaymentDebit = false;
       const paidReasons = [], spentReasons = [], postedPaidReasons = [];
       let paidTrust = 'calculated', spentTrust = 'calculated', postedPaidTrust = 'calculated';
       for (const row of rows) {
@@ -388,7 +456,6 @@
             if (!row.pending) { postedPaidTrust = 'estimated'; postedPaidReasons.push('card-payment-unconfirmed'); }
           }
           if (!row.pending) postedPaidCents += -value;
-          if (!row.pending && value > 0) postedPaymentDebit = true;
         } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') {
           spentCents += value;
           // A charge is a household purchase, a card-paid bill or a savings item (the classifier's spend / bill / savings-item):
@@ -420,7 +487,7 @@
       const state = net.amount == null ? null
         : !rows.length ? 'no-activity'
         : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
-      return { id: card.id, label: card.label, paid, paidPosted, chargesCounted, postedPaymentDebit, spent, net, state,
+      return { id: card.id, label: card.label, paid, paidPosted, chargesCounted, spent, net, state,
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
     });
   }
@@ -479,7 +546,7 @@
   // `utilisation` (optional): Forecast.utilisation's rows (used against limit, pending included), read for each card's
   // over-limit amount; never recomputed here.
   function stackCreditLines(publication, bills, utilisation, beyondMinimumPaid) {
-    // paidPosted is read here (paid toward the minimum, minimumsPaid, the covered check) and never published on a line.
+    // Card-side posted payments remain an input to the independent over-limit authority.
     const cards = stackCardFigures(publication);
     if (!cards) return null;
     const future = publication.role === 'future';
@@ -502,7 +569,7 @@
     // The paid figure a Credit row and the Credit head both read (Dale, 2026-11-20: "0/ owed total if nothing has been paid yet",
     // "Just normal font"): one rule per line, so the head, which sums the due spend cards' paidToward, and the rows cannot
     // disagree. { amount, trust, reasons }:
-    //   * a spend card with a published paid: that paid, with its own trust;
+    //   * a spend card with a qualified paying-side ledger: its period debits naming that card, with their own trust;
     //   * a card Forecast cannot see counts $0 (trust estimated in the data), by owner decision: a manual / no-ledger card in
     //     the current period, any card in an upcoming period (nothing is observed yet), and a HELOC whose account has no
     //     publication card; the one exception to the never-0 rule above;
@@ -521,11 +588,13 @@
     const withheldPaid = reasons => ({ amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(reasons) });
     const paidTowardOf = (card, pubCard) => {
       if (card.id !== 'heloc') {
-        // Posted payments only: a pending payment never counts toward the minimums (lead ruling, 2026-11-22).
-        const posted = card.paidPosted || card.paid;
-        if (posted.amount !== null) return { amount: posted.amount, trust: posted.trust, reasons: posted.reasons.slice() };
-        const manual = !!(pubCard && pubCard.manualStatement === true);
-        return future || (publication.role === 'current' && manual) ? countedZero(posted.reasons) : withheldPaid(posted.reasons);
+        const paid = pubCard?.payerPaid;
+        if (['current', 'past'].includes(publication.role) && paid && typeof paid.amount === 'number' && Number.isSafeInteger(Math.round(paid.amount * 100))
+          && paid.amount >= 0 && ['estimated', 'calculated'].includes(paid.trust) && Array.isArray(paid.reasons)) return paid;
+        const reasons = future ? ['future-not-observed']
+          : Array.isArray(paid?.reasons) && paid.reasons.length ? paid.reasons : ['paying-side-coverage-incomplete'];
+        return future || (publication.role === 'current' && pubCard?.manualStatement === true)
+          ? countedZero(reasons) : withheldPaid(reasons);
       }
       if (future) return countedZero(['future-not-observed']);
       if (publication.role !== 'current') return withheldPaid(['not-current-period']);
@@ -661,18 +730,9 @@
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
       const paidToward = paidTowardOf(card, published(card.id));
-      // OD-033 (Dale, 2026-11-23): the row reads Paid back / Total to pay back, and the card's Still to pay back shows in the
-      // Credit dropdown, display only (never summed into Credit, BAD or Surplus). Paid back is paidToward: posted payments
-      // onto this card in this period only (Grok Bot's condition 1), never a net. Still to pay back = max(0, target − paid
-      // back); unknown when either is (never $0). targetCovered is the row's green and ✓: paid back has reached a target
-      // above $0 (Neon REPORT 4: never keyed off the minimum alone).
-      // Paid back (the row's left side, OD-033): paidToward, qualified for display. A posted payment row that debits the card
-      // leaves its direction unresolved, so Paid back is withheld (a dash, never a negative), as is any paidToward below $0;
-      // paidToward itself, the head's minimumsPaid and the minimum check are unchanged (ChatGPT, #1617 7120269248).
-      // The HELOC's paid comes from its own posted rows (paidTowardOf), not stackCardFigures, so its debit is read there too
-      // (ChatGPT, #1617 7120927392): every line, the HELOC included, withholds on a posted payment debit.
-      const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : card.postedPaymentDebit === true;
-      const paidBack = paidToward.amount !== null && (debit || cents(paidToward.amount) < 0)
+      // Spend cards publish the payer's posted debits. The HELOC retains its signed facility-ledger rule.
+      const paidBack = card.id === 'heloc' && paidToward.amount !== null
+        && (postedPaymentDebitOf(published('heloc')) || cents(paidToward.amount) < 0)
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(['payment-direction-unresolved'].concat(paidToward.reasons))] }
         : paidToward;
       const targetCents = target.amount === null ? null : cents(target.amount);
@@ -685,10 +745,11 @@
         ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, paidBack.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
-      const paidForMinimum = card.paidPosted || paid;
-      const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
+      const paidForMinimum = card.id === 'heloc' ? paid : paidBack;
+      const covered = paidForMinimum.amount === null || minimum.amount === null
+        || paidForMinimum.reasons.includes('paid-unavailable-counted-as-zero') ? 'unknown'
         : cents(paidForMinimum.amount) >= cents(minimum.amount);
-      const { paidPosted, chargesCounted, postedPaymentDebit, ...shown } = card;
+      const { paidPosted, chargesCounted, ...shown } = card;
       return { ...shown, balance, minimum, target, deduction, paidToward, paidBack, stillToPayBack, targetCovered, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
@@ -741,11 +802,11 @@
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(['paid-unavailable'].concat(unseen.flatMap(line => line.paidToward.reasons.filter(r => r !== 'paid-unavailable'))))] }
         : { amount: dueLines.reduce((sum, line) => sum + cents(line.paidToward.amount), 0) / 100,
           trust: dueLines.length ? weakest(...dueLines.map(line => line.paidToward.trust)) : splitTrust,
-          reasons: [...new Set(dueLines.filter(line => line.paidToward.reasons.includes('paid-unavailable-counted-as-zero')).flatMap(line => line.paidToward.reasons))] };
+          reasons: [...new Set(dueLines.flatMap(line => line.paidToward.reasons))] };
       totals.minimumsDueCount = dueLines.length;
       totals.minimumsCoveredCount = dueLines.filter(coveredOn).length;
       totals.minimumsCoveredTrust = dueLines.length
-        ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
+        ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.id === 'heloc' && line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
         : splitTrust;
     }
     // The balance total is over the spend cards' snapshots (HELOC excluded, as
@@ -768,7 +829,7 @@
       : { amount: lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.deduction.trust)),
         reasons: [...new Set(lines.flatMap(line => line.deduction.reasons))] };
-    return { lines, totals };
+    return { lines, totals, unconfirmedPayments: Array.isArray(publication.unconfirmedPayments) ? publication.unconfirmedPayments : [] };
   }
   return { publish, stackCards, stackCreditLines };
 });

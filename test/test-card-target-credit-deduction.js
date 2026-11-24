@@ -118,7 +118,12 @@ const active = r => r.payPeriodViews.find(p => p.role === 'active') || r.payPeri
 {
   // An 80 grocery purchase on the card: target max(25, 80) = 80, all already in the groceries hold: deduction 0. The
   // minimum is no longer counted beside the purchase it repays: 1,000 − 25 − 150 + 25 = 850, adjustment −25.
-  const r = advise([['card', 80, null, 'purchase']]), v = active(r), old = active(advise([['card', 80, null, 'purchase']], OLD));
+  const rows = [['card', 80, null, 'purchase']];
+  const observed = { edit: x => {
+    synced(x);
+    x.payload.accounts[0].last_fetch = x.asOf + 'T17:00:00Z'; // Bills account observed, no repayment in this window.
+  } };
+  const r = advise(rows, F, observed), v = active(r), old = active(advise(rows, OLD, observed));
   ok(cents(old.balanceAfterDeductions) === 82500, 'main: 825.00 (the 25 minimum and the 80 purchase both deducted)');
   ok(cents(v.balanceAfterDeductions) === 85000 && cents(v.predictedEndingBalanceTerms.cardRepaymentAdjustment) === -2500
     && v.predictedEndingBalanceTerms.closes === true, 'target above the minimum, charge counted once: 850.00, adjustment −25.00, terms close',

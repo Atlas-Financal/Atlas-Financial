@@ -244,7 +244,7 @@ console.log('9. A pair counts as accounted for only when its partner falls insid
 console.log('10. A pending payment counts in Paid, never toward the minimum (lead ruling, 2026-11-22)');
 {
   // By hand: Travel has a posted 100.00 payment and a pending 60.00 payment, against a 150.00 minimum. Paid (all) is 160.00,
-  // estimated; paid toward the minimum is the posted 100.00 only, so the 150.00 minimum is not covered.
+  // estimated; paid toward the minimum is the named payer debit of 100.00 only, so the 150.00 minimum is not covered.
   const pay = row('pay-pend', -60, { pending: true, payee: 'Payment received', kindHint: 'payment' });
   const bills = min => ({ cardMinimums: [{ debtId: 'travelvisa', amount: min }], trust: 'calculated' });
   const result = F.stackCreditLines(publish(world([pay])), bills(150));
@@ -263,7 +263,7 @@ console.log('10. A pending payment counts in Paid, never toward the minimum (lea
   const fs = require('node:fs'), Module = require('module'), pathMod = require('node:path');
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
-  const target = 'const paidForMinimum = card.paidPosted || paid;';
+  const target = 'const paidForMinimum = card.id === \'heloc\' ? paid : paidBack;';
   ok(src.includes(target), 'the mutant targets the posted-only minimum rule');
   const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file));
   m._compile(src.replace(target, 'const paidForMinimum = paid;'), file);

@@ -137,12 +137,13 @@ console.log('7. Minimum covered takes the weakest of paid and the minimum (lead 
   const ready = { trust: 'calculated', completeness: 'complete', reasons: [] };
   const pub = { source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2026-08-20',
     cards: [{ id: 'travelvisa', label: 'Travel', postedMovement: ready, pending: [],
+      payerPaid: { amount: 40, trust: 'calculated', reasons: [] },
       posted: [{ id: 'c', date: '2026-08-18', payee: 'Invented', amount: 30, kind: 'charge', pending: false },
         { id: 'p', date: '2026-08-18', payee: 'Invented', amount: -40, kind: 'payment', pending: false,
           paymentAllocation: { status: 'reconciled' } }] }] };
   const reconciled = F.stackCreditLines(pub, split).lines[0];
   ok(reconciled.minimumCovered.value === true && reconciled.minimumCovered.trust === 'calculated',
-    'a reconciled 40 payment against a calculated 25 minimum: covered, calculated');
+    'an exact payer-note payment of 40 against a calculated 25 minimum: covered, calculated');
   const est = F.stackCreditLines(pub, { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }], trust: 'estimated' }).lines[0];
   ok(est.minimumCovered.trust === 'estimated', 'an estimated minimum makes the verdict estimated');
 }
@@ -326,63 +327,69 @@ console.log('7. minimums due: over every listed credit line, the HELOC included 
 
 console.log('12. minimums paid: the paid side of the Credit head, over exactly the cards whose minimums are due (Dale, 2026-11-20)');
 {
-  // Owner decision (Dale, 2026-11-20: "I don't need a distinction with estimated. Just normal font"): a due MANUAL / no-ledger card
-  // (Triangle, Amazon) that Forecast cannot see counts $0 in the current period, and every card counts $0 in an upcoming one, with the
-  // trust word kept honest (estimated). Missing HISTORY keeps the dash: a PAST period with incomplete posted coverage, and a card with a
-  // feed whose paid is withheld (a failed sync): a $0 there could hide a real payment (ARCHITECTURE.md, card-figure rule).
+  // A future period or current manual card with missing payer history keeps its estimated zero fallback.
+  // For a tracked card, incomplete paying-side history withholds the amount.
   const x = fx.fixture();
   const mp = (bills, world = x) => totals(world, bills).minimumsPaid;
   const due = cm => ({ cardMinimums: cm, trust: 'calculated' });
-  // By hand, on the invented card week: Travel paid 100 and Cash Back paid 250 (both payments unreconciled, so estimated), the Emerald
-  // card (id tdcc) paid 0 on a calculated, empty week; Triangle and Amazon are manual cards with no card ledger (paid unavailable).
+  // By hand, on the invented card week: Travel paid 100 and Cash Back paid 250 (both payer notes are by amount, so estimated), the Emerald
+  // card (id tdcc) has no named payer debit. Triangle and Amazon lack a receiving ledger.
   const both = mp(split);
-  ok(both.amount === 350 && both.trust === 'estimated' && same(both.reasons, ['paid-unavailable-counted-as-zero', 'heloc-not-observed']),
+  ok(both.amount === 350 && both.trust === 'estimated' && same(both.reasons, ['card-payment-by-amount', 'paid-unavailable-counted-as-zero', 'heloc-not-observed']),
     'Travel (25 due), Cash Back (300 due) and the HELOC (50 due): 100 + 250 + an unseen HELOC counted 0 = 350, estimated', JSON.stringify(both));
   ok(mp(due([{ debtId: 'travelvisa', amount: 25 }])).amount === 100,
     'an overpaid card counts its full paid, uncapped: Travel paid 100 against a 25 minimum reads 100, like its own row');
   const nothing = mp(due([{ debtId: 'tdcc', amount: 40 }]));
-  ok(nothing.amount === 0 && nothing.trust === 'calculated' && same(nothing.reasons, []) && totals(x, due([{ debtId: 'tdcc', amount: 40 }])).minimumsDue.amount === 40,
-    'nothing paid on an observed due card: a published $0 over its 40, calculated', JSON.stringify(nothing));
+  ok(nothing.amount === 0 && nothing.trust === 'estimated' && same(nothing.reasons, ['no-confirmed-paying-side-payments']) && totals(x, due([{ debtId: 'tdcc', amount: 40 }])).minimumsDue.amount === 40,
+    'no confirmed payer debit on the due card: an estimated zero over its 40', JSON.stringify(nothing));
   const seen = fx.fixture(); seen.packet.syncEvidence.forEach(r => { r.syncEvidence = 'proven'; r.fields.last_fetch = true; });
   const seenNothing = mp(due([{ debtId: 'triangle', amount: 40 }, { debtId: 'mbna', amount: 10 }]), seen);
-  ok(seenNothing.amount === 0 && seenNothing.trust === 'calculated' && same(seenNothing.reasons, []),
-    'every due card observed and none paid (Triangle 40, Amazon 10, sync proven): $0 over 50, calculated', JSON.stringify(seenNothing));
+  ok(seenNothing.amount === 0 && seenNothing.trust === 'estimated' && same(seenNothing.reasons, ['no-confirmed-paying-side-payments']),
+    'even with proven card sync, no named payer debit for either due card yields an estimated zero', JSON.stringify(seenNothing));
   const seenMixed = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 40 }]), seen);
-  ok(seenMixed.amount === 100 && seenMixed.trust === 'estimated' && same(seenMixed.reasons, []),
-    'a payment still to confirm on an observed card keeps its number: Travel 100 + Triangle 0, estimated', JSON.stringify(seenMixed));
-  // Manual / no-ledger due cards, current period: counted $0, the trust word stays honest.
-  const manual = mp(due([{ debtId: 'triangle', amount: 400 }]));
-  ok(manual.amount === 0 && manual.trust === 'estimated' && manual.reasons[0] === 'paid-unavailable-counted-as-zero'
-    && manual.reasons.includes('account-transaction-evidence-unavailable'),
-  'a manual card alone (Triangle, no card ledger): $0 by owner decision, estimated in the data, with its reasons', JSON.stringify(manual));
+  ok(seenMixed.amount === 100 && seenMixed.trust === 'estimated' && same(seenMixed.reasons, ['card-payment-by-amount', 'no-confirmed-paying-side-payments']),
+    'a by-amount payer note keeps its estimated amount: Travel 100 + Triangle 0, estimated', JSON.stringify(seenMixed));
+  // A current manual card can have fully observed paying-side evidence even without a receiving ledger.
+  const manualBills = due([{ debtId: 'triangle', amount: 400 }]);
+  const manual = mp(manualBills);
+  ok(manual.amount === 0 && manual.trust === 'estimated' && same(manual.reasons, ['no-confirmed-paying-side-payments']),
+    'a complete payer ledger has no payment to Triangle, independent of its missing card ledger', JSON.stringify(manual));
   const withUnseen = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }]));
-  ok(withUnseen.amount === 100 && withUnseen.trust === 'estimated' && withUnseen.reasons.includes('paid-unavailable-counted-as-zero'),
-    'Travel paid 100 plus a manual card that cannot be seen: 100 + 0, estimated', JSON.stringify(withUnseen));
+  ok(withUnseen.amount === 100 && withUnseen.trust === 'estimated' && same(withUnseen.reasons, ['card-payment-by-amount', 'no-confirmed-paying-side-payments']),
+    'Travel’s by-amount payer note and no payment to Triangle: 100 + 0, estimated', JSON.stringify(withUnseen));
   // Upcoming period: nothing is observed yet; the cards count $0 the same way.
   const future = fx.fixture(); future.window = F.spendingCycle(future.plan, '2026-08-28');
   const futureMp = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 400 }]), future);
   ok(F.stackCreditLines(publish(future), split).lines.every(l => l.status === 'upcoming') && futureMp.amount === 0 && futureMp.trust === 'estimated',
     'an upcoming period (nothing observed yet): $0 over the minimums due, estimated in the data', JSON.stringify(futureMp));
-  // A card with a feed whose paid is withheld is missing history, not an unseen manual card: a failed sync keeps the dash.
-  const failed = fx.fixture(); failed.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
-  const failedTravel = mp(due([{ debtId: 'travelvisa', amount: 25 }]), failed);
-  ok(failedTravel.amount === null && failedTravel.trust === 'unavailable' && failedTravel.reasons[0] === 'paid-unavailable',
-    'a failed sync on a card with a feed (Travel): withheld, never $0 (missing history, not an unseen manual card)', JSON.stringify(failedTravel));
+  const receivingFailure = fx.fixture();
+  receivingFailure.packet.syncEvidence.filter(r => r.role === 'revolving-credit').forEach(r => { r.syncEvidence = 'failed'; });
+  const travelDue = due([{ debtId: 'travelvisa', amount: 25 }]);
+  ok(mp(travelDue, receivingFailure).amount === 100,
+    'a failed receiving-card sync cannot erase a posted named debit from the paying account');
+  const failed = fx.fixture();
+  failed.packet.transactionWindow.complete = false;
+  const failedTravel = mp(travelDue, failed);
+  ok(failedTravel.amount === null && failedTravel.trust === 'unavailable' && failedTravel.reasons.includes('paying-side-coverage-incomplete'),
+    'incomplete payer history withholds the tracked card’s paid amount', JSON.stringify(failedTravel));
   ok(mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'triangle', amount: 40 }]), failed).amount === null,
-    'a failed sync with a manual card also due: still withheld (the Travel history is missing)');
-  ok(mp(due([{ debtId: 'triangle', amount: 40 }]), failed).amount === 0, 'a failed sync with only the manual card due: $0 (it is unseen by nature)');
+    'one withheld due card withholds the sum, including when another card is manual');
+  const manualFallback = mp(manualBills, failed);
+  ok(manualFallback.amount === 0 && manualFallback.trust === 'estimated'
+    && manualFallback.reasons.includes('paid-unavailable-counted-as-zero') && manualFallback.reasons.includes('paying-side-coverage-incomplete'),
+    'a current manual card with incomplete payer history keeps its estimated zero fallback', JSON.stringify(manualFallback));
   // A past period with incomplete posted coverage keeps the dash.
   const past = fx.fixture(); past.window = F.spendingCycle(past.plan, '2026-07-20');
   const pastMp = mp(due([{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }]), past);
   ok(F.stackCreditLines(publish(past), split).lines.every(l => l.status !== 'upcoming') && pastMp.amount === null && pastMp.trust === 'unavailable'
-    && pastMp.reasons[0] === 'paid-unavailable' && pastMp.reasons.includes('posted-coverage-incomplete'),
-  'a past period with no posted coverage: withheld with posted-coverage-incomplete, never $0 (a $0 there could hide a real payment)', JSON.stringify(pastMp));
+    && pastMp.reasons[0] === 'paid-unavailable' && pastMp.reasons.includes('paying-side-coverage-incomplete'),
+  'a past period with no payer coverage: withheld with paying-side-coverage-incomplete, never $0 (a $0 there could hide a real payment)', JSON.stringify(pastMp));
   const helocOnly = mp(due([{ debtId: 'heloc', amount: 50 }]));
   ok(helocOnly.amount === 0 && helocOnly.trust === 'estimated' && same(helocOnly.reasons, ['paid-unavailable-counted-as-zero', 'heloc-not-observed'])
     && totals(x, due([{ debtId: 'heloc', amount: 50 }])).minimumsDue.amount === 50,
     'only the HELOC due (no HELOC publication card): its 50 is due, and its paid side is an estimated $0 with its reason, never more certain', JSON.stringify(helocOnly));
   const zeroMin = mp(due([{ debtId: 'tdcc', amount: 40 }, { debtId: 'triangle', amount: 0 }]));
-  ok(zeroMin.amount === 0 && zeroMin.trust === 'calculated', 'a card with a $0 minimum is not due, so it does not soften the figure', JSON.stringify(zeroMin));
+  ok(zeroMin.amount === 0 && same(zeroMin, nothing), 'adding a card with a zero minimum leaves the due card’s paid amount and trust intact', JSON.stringify(zeroMin));
   const off = mp(null);
   ok(off.amount === null && off.trust === 'unavailable' && off.reasons.length > 0,
     'the minimums due withheld: the paid side is withheld with them', JSON.stringify(off));
@@ -393,21 +400,21 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
   const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
-  const guard = "return future || (publication.role === 'current' && manual) ? countedZero(posted.reasons) : withheldPaid(posted.reasons);";
-  ok(src.includes(guard), 'the mutants target the per-line unseen-card rule');
-  const pastManual = mp(due([{ debtId: 'triangle', amount: 40 }]), past);
-  ok(pastManual.amount === null && pastManual.reasons[0] === 'paid-unavailable', 'a manual card in a PAST period is missing history too: withheld', JSON.stringify(pastManual));
-  const noPast = load(src.replace(guard, "return future || manual ? countedZero(posted.reasons) : withheldPaid(posted.reasons);"));
-  ok(noPast.stackCreditLines(publish(past), due([{ debtId: 'triangle', amount: 40 }])).totals.minimumsPaid.amount === 0,
-    'MUTANT: counting an unseen manual card as $0 in a past period too reads $0, which the past-period check above rejects');
-  const feedAsZero = load(src.replace(guard, "return countedZero(posted.reasons);"));
-  ok(feedAsZero.stackCreditLines(publish(failed), due([{ debtId: 'travelvisa', amount: 25 }])).totals.minimumsPaid.amount === 0,
-    'MUTANT: treating every unseen card as a manual one reads $0 for a failed sync, which the failed-sync check above rejects');
-  const dashEverywhere = load(src.replace(guard, "return withheldPaid(card.paid.reasons);"));
-  ok(dashEverywhere.stackCreditLines(publish(x), due([{ debtId: 'triangle', amount: 400 }])).totals.minimumsPaid.amount === null,
-    'MUTANT: withholding for any unseen card reads a dash for the manual card, which the owner-decision check above rejects');
+  const guard = "future || (publication.role === 'current' && pubCard?.manualStatement === true)";
+  ok(src.includes(guard), 'the mutants target the per-line manual fallback');
+  const pastManual = mp(manualBills, past);
+  ok(pastManual.amount === null && pastManual.reasons[0] === 'paid-unavailable', 'a manual card in a past period with missing payer history is withheld', JSON.stringify(pastManual));
+  const noPast = load(src.replace(guard, 'future || pubCard?.manualStatement === true'));
+  ok(noPast.stackCreditLines(publish(past), manualBills).totals.minimumsPaid.amount === 0,
+    'MUTANT: applying the manual fallback in a past period hides missing history');
+  const feedAsZero = load(src.replace(guard, 'true'));
+  ok(feedAsZero.stackCreditLines(publish(failed), travelDue).totals.minimumsPaid.amount === 0,
+    'MUTANT: applying the manual fallback to a tracked card hides missing payer history');
+  const dashEverywhere = load(src.replace(guard, 'false'));
+  ok(dashEverywhere.stackCreditLines(publish(failed), manualBills).totals.minimumsPaid.amount === null,
+    'MUTANT: removing the fallback withholds a current manual card with incomplete payer evidence');
   const lies = load(src.replace("trust: dueLines.length ? weakest(...dueLines.map(line => line.paidToward.trust)) : splitTrust,", "trust: 'calculated',"));
-  ok(lies.stackCreditLines(publish(x), due([{ debtId: 'triangle', amount: 400 }])).totals.minimumsPaid.trust === 'calculated',
+  ok(lies.stackCreditLines(publish(failed), manualBills).totals.minimumsPaid.trust === 'calculated',
     'MUTANT: a trust word of calculated on an unseen card reads calculated, which the honest-trust checks above reject');
 }
 
@@ -416,15 +423,16 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   const lineOf = (world, id, bills = split) => F.stackCreditLines(publish(world), bills).lines.find(l => l.id === id);
   const toward = (world, id, bills) => lineOf(world, id, bills).paidToward;
   const x = fx.fixture();
-  // The spend cards: an observed card's paid; a manual card counted $0 (estimated); a tracked card with a failed sync withheld.
-  ok(same([toward(x, 'travelvisa').amount, toward(x, 'travelvisa').trust], [100, 'estimated']) && same([toward(x, 'tdcc').amount, toward(x, 'tdcc').trust], [0, 'calculated']),
-    'an observed card reads its published paid: Travel 100 (estimated, the payment is unreconciled), Emerald 0 (calculated)');
+  // Spend cards read their paying-side evidence independently of the state of the receiving ledger.
+  ok(same([toward(x, 'travelvisa').amount, toward(x, 'travelvisa').trust], [100, 'estimated']) && same([toward(x, 'tdcc').amount, toward(x, 'tdcc').trust], [0, 'estimated']),
+    'the by-amount Travel payer note and the quiet Emerald payer ledger both carry estimated trust');
   const tri = toward(x, 'triangle'), mb = toward(x, 'mbna');
-  ok(tri.amount === 0 && tri.trust === 'estimated' && tri.reasons[0] === 'paid-unavailable-counted-as-zero' && same([mb.amount, mb.trust], [0, 'estimated']),
-    'the manual cards (Triangle, Amazon) read $0 in the current period, estimated in the data', JSON.stringify([tri, mb]));
-  const failed = fx.fixture(); failed.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
+  ok(tri.amount === 0 && tri.trust === 'estimated' && same(tri.reasons, ['no-confirmed-paying-side-payments']) && same([mb.amount, mb.trust], [0, 'estimated']),
+    'the complete payer ledger has no payment to either manual card', JSON.stringify([tri, mb]));
+  const failed = fx.fixture(); failed.packet.transactionWindow.complete = false;
   const ft = toward(failed, 'travelvisa');
-  ok(ft.amount === null && ft.trust === 'unavailable' && ft.reasons[0] === 'paid-unavailable', 'a tracked card with a failed sync is withheld (a dash), not $0', JSON.stringify(ft));
+  ok(ft.amount === null && ft.trust === 'unavailable' && ft.reasons.includes('paying-side-coverage-incomplete'),
+    'a tracked card with incomplete payer history is withheld', JSON.stringify(ft));
   // The HELOC: observed (its publication card, posted coverage complete) reads the sum of its posted payment rows, $0 with none.
   const helocWorld = (rows, sync = 'proven') => {
     const w = fx.fixture();
@@ -465,7 +473,7 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   ok(toward(future, 'heloc').amount === 0 && toward(past, 'heloc').amount === null && toward(past, 'heloc').reasons.includes('not-current-period'),
     'HELOC: an upcoming period reads $0; a past period is missing history and is withheld');
   // The head is the sum of every due line's paidToward, the HELOC's included (one membership for Credit), so the rows always add up to it.
-  const worlds = [['current', x], ['failed sync', failed], ['HELOC paid', helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])], ['past', past], ['upcoming', future]];
+  const worlds = [['current', x], ['payer coverage incomplete', failed], ['HELOC paid', helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])], ['past', past], ['upcoming', future]];
   const bills = { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }, { debtId: 'triangle', amount: 400 }, { debtId: 'heloc', amount: 50 }], trust: 'calculated' };
   for (const [label, w] of worlds) {
     const r = F.stackCreditLines(publish(w), bills);

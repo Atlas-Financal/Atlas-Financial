@@ -13,7 +13,7 @@
  *   2. The invented card week through the real recommend and the real page scripts (no stub): the waterfall's dropdown
  *      and the Credit card print Forecast's figures, and Credit, Balance After Deductions and Surplus are byte-equal to main.
  *   2a. A world where the old catch-all offset (the targets minus the Credit term) and the honest row differ, the same way.
- *   2b, 2c. A posted payment debit withholds Paid back on every line, the HELOC included.
+ *   2b, 2c. A reversed receiving-side entry leaves the spend card’s payer evidence intact. The HELOC retains its own debit guard.
  *   3. Mutants: each guard above, removed, is caught.
  *
  * Invented data only; every expected figure is worked by hand. `node test/test-credit-paid-back.js`
@@ -48,7 +48,10 @@ const OLD = engine(show);
 
 console.log('1. The lead\'s worked case, per line: card A (target 100, nothing counted, 50 paid beyond) and card B (target 100, 150 counted)');
 const pub = cards => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
-  cards: cards.map(([id, rows]) => ({ id, label: 'Invented ' + id, posted: rows, pending: [],
+  cards: cards.map(([id, rows, payerAmount = 0]) => ({ id, label: 'Invented ' + id, posted: rows, pending: [],
+    payerPaid: payerAmount === 0
+      ? { amount: 0, trust: 'estimated', reasons: ['no-confirmed-paying-side-payments'] }
+      : { amount: payerAmount, trust: 'calculated', reasons: [] },
     postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] } })) });
 const row = (kind, amount, extra = {}) => ({ date: '2031-03-05', payee: 'Invented', amount, kind, ...extra });
 const RECONCILED = { paymentAllocation: { status: 'reconciled' } };
@@ -58,7 +61,7 @@ const RECONCILED = { paymentAllocation: { status: 'reconciled' } };
 // Card B: min 25, 150 of purchases (all in the Household budget hold) and a 50 refund on the card: Spent 100, target
 // max(25, 100, 0) = 100; 150 already counted above; due max(0, 100 − 150) = 0; deduction 0. Nothing paid back: 100 still.
 const worked = pub([
-  ['a', [row('payment', -75, RECONCILED)]],
+  ['a', [row('payment', -75, RECONCILED)], 75],
   ['b', [row('charge', 150), row('refund', -50)]],
 ]);
 const BILLS = { cardMinimums: [{ debtId: 'a', amount: 25 }, { debtId: 'b', amount: 25 }], trust: 'calculated' };
@@ -103,9 +106,18 @@ ok(cents(A.paidBack.amount) + cents(B.paidBack.amount) === 7500, 'condition 3: t
   ok(cents(line.paid.amount) === 7500 && cents(line.paidBack.amount) === 0 && cents(line.stillToPayBack.amount) === 10000,
     'condition 1: a pending 75.00 payment is in Paid but not Paid back: 0 paid back, 100.00 still to pay back', JSON.stringify([line.paid, line.paidBack]));
 }
+// A posted receiving-side payment alone remains visible in card movements.
+const receiptOnly = pub([['a', [row('payment', -75, RECONCILED)]]]);
+{
+  const line = M.stackCreditLines(receiptOnly, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
+  ok(line.paid.amount === 75 && line.paidToward.amount === 0 && line.paidBack.amount === 0
+    && line.minimumCovered.value === false && line.stillToPayBack.amount === 100,
+    'an allocated card-side receipt with no posted payer debit cannot repay the card or cover its minimum');
+}
 // Unknown stays unknown: a withheld paid back or target withholds Still to pay back, never $0.
 {
   const failed = pub([['a', [row('payment', -75, RECONCILED)]]]);
+  failed.cards[0].payerPaid = { amount: null, trust: 'unavailable', reasons: ['posted-coverage-incomplete'] };
   failed.cards[0].postedMovement = { trust: 'unavailable', completeness: 'none', reasons: ['sync-failed'] };
   const past = { ...failed, role: 'past' };
   const line = M.stackCreditLines(past, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
@@ -116,7 +128,7 @@ ok(cents(A.paidBack.amount) + cents(B.paidBack.amount) === 7500, 'condition 3: t
 }
 // Paid back beyond the target: Still to pay back is 0, never negative, and the row is green.
 {
-  const over = pub([['a', [row('charge', 40), row('payment', -90, RECONCILED)]]]);
+  const over = pub([['a', [row('charge', 40), row('payment', -90, RECONCILED)], 90]]);
   const line = M.stackCreditLines(over, { cardMinimums: [{ debtId: 'a', amount: 25 }], trust: 'calculated' },
     [{ id: 'a', overLimitBy: 0, used: 0, limit: 1000, balanceTrust: 'calculated' }], new Map()).lines.find(l => l.id === 'a');
   ok(cents(line.target.amount) === 4000 && line.stillToPayBack.amount === 0 && line.targetCovered.value === true,
@@ -240,44 +252,31 @@ let overAdvice;
     JSON.stringify(items(pg.wf)));
 }
 
-console.log('2b. A posted payment row that debits the card (ChatGPT, #1617 7120269248): Paid back withheld, never negative');
-// The same invented card week, with Travel's posted 100.00 payment flipped from a credit to a debit, its explicit payment hint
-// kept. Before the repair: Paid back −100.00 and Still to pay back 336.00 (more than the 236.00 target), printed in the
-// dropdown. Now: Paid back is withheld (direction unresolved), so Still to pay back is too: a dash on both views, never a
-// negative and never above the target. paidToward, the head's minimumsPaid and the minimum check are unchanged.
-let flipped;
+console.log('2b. A reversed card receipt cannot revoke or repeat the named payer-side payment');
 {
   const y = fx.fixture();
-  y.packet.transactions.find(t => t.id === 'payment-a').amount = 100;
+  y.packet.transactions.find(tx => tx.id === 'payment-a').amount = 100;
   const yOpts = { debts: y.debts, currentPeriodActuals: y.packet, cardPeriodBalanceEvidence: y.balanceEvidence, cardLiveOverlay: y.overlay };
-  const yr = F.recommend(y.plan, y.asOf, yOpts), yOld = OLD.recommend(y.plan, y.asOf, yOpts);
-  flipped = yr;
-  const yv = yr.payPeriodViews.find(v => v.role === 'active'), yo = yOld.payPeriodViews.find(v => v.role === 'active');
+  const yr = F.recommend(y.plan, y.asOf, yOpts);
+  const yOld = OLD.recommend(y.plan, y.asOf, yOpts);
+  const yv = yr.payPeriodViews.find(v => v.role === 'active');
   const t = yv.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
-  ok(t.paidBack.amount === null && t.paidBack.reasons.includes('payment-direction-unresolved') && t.stillToPayBack.amount === null
-    && t.targetCovered.value === 'unknown', 'a posted payment debit: Paid back withheld (payment-direction-unresolved), Still to pay back withheld, never −100 / 336',
-    JSON.stringify([t.paidBack, t.stillToPayBack]));
-  const row = yv.stackSummary.creditBreakdown.rows.find(r => r.debtId === 'travelvisa');
-  ok(row && row.amount === null, 'the dropdown\'s Travel row is withheld too (a dash), never 336', JSON.stringify(row));
-  const ot = yo.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
-  ok(cents(t.paidToward.amount) === cents(ot.paidToward.amount) && JSON.stringify(yv.stackSummary.credit.totals.minimumsPaid) === JSON.stringify(yo.stackSummary.credit.totals.minimumsPaid)
-    && JSON.stringify(t.minimumCovered) === JSON.stringify(ot.minimumCovered),
-    'paidToward, the head\'s minimumsPaid and the minimum check are as main (only the display value is qualified)');
-  ok(yr.payPeriodViews.every((v, i) => JSON.stringify([v.balanceAfterDeductions, v.stackSummary && v.stackSummary.surplus, v.stackSummary && v.stackSummary.credit && v.stackSummary.credit.totals.deduction])
-    === JSON.stringify([yOld.payPeriodViews[i].balanceAfterDeductions, yOld.payPeriodViews[i].stackSummary && yOld.payPeriodViews[i].stackSummary.surplus,
-      yOld.payPeriodViews[i].stackSummary && yOld.payPeriodViews[i].stackSummary.credit && yOld.payPeriodViews[i].stackSummary.credit.totals.deduction])),
-  'Credit, Balance After Deductions and Surplus are byte-equal to main with the debit too');
-  // Control: the ordinary credit (the unedited week, section 2) still publishes Paid back 100.00, so only the debit withholds.
-  ok(cents(travel.paidBack.amount) === 10000, 'control: the same payment as an ordinary credit is Paid back 100.00 (section 2)');
-  // The page: both views print a dash for Travel, no minus anywhere.
+  ok(t.paidBack.amount === 100 && t.stillToPayBack.amount === 136 && t.targetCovered.value === false,
+    'the posted payer note still repays 100 of the 236 target when the receiving row is reversed');
+  const dropTravel = yv.stackSummary.creditBreakdown.rows.find(r => r.debtId === 'travelvisa');
+  ok(dropTravel.amount === 136, 'the dropdown reads 136 still to pay back');
+  ok(t.paidToward.amount === travel.paidToward.amount
+    && JSON.stringify(yv.stackSummary.credit.totals.minimumsPaid) === JSON.stringify(view.stackSummary.credit.totals.minimumsPaid)
+    && JSON.stringify(t.minimumCovered) === JSON.stringify(travel.minimumCovered),
+    'reversing the receiving row changes neither the minimum check nor the sum of due cards’ payer payments');
+  ok(sameAsMain(yr, yOld), 'Credit, Balance After Deductions and Surplus are byte-equal to main with the debit too');
   const pg = render(read, yr);
-  const travelCard = (pg.card.match(/<li><button class="stack-credit-line" type="button" data-stack-sheet="card:travelvisa">[\s\S]*?<\/li>/) || [''])[0];
-  ok(/— \/ \$236/.test(text(travelCard)) && !/−|\u2212|-\$/.test(text(travelCard)), 'the Credit card row reads "— / $236": no negative paid back', text(travelCard));
-  const dropTravel = items(pg.wf).find(r => /^Synthetic card|^travelvisa|^Travel/i.test(r)) || items(pg.wf)[1];
-  ok(!/\$336/.test(pg.wf) && !/−\$100/.test(pg.wf) && /—/.test(dropTravel), 'the dropdown prints a dash for Travel, never $336', JSON.stringify(items(pg.wf)));
+  const row = (pg.card.match(/<li><button class="stack-credit-line" type="button" data-stack-sheet="card:travelvisa">[\s\S]*?<\/li>/) || [''])[0];
+  ok(/\+\$100 \/ \$236/.test(text(row)) && items(pg.wf).some(r => /\$136\b/.test(r)),
+    'both views continue to show the payer-derived amounts');
 }
 
-console.log('2c. Every line, the HELOC included, withholds Paid back on a posted payment debit (ChatGPT, #1617 7120927392)');
+console.log('2c. The HELOC keeps its observed payment-direction rule');
 // The HELOC line's paid comes from its own posted rows, not the card figures. An invented HELOC publication card: a posted
 // 150.00 payment credit and a posted 50.00 payment debit (net +100.00) against an 80.00 minimum. Paid back, Still to pay
 // back and target covered are withheld; its paidToward (the head's input) stays the incumbent 100.00.
@@ -295,22 +294,23 @@ const helocLine = (posted, mod = M) => mod.stackCreditLines(helocPub(posted), HE
   ok(cents(plain.paidBack.amount) === 15000 && plain.stillToPayBack.amount === 0 && plain.targetCovered.value === true,
     'control: the HELOC with an ordinary 150.00 credit is Paid back 150.00 of its 80.00 target, covered');
 }
-// The sweep (lead, 2026-11-24): on a publication where every spend card and the HELOC carries a posted payment debit beside
-// a credit, every published line withholds Paid back. The same publication with the debits removed publishes each line.
+// The same credits and debits on every receiving ledger distinguish spend-card payer notes from the HELOC rule.
 {
   const ids = ['a', 'b', 'c'];
   const sweepPub = withDebit => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
-    cards: ids.map(id => ({ id, label: 'Invented ' + id, pending: [], postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] },
+    cards: ids.map(id => ({ id, label: 'Invented ' + id, pending: [], payerPaid: { amount: 120, trust: 'calculated', reasons: [] },
+      postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] },
       posted: [row('payment', -120, RECONCILED)].concat(withDebit ? [row('payment', 20, RECONCILED)] : []) }))
       .concat([{ id: 'heloc', label: 'HELOC', syncState: 'proven', postedCoverage: 'complete-provider-response', reasons: [], pending: [],
         posted: [row('payment', -120)].concat(withDebit ? [row('payment', 20)] : []) }]) });
   const bills = { cardMinimums: ids.concat(['heloc']).map(debtId => ({ debtId, amount: 40 })), trust: 'calculated' };
   const withDebits = M.stackCreditLines(sweepPub(true), bills, [], new Map()).lines;
   const without = M.stackCreditLines(sweepPub(false), bills, [], new Map()).lines;
-  ok(withDebits.length === 4 && withDebits.every(l => l.paidBack.amount === null && l.paidBack.reasons.includes('payment-direction-unresolved')
-    && l.stillToPayBack.amount === null && l.targetCovered.value === 'unknown'),
-    'the sweep: every line (three cards and the HELOC) withholds Paid back where a posted payment debits it',
-    JSON.stringify(withDebits.map(l => [l.id, l.paidBack.amount])));
+  const heloc = withDebits.find(l => l.id === 'heloc');
+  ok(withDebits.length === 4 && ids.every(id => withDebits.find(l => l.id === id).paidBack.amount === 120)
+    && heloc.paidBack.amount === null && heloc.paidBack.reasons.includes('payment-direction-unresolved')
+    && heloc.stillToPayBack.amount === null && heloc.targetCovered.value === 'unknown',
+    'all three spend cards read their payer notes, while the HELOC mixed credit and debit withholds Paid back');
   ok(without.length === 4 && without.every(l => cents(l.paidBack.amount) === 12000), 'control: with the debits removed every line publishes Paid back 120.00',
     JSON.stringify(without.map(l => [l.id, l.paidBack.amount])));
 }
@@ -318,7 +318,7 @@ const helocLine = (posted, mod = M) => mod.stackCreditLines(helocPub(posted), HE
 {
   const shape = Object.keys(F.stackCardSummary(pub([['a', [row('payment', -75, RECONCILED)]]]))[0]).sort().join();
   ok(shape === ['id', 'label', 'net', 'paid', 'spent', 'state', 'transactions'].sort().join(),
-    'Forecast.stackCardSummary publishes no internal input (paidPosted, chargesCounted, postedPaymentDebit)', shape);
+    'Forecast.stackCardSummary publishes no internal inputs for calculating the row', shape);
 }
 
 console.log('3. Mutants: each must fail a check above');
@@ -344,37 +344,20 @@ console.log('3. Mutants: each must fail a check above');
   pend.cards[0].pending = [row('payment', -75, RECONCILED)];
   const line = PM.stackCreditLines(pend, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(cents(line.stillToPayBack.amount) === 2500, 'MUTANT: Still to pay back from line.paid (the pending 75 counted) reads 25.00, not the 100.00 condition 1 pins', JSON.stringify(line.stillToPayBack));
-  const debitBlind = cp2.replace("const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : card.postedPaymentDebit === true;",
-    "const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : false;");
-  ok(debitBlind !== cp2, 'the debit mutant targets the paid-back qualification');
-  const PD = engine(file => (file === 'public/forecast-card-period.js' ? debitBlind : read(file)));
-  const y = fx.fixture(); y.packet.transactions.find(t => t.id === 'payment-a').amount = 100;
-  const dl = PD.recommend(y.plan, y.asOf, { debts: y.debts, currentPeriodActuals: y.packet, cardPeriodBalanceEvidence: y.balanceEvidence, cardLiveOverlay: y.overlay })
-    .payPeriodViews.find(v => v.role === 'active').stackSummary.credit.lines.find(l => l.id === 'travelvisa');
-  ok(dl.paidBack.amount === null, 'MUTANT (debit flag off): the negative-floor still withholds a net −100 (belt and braces), so the next mutant drops both');
-  // A mixed card: a 150.00 posted payment credit and a 50.00 posted payment debit net to +100.00; the debit leaves the
-  // direction unresolved, so Paid back is withheld. With the debit flag off it would print a confident +100.00.
-  const mixed = pub([['a', [row('payment', -150, RECONCILED), row('payment', 50, RECONCILED)]]]);
-  const real = M.stackCreditLines(mixed, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
-  const mut = realm(file => (file === 'public/forecast-card-period.js' ? debitBlind : read(file))).ForecastCardPeriod
-    .stackCreditLines(mixed, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
-  ok(real.paidBack.amount === null && real.paidBack.reasons.includes('payment-direction-unresolved') && cents(real.paidToward.amount) === 10000,
-    'a mixed card (150 credit, 50 debit): Paid back withheld; paidToward stays the incumbent 100.00', JSON.stringify(real.paidBack));
-  ok(cents(mut.paidBack.amount) === 10000, 'MUTANT (debit flag off): the mixed card prints a confident +100.00, which the check above rejects');
-  const bothOff = debitBlind.replace('(debit || cents(paidToward.amount) < 0)', '(debit)');
-  const PB = engine(file => (file === 'public/forecast-card-period.js' ? bothOff : read(file)));
-  const bl = PB.recommend(y.plan, y.asOf, { debts: y.debts, currentPeriodActuals: y.packet, cardPeriodBalanceEvidence: y.balanceEvidence, cardLiveOverlay: y.overlay })
-    .payPeriodViews.find(v => v.role === 'active').stackSummary.credit.lines.find(l => l.id === 'travelvisa');
-  ok(bothOff !== debitBlind && cents(bl.paidBack.amount) === -10000 && cents(bl.stillToPayBack.amount) === 33600,
-    'MUTANT (no qualification): Paid back −100.00 and Still to pay back 336.00 come back, which section 2b rejects', JSON.stringify([bl.paidBack, bl.stillToPayBack]));
-  const helocBlind = cp2.replace("const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : card.postedPaymentDebit === true;", 'const debit = card.postedPaymentDebit === true;');
+  const receiptMutant = cp2.replace('const paidToward = paidTowardOf(card, published(card.id));',
+    'const paidToward = card.paidPosted || paidTowardOf(card, published(card.id));');
+  const receiptModule = realm(file => (file === 'public/forecast-card-period.js' ? receiptMutant : read(file))).ForecastCardPeriod;
+  const receiptLine = receiptModule.stackCreditLines(receiptOnly, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
+  ok(receiptMutant !== cp2 && receiptLine.paidBack.amount === 75 && receiptLine.minimumCovered.value === true,
+    'MUTANT: restoring receiving-side authority counts the posted receipt and covers the minimum without a payer debit');
+  const helocBlind = cp2.replace("postedPaymentDebitOf(published('heloc')) ||", 'false ||');
   ok(helocBlind !== cp2, 'the HELOC mutant targets the HELOC debit read');
   const HM = realm(file => (file === 'public/forecast-card-period.js' ? helocBlind : read(file))).ForecastCardPeriod;
   const hm = helocLine([row('payment', -150), row('payment', 50)], HM);
   ok(cents(hm.paidBack.amount) === 10000 && hm.targetCovered.value === true, 'MUTANT (HELOC debit not read): Paid back 100.00 and covered true come back, which section 2c rejects');
-  const leak = cp2.replace('cards.map(({ paidPosted, chargesCounted, postedPaymentDebit, ...card }) => card)', 'cards.map(({ paidPosted, chargesCounted, ...card }) => card)');
+  const leak = cp2.replace('cards.map(({ paidPosted, chargesCounted, ...card }) => card)', 'cards.map(({ chargesCounted, ...card }) => card)');
   ok(leak !== cp2 && Object.keys(realm(file => (file === 'public/forecast-card-period.js' ? leak : read(file))).Forecast
-    .stackCardSummary(pub([['a', []]]))[0]).includes('postedPaymentDebit'), 'MUTANT (flag not stripped): the summary leaks postedPaymentDebit, which section 2c rejects');
+    .stackCardSummary(pub([['a', []]]))[0]).includes('paidPosted'), 'MUTANT (internal amount not stripped): the summary leaks paidPosted, which section 2c rejects');
   const wsrc = read('public/stack-waterfall.js');
   const noCaption = wsrc.replace("const caption = cards ?", "const caption = false ?");
   ok(noCaption !== wsrc, 'the caption mutant targets the caption');
