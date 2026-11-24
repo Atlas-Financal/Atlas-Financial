@@ -109,6 +109,12 @@ async function holdAndDrag(page, from, toY, { holdMs = 650 } = {}) {
     ok(order1[order1.length - 1] === order0[0] && order1.length === order0.length,
       `the held ${order0[0]} card dropped last`, JSON.stringify([order0, order1]));
     ok(JSON.stringify(await figures(page)) === JSON.stringify(figs0), 'every printed figure is unchanged by the move');
+    {
+      // What is kept in the browser: the card names in their order, nothing else (no figure, no label, no date).
+      const stored = await page.evaluate(() => localStorage.getItem('atlas.stackOrder.v1'));
+      ok(stored === JSON.stringify(order1) && !/\d/.test(stored), 'browser storage holds only the card names in their order', stored);
+      ok(await page.evaluate(() => Object.keys(localStorage).filter(k => /stack/i.test(k)).join()) === 'atlas.stackOrder.v1', 'and no other Stack key');
+    }
     ok(!(await page.$(`[data-stack-slot="${order0[0]}"] > details[open]`)), 'the long press did not open the card');
     ok(await page.evaluate(() => !document.documentElement.classList.contains('stack-dragging') && !document.querySelector('.is-lifted')),
       'nothing stays lifted after the drop');

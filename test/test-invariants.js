@@ -946,13 +946,27 @@ ok(/No weekly spending\s*\n?\s*figure fixes this/.test(planJs2),
   // test-hidden-knobs-ignored.js; these pin the source contract.
   const planCode2 = planJs2.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   // plan.js alone: other scripts store non-financial preferences on purpose (the settlement pending record in app.js,
-  // the view and theme choice in budget-blend.js), so this one cannot widen to every page script. The Stack page
-  // keeps nothing in storage at all, which the next assertion holds.
+  // the view and theme choice in budget-blend.js), so this one cannot widen to every page script. The Stack page keeps
+  // exactly one non-financial preference (reorderable stacks, Dale 2026-11-24): the card order, a list of card names, in
+  // stack-shell.js under one key. The next assertions hold that and nothing more: no other Stack script touches storage,
+  // the shell touches only that key, and it writes only the slots' names (browser-stack-reorder.js reads the value back).
   ok(!/localStorage\.setItem/.test(planCode2),
   'nothing the page holds is written to localStorage — no knobs, no balances');
-  const stackStorage = require('./lib/page-scripts').pageScripts()
-    .filter(s => /^public\/stack-/.test(s.file) && /\b(localStorage|sessionStorage|indexedDB)\b/.test(s.source)).map(s => s.file);
-  ok(stackStorage.length === 0, 'no Stack script reads or writes browser storage', stackStorage.join(', ') || 'none');
+  const stackScripts = require('./lib/page-scripts').pageScripts().filter(s => /^public\/stack-/.test(s.file));
+  const stackStorage = stackScripts.filter(s => /\b(localStorage|sessionStorage|indexedDB)\b/.test(s.source)).map(s => s.file);
+  ok(stackStorage.every(f => f === 'public/stack-shell.js'), 'no Stack script but the shell touches browser storage', stackStorage.join(', ') || 'none');
+  {
+    const shell = (stackScripts.find(s => s.file === 'public/stack-shell.js') || { source: '' }).source
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const uses = shell.match(/\.(getItem|setItem|removeItem|clear|key)\(/g) || [];
+    ok(!/\b(sessionStorage|indexedDB)\b/.test(shell) && /const ORDER_KEY = 'atlas\.stackOrder\.v1';/.test(shell)
+      && uses.length === 2 && /localStorage\.getItem\(ORDER_KEY\)/.test(shell)
+      && /localStorage\.setItem\(ORDER_KEY, JSON\.stringify\(ids\)\)/.test(shell)
+      && (shell.match(/saveOrder\(/g) || []).length === 3
+      && /saveOrder\(slotsOf\(pile\)\.map\(node => node\.getAttribute\('data-stack-slot'\)\)\)/.test(shell)
+      && /const ids = slotsOf\(pile\)\.map\(node => node\.getAttribute\('data-stack-slot'\)\);\s*saveOrder\(ids\);/.test(shell),
+    'the Stack shell reads and writes one key, the card order, and writes only the slots\' names', String(uses.length));
+  }
   ok(!/localStorage\.getItem/.test(planCode2) && /localStorage\.removeItem\(KNOB_KEY\)/.test(planCode2),
     'and nothing is restored from it (the old knob key is cleared), so a stale or tampered '
     + 'payload cannot supply its own knobs or balances for the plan to be built on');
