@@ -5969,8 +5969,6 @@ function derivedAmountFixedBills(history, opts) {
     const { row: bill, kind } = bills.get(id);
     const interval = AMOUNT_FIXED_INTERVAL_DAYS[bill.frequency];
     if (found.ambiguous.has(id) || found.unsupported.has(id) || found.duplicated.has(id) || !interval || bill.amountSchedule !== undefined
-      // A provider price cutover (#1583) changes the price at a date: one fixed price across it is not derived.
-      || bill.providerPriceCutover !== undefined
       || rows.length < AMOUNT_FIXED_MIN_COUNT) continue;
     // Two payments on one day are legs or a duplicate, not one fixed price.
     if (rows.some((row, i) => i > 0 && rows[i - 1].date === row.date)) continue;
@@ -5990,6 +5988,9 @@ function derivedAmountFixedBills(history, opts) {
     const completed = rows.filter(row => nearest(row.date) < current);
     if (completed.length < AMOUNT_FIXED_MIN_COUNT) continue;
     const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
+    // Payments are sorted oldest first. Even equal amounts cannot establish a fixed price across a cutover.
+    const cut = bill.providerPriceCutover;
+    if (cut !== undefined && (kind !== 'bill' || !realIsoDay(cut?.from) || sample[0].date < cut.from)) continue;
     if (!sample.every(row => row.cents === plannedCents)) continue;
     if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
     (kind === 'obligation' ? out.obligationIds : out.billIds).push(id);
