@@ -21,7 +21,7 @@
  *   Mortgage       stackSummary.bills.mortgage
  *   Credit         stackSummary.surplus.terms.credit, opening in place to one
  *                  row per card: stackSummary.creditBreakdown.rows[i].amount (its
- *                  Still to pay back, OD-033) and the creditBreakdown.alreadyCounted row (desk ruling
+ *                  Still to pay back, OD-033; no "Already counted above" row, Dale, 7121410691) (desk ruling
  *                  (E)); where Forecast publishes no breakdown (a completed or saved
  *                  period), stackSummary.bills.cardMinimums[i].amount
  *   Surplus        stackSummary.surplus.amount
@@ -182,10 +182,10 @@
     }).join('');
   }
 
-  // OD-033 (display only; desk ruling (1), Plan #6): under one plain caption, each card at its Still to pay back, then one
-  // "Already counted above" row (that card's charges already deducted above, summed over the cards). The Credit line stays
-  // (E)'s deduction; the rows are what is still owed on each card and do not add up to it (lead, 2026-11-24: the caption
-  // says so in plain words). Every figure is Forecast's; none is added up here. A withheld figure is a dash, never $0.
+  // OD-033 (display only; desk ruling (1), Plan #6): under one plain caption, each card at its Still to pay back. The Credit
+  // line stays (E)'s deduction; the rows are what is still owed on each card and do not add up to it (lead, 2026-11-24: the
+  // caption says so in plain words). No "Already counted above" row (Dale, 2026-11-24, #1617 7121410691). Every figure is
+  // Forecast's; none is added up here. A withheld figure is a dash, never $0.
   const STILL_CAPTION = 'Still to pay back on each card';
   function targetRows(ctx, view, breakdown) {
     const cell = (amount, source, trustPath) => isAmount(amount)
@@ -197,11 +197,7 @@
         + `<span class="wf-amt">${cell(row && row.amount, `stackSummary.creditBreakdown.rows.${i}.amount`, `stackSummary.creditBreakdown.rows.${i}.trust`)}${minimumCheck(ctx, view, row && row.debtId)}</span></li>`;
     }).join('');
     const caption = cards ? `<li class="wf-card wf-caption" data-row="still-caption"><span class="wf-name">${escape(STILL_CAPTION)}</span></li>` : '';
-    const counted = breakdown.alreadyCounted;
-    const countedRow = counted && (!isAmount(counted.amount) || counted.amount !== 0)
-      ? `<li class="wf-card" data-row="already-counted"><span class="wf-name"><b>Already counted above</b></span>`
-        + `<span class="wf-amt">${cell(counted.amount, 'stackSummary.creditBreakdown.alreadyCounted.amount', 'stackSummary.creditBreakdown.alreadyCounted.trust')}</span></li>` : '';
-    return caption + cards + countedRow;
+    return caption + cards;
   }
 
   // The waterfall's Mortgage line opens the mortgage sheet (owner, Dale, 2026-11-20: no Mortgage card; the line stays

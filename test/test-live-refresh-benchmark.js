@@ -20,7 +20,9 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
-    forecast: '74354fb84cc96226432a9ebbe74046e5537825149ab07b53ac7648d87e671f51',
+    // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
+    // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
+    forecast: 'a13f796232d17fd2b34c09542ddee80edf3ee2d8cf74825b3923e05fe6a68d2b',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -31,7 +33,9 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
-    forecast: '1e16f48cea779c0dc153fe08b81b7c516cfbd80d822ec01d6113f0cf1bf09fcb',
+    // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
+    // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
+    forecast: '11e5891458b96feac4e922268501ee38268694194f25dc81c44abeea3bb173a6',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -42,7 +46,9 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
-    forecast: 'a4271c92771a20a8f2f73ed73bfccf84466cb6cb10855629cb7c055b705fbcc2',
+    // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
+    // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
+    forecast: '20db420436321c2a4c6063fbfb7500503b6eea47fb1b04044e2348bc5b3a7fe3',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

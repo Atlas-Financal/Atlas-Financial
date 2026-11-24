@@ -126,8 +126,8 @@ const active = r => r.payPeriodViews.find(p => p.role === 'active') || r.payPeri
   const s = v.stackSummary.surplus, b = v.stackSummary.creditBreakdown;
   ok(cents(s.amount) === cents(v.balanceAfterDeductions) && s.terms.credit === 0,
     'Surplus = Balance After Deductions (nothing held, nothing beyond), its Credit term 0.00');
-  ok(b && b.rows.length === 1 && cents(b.rows[0].amount) === 8000 && cents(b.alreadyCounted.amount) === -8000 && b.total === 0,
-    'the dropdown (OD-033): Travel still to pay back 80.00 (nothing paid back), "Already counted above" −80.00 (the purchase in the hold), Credit 0.00', JSON.stringify(b));
+  ok(b && b.rows.length === 1 && cents(b.rows[0].amount) === 8000 && !Object.hasOwn(b, 'alreadyCounted') && b.total === 0,
+    'the dropdown (OD-033): Travel still to pay back 80.00 (nothing paid back), no "Already counted above" row (Dale, 7121410691), Credit 0.00', JSON.stringify(b));
   const line = v.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
   ok(cents(line.stillToPayBack.amount) === cents(b.rows[0].amount) && cents(line.target.amount) === 8000 && cents(line.paidToward.amount) === 0,
     'the dropdown row is the Credit tile\'s Still to pay back, one figure: its 80.00 target less 0.00 paid back');
@@ -318,8 +318,8 @@ console.log('6. Which card evidence the remainder\'s trust reads (review 7106640
     JSON.stringify([overLine && overLine.deduction, over.balanceAfterDeductions, trustOf(over), over.stackSummary.surplus.trust]));
   // The Credit publication keeps its own trust: only what it lends the remainder leaves the manual card out.
   const breakdown = manual.stackSummary.creditBreakdown;
-  ok(breakdown && breakdown.trust === 'estimated' && breakdown.alreadyCounted.trust === manual.stackSummary.credit.totals.deduction.trust
-    && breakdown.alreadyCounted.trust === 'estimated', 'the Credit breakdown and its "Already counted above" row stay estimated');
+  ok(breakdown && breakdown.trust === 'estimated' && manual.stackSummary.credit.totals.deduction.trust === 'estimated',
+    'the Credit breakdown and the Credit deduction stay estimated');
   // A fall-back target: the manual card's 25 minimum stands in for its unseen new charges. Estimated.
   const fallback = active(advise([], F, { card: 'mbna', payDownOnly: ['mbna', 'triangle'] }));
   const fm = fallback.stackSummary.credit.lines.find(l => l.id === 'mbna');
