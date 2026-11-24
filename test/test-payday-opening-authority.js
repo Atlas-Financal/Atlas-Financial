@@ -1113,12 +1113,39 @@ console.log('\n=== 10. Designated savings in the gap does not change spendable p
     ok(duplicateFrozen.data.plan.opening.paydaySnapshot?.opening===independent,
       'valid recorded snapshot remains frozen despite duplicate original '+id+' reconstruction rows');
   }
+  function servedWithMissingOpening(input, label) {
+    const data = { meta: { asOf: input.plan.opening.asOf }, plan: input.plan, debts: [] };
+    const payload = fixture.payload(input);
+    const report = O.observe({ provider: payload.provider, fetchedAt: payload.fetchedAt,
+      data, payload, accountMap: input.accountMap, identity: { rules: [], billPaymentPayees: [] } });
+    const locator = 'cash:chequing-a';
+    const row = report.reconciliation.rows.find(item => item.canonicalTarget === locator);
+    ok(row?.status === 'MISSING' && row.canonicalValue === null && row.difference === null
+        && Number.isFinite(row.evidenceValue) && row.evidenceDate === input.asOf,
+      label + ' leaves the comparison unknown despite a current numeric observation');
+    const { proposed, refused } = Live.proposeOverlay(report, data.meta.asOf, input.asOf);
+    ok(!proposed.some(item => item.locator === locator)
+        && refused.some(item => item.locator === locator && item.reason === 'unknown-value'),
+      label + ' refuses a proposal for the unknown cash baseline');
+
+    // Use the same refusal and dated fallback as the server's advancing refresh.
+    const expected = 'stale-live-cash-evidence: ' + locator + ' dated ' + input.asOf;
+    try {
+      Live.overlayLiveState({ data, report });
+    } catch (err) {
+      if (err.code !== 'live-plan-failed' || !err.message.startsWith(expected)) throw err;
+      const served = Live.failedOverlay(data, err.message, { report });
+      ok(served.liveOverlay.applied === false && served.liveOverlay.reason === 'stale-live-cash-evidence',
+        label + ' serves the dated fallback after the required cash refusal');
+      return served;
+    }
+    throw new Error(label + ' unexpectedly advanced an opening with missing ' + locator);
+  }
   for (const [label,value] of [['null',null],['missing',undefined],['blank',''],['whitespace',' '],
     ['boolean',false],['NaN',NaN],['object',{}],['array',[]],['invalid string','not-cash']]) {
     const invalid=fixture.input();invalid.plan.startingCash.breakdown.find(r=>r.id==='chequing-a').value=value;
-    const held=Live.fromObservation({data:{meta:{asOf:'2026-09-29'},plan:invalid.plan,debts:[]},
-      payload:fixture.payload(invalid),accountMap:invalid.accountMap});
-    ok(!held.data.plan.opening.paydaySnapshot,
+    const held=servedWithMissingOpening(invalid, label);
+    ok(!held.plan.opening.paydaySnapshot,
       'original '+label+' cash stays unknown despite a complete ledger and reported live cash');
   }
   const unknown=fixture.input();unknown.plan.startingCash.breakdown[0].unknown=true;
@@ -1128,9 +1155,8 @@ console.log('\n=== 10. Designated savings in the gap does not change spendable p
   const legacyUnknown=fixture.input();delete legacyUnknown.plan.savingsEarmarks;delete legacyUnknown.plan.savingsPoolObservation;
   legacyUnknown.plan.startingCash.breakdown[0].value=null;legacyUnknown.plan.startingCash.breakdown[1].value=20;
   legacyUnknown.accountMap.mappings.find(m=>m.canonical.id==='savings').atlasRole='household-cash';
-  const legacyUnknownResult=Live.fromObservation({data:{meta:{asOf:'2026-09-29'},plan:legacyUnknown.plan,debts:[]},
-    payload:fixture.payload(legacyUnknown),accountMap:legacyUnknown.accountMap});
-  ok(!legacyUnknownResult.data.plan.opening.paydaySnapshot,
+  const legacyUnknownResult=servedWithMissingOpening(legacyUnknown, 'legacy missing cash');
+  ok(!legacyUnknownResult.plan.opening.paydaySnapshot,
     'legacy complete cash map cannot turn missing A plus B20 into an original opening33');
   const numeric=fixture.input();numeric.plan.startingCash.breakdown[0].value='70';
   const numericResult=Live.fromObservation({data:{meta:{asOf:'2026-09-29'},plan:numeric.plan,debts:[]},
@@ -1142,9 +1168,8 @@ console.log('\n=== 10. Designated savings in the gap does not change spendable p
   ok(zeroResult.data.plan.opening.paydaySnapshot?.opening===0+20-7,'explicit known zero plus complete movements remains a known opening');
   const frozen=fixture.input();frozen.plan.startingCash.breakdown[0].value=null;
   frozen.plan.opening.paydaySnapshot={periodStart:'2026-10-02',asOf:'2026-10-02',opening:independent};
-  const frozenResult=Live.fromObservation({data:{meta:{asOf:'2026-09-29'},plan:frozen.plan,debts:[]},
-    payload:fixture.payload(frozen),accountMap:frozen.accountMap});
-  ok(frozenResult.data.plan.opening.paydaySnapshot?.opening===independent,'a valid recorded payday snapshot remains usable without a new original-cash reconstruction');
+  const frozenResult=servedWithMissingOpening(frozen, 'missing cash with recorded snapshot');
+  ok(frozenResult.plan.opening.paydaySnapshot?.opening===independent,'a valid recorded payday snapshot remains usable without a new original-cash reconstruction');
 }
 
 if (failures) {
