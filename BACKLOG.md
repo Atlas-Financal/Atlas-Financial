@@ -1306,6 +1306,18 @@ Triaged 2026-11-16 (TESTS builder): 38 of 114 browser suites failed on main `cae
 
 New bill-linking mechanisms from Grok's rule 4 (a payment links to a bill only by recurring link, item note or single-bill category, no name or amount matching): main links bills through the existing identity rules (37 of 46 use a payee pattern, 13 use an amount gate, one uses a Lunch Money recurring id; there is no item-note or single-bill-category linking). Building those mechanisms, or restricting the payee/amount rules, is new matching logic with its own design and review with Grok; the partly-paid PR adds none. Source: partly-paid bills build, lead 2026-11-15.
 
+**Stack card `chargesCounted` can overstate what the bills and savings already deducted** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). It counts gross Savings-funded `savings-item` charges that `savingsItemCycleSpend` netted out, and any `bill`-classified card charge where `reconcileCardPurchases` requires `representedBill`. Full lane (figures). Source: Neon REPORT 6, items 3–4 ([#1607 7113958210](https://github.com/Atlas-Financal/Atlas-Financial/issues/1607#issuecomment-7113958210)).
+
+**`reconcileCardPurchases` nets unlinked card refunds** (and `savings-item` refunds), where the Household budget and the card module do not · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). Accepted as a next PR (Neon REPORT 6 Part B); the `kindHint` half landed in #1618. Full lane (figures; rule 17 consult). Source: [#1607 7119101779](https://github.com/Atlas-Financal/Atlas-Financial/issues/1607#issuecomment-7119101779), lead [#1607 7119507221](https://github.com/Atlas-Financal/Atlas-Financial/issues/1607#issuecomment-7119507221).
+
+**Residual-utilisation borrowing headroom is tagged only for extra facilities** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). A residual-utilisation option from card room with `unusable: false` would not carry the extra-facility mark; today the live cards aggregate is `unusable: true`. Mark every residual-utilisation source as borrowing headroom. Source: Neon's non-blocking note on #1624 ([#1607 7141215801](https://github.com/Atlas-Financal/Atlas-Financial/issues/1607#issuecomment-7141215801)).
+
+**`scripts/reconcile.js` evidence parsers read an empty-string amount as $0** (`Number("") === 0`; canonical readers were fixed in #1625) · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). Offline tool, no live figure. Source: Neon's non-blocking note on #1625 ([#1607 7141214969](https://github.com/Atlas-Financal/Atlas-Financial/issues/1607#issuecomment-7141214969)).
+
+**The T3 run 1 privacy-sweep findings** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). The details are held by the lead and stay off GitHub (OD-036). Owner: the lead. Source: [#821 7130771982](https://github.com/Atlas-Financal/Atlas-Financial/issues/821#issuecomment-7130771982).
+
+**Auto-scroll while dragging a stack** · ADDED TO BACKLOG (ATLAS LEAD 12, 2026-11-24). A held card cannot be dragged past the screen edge when an open card makes the pile taller than the screen; keyboard and screen-reader moves still work. A NEXT PR if Dale asks. Source: [#1629](https://github.com/Atlas-Financal/Atlas-Financial/pull/1629), Not covered item 2.
+
 ## Done
 
 **The 9 August analysis run — five items, all published to the site.**
