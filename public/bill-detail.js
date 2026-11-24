@@ -15,9 +15,13 @@
   const date = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
     && Number.isFinite(Date.parse(value + 'T00:00:00Z'))
     && new Date(value + 'T00:00:00Z').toISOString().slice(0, 10) === value;
-  const money = value => typeof value === 'number' && Number.isFinite(value)
-    ? '$' + value.toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : 'Unavailable';
+  // The sign goes before the dollar sign (U+2212, no space), as on every other Atlas page.
+  // A value that rounds to zero prints unsigned, as budget-blend does.
+  const money = value => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 'Unavailable';
+    const abs = Math.abs(value).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (value < 0 && /[1-9]/.test(abs) ? '−$' : '$') + abs;
+  };
   const unavailable = reason => ({ reason, asOf: null, payments: [] });
 
   // The observer publishes transactionId as the first transactionIds entry.

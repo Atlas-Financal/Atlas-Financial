@@ -8,6 +8,30 @@ let checks = 0;
 const eq = (a, b, message) => { assert.deepEqual(a, b, message); checks++; };
 const publish = x => F.cardPeriodMovements(x.plan, x.debts, x.asOf, x.window,
   { currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, liveOverlay: x.overlay || null });
+// REPORT 6 Part B. The category hold already counts the entire purchase.
+{
+  const { world } = require('./fixtures/card-coverage-aggregate-world');
+  const input = world([['card', 100, null, 'purchase'],
+    ['card', 50, null, 'purchase', { payee: 'INTEREST CHARGES', category_name: 'Interest' }],
+    ['card', -60, null, 'refund']]);
+  input.payload.accounts[3].last_fetch = input.asOf + 'T17:00:00Z';
+  const { data } = require('../scripts/live-plan').fromObservation(input);
+  const overlay = data.liveOverlay;
+  const credit = overlay.currentPeriodActuals.transactions.find(tx => tx.amount === -60);
+  eq(credit.isGroup, false, 'the refund is standalone');
+  credit.kindHint = 'refund';
+  const view = F.recommend(data.plan, input.asOf, { debts: data.debts,
+    currentPeriodActuals: overlay.currentPeriodActuals, cardPeriodBalanceEvidence: overlay.cardPeriodBalanceEvidence,
+    cardLiveOverlay: { applied: true, overlays: overlay.overlays } }).payPeriodViews.find(p => p.role === 'active');
+  const line = view.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
+  eq(view.householdBudget.find(b => b.id === 'groceries').spent, 100, 'the full purchase stays spent');
+  eq(line.spent.amount, null, 'a refund hint cannot erase interest');
+  assert.ok(line.spent.reasons.includes('card-credit-purpose-unconfirmed'));
+  eq([line.target.amount, line.target.trust, line.deduction.alreadyCounted, line.deduction.amount, line.deduction.trust],
+    [25, 'estimated', null, 25, 'estimated'], 'only the minimum is known');
+  eq([view.balanceAfterDeductions, view.balanceAfterDeductionsTrust, view.stackSummary.surplus.amount, view.stackSummary.surplus.trust],
+    [825, 'estimated', 825, 'estimated'], 'income 1000 less hold 150 less minimum 25');
+}
 const x = fixture(), before = JSON.stringify(x), pub = publish(x);
 // Existing engine mutation suites expose module.exports without require.
 const sandbox = { module: { exports: {} } };
@@ -31,7 +55,7 @@ eq(pub.cards[2].netChange.amount, 0, 'complete true zero');
 eq(pub.cards[2].status, 'ready', 'explicit empty Emerald ledger stays ready');
 eq(pub.cards[2].netChange.trust, 'calculated', 'explicit empty Emerald ledger stays calculated');
 eq(pub.cards[2].netChange.completeness, 'complete', 'explicit empty Emerald ledger stays complete');
-eq(pub.cards[0].posted.map(tx => tx.kind), ['charge', 'charge', 'payment', 'interest', 'refund'], 'native explicit type, sorted identity');
+eq(pub.cards[0].posted.map(tx => tx.kind), ['charge', 'charge', 'payment', 'interest', 'credit-unconfirmed'], 'a standalone credit stays unconfirmed, sorted identity');
 eq(pub.cards[0].posted.length, 5, 'card leg counts once');
 eq(pub.cards[0].pending.length, 1, 'pending remains separate');
 eq(pub.cards[3].netChange.amount, null, 'Triangle opening remains unknown');

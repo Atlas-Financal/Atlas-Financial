@@ -222,9 +222,8 @@ withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...grou
 // 11. The category wins (lead ruling, #1322; as in #1316). A group in which either
 // row carries a spending category is not a card payment: both rows read exactly
 // as ungrouped.
-//  - A Bills transfer grouped with a 105 Groceries refund on the card: the refund
-//    stays a refund and covers the 80 purchase (reserve 0); the 25 minimum is still
-//    due (nothing paid it); Bills 395; available 395 - 25 - 70 - 0 = 300; no payment.
+//  - #1607 trial ruling (comment 7120650827): grouping the credit with a transfer does
+//    not link it to the purchase. The 80 stays reserved and the 25 minimum is due.
 //  - A Groceries debit grouped with a card credit: as ungrouped (withheld).
 {
   const groc = { payee: 'Invented grocer', original_name: 'Invented grocer', category_name: 'Groceries' };
@@ -239,9 +238,9 @@ withheld(run(world([purchase, ['bills', 105, null, 'cash', { ...generic, ...grou
     name + ': reads exactly as ungrouped (' + g.coverage.status + ', available ' + g.period.fromTodayFunding.availableNow + ')');
     check(!issues(g).includes('coverage-payment-group-unconfirmed'), name + ': never a group of another shape');
     if (c === groc && d === generic) {
-      check(g.coverage.status === 'ready' && g.coverage.payments.length === 0 && g.coverage.reservedCash === 0,
-        name + ': no payment; the refund covers the 80 purchase (reserve 0)');
-      check(g.period.fromTodayFunding.availableNow === 300, name + ': available now 395 - 25 - 70 - 0 = 300 (got '
+      check(g.coverage.status === 'ready' && g.coverage.payments.length === 0 && g.coverage.reservedCash === 80,
+        name + ': no payment; the 80 purchase stays reserved');
+      check(g.period.fromTodayFunding.availableNow === 220, name + ': available now 395 - 25 - 70 - 80 = 220 (got '
         + g.period.fromTodayFunding.availableNow + ')');
     }
   }
