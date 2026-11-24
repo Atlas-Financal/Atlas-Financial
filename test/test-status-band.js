@@ -503,6 +503,25 @@ function mutant(from, to) {
 }
 const realStatus = { unfunded, breach, combo, plain, negative, belowBuffer, onPlan, infeasible };
 
+// Invented cash-only control: 400 + 200 opening, 250 due before payday,
+// 500 buffer => 150 gap. No facility evidence can mask the unusable mutant.
+const FUNDING_TEST_DAY = '2031-03-01';
+const FUNDING_TEST_GAP = 500 - (400 + 200 - 250);
+const FUNDING_TEST_PLAN = {
+  windowDays: 21, opening: { asOf: FUNDING_TEST_DAY },
+  startingCash: { breakdown: [{ id: 'chequing-a', value: 400 }, { id: 'chequing-b', value: 200 }] },
+  income: [{ id: 'pay', frequency: 'once', date: '2031-03-09', amount: 3000, confidence: 'confirmed' }],
+  bills: [{ id: 'bill', frequency: 'once', date: '2031-03-08', amount: 250, confidence: 'confirmed' }],
+  obligations: [], commitments: [],
+};
+function disabledCashProbe(engine, available) {
+  return engine.recommend(FUNDING_TEST_PLAN, FUNDING_TEST_DAY, {
+    // An explicit cash locator with no matching facility retains declared capacity.
+    debts: [], extraFacilities: [], targetBuffer: 500,
+    fundingSources: [{ id: 'invented-cash', cash: 'invented-cash', available, unusable: true }],
+  }).funding;
+}
+
 const MUTATIONS = [
   { label: 'dropping the infeasible branch publishes onPlan beside a failed protected plan',
     from: '    if (advice.mode === \'infeasible\' && advice.infeasible) {',
@@ -587,25 +606,18 @@ const MUTATIONS = [
   { label: 'dropping the unusable guard offers money the plan cannot spend',
     from: '    if (!src || src.unusable === true) return false;',
     to: '    if (!src) return false;',
-    check: m => {
-      const rich = plan.funding.options.map(o =>
-        o.id === 'overdraft' ? Object.assign({}, o, { available: 999999, cash: undefined }) : o);
-      return bySource(m.recommend(plan, asOf,
-        Object.assign(OPTS(Math.max(500, Math.ceil(floor + 50))), { fundingSources: rich }))).overdraft.verdict === 'covers';
-    },
+    check: m => disabledCashProbe(m, 200).sources[0].verdict === 'covers',
     real: () => {
-      const rich = plan.funding.options.map(o =>
-        o.id === 'overdraft' ? Object.assign({}, o, { available: 999999, cash: undefined }) : o);
-      return bySource(F.recommend(plan, asOf,
-        Object.assign(OPTS(Math.max(500, Math.ceil(floor + 50))), { fundingSources: rich }))).overdraft.verdict === 'insufficient';
+      const funding = disabledCashProbe(F, 200);
+      return funding.sources[0].verdict === 'insufficient' && funding.allocated === 0
+        && funding.shortfall === FUNDING_TEST_GAP;
     } },
 
   { label: 'reversing the per-source shortfall reports the wrong figure short',
-    from: '          shortBy: src.debtId && !src.unusable\n            ? gapAmount\n            : Math.max(0, gapAmount - src.available),',
-    to: '          shortBy: src.debtId && !src.unusable\n            ? gapAmount\n            : Math.max(0, src.available - gapAmount),',
-    check: m => cents(bySource(m.recommend(plan, asOf, OPTS(COMBINE_BUF))).overdraft.shortBy) === 0,
-    real: () => same(bySource(F.recommend(plan, asOf, OPTS(COMBINE_BUF))).overdraft.shortBy,
-      Math.max(0, gapAtBuffer(plan, COMBINE_BUF, asOf) - odAvailable)) },
+    from: '          shortBy: (src.debtId || src[EXTRA_FACILITY_HEADROOM]) && !src.unusable\n            ? gapAmount\n            : Math.max(0, gapAmount - src.available),',
+    to: '          shortBy: (src.debtId || src[EXTRA_FACILITY_HEADROOM]) && !src.unusable\n            ? gapAmount\n            : Math.max(0, src.available - gapAmount),',
+    check: m => disabledCashProbe(m, 60).sources[0].shortBy === 0,
+    real: () => disabledCashProbe(F, 60).sources[0].shortBy === FUNDING_TEST_GAP - 60 },
 
   { label: 'totalling the allocation from the gap instead of the parts hides the shortfall',
     from: '    const allocated = parts.reduce((s, p) => s + p.amount, 0);',

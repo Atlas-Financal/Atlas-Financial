@@ -613,8 +613,8 @@ const MUTATIONS = [
     } },
 
   { label: 'allowing debtId sources to auto-cover reintroduces credit-line gap cash',
-    from: '    if (src.debtId) return false;',
-    to: '    if (false && src.debtId) return false;',
+    from: '    if (src.debtId || src[EXTRA_FACILITY_HEADROOM]) return false;',
+    to: '    if (src[EXTRA_FACILITY_HEADROOM]) return false;',
     check: m => {
       const r = withEngine(m, fixture(), FIX_AS_OF, opts({ targetBuffer: 2000 }), fixtureDebts());
       return r.advice.funding.parts.some(p => p.debtId === 'line');

@@ -6,6 +6,8 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // SHA-256 of each entire JSON document produced by the offline provider run
 // on 619ddcf84c710729916d1d92b3db549b61c7fff8, including field order.
 // Keeping only digests here avoids checking in megabytes of generated output.
+// Re-pinned for #1624: the recommendation options echo extraFacilities instead of revolvingExtra (both empty here).
+// Renaming that key back in simOptions and planOptions reproduces all three previous digests exactly; no figure moved.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
@@ -24,7 +26,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '2ccdc073a097bd9d0a4e9f761402e823872fd8381efde4585541fa1ea7af0f61',
+    forecast: '53a5553c3fbf152c671bd57a6ec48542a9928d9b19692c738044202578ffc3f3',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -39,7 +41,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '39493c4d83563ec16a1ad86d660e0664eb5ca35d7f104dfc56b2a39c7839d896',
+    forecast: 'f6b6bd4a362d45dd216feeeaa43f4af4cfbcbeb92d93a21a29687932ca760f65',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -54,7 +56,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: 'b8a8fb7b0370f115cf91e72416fa4b70c7cc1f1b93ef9f28513a9d91604c1668',
+    forecast: 'fffaf220eb748ffc326c45725930fdc3d0cbabf7b072a2ed2e0fd97470c715ba',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

@@ -2774,6 +2774,8 @@
   // unclaimed utilisation. A usable option with a declared planning available
   // and no locator keeps that figure (fixtures, a counterfactual top-up).
   // Chequing B remains the overdraft usage authority.
+  const EXTRA_FACILITY_HEADROOM = Symbol('extraFacilityHeadroom');
+
   function resolveFundingSources(sources, extra, plan, debts) {
     extra = resolveExtraFacilities(extra, plan);
     const list = sources || [];
@@ -2793,11 +2795,14 @@
       }
     }
     const util = debts ? utilisation(debts, extra, plan) : null;
-    function derivedAvailable(src) {
+    function derivedAvailable(src, markExtraHeadroom) {
       if (!src) return null;
       if (src.cash) {
         const facility = byCash.get(src.cash) || byId.get(src.id);
-        if (facility) return extraFacilityAvailable(facility);
+        if (facility) {
+          markExtraHeadroom();
+          return extraFacilityAvailable(facility);
+        }
         const row = cashAccount(plan, src.cash);
         const isBreakdown = ((plan && plan.startingCash && plan.startingCash.breakdown) || [])
           .some(r => r && r.id === src.cash);
@@ -2828,23 +2833,27 @@
         if (!row || row.limit == null) continue;
         if (claimedDebt.has(row.id) || claimedExtra.has(row.id)) continue;
         if (row.available == null) continue;
-        sum += Number(row.available) || 0;
+        const available = Number(row.available) || 0;
+        if (available > 0 && byId.has(row.id)) markExtraHeadroom();
+        sum += available;
       }
       return sum;
     }
     return list.map(src => {
       if (!src) return src;
-      const available = derivedAvailable(src);
-      return Object.assign({}, src, { available });
+      // Keep provenance in memory for counterfactual reruns, not in serialized advice.
+      const resolved = Object.assign({}, src);
+      resolved.available = derivedAvailable(src, () => { resolved[EXTRA_FACILITY_HEADROOM] = true; });
+      return resolved;
     });
   }
 
   // Opening-gap recovery may spend household cash the plan already owns.
-  // A debtId is borrowing capacity, not cash, and is not automatic permission
-  // to draw. Planned borrowing stays opt-in on Forecast.plannedDebt.
+  // Debt and extra-facility headroom are borrowing capacity, not available cash.
+  // Planned borrowing stays opt-in on Forecast.plannedDebt.
   function canAutoCoverOpeningGap(src) {
     if (!src || src.unusable === true) return false;
-    if (src.debtId) return false;
+    if (src.debtId || src[EXTRA_FACILITY_HEADROOM]) return false;
     return Number(src.available) > 0;
   }
 
@@ -24102,7 +24111,7 @@
           // facility never covers an opening gap merely because it has room.
           verdict: covers ? 'covers' : part ? 'contributes' : 'insufficient',
           contributes: part ? part.amount : 0,
-          shortBy: src.debtId && !src.unusable
+          shortBy: (src.debtId || src[EXTRA_FACILITY_HEADROOM]) && !src.unusable
             ? gapAmount
             : Math.max(0, gapAmount - src.available),
         };
