@@ -24,7 +24,9 @@ const snapshots = {
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
     // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
-    forecast: 'be9e8d2b62ef632d6f3ead906d78d29d480cf70b1d733895420d6e9c6125b4b2',
+    // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
+    // (display only); removing it reproduces the previous digest exactly.
+    forecast: '53a5553c3fbf152c671bd57a6ec48542a9928d9b19692c738044202578ffc3f3',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -37,7 +39,9 @@ const snapshots = {
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
     // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
-    forecast: '71b08f48e262b2b93a80acade34fec88f5ce8ba8260da7a0dccdd12e5a2f74ae',
+    // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
+    // (display only); removing it reproduces the previous digest exactly.
+    forecast: 'f6b6bd4a362d45dd216feeeaa43f4af4cfbcbeb92d93a21a29687932ca760f65',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -50,7 +54,9 @@ const snapshots = {
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
     // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
-    forecast: '0b5b46967731ac916b0670a4a8cc242122264ab74d69b76c27955c1797033eb6',
+    // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
+    // (display only); removing it reproduces the previous digest exactly.
+    forecast: 'fffaf220eb748ffc326c45725930fdc3d0cbabf7b072a2ed2e0fd97470c715ba',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

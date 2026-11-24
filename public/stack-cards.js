@@ -21,6 +21,8 @@
  *   householdBudget[] rows: label, spent, planned                 (existing)
  *   stackSummary.savings.items[] {label, saved, needed, trust} and .totals {balance, saved, needed, unallocated,
  *     trust, reasons[]}  (owner rule 2026-11-20: the balance poured nearest due first; plain numbers or null)
+ *   stackSummary.billsAccount {status, reason, now {amount, asOf, reason}, comingIn[], comingOut[] (status 'late'),
+ *     householdToMove {amount}, alreadyOut[] (paid)}  the Bills account card (lead dispatch 2026-11-24)
  */
 (function (root) {
   'use strict';
@@ -102,12 +104,12 @@
     return (Array.isArray(view.bills) ? view.bills : []).filter(function (r) { return r && r.stackBillPart === part; });
   }
 
-  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash, srSub) {
+  function strip(kind, title, sub, figure, figureOf, width, body, sep, tail, est, dash, srSub, noBar) {
     var f = figure == null ? (dash ? '<span class="sc-f">' + DASH + '</span>' : '') : '<span class="sc-f' + estCls(est) + '">' + esc(figure) +
       (figureOf == null ? '' : '<i>' + (sep || ' / ') + esc(figureOf) + (tail || '') + '</i>') + '</span>';
     // The bar sits in the head (always visible, closed or open), full width under the title and figure; an unpublished
     // figure draws an empty track, never a guessed fill.
-    var bar = '<span class="sc-bar' + (figure == null ? '' : estCls(est)) + '" aria-hidden="true"><i style="width:' + width + '%"></i></span>';
+    var bar = noBar ? '' : '<span class="sc-bar' + (figure == null ? '' : estCls(est)) + '" aria-hidden="true"><i style="width:' + width + '%"></i></span>';
     return '<details class="sc-card sc-' + kind + '" data-stack-card="' + kind + '" style="--sc-k:var(--sc-' + kind + ')">' +
       '<summary aria-expanded="false"><span class="sc-t">' + esc(title) + '</span>' + (sub ? '<span class="sc-s">' + esc(sub) + '</span>' : '') + (srSub ? '<span class="sc-sr">' + esc(srSub) + '</span>' : '') + f +
       '<span class="sc-go" aria-hidden="true">' + CHEV + '</span>' + bar + '</summary>' + body + '</details>';
@@ -238,13 +240,61 @@
       known ? fill(t.saved, t.needed) : 0, body, ' / ', null, headEst, true);
   }
 
+  // Bills account (lead dispatch 2026-11-24): the Bills bank account, read from Forecast's stackSummary.billsAccount (the
+  // active pay period only; no card elsewhere). Closed: the bank reading now and its date, no projection and no bar; a
+  // missing, misaligned or stale reading is a dash with Forecast's reason. Open: Coming in, Coming out this pay period
+  // (Forecast's 'late' word on a past-due bill) with the Household budget still to move, and Already out (a check only
+  // where Forecast's paid check is true). Every amount, date, word and list is Forecast's, printed as given; a bill row
+  // opens its bill sheet. Lists Forecast withholds show its reason instead.
+  var DAY = typeof Intl !== 'undefined' ? new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : null;
+  function day(iso) {
+    return DAY && typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? DAY.format(new Date(iso + 'T12:00:00Z')) : '';
+  }
+  function accountRow(item, extra, check) {
+    var target = item.billRow ? billTarget('bill', item) : null;
+    var a = money(item.amount);
+    var when = day(item.date) + (extra ? ' \u00b7 ' + extra : '');
+    return '<li class="sc-row sc-acct' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '><span><b class="sc-n">' +
+      esc(billName(item.label) || 'Item') + '</b>' + (when ? '<span class="sc-d">' + esc(when) + '</span>' : '') + '</span>' +
+      '<span class="sc-a">' + (a == null ? DASH : esc(a)) + '</span>' +
+      '<span class="sc-ck">' + (check ? '<span class="sc-check" role="img" aria-label="Paid">\u2713</span>' : '') + '</span>' +
+      (target ? RCV : '') + '</li>';
+  }
+  function accountSection(caption, rows) {
+    return rows ? '<li class="sc-cap">' + esc(caption) + '</li>' + rows : '';
+  }
+  function billsAccountCard(view) {
+    var ba = get(view, ['stackSummary', 'billsAccount']);
+    if (!ba || typeof ba !== 'object' || !ba.now) return '';
+    var now = money(ba.now.amount);
+    var sub = now == null ? (ba.now.reason || '') : 'Bank reading ' + day(ba.now.asOf);
+    var body;
+    if (ba.status !== 'ready') {
+      // The reason once: when it is the reading's own reason, the head already shows it.
+      body = ba.reason && !(now == null && ba.reason === ba.now.reason) ? '<p class="sc-why">' + esc(ba.reason) + '</p>' : '';
+    } else {
+      var list = function (rows, fn) { return (Array.isArray(rows) ? rows : []).filter(function (r) { return r; }).map(fn).join(''); };
+      var hh = ba.householdToMove || {};
+      var hhRow = '<li class="sc-row sc-acct"><span><b class="sc-n">Household budget still to move</b></span>' +
+        '<span class="sc-a">' + (money(hh.amount) == null ? DASH : esc(money(hh.amount))) + '</span><span class="sc-ck"></span></li>';
+      body = '<ul class="sc-list">' +
+        accountSection('Coming in', list(ba.comingIn, function (r) { return accountRow(r, null, false); })) +
+        accountSection('Coming out \u00b7 this pay period', list(ba.comingOut, function (r) {
+          return accountRow(r, r.status === 'late' ? 'late' : null, false);
+        }) + hhRow) +
+        accountSection('Already out', list(ba.alreadyOut, function (r) { return accountRow(r, null, r.paid === true); })) +
+        '</ul>';
+    }
+    return strip('billsacct', 'Bills account', sub, now, now == null ? null : '', 0, body, ' now', null, false, true, null, true);
+  }
+
   function buildCardsHTML(ctx) {
     var view = selectView(ctx);
     if (!view) return '';
     estView = view;
     buildCtx = ctx;
     try {
-      return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + savingsCard(view) + '</div>';
+      return '<div class="sc-cards">' + billsCard(view) + budgetCard(view) + savingsCard(view) + billsAccountCard(view) + '</div>';
     } finally {
       estView = null;
       buildCtx = null;

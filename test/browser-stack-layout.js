@@ -172,7 +172,8 @@ const slabInk = (page, amount) => page.evaluate(value => {
         if (state === 'Credit open') await openCreditCard(page);
         const s = await strips(page);
         const names = s.map(x => x.name).join(',');
-        ok(names === 'bills,budget,credit', `${state}: the Bills, Budget and Credit strips are found`, names);
+        // The Bills account card (lead dispatch 2026-11-24) sits after the Budget card in this invented world.
+        ok(names === 'bills,budget,billsacct,credit', `${state}: the Bills, Budget, Bills account and Credit strips are found`, names);
         const hidden = s.filter(x => x.covered > 0 || x.height < 40 || x.left < 0 || x.right > x.viewport);
         ok(hidden.length === 0, `${state}: every strip is wholly visible and is what a tap on it reaches`, JSON.stringify(hidden));
         const overlaps = s.slice(1).filter((x, i) => x.top < s[i].bottom - 0.5);

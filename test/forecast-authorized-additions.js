@@ -249,16 +249,53 @@ function proveStackSavings(view, savings) {
   } else assert.ok(t.needed === null && t.unallocated === null && t.trust === 'unavailable', 'authorized addition: a withheld pour publishes no head');
   assert.ok(Array.isArray(t.reasons) && t.reasons.every(r => SAVINGS_REASONS.has(r)), 'authorized addition: savings totals reasons are closed');
 }
+// The Bills account card (lead dispatch 2026-11-24): only the active view carries it; its reading is the Bills close's
+// observedCash and date or nothing; its lists exist only with a ready close and add up to that close's own terms; 'late'
+// is exactly a coming-out line dated before the close's as-of; the household line is the close's household.remaining.
+const ACCOUNT_TRUST = new Set(['calculated', 'estimated', 'unavailable']);
+function proveStackBillsAccount(view, account) {
+  const close = view.billsAccountPeriodBalance;
+  if (view.role !== 'active' || !close || close.source !== 'Forecast.billsAccountPeriodBalance') {
+    assert.equal(account, null, 'authorized addition: only the active view with a Bills close carries stackSummary.billsAccount');
+    return;
+  }
+  const cents = v => Math.round(v * 100);
+  const now = account.now;
+  assert.ok(now.amount === null ? now.asOf === null && now.trust === 'unavailable' && typeof now.reason === 'string' && now.reason
+    : now.amount === close.observedCash && now.asOf === close.observedAsOf && now.trust === 'estimated' && now.reason === null,
+  'authorized addition: the Bills reading is the close\'s observedCash and date, or nothing with a reason');
+  if (account.status !== 'ready') {
+    assert.ok(account.comingIn === null && account.comingOut === null && account.alreadyOut === null && account.householdToMove.amount === null,
+      'authorized addition: a withheld card publishes no lists');
+    return;
+  }
+  assert.equal(close.status, 'ready', 'authorized addition: the lists are published only with a ready close');
+  const sum = rows => rows.reduce((c, r) => c + cents(r.amount), 0);
+  assert.equal(sum(account.comingIn), cents(close.futureIncome), 'authorized addition: Coming in adds up to the close\'s futureIncome');
+  assert.equal(sum(account.comingOut), cents(close.remainingBills) + cents(close.otherOutflows),
+    'authorized addition: Coming out adds up to the close\'s remainingBills and otherOutflows');
+  for (const row of account.comingOut) assert.equal(row.status, row.date < close.asOf ? 'late' : 'due', 'authorized addition: late is exactly past due');
+  assert.equal(account.householdToMove.amount, close.household.remaining, 'authorized addition: the household line is household.remaining');
+  for (const row of [...account.comingIn, ...account.comingOut, ...account.alreadyOut]) {
+    assert.ok(ACCOUNT_TRUST.has(row.trust) && (row.amount === null ? row.trust === 'unavailable' : isFigure(row.amount) && row.amount >= 0),
+      'authorized addition: each Bills account line carries a trust word and a non-negative amount or nothing');
+  }
+  for (const row of account.alreadyOut) {
+    const bill = (view.bills || []).find(b => b && b.id === row.id && b.date === row.date);
+    assert.equal(row.paid, !!bill && bill.stackBillPaid === true, 'authorized addition: Already out\'s check is the bill row\'s paid check');
+  }
+}
 function withoutStackSummary(node, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return;
   seen.add(node);
   if (Object.hasOwn(node, 'stackSummary') && Object.hasOwn(node, 'incomeTotal')) {
-    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus', 'savings', 'credit', 'creditBreakdown'], 'authorized addition: stackSummary carries only proved keys');
+    assert.deepEqual(Object.keys(node.stackSummary), ['income', 'bills', 'surplus', 'savings', 'billsAccount', 'credit', 'creditBreakdown'], 'authorized addition: stackSummary carries only proved keys');
     proveStackIncome(node, node.stackSummary.income);
     proveStackBills(node, node.stackSummary.bills);
     proveStackBillParts(node, node.stackSummary.bills);
     proveStackSurplus(node, node.stackSummary.surplus, node.stackSummary.bills);
     proveStackSavings(node, node.stackSummary.savings);
+    proveStackBillsAccount(node, node.stackSummary.billsAccount);
     proveStackCredit(node, node.stackSummary.credit, node.stackSummary.creditBreakdown, node.stackSummary.surplus);
     delete node.stackSummary;
   }
@@ -394,6 +431,12 @@ function authorizedTagKey(key, value) {
   // word (a card line's figures, totals and deduction; a breakdown row), proved in proveStackCredit.
   if (/\.stackSummary\.credit\.(lines\.\d+|totals)(\.[A-Za-z]+)*\.(trust|[a-zA-Z]+Trust)$/.test(key)
     || /\.stackSummary\.creditBreakdown\.(rows\.\d+\.trust|trust)$/.test(key)) {
+    assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
+    return true;
+  }
+  // The Bills account card (lead dispatch 2026-11-24): its reading, household line and each line's trust, proved in
+  // proveStackBillsAccount (the reading is never more certain than estimated; a line keeps its own word).
+  if (/\.stackSummary\.billsAccount\.(now|householdToMove|(comingIn|comingOut|alreadyOut)\.\d+)\.trust$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }

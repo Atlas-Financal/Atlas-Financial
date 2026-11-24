@@ -354,7 +354,9 @@ console.log('9. Every published figure on the cautious side of the truth');
   const Snapshot = require('../scripts/figures-snapshot');
   const snapOf = (rows, opts) => { const o = Live.fromObservation(world(rows, opts)); return Snapshot.buildFiguresSnapshot(o.data, o.data.periods || null); };
   // Higher is the cautious direction for these: what is still owed or reserved.
-  const CAUTIOUS = [/^totals\.obligations$/, /^payday\.obligations$/, /^period\.[^.]+\.remainingBills$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
+  const CAUTIOUS = [/^totals\.obligations$/, /^payday\.obligations$/, /^period\.[^.]+\.remainingBills$/,
+    // The Bills account card's owed lines (Household budget still to move, Coming out) are what still leaves Bills: higher is cautious.
+    /^period\.[^.]+\.stackBillsAccountHousehold$/, /^period\.[^.]+\.stackBillsAccountOut\.[^.]+\.amount$/, /reserve/i, /[Rr]equired/, /[Ss]hortfall/,
     /[Cc]onsumerDebt/, /^balance\.debts$/, /^revolving\.[^.]+\.(posted|used)$/];
   // The single named pre-existing exception (#1358, lead's call): the Plan
   // tab's raw walk, drawn only inside the hidden, inert #road-ahead (#1365).
