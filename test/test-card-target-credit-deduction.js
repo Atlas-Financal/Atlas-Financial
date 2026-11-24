@@ -128,9 +128,10 @@ const active = r => r.payPeriodViews.find(p => p.role === 'active') || r.payPeri
   ok(cents(s.amount) === cents(v.balanceAfterDeductions) && s.terms.credit === 0,
     'Surplus = Balance After Deductions (nothing held, nothing beyond), its Credit term 0.00');
   ok(b && b.rows.length === 1 && cents(b.rows[0].amount) === 8000 && cents(b.alreadyCounted.amount) === -8000 && b.total === 0,
-    'the dropdown: Travel at its 80.00 target, "Already counted above" −80.00, summing to the 0.00 Credit', JSON.stringify(b));
+    'the dropdown (OD-033): Travel still to pay back 80.00 (nothing paid back), "Already counted above" −80.00 (the purchase in the hold), Credit 0.00', JSON.stringify(b));
   const line = v.stackSummary.credit.lines.find(l => l.id === 'travelvisa');
-  ok(cents(line.target.amount) === cents(b.rows[0].amount), 'the dropdown row is the Credit tile\'s target, one figure');
+  ok(cents(line.stillToPayBack.amount) === cents(b.rows[0].amount) && cents(line.target.amount) === 8000 && cents(line.paidToward.amount) === 0,
+    'the dropdown row is the Credit tile\'s Still to pay back, one figure: its 80.00 target less 0.00 paid back');
 }
 {
   // Plus 9.00 of interest (not counted above): target 89, counted 80, deduction 9; 1,000 − 25 − 150 − (9 − 25) = 841.

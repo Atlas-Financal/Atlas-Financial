@@ -13549,8 +13549,8 @@
   // null, never $0); a card minimum with no line at that minimum; and one "Already counted above" row, the sum of each
   // line's alreadyCounted: exactly that card's charges the Household budget hold, the bills and the item term already
   // deduct (Grok Bot's condition 2), never a catch-all offset. The rows do not add up to the Credit line, and nothing here
-  // claims they do: `total` is (E)'s Credit deduction, Σ each line's deduction, unchanged. A withheld alreadyCounted on any
-  // line withholds that row's amount (null). Null where the Credit term is the minimums (a completed or saved period, or no
+  // claims they do: `total` is (E)'s Credit deduction, Σ each line's deduction, unchanged. A card whose counted charges are
+  // withheld adds nothing to the row (its deduction took none of them either) and makes the row estimated. Null where the Credit term is the minimums (a completed or saved period, or no
   // card evidence): the dropdown then lists the minimums, as before.
   function stackCreditBreakdown(entry, bills) {
     if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
@@ -13558,13 +13558,13 @@
     const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
     const lineIds = new Set(lines.map(line => String(line.id)));
     const rows = [];
-    let countedCents = 0, countedKnown = true;
+    let countedCents = 0, countedUnknown = false;
     for (const line of lines) {
       if (line.target.amount === null) return null;
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
       if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
       const counted = line.deduction ? line.deduction.alreadyCounted : null;
-      if (counted === null || counted === undefined) countedKnown = false;
+      if (counted === null || counted === undefined) countedUnknown = true;
       else countedCents += stackCents(counted);
     }
     for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
@@ -13573,7 +13573,7 @@
     const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
     const trust = [(bills && bills.trust) || 'calculated', entry.trust || 'calculated'].reduce((worst, t) => (RANK[t] ?? 2) > (RANK[worst] ?? 2) ? t : worst, 'calculated');
     return { rows,
-      alreadyCounted: countedKnown ? { amount: -countedCents / 100, trust: entry.trust || 'calculated' } : { amount: null, trust: 'unavailable' },
+      alreadyCounted: { amount: countedCents ? -countedCents / 100 : 0, trust: countedUnknown ? 'estimated' : entry.trust || 'calculated' },
       total: entry.creditCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';
@@ -31700,7 +31700,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, stackCardSummary, stackCreditLines, pendingHoldReleases,
+    cardPeriodMovements, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,

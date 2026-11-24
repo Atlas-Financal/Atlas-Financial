@@ -153,13 +153,40 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       assert.ok(line.target && line.deduction, 'authorized addition: each Credit line carries its target and deduction');
       if (line.deduction.amount !== null) assert.ok(line.deduction.amount >= 0, 'authorized addition: a deduction is never negative');
       else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
+      // OD-033: Still to pay back = max(0, target − paid back), unknown when either is; targetCovered = paid back ≥ a target
+      // above $0. Worked here from the line's own published target and paidToward.
+      const t = line.target.amount, w = line.paidToward ? line.paidToward.amount : null;
+      assert.ok(line.stillToPayBack && line.targetCovered, 'authorized addition: each Credit line carries stillToPayBack and targetCovered');
+      if (t === null || w === null) {
+        assert.ok(line.stillToPayBack.amount === null && line.targetCovered.value === 'unknown', 'authorized addition: an unknown side leaves Still to pay back unknown, never $0');
+      } else {
+        assert.equal(cents(line.stillToPayBack.amount), Math.max(0, cents(t) - cents(w)), 'authorized addition: Still to pay back is target − paid back, floored at 0');
+        assert.equal(line.targetCovered.value, cents(t) > 0 && cents(w) >= cents(t), 'authorized addition: targetCovered is paid back ≥ a target above $0');
+      }
+      // The deduction's two published parts close it per line, so no reader needs the totals to show them.
+      if (line.deduction.amount !== null) assert.equal(cents(line.target.amount) - cents(line.deduction.countedOffset) - cents(line.deduction.beyondNetted),
+        cents(line.deduction.amount), 'authorized addition: target − countedOffset − beyondNetted is the deduction, per line');
     }
   }
   if (breakdown === null) return;
   assert.ok(breakdown && Array.isArray(breakdown.rows) && breakdown.alreadyCounted, 'authorized addition: a Credit breakdown lists rows');
-  assert.equal(breakdown.rows.reduce((sum, row) => sum + cents(row.amount), 0) + cents(breakdown.alreadyCounted.amount),
-    cents(breakdown.total), 'authorized addition: the Credit rows and the already-counted row sum to the Credit term');
+  // Display only (OD-033; desk ruling (1)): every row is checked against the per-line figures, never against the total, so
+  // a catch-all offset (the targets minus the Credit term) fails here.
+  const lines = credit ? credit.lines : [];
+  const byId = new Map(lines.map(line => [String(line.id), line]));
+  for (const row of breakdown.rows) {
+    const line = byId.get(String(row.debtId));
+    if (line) assert.equal(row.amount, line.stillToPayBack.amount, 'authorized addition: a card row is that card\'s Still to pay back');
+  }
+  const counted = lines.reduce((sum, line) => sum + (line.deduction.alreadyCounted == null ? 0 : cents(line.deduction.alreadyCounted)), 0);
+  assert.equal(cents(breakdown.alreadyCounted.amount) + 0, 0 - counted, 'authorized addition: the already-counted row is Σ each card\'s charges already counted above');
   assert.ok(breakdown.alreadyCounted.amount <= 0, 'authorized addition: the already-counted row only takes off');
+  if (credit) {
+    const unlined = (view.stackSummary && view.stackSummary.bills && Array.isArray(view.stackSummary.bills.cardMinimums) ? view.stackSummary.bills.cardMinimums : [])
+      .filter(card => !byId.has(String(card.debtId))).reduce((sum, card) => sum + cents(card.amount), 0);
+    if (lines.every(line => line.deduction.amount !== null)) assert.equal(lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) + unlined,
+      cents(breakdown.total), 'authorized addition: the Credit total is Σ each line\'s deduction (and any unlined minimum), unchanged');
+  }
   if (surplus && surplus.amount !== null) assert.equal(cents(surplus.terms.credit), cents(breakdown.total),
     'authorized addition: the breakdown total is the surplus\'s credit term');
 }

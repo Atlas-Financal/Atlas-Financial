@@ -335,8 +335,8 @@ function audit(F) {
       // targets' deduction, its rows summing to it; otherwise (a completed view, no card evidence) the minimums, as before.
       const breakdown = v.stackSummary && v.stackSummary.creditBreakdown;
       const creditCents = breakdown ? cents(breakdown.total) : b.cardMinimums.reduce((t, c) => t + cents(c.amount), 0);
-      if (breakdown && breakdown.rows.reduce((t, row) => t + cents(row.amount), 0) + cents(breakdown.alreadyCounted.amount)
-        !== cents(breakdown.total)) r.termsFail++;
+      // OD-033: the dropdown rows are display only (each card's Still to pay back) and need not add up to the Credit term;
+      // the total is the term. The rows' own proof is proveStackCredit (forecast-authorized-additions.js), per line.
       if (s.terms.bills !== b.other || s.terms.mortgage !== b.mortgage || cents(s.terms.credit) !== creditCents) r.termsFail++;
       const held = (v.heldOutflowsToConfirm && finite(v.heldOutflowsToConfirm.total)) ? v.heldOutflowsToConfirm.total : 0;
       const beyond = (v.manualCardPaymentsBeyondMinimum && finite(v.manualCardPaymentsBeyondMinimum.total)) ? v.manualCardPaymentsBeyondMinimum.total : 0;
