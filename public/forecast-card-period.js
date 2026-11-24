@@ -74,7 +74,6 @@
     const paid = id => {
       const { cents, reasons, gaps } = byCard.get(id);
       if (globalGaps.size || gaps.size) return { amount: null, trust: 'unavailable', reasons: [...new Set([...globalGaps, ...gaps])] };
-      if (unconfirmedPayments.length) reasons.add('card-payment-destination-unconfirmed');
       // An empty interval proves no named debit was seen. It cannot establish payment from an unseen account.
       if (!cents && !reasons.size) reasons.add('no-confirmed-paying-side-payments');
       return { amount: cents / 100, trust: reasons.size ? 'estimated' : 'calculated', reasons: [...reasons] };
@@ -550,6 +549,12 @@
     const cards = stackCardFigures(publication);
     if (!cards) return null;
     const future = publication.role === 'future';
+    const unconfirmedPayments = Array.isArray(publication.unconfirmedPayments) ? publication.unconfirmedPayments : [];
+    // An unassigned transfer affects confidence in each due spend card and the head, without allocating its amount.
+    const withUnassignedPayments = figure => unconfirmedPayments.length
+      ? { ...figure, trust: weakest(figure.trust, 'estimated'),
+        reasons: [...new Set(figure.reasons.concat('card-payment-destination-unconfirmed'))] } : figure;
+    const minimumIsDue = minimum => cents(minimum.amount) > 0;
     const split = bills && Array.isArray(bills.cardMinimums) ? bills : null;
     const splitTrust = split && typeof split.trust === 'string' && split.trust ? split.trust : 'unavailable';
     const minimumOf = id => {
@@ -729,7 +734,8 @@
         status = gap > 0 ? 'to-go' : 'paid-back';
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
-      const paidToward = paidTowardOf(card, published(card.id));
+      const payment = paidTowardOf(card, published(card.id));
+      const paidToward = card.id !== 'heloc' && minimumIsDue(minimum) ? withUnassignedPayments(payment) : payment;
       // Spend cards publish the payer's posted debits. The HELOC retains its signed facility-ledger rule.
       const paidBack = card.id === 'heloc' && paidToward.amount !== null
         && (postedPaymentDebitOf(published('heloc')) || cents(paidToward.amount) < 0)
@@ -782,7 +788,7 @@
     const minimumOff = line => line.minimum.amount === null && !line.minimum.reasons.includes('no-minimum-due-in-period');
     const withheldMins = lines.filter(minimumOff);
     // A published $0 minimum is nothing owed: it is not due, so it is out of the sum and both counts.
-    const dueLines = lines.filter(line => line.minimum.amount !== null && cents(line.minimum.amount) > 0);
+    const dueLines = lines.filter(line => minimumIsDue(line.minimum));
     if (withheldMins.length) {
       totals.minimumsDue = { amount: null, trust: 'unavailable',
         reasons: [...new Set(withheldMins.flatMap(line => line.minimum.reasons))] };
@@ -809,6 +815,7 @@
         ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.id === 'heloc' && line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
         : splitTrust;
     }
+    totals.minimumsPaid = withUnassignedPayments(totals.minimumsPaid);
     // The balance total is over the spend cards' snapshots (HELOC excluded, as
     // above), with the weakest trust: a stale snapshot is counted and keeps the
     // total estimated; only a card with no snapshot at all is excluded.
@@ -829,7 +836,7 @@
       : { amount: lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) / 100,
         trust: weakest(...lines.map(line => line.deduction.trust)),
         reasons: [...new Set(lines.flatMap(line => line.deduction.reasons))] };
-    return { lines, totals, unconfirmedPayments: Array.isArray(publication.unconfirmedPayments) ? publication.unconfirmedPayments : [] };
+    return { lines, totals, unconfirmedPayments };
   }
   return { publish, stackCards, stackCreditLines };
 });

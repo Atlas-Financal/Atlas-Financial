@@ -40,7 +40,7 @@ function world(asOf, rows) {
 
 async function render(asOf, rows, editPacket) {
   const data = world(asOf, rows);
-  if (editPacket) editPacket(data.liveOverlay.currentPeriodActuals);
+  if (editPacket) editPacket(data.liveOverlay.currentPeriodActuals, data.plan);
   const page = await loadStackPage({ data });
   assert.equal(page.status(), 'rendered');
   const ctx = page.context();
@@ -62,6 +62,7 @@ function checkPayment(page, amount, trust, reason) {
   if (reason) {
     assert.ok(line.paidToward.reasons.includes(reason));
     assert.ok(line.paidBack.reasons.includes(reason));
+    assert.ok(credit.totals.minimumsPaid.reasons.includes(reason));
   }
   assert.equal(line.minimum.amount, 20);
   const covered = amount >= 20;
@@ -121,6 +122,37 @@ test('a separate unconfirmed transfer cannot inflate or erase the known paying-s
   checkPayment(page, 43, 'estimated', 'card-payment-destination-unconfirmed');
   assert.equal(page.credit.unconfirmedPayments.length, 1);
   assert.equal(page.credit.unconfirmedPayments[0].amount, 71);
+});
+
+test('a non-due card keeps its named payment when a separate debit has no destination', async () => {
+  const page = await render(FIRST, [
+    payment('card payment: TD Cash Back Visa'), payment(undefined, { id: 'unassigned', amount: 71 }),
+  ]);
+  checkPayment(page, 0, 'estimated', 'card-payment-destination-unconfirmed');
+  assert.equal(page.credit.totals.minimumsDueCount, 1);
+  const line = page.credit.lines.find(item => item.id === 'cashback');
+  assert.ok(line.minimum.reasons.includes('no-minimum-due-in-period'));
+  for (const figure of [line.paidToward, line.paidBack]) {
+    assert.equal(figure.amount, 43);
+    assert.equal(figure.trust, 'calculated');
+    assert.ok(!figure.reasons.includes('card-payment-destination-unconfirmed'));
+  }
+  assert.match(plain(page.sheet('cashback')), /Paid back [+$−]*43\b/);
+  assert.equal(page.credit.unconfirmedPayments.length, 1);
+  assert.equal(page.credit.unconfirmedPayments[0].amount, 71);
+});
+
+test('the head retains the unidentified debit reason even when no card has a minimum due', async () => {
+  const page = await render(FIRST, [payment(undefined)], (_packet, plan) => {
+    plan.obligations = plan.obligations.filter(item => item.debtId !== 'travelvisa');
+  });
+  const totals = page.credit.totals;
+  assert.equal(totals.minimumsDueCount, 0);
+  assert.equal(totals.minimumsDue.amount, 0);
+  assert.equal(totals.minimumsPaid.amount, 0);
+  assert.equal(totals.minimumsPaid.trust, 'estimated');
+  assert.ok(totals.minimumsPaid.reasons.includes('card-payment-destination-unconfirmed'));
+  assert.equal(page.credit.unconfirmedPayments.length, 1);
 });
 
 test('pending transfers, other accounts and unrelated purchases never pay a posted minimum', async () => {

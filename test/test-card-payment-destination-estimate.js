@@ -121,6 +121,11 @@ console.log('2. Never above the truth, whichever card it paid (or none tracked)'
   check(paidTravel.coverage.status === 'ready' && paidTravel.coverage.trust === undefined
     && paidTravel.period.fromTodayFunding.availableNow === 325, 'truth A (paid Travel Visa): 325, calculated');
   atMostTruth(degraded, paidTravel, 'vs truth A (Travel Visa)');
+  const travel = result => result.period.stackSummary.credit.lines.find(line => line.id === 'travelvisa');
+  const unassigned = travel(degraded), named = travel(paidTravel);
+  check(unassigned.target.amount === named.target.amount && unassigned.paidBack.amount === 0 && named.paidBack.amount === 105
+    && unassigned.stillToPayBack.amount > named.stillToPayBack.amount,
+    'only the named paying-side transfer reduces Travel’s remaining repayment');
   // Truth B: the same debit is confirmed to a second card that holds no
   // purchase (the second card's own payment credit pairs with it): nothing
   // on Travel Visa is covered, the same as paying no tracked card at all.
@@ -317,7 +322,12 @@ console.log('9. Every published figure, never above the truth, whichever card it
       if (typeof v !== 'number' || typeof t[k] !== 'number') continue;
       if (CAUTIOUS.some(re => re.test(k)) || RAW_WALK.some(re => re.test(k))) continue;
       compared++;
-      check(v <= t[k] + 0.005, `${why}: published ${k} ${v} <= truth ${t[k]}`);
+      // With an unresolved destination the receiving card can owe more than in the named-payment case.
+      if (/^period\.[^.]+\.stackLine\.[^.]+\.stillToPayBack$/.test(k)) {
+        check(v >= t[k] - 0.005, `${why}: remaining repayment ${k} ${v} >= truth ${t[k]}`);
+      } else {
+        check(v <= t[k] + 0.005, `${why}: published ${k} ${v} <= truth ${t[k]}`);
+      }
     }
     check(compared >= 20, `${why}: compared ${compared} published figures`);
   };
