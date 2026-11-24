@@ -127,6 +127,8 @@ try {
   }
   StackBlocks.rangeLabel = rangeLabel; // the sheets' kicker reads the same range
   const state = { ready: false, data: null, periods: null, recommendation: null, selectedPeriodKey: null };
+  // The reorderable stacks' order rule (below), readable by tests without a page.
+  StackBlocks.orderOf = (defaults, saved) => orderOf(defaults, saved);
   if (typeof window !== 'undefined') window.StackBlocks = StackBlocks;
 
   // Every view but ?view=classic is the Stack page (B7); a missing location (a test harness) is the classic page.
@@ -363,6 +365,213 @@ try {
         if (typeof console !== 'undefined') console.error('stack block ' + name + ' failed', error);
       }
     }
+    // Display order only: a failure here leaves the blocks where they were drawn (the default order).
+    try { arrangePile(el); } catch (error) {
+      if (typeof console !== 'undefined') console.error('stack order failed; default order kept', error);
+    }
+  }
+
+  // Reorderable stacks (Dale, 2026-11-24, lead dispatch): below the fixed timeline and income (waterfall) stacks, every
+  // card (each Bills, Budget, Savings... card, and Credit) can be pressed and held, dragged up or down and dropped. The
+  // order is a per-device convenience in browser storage: every read and write is guarded, and with storage empty,
+  // blocked or unreadable the default order (as drawn) stands. A card not in the saved order keeps its default place.
+  // No figure, total or Forecast output is read or changed here; the cards are moved as drawn, whole.
+  //
+  // Each movable card sits in its own slot section of the pile, in the order shown, so reading and Tab order match what
+  // is on screen. A keyboard moves the focused card with Alt+Up / Alt+Down; a screen reader has a hidden "Move up" and
+  // "Move down" pair per card (out of the Tab order, no visible buttons); each move is announced.
+  const ORDER_KEY = 'atlas.stackOrder.v1';
+  const HOLD_MS = 450, SLOP = 10;
+  function savedOrder() {
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(ORDER_KEY);
+      const list = raw ? JSON.parse(raw) : null;
+      return Array.isArray(list) ? list.filter(id => typeof id === 'string') : [];
+    } catch (error) { return []; }
+  }
+  function saveOrder(ids) {
+    try { if (window.localStorage) window.localStorage.setItem(ORDER_KEY, JSON.stringify(ids)); } catch (error) { /* per-device only */ }
+  }
+  // The saved order over the cards drawn now: saved cards in their saved order; a card the saved order does not name
+  // goes right after the card before it in the default order (or first).
+  function orderOf(defaults, saved) {
+    const out = saved.filter((id, i) => defaults.includes(id) && saved.indexOf(id) === i);
+    defaults.forEach((id, i) => {
+      if (out.includes(id)) return;
+      let at = 0;
+      for (let j = i - 1; j >= 0; j--) { const k = out.indexOf(defaults[j]); if (k >= 0) { at = k + 1; break; } }
+      out.splice(at, 0, id);
+    });
+    return out;
+  }
+  const slotsOf = pile => [...pile.children].filter(node => node.hasAttribute && node.hasAttribute('data-stack-slot'));
+  const slotName = slot => {
+    const head = slot.querySelector('.sc-t, .stack-credit-title');
+    return head ? head.textContent.trim() : slot.getAttribute('data-stack-slot');
+  };
+  function arrangePile(el) {
+    const pile = el.querySelector('[data-stack-pile]');
+    const cards = el.querySelector('[data-stack-block="cards"]');
+    const credit = el.querySelector('[data-stack-block="credit"]');
+    if (!pile || !cards || !credit) return;
+    for (const old of pile.querySelectorAll('[data-stack-slot-card]')) old.remove();
+    const slots = [];
+    for (const card of [...cards.querySelectorAll('[data-stack-card]')]) {
+      const slot = document.createElement('section');
+      slot.className = 'stack-block stack-bare sc-cards stack-slot';
+      slot.setAttribute('data-stack-slot', card.getAttribute('data-stack-card'));
+      slot.setAttribute('data-stack-slot-card', '');
+      slot.appendChild(card);
+      slots.push(slot);
+    }
+    // The cards' frame is left empty (the pile hides an empty block); Credit is its own slot.
+    cards.innerHTML = '';
+    for (const old of credit.querySelectorAll(':scope > [data-stack-move]')) old.remove();
+    const creditShown = !!credit.firstElementChild;
+    credit.toggleAttribute('data-stack-slot', creditShown);
+    if (creditShown) credit.setAttribute('data-stack-slot', 'credit');
+    credit.classList.toggle('stack-slot', creditShown);
+    if (creditShown) slots.push(credit);
+    const byId = new Map(slots.map(slot => [slot.getAttribute('data-stack-slot'), slot]));
+    const ids = orderOf([...byId.keys()], savedOrder());
+    for (const id of ids) pile.appendChild(byId.get(id));
+    if (!creditShown) pile.appendChild(credit);
+    for (const slot of slotsOf(pile)) addMoveControls(slot);
+    wireReorder(el, pile);
+  }
+  function addMoveControls(slot) {
+    if (slot.querySelector(':scope > [data-stack-move]')) return;
+    const name = slotName(slot);
+    for (const [dir, word] of [['up', 'up'], ['down', 'down']]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'stack-move-sr';
+      button.tabIndex = -1;
+      button.setAttribute('data-stack-move', dir);
+      button.textContent = 'Move ' + name + ' ' + word;
+      slot.appendChild(button);
+    }
+  }
+  function announce(el, text) {
+    let live = el.querySelector('[data-stack-order-live]');
+    if (!live) {
+      live = document.createElement('p');
+      live.className = 'stack-move-sr';
+      live.setAttribute('aria-live', 'polite');
+      live.setAttribute('data-stack-order-live', '');
+      el.appendChild(live);
+    }
+    live.textContent = text;
+  }
+  function moveSlot(el, pile, slot, delta) {
+    const list = slotsOf(pile);
+    const from = list.indexOf(slot), to = from + delta;
+    if (from < 0 || to < 0 || to >= list.length) return false;
+    placeSlot(pile, slot, to);
+    const ids = slotsOf(pile).map(node => node.getAttribute('data-stack-slot'));
+    saveOrder(ids);
+    announce(el, slotName(slot) + ' moved ' + (delta < 0 ? 'up' : 'down') + ', ' + (to + 1) + ' of ' + list.length + '.');
+    return true;
+  }
+  function placeSlot(pile, slot, index) {
+    const others = slotsOf(pile).filter(node => node !== slot);
+    const before = others[index] || null;
+    if (before) pile.insertBefore(slot, before);
+    else if (others.length) others[others.length - 1].after(slot);
+  }
+  let reorderWired = null;
+  function wireReorder(el, pile) {
+    if (reorderWired === pile) return;
+    reorderWired = pile;
+    // Keyboard: Alt+Up / Alt+Down on a focused card moves it, and focus stays on it.
+    pile.addEventListener('keydown', event => {
+      if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+      const slot = event.target && event.target.closest && event.target.closest('[data-stack-slot]');
+      if (!slot || slot.parentNode !== pile) return;
+      event.preventDefault();
+      const focused = document.activeElement;
+      if (moveSlot(el, pile, slot, event.key === 'ArrowUp' ? -1 : 1) && focused && focused.focus) focused.focus({ preventScroll: false });
+    });
+    // Screen reader: the hidden Move up / Move down buttons.
+    pile.addEventListener('click', event => {
+      const button = event.target && event.target.closest && event.target.closest('[data-stack-move]');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const slot = button.closest('[data-stack-slot]');
+      if (slot && moveSlot(el, pile, slot, button.getAttribute('data-stack-move') === 'up' ? -1 : 1)) button.focus();
+    }, true);
+    // Press and hold, then drag. A tap (released before the hold) and a scroll (moved before the hold) are left alone.
+    let press = null, lifted = null, swallowClick = false;
+    const clear = () => {
+      if (press && press.timer) clearTimeout(press.timer);
+      press = null;
+    };
+    const drop = commit => {
+      const slot = lifted && lifted.slot;
+      if (!slot) return;
+      const y = lifted.y;
+      slot.classList.remove('is-lifted');
+      slot.style.transform = '';
+      root.classList.remove('stack-dragging');
+      lifted = null;
+      if (!commit) return;
+      const others = slotsOf(pile).filter(node => node !== slot);
+      let index = others.length;
+      for (let i = 0; i < others.length; i++) {
+        const r = others[i].getBoundingClientRect();
+        if (y < r.top + r.height / 2) { index = i; break; }
+      }
+      const before = slotsOf(pile).indexOf(slot);
+      placeSlot(pile, slot, index);
+      const after = slotsOf(pile).indexOf(slot);
+      if (after !== before) {
+        saveOrder(slotsOf(pile).map(node => node.getAttribute('data-stack-slot')));
+        announce(el, slotName(slot) + ' moved to ' + (after + 1) + ' of ' + slotsOf(pile).length + '.');
+      }
+    };
+    pile.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || lifted) return;
+      const slot = event.target && event.target.closest && event.target.closest('[data-stack-slot]');
+      if (!slot || slot.parentNode !== pile) return;
+      clear();
+      press = { slot, x: event.clientX, y: event.clientY, id: event.pointerId };
+      press.timer = setTimeout(() => {
+        if (!press) return;
+        lifted = { slot: press.slot, startY: press.y, y: press.y, id: press.id };
+        press = null;
+        swallowClick = true;
+        slot.classList.add('is-lifted');
+        root.classList.add('stack-dragging');
+        if (navigator.vibrate) { try { navigator.vibrate(10); } catch (error) { /* optional */ } }
+      }, HOLD_MS);
+    });
+    pile.addEventListener('pointermove', event => {
+      // A finger (or mouse) that travels before the hold is a scroll or a swipe, not a lift: pixels, not a figure.
+      const dx = event.clientX - press?.x, dy = event.clientY - press?.y;
+      if (press && event.pointerId === press.id && (dx > SLOP || dx < -SLOP || dy > SLOP || dy < -SLOP)) clear();
+      if (lifted && event.pointerId === lifted.id) {
+        lifted.y = event.clientY;
+        lifted.slot.style.transform = 'translateY(' + (event.clientY - lifted.startY) + 'px)';
+      }
+    });
+    const end = event => {
+      if (press && event.pointerId === press.id) clear();
+      if (lifted && event.pointerId === lifted.id) drop(event.type === 'pointerup');
+    };
+    pile.addEventListener('pointerup', end);
+    pile.addEventListener('pointercancel', end);
+    // While a card is lifted, a touch moves it, never the page.
+    pile.addEventListener('touchmove', event => { if (lifted) event.preventDefault(); }, { passive: false });
+    // The long press is not a tap: the click that follows a hold does not open or close anything.
+    pile.addEventListener('click', event => {
+      if (!swallowClick) return;
+      swallowClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+    pile.addEventListener('pointerdown', () => { if (!lifted) swallowClick = false; }, true);
+    pile.addEventListener('contextmenu', event => { if (press || lifted) event.preventDefault(); });
   }
 
   function render(d, periods) {

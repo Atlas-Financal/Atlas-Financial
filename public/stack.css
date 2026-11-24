@@ -106,6 +106,16 @@ html.stack-view .stack-period-chip {
 }
 /* Cards and credit draw their own coloured blocks; their sections are plain frames in the pile. */
 html.stack-view .stack-bare { box-shadow: none; border-radius: 0; }
+/* Reorderable stacks (Dale, 2026-11-24): each movable card is its own slot of the pile. Credit followed by another card
+ * keeps the same bottom padding a card does, so the next card covers only padding, never its content. A held card lifts
+ * above the others and follows the finger; nothing is selected or called up by the long press. */
+html.stack-view .stack-slot { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+html.stack-view [data-stack-block="credit"].stack-slot:not(:last-child) .stack-credit { padding-bottom: 56px; }
+html.stack-view .stack-slot.is-lifted { z-index: 5; }
+html.stack-view .stack-slot.is-lifted > * { box-shadow: 0 18px 40px rgba(0, 0, 0, .35); }
+html.stack-view.stack-dragging, html.stack-view.stack-dragging body { overscroll-behavior: none; }
+/* The screen reader's Move up / Move down and its announcement: read, never shown. */
+html.stack-view .stack-move-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 html.stack-view .stack-overlay:empty { display: none; }
 
 /* The side gutter is the design's 16px at phone width (the Wallet mock): the Stack root's own padding, and nothing
