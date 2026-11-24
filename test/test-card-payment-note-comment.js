@@ -60,12 +60,12 @@ for (const [note, want, why] of [
 
 console.log('\n2. The page path: the suffixed note confirms the destination');
 {
-  const cash = notes => ['bills', 105, null, 'cash', { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C',
-    category_name: 'Transfer', ...(notes ? { notes } : {}) }];
-  const go = notes => {
-    const s = run(world([['card', 80, null, 'purchase'], cash(notes)]));
+  const cash = (notes, extra) => ['bills', 105, null, 'cash', { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C',
+    category_name: 'Transfer', ...(notes ? { notes } : {}), ...extra }];
+  const go = (notes, extra) => {
+    const s = run(world([['card', 80, null, 'purchase'], cash(notes, extra)]));
     const debit = s.packet.transactions.find(t => t.amount === 105);
-    return { s, stamp: debit.cardPaymentNoteDestination, available: s.period.fromTodayFunding.availableNow,
+    return { s, debit, stamp: debit.cardPaymentNoteDestination, available: s.period.fromTodayFunding.availableNow,
       leaked: JSON.stringify(s.packet).includes('owner decision') };
   };
   const plain = go('card payment: Travel Visa ...0870');
@@ -80,6 +80,22 @@ console.log('\n2. The page path: the suffixed note confirms the destination');
   ok(none.available === 220, 'no note: no destination, the minimum and purchase still owed: 395 - 25 - 70 - 80 = 220', String(none.available));
   ok(other.stamp === 'unknown' && other.available === 220,
     'a comment naming a different card: unknown, nothing paid (220)', JSON.stringify({ stamp: other.stamp, available: other.available }));
+
+  const byAmount = go('card payment: Travel Visa (BY   AMOUNT) - invented appendix');
+  ok(plain.debit.cardPaymentNoteByAmount === false, 'the observer preserves explicit ordinary attribution');
+  ok(byAmount.stamp === 'travelvisa' && byAmount.debit.cardPaymentNoteByAmount === true,
+    'the observer preserves attribution by amount after the raw note is stripped');
+  ok(!/card payment:|by\s+amount|invented appendix/i.test(JSON.stringify(byAmount.s.packet)),
+    'no part of the raw card-payment note is published');
+  ok(!Object.hasOwn(none.debit, 'cardPaymentNoteByAmount') && !Object.hasOwn(other.debit, 'cardPaymentNoteByAmount'),
+    'missing and ambiguous notes publish no attribution qualifier');
+  const generic = { payee: 'Invented transfer', original_name: null, category_name: null };
+  const cardKind = go(null, { ...generic, kind: 'card-payment' }).debit;
+  const billKind = go(null, { ...generic, kind: 'bill-payment' }).debit;
+  ok(cardKind.kindHint === 'payment' && cardKind.payingSideCardPaymentKind === true
+    && F.payingSidePayment(cardKind)?.cardId === null, 'a posted card payment with no category or note is unassigned');
+  ok(!Object.hasOwn(billKind, 'payingSideCardPaymentKind') && F.payingSidePayment(billKind) === null,
+    'an ordinary bill payment with the same generic hint stays outside card payments');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} card-payment note comment checks passed`);
