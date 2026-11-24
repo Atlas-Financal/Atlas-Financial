@@ -332,10 +332,11 @@
   // estimated. 'unavailable' (or any other word) is not covered.
   const COVERED_TRUST = ['calculated', 'verified', 'estimated'];
   const coveredOn = line => line.minimumCovered.value === true && COVERED_TRUST.includes(line.minimumCovered.trust);
-  // The published card summary leaves out the internal posted-only paid (paidPosted), so its shape is unchanged.
+  // The published card summary leaves out the internal inputs (paidPosted, chargesCounted, postedPaymentDebit), so its shape
+  // is unchanged.
   function stackCards(publication) {
     const cards = stackCardFigures(publication);
-    return cards && cards.map(({ paidPosted, chargesCounted, ...card }) => card);
+    return cards && cards.map(({ paidPosted, chargesCounted, postedPaymentDebit, ...card }) => card);
   }
   function stackCardFigures(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
@@ -514,6 +515,9 @@
     //     reason and trust estimated (Dale's "$0 not a dash"), or the sum of the payments the ledger does show;
     //   * missing history withholds it (null, unavailable, with reasons): a PAST period, a tracked card whose paid is withheld
     //     (a failed sync, incomplete posted coverage), a HELOC whose observation has a gap.
+    // A posted payment row that debits the account (amount above 0), read on the publication card's own posted rows.
+    const postedPaymentDebitOf = pubCard => !!pubCard && (Array.isArray(pubCard.posted) ? pubCard.posted : [])
+      .some(row => row && row.kind === 'payment' && typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0);
     const countedZero = reasons => ({ amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'].concat(reasons) });
     const withheldPaid = reasons => ({ amount: null, trust: 'unavailable', reasons: ['paid-unavailable'].concat(reasons) });
     const paidTowardOf = (card, pubCard) => {
@@ -666,7 +670,9 @@
       // Paid back (the row's left side, OD-033): paidToward, qualified for display. A posted payment row that debits the card
       // leaves its direction unresolved, so Paid back is withheld (a dash, never a negative), as is any paidToward below $0;
       // paidToward itself, the head's minimumsPaid and the minimum check are unchanged (ChatGPT, #1617 7120269248).
-      const debit = card.postedPaymentDebit === true;
+      // The HELOC's paid comes from its own posted rows (paidTowardOf), not stackCardFigures, so its debit is read there too
+      // (ChatGPT, #1617 7120927392): every line, the HELOC included, withholds on a posted payment debit.
+      const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : card.postedPaymentDebit === true;
       const paidBack = paidToward.amount !== null && (debit || cents(paidToward.amount) < 0)
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(['payment-direction-unresolved'].concat(paidToward.reasons))] }
         : paidToward;

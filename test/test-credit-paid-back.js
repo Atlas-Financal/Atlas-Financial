@@ -242,6 +242,50 @@ let flipped;
   ok(!/\$336/.test(pg.wf) && !/−\$100/.test(pg.wf) && /—/.test(dropTravel), 'the dropdown prints a dash for Travel, never $336', JSON.stringify(items(pg.wf)));
 }
 
+console.log('2c. Every line, the HELOC included, withholds Paid back on a posted payment debit (ChatGPT, #1617 7120927392)');
+// The HELOC line's paid comes from its own posted rows, not the card figures. An invented HELOC publication card: a posted
+// 150.00 payment credit and a posted 50.00 payment debit (net +100.00) against an 80.00 minimum. Paid back, Still to pay
+// back and target covered are withheld; its paidToward (the head's input) stays the incumbent 100.00.
+const helocPub = posted => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
+  cards: [{ id: 'heloc', label: 'HELOC', syncState: 'proven', postedCoverage: 'complete-provider-response', reasons: [], posted, pending: [] }] });
+const HELOC_BILLS = { cardMinimums: [{ debtId: 'heloc', amount: 80 }], trust: 'calculated' };
+const helocLine = (posted, mod = M) => mod.stackCreditLines(helocPub(posted), HELOC_BILLS, [], new Map()).lines.find(l => l.id === 'heloc');
+{
+  const mixed = helocLine([row('payment', -150), row('payment', 50)]);
+  ok(mixed.paidBack.amount === null && mixed.paidBack.reasons.includes('payment-direction-unresolved') && mixed.stillToPayBack.amount === null
+    && mixed.targetCovered.value === 'unknown' && cents(mixed.paidToward.amount) === 10000,
+    'HELOC, 150 credit and 50 debit: Paid back, Still to pay back and target covered withheld; paidToward stays 100.00',
+    JSON.stringify([mixed.paidBack, mixed.stillToPayBack, mixed.targetCovered]));
+  const plain = helocLine([row('payment', -150)]);
+  ok(cents(plain.paidBack.amount) === 15000 && plain.stillToPayBack.amount === 0 && plain.targetCovered.value === true,
+    'control: the HELOC with an ordinary 150.00 credit is Paid back 150.00 of its 80.00 target, covered');
+}
+// The sweep (lead, 2026-11-24): on a publication where every spend card and the HELOC carries a posted payment debit beside
+// a credit, every published line withholds Paid back. The same publication with the debits removed publishes each line.
+{
+  const ids = ['a', 'b', 'c'];
+  const sweepPub = withDebit => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
+    cards: ids.map(id => ({ id, label: 'Invented ' + id, pending: [], postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] },
+      posted: [row('payment', -120, RECONCILED)].concat(withDebit ? [row('payment', 20, RECONCILED)] : []) }))
+      .concat([{ id: 'heloc', label: 'HELOC', syncState: 'proven', postedCoverage: 'complete-provider-response', reasons: [], pending: [],
+        posted: [row('payment', -120)].concat(withDebit ? [row('payment', 20)] : []) }]) });
+  const bills = { cardMinimums: ids.concat(['heloc']).map(debtId => ({ debtId, amount: 40 })), trust: 'calculated' };
+  const withDebits = M.stackCreditLines(sweepPub(true), bills, [], new Map()).lines;
+  const without = M.stackCreditLines(sweepPub(false), bills, [], new Map()).lines;
+  ok(withDebits.length === 4 && withDebits.every(l => l.paidBack.amount === null && l.paidBack.reasons.includes('payment-direction-unresolved')
+    && l.stillToPayBack.amount === null && l.targetCovered.value === 'unknown'),
+    'the sweep: every line (three cards and the HELOC) withholds Paid back where a posted payment debits it',
+    JSON.stringify(withDebits.map(l => [l.id, l.paidBack.amount])));
+  ok(without.length === 4 && without.every(l => cents(l.paidBack.amount) === 12000), 'control: with the debits removed every line publishes Paid back 120.00',
+    JSON.stringify(without.map(l => [l.id, l.paidBack.amount])));
+}
+// The legacy card summary carries none of the internal inputs.
+{
+  const shape = Object.keys(F.stackCardSummary(pub([['a', [row('payment', -75, RECONCILED)]]]))[0]).sort().join();
+  ok(shape === ['id', 'label', 'net', 'paid', 'spent', 'state', 'transactions'].sort().join(),
+    'Forecast.stackCardSummary publishes no internal input (paidPosted, chargesCounted, postedPaymentDebit)', shape);
+}
+
 console.log('3. Mutants: each must fail a check above');
 {
   const src = read('public/forecast.js');
@@ -261,7 +305,8 @@ console.log('3. Mutants: each must fail a check above');
   pend.cards[0].pending = [row('payment', -75, RECONCILED)];
   const line = PM.stackCreditLines(pend, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(cents(line.stillToPayBack.amount) === 2500, 'MUTANT: Still to pay back from line.paid (the pending 75 counted) reads 25.00, not the 100.00 condition 1 pins', JSON.stringify(line.stillToPayBack));
-  const debitBlind = cp2.replace('const debit = card.postedPaymentDebit === true;', 'const debit = false;');
+  const debitBlind = cp2.replace("const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : card.postedPaymentDebit === true;",
+    "const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : false;");
   ok(debitBlind !== cp2, 'the debit mutant targets the paid-back qualification');
   const PD = engine(file => (file === 'public/forecast-card-period.js' ? debitBlind : read(file)));
   const y = fx.fixture(); y.packet.transactions.find(t => t.id === 'payment-a').amount = 100;
@@ -283,6 +328,14 @@ console.log('3. Mutants: each must fail a check above');
     .payPeriodViews.find(v => v.role === 'active').stackSummary.credit.lines.find(l => l.id === 'travelvisa');
   ok(bothOff !== debitBlind && cents(bl.paidBack.amount) === -10000 && cents(bl.stillToPayBack.amount) === 33600,
     'MUTANT (no qualification): Paid back −100.00 and Still to pay back 336.00 come back, which section 2b rejects', JSON.stringify([bl.paidBack, bl.stillToPayBack]));
+  const helocBlind = cp2.replace("const debit = card.id === 'heloc' ? postedPaymentDebitOf(published('heloc')) : card.postedPaymentDebit === true;", 'const debit = card.postedPaymentDebit === true;');
+  ok(helocBlind !== cp2, 'the HELOC mutant targets the HELOC debit read');
+  const HM = realm(file => (file === 'public/forecast-card-period.js' ? helocBlind : read(file))).ForecastCardPeriod;
+  const hm = helocLine([row('payment', -150), row('payment', 50)], HM);
+  ok(cents(hm.paidBack.amount) === 10000 && hm.targetCovered.value === true, 'MUTANT (HELOC debit not read): Paid back 100.00 and covered true come back, which section 2c rejects');
+  const leak = cp2.replace('cards.map(({ paidPosted, chargesCounted, postedPaymentDebit, ...card }) => card)', 'cards.map(({ paidPosted, chargesCounted, ...card }) => card)');
+  ok(leak !== cp2 && Object.keys(realm(file => (file === 'public/forecast-card-period.js' ? leak : read(file))).Forecast
+    .stackCardSummary(pub([['a', []]]))[0]).includes('postedPaymentDebit'), 'MUTANT (flag not stripped): the summary leaks postedPaymentDebit, which section 2c rejects');
   const wsrc = read('public/stack-waterfall.js');
   const noCaption = wsrc.replace("const caption = cards ?", "const caption = false ?");
   ok(noCaption !== wsrc, 'the caption mutant targets the caption');
