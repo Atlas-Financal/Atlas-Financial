@@ -5984,13 +5984,30 @@ function derivedAmountFixedBills(history, opts) {
       .filter(e => e && e.id === id).map(e => e.date).filter((d, i, all) => all.indexOf(d) === i).sort();
     const current = occ.filter(d => d <= end).pop();
     if (!current) continue;
-    const nearest = date => occ.reduce((best, d) => (Math.abs(Forecast.diffDays(d, date)) < Math.abs(Forecast.diffDays(best, date)) ? d : best), occ[0]);
-    const completed = rows.filter(row => nearest(row.date) < current);
+    const completed = [];
+    for (const row of rows) {
+      let due = null;
+      let closest = Infinity;
+      let tied = false;
+      for (const date of occ) {
+        const distance = Math.abs(Forecast.diffDays(date, row.date));
+        if (distance < closest) {
+          due = date;
+          closest = distance;
+          tied = false;
+        } else if (distance === closest) {
+          tied = true;
+        }
+      }
+      // The existing completion rule uses the earlier date on a tie. A tie cannot establish a price period.
+      if (due < current) completed.push({ ...row, due: tied ? null : due });
+    }
     if (completed.length < AMOUNT_FIXED_MIN_COUNT) continue;
     const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
-    // Payments are sorted oldest first. Even equal amounts cannot establish a fixed price across a cutover.
+    // Forecast prices the scheduled occurrence. A late posting for an earlier occurrence still belongs to its old price.
     const cut = bill.providerPriceCutover;
-    if (cut !== undefined && (kind !== 'bill' || !realIsoDay(cut?.from) || sample[0].date < cut.from)) continue;
+    if (cut !== undefined && (kind !== 'bill' || !realIsoDay(cut?.from)
+      || sample.some(row => !row.due || row.due < cut.from))) continue;
     if (!sample.every(row => row.cents === plannedCents)) continue;
     if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
     (kind === 'obligation' ? out.obligationIds : out.billIds).push(id);
