@@ -200,6 +200,9 @@ const STATES = [
   { ...fig6('weaktgt', 'Weak Target Card', 100, 100, 50, 0, 'paid-back', false), targetCovered: { value: true, trust: 'unavailable', reasons: [] } }, // targetCovered on trust unavailable: no green
   { ...fig6('pend', 'Pending Pay Card', 150, 120, 25, 0, 'paid-back', true), target: { amount: 120, trust: 'calculated', reasons: [], newCharges: 120, minimum: 25, overLimitBy: 0 },
     paidToward: { amount: 100, trust: 'calculated', reasons: [] } }, // 50 of the 150 paid is pending: Paid back is the posted 100, plain (100 < 120)
+  // Dale's live screenshot on e4c7b1a3 (lead, 2026-11-24): charges equal to the target and nothing paid yet read a red
+  // "−$80 / $80". Under OD-033 the left side is paid back only: "$0 / $80", plain, no minus.
+  { ...fig6('charged', 'Charged Card', 0, 80, 25, 80, 'to-go', false), target: { amount: 80, trust: 'calculated', reasons: [], newCharges: 80, minimum: 25, overLimitBy: 0 } },
 ];
 function states(creditSrc) {
   const { fns, win } = load(creditSrc);
@@ -221,6 +224,8 @@ function states(creditSrc) {
   out.weak = text(rows[8]) === 'Weak Card +$100 / $50' && text(rows[9]) === 'Odd Card +$100 / $50' && !/is-on/.test(rows[8] + rows[9]);
   out.weakTarget = text(rows[14]) === 'Weak Target Card +$100 / $50' && !/is-good|is-on/.test(rows[14]);
   out.pend = text(rows[15]) === 'Pending Pay Card +$100 / $120' && !/is-good/.test(rows[15]);
+  out.charged = text(rows[16]) === 'Charged Card $0 / $80' && !/is-good|is-bad|is-on|−|\u2212/.test(rows[16])
+    && /aria-label="Paid back \$0"/.test(rows[16]);
   out.redcov = text(rows[11]) === 'Covered Red Card +$100 / $260' && !/is-good|is-bad/.test(rows[11]) && /stack-credit-tick is-on/.test(rows[11]);
   out.nothingcov = text(rows[12]) === 'Odd Quiet Card $0 / $100' && !/is-good|is-bad/.test(rows[12]) && /stack-credit-tick is-on/.test(rows[12]);
   out.zero = text(rows[13]) === 'Zero Card +$100' && !/is-good|is-on| \/ /.test(rows[13].split('<svg class="stack-chev"')[0].replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, ' ')) && /Not due this period/.test(win.StackSheet.html(ctx, 'card:zero'));
@@ -296,7 +301,7 @@ console.log('3a. X has an accessible name, so colour is not the only signal (in-
   const name = r => (/stack-credit-x[^"]*"( role="img" aria-label="([^"]*)")?/.exec(r) || [])[2];
   ok(name(rows[0]) === 'Paid back $250' && name(rows[1]) === 'Paid back $100' && name(rows[3]) === 'Paid back $0', 'X is named "Paid back $X" (OD-033)', [rows[0], rows[1], rows[3]].map(name).join(' | '));
   ok(name(rows[2]) === 'Paid back $100', 'a card behind its target is named the same way: no "Owes" (the left side is never a net)', name(rows[2]));
-  ok(name(rows[16]) === 'Paid back $100', 'an estimated X is named exactly as a calculated one (no ", estimated")', name(rows[16]));
+  ok(name(rows[17]) === 'Paid back $100', 'an estimated X is named exactly as a calculated one (no ", estimated")', name(rows[17]));
   ok(name(rows[5]) === undefined && /aria-label="not available"/.test(rows[5]), 'an unpublished X has no amount name; its dash is named "not available"');
   const sheet = win.StackSheet.html(ctx, 'card:red');
   ok(/stack-credit-x" role="img" aria-label="Paid back \$100">\+\$100</.test(sheet), 'the sheet\'s big figure carries the same name');
@@ -320,6 +325,7 @@ console.log('3. the row states (OD-033: "Paid back / Total to pay back", green w
     weak: 'a minimum check on trust unavailable or an unrecognised word shows no ✓ (the in-house reviewer\'s cross-check)',
     weakTarget: 'targetCovered on trust unavailable is no check: no green',
     pend: 'a pending payment is not paid back (Grok Bot condition 1): "+$100 / $120" from the posted paidToward, plain',
+    charged: 'charges equal to the target and nothing paid yet (Dale\'s live screenshot): "$0 / $80", plain, no minus, no red, named "Paid back $0"',
     minoff: 'a withheld minimum (bills split unavailable) reads "$100 / —", not "not due" (Codex on #1481)',
     sheetMinoff: 'the sheet\'s Minimum row is a dash for a withheld minimum, "Not due this period" only for the explicit no-minimum-due reason',
     sheetOver: 'the sheet\'s big figure is the same "Paid back / target" with the same colour',
@@ -473,6 +479,10 @@ console.log('5b. mutants: the checks above must catch each of these (a failing m
   // Paid back is posted only (Grok Bot's condition 1): X reads paidToward, never line.paid (which counts pending payments).
   const paidWithPending = src.replace('const toward = amountOf(line.paidToward);', 'const toward = amountOf(line.paid) != null ? amountOf(line.paid) : amountOf(line.paidToward);');
   ok(paidWithPending !== src && run(paidWithPending) === false, 'MUTANT: Paid back read from line.paid (pending counted) is caught');
+  // The defect on Dale's live screenshot: the old 'to-go' branch (X = the published toGo, red) restored.
+  const toGoBack = src.replace('if (toward != null) out.x = toward;',
+    "if (toward != null) out.x = toward; if (line.status === 'to-go' && amountOf(line.toGo) != null) { out.x = amountOf(line.toGo); out.tone = 'bad'; }");
+  ok(toGoBack !== src && run(toGoBack) === false, 'MUTANT: the old red to-go branch restored (a red "$80 / $80") is caught');
   const arith = src.replace('if (toward != null) out.x = toward;', 'if (toward != null) out.x = out.spent - toward;');
   // The static L-001 pattern (section 6) flags that arithmetic too.
   const ARITH = /\.reduce\(|Math\.(round|floor|ceil)\(|\b(amount|paid|spent|net|minimum|planned|remaining|overspend)\s*[+\-*/]\s|[\s(][+\-*/]\s*(paid|spent|t\.amount|\w+\.amount)\b/;
