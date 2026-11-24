@@ -31,7 +31,14 @@ const STUB = `;(function (F) {
   window.__stackCreditStub = true;
   const fig = (amount, trust) => ({ amount, trust: trust || 'calculated', reasons: [] });
   const covered = value => ({ value, trust: value === 'unknown' ? 'unknown' : 'calculated', reasons: [] });
-  const withTarget = l => ({ ...l, target: l.minimum && l.minimum.amount != null ? { amount: l.minimum.amount, trust: l.minimum.trust, reasons: [], newCharges: null, minimum: l.minimum.amount, overLimitBy: 0 } : { amount: 0, trust: 'calculated', reasons: [], newCharges: null, minimum: 0, overLimitBy: 0 } });
+  const withTarget = l => {
+    const target = l.target || (l.minimum && l.minimum.amount != null ? { amount: l.minimum.amount, trust: l.minimum.trust, reasons: [], newCharges: null, minimum: l.minimum.amount, overLimitBy: 0 } : { amount: 0, trust: 'calculated', reasons: [], newCharges: null, minimum: 0, overLimitBy: 0 });
+    // OD-033: Paid back (posted, here the line's paid) and whether it has reached the target, as Forecast publishes them.
+    const paidToward = l.paid && l.paid.amount != null ? fig(l.paid.amount) : { amount: null, trust: 'unavailable', reasons: [] };
+    const known = paidToward.amount != null && target.amount != null;
+    return { ...l, target, paidToward, targetCovered: { value: known ? target.amount > 0 && paidToward.amount >= target.amount : 'unknown', trust: known ? 'calculated' : 'unavailable', reasons: [] },
+      stillToPayBack: known ? fig(Math.max(0, target.amount - paidToward.amount)) : { amount: null, trust: 'unavailable', reasons: [] } };
+  };
   const lines = () => ({
     lines: [
       { id: 'travelvisa', label: 'Blue Visa', paid: fig(400), spent: fig(400), net: fig(0), minimum: fig(25), toGo: fig(0),
@@ -41,7 +48,7 @@ const STUB = `;(function (F) {
           { date: '2026-08-18', name: 'Payment thank you', amount: -400, kind: 'payment', payment: true, pending: false },
           { date: '2026-08-19', name: 'Pending Cafe', amount: 12.5, kind: 'purchase', payment: false, pending: true }] },
       { id: 'cashback', label: 'Green Card', paid: fig(100), spent: fig(260, 'estimated'), net: fig(160, 'estimated'), minimum: fig(30), toGo: fig(160, 'estimated'),
-        status: 'to-go', minimumCovered: covered(false), transactions: [] },
+        target: { amount: 260, trust: 'estimated', reasons: [], newCharges: 260, minimum: 30, overLimitBy: 0 }, status: 'to-go', minimumCovered: covered(false), transactions: [] },
       { id: 'tdcc', label: 'Red Card', paid: fig(null, 'unknown'), spent: fig(null, 'unknown'), net: fig(null, 'unknown'),
         minimum: fig(15), toGo: fig(null, 'unknown'), status: null, minimumCovered: covered('unknown'), transactions: [] },
       { id: 'mbna', label: 'Gold Card', paid: fig(0), spent: fig(0), net: fig(0), minimum: fig(10), toGo: fig(null),
@@ -118,12 +125,11 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     const rows = await page.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
     if (stub) {
       ok(JSON.stringify(rows) === JSON.stringify(['Blue Visa +$400 / $25',
-        'Green Card −$160 / $30', 'Red Card \u2014 / $15', 'Gold Card $0 / $10',
-        'Line of credit \u2014 / $210']), 'one row per published line, each "X / minimum"', JSON.stringify(rows));
-      const coral = await page.$eval('.stack-credit-x.is-bad', el => getComputedStyle(el).color);
-      ok(coral === 'rgb(200, 55, 45)', 'a card behind (spending above payments) is red', coral);
+        'Green Card +$100 / $260', 'Red Card \u2014 / $15', 'Gold Card $0 / $10',
+        'Line of credit \u2014 / $210']), 'one row per published line, each "Paid back / Total to pay back" (OD-033)', JSON.stringify(rows));
+      ok(!(await page.$('.stack-credit-x.is-bad')), 'no red net on any row: a card behind reads its paid back, plain');
       const green = await page.$eval('.stack-credit-x.is-good', el => getComputedStyle(el).color);
-      ok(green === 'rgb(15, 122, 67)', 'a card whose minimum is covered is green', green);
+      ok(green === 'rgb(15, 122, 67)', 'a card paid back to its target is green', green);
       const tick = await page.$eval('.stack-credit-tick.is-on', el => ({ bg: getComputedStyle(el).backgroundColor, w: el.getBoundingClientRect().width }));
       ok(tick.w === 24 && tick.bg !== 'rgba(0, 0, 0, 0)', 'the covered ✓ is a filled 24px circle', JSON.stringify(tick));
     } else ok(rows.length === 6, 'six lines', String(rows.length));
@@ -145,7 +151,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
     await page.click('[data-stack-sheet="card:travelvisa"]');
     await page.waitForSelector('.stack-sheet');
     const sheet = await textOf(page, '.stack-sheet');
-    if (stub) ok(/Blue Visa \+\$400 \/ \$25 Paid onto it \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
+    if (stub) ok(/Blue Visa \+\$400 \/ \$25 Paid back \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sheet) && /Payment thank you \+\$400/.test(sheet) && !/estimated|calculated|≈/i.test(sheet),
       'the sheet prints the line\'s "X / minimum", its rows, payments with +, no tag', sheet);
     if (stub) {
       const big = await page.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color }));
@@ -163,13 +169,13 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       await fp.click('[data-stack-credit-toggle]');
       await settle(fp);
       const frows = await fp.$$eval('.stack-credit-line', els => els.map(el => el.innerText.replace(/\s+/g, ' ').trim()));
-      ok(JSON.stringify(frows) === JSON.stringify(['Blue Visa +$400 / $25', 'Green Card −$160 / $30',
-        'Red Card \u2014 / $15', 'Gold Card $0 / $10', 'Line of credit \u2014 / $210']), 'each row reads "X / minimum"', JSON.stringify(frows));
+      ok(JSON.stringify(frows) === JSON.stringify(['Blue Visa +$400 / $25', 'Green Card +$100 / $260',
+        'Red Card \u2014 / $15', 'Gold Card $0 / $10', 'Line of credit \u2014 / $210']), 'each row reads "Paid back / Total to pay back"', JSON.stringify(frows));
       const colour = sel => fp.$eval(sel, el => getComputedStyle(el).color);
-      ok((await colour('.stack-credit-x.is-bad')) === 'rgb(200, 55, 45)' && (await colour('.stack-credit-x.is-good')) === 'rgb(15, 122, 67)',
-        'a card behind is red and a card whose minimum is covered is green');
+      ok(!(await fp.$('.stack-credit-x.is-bad')) && (await colour('.stack-credit-x.is-good')) === 'rgb(15, 122, 67)',
+        'no red; a card paid back to its target is green');
       const plain = await fp.$$eval('.stack-credit-fig', els => els.map(el => { const x = el.querySelector('.stack-credit-x'); return (x.classList.contains('is-good') ? 'is-good' : x.classList.contains('is-bad') ? 'is-bad' : 'plain'); }));
-      ok(JSON.stringify(plain) === JSON.stringify(['is-good', 'is-bad', 'plain', 'plain', 'plain']), 'only the covered and the behind cards are coloured', plain.join());
+      ok(JSON.stringify(plain) === JSON.stringify(['is-good', 'plain', 'plain', 'plain', 'plain']), 'only the card paid back to its target is coloured', plain.join());
       const ticks = await fp.$$eval('.stack-credit-tick', els => els.map(el => el.classList.contains('is-on')));
       ok(JSON.stringify(ticks) === JSON.stringify([true, false, false, false, false]), 'only the covered card has the filled ✓', ticks.join());
       const tick = await fp.$eval('.stack-credit-tick.is-on', el => ({ bg: getComputedStyle(el).backgroundColor, w: el.getBoundingClientRect().width }));
@@ -181,7 +187,7 @@ const textOf = (page, sel) => page.$eval(sel, el => el.innerText.replace(/\s+/g,
       const big = await fp.$eval('.stack-sheet-big', el => ({ size: getComputedStyle(el).fontSize, x: getComputedStyle(el.querySelector('.stack-credit-x')).color, t: el.innerText.replace(/\s+/g, ' ').trim() }));
       ok(big.size === '64px' && big.x === 'rgb(15, 122, 67)' && big.t === '+$400 / $25', 'the sheet\'s big figure is the same "X / min", 64px and green', JSON.stringify(big));
       const sh = await textOf(fp, '.stack-sheet');
-      ok(/Paid onto it \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sh), 'the sheet rows: Paid onto it, New charges, Minimum with its ✓, Target', sh);
+      ok(/Paid back \$400 New charges \$400 Minimum \$25 ✓ Target \$25/.test(sh), 'the sheet rows: Paid back, New charges, Minimum with its ✓, Target', sh);
       // A pending row: dimmed, with a drawn hollow dot named "pending" (rule B5: no printed word); posted rows have none.
       const dots = await fp.$$eval('.stack-sheet-tx li', els => els.map(li => {
         const d = li.querySelector('.stack-sheet-txp');
