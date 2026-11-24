@@ -13624,11 +13624,13 @@
     if (view.role !== 'active' || !pub || pub.source !== 'Forecast.billsAccountPeriodBalance'
       || pub.accountId !== BILLS_ACCOUNT_ID) return null;
     const finite = value => typeof value === 'number' && Number.isFinite(value);
+    // The reading prints only with a ready close (lead rule on the private diff, 7139958294; Muse 7140127860): a close
+    // withheld for any reason shows a dash and its reason, the reading's own reason first.
     const readingIssue = (pub.issues || []).find(row => row && BILLS_READING_ISSUES.has(row.code));
-    const now = !readingIssue && finite(pub.observedCash) && pub.observedAsOf
+    const now = pub.status === 'ready' && !readingIssue && finite(pub.observedCash) && pub.observedAsOf
       ? { amount: pub.observedCash, asOf: pub.observedAsOf, trust: 'estimated', reason: null }
       : { amount: null, asOf: null, trust: 'unavailable',
-        reason: readingIssue ? readingIssue.message : 'A dated posted Bills account balance is unavailable.' };
+        reason: readingIssue ? readingIssue.message : pub.reason || 'A dated posted Bills account balance is unavailable.' };
     const pubItems = billsAccountItemsByPublication.get(pub);
     const ready = pub.status === 'ready' && Array.isArray(pubItems);
     const reason = ready ? null : pub.reason || 'The Bills account lines are unavailable.';
@@ -16157,8 +16159,11 @@
         // its remainder is still cash Bills must hold.
         if ((row.settlement === 'represented' && !feeAllowance && !Object.hasOwn(row, 'additionalCashRequired')
           && row.partlyPaidRemainder !== true) || row.settlement === 'opening') {
-          // Already out of Bills this period: the bill's own settled occurrence, in the same Bills scope.
-          if (row.settlement === 'represented' && row.id && row.date && billsCashScope(row))
+          // Already out of Bills this period: the bill's own settled occurrence, paid from Bills (or with no other payer,
+          // the owner's Bills anchor). A side-effect-free test: a display line never adds an issue to the close
+          // (billsCashScope records one for an unknown payer; review 4684284216).
+          if (row.settlement === 'represented' && row.id && row.date
+            && (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))
             items.push({ id: row.id, kind: 'settled', label: row.label || null, date: row.date, amount: null, status: 'settled', trust: null });
           continue;
         }

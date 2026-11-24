@@ -129,6 +129,34 @@ for (const [mode, code] of [['stale', 'operating-plan-unavailable'], ['misaligne
     && b.householdToMove.amount === null, mode + ': the lists are withheld with the close', JSON.stringify(b.status));
 }
 
+console.log('2b. A close withheld for another reason (review 7140127860): no reading either, only the close\'s reason');
+const unknownBill = d => { d.plan.bills.push({ id: 'unknown-amount', label: 'Invented unknown bill', frequency: 'once', date: '2026-08-26',
+  amount: null, confidence: 'confirmed', payingAccount: 'chequing-a' }); return d; };
+{
+  const v = activeOf(advise(F, unknownBill(world())));
+  const pub = v.billsAccountPeriodBalance, b = v.stackSummary.billsAccount;
+  ok(pub.status === 'unavailable' && !pub.issues.some(i => ['operating-plan-unavailable', 'cash-observation-misaligned', 'bills-cash-unavailable'].includes(i.code))
+    && pub.observedCash !== null, 'the world: the close is withheld (an unknown bill amount) while the reading itself is fine', JSON.stringify(pub.issues));
+  ok(b.now.amount === null && b.now.asOf === null && b.now.trust === 'unavailable' && b.now.reason === pub.reason && b.status === 'unavailable',
+    'no reading is published; the reason is the close\'s own', JSON.stringify(b.now));
+}
+
+console.log('2c. A settled bill with an unknown payer is not listed and never withholds the close (review 4684284216)');
+const externalSettled = d => {
+  d.plan.bills.push({ id: 'ext-settled', label: 'Invented external bill', frequency: 'once', date: '2026-08-17', amount: 38.20,
+    confidence: 'confirmed', payingAccount: 'external-payer' });
+  d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'ext-settled', date: '2026-08-17', actual: 38.20 });
+  return d;
+};
+{
+  const v = activeOf(advise(F, externalSettled(world())));
+  const oldV = activeOf(advise(OLD, externalSettled(world())));
+  ok(oldV.billsAccountPeriodBalance.status === 'ready' && JSON.stringify(v.billsAccountPeriodBalance) === JSON.stringify(oldV.billsAccountPeriodBalance),
+    'the close is ready and byte-equal to main', JSON.stringify(v.billsAccountPeriodBalance.issues));
+  ok(!v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'ext-settled') && v.stackSummary.billsAccount.alreadyOut.some(r => r.id === 'paid-bills'),
+    'the bill paid elsewhere is not on Already out; the Bills one still is');
+}
+
 console.log('3. Through the real stack-cards.js');
 const shellBox = { window: {}, location: { search: '' }, URLSearchParams, Intl, Map, Number, String, Object, Array, JSON, Math, console };
 vm.runInNewContext(read('public/stack-shell.js'), shellBox);
@@ -171,6 +199,11 @@ for (const mode of ['stale', 'misaligned', 'missing']) {
   ok(h && head(h) === 'Bills account ' + b.now.reason + ' —' && !/\$/.test(h), mode + ': the head is a dash with the reason; no amount anywhere', head(h || ''));
 }
 {
+  const v = activeOf(advise(F, unknownBill(world()))), h = cardOf(v);
+  ok(h && head(h) === 'Bills account ' + v.billsAccountPeriodBalance.reason + ' \u2014' && !/\$/.test(h),
+    'a close withheld for another reason: the head is a dash with the close\'s reason; no amount anywhere', head(h || ''));
+}
+{
   const other = advice.payPeriodViews.find(v => v.role !== 'active' && v.stackSummary);
   ok(other && cardOf(other) === null, 'no card on another pay period');
 }
@@ -187,18 +220,23 @@ const mutant = (label, file, from, to, check) => {
 };
 const fresh = sources => activeOf(advise(engine(sources), world())).stackSummary.billsAccount;
 mutant('a settled bill from another account listed', 'public/forecast.js',
-  "if (row.settlement === 'represented' && row.id && row.date && billsCashScope(row))",
-  "if (row.settlement === 'represented' && row.id && row.date)",
+  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", ')',
   sources => { const d = world(); d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'weekly-bill', date: '2026-08-22', actual: 51.30 });
     const b = activeOf(advise(engine(sources), d)).stackSummary.billsAccount;
     return !b.alreadyOut.some(r => r.id === 'weekly-bill'); });
 mutant('the late word dropped', 'public/forecast.js', "item.date && item.date < day ? 'late' : 'due'", "'due'",
   sources => fresh(sources).comingOut.find(r => r.id === 'late-bill').status === 'late');
-mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && finite(pub.observedCash)', 'const now = finite(pub.observedCash)',
+mutant('the reading guard dropped', 'public/forecast.js', "const now = pub.status === 'ready' && !readingIssue && finite(pub.observedCash)", 'const now = finite(pub.observedCash)',
   sources => activeOf(advise(engine(sources), world('misaligned'))).stackSummary.billsAccount.now.amount === null);
 mutant('the lists published with a withheld close', 'public/forecast.js', "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
   'const ready = Array.isArray(pubItems);',
   sources => activeOf(advise(engine(sources), world('stale'))).stackSummary.billsAccount.comingOut === null);
+mutant('the settled line uses the scope check that records an issue', 'public/forecast.js',
+  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", '&& billsCashScope(row))',
+  sources => activeOf(advise(engine(sources), externalSettled(world()))).billsAccountPeriodBalance.status === 'ready');
+mutant('the reading printed with a withheld close', 'public/forecast.js',
+  "const now = pub.status === 'ready' && !readingIssue", 'const now = !readingIssue',
+  sources => activeOf(advise(engine(sources), unknownBill(world()))).stackSummary.billsAccount.now.amount === null);
 {
   const src = read('public/stack-cards.js');
   const from = "accountRow(r, r.status === 'late' ? 'late' : null, false)";
