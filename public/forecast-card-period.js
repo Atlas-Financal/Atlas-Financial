@@ -624,11 +624,17 @@
       const reasons = countedCents === null ? ['already-counted-unavailable'] : [];
       const due = Math.max(0, cents(target.amount) - (countedCents || 0));
       const minimumCents = Number.isFinite(target.minimum) ? Math.round(target.minimum * 100) : 0;
-      const amount = due - Math.min(beyond, Math.max(0, due - minimumCents));
+      const netted = Math.min(beyond, Math.max(0, due - minimumCents));
+      const amount = due - netted;
+      // The two parts of target − deduction, published so a reader can show them without subtracting totals (OD-033; desk,
+      // Plan #6: no catch-all offset): countedOffset = min(target, alreadyCounted), the part of the target the charges already
+      // counted above cover (withheld counted charges cover none of it); beyondNetted = the part of the cash paid beyond the
+      // minimum netted here. target − countedOffset − beyondNetted = amount, per line.
+      const offset = Math.min(cents(target.amount), countedCents || 0);
       return { amount: amount / 100,
         trust: weakest(target.trust, countedCents === null ? 'estimated' : card.id === 'heloc' ? target.trust : counted.trust),
         reasons, target: target.amount, alreadyCounted: countedCents === null ? null : countedCents / 100,
-        beyondMinimumPaid: beyond / 100 };
+        beyondMinimumPaid: beyond / 100, countedOffset: offset / 100, beyondNetted: netted / 100 };
     };
     const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
@@ -648,12 +654,26 @@
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
       const paidToward = paidTowardOf(card, published(card.id));
+      // OD-033 (Dale, 2026-11-23): the row reads Paid back / Total to pay back, and the card's Still to pay back shows in the
+      // Credit dropdown, display only (never summed into Credit, BAD or Surplus). Paid back is paidToward: posted payments
+      // onto this card in this period only (Grok Bot's condition 1), never a net. Still to pay back = max(0, target − paid
+      // back); unknown when either is (never $0). targetCovered is the row's green and ✓: paid back has reached a target
+      // above $0 (Neon REPORT 4: never keyed off the minimum alone).
+      const targetCents = target.amount === null ? null : cents(target.amount);
+      const towardCents = paidToward.amount === null ? null : cents(paidToward.amount);
+      const shortOf = targetCents === null || towardCents === null;
+      const stillToPayBack = shortOf
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? paidToward.reasons : []))] }
+        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, paidToward.trust), reasons: [] };
+      const targetCovered = shortOf
+        ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
+        : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, paidToward.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
       const paidForMinimum = card.paidPosted || paid;
       const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
         : cents(paidForMinimum.amount) >= cents(minimum.amount);
       const { paidPosted, chargesCounted, ...shown } = card;
-      return { ...shown, balance, minimum, target, deduction, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      return { ...shown, balance, minimum, target, deduction, paidToward, stillToPayBack, targetCovered, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paidForMinimum.reasons.concat(minimum.reasons))] : [] } };

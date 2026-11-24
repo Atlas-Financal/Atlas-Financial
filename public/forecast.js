@@ -28,10 +28,14 @@
   // minimum from the period's published bills split, minimum covered).
   // `facilities` (optional): { debts, extra, plan }, read through utilisation for each card's over-limit amount (the
   // repayment target, OD-028). The same debts the publication was built from.
-  function stackCreditLines(publication, bills, facilities) {
+  // `beyondMinimumPaid` (optional): the cash paid beyond each card's minimum, Map(card id -> cents), as periodCardCredit
+  // passes it. One builder: given the same inputs this returns exactly the lines periodCardCredit publishes, so a card
+  // cannot read two different deductions. No page reads this entry point; the page reads the view's stackSummary.credit.
+  function stackCreditLines(publication, bills, facilities, beyondMinimumPaid) {
     const util = facilities && Array.isArray(facilities.debts)
       ? utilisation(facilities.debts, facilities.extra, facilities.plan) : null;
-    return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null);
+    return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null,
+      beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined);
   }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
@@ -13540,9 +13544,13 @@
   // terms carry the item spending) is. Shape, shared with the other
   // stackSummary keys: { amount, trust, ... }, with `reason` only when
   // withheld (amount null, trust 'unavailable').
-  // The waterfall's Credit dropdown (desk ruling (E)): one row per card at its published target (the figure its Credit tile
-  // row prints after the slash), a card minimum with no line at that minimum, and one "Already counted above" row, so the
-  // rows sum to the Credit term exactly. Null where the Credit term is the minimums (a completed or saved period, or no
+  // The waterfall's Credit dropdown (OD-033; desk ruling (1), Plan #6; lead, 2026-11-24): display only. One row per card
+  // with a target above $0, at its Still to pay back (target − paid back, the line's published stillToPayBack: unknown is
+  // null, never $0); a card minimum with no line at that minimum; and one "Already counted above" row, the sum of each
+  // line's alreadyCounted: exactly that card's charges the Household budget hold, the bills and the item term already
+  // deduct (Grok Bot's condition 2), never a catch-all offset. The rows do not add up to the Credit line, and nothing here
+  // claims they do: `total` is (E)'s Credit deduction, Σ each line's deduction, unchanged. A withheld alreadyCounted on any
+  // line withholds that row's amount (null). Null where the Credit term is the minimums (a completed or saved period, or no
   // card evidence): the dropdown then lists the minimums, as before.
   function stackCreditBreakdown(entry, bills) {
     if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
@@ -13550,18 +13558,22 @@
     const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
     const lineIds = new Set(lines.map(line => String(line.id)));
     const rows = [];
+    let countedCents = 0, countedKnown = true;
     for (const line of lines) {
       if (line.target.amount === null) return null;
-      if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: line.target.amount, trust: line.target.trust });
+      const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
+      if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
+      const counted = line.deduction ? line.deduction.alreadyCounted : null;
+      if (counted === null || counted === undefined) countedKnown = false;
+      else countedCents += stackCents(counted);
     }
     for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
     }
-    const targetsCents = rows.reduce((sum, row) => sum + stackCents(row.amount), 0);
-    const countedCents = targetsCents - entry.creditCents;
     const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
     const trust = [(bills && bills.trust) || 'calculated', entry.trust || 'calculated'].reduce((worst, t) => (RANK[t] ?? 2) > (RANK[worst] ?? 2) ? t : worst, 'calculated');
-    return { rows, alreadyCounted: { amount: -countedCents / 100, trust: entry.trust || 'calculated' },
+    return { rows,
+      alreadyCounted: countedKnown ? { amount: -countedCents / 100, trust: entry.trust || 'calculated' } : { amount: null, trust: 'unavailable' },
       total: entry.creditCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';

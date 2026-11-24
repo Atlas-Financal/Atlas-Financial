@@ -6,9 +6,8 @@
  *                  minimumCovered: {value: true|false|'unknown'}, transactions }],
  *        totals: { paid, spent, trust, completeness: 'complete'|'partial'|'none', excluded: [ids], reasons } }
  *
- * Closed: "Credit" and paid / spent from totals, only when the total is complete (a partial or missing total prints
- * no figure and no bar). Open: one row per line: "$A of $B", the coral remaining amount when published as to go, the
- * tick when paid back, and "Minimum $X" with a ✓ only when covered. HELOC shows its minimum only. Each row opens the sheet
+ * Closed: "Credit" and paid / minimums due from totals. Open: one row per line: "Paid back / Total to pay back" (OD-033),
+ * green when Forecast publishes targetCovered, and the ✓ when the minimum is covered. HELOC: its minimum is its target. Each row opens the sheet
  * (data-stack-sheet="card:<id>"), which reads the same line through window.StackCredit.
  *
  * L-001: prints only what Forecast publishes. No arithmetic on money: a bar's width comes from the shell's one
@@ -72,18 +71,14 @@
     && COVERAGE_TRUST.includes(line.minimumCovered.trust) ? line.minimumCovered.value : null);
   const dash = '<span class="stack-credit-dash" role="img" aria-label="not available">—</span>';
 
-  // One line, read for the design's right-hand figure "X / minimum" (Dale, 2026-11-20: he approved the Credit Minimum
-  // mock-up). Only published values are compared or printed; nothing is added or subtracted here:
-  //   * paid or spent unpublished (a manual card, the HELOC): X is Forecast's published paidToward in normal type (a $0
-  //     when nothing was paid or the card cannot be seen, the HELOC's posted payments), the one figure the head also sums
-  //     (Dale, 2026-11-20); a dash only when Forecast withholds it (past period, failed sync), plain ink, no tick;
-  //   * status 'to-go' (Forecast says spending is above payments): X is the published toGo, in red;
-  //   * otherwise X is the published paid, in green with the filled ✓ only when minimumCovered is published true, a
-  //     minimum is due, something was spent or paid and the period is not upcoming; plain ink when it is false or unknown;
-  //   * nothing spent and nothing paid: "$0 / $min" in plain ink, no tick;
-  //   * no minimum due (null): X alone, no "/ min", no tick.
-  // Each field carries the shell's one soft treatment from its own published trust (X: the figures it is read from; the
-  // minimum: its own; the tick: the coverage check's, with the minimum's and paid's).
+  // One line, read for the row's figure "Paid back / Total to pay back" (OD-033, Dale, 2026-11-23). Only published values
+  // are compared or printed; nothing is added or subtracted here:
+  //   * X is Forecast's published paidToward: posted payments onto this card in this period, never a net (a $0 when nothing
+  //     was paid or the card cannot be seen, the HELOC's posted payments); a dash only when Forecast withholds it;
+  //   * after the slash, the published target (OD-028); nothing after it when the target is $0, a dash when withheld;
+  //   * X is green only when Forecast publishes targetCovered true and the period is not upcoming; otherwise plain ink;
+  //   * the ✓ is the minimum covered, unchanged (Dale: "once that minimum is paid I want a check mark").
+  // Every figure displays the same way whatever its trust word (OD-034).
   function readLine(line, view) {
     const paid = amountOf(line.paid), spent = amountOf(line.spent), cv = coverage(line);
     // A published $0 minimum is nothing owed: it reads as "not due" (X alone), like Forecast's explicit
@@ -106,33 +101,22 @@
       out.ok = true;
       out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid));
     }
+    // OD-033 (Dale, 2026-11-23): X is Paid back, Forecast's published paidToward (posted payments onto this card in this
+    // period, never a net, never negative; $0 for a card Forecast cannot see; a dash when withheld). Green only when Forecast
+    // publishes targetCovered true (paid back has reached the target), never from the minimum alone (Neon REPORT 4). No red:
+    // what is left is the card's Still to pay back, in the Credit dropdown.
     const toward = amountOf(line.paidToward);
-    if (paid == null || spent == null) {
-      // Not read from a card ledger: the published paidToward, in normal type (no soft styling), never a guess.
-      if (toward != null) { out.x = toward; out.xSoft = ''; }
-    }
-    if (paid != null && spent != null) {
-      if (line.status === 'to-go') {
-        out.x = amountOf(line.toGo);
-        out.tone = out.x != null ? 'bad' : '';
-        out.xSoft = est(view, trustOf(line.paid), trustOf(line.spent), trustOf(line.toGo));
-      } else {
-        out.x = paid;
-        out.xSoft = est(view, trustOf(line.paid), trustOf(line.spent));
-        // Green: the minimum is covered, the row is not red, something was spent or paid, and the period is not upcoming.
-        if (out.ok && !(paid === 0 && spent === 0) && line.status !== 'upcoming') out.tone = 'good';
-      }
-    }
+    if (toward != null) out.x = toward;
+    const covered = line.targetCovered && line.targetCovered.value === true && COVERAGE_TRUST.includes(line.targetCovered.trust);
+    if (out.x != null && covered && line.status !== 'upcoming') out.tone = 'good';
     return out;
   }
-  // The figure: "X / min" (the minimum muted), the colour on X alone.
-  // X is named for a screen reader so colour is never the only signal: "Owes $20 more than paid back" when red, "Paid $20"
-  // otherwise (", estimated" when soft). The visible text stays the number; role="img" makes the name the announcement.
-  const xName = r => (r.x == null ? '' : `${r.tone === 'bad' ? 'Owes ' + money(r.x) + ' more than paid back' : 'Paid ' + money(r.x)}${r.xSoft ? ', estimated' : ''}`);
-  // X carries its direction as a printed sign (Dale, 2026-11-20: "I just need the plus minus there"): "\u2212$150" when the
-  // card is behind (the published toGo, red), "+$250" for a published payment, a bare "$0" for nothing. The sign is text
-  // joined to the shell's money format and chosen by comparing the published figure with zero, never by arithmetic.
-  const signed = r => (r.tone === 'bad' ? '\u2212' + money(r.x) : r.x > 0 ? '+' + money(r.x) : money(r.x));
+  // X is named for a screen reader: "Paid back $20". The visible text stays the number; role="img" makes the name the
+  // announcement.
+  const xName = r => (r.x == null ? '' : 'Paid back ' + money(r.x));
+  // A published payment keeps its "+" (Dale, 2026-11-20: "I just need the plus minus there"); OD-033 removed the minus,
+  // since the left side is never a net. A bare "$0" for nothing. Chosen by comparing the published figure with zero.
+  const signed = r => (r.x > 0 ? '+' + money(r.x) : money(r.x));
   const figureHtml = r => {
     // Class tokens only, from this file's fixed vocabulary: the tone ('', 'good', 'bad') and the shell's trust treatment
     // (StackBlocks.estClass: now always ''), never a published string.
@@ -199,7 +183,7 @@
   }
 
   // The sheet's view of one line (stack-sheet.js asks for it with its own helpers): the same "X / target" figure as the
-  // row, in the same colour, then the target's breakdown in plain words (OD-028): "Paid onto it", "New charges" (the
+  // row, in the same colour, then the target's breakdown in plain words (OD-028): "Paid back" (the row's X), "New charges" (the
   // card's Spent), "Minimum" (with its ✓ when covered, "Not due this period" when no minimum is due), "Over the limit by"
   // (only when the card is over), and "Target", each Forecast's published figure; then the dated transactions.
   // "Over the limit by": Forecast's published part of the target, printed only when the card is over (a positive amount).
@@ -225,7 +209,7 @@
       + (r.x != null || r.target != null || r.min != null || !balanceShown(line)
         ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
         : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${escape(formatMoney(amountOf(line.balance)))}</div>`)
-      + '<dl>' + (heloc ? '' : (r.paid != null ? rowHtml('Paid onto it', soft(formatMoney(r.paid), est(view, trustOf(line.paid)))) : '')
+      + '<dl>' + (heloc ? '' : (r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidToward)))) : '')
         + (r.spent != null ? rowHtml('New charges', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : ''))
       + (r.min != null
         ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
