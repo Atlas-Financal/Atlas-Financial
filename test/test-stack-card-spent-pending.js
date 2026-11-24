@@ -7,8 +7,8 @@
  *      only) adds the same amount to Spent at every step, never doubled. The twin is paired by Forecast's existing
  *      pairing, both by the provider's pendingPostedDuplicate flags and by the household budget's own key pairing.
  *   2. Trust: a Spent or Paid that a pending row adds to reads estimated, never calculated; posted only stays calculated.
- *   3. Reversal pair: a pending charge and a same-amount pending credit count as the ledger has them. A credit the ledger
- *      marks a refund nets the charge out; an unlabelled credit withholds the figure, as the same row does when posted.
+ *   3. Reversal pair: a pending charge and a same-amount pending credit count as the ledger has them. A standalone credit
+ *      with a refund hint withholds the figure, as the same row does when posted.
  *      Which row of the pair is real is the ledger's call (rule 17, Grok Bot), never decided here.
  *   4. A posted amount that differs from its pending (a tip, a hold): the existing pairing does not pair them, so both
  *      count (a known limit, stated in the merge card).
@@ -20,7 +20,7 @@
  */
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 const { copy } = fx;
 
 let checks = 0;
@@ -31,7 +31,7 @@ const travel = x => F.stackCardSummary(publish(x)).find(c => c.id === 'travelvis
 const cents = v => Math.round(v * 100);
 
 // The invented card week without its own pending row. By hand, Travel's posted Spent is
-// 172.40 + 63.75 + 6.25 (interest) - 35.00 (refund) = 207.40, and its Paid is the 100.00 payment.
+// 172.40 + 28.75 + 6.25 (interest) = 207.40, and its Paid is the 100.00 payment.
 const BASE_SPENT = 207.40, BASE_PAID = 100;
 function world(extra = []) {
   const x = fx.fixture();
@@ -115,8 +115,8 @@ console.log('3. A reversal pair counts as the ledger has it');
 {
   const charge = row('r-charge', 118.30, { pending: true, payee: 'Example warehouse' });
   const refund = travel(world([charge, row('r-credit', -118.30, { pending: true, payee: 'Card transaction', kindHint: 'refund' })]));
-  ok(cents(refund.spent.amount) === cents(BASE_SPENT) && refund.spent.trust === 'estimated',
-    'a pending charge and a same-amount pending credit the ledger marks a refund net out: Spent stays 207.40, estimated', JSON.stringify(refund.spent));
+  ok(refund.spent.amount === null && refund.spent.trust === 'unavailable' && refund.spent.reasons.includes('card-credit-purpose-unconfirmed'),
+    'a pending refund hint gives no purchase link: Spent is withheld', JSON.stringify(refund.spent));
   // Owner decision, Dale, 2026-11-23 (#821 7089360610, 7089379689; lead ruling (b)): a pending charge and a pending
   // credit of exactly opposite amount carrying the charge's own category are one hold and its release
   // (Forecast.pendingHoldReleases), so both are dropped and Spent is not withheld. Proved in test-pending-hold-release.js.
@@ -169,7 +169,7 @@ console.log('6. A pending payment counts in Paid; the posted movement and the HE
   ok(cents(t.paid.amount) === cents(BASE_PAID + 60) && t.paid.trust === 'estimated', 'Paid is 100 + 60 = 160, estimated', JSON.stringify(t.paid));
   const pub = publish(x);
   const movement = pub.cards.find(c => c.id === 'travelvisa').postedMovement;
-  // By hand: the posted liability movement is 172.40 + 63.75 - 100 - 35 + 6.25 = 107.40; pending never enters it.
+  // By hand: the posted liability movement is 172.40 + 28.75 - 100 + 6.25 = 107.40; pending never enters it.
   ok(cents(movement.amount) === 10740 && movement.trust === 'calculated', 'the posted movement is still 107.40, posted only', JSON.stringify(movement));
   ok(!F.stackCardSummary(pub).some(c => c.id === 'heloc'), 'the HELOC is not a stack card');
   const helocLine = F.stackCreditLines(pub, { cardMinimums: [{ debtId: 'heloc', amount: 50 }], trust: 'calculated' }).lines.find(l => l.id === 'heloc');

@@ -27,6 +27,32 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 // consumer reads that fact from one holder (Astra A4), so a covered minimum is
 // deducted once, by the posted payment itself.
 
+// REPORT 6 Part B: a category match alone never releases purchase coverage.
+{
+  const purchase = ['card', 100, null, 'purchase'];
+  const credit = extra => ['card', -60, null, 'refund', extra];
+  const posted = run(world([purchase, credit({})]));
+  const direct = require('../public/forecast').visaPaymentReconciliation(posted.packet.transactions, {
+    plan: posted.observed.data.plan, asOf: posted.packet.observationAsOf, packet: posted.packet, debts: posted.observed.data.debts });
+  for (const coverage of [posted.coverage, direct]) {
+    assert.equal(coverage.reservedCash, 100, 'standalone credit leaves the whole purchase reserved');
+    assert.deepEqual([coverage.status, coverage.trust, coverage.estimateBasis, coverage.purchases[0].refunded],
+      ['ready', 'estimated', 'card-credit-purpose-unconfirmed', 0]);
+    assert.equal(coverage.toConfirm[0].amount, 60);
+  }
+  withheld(run(world([purchase, credit({ is_pending: true })])), 'coverage-payment-or-credit-purpose-unconfirmed',
+    'a standalone pending credit withholds coverage');
+  const linked = run(world([purchase, credit({ is_group_parent: true })]));
+  ready(linked, 40, 'ledger-linked category refund');
+  assert.equal(linked.coverage.purchases[0].refunded, 60);
+  assert.equal(linked.period.householdBudget[0].spent, 40);
+  const linkedSpent = linked.period.stackSummary.credit.lines.find(l => l.id === 'travelvisa').spent;
+  assert.equal(linkedSpent.amount, null);
+  assert.ok(linkedSpent.reasons.includes('parent-coverage-unqualified'));
+  const pendingLinked = run(world([purchase, credit({ is_group_parent: true, is_pending: true })]));
+  ready(pendingLinked, 100, 'a known refund cannot release the reserve until posted');
+  assert.equal(pendingLinked.coverage.purchases[0].refunded, 0);
+}
 // 0. Minimum first.
 {
   const none = run(world([['card', 80, null, 'purchase']]));
@@ -92,8 +118,8 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
 }
 // 4. A refund reduces the period's purchases.
 {
-  ready(run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund']])), 68, 'refund');
-  const paid = run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund'],
+  ready(run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund', { is_group_parent: true }]])), 68, 'refund');
+  const paid = run(world([['card', 80, null, 'purchase'], ['card', -12, null, 'refund', { is_group_parent: true }],
     ['bills', 93, null, 'cash'], ['card', -93, null, 'credit']]));
   ready(paid, 0, 'minimum plus purchases net of the refund covers them');
   assert.equal(paid.coverage.payments[0].cardPayment, 0);
@@ -285,7 +311,7 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     ['partial', [['card', 80, null, 'purchase'], ['bills', 55, null, 'cash'], ['card', -55, null, 'credit']], 445, 425, 50, 0],
     ['full', [['card', 80, null, 'purchase'], ['bills', 105, null, 'cash'], ['card', -105, null, 'credit']], 395, 375, 0, 0],
     ['above', [['card', 80, null, 'purchase'], ['bills', 125, null, 'cash'], ['card', -125, null, 'credit']], 375, 355, 0, 20],
-    ['refund', [['card', 80, null, 'purchase'], ['card', -12, null, 'refund']], 500, 468, 68, 0],
+    ['refund', [['card', 80, null, 'purchase'], ['card', -12, null, 'refund', { is_group_parent: true }]], 500, 468, 68, 0],
   ];
   for (const [name, rows, cash, debt, reserve, excess] of snapshots) {
     const s = run(world(rows));
@@ -294,16 +320,12 @@ const available = (state, value, why) => assert.equal(state.period.fromTodayFund
     assert.equal(s.observed.data.debts[0].balance, debt, name + ': card debt');
     const bills = s.period.billsAccountPeriodBalance;
     assert.equal(bills.status, 'ready', name + ': ' + JSON.stringify(bills.issues));
-    // The refund lowers the card's uncovered reserve to 68, inside the
-    // incumbent gross 150 hold (refund netting of the hold is not this outcome).
+    // The linked refund reduces both spending and reserve to 68; 82 of the 150 allowance remains.
     // Astra A4: the Bills row consumes minimumCoverage[], so a covered
     // minimum is no longer deducted a second time (main pinned
     // bills + excess + minimumCovered = 325, the interim double deduction).
     assert.equal(bills.amount + excess, 325, name + ': Bills period end conserves');
-    // Pre-existing and identical under explicit refund records on main: the
-    // from-today figure nets a card refund against the category, the Bills
-    // period end does not (recorded as a finding in the PR, not changed here).
-    if (name !== 'refund') assert.equal(s.period.fromTodayFunding.availableNow, bills.amount, name + ': one published available figure');
+    assert.equal(s.period.fromTodayFunding.availableNow, bills.amount, name + ': one published available figure');
     assert.equal(s.period.predictedEndingBalance, s.period.balanceAfterDeductions, name + ': income-led ending published');
   }
 }

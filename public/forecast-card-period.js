@@ -179,10 +179,9 @@
         const classification = classify(tx, plan, packet);
         // The spending classifier calls any signed credit a refund. That is
         // not proof of its transaction type: prefer explicit native identity,
-        // and leave an unlabelled credit unconfirmed instead of guessing.
+        // and leave a standalone credit unconfirmed even with a refund hint.
         const hint = typeof tx.kindHint === 'string' ? tx.kindHint.trim().toLowerCase() : '';
         const kind = ['payment', 'card-payment', 'bill-payment'].includes(hint) || tx.cardPaymentIdentity === true ? 'payment'
-          : hint === 'refund' ? 'refund'
           : id === 'heloc' && hint === 'interest' || classification?.kind === 'interest' ? 'interest'
           : value != null && value < 0 ? 'credit-unconfirmed'
           : ['spend', 'bill', 'savings-item'].includes(classification?.kind) ? 'charge' : 'movement-unconfirmed';

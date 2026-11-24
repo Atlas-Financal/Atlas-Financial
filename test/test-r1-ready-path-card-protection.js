@@ -71,7 +71,8 @@ function build(c = {}) {
       ...(c.refund ? [{ transactionRef: 'tx-2', date: '2026-10-06', linkRefs: ['link-1'], direction: 'refund',
         state: 'posted', reason: null, occurrenceKey: 'a@2026-12-18' }] : [])] };
   }
-  if (c.purchase) T.push(cardRow(c.link ? 'tx-1' : 'CARD-1', '2026-10-05', c.purchase, 'cov-1', { pending: !!c.pending }));
+  if (c.purchase) T.push(cardRow(c.link ? 'tx-1' : 'CARD-1', '2026-10-05', c.purchase, 'cov-1', { pending: !!c.pending,
+    ...(c.groupRefund ? { displayedPayee: 'Example grocer' } : {}) }));
   if (c.cash) { T.push(billsRow('CASH-1', '2026-10-05', c.cash, 'cash-1')); stock -= c.cash; }
   if (c.pay) {
     const [amount, parts, other = 0, purpose = null] = c.pay;
@@ -89,7 +90,8 @@ function build(c = {}) {
     }
   }
   if (c.refund) {
-    T.push(cardRow(c.link ? 'tx-2' : 'REF-1', '2026-10-06', -c.refund, 'ref-1'));
+    T.push(cardRow(c.link ? 'tx-2' : 'REF-1', '2026-10-06', -c.refund, 'ref-1',
+      c.groupRefund ? { isGroup: true, displayedPayee: 'Example grocer' } : undefined));
     x.plan.cardPurchaseCoverage.refunds.push({ confirmed: true, purchaseRef: 'cov-1', refundRef: 'ref-1' });
   }
   if (c.unrecorded) {
@@ -572,7 +574,7 @@ test('aggregate rule: zero, partial, full, reversed, refunded, carried and pendi
     [{ purchase: 42.5, unrecorded: 10 }, 3250, 42.5],
     [{ purchase: 42.5, pay: [42.5, [['cov-1', 42.5]]] }, 0, 42.5],
     [{ purchase: 42.5, pay: [42.5, [['cov-1', 42.5]]], reverse: true }, 4250, 42.5],
-    [{ purchase: 42.5, refund: 12.5 }, 3000, 30, { activeClose: false }],
+    [{ purchase: 42.5, refund: 12.5, groupRefund: true }, 3000, 30],
     [{ carried: 30 }, 3000, 30],
     [{ purchase: 42.5, carried: 30 }, 7250, 72.5],
     [{ carried: 30, pay: [30, [['cov-0', 30]]] }, 0, 30, { activeClose: false }],

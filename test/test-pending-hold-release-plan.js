@@ -90,14 +90,16 @@ const lone = run(world([...base, hold, real]));
 ok(lone.coverage.reservedCash === 78 && lone.period.householdBudget[0].spent === 158,
   'a pending hold with no release still counts and is reserved: 38 + 40 = 78 reserved, 80 + 38 + 40 = 158 spent',
   JSON.stringify({ reserve: lone.coverage.reservedCash, spent: lone.period.householdBudget[0].spent }));
-// An unmatched pending card credit (different amount) is not consumed: it stays a ledger row, read exactly as on the
-// pre-#1571 base 38ab2415 (coverage ready, no issues there too).
+// The unmatched pending credit is neither a hold release nor a ledger-linked refund (#1607).
 const F = require('../public/forecast');
 const unmatchedCredit = ['card', -25, '2026-09-20', 'purchase', { ...pend, category_name: null }];
 const unmatched = run(world([...base, hold, real, unmatchedCredit]));
 ok(F.pendingHoldReleases(unmatched.packet).legs.size === 0, 'a credit of another amount consumes nothing');
-ok(unmatched.coverage.reservedCash === 78 && unmatched.coverage.status === 'ready',
-  'so the hold still counts and is reserved beside it (38 + 40 = 78), as on base', JSON.stringify({ r: unmatched.coverage.reservedCash, s: unmatched.coverage.status }));
+ok(unmatched.period.householdBudget[0].spent === 158, 'the unmatched credit does not remove the pending hold');
+ok(unmatched.coverage.reservedCash === null && unmatched.coverage.status === 'unavailable'
+  && unmatched.coverage.issues.some(i => i.code === 'coverage-payment-or-credit-purpose-unconfirmed')
+  && unmatched.period.fromTodayFunding.availableNow === null,
+  'the unresolved pending credit withholds coverage and available cash');
 console.log('5. End to end: the served assistant packet on the invented figures input is not fail-closed');
 {
   // test/fixtures/figures-inputs/card-hold-release.json is this world (Live.fromObservation(...).data), so the figures
