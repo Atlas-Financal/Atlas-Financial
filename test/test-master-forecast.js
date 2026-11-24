@@ -1720,6 +1720,32 @@ console.log('\n=== live opening: Q19, buffer, cards, undated rows ===');
     'live HELOC funding option records Q19 ANSWERED');
 }
 
+
+console.log('\n=== operating answer and Budget pass the same extra-facility evidence ===');
+{
+  const Operating = require('../scripts/operating-answer.js');
+  const asOf = '2026-09-20';
+  const plan = barePlan({
+    windowDays: 21, opening: { asOf },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 400 }, { id: 'chequing-b', value: 200 }] },
+    income: [{ id: 'pay', frequency: 'once', date: '2026-09-28', amount: 3000, confidence: 'confirmed' }],
+    bills: [{ id: 'bill', frequency: 'once', date: '2026-09-25', amount: 250, confidence: 'confirmed' }],
+    funding: { options: [{ id: 'overdraft', cash: 'chequing-b', unusable: true }] },
+  });
+  const data = { plan, debts: [], revolvingExtra: [{ id: 'overdraft', cash: 'chequing-b', limit: 600, pending: 0 }] };
+  const operating = Operating.recommendOpts(data, { mode: 'canonical' });
+  const budget = F.budgetRecommendInputs(data, {});
+  ok(operating.extraFacilities === data.revolvingExtra && budget.extraFacilities === operating.extraFacilities,
+    'both adapters hand Forecast the same facility rows');
+  const advice = F.recommend(plan, asOf, operating);
+  const page = F.recommend(plan, asOf, budget);
+  const row = advice.funding?.sources.find(s => s.id === 'overdraft');
+  ok(row?.available === 600 && row.contributes === 0, 'operating answer sees headroom but contributes no borrowing');
+  const gap = 500 - (400 + 200 - 250);
+  ok(advice.funding?.shortfall === gap && page.funding?.shortfall === gap
+    && advice.weekly === 0 && page.weekly === 0, 'both answers keep the independently computed gap and no weekly cap');
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
   process.exit(1);

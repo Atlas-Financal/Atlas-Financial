@@ -97,7 +97,7 @@ function recommendOpts(data, opts) {
   return {
     fundingSources: plan && plan.funding && plan.funding.options,
     debts: data && data.debts,
-    revolvingExtra: data && data.revolvingExtra,
+    extraFacilities: data && data.revolvingExtra,
     periods: loadPeriods(),
     currentPeriodActuals: actualsFrom(data, opts),
     // The card-target publication's own evidence (desk ruling (E), #1573).
