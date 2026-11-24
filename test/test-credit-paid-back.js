@@ -5,7 +5,8 @@
  * force the rows to add up with a catch-all offset." Grok Bot (rule 17): (1) Paid back is posted payments tied to that card
  * in the same pay period; (2) the "Already counted above" offset for a card is exactly that card's purchases already held;
  * (3) a payment shows as paid on one card's row only. Lead (2026-11-24): option B, with a plain caption so nobody reads the
- * card rows as summing to the Credit line.
+ * card rows as summing to the Credit line. Dale (2026-11-24, #1617 7121410691): no "Already counted above" row in that
+ * dropdown; each card's own counted charges stay on its line's deduction.
  *
  *   1. The lead's worked case, per line (Forecast's card module and its dropdown builder, invented publications): every
  *      dropdown figure is checked against that card's own published figures, never against the total.
@@ -33,7 +34,7 @@ const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 // main before this change, for the byte-equal controls.
-const BASE = '17ee87debff166e4314913b49b948f2501e17ed3'; // main at the catch-up (after #1618), before this change
+const BASE = 'b2a821ebd356a91deea07f586a49bf5fbaefc933'; // main with #1617 merged, before this change (it still prints the row)
 const show = file => cp.execFileSync('git', ['show', BASE + ':' + file], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 function realm(sources) {
   const c = { console };
@@ -82,14 +83,16 @@ ok(drop.rows.length === 2 && drop.rows.every(r => {
   const line = credit.lines.find(l => l.id === r.debtId);
   return cents(r.amount) === Math.max(0, cents(line.target.amount) - cents(line.paidBack.amount));
 }), 'proof 1: each card row is that card\'s target − paid back (A 25.00, B 100.00), worked from its own line', JSON.stringify(drop.rows));
-// Proof 2: the "Already counted above" row is Σ each card's charges counted above (A 0 + B 150), Grok Bot's condition 2.
-ok(cents(drop.alreadyCounted.amount) === -(cents(A.deduction.alreadyCounted) + cents(B.deduction.alreadyCounted)) && cents(drop.alreadyCounted.amount) === -15000,
-  'proof 2: "Already counted above" is −(0.00 + 150.00) = −150.00, the two cards\' own counted charges', JSON.stringify(drop.alreadyCounted));
+// Proof 2: no "Already counted above" row (Dale, 7121410691); each card's counted charges stay on its own line (A 0, B 150),
+// exactly that card's purchases already held (Grok Bot's condition 2).
+ok(!Object.hasOwn(drop, 'alreadyCounted') && Object.keys(drop).sort().join() === 'rows,total,trust'
+  && cents(A.deduction.alreadyCounted) === 0 && cents(B.deduction.alreadyCounted) === 15000,
+  'proof 2: the dropdown has no "Already counted above" row; each card keeps its own counted charges on its line (0.00, 150.00)', JSON.stringify(Object.keys(drop)));
 // Proof 3: the Credit line is Σ each line's deduction (50 + 0), (E) unchanged.
 ok(cents(drop.total) === cents(A.deduction.amount) + cents(B.deduction.amount) && cents(drop.total) === 5000,
   'proof 3: the Credit line is Σ deductions, 50.00 + 0 = 50.00', String(drop.total));
-ok(cents(drop.rows[0].amount) + cents(drop.rows[1].amount) + cents(drop.alreadyCounted.amount) !== cents(drop.total),
-  'the rows are display only and do not add up to the Credit line (25 + 100 − 150 ≠ 50), which the caption says');
+ok(cents(drop.rows[0].amount) + cents(drop.rows[1].amount) !== cents(drop.total),
+  'the rows are display only and do not add up to the Credit line (25 + 100 ≠ 50), which the caption says');
 // Grok Bot condition 3: one payment, one row. A's 75 is paid back on A alone; B shows none.
 ok(cents(A.paidBack.amount) + cents(B.paidBack.amount) === 7500, 'condition 3: the one 75.00 payment shows as paid back on card A only');
 // Grok Bot condition 1: a pending payment is not paid back.
@@ -126,7 +129,8 @@ console.log('2. Through recommend and the real page scripts, on the invented car
 //     229.75; posted payments 100.00. Deduction 236.00 − 229.75 = 6.25 (the interest). Still to pay back 236.00 − 100.00 = 136.00.
 //   Cash Back: target 114.20, all of it counted above; paid back 250.00. Deduction 0. Still to pay back 0 (floored).
 //   Every other card: target 0 and nothing counted above (or its counted charges withheld: it adds nothing).
-// "Already counted above" = −(229.75 + 114.20) = −343.95, from the cards' own counted charges. The Credit line is (E)'s 6.25.
+// Main (with #1617) printed "Already counted above −$344" (229.75 + 114.20); this change prints no such row (Dale, 7121410691).
+// Each card keeps its counted charges on its own line. The Credit line is (E)'s 6.25, as main.
 const x = fx.fixture();
 const opts = { debts: x.debts, currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, cardLiveOverlay: x.overlay };
 const advice = F.recommend(x.plan, x.asOf, opts), oldAdvice = OLD.recommend(x.plan, x.asOf, opts);
@@ -136,7 +140,10 @@ const travel = view.stackSummary.credit.lines.find(l => l.id === 'travelvisa'), 
 ok(cents(travel.target.amount) === 23600 && cents(travel.paidBack.amount) === 10000 && cents(travel.stillToPayBack.amount) === 13600
   && cents(cash.target.amount) === 11420 && cents(cash.paidBack.amount) === 25000 && cash.stillToPayBack.amount === 0,
   'Travel 100 paid back of 236, 136 still; Cash Back 250 paid back of 114.20, 0 still', JSON.stringify([travel.stillToPayBack, cash.stillToPayBack]));
-ok(cents(b.alreadyCounted.amount) === -34395, 'the row: "Already counted above" −343.95, the two cards\' own counted charges', JSON.stringify(b.alreadyCounted));
+ok(!Object.hasOwn(b, 'alreadyCounted') && cents(travel.deduction.alreadyCounted) === 22975 && cents(cash.deduction.alreadyCounted) === 11420
+  && cents(oldView.stackSummary.creditBreakdown.alreadyCounted.amount) === -34395,
+  'no "Already counted above" row is published (main published −343.95); each card keeps its counted charges on its line (229.75, 114.20)',
+  JSON.stringify(Object.keys(b)));
 ok(cents(b.total) === 625 && b.total === oldView.stackSummary.creditBreakdown.total, 'the Credit line is (E)\'s 6.25, as main');
 // Credit, Balance After Deductions and Surplus byte-equal to main, on every view.
 const sameAsMain = (rec, old) => rec.payPeriodViews.length === old.payPeriodViews.length && rec.payPeriodViews.every((v, i) => {
@@ -179,9 +186,9 @@ const live = render(read, advice);
 const items = html => (html.match(/<li class="wf-card[^"]*"[^>]*>[\s\S]*?<\/li>/g) || []).map(text);
 const dropRows = items(live.wf);
 ok(dropRows[0] === 'Still to pay back on each card', 'the dropdown opens with its plain caption (lead, 2026-11-24)', JSON.stringify(dropRows));
-const travelRow = dropRows.find(r => /\$136\b/.test(r)), countedRow = dropRows.find(r => /^Already counted above/.test(r));
-ok(!!travelRow && countedRow === 'Already counted above −$344', 'the dropdown prints Travel\'s 136 still to pay back and "Already counted above −$344" (−343.95)',
-  JSON.stringify(dropRows));
+const travelRow = dropRows.find(r => /\$136\b/.test(r));
+ok(!!travelRow && !/Already counted above/.test(text(live.wf)) && !/data-row="already-counted"/.test(live.wf) && !/\$344\b/.test(live.wf),
+  'the dropdown prints the caption and Travel\'s 136 still to pay back, and no "Already counted above" row (Dale, 7121410691)', JSON.stringify(dropRows));
 const cardRows = (live.card.match(/<li>[\s\S]*?<\/li>/g) || []).map(text);
 const travelCard = cardRows.find(r => /\/ \$236\b/.test(r)), cashCard = cardRows.find(r => /\/ \$114\b/.test(r));
 ok(!!travelCard && /\+\$100 \/ \$236/.test(travelCard) && !!cashCard && /\+\$250 \/ \$114/.test(cashCard),
@@ -190,21 +197,21 @@ const rowHtml = id => (live.card.match(new RegExp('<li><button class="stack-cred
 ok(/stack-credit-x is-good"/.test(rowHtml('cashback')) && !/is-good/.test(rowHtml('travelvisa')),
   'green only where paid back reached the target: Cash Back green, Travel plain', '');
 ok(!/stack-est|≈|estimated/i.test(live.card + live.wf), 'no estimate styling or words anywhere (OD-034), though these figures are estimated inside Forecast');
-// Main printed each card at its target in the dropdown: the same page scripts on main's engine and page.
+// Main (with #1617) printed the same card rows and an "Already counted above −$344" row: the same page scripts on main's engine and page.
 const mainPage = render(show, oldAdvice);
 const creditLine = html => (/<li class="wf-line wf-credit[\s\S]*?<\/button>/.exec(html) || [''])[0];
 ok(creditLine(live.wf) !== '' && creditLine(live.wf) === creditLine(mainPage.wf),
   'the Credit line itself prints exactly as on main', text(creditLine(live.wf)));
-ok(/\$236\b/.test(text(mainPage.wf)) && !/\$136\b/.test(text(mainPage.wf)), 'control: main\'s dropdown printed Travel at its 236 target, not what is still owed',
-  text(mainPage.wf).slice(0, 200));
+ok(/Already counted above −\$344/.test(text(mainPage.wf)) && /\$136\b/.test(text(mainPage.wf)),
+  'control: main\'s dropdown printed Travel\'s 136 and "Already counted above −$344", the row this change removes', text(mainPage.wf).slice(0, 240));
+ok(items(live.wf).join('|') === items(mainPage.wf).filter(r => !/^Already counted above/.test(r)).join('|'),
+  'the dropdown is main\'s, less exactly the one row: the caption and every card row are unchanged');
 
-console.log('2a. Through recommend and the real page: a world where the old catch-all offset and the honest row differ');
-// After #1618 no card credit nets as a refund, so the refund floor cannot hide in the row; the beyond-minimum netting can. The
-// invented card-coverage world (fixtures/card-coverage-aggregate-world): a manual pay-down-only card, 200.00 over its limit,
-// with its 25.00 minimum due and a posted 60.00 payment from the bills account (35.00 beyond the minimum). By hand: target
-// max(25.00, new charges withheld, 200.00) = 200.00; nothing counted above (its charges are not seen); due 200.00; netted
-// min(35.00, 200.00 − 25.00) = 35.00; deduction 165.00. Honest "Already counted above" = 0 (nothing was counted above), so
-// the row is not printed. Main's catch-all offset = 200.00 − 165.00 = 35.00, printed as "Already counted above −$35".
+console.log('2a. Through recommend and the real page: beyond-minimum netting, the Credit line unchanged and no counted row');
+// The invented card-coverage world (fixtures/card-coverage-aggregate-world): a manual pay-down-only card, 200.00 over its
+// limit, with its 25.00 minimum due and a posted 60.00 payment from the bills account (35.00 beyond the minimum). By hand:
+// target max(25.00, new charges withheld, 200.00) = 200.00; nothing counted above (its charges are not seen); due 200.00;
+// netted min(35.00, 200.00 − 25.00) = 35.00; deduction 165.00 (the Credit line). The card's Still to pay back is 200.00.
 const OVER = (() => {
   const { world } = require('./fixtures/card-coverage-aggregate-world');
   const Live = require('../scripts/live-plan');
@@ -225,14 +232,12 @@ let overAdvice;
   ok(cents(m.target.amount) === 20000 && cents(m.deduction.amount) === 16500 && cents(m.deduction.beyondNetted) === 3500 && m.deduction.alreadyCounted === null
     && cents(m.stillToPayBack.amount) === 20000, 'the card: target 200.00, 35.00 beyond netted, deduction 165.00, nothing counted above, 200.00 still to pay back',
     JSON.stringify([m.target.amount, m.deduction, m.stillToPayBack]));
-  ok(v.stackSummary.creditBreakdown.alreadyCounted.amount === 0 && cents(ov.stackSummary.creditBreakdown.alreadyCounted.amount) === -3500,
-    'the honest row is 0 (nothing counted above); main\'s catch-all offset was −35.00 (the netted payment, under the wrong name)',
-    JSON.stringify([v.stackSummary.creditBreakdown.alreadyCounted, ov.stackSummary.creditBreakdown.alreadyCounted]));
+  ok(!Object.hasOwn(v.stackSummary.creditBreakdown, 'alreadyCounted'), 'no "Already counted above" figure is published', JSON.stringify(Object.keys(v.stackSummary.creditBreakdown)));
   ok(cents(v.stackSummary.creditBreakdown.total) === 16500 && sameAsMain(overAdvice, oldOver), 'Credit 165.00, and Credit, BAD and Surplus are byte-equal to main on every view');
   const pg = render(read, overAdvice, OVER.world), mpg = render(show, oldOver, OVER.world);
-  ok(!/Already counted above/.test(text(pg.wf)) && /\$200\b/.test(text(pg.wf)) && /Still to pay back on each card/.test(text(pg.wf)),
-    'the page: the caption and the card\'s 200 still to pay back; no "Already counted above" row, since nothing was counted above', JSON.stringify(items(pg.wf)));
-  ok(/Already counted above −\$35/.test(text(mpg.wf)), 'control: main\'s page printed "Already counted above −$35" for a payment, not a counted charge', text(mpg.wf).slice(0, 240));
+  ok(!/Already counted above/.test(text(pg.wf)) && /\$200\b/.test(text(pg.wf)) && /Still to pay back on each card/.test(text(pg.wf))
+    && creditLine(pg.wf) === creditLine(mpg.wf), 'the page: the caption and the card\'s 200 still to pay back, no counted row, the Credit line as main',
+    JSON.stringify(items(pg.wf)));
 }
 
 console.log('2b. A posted payment row that debits the card (ChatGPT, #1617 7120269248): Paid back withheld, never negative');
@@ -319,13 +324,17 @@ const helocLine = (posted, mod = M) => mod.stackCreditLines(helocPub(posted), HE
 console.log('3. Mutants: each must fail a check above');
 {
   const src = read('public/forecast.js');
-  const plugMutant = src.replace("alreadyCounted: { amount: countedCents ? -countedCents / 100 : 0,",
-    "alreadyCounted: { amount: -(rows.reduce((sum, row) => sum + stackCents(lines.find(l => String(l.id) === String(row.debtId)) ? lines.find(l => String(l.id) === String(row.debtId)).target.amount : row.amount), 0) - entry.creditCents) / 100 || 0,");
-  ok(plugMutant !== src, 'the plug mutant targets the already-counted row');
-  const PF = engine(file => (file === 'public/forecast.js' ? plugMutant : read(file)));
-  const pv = PF.recommend(...OVER.args).payPeriodViews.find(v => v.role === 'active');
-  ok(cents(pv.stackSummary.creditBreakdown.alreadyCounted.amount) === -3500,
-    'MUTANT: the catch-all offset restored prints −35.00 in the 2a world, which section 2a rejects');
+  // The removed row restored on the page (main's waterfall row, read from main's breakdown): section 2 rejects it.
+  const wsrcRow = read('public/stack-waterfall.js');
+  const rowBack = wsrcRow.replace('    return caption + cards;',
+    "    return caption + cards + '<li class=\"wf-card\" data-row=\"already-counted\"><span class=\"wf-name\"><b>Already counted above</b></span><span class=\"wf-amt\">−$344</span></li>';");
+  ok(rowBack !== wsrcRow, 'the row mutant targets the dropdown');
+  const rb = render(file => (file === 'public/stack-waterfall.js' ? rowBack : read(file)), advice);
+  ok(/Already counted above/.test(text(rb.wf)), 'MUTANT: the "Already counted above" row restored is printed, which section 2 rejects');
+  // The removed figure restored in Forecast's breakdown: the shape checks above reject it.
+  const figBack = src.replace('    return { rows, total: entry.creditCents / 100, trust };', '    return { rows, alreadyCounted: { amount: 0, trust }, total: entry.creditCents / 100, trust };');
+  ok(figBack !== src && Object.hasOwn(engine(file => (file === 'public/forecast.js' ? figBack : read(file))).stackCreditBreakdown(entry, BILLS), 'alreadyCounted'),
+    'MUTANT: the "Already counted above" figure restored in the breakdown is published, which proof 2 rejects');
   const cp2 = read('public/forecast-card-period.js');
   const pendingMutant = cp2.replace('const paidToward = paidTowardOf(card, published(card.id));',
     'const paidToward = card.paid.amount !== null ? { amount: card.paid.amount, trust: card.paid.trust, reasons: [] } : paidTowardOf(card, published(card.id));');
