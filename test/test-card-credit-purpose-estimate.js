@@ -26,7 +26,13 @@
 //   truth B, a refund of the grocery purchase: the reserve falls to 50, so
 //     500 - 50 - 100 - 25 = 325;
 //   a payment can only cover the minimum or a purchase, raising the figure.
-// Section 2 also pins the separate remainder defect for a linked refund larger than the purchase.
+// Section 2 also covers a linked refund larger than the purchase, where the from-today remainder
+// is capped at the hold:
+//   linked 120 refund of the 80 purchase: spent 80 - 120 = -40 on a 150 hold, reserve 0, so the
+//     remainder is the hold (150), not 150 + 40 = 190: 500 - 0 - 150 - 25 = 325, the estimate's
+//     325 (500 - 80 - 70 - 25): the estimate is tight against this truth, not above it;
+//   a smaller linked refund is unchanged: 30 gives spent 50, reserve 50, remainder 100 (500 - 50 -
+//     100 - 25 = 325); 80 gives spent 0, reserve 0, remainder 150 (500 - 0 - 150 - 25 = 325).
 const assert = require('node:assert/strict');
 const { world, run } = require('./fixtures/card-coverage-aggregate-world');
 
@@ -118,7 +124,7 @@ check(degraded.period.householdBudget[0].spent === 80, 'groceries spent stays 80
 check(/neither/.test(degraded.coverage.estimateReason) && /neither/.test(degraded.period.plannedPeriodCloseReason || ''),
   'the coverage and the close each say the credit is counted as neither');
 
-console.log('2. Credit-purpose bounds and the known oversize linked-refund gap');
+console.log('2. Credit-purpose bounds and the oversize linked refund');
 {
   const nonPayment = run(world([purchase, asNonPayment()]));
   check(nonPayment.coverage.status === 'ready' && nonPayment.coverage.trust === undefined
@@ -136,14 +142,21 @@ console.log('2. Credit-purpose bounds and the known oversize linked-refund gap')
   atMostTruth(unidentified, standalone, '120 credit vs standalone refund');
   atMostTruth(unidentified, run(world([purchase, asNonPayment(120)])), '120 credit vs non-payment');
 
-  // NEXT PR (#1618 pre-review, item 4): cap the from-today remainder at the hold (forecast.js:23606)
-  // and restore atMostTruth here. On main, spent -40 gives a remainder of 190 on a 150 hold.
+  // A linked refund larger than the purchase: spent is -40 on a 150 hold, and the remainder stays at the hold.
   const linked120 = run(world([purchase, asRefund(120)]));
-  const { availableNow: estimatedNow, ...otherEstimated } = moneyLeft(unidentified);
-  const { availableNow: linkedNow, ...otherLinked } = moneyLeft(linked120);
-  assert.deepEqual([estimatedNow, linkedNow, unidentified.coverage.reservedCash, linked120.coverage.reservedCash],
-    [325, 285, 80, 0], 'known oversize gap: unidentified vs linked 120, available cash and reserve');
-  checkMoneyLeftBounds(otherEstimated, otherLinked, '120 credit vs linked refund');
+  assert.deepEqual([linked120.period.householdBudget[0].spent, linked120.period.householdBudget[0].hold], [-40, 150]);
+  assert.deepEqual([unidentified.period.fromTodayFunding.availableNow, linked120.period.fromTodayFunding.availableNow,
+    unidentified.coverage.reservedCash, linked120.coverage.reservedCash], [325, 325, 80, 0],
+  'unidentified vs linked 120: available cash (hand-derived 325 each) and reserve');
+  atMostTruth(unidentified, linked120, '120 credit vs linked refund');
+  // Control: a refund no larger than the purchase leaves the remainder as hold - spent, as before.
+  for (const [amount, spent, reserve] of [[30, 50, 50], [80, 0, 0]]) {
+    const normal = run(world([purchase, asRefund(amount)]));
+    assert.deepEqual([normal.period.householdBudget[0].spent, normal.coverage.reservedCash,
+      normal.period.fromTodayFunding.availableNow], [spent, reserve, 500 - reserve - (150 - spent) - 25],
+    'a linked ' + amount + ' refund: remainder hold - spent, available 500 - reserve - remainder - 25');
+    checks++;
+  }
   const later = run(world([purchase, unknown()], { minimumDate: '2026-09-28' }));
   degradedShape(later, 'minimum due later');
   atMostTruth(later, run(world([purchase, asRefund()], { minimumDate: '2026-09-28' })), 'minimum later vs refund');
