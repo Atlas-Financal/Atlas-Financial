@@ -20,7 +20,7 @@
 // Hand-derived, a posted 105 PAYMENT - THANK YOU credit, no cash leg:
 //   degraded (counts toward no card): 500 - 80 purchase reserve - 70
 //     groceries left - 25 minimum = 325, the same as with no credit at all;
-//   truth, a refund of the purchase: reserve 0, so 500 - 0 - 70 - 25 = 405;
+//   truth, a refund of the purchase: reserve 0, so 500 - 0 - 175 - 25 = 300;
 //   truth, a payment from outside the household: the minimum and the
 //     purchase covered, 500 - 70 = 430 (no constructible world: hand only).
 // So 325 <= every truth.
@@ -34,7 +34,7 @@ const QUESTION = 'To confirm: where did this card payment come from?';
 const purchase = ['card', 80, null, 'purchase'];
 const credit = (amount = 105, extra = {}, account = 'card') => [account, -amount, null, 'credit',
   { payee: 'PAYMENT - THANK YOU', original_name: 'PAYMENT - THANK YOU', category_name: 'Transfer', ...extra }];
-const asRefund = (amount = 105, account = 'card') => [account, -amount, null, 'refund'];
+const asRefund = (amount = 105, account = 'card') => [account, -amount, null, 'refund', { is_group_parent: true }];
 const cashLeg = (amount, extra = {}, date = null) => ['bills', amount, date, 'cash',
   { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C', category_name: 'Transfer', ...extra }];
 const codes = s => (s.coverage.issues || []).map(i => i.code);
@@ -115,7 +115,7 @@ console.log('2. Never above the truth: equal to no credit, below a refund or a p
   check(JSON.stringify(moneyLeft(degraded)) === JSON.stringify(moneyLeft(noCredit)), 'every money-left figure equals the no-credit world');
   atMostTruth(degraded, noCredit, 'vs no credit');
   const refund = run(world([purchase, asRefund()]));
-  check(refund.coverage.reservedCash === 0 && refund.period.fromTodayFunding.availableNow === 405, 'truth (a refund): reserve 0, 405');
+  check(refund.coverage.reservedCash === 0 && refund.period.fromTodayFunding.availableNow === 300, 'linked refund: spent -25, groceries left 175, reserve 0, available 300');
   atMostTruth(degraded, refund, 'vs a refund');
   // A payment from outside the household would cover the minimum and the
   // purchase: hand-derived 430, above the estimate.

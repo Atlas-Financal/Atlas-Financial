@@ -6,12 +6,12 @@
  * refunds. Net is paid less spent. State: ahead / behind / even / no-activity. A figure that cannot be stated is null
  * with its reasons, never 0. Pending rows are listed and move nothing. HELOC is excluded.
  *
- * Path: the invented card week (test/fixtures/card-posted-period-movement-data.js) -> Forecast.cardPeriodMovements (the
+ * Path: the invented card week (test/fixtures/stack-card-week.js) -> Forecast.cardPeriodMovements (the
  * page's own call, with the applied overlay) -> Forecast.stackCardSummary.
  *
  * Invented week, 2026-08-14..08-20 (as of 08-20). By hand, posted rows plus the pending rows (Dale, 2026-11-22):
- *   Travel:   charges 172.40 + 63.75, interest 6.25, refund -35.00, payment -100.00 (source not reconciled), and a
- *             pending 28.60 charge. spent = 172.40 + 63.75 + 6.25 - 35.00 + 28.60 = 236.00 (estimated: a pending row
+ *   Travel:   charges 172.40 + 28.75, interest 6.25, payment -100.00 (source not reconciled), and a
+ *             pending 28.60 charge. spent = 172.40 + 28.75 + 6.25 + 28.60 = 236.00 (estimated: a pending row
  *             adds to it); paid = 100.00 (estimated); net = 100.00 - 236.00 = -136.00, behind.
  *   Cash Back: charge 114.20, payment -250.00 (not reconciled). spent 114.20; paid 250.00 (estimated); net +135.80, ahead.
  *   Emerald:  no rows, with positive sync evidence: 0 / 0 / 0, calculated, no-activity.
@@ -21,7 +21,7 @@
  */
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 const { copy } = fx;
 
 let checks = 0;

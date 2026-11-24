@@ -12,8 +12,8 @@
  * current period only. Spent withheld: the larger of the minimum and the over-limit amount, a lower bound tagged estimated with its reason. A
  * withheld minimum withholds the target. The HELOC keeps its own rule (its target is its minimum).
  *
- * Every expected figure is worked by hand from the invented card week (test/fixtures/card-posted-period-movement-data):
- *   Travel     Spent 236.00 estimated (posted 172.40 + 63.75 + 6.25 - 35.00 = 207.40, plus the pending 28.60); balance
+ * Every expected figure is worked by hand from the invented card week (test/fixtures/stack-card-week):
+ *   Travel     Spent 236.00 estimated (posted 172.40 + 28.75 + 6.25 = 207.40, plus the pending 28.60); balance
  *              927.40, limit 5000.
  *   Cash Back  Spent 114.20 calculated; balance 2264.20.
  *   Emerald    Spent 0.00 calculated (no activity); balance 1100.00.
@@ -22,7 +22,7 @@
  */
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 
 let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };

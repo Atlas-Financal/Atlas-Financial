@@ -16645,9 +16645,7 @@
           // one is unchanged.
           else if (cents < 0 && counted && !isRevolvingCardFinanceCharge(tx)
             && !(tx.pending === false && isTdRewardsRedemptionCredit(tx))) {
-            // A refund reverses a household purchase: the same row as a
-            // charge must classify as household spending. Any other card
-            // credit has an unknown purpose and withholds.
+            // Category refunds use the same ledger link as the household budget hold.
             const cls = classifyCurrentPeriodTransaction(tx, plan, { packet });
             const asCharge = classifyCurrentPeriodTransaction({ ...tx, amount: -tx.amount }, plan, { packet });
             // A refund the link publication attributes to a Savings item is
@@ -16655,7 +16653,7 @@
             // charge is on the purchase side: it reverses that purchase.
             const itemRefund = cls.kind === 'savings-item' && cls.direction === 'refund'
               && asCharge.kind === 'savings-item' && asCharge.occurrenceKey === cls.occurrenceKey;
-            if (itemRefund || cls.kind === 'refund' && asCharge.householdSpending === true) {
+            if (itemRefund || linkedCategoryRefund(tx, cls, plan, { packet })) {
               if (tx.pending === false) refundRows.push({ tx, account, cents: -cents });
             }
             // Lead dispatch 2026-11-18 (Dale, stop 2): a posted one is

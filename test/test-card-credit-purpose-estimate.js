@@ -25,7 +25,7 @@
 //   truth A, a known non-payment credit (a ruled rewards redemption): the
 //     same 325, so the estimate is tight there;
 //   truth B, a refund of the grocery purchase: the reserve falls to 50, so
-//     500 - 50 - 70 - 25 = 355;
+//     500 - 50 - 100 - 25 = 325;
 //   a payment can only cover the minimum or a purchase, raising the figure.
 // So 325 <= every truth.
 const assert = require('node:assert/strict');
@@ -42,7 +42,7 @@ const unknown = (amount = 30, extra = {}, account = 'card') => [account, -amount
   { payee: 'Invented credit', original_name: 'Invented credit', ...transfer, ...extra }];
 const asNonPayment = (amount = 30, account = 'card') => [account, -amount, null, 'credit',
   { payee: 'Invented rewards', original_name: 'REWARDS REDEMPTION', ...transfer }];
-const asRefund = (amount = 30, account = 'card') => [account, -amount, null, 'refund'];
+const asRefund = (amount = 30, account = 'card') => [account, -amount, null, 'refund', { is_group_parent: true }];
 const cashLeg = (amount, extra = {}) => ['bills', amount, null, 'cash',
   { payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C', category_name: 'Transfer', ...extra }];
 const TRAVEL = 'card payment: Travel Visa ...9999';
@@ -127,7 +127,7 @@ console.log('2. Never above the truth, whatever the credit was');
     'the estimate equals the non-payment truth: tight there');
   const refund = run(world([purchase, asRefund()]));
   check(refund.coverage.status === 'ready' && refund.coverage.trust === undefined && refund.coverage.reservedCash === 50
-    && refund.period.fromTodayFunding.availableNow === 355, 'truth B (a refund of the purchase): reserve 50, 355');
+    && refund.period.fromTodayFunding.availableNow === 325, 'a linked refund reduces spent and reserve together: 50 reserved, 325 available');
   atMostTruth(degraded, refund, 'vs truth B (refund)');
   // A credit larger than the purchase, and a minimum due later.
   atMostTruth(run(world([purchase, unknown(120)])), run(world([purchase, asRefund(120)])), '120 credit vs refund');

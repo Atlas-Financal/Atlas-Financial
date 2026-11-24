@@ -23,7 +23,7 @@
  */
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 
 let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
@@ -124,7 +124,7 @@ console.log('1b. Only card purchases are legs: issuer charges, bills, transfers 
 }
 
 console.log('2. The Stack card: the pair is neither listed nor counted, and Spent is not withheld for it');
-// The fixture week: Travel's posted Spent is 172.40 + 63.75 + 6.25 (interest) - 35.00 (refund) = 207.40.
+// The fixture week: Travel's posted Spent is 172.40 + 28.75 + 6.25 (interest) = 207.40.
 const BASE_SPENT = 207.40;
 function card(extra) {
   const x = fx.fixture();

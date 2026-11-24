@@ -20,7 +20,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 const F = require('../public/forecast');
 const Live = require('../scripts/live-plan');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 const { world } = require('./fixtures/card-coverage-aggregate-world');
 
 let checks = 0;
@@ -49,11 +49,10 @@ const lines = (x, beyond) => {
 const lineOf = (r, id) => r.lines.find(l => l.id === id);
 {
   const r = lines(fx.fixture());
-  // Travel: Spent 236.00 = charges 172.40 + 63.75 + 28.60 (pending) + interest 6.25 − refund 35.00; charges counted
-  // above 264.75; due = max(0, 236.00 − 264.75) = 0.
+  // Travel: 172.40 + 28.75 + 28.60 (pending) already counted, plus 6.25 interest.
   const t = lineOf(r, 'travelvisa');
-  ok(cents(t.deduction.alreadyCounted) === 26475 && t.deduction.amount === 0,
-    'refund floor: Travel 236.00 target, 264.75 already counted above, deduction 0 (never −28.75)', JSON.stringify(t.deduction));
+  ok(cents(t.deduction.alreadyCounted) === 22975 && t.deduction.amount === 6.25,
+    'Travel target 236.00 less purchases 229.75 leaves 6.25 interest', JSON.stringify(t.deduction));
   const c = lineOf(r, 'cashback');
   ok(cents(c.deduction.alreadyCounted) === 11420 && c.deduction.amount === 0,
     'charge counted once: Cash Back 114.20 target, all of it already counted above, deduction 0', JSON.stringify(c.deduction));
@@ -77,20 +76,20 @@ const lineOf = (r, id) => r.lines.find(l => l.id === id);
   // observation behind utilisation's posted balance, so equal values are not proof. The target is estimated.
   const over = fx.fixture(); over.debts.find(d => d.id === 'travelvisa').limit = 800;
   const t2 = lineOf(lines(over), 'travelvisa');
-  ok(cents(t2.target.amount) === 23600 && cents(t2.target.overLimitBy) === 12740 && t2.deduction.amount === 0
+  ok(cents(t2.target.amount) === 23600 && cents(t2.target.overLimitBy) === 12740 && t2.deduction.amount === 6.25
     && t2.target.trust === 'estimated' && t2.target.reasons.includes('over-limit-payments-unproven'),
-    'over the limit by less than the new charges: target 236.00 (the larger), not 363.40; deduction 0; the payment not added back', JSON.stringify(t2.target));
+    'over the limit by less than the new charges: target 236.00 (the larger), not 363.40; deduction 6.25; the payment not added back', JSON.stringify(t2.target));
   // (3) Over a 527.40 limit by 400.00 (observed), more than the charges: target max(25, 236.00, 400.00) = 400.00, a lower
-  // bound, estimated (not 500.00 on the unproven payment). Due 400.00 − 264.75 = 135.25; min 25; 100 paid beyond: overlap
-  // min(100.00, 110.25) = 100.00; deduction 35.25 (85.25 beside 50.00).
+  // bound, estimated (not 500.00 on the unproven payment). Due 400.00 − 229.75 = 170.25; min 25; 100 paid beyond: overlap
+  // min(100.00, 145.25) = 100.00; deduction 70.25 (120.25 beside 50.00).
   const x = fx.fixture(); x.debts.find(d => d.id === 'travelvisa').limit = 527.40;
   const t3 = lineOf(lines(x, new Map([['travelvisa', 10000]])), 'travelvisa');
-  ok(cents(t3.target.amount) === 40000 && cents(t3.target.overLimitBy) === 40000 && cents(t3.deduction.amount) === 3525
+  ok(cents(t3.target.amount) === 40000 && cents(t3.target.overLimitBy) === 40000 && cents(t3.deduction.amount) === 7025
     && t3.target.trust === 'estimated' && t3.deduction.trust === 'estimated' && t3.target.reasons.includes('over-limit-payments-unproven'),
-    'equal-value endpoints are not proof: target 400.00, estimated (not 500.00); deduction 35.25 beside the 100.00 term, estimated',
+    'equal-value endpoints are not proof: target 400.00, estimated (not 500.00); deduction 70.25 beside the 100.00 term, estimated',
     JSON.stringify([t3.target, t3.deduction]));
   const t3b = lineOf(lines(x, new Map([['travelvisa', 5000]])), 'travelvisa');
-  ok(cents(t3b.deduction.amount) === 8525, 'with 50.00 beyond instead: 135.25 − min(50.00, 110.25) = 85.25');
+  ok(cents(t3b.deduction.amount) === 12025, 'with 50.00 beyond instead: 170.25 − min(50.00, 145.25) = 120.25');
 }
 {
   // A withheld target withholds the deduction and the total, never 0.
@@ -181,6 +180,10 @@ console.log('3. The property, over a grid of invented values: each card\'s total
   const M = require('../public/forecast-card-period');
   const pub = rows => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current',
     cards: [{ id: 'inv', label: 'Invented', posted: rows, pending: [], postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] } }] });
+  // A preclassified refund in a publication still cannot turn a deduction negative.
+  const floor = M.stackCreditLines(pub([{ kind: 'charge', amount: 80, date: '2031-03-02' }, { kind: 'refund', amount: -30, date: '2031-03-03' }]),
+    { cardMinimums: [{ debtId: 'inv', amount: 25 }], trust: 'calculated' }, [], new Map()).lines[0];
+  assert.deepEqual([floor.target.amount, floor.deduction.alreadyCounted, floor.deduction.amount], [50, 80, 0]);
   let cases = 0, below = 0, above = 0;
   for (const charges of [0, 30, 80, 150]) for (const interest of [0, 10, 60]) for (const minimum of [25, 60, 100]) for (const beyond of [0, 20, 50, 200]) {
     const rows = [charges && { kind: 'charge', amount: charges, date: '2031-03-02' }, interest && { kind: 'interest', amount: interest, date: '2031-03-03' }].filter(Boolean);

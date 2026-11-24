@@ -10,7 +10,7 @@
  * Owner rule: "simple, has more money been put on the card than came off it"; no per-transaction matching. Trust is
  * the weakest input. HELOC is a credit line with its minimum only.
  *
- * Path: the invented card week (test/fixtures/card-posted-period-movement-data.js) -> Forecast.cardPeriodMovements ->
+ * Path: the invented card week (test/fixtures/stack-card-week.js) -> Forecast.cardPeriodMovements ->
  * Forecast.stackCreditLines, with an invented bills split. By hand (posted rows only):
  *   Travel: paid 100.00, spent 236.00 (207.40 posted + the pending 28.60, Dale 2026-11-22) -> to-go 136.00. Minimum 25 -> covered (100 >= 25).
  *   Cash Back: paid 250.00, spent 114.20 -> paid-back, toGo 0. Minimum 300 -> not covered (250 < 300).
@@ -22,7 +22,7 @@
  */
 const assert = require('node:assert/strict');
 const F = require('../public/forecast');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 
 let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
@@ -111,7 +111,7 @@ console.log('5. Totals over stated cards, with completeness explicit');
   const full = totals(all);
   ok(full.completeness === 'complete' && full.excluded.length === 0 && full.reasons.length === 0
     && full.paid === 350 && full.spent === 445.5,
-  'complete when every card is stated: spent 350.20 + Triangle 51.30 + Amazon (89.00 - 45.00) = 445.50', JSON.stringify(full));
+  'complete when every card is stated: spent 350.20 + Triangle 51.30 + Amazon 44.00 = 445.50', JSON.stringify(full));
   const none = fx.fixture(); none.packet.syncEvidence.forEach(r => { r.syncEvidence = 'failed'; });
   const n = totals(none);
   ok(n.paid === null && n.spent === null && n.completeness === 'none' && n.reasons.length > 0
