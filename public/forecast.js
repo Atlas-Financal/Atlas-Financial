@@ -2774,6 +2774,7 @@
   // unclaimed utilisation. A usable option with a declared planning available
   // and no locator keeps that figure (fixtures, a counterfactual top-up).
   // Chequing B remains the overdraft usage authority.
+  // Borrowing headroom from an extra facility or from residual (unclaimed) utilisation: never cash for an opening gap.
   const EXTRA_FACILITY_HEADROOM = Symbol('extraFacilityHeadroom');
 
   function resolveFundingSources(sources, extra, plan, debts) {
@@ -2834,7 +2835,10 @@
         if (claimedDebt.has(row.id) || claimedExtra.has(row.id)) continue;
         if (row.available == null) continue;
         const available = Number(row.available) || 0;
-        if (available > 0 && byId.has(row.id)) markExtraHeadroom();
+        // Every residual row is borrowing room (an extra facility or an unclaimed card limit), so any residual-derived
+        // source is marked as borrowing headroom and can never auto-cover an opening gap, whatever its `unusable` flag
+        // says (B70; Neon on #1624, #1607 7141215801). Its visible headroom is unchanged.
+        if (available > 0) markExtraHeadroom();
         sum += available;
       }
       return sum;
