@@ -39,8 +39,22 @@ function expectedPeriod({ plan, asOf, opts }) {
   const household = householdHold(plan, opts.currentPeriodActuals, start, end);
   const mortgage = sumKnown(occurrences.bills.filter(row => row.kind === 'mortgage').map(row => row.cents));
   const bills = sumKnown(occurrences.bills.filter(row => row.kind === 'bill').map(row => row.cents));
-  const credit = sumKnown(minimums.map(row => row.cents));
-  const billLoad = sumKnown([bills, mortgage, credit]);
+  const minimumCredit = sumKnown(minimums.map(row => row.cents));
+  const billLoad = sumKnown([bills, mortgage, minimumCredit]);
+  // Desk ruling (E) (#1573): each card's repayment target is the largest of its minimum, its new charges and the amount
+  // that brings it back under its limit (OD-028; counted once, Neon 7113251603 item 2), as of today, so in the as-of period.
+  // The generated card has no card-account ledger, so its new charges are unseen (a lower bound of 0) and none is counted
+  // above: its deduction is its whole target, max(minimum, over). The Credit term is the minimums plus, per card, the part
+  // of the over-limit amount its own minimum does not already cover. Worked here from the generated debt and its minimum
+  // rows alone: over = max(0, balance + pending − limit), in cents.
+  const overLimit = sumKnown((opts.debts || []).filter(debt => debt.id !== 'heloc' && debt.limit != null)
+    .map(debt => {
+      const over = Math.max(0, cents(debt.balance) + cents(debt.pending || 0) - cents(debt.limit));
+      const own = minimums.filter(row => row.debtId === debt.id).map(row => row.cents);
+      const minimum = own.some(value => value === null) ? null : own.reduce((sum, value) => sum + value, 0);
+      return minimum === null ? null : Math.max(0, over - minimum);
+    }));
+  const credit = minimumCredit === null || overLimit === null ? null : minimumCredit + overLimit;
   const listed = occurrences.bills.concat(minimums)
     .map(row => ({ id: row.id, date: row.date, amount: row.cents })).sort(orderOccurrences);
   const assigned = billLoad === null ? null : listed;
@@ -49,7 +63,7 @@ function expectedPeriod({ plan, asOf, opts }) {
   const surplus = complete ? income - bills - household - mortgage - credit : null;
   // The generated plan has no held outflows, savings-item spending or
   // above-minimum payments. These can otherwise distinguish the two figures.
-  const balanceAfterDeductions = complete ? income - billLoad - household : null;
+  const balanceAfterDeductions = complete ? income - billLoad - household - overLimit : null;
   return { start, end, nextPayday, income, billLoad, household, balanceAfterDeductions, assigned, listed,
     stack: { amount: surplus, terms: complete ? terms : null } };
 }

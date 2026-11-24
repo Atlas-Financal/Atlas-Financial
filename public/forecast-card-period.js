@@ -335,7 +335,7 @@
   // The published card summary leaves out the internal posted-only paid (paidPosted), so its shape is unchanged.
   function stackCards(publication) {
     const cards = stackCardFigures(publication);
-    return cards && cards.map(({ paidPosted, ...card }) => card);
+    return cards && cards.map(({ paidPosted, chargesCounted, ...card }) => card);
   }
   function stackCardFigures(publication) {
     const pub = publication && publication.source === 'Forecast.cardPeriodMovements'
@@ -360,7 +360,7 @@
       const gaps = Array.isArray(card.stackPendingGaps) ? card.stackPendingGaps
         : movement && movement.trust === 'calculated' && movement.completeness === 'complete'
         ? [] : (movement && Array.isArray(movement.reasons) && movement.reasons.length ? movement.reasons : ['posted-movement-unavailable']);
-      let paidCents = 0, spentCents = 0, postedPaidCents = 0;
+      let paidCents = 0, spentCents = 0, postedPaidCents = 0, chargeCents = 0;
       const paidReasons = [], spentReasons = [], postedPaidReasons = [];
       let paidTrust = 'calculated', spentTrust = 'calculated', postedPaidTrust = 'calculated';
       for (const row of rows) {
@@ -385,7 +385,12 @@
             if (!row.pending) { postedPaidTrust = 'estimated'; postedPaidReasons.push('card-payment-unconfirmed'); }
           }
           if (!row.pending) postedPaidCents += -value;
-        } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') spentCents += value;
+        } else if (row.kind === 'charge' || row.kind === 'interest' || row.kind === 'refund') {
+          spentCents += value;
+          // A charge is a household purchase, a card-paid bill or a savings item (the classifier's spend / bill / savings-item):
+          // each is already deducted above the Credit line (the Household budget hold, the bills, the item term).
+          if (row.kind === 'charge') chargeCents += value;
+        }
         else if (row.kind === 'credit-unconfirmed') {
           paidReasons.push('card-credit-purpose-unconfirmed'); spentReasons.push('card-credit-purpose-unconfirmed');
           if (!row.pending) postedPaidReasons.push('card-credit-purpose-unconfirmed');
@@ -401,13 +406,17 @@
         : figure(postedPaidCents / 100, postedPaidTrust, postedPaidReasons);
       const spent = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
         : figure(spentCents / 100, spentTrust, spentReasons);
+      // The charges inside Spent that are already deducted above (desk ruling (E), #1573): read on the same rows as Spent,
+      // so withheld exactly when Spent is. Internal to this module, like paidPosted: stackCreditLines reads it.
+      const chargesCounted = blocked(spentReasons) ? figure(null, null, gaps.concat(spentReasons))
+        : figure(chargeCents / 100, spentTrust, spentReasons);
       const net = paid.amount == null || spent.amount == null
         ? figure(null, null, paid.reasons.concat(spent.reasons))
         : figure((paidCents - spentCents) / 100, weakest(paid.trust, spent.trust), paid.reasons.concat(spent.reasons));
       const state = net.amount == null ? null
         : !rows.length ? 'no-activity'
         : paidCents > spentCents ? 'ahead' : paidCents < spentCents ? 'behind' : 'even';
-      return { id: card.id, label: card.label, paid, paidPosted, spent, net, state,
+      return { id: card.id, label: card.label, paid, paidPosted, chargesCounted, spent, net, state,
         ...(state == null ? { stateReasons: net.reasons } : {}), transactions };
     });
   }
@@ -463,7 +472,9 @@
     return { amount, asOf, trust: reasons.length ? 'estimated' : FRESH_BALANCE_TRUST, reasons };
   }
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
-  function stackCreditLines(publication, bills) {
+  // `utilisation` (optional): Forecast.utilisation's rows (used against limit, pending included), read for each card's
+  // over-limit amount; never recomputed here.
+  function stackCreditLines(publication, bills, utilisation, beyondMinimumPaid) {
     // paidPosted is read here (paid toward the minimum, minimumsPaid, the covered check) and never published on a line.
     const cards = stackCardFigures(publication);
     if (!cards) return null;
@@ -526,8 +537,103 @@
       if (pubCard.syncState === 'proven') return { amount: paidCents / 100, trust: 'estimated', reasons: [] };
       return paidCents > 0 ? { amount: paidCents / 100, trust: 'estimated', reasons: ['heloc-sync-unproven'] } : countedZero(['heloc-sync-unproven']);
     };
+    // The card's repayment target for the period (Dale, 2026-11-23, OD-028: "if I don't want to go over limit ... this needs to
+    // be tacked on, or if there's a fee, that fee needs to be tacked on to what I need to repay onto that card"):
+    //   target = max(statement minimum, the period's new charges, the amount that brings an over-limit card under its limit),
+    // counted once (desk ruling on Neon 7113251603, Plan #6): the three come from one balance, never summed.
+    // New charges are the card's published Spent (pending counted, a replaced pending once; fees and interest are charges).
+    // The over-limit amount is Forecast.utilisation's overLimitBy for the card, a figure as of today, so it counts in the
+    // current period only (overLimitOf). Where Spent is withheld the target is the larger of the minimum and the over-limit
+    // amount, a lower bound tagged estimated with its reason; an unknown over-limit is the same. A withheld minimum withholds the target. Never a
+    // confident wrong number. The HELOC keeps its own rule: its target is its minimum.
+    const utilRows = Array.isArray(utilisation) ? utilisation : null;
+    const overLimitOf = (id, card) => {
+      if (publication.role !== 'current') return { cents: 0, trust: 'calculated', reasons: [] };
+      if (!utilRows) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unavailable'] };
+      const rows = utilRows.filter(row => row && row.id === id);
+      if (rows.length > 1) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unavailable'] };
+      if (!rows.length) return { cents: 0, trust: 'calculated', reasons: [] };
+      const by = cents(rows[0].overLimitBy);
+      if (by === null) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unknown'] };
+      const stale = rows[0].balanceTrust === 'estimated';
+      const out = { cents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated',
+        reasons: stale ? ['over-limit-balance-estimated'] : [] };
+      // This period's posted payments are already off the observed balance, so the observed amount over the limit can be
+      // smaller than the amount the period's charges and payments are on (desk, Plan #6, on Neon 7113251603 item 2 and
+      // review 7116017401). A payment counts back only where a qualified closing endpoint is tied to the exact provider
+      // observation behind utilisation's posted balance; the live route carries no such link (no card balance evidence
+      // reaches it), so no payment is ever added back. Where a payment this period could have hidden an overage (the card
+      // is over its limit, or its used balance plus its posted payments would be, or its posted payments are unknown), the
+      // observed amount stands as a lower bound, estimated with over-limit-payments-unproven. The test only lowers trust; it
+      // never raises a figure.
+      const paid = card && card.paidPosted;
+      const paidCents = paid && paid.amount !== null && paid.amount !== undefined ? cents(paid.amount) : null;
+      const used = cents(rows[0].used), limit = cents(rows[0].limit);
+      const couldHide = paidCents === null ? true
+        : paidCents > 0 && (by > 0 || used === null || limit === null || used + paidCents > limit);
+      if (card && card.id !== 'heloc' && couldHide) { out.trust = 'estimated'; out.reasons.push('over-limit-payments-unproven'); }
+      return out;
+    };
+    const targetOf = (card, minimum) => {
+      const noneDue = minimum.amount === null && minimum.reasons.includes('no-minimum-due-in-period');
+      // The HELOC: its minimum, or a published 0 when none is due this period (nothing to repay, never "withheld").
+      if (card.id === 'heloc') return noneDue
+        ? { amount: 0, trust: STACK_TRUST_ORDER.includes(splitTrust) ? splitTrust : 'estimated', reasons: [], newCharges: null, minimum: 0, overLimitBy: null }
+        : { amount: minimum.amount, trust: minimum.trust, reasons: minimum.reasons.slice(), newCharges: null, minimum: minimum.amount, overLimitBy: null };
+      if (minimum.amount === null && !noneDue) return { amount: null, trust: 'unavailable',
+        reasons: ['minimum-unavailable'].concat(minimum.reasons), newCharges: null, minimum: null, overLimitBy: null };
+      const minCents = noneDue ? 0 : cents(minimum.amount);
+      const minTrust = noneDue ? (STACK_TRUST_ORDER.includes(splitTrust) ? splitTrust : 'estimated') : minimum.trust;
+      const charges = cents(card.spent.amount);
+      const over = overLimitOf(card.id, card);
+      const reasons = over.reasons.slice();
+      if (charges === null) reasons.push('new-charges-unavailable');
+      // What must be repaid this period, counted once (Neon 7113251603 item 2; desk ruling, Plan #6): the minimum, the
+      // period's new charges and the amount over the limit come from one balance, so the target is the largest of them,
+      // never their sum. Repaying a charge that pushed the card over its limit is the same dollar as bringing it back
+      // under; an over-limit amount older than this period's charges is the larger term and stands. The over-limit amount
+      // is the observed one (overLimitOf): where a payment this period may have reduced it, the target is a lower bound,
+      // estimated, never raised by a payment the balance is not proven to include.
+      const amount = Math.max(minCents, charges === null ? 0 : charges, over.cents);
+      return { amount: amount / 100,
+        trust: weakest(minTrust, charges === null ? 'estimated' : card.spent.trust, over.trust),
+        reasons: [...new Set(reasons)],
+        newCharges: charges === null ? null : charges / 100, minimum: minCents / 100,
+        overLimitBy: over.reasons.includes('over-limit-unknown') || over.reasons.includes('over-limit-unavailable') ? null : over.cents / 100 };
+    };
+    // The Credit deduction (desk ruling (E), #1573, Plan #6): "The Credit deduction is their sum minus the qualifying charges
+    // already counted above, each deducted from that sum only once." Per card:
+    //   due = max(0, target − charges already counted above)
+    //   deduction = due − the part of the cash already paid beyond its minimum that covers due above the minimum
+    // The charges already counted above are the card's charges inside Spent (its purchases, card-paid bills and savings items,
+    // each deducted above by the Household budget hold, the bills or the item term). Cash paid beyond the minimum
+    // (manualCardPaymentBeyondMinimum, its own named term) is deducted there in full; only the part of it that pays the
+    // target above the minimum would be counted twice, so only that part is netted: a payment beyond the target stays the
+    // cash it is. Floored at 0 (due): a refund never hands cash back through Credit. A withheld target withholds the deduction; withheld counted charges deduct none of them (the
+    // target in full, the cautious side), estimated with their reason.
+    const beyondOf = id => {
+      const v = beyondMinimumPaid instanceof Map ? beyondMinimumPaid.get(id) : null;
+      return Number.isSafeInteger(v) && v > 0 ? v : 0;
+    };
+    const deductionOf = (card, target) => {
+      if (target.amount === null) return { amount: null, trust: 'unavailable', reasons: ['target-unavailable'].concat(target.reasons),
+        target: null, alreadyCounted: null, beyondMinimumPaid: null };
+      const counted = card.chargesCounted || null;
+      const countedCents = card.id === 'heloc' ? 0 : counted && counted.amount !== null ? cents(counted.amount) : null;
+      const beyond = beyondOf(card.id);
+      const reasons = countedCents === null ? ['already-counted-unavailable'] : [];
+      const due = Math.max(0, cents(target.amount) - (countedCents || 0));
+      const minimumCents = Number.isFinite(target.minimum) ? Math.round(target.minimum * 100) : 0;
+      const amount = due - Math.min(beyond, Math.max(0, due - minimumCents));
+      return { amount: amount / 100,
+        trust: weakest(target.trust, countedCents === null ? 'estimated' : card.id === 'heloc' ? target.trust : counted.trust),
+        reasons, target: target.amount, alreadyCounted: countedCents === null ? null : countedCents / 100,
+        beyondMinimumPaid: beyond / 100 };
+    };
     const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
+      const target = targetOf(card, minimum);
+      const deduction = deductionOf(card, target);
       const balance = balanceOf(published(card.id), publication);
       const paid = card.paid, spent = card.spent;
       const known = paid.amount !== null && spent.amount !== null;
@@ -546,8 +652,8 @@
       const paidForMinimum = card.paidPosted || paid;
       const covered = paidForMinimum.amount === null || minimum.amount === null ? 'unknown'
         : cents(paidForMinimum.amount) >= cents(minimum.amount);
-      const { paidPosted, ...shown } = card;
-      return { ...shown, balance, minimum, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
+      const { paidPosted, chargesCounted, ...shown } = card;
+      return { ...shown, balance, minimum, target, deduction, paidToward, status, ...(status === null ? { statusReasons: future ? [] : reasons } : {}), toGo,
         minimumCovered: { value: covered,
           trust: covered === 'unknown' ? 'unavailable' : weakest(paidForMinimum.trust, minimum.trust),
           reasons: covered === 'unknown' ? [...new Set(paidForMinimum.reasons.concat(minimum.reasons))] : [] } };
@@ -618,6 +724,14 @@
         trust: weakest(...withBalance.map(line => line.balance.trust)),
         completeness: noBalance.length ? 'partial' : 'complete', excluded: noBalance,
         reasons: noBalance.length ? ['some-balances-unavailable'] : [] };
+    // The Credit deduction over every listed line, the HELOC included (the same membership as the minimums due): withheld
+    // (amount null) when any line's deduction is, never a partial sum.
+    const offDeduction = lines.filter(line => line.deduction.amount === null);
+    totals.deduction = offDeduction.length
+      ? { amount: null, trust: 'unavailable', reasons: [...new Set(offDeduction.flatMap(line => line.deduction.reasons))] }
+      : { amount: lines.reduce((sum, line) => sum + cents(line.deduction.amount), 0) / 100,
+        trust: weakest(...lines.map(line => line.deduction.trust)),
+        reasons: [...new Set(lines.flatMap(line => line.deduction.reasons))] };
     return { lines, totals };
   }
   return { publish, stackCards, stackCreditLines };

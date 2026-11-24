@@ -14,6 +14,7 @@
  * `node test/test-stack-credit.js`
  */
 const assert = require('node:assert/strict');
+const { withTargets } = require('./lib/stack-credit-target');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -29,12 +30,35 @@ function load(creditSrc) {
   ctx.window = ctx;
   vm.createContext(ctx);
   vm.runInContext(read('public/stack-shell.js'), ctx);
-  const fns = {};
+  const fns = {}, raw = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
-  ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
+  // Desk ruling (E) (#1573): Forecast publishes the Credit lines on the view (stackSummary.credit) and the page reads them
+  // there. This stand-in plays Forecast: it places the stubbed publication (ctx.Forecast.stackCreditLines, called as Forecast
+  // calls it) on the selected view before the card reads it; with no stub, the view carries none.
+  ctx.StackBlocks.register = (name, fn) => {
+    raw[name] = fn;
+    fns[name] = (el, c) => { publishCredit(c); return fn(el, c); };
+    register(name, fns[name]);
+  };
   vm.runInContext(creditSrc || read('public/stack-credit.js'), ctx);
   vm.runInContext(read('public/stack-sheet.js'), ctx);
-  return { win: ctx, fns };
+  // A sheet opened directly reads the same view publication: the stand-in places it first, as for the card.
+  if (ctx.StackSheet && typeof ctx.StackSheet.html === 'function') {
+    const sheetHtml = ctx.StackSheet.html;
+    ctx.StackSheet.html = (c, ...rest) => { publishCredit(c); return sheetHtml(c, ...rest); };
+  }
+  return { win: ctx, fns, raw };
+}
+function publishCredit(c) {
+  const views = c && c.recommendation && Array.isArray(c.recommendation.payPeriodViews) ? c.recommendation.payPeriodViews : [];
+  const view = views.find(v => v && v.start === c.selectedPeriodKey);
+  if (!view) return;
+  const F = c.Forecast || {};
+  const pub = typeof F.cardPeriodMovements === 'function'
+    ? F.cardPeriodMovements(c.plan, c.data && c.data.debts, c.data && c.data.meta && c.data.meta.asOf, { start: view.start, end: view.end },
+      { liveOverlay: null }) : null;
+  const credit = typeof F.stackCreditLines === 'function' ? F.stackCreditLines(pub, view.stackSummary ? view.stackSummary.bills : null) : null;
+  view.stackSummary = { ...(view.stackSummary || {}), credit: credit || null };
 }
 const container = () => ({ innerHTML: '', addEventListener: () => {}, querySelector: () => null });
 const text = html => html.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
@@ -81,7 +105,7 @@ function context(totals, calls = []) {
     recommendation: { payPeriodViews: [VIEW], billHistory: HISTORY },
     Forecast: {
       cardPeriodMovements: (...args) => { calls.push(args); return { invented: true }; },
-      stackCreditLines: (pub, bills) => { calls.push(['lines', pub, bills]); return { lines: LINES, totals }; },
+      stackCreditLines: (pub, bills) => { calls.push(['lines', pub, bills]); return { lines: withTargets(LINES), totals }; },
     },
   };
 }
@@ -128,7 +152,7 @@ console.log('2. closed card: "paid / card minimums due"');
     const el = container();
     const ctx = context(TOTALS.none);
     ctx.recommendation = { payPeriodViews: [VIEW] };
-    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: LINES, totals: { ...TOTALS.none, minimumsPaid: { amount: null, trust: 'unavailable', reasons: ['minimums-due-withheld'] }, minimumsDue: { amount: null, trust: 'unavailable', reasons: ['bills-split-unavailable'] }, minimumsDueCount: null, minimumsCoveredCount: null, minimumsCoveredTrust: 'unavailable' } }) };
+    ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(LINES), totals: { ...TOTALS.none, minimumsPaid: { amount: null, trust: 'unavailable', reasons: ['minimums-due-withheld'] }, minimumsDue: { amount: null, trust: 'unavailable', reasons: ['bills-split-unavailable'] }, minimumsDueCount: null, minimumsCoveredCount: null, minimumsCoveredTrust: 'unavailable' } }) };
     fns.credit(el, ctx);
     ok(/data-stack-credit-total data-unpublished>—</.test(el.innerHTML) && text(el.innerHTML).startsWith('Credit paid / card minimums due — Blue Visa'),
       'paid and minimums both withheld: one dash, no figure');
@@ -137,11 +161,19 @@ console.log('2. closed card: "paid / card minimums due"');
     const { fns } = load();
     const el = container();
     fns.credit(el, { ...context(TOTALS.complete), Forecast: { cardPeriodMovements: () => ({}) } });
-    ok(el.innerHTML === '', 'without Forecast.stackCreditLines (A6b not yet on main) the card renders nothing');
+    ok(el.innerHTML === '', 'with no Credit publication on the view (stackSummary.credit) the card renders nothing');
   }
-  const [args, linesCall] = complete.calls;
-  ok(args[3].start === VIEW.start && args[3].end === VIEW.end && args[4].liveOverlay === null && linesCall[2] === VIEW.stackSummary.bills,
-    'reads the selected period, the applied overlay (none here) and view.stackSummary.bills');
+  // Desk ruling (E): the real renderer (no stand-in) prints the selected view's published Credit lines and needs no
+  // Forecast function: Forecast here has none.
+  {
+    const { raw } = load();
+    const el = container();
+    const c = context(TOTALS.complete);
+    const view = { ...VIEW, stackSummary: { ...VIEW.stackSummary, credit: { lines: withTargets(LINES), totals: TOTALS.complete } } };
+    raw.credit(el, { ...c, recommendation: { ...c.recommendation, payPeriodViews: [view] }, Forecast: {} });
+    ok(text(el.innerHTML).startsWith('Credit paid / card minimums due $120 / $345 Blue Visa'),
+      'the card prints the view\'s published Credit lines, calling no Forecast function', text(el.innerHTML).slice(0, 60));
+  }
 }
 
 // The six states of a row's "X / minimum", as one function so the mutants below can run it against altered source.
@@ -169,7 +201,7 @@ const STATES = [
 function states(creditSrc) {
   const { fns, win } = load(creditSrc);
   const ctx = context(TOTALS.complete);
-  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: STATES, totals: TOTALS.complete }) };
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(STATES), totals: TOTALS.complete }) };
   const el = container();
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
@@ -252,7 +284,7 @@ console.log('3a. X has an accessible name, so colour is not the only signal (in-
 {
   const { fns, win } = load();
   const ctx = context(TOTALS.complete);
-  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: STATES.concat([fig6('softred', 'Soft Owed', 100, 260, 25, 160, 'to-go', false, { toGo: 'estimated' })]), totals: TOTALS.complete }) };
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(STATES.concat([fig6('softred', 'Soft Owed', 100, 260, 25, 160, 'to-go', false, { toGo: 'estimated' })])), totals: TOTALS.complete }) };
   const el = container();
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
@@ -309,7 +341,7 @@ console.log('3b. an estimated field draws plain (owner decision, Dale, 2026-11-2
     fig6('softred', 'Soft Owed', 100, 260, 25, 160, 'to-go', false, { toGo: 'estimated' }),
   ];
   const ctx = context(TOTALS.complete);
-  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals: TOTALS.complete }) };
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(MORE), totals: TOTALS.complete }) };
   const el = container();
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
@@ -341,7 +373,7 @@ console.log('5. the sheet');
   const { win } = load();
   const ctx = context(TOTALS.complete);
   const visa = text(win.StackSheet.html(ctx, 'card:travelvisa'));
-  ok(visa === 'Credit · Mar 1 – 14 Blue Visa +$400 / $25 Paid onto it $400 Spent on it $400 Minimum $25 ✓'
+  ok(visa === 'Credit · Mar 1 – 14 Blue Visa +$400 / $25 Paid onto it $400 New charges $400 Minimum $25 ✓ Target $25'
     + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you +$400 Mar 10 Pending Cafe $12.50', 'card sheet', visa);
   const tx = win.StackSheet.html(ctx, 'card:travelvisa');
   ok(/class="is-pay"><span class="stack-sheet-txd">Mar 9/.test(tx) && /class=" is-pending"/.test(tx), 'a payment row is marked bold and a pending row dimmed');
@@ -367,7 +399,7 @@ console.log('5. the sheet');
     const rows = rowsOf(all.slice(all.indexOf('stack-sheet-tx"')));
     ok(rows.length === 4 && rows.every(r => /^<li class="[^"]*is-pending/.test(r) && r.split(DOT).length === 2),
       'every row pending: every row is dimmed and carries exactly one dot named "pending"', JSON.stringify(rows));
-    ok(text(all).includes('Paid onto it $400 Spent on it $400'), 'the marker moves no figure: Paid and Spent print as before');
+    ok(text(all).includes('Paid onto it $400 New charges $400'), 'the marker moves no figure: Paid and Spent print as before');
   } finally { LINES[0].transactions = saved; }
   // MUTANT: a sheet that drops the dot leaves an all-pending list unmarked, which the checks above reject.
   const src = read('public/stack-credit.js');
@@ -378,9 +410,9 @@ console.log('5. the sheet');
   const heloc = text(win.StackSheet.html(ctx, 'card:heloc'));
   ok(heloc === 'Credit · Mar 1 – 14 Line of credit — / $210 Minimum $210', 'HELOC sheet: "— / $210" and its minimum, no ✓', heloc);
   const green = text(win.StackSheet.html(ctx, 'card:cashback'));
-  ok(green === 'Credit · Mar 1 – 14 Green Card −$160 / $30 Paid onto it $100 Spent on it $260 Minimum $30 Transactions', 'to-go sheet with an empty list, no ✓', green);
+  ok(green === 'Credit · Mar 1 – 14 Green Card −$160 / $30 Paid onto it $100 New charges $260 Minimum $30 Target $30 Transactions', 'to-go sheet with an empty list, no ✓', green);
   const red = text(win.StackSheet.html(ctx, 'card:tdcc'));
-  ok(red === 'Credit · Mar 1 – 14 Red Card $0 / $15 Paid onto it $0 Spent on it $0 Minimum $15 Transactions', "an upcoming card: '$0 / $15' and its minimum, no ✓", red);
+  ok(red === 'Credit · Mar 1 – 14 Red Card $0 / $15 Paid onto it $0 New charges $0 Minimum $15 Target $15 Transactions', "an upcoming card: '$0 / $15' and its minimum, no ✓", red);
   const water = text(win.StackSheet.html(ctx, 'bill:water@2031-03-05'));
   // Water is paid on a different date (Mar 7) from a different account (Savings) than scheduled (Mar 5, Chequing).
   ok(water === 'Bill · Mar 1 – 14 Water $64 ✓ Feb 5 $62 ✓ Jan 5 —' && !/Mar 5|Chequing|Mar 7|Savings|Due|Comes out|Apr 5/.test(water),
@@ -397,10 +429,10 @@ console.log('5. the sheet');
   ok(win.StackSheet.html(bare, 'card:travelvisa') === null, 'without Forecast.stackCreditLines nothing is read');
   const { win: w2 } = load();
   const states2 = context(TOTALS.complete);
-  states2.Forecast = { ...states2.Forecast, stackCreditLines: () => ({ lines: STATES, totals: TOTALS.complete }) };
-  ok(text(w2.StackSheet.html(states2, 'card:nomin')) === 'Credit · Mar 1 – 14 Free Card +$5 Paid onto it $5 Spent on it $5 Minimum Not due this period Transactions',
+  states2.Forecast = { ...states2.Forecast, stackCreditLines: () => ({ lines: withTargets(STATES), totals: TOTALS.complete }) };
+  ok(text(w2.StackSheet.html(states2, 'card:nomin')) === 'Credit · Mar 1 – 14 Free Card +$5 Paid onto it $5 New charges $5 Minimum Not due this period Target $0 Transactions',
     'a card with no minimum due: "$5" alone and "Minimum Not due this period"', text(w2.StackSheet.html(states2, 'card:nomin')));
-  ok(/Minimum \$50$|Minimum \$50 Transactions/.test(text(w2.StackSheet.html(states2, 'card:unk'))) && !/✓/.test(text(w2.StackSheet.html(states2, 'card:unk'))),
+  ok(/Minimum \$50 Target \$50 Transactions/.test(text(w2.StackSheet.html(states2, 'card:unk'))) && !/✓/.test(text(w2.StackSheet.html(states2, 'card:unk'))),
     "an unknown coverage check: the minimum, no ✓");
 }
 
@@ -462,7 +494,7 @@ console.log('5b. a row without a card ledger reads the published paidToward in n
   ];
   const ctx = context({ ...TOTALS.complete, minimumsPaid: { amount: 0, trust: 'estimated', reasons: ['paid-unavailable-counted-as-zero'] },
     minimumsDue: { amount: 917, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 0 });
-  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: LN, totals: { ...TOTALS.complete, minimumsPaid: { amount: 0, trust: 'estimated', reasons: [] },
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(LN), totals: { ...TOTALS.complete, minimumsPaid: { amount: 0, trust: 'estimated', reasons: [] },
     minimumsDue: { amount: 917, trust: 'calculated', reasons: [] }, minimumsDueCount: 2, minimumsCoveredCount: 0 } }) };
   const el = container();
   fns.credit(el, ctx);
@@ -514,7 +546,7 @@ console.log('5c. a card with no paid / spent shows its last balance (#1447; Dale
   const totals = { ...TOTALS.complete, balance: { amount: 2429.0, trust: 'estimated', completeness: 'complete', excluded: [], reasons: [] } };
   const { fns, win } = load();
   const ctx = context(totals);
-  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: MORE, totals }) };
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: withTargets(MORE), totals }) };
   const el = container();
   fns.credit(el, ctx);
   const rows = el.innerHTML.split('<li>').slice(1);
@@ -576,6 +608,35 @@ console.log('8. sheet head: the date range in the kicker, the 64px figure, the s
   ok(/\.stack-sheet-big \{[^}]*font-size: 64px/.test(css), 'the sheet figure is 64px');
   ok(/\.stack-sheet \.stack-sheet-close svg \{ width: 14px; height: 14px; \}/.test(css) && /\.stack-sheet \.stack-sheet-close \{[^}]*width: 36px; height: 36px/.test(css),
     'the close mark is a 14px × in a 36px dark circle (not stretched by the global svg rule)');
+}
+
+console.log('9. the repayment target after the slash (OD-028): above the minimum, over the limit, withheld');
+{
+  // Invented lines with Forecast's published target set explicitly (the page prints it; it never computes it).
+  const tgt = (amount, trust, parts) => ({ amount, trust, reasons: [], ...parts });
+  const over = { ...fig6('overlim', 'Over Card', 100, 236, 25, 136, 'to-go', true),
+    target: tgt(363.4, 'estimated', { newCharges: 236, minimum: 25, overLimitBy: 127.4 }) };
+  const above = { ...fig6('above', 'Busy Card', 300, 120, 40, 0, 'paid-back', true),
+    target: tgt(120, 'calculated', { newCharges: 120, minimum: 40, overLimitBy: 0 }) };
+  const off = { ...fig6('tgtoff', 'Withheld Card', 50, 50, 25, 0, 'paid-back', true),
+    target: { amount: null, trust: 'unavailable', reasons: ['minimum-unavailable'], newCharges: null, minimum: null, overLimitBy: null } };
+  const { win, fns } = load();
+  const ctx = context(TOTALS.complete);
+  ctx.Forecast = { ...ctx.Forecast, stackCreditLines: () => ({ lines: [over, above, off], totals: TOTALS.complete }) };
+  const el = container(); fns.credit(el, ctx);
+  const rows = (el.innerHTML.match(/<li>.*?<\/li>/g) || []).map(text);
+  ok(rows[0] === 'Over Card −$136 / $363' && rows[1] === 'Busy Card +$300 / $120' && rows[2] === 'Withheld Card +$50 / —',
+    'rows read "X / target": 363 (over the limit), 120 (new charges above the 40 minimum), a dash when withheld', JSON.stringify(rows));
+  // Dale, 2026-11-23 (#1614): every figure draws the same whatever its trust, so an estimated target is not soft.
+  ok(/stack-credit-of">\s*\/ \$363/.test(el.innerHTML) && /stack-credit-of">\s*\/ \$120/.test(el.innerHTML) && !/stack-est/.test(el.innerHTML),
+    'the target draws in normal type whatever its trust (no estimate class)');
+  ok((el.innerHTML.match(/stack-credit-tick is-on/g) || []).length === 3,
+    'the ✓ still means only "minimum covered": all three minimums are covered though no target is paid in full');
+  const sheet = text(win.StackSheet.html(ctx, 'card:overlim'));
+  ok(sheet.includes('Paid onto it $100 New charges $236 Minimum $25 ✓ Over the limit by $127 Target $363'),
+    'the sheet breaks the target down in plain words: new charges, minimum, over the limit by, target', sheet);
+  ok(!text(win.StackSheet.html(ctx, 'card:above')).includes('Over the limit by'), 'a card under its limit prints no "Over the limit by" row');
+  ok(text(win.StackSheet.html(ctx, 'card:tgtoff')).includes('Target —'), 'a withheld target prints a dash in the sheet');
 }
 
 console.log(`\nPASS Stack credit card and sheet (${checks})`);

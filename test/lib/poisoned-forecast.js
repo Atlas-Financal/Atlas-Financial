@@ -24,11 +24,12 @@ const SKIP_SOURCE = '(id|kind|status|date|trust|source|schema|currency|role|mode
   + '|structure|direction|completeness|type|state|code|scope|frequency|confidence|class|tone|unit|coverage|settlement)$';
 const ISO_DATE = '^\\d{4}-\\d{2}-\\d{2}(T[\\d:.]+Z?)?$';
 
-function wrap(real, payload, skipSource, isoSource) {
+function wrap(real, payload, skipSource, isoSource, maxDepth) {
+  const deepest = Number.isInteger(maxDepth) ? maxDepth : 6;
   const skip = new RegExp(skipSource, 'i');
   const iso = new RegExp(isoSource);
   const poison = (value, depth, seen) => {
-    if (!value || typeof value !== 'object' || depth > 6 || seen.has(value)) return value;
+    if (!value || typeof value !== 'object' || depth > deepest || seen.has(value)) return value;
     seen.add(value);
     for (const key of Object.keys(value)) {
       const x = value[key];
@@ -49,11 +50,11 @@ function wrap(real, payload, skipSource, isoSource) {
 
 // Browser: replace window.Forecast with the poisoned wrapper as forecast.js
 // publishes it. Self-contained (no closure) so addInitScript can serialise it.
-function install({ payload, skipSource, isoSource, wrapSource }) {
+function install({ payload, skipSource, isoSource, wrapSource, maxDepth }) {
   const wrapFn = new Function(`return (${wrapSource})`)();
   let current;
   Object.defineProperty(window, 'Forecast', { configurable: true,
-    get: () => current, set: real => { current = wrapFn(real, payload, skipSource, isoSource); } });
+    get: () => current, set: real => { current = wrapFn(real, payload, skipSource, isoSource, maxDepth); } });
 }
 
 module.exports = {
@@ -63,7 +64,9 @@ module.exports = {
   poisonedForecast: (real, skipExtra) => wrap(real, PAYLOAD,
     skipExtra ? SKIP_SOURCE.replace(/\)\$$/, '|' + skipExtra + ')$') : SKIP_SOURCE, ISO_DATE),
   browserInit: [install, { payload: PAYLOAD, skipSource: SKIP_SOURCE, isoSource: ISO_DATE, wrapSource: wrap.toString() }],
-  // The same, with more key-name suffixes left clean (see poisonedForecast's skipExtra).
-  browserInitWith: skipExtra => [install, { payload: PAYLOAD, skipSource: SKIP_SOURCE.replace(/\)\$$/, '|' + skipExtra + ')$'),
-    isoSource: ISO_DATE, wrapSource: wrap.toString() }],
+  // The same, with more key-name suffixes left clean (see poisonedForecast's skipExtra), and optionally a deeper reach: the
+  // Stack page reads its Credit lines from each view's published stackSummary.credit (desk ruling (E), #1573), deeper in
+  // recommend's result than the default six levels.
+  browserInitWith: (skipExtra, maxDepth) => [install, { payload: PAYLOAD, skipSource: SKIP_SOURCE.replace(/\)\$$/, '|' + skipExtra + ')$'),
+    isoSource: ISO_DATE, wrapSource: wrap.toString(), maxDepth }],
 };

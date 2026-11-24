@@ -95,7 +95,7 @@ function bootPage(stored) {
   Object.assign(sandbox, { AbortController, setTimeout, clearTimeout });
   vm.createContext(sandbox);
   const planFile = process.env.PLAN_JS ? path.resolve(process.env.PLAN_JS) : path.join(ROOT, 'public/plan.js');
-  for (const file of ['public/app.js', 'public/forecast.js', 'public/budget-surface.js']) {
+  for (const file of ['public/app.js', 'public/display-name.js', 'public/forecast-card-period.js', 'public/forecast.js', 'public/budget-surface.js']) {
     vm.runInContext(read(file), sandbox, { filename: file });
   }
   vm.runInContext(fs.readFileSync(planFile, 'utf8'), sandbox, { filename: 'public/plan.js' });

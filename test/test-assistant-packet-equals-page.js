@@ -75,7 +75,7 @@ function bootPage(data) {
   sb.window = sb; sb.globalThis = sb;
   Object.assign(sb, { AbortController, URLSearchParams, setTimeout, clearTimeout });
   vm.createContext(sb);
-  for (const f of ['public/app.js', 'public/forecast.js']) vm.runInContext(read(f), sb, { filename: f });
+  for (const f of ['public/app.js', 'public/display-name.js', 'public/forecast-card-period.js', 'public/forecast.js']) vm.runInContext(read(f), sb, { filename: f });
   for (const fn of SPIED) {
     const orig = sb.Forecast[fn];
     // origin: which page asked, read from the caller's file (the Stack shell, or the classic page's scripts).

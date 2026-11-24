@@ -1,8 +1,7 @@
 /* Stack Wallet block 'credit' (B4): the Credit card. Design: the Stack Wallet artifact (invented data).
  *
- * Reads Forecast.stackCreditLines (A6b, LEDGER A) for the selected pay period:
- *   Forecast.stackCreditLines(Forecast.cardPeriodMovements(plan, debts, asOf, {start, end},
- *     {currentPeriodActuals, cardPeriodBalanceEvidence, liveOverlay}), view.stackSummary.bills)
+ * Reads the selected pay period's view.stackSummary.credit: Forecast's one card-target publication for the view (desk
+ * ruling (E), #1573), Forecast.stackCreditLines on the view's own cardPeriodMovements and bills split, built with the period:
  *   -> { lines: [{ id, label, paid, spent, net, minimum, toGo (figures {amount|null, trust, reasons}), status,
  *                  minimumCovered: {value: true|false|'unknown'}, transactions }],
  *        totals: { paid, spent, trust, completeness: 'complete'|'partial'|'none', excluded: [ids], reasons } }
@@ -36,24 +35,17 @@
     if (!ctx || typeof ctx !== 'object') return null;
     if (readings.has(ctx)) return readings.get(ctx);
     let out = null;
-    const F = ctx.Forecast;
     const views = ctx.recommendation && Array.isArray(ctx.recommendation.payPeriodViews) ? ctx.recommendation.payPeriodViews : [];
     const view = views.find(v => v && v.start === ctx.selectedPeriodKey);
     const d = ctx.data;
-    if (F && typeof F.stackCreditLines === 'function' && typeof F.cardPeriodMovements === 'function' && view && d) {
-      const overlay = d.liveOverlay && d.liveOverlay.applied === true ? d.liveOverlay : null;
-      const publication = F.cardPeriodMovements(ctx.plan, d.debts, d.meta && d.meta.asOf, { start: view.start, end: view.end }, {
-        currentPeriodActuals: overlay ? overlay.currentPeriodActuals : null,
-        cardPeriodBalanceEvidence: overlay ? overlay.cardPeriodBalanceEvidence : null,
-        liveOverlay: overlay,
-      });
-      const result = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
+    // The view's one card-target publication (desk ruling (E), #1573): Forecast builds it with the period and publishes it
+    // as stackSummary.credit; the page never recomputes it.
+    const result = view && view.stackSummary ? view.stackSummary.credit : null;
+    if (result && Array.isArray(result.lines) && result.totals && d) {
       // Each line's name: its Lunch Money account's (StackBlocks.cardName), else Forecast's label.
       const name = line => window.StackBlocks && typeof window.StackBlocks.cardName === 'function'
         ? window.StackBlocks.cardName(d, line.id, line.label) : line.label;
-      out = result && Array.isArray(result.lines) && result.totals
-        ? { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line) } : line)), totals: result.totals, view }
-        : null;
+      out = { lines: result.lines.map(line => (line && typeof line === 'object' ? { ...line, label: name(line) } : line)), totals: result.totals, view };
     }
     readings.set(ctx, out);
     return out;
@@ -101,7 +93,12 @@
     const min = published === 0 ? null : published;
     const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
     const notDue = published === 0 || (published == null && minReasons.includes('no-minimum-due-in-period'));
-    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, x: null, tone: '', ok: false, xSoft: '', minSoft: est(view, trustOf(line.minimum)), tickSoft: '' };
+    // The figure after the slash is the card's repayment target (Dale, 2026-11-23, OD-028), Forecast's published
+    // line.target: a published $0 is nothing to repay (X alone); a withheld target is a dash, never reassurance.
+    const target = amountOf(line.target);
+    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, target: target === 0 ? null : target,
+      targetOff: target == null, x: null, tone: '', ok: false, xSoft: '', minSoft: est(view, trustOf(line.minimum)),
+      targetSoft: est(view, trustOf(line.target)), tickSoft: '' };
     // The ✓ circle means "minimum covered" and nothing else (Dale: "once that minimum is paid I want a check mark"): a
     // published true on trust the page may show, with a minimum due. The colour then shows over or under, so a red row can
     // carry the ✓ too. It agrees with the head bar and the waterfall, which count the same check.
@@ -141,9 +138,9 @@
     // (StackBlocks.estClass: now always ''), never a published string.
     const tone = r.tone ? ` is-${r.tone}` : '';
     const xSoft = r.x == null ? '' : r.xSoft;
-    const minSoft = r.minSoft;
+    const targetSoft = r.targetSoft;
     return `<span class="stack-credit-x${tone}${xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
-      + (r.min != null ? `<i class="stack-credit-of${minSoft}"> / ${esc(money(r.min))}</i>` : r.minOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
+      + (r.target != null ? `<i class="stack-credit-of${targetSoft}"> / ${esc(money(r.target))}</i>` : r.targetOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   };
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
@@ -201,9 +198,20 @@
       + reading.lines.map(line => lineHtml(line, view)).join('') + '</ul></div></div></section>';
   }
 
-  // The sheet's view of one line (stack-sheet.js asks for it with its own helpers): the same "X / minimum" figure as the
-  // row, in the same colour, then "Paid onto it", "Spent on it" and "Minimum" (with its ✓ when covered, "Not due this
-  // period" when no minimum is due), then the dated transactions.
+  // The sheet's view of one line (stack-sheet.js asks for it with its own helpers): the same "X / target" figure as the
+  // row, in the same colour, then the target's breakdown in plain words (OD-028): "Paid onto it", "New charges" (the
+  // card's Spent), "Minimum" (with its ✓ when covered, "Not due this period" when no minimum is due), "Over the limit by"
+  // (only when the card is over), and "Target", each Forecast's published figure; then the dated transactions.
+  // "Over the limit by": Forecast's published part of the target, printed only when the card is over (a positive amount).
+  const overLimitRow = (line, view, rowHtml, soft, formatMoney) => {
+    const by = line.target && typeof line.target === 'object' ? amountOf({ amount: line.target.overLimitBy }) : null;
+    return by != null && by > 0 ? rowHtml('Over the limit by', soft(formatMoney(by), est(view, trustOf(line.target)))) : '';
+  };
+  // "Target": the published repayment target with its own trust; a withheld target is a dash.
+  const targetRow = (line, view, rowHtml, soft, formatMoney) => {
+    const target = amountOf(line.target);
+    return rowHtml('Target', target != null ? soft(formatMoney(target), est(view, trustOf(line.target))) : dash);
+  };
   function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
     const r = readLine(line, view);
@@ -214,14 +222,15 @@
     const soft = (text, cls) => { const tokens = cls.trim(); return `<span class="${tokens}">${escape(text)}</span>`; };
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
     return head('Credit', line.label || '')
-      + (r.x != null || r.min != null || !balanceShown(line)
+      + (r.x != null || r.target != null || r.min != null || !balanceShown(line)
         ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
         : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${escape(formatMoney(amountOf(line.balance)))}</div>`)
       + '<dl>' + (heloc ? '' : (r.paid != null ? rowHtml('Paid onto it', soft(formatMoney(r.paid), est(view, trustOf(line.paid)))) : '')
-        + (r.spent != null ? rowHtml('Spent on it', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : ''))
+        + (r.spent != null ? rowHtml('New charges', soft(formatMoney(r.spent), est(view, trustOf(line.spent)))) : ''))
       + (r.min != null
         ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
+      + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + targetRow(line, view, rowHtml, soft, formatMoney))
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {

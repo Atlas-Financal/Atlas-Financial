@@ -703,7 +703,9 @@ console.log('\n=== 10. Active two-period calendar waterfall ===');
     'Household Budget planned/actual/remaining are visible');
   const independentBad = thisP.incomeTotal != null && thisP.periodBillLoad != null
       && thisP.budgetHold != null
-    ? round2(thisP.incomeTotal - thisP.periodBillLoad - thisP.budgetHold)
+    // Desk ruling (E) (#1573): less the one published, named card term (0 where targets are the minimums).
+    ? round2(thisP.incomeTotal - thisP.periodBillLoad - thisP.budgetHold
+      - ((thisP.predictedEndingBalanceTerms && thisP.predictedEndingBalanceTerms.cardRepaymentAdjustment) || 0))
     : null;
   ok(independentBad != null
       && thisP.afterHouseholdBudget != null

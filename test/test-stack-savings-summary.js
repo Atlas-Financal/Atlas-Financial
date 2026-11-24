@@ -82,7 +82,7 @@ const ORDER = '        return da < db ? -1 : da > db ? 1 : a.rank - b.rank;';
 const shipped = copy(SOURCE, 'shipped');
 const copies = {
   shipped,
-  without: { F: compile(replaceOnce(SOURCE, ', savings: stackSavings(view, result) }', ' }', 'pass off'), 'without') },
+  without: { F: compile(replaceOnce(SOURCE, ' savings: stackSavings(view, result),', '', 'pass off'), 'without') },
   farthestFirst: mutant(ORDER, '        return da < db ? 1 : da > db ? -1 : a.rank - b.rank;', 'farthest first'),
   tiesReversed: mutant(ORDER, '        return da < db ? -1 : da > db ? 1 : b.rank - a.rank;', 'ties reversed'),
   noCap: mutant('      const take = Math.min(savingsFigureCents(item.needed), left);', '      const take = savingsFigureCents(item.needed);', 'no cap'),

@@ -353,7 +353,9 @@ function observed(fn, before, after) {
 // the real Forecast, with the selector and recommend observed. With
 // options.instrument === false the real Forecast is returned untouched (the
 // uninstrumented same-realm comparison run).
-// The Forecast functions the Stack page reads (public/stack-shell.js, stack-credit.js, stack-sheet.js).
+// The Forecast functions the Stack page reads (public/stack-shell.js). The Credit block reads the view's published lines
+// (stackSummary.credit, desk ruling (E), #1573); the two card functions stay observed so a page that called them again
+// would be recorded.
 const STACK_READS = Object.freeze(['recommend', 'budgetRecommendInputs', 'cardPeriodMovements', 'stackCreditLines']);
 const STACK_FILE = /^public\/stack-[\w-]+\.js$/;
 function instrumentForecast(real, observer, context, options) {

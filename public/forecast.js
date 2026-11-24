@@ -26,8 +26,12 @@
   }
   // Stack Wallet A6b: the Credit lines (paid back of spent, status, the card's
   // minimum from the period's published bills split, minimum covered).
-  function stackCreditLines(publication, bills) {
-    return CardPeriodMovement.stackCreditLines(publication, bills);
+  // `facilities` (optional): { debts, extra, plan }, read through utilisation for each card's over-limit amount (the
+  // repayment target, OD-028). The same debts the publication was built from.
+  function stackCreditLines(publication, bills, facilities) {
+    const util = facilities && Array.isArray(facilities.debts)
+      ? utilisation(facilities.debts, facilities.extra, facilities.plan) : null;
+    return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null);
   }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
@@ -13226,8 +13230,28 @@
       const bills = stackBills(view);
       publishStackBillParts(view, bills);
       stackBillsPaid(view, bills);
+      // The view's one card-target publication (desk ruling (E)): built in the period loop; a view composed after it (a
+      // saved close) gets its lines here, from its own bills split, for display only (its remainder is the saved one).
+      if (!periodCardCreditByPeriod.has(view) && opts && view.start && view.end && view.operatingPlanUnavailable !== true) {
+        const own = periodCardCredit(plan, opts.debts, asOf, { start: view.start, end: view.end }, opts,
+          bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : null, bills && bills.trust, null);
+        if (own) periodCardCreditByPeriod.set(view, { credit: own.credit, displayOnly: true });
+      }
+      let cardCredit = periodCardCreditByPeriod.get(view) || null;
+      // A later period estimated because today's cash is unconfirmed (estimateUnconfirmedOpeningPeriod, OD-022): its card
+      // publication is capped the same way, so no figure in it reads more certain than the period allows.
+      if (cardCredit && view.currentCashUnconfirmed && view.currentCashUnconfirmed.status === 'estimated') {
+        const cap = node => Array.isArray(node) ? node.map(cap) : node && typeof node === 'object'
+          ? Object.fromEntries(Object.entries(node).map(([k, v]) => [k, typeof v === 'string' && /trust$/i.test(k)
+            && (v === 'calculated' || v === 'verified') ? 'estimated' : cap(v)])) : node;
+        const capTrust = t => t === 'unavailable' ? 'unavailable' : 'estimated';
+        cardCredit = { ...cardCredit, credit: cap(cardCredit.credit), trust: capTrust(cardCredit.trust),
+          ...(Object.hasOwn(cardCredit, 'remainderTrust') ? { remainderTrust: capTrust(cardCredit.remainderTrust) } : {}) };
+        periodCardCreditByPeriod.set(view, cardCredit);
+      }
       view.stackSummary = Object.assign(view.stackSummary || {},
-        { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result) });
+        { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result),
+          credit: cardCredit ? cardCredit.credit : null, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
     }
     return result;
   }
@@ -13516,6 +13540,30 @@
   // terms carry the item spending) is. Shape, shared with the other
   // stackSummary keys: { amount, trust, ... }, with `reason` only when
   // withheld (amount null, trust 'unavailable').
+  // The waterfall's Credit dropdown (desk ruling (E)): one row per card at its published target (the figure its Credit tile
+  // row prints after the slash), a card minimum with no line at that minimum, and one "Already counted above" row, so the
+  // rows sum to the Credit term exactly. Null where the Credit term is the minimums (a completed or saved period, or no
+  // card evidence): the dropdown then lists the minimums, as before.
+  function stackCreditBreakdown(entry, bills) {
+    if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
+    const lines = entry.credit.lines;
+    const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
+    const lineIds = new Set(lines.map(line => String(line.id)));
+    const rows = [];
+    for (const line of lines) {
+      if (line.target.amount === null) return null;
+      if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: line.target.amount, trust: line.target.trust });
+    }
+    for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
+      rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
+    }
+    const targetsCents = rows.reduce((sum, row) => sum + stackCents(row.amount), 0);
+    const countedCents = targetsCents - entry.creditCents;
+    const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
+    const trust = [(bills && bills.trust) || 'calculated', entry.trust || 'calculated'].reduce((worst, t) => (RANK[t] ?? 2) > (RANK[worst] ?? 2) ? t : worst, 'calculated');
+    return { rows, alreadyCounted: { amount: -countedCents / 100, trust: entry.trust || 'calculated' },
+      total: entry.creditCents / 100, trust };
+  }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';
   function stackSurplus(view, bills) {
     const projected = view.evidenceState === 'projected';
@@ -13528,7 +13576,12 @@
     if (!known) {
       return { amount: null, terms: null, trust: 'unavailable', projected, reason: STACK_SURPLUS_UNAVAILABLE };
     }
-    const creditCents = cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
+    // Credit: the view's Credit deduction where Balance After Deductions takes it (desk ruling (E)), else the minimums. The
+    // same term in both, so Surplus = Balance After Deductions + the held outflows + the cash paid beyond a minimum (the
+    // owner decision above is unchanged: Surplus does not subtract those two).
+    const own = periodCardCreditByPeriod.get(view);
+    const creditCents = own && own.adjusts && Number.isSafeInteger(own.creditCents) ? own.creditCents
+      : cardMinimums.reduce((sum, card) => sum + stackCents(card.amount), 0);
     const cents = stackCents(view.incomeTotal) - stackCents(other) - stackCents(view.budgetHold)
       - stackCents(mortgage) - creditCents - stackCents(item);
     return {
@@ -15366,6 +15419,11 @@
   // only. Keyed by the period object, so a period rebuilt as a copy finds
   // none and its split is withheld, never guessed.
   const periodBillLoadPartsByPeriod = new WeakMap();
+  // Desk ruling (E) (#1573): each current or upcoming view's card-target publication, read by publishStackSummary.
+  const periodCardCreditByPeriod = new WeakMap();
+  // Each view's Balance After Deductions trust with and without the card-target term's trust (#1573, lead 2026-11-23):
+  // beside a card payment to confirm, the card targets are a card cause too, so card coverage can stay the only cause.
+  const periodBadTrustCardPart = new WeakMap();
 
   // Authoritative frozen-waterfall bill load: each assigned period
   // occurrence once, including subsequently PAID rows that are not
@@ -15512,9 +15570,86 @@
     };
   }
 
+  // Desk ruling (E) (#1573, Plan #6): "Forecast owns one card-target publication per view. The Credit tile and the income
+  // dropdown read the same per-card targets. The Credit deduction is their sum minus the qualifying charges already counted
+  // above, each deducted from that sum only once." One cardPeriodMovements publication for the view's window and its
+  // Credit lines (stackCreditLines, the targets and each card's deduction), plus the adjustment Balance After Deductions
+  // takes: Credit − the card minimums the bills already deduct, in cents (either sign). A card minimum the publication has
+  // no line for keeps its minimum as its deduction (no evidence of more), so with no card evidence the adjustment is 0 and
+  // the remainder is main's. A withheld deduction withholds the adjustment (null): never zero, never more certain.
+  // Grok Bot's conditions on netting cash paid beyond a minimum (Plan #6, relayed by the lead): (1) only a POSTED payment
+  // already tied to that card counts (the card ledger's payDownBeyondMinimum: posted household-cash debits it paired to the
+  // card); (2) only within the cycle the target belongs to, never an earlier one; (3) a payment already counted elsewhere
+  // is not netted again (the part paying the minimum is the bill; payDownBeyondMinimum holds only the part beyond it). The
+  // cycle is this one bound: the target's own pay-period window. Grok Bot (Plan #6): "Yes, the pay period works as 'the
+  // cycle' for #1573, since the target is set per pay period."
+  function cardTargetBeyondMinimum(cardCoverage, window, asOf) {
+    return window ? manualCardBeyondMinimumCycle(cardCoverage, { start: window.start, end: window.end }, asOf) : null;
+  }
+  // The trust the Credit deduction lends Balance After Deductions and the Surplus (#1573 review 7106640633; the lead's
+  // option (c)): the weakest deduction of the lines that can carry uncertainty. Each card the household holds counts,
+  // including a feed card whose sync failed and a fall-back target (a minimum standing in for unknown new charges). Two
+  // kinds count no uncertainty, because nothing here can see them: a card the household does not hold, and a manual card
+  // with no minimum due this period (Dale's decision that an unseen manual card counts $0 in normal font), each only while
+  // its deduction is 0. A line that deducts anything still counts.
+  function cardCreditTrust(credit, publication, debts) {
+    const held = new Set((Array.isArray(debts) ? debts : []).map(debt => debt && String(debt.id)));
+    const manual = new Set(((publication && publication.cards) || []).filter(card => card && card.manualStatement === true)
+      .map(card => String(card.id)));
+    const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
+    let worst = 'calculated';
+    for (const line of credit.lines) {
+      const id = String(line.id);
+      const noneDue = line.minimum.amount === null && line.minimum.reasons.includes('no-minimum-due-in-period');
+      // Both exemptions are for a zero line only (review 7110654511): a line that still deducts something (a manual card's
+      // over-limit amount, say) lends its trust like any other.
+      const zero = line.deduction.amount === 0;
+      if (zero && (!held.has(id) || (manual.has(id) && noneDue))) continue;
+      const t = Object.hasOwn(RANK, line.deduction.trust) ? line.deduction.trust : 'unavailable';
+      if (RANK[t] > RANK[worst]) worst = t;
+    }
+    return worst;
+  }
+  function periodCardCredit(plan, debts, asOf, window, opts, cardMinimums, splitTrust, beyondMinimum) {
+    // The card module is loaded with Forecast on every page (index.html) and in node (require); a harness that evaluates
+    // this file alone publishes no card target and keeps the minimums, as before this ruling.
+    if (!CardPeriodMovement || !Array.isArray(debts) || !window) return null;
+    const minimums = Array.isArray(cardMinimums) ? cardMinimums : null;
+    const publication = cardPeriodMovements(plan, debts, asOf, { start: window.start, end: window.end }, {
+      currentPeriodActuals: opts.currentPeriodActuals,
+      cardPeriodBalanceEvidence: opts.cardPeriodBalanceEvidence || null,
+      liveOverlay: opts.cardLiveOverlay || null,
+    });
+    const split = minimums ? { cardMinimums: minimums.map(card => ({ debtId: card.debtId, amount: card.amount })),
+      trust: splitTrust || 'calculated' } : null;
+    const beyond = new Map();
+    for (const row of (beyondMinimum && Array.isArray(beyondMinimum.rows) ? beyondMinimum.rows : [])) {
+      const c = savingsCents(row && row.amount, true);
+      if (row && row.account != null && c != null && c > 0) beyond.set(String(row.account), (beyond.get(String(row.account)) || 0) + c);
+    }
+    const util = utilisation(debts, opts.extraFacilities || opts.revolvingExtra, plan);
+    const credit = CardPeriodMovement.stackCreditLines(publication, split, util ? util.rows : null, beyond);
+    if (!credit) return null;
+    if (!minimums) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
+    const lineIds = new Set(credit.lines.map(line => String(line.id)));
+    let minimumCents = 0, unlinedCents = 0;
+    for (const card of minimums) {
+      const c = savingsCents(card.amount, true);
+      if (c == null) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
+      minimumCents += c;
+      if (!lineIds.has(String(card.debtId))) unlinedCents += c;
+    }
+    const deduction = credit.totals.deduction;
+    if (!deduction || deduction.amount === null) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
+    const creditCents = Math.round(deduction.amount * 100) + unlinedCents;
+    // trust: the publication's own (the breakdown and its rows); remainderTrust: what it lends the remainder (option (c)).
+    return { credit, creditCents, adjustmentCents: creditCents - minimumCents, trust: deduction.trust,
+      remainderTrust: cardCreditTrust(credit, publication, debts) };
+  }
+
   function composeBalanceAfterDeductionsTerms(
     periodIncome, assignedBills, householdBudgetHold, balanceAfterDeductions, savingsItemSpending = 0,
-    heldOutflowSpending = 0, manualCardPaymentBeyondMinimum = 0
+    heldOutflowSpending = 0, manualCardPaymentBeyondMinimum = 0, cardRepaymentAdjustment = 0
   ) {
     if (periodIncome == null || assignedBills == null
         || householdBudgetHold == null || balanceAfterDeductions == null) {
@@ -15531,7 +15666,8 @@
     const item = roundCent(Number(savingsItemSpending) || 0);
     const held = roundCent(Number(heldOutflowSpending) || 0);
     const beyond = roundCent(Number(manualCardPaymentBeyondMinimum) || 0);
-    const reconstructed = roundCent(income - bills - hold - item - held - beyond);
+    const cardAdjustment = roundCent(Number(cardRepaymentAdjustment) || 0);
+    const reconstructed = roundCent(income - bills - hold - item - held - beyond - cardAdjustment);
     return {
       periodIncome: income,
       assignedBills: bills,
@@ -15539,6 +15675,8 @@
       ...(item > 0 ? { savingsItemSpending: item } : {}),
       ...(held > 0 ? { heldOutflowSpending: held } : {}),
       ...(beyond > 0 ? { manualCardPaymentBeyondMinimum: beyond } : {}),
+      // Desk ruling (E): the Credit deduction less the card minimums the bills already hold (either sign).
+      ...(cardAdjustment !== 0 ? { cardRepaymentAdjustment: cardAdjustment } : {}),
       balanceAfterDeductions: remainder,
       identity: 'balance-after-deductions',
       closes: Math.abs(reconstructed - remainder) <= 0.005,
@@ -18585,13 +18723,30 @@
       // the minimum, deducted once as their own term (never To confirm).
       const beyondMinimum = (role === 'active' || lookback) && !planUnavailable
         ? manualCardBeyondMinimumCycle(cardCoverage, budget.spendingCycle, asOf) : { cents: 0, rows: [] };
+      // Desk ruling (E) (#1573, Plan #6): one card-target publication per view, and the Credit deduction it carries
+      // (each card's repayment target, less the charges already deducted above and the cash already paid beyond its
+      // minimum). The bills already deduct the card minimums, so Balance After Deductions takes the difference as one
+      // named term, cardRepaymentAdjustment = Credit − the minimums. Current and upcoming views only: a completed or saved
+      // period keeps its published remainder (its card evidence is history the targets do not read).
+      // A completed period still publishes its lines (the Credit tile reads them), without the adjustment.
+      const cardCredit = !planUnavailable
+        ? periodCardCredit(plan, debts, asOf, window, opts, billLoadParts && billLoadParts.cardMinimums, periodBillLoadTrust,
+          cardTargetBeyondMinimum(cardCoverage, window, asOf)) : null;
+      const cardAdjusts = (role === 'active' || role === 'future') && !!cardCredit && !!billLoadParts;
+      const cardAdjustmentCents = cardAdjusts ? cardCredit.adjustmentCents : 0;
       const afterHouseholdBudget = afterBills != null && itemSpend != null && heldSpend != null && beyondMinimum != null
-        && budget.hold != null
-        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100 - beyondMinimum.cents / 100) : null;
+        && budget.hold != null && cardAdjustmentCents != null
+        ? roundCent(afterBills - budget.hold - itemSpend.cents / 100 - heldSpend.cents / 100 - beyondMinimum.cents / 100
+          - cardAdjustmentCents / 100) : null;
       const budgetHoldTermTrust = typeof budget.hold === 'number' && Number.isFinite(budget.hold)
         ? (budget.coverageLost === true ? 'unavailable'
           : budget.holdTrust === 'estimated' ? 'estimated' : 'calculated') : 'unavailable';
-      const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
+      // The remainder is only as sure as the Credit deduction it takes, whatever its value: a zero adjustment can be the
+      // fallback of unknown evidence (a withheld Spent deducts the target as the minimum), not proof that the target is the
+      // minimum (#1573 review 7106640633). Complete card evidence keeps the deduction's own (calculated) trust.
+      const balanceAfterDeductionsTrust = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust,
+        ...(cardAdjusts ? [cardCredit.remainderTrust] : []));
+      const balanceAfterDeductionsTrustExceptCard = periodWaterfallCombinedTrust(afterBillsTrust, budgetHoldTermTrust);
       // PA-4 opening provenance for the planned close. The active opening is
       // the recorded/qualified opening; a projected opening is the carry's
       // own provenance only when it really is the carry. Any other projected
@@ -18635,7 +18790,8 @@
         balanceAfterDeductions,
         itemSpend?.cents > 0 ? itemSpend.cents / 100 : 0,
         heldSpend?.cents > 0 ? heldSpend.cents / 100 : 0,
-        beyondMinimum?.cents > 0 ? beyondMinimum.cents / 100 : 0
+        beyondMinimum?.cents > 0 ? beyondMinimum.cents / 100 : 0,
+        cardAdjustmentCents ? cardAdjustmentCents / 100 : 0
       );
       const cashAfterBills = !planUnavailable && paydayBoundaryOpening
         && incomeAdded != null && closeBillLoad != null
@@ -19122,6 +19278,9 @@
                     : null))))),
       });
       if (billLoadParts) periodBillLoadPartsByPeriod.set(periods[periods.length - 1], billLoadParts);
+      if (cardCredit) periodCardCreditByPeriod.set(periods[periods.length - 1], { ...cardCredit, adjusts: cardAdjusts });
+      if (balanceAfterDeductionsTrust !== balanceAfterDeductionsTrustExceptCard) periodBadTrustCardPart.set(periods[periods.length - 1],
+        { withCard: balanceAfterDeductionsTrust, exceptCard: balanceAfterDeductionsTrustExceptCard });
       if (unconfirmedOpeningFuture) estimateUnconfirmedOpeningPeriod(periods[periods.length - 1],
         opts.operatingPlanNote || 'Current plan unavailable. The dated opening is stale.');
     }
@@ -23334,7 +23493,14 @@
         [failure('pending-cash-unresolved', 'Unresolved pending chequing debits still need protection.', {}, '')]);
     }
     const end = full.at(-1).end;
-    let basisTrust = 'calculated';
+    let basisTrust = 'calculated', basisTrustExceptCard = 'calculated';
+    // A view's remainder trust without its card-target term, while nothing has re-stamped it since (a later coverage
+    // estimate is a non-card cause).
+    const badTrustExceptCard = p => {
+      const published = p.balanceAfterDeductionsTrust == null ? 'calculated' : p.balanceAfterDeductionsTrust;
+      const part = periodBadTrustCardPart.get(p);
+      return part && part.withCard === published && !p.coverageEstimate ? part.exceptCard : published;
+    };
     for (const p of ordered) {
       if (p.end > end) continue;
       if (!finite(p.incomeTotal) || !finite(p.periodBillLoad) || !finite(p.budgetHold)
@@ -23348,6 +23514,8 @@
       basisTrust = periodWaterfallCombinedTrust(basisTrust, p.incomeTrust, p.periodBillLoadTrust,
         p.budgetHoldTrust == null ? 'calculated' : p.budgetHoldTrust,
         p.balanceAfterDeductionsTrust == null ? 'calculated' : p.balanceAfterDeductionsTrust);
+      basisTrustExceptCard = periodWaterfallCombinedTrust(basisTrustExceptCard, p.incomeTrust, p.periodBillLoadTrust,
+        p.budgetHoldTrust == null ? 'calculated' : p.budgetHoldTrust, badTrustExceptCard(p));
       let allowance = p.budgetHold;
       if (p.start < asOf) {
         // Today's cash already includes observed spending. Missing actuals
@@ -23471,7 +23639,9 @@
               ? 'estimated' : 'calculated';
             const trust = periodWaterfallCombinedTrust(forward.fundingTrust, basisTrust, cashTrust);
             const estimateCause = cardEstimateCause(trust,
-              periodWaterfallCombinedTrust(forward.fundingTrustExceptCard, basisTrust, cashTrust));
+              // 'card-coverage' means a card payment to confirm (fundingTrustExceptCard is published only then). Beside one,
+              // the card-target term is a card cause too (#1573); without one, the card targets alone publish no cause.
+              periodWaterfallCombinedTrust(forward.fundingTrustExceptCard, basisTrustExceptCard, cashTrust));
             const cumulative = new Map();
             const rows = forward.paydays.map(row => {
               for (const a of row.allocations) cumulative.set(a.id,
@@ -31477,6 +31647,10 @@
       fundingSources: plan.funding && plan.funding.options,
       periods: opts.periods,
       currentPeriodActuals: budgetCurrentActuals(data),
+      // The card-target publication's own evidence (desk ruling (E)): the inputs the Credit tile read for itself.
+      cardPeriodBalanceEvidence: overlay && overlay.applied === true ? overlay.cardPeriodBalanceEvidence || null : null,
+      // Only what the card publication reads of the overlay (its applied flag and per-account overlays).
+      cardLiveOverlay: overlay && overlay.applied === true ? { applied: true, overlays: overlay.overlays } : null,
       operatingPlan: overlay && (liveOperatingPlanUnavailable(null, overlay)
         ? 'unavailable' : overlay.operatingPlan),
       observedCash: overlay && overlay.observedCash,

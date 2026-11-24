@@ -100,6 +100,10 @@ function recommendOpts(data, opts) {
     revolvingExtra: data && data.revolvingExtra,
     periods: loadPeriods(),
     currentPeriodActuals: actualsFrom(data, opts),
+    // The card-target publication's own evidence (desk ruling (E), #1573).
+    cardPeriodBalanceEvidence: overlay && overlay.applied === true ? overlay.cardPeriodBalanceEvidence || null : null,
+    // Only what the card publication reads of the overlay (its applied flag and per-account overlays).
+    cardLiveOverlay: overlay && overlay.applied === true ? { applied: true, overlays: overlay.overlays } : null,
     observedCash: overlay && overlay.observedCash || null,
     targetBuffer,
     operatingPlan: overlay && overlay.operatingPlan,

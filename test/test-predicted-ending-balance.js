@@ -587,8 +587,10 @@ console.log('\n=== Live reconstruction: leftover follows named income facts, nev
     ok(false, 'live This Pay Period exists');
   } else if (row.incomeTotal != null && row.periodBillLoad != null
       && row.budgetHold != null) {
-    const reconstructed = independentBad(
-      row.incomeTotal, row.periodBillLoad, row.budgetHold);
+    // Desk ruling (E) (#1573): the remainder also takes its one published, named card term (0 where targets are minimums).
+    const cardTerm = (row.predictedEndingBalanceTerms && row.predictedEndingBalanceTerms.cardRepaymentAdjustment) || 0;
+    const reconstructed = roundCent(independentBad(
+      row.incomeTotal, row.periodBillLoad, row.budgetHold) - cardTerm);
     ok(near(row.afterHouseholdBudget, reconstructed)
         && near(row.predictedEndingBalance, reconstructed),
       'live BAD equals incomeTotal − periodBillLoad − hold even without proven payday-boundary opening');

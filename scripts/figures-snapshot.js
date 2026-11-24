@@ -144,6 +144,10 @@ function pageOptions(data, periods) {
     fundingSources: plan.funding && plan.funding.options,
     periods,
     currentPeriodActuals: overlay && overlay.applied === true ? overlay.currentPeriodActuals : null,
+    // The card-target publication's own evidence (desk ruling (E), #1573).
+    cardPeriodBalanceEvidence: overlay && overlay.applied === true ? overlay.cardPeriodBalanceEvidence || null : null,
+    // Only what the card publication reads of the overlay (its applied flag and per-account overlays).
+    cardLiveOverlay: overlay && overlay.applied === true ? { applied: true, overlays: overlay.overlays } : null,
     operatingPlan: overlay && overlay.operatingPlan,
     observedCash: overlay && overlay.observedCash,
     operatingPlanNote: overlay && overlay.operatingPlanNote,
@@ -618,7 +622,8 @@ function putStackCards(put, putField, advice, data, plan, asOf) {
     // amount to go and whether the minimum is covered, each with its trust;
     // and the credit totals with their completeness. The last balance snapshot
     // (current period only) with its trust and date, and its total.
-    const credit = F.stackCreditLines(publication, view.stackSummary ? view.stackSummary.bills : null);
+    // The view's one card-target publication (desk ruling (E), #1573), as the Credit tile reads it.
+    const credit = view.stackSummary && view.stackSummary.credit ? view.stackSummary.credit : null;
     if (credit) {
       const lineKeys = new Set();
       for (const line of credit.lines) {

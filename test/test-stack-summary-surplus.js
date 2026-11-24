@@ -331,8 +331,13 @@ function audit(F) {
       if (s && s.projected !== (v.evidenceState === 'projected')) r.projectedFail++;
       if (!s || s.amount === null) { r.withheld++; continue; }
       r.known++;
-      if (s.terms.bills !== b.other || s.terms.mortgage !== b.mortgage
-        || cents(s.terms.credit) !== b.cardMinimums.reduce((t, c) => t + cents(c.amount), 0)) r.termsFail++;
+      // Desk ruling (E) (#1573): where Forecast publishes the Credit breakdown (a current or upcoming view), Credit is the
+      // targets' deduction, its rows summing to it; otherwise (a completed view, no card evidence) the minimums, as before.
+      const breakdown = v.stackSummary && v.stackSummary.creditBreakdown;
+      const creditCents = breakdown ? cents(breakdown.total) : b.cardMinimums.reduce((t, c) => t + cents(c.amount), 0);
+      if (breakdown && breakdown.rows.reduce((t, row) => t + cents(row.amount), 0) + cents(breakdown.alreadyCounted.amount)
+        !== cents(breakdown.total)) r.termsFail++;
+      if (s.terms.bills !== b.other || s.terms.mortgage !== b.mortgage || cents(s.terms.credit) !== creditCents) r.termsFail++;
       const held = (v.heldOutflowsToConfirm && finite(v.heldOutflowsToConfirm.total)) ? v.heldOutflowsToConfirm.total : 0;
       const beyond = (v.manualCardPaymentsBeyondMinimum && finite(v.manualCardPaymentsBeyondMinimum.total)) ? v.manualCardPaymentsBeyondMinimum.total : 0;
       if (held || beyond) r.heldOrBeyond++;

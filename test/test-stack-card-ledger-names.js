@@ -11,6 +11,7 @@
  *
  * Invented names, ids and amounts only.  `node test/test-stack-card-ledger-names.js`
  */
+const { standIn } = require('./lib/stack-credit-target');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -73,7 +74,8 @@ function load() {
   vm.runInContext(read('public/stack-shell.js'), ctx);
   const fns = {};
   const register = ctx.StackBlocks.register.bind(ctx.StackBlocks);
-  ctx.StackBlocks.register = (name, fn) => { fns[name] = fn; register(name, fn); };
+  // Desk ruling (E): the Credit lines are Forecast's view publication; standIn places the stubbed lines there first.
+  ctx.StackBlocks.register = (name, fn) => { fns[name] = standIn(fn); register(name, fns[name]); };
   vm.runInContext(read('public/stack-waterfall.js'), ctx);
   vm.runInContext(read('public/stack-credit.js'), ctx);
   return { win: ctx, fns };

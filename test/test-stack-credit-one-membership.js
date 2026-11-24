@@ -5,7 +5,9 @@
  * period's stackSummary.bills.cardMinimums) for every period where both are published. Before, the head left the HELOC out
  * while the waterfall counted its minimum: two published "Credit" figures that differed by exactly the HELOC minimum.
  *
- *   1. Invariant over every committed invented input and every pay period: head due === waterfall Credit, to the cent.
+ *   1. Invariant over every committed invented input and every pay period: head due === the period's minimums (one
+ *      membership, to the cent); the waterfall Credit === the Credit breakdown's total where Forecast publishes one (desk
+ *      ruling (E), #1573: the targets less what is already counted above), else === the minimums, as before.
  *   2. The same on an invented world with a HELOC cash minimum (the committed inputs carry none), where main differed.
  *   3. The HELOC's paid side keeps its honest trust: wherever a HELOC minimum is due, minimumsPaid is withheld or at most
  *      estimated, never calculated or verified (the HELOC's paidToward is never more certain than estimated).
@@ -29,19 +31,19 @@ const num = v => typeof v === 'number' && Number.isFinite(v);
 function periods(data, periodsDoc) {
   const opts = Snap.pageOptions(data, periodsDoc);
   const advice = F.recommend(data.plan, data.meta.asOf, opts);
-  const overlay = data.liveOverlay && data.liveOverlay.applied === true ? data.liveOverlay : null;
   return (advice.payPeriodViews || []).map(v => {
-    const pub = F.cardPeriodMovements(data.plan, data.debts, data.meta.asOf, { start: v.start, end: v.end }, {
-      currentPeriodActuals: overlay ? overlay.currentPeriodActuals : null,
-      cardPeriodBalanceEvidence: overlay ? overlay.cardPeriodBalanceEvidence : null,
-      liveOverlay: overlay,
-    });
     const bills = v.stackSummary ? v.stackSummary.bills : null;
-    const result = F.stackCreditLines(pub, bills);
+    // The view's one card-target publication (desk ruling (E), #1573): the Credit tile reads it as published.
+    const result = v.stackSummary ? v.stackSummary.credit : null;
     const terms = v.stackSummary && v.stackSummary.surplus && v.stackSummary.surplus.terms;
+    const breakdown = v.stackSummary ? v.stackSummary.creditBreakdown : null;
     return {
       start: v.start,
       credit: terms && num(terms.credit) ? terms.credit : null,
+      // Desk ruling (E): where the targets set the Credit term, the waterfall Credit is the breakdown's total (its rows the
+      // tile's targets); the head's due stays the minimums of the same membership.
+      breakdownTotal: breakdown && num(breakdown.total) ? breakdown.total : null,
+      minimums: bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums.reduce((sum, row) => sum + cents(row.amount), 0) / 100 : null,
       totals: result && result.totals ? result.totals : null,
       helocLine: result && Array.isArray(result.lines) ? result.lines.find(line => line && line.id === 'heloc') || null : null,
       helocMinimum: ((bills && bills.cardMinimums) || []).filter(row => row && String(row.debtId) === 'heloc')
@@ -59,10 +61,12 @@ console.log('1. every committed invented input: the Credit head due is the water
       const due = p.totals && p.totals.minimumsDue ? p.totals.minimumsDue.amount : null;
       if (p.credit === null || !num(due)) continue;
       compared++;
-      assert.equal(cents(due), cents(p.credit), `${input.id} ${p.start}: head due equals the waterfall Credit`);
+      assert.equal(cents(due), cents(p.minimums), `${input.id} ${p.start}: head due is the minimums of the one membership`);
+      assert.equal(cents(p.credit), cents(p.breakdownTotal !== null ? p.breakdownTotal : p.minimums),
+        `${input.id} ${p.start}: the waterfall Credit is the targets' breakdown where published, else the minimums`);
     }
   }
-  ok(compared > 0, 'head due equals the waterfall Credit on every period where both are published', `${compared} periods`);
+  ok(compared > 0, 'head due is the minimums of the one membership, and the waterfall Credit is the breakdown (else the minimums), on every period where both are published', `${compared} periods`);
 }
 
 // The committed Stack card input, with an invented HELOC added: its debt and its capitalising obligation with a cash
@@ -87,9 +91,11 @@ console.log('2. an invented world with a HELOC minimum: one membership for Credi
     && num(p.totals.minimumsDue.amount));
   ok(withHeloc.length > 0, 'the invented world publishes a HELOC minimum in at least one period', `${withHeloc.length} periods`);
   for (const p of withHeloc) {
-    assert.equal(cents(p.totals.minimumsDue.amount), cents(p.credit), `${p.start}: head due equals the waterfall Credit`);
+    assert.equal(cents(p.totals.minimumsDue.amount), cents(p.minimums), `${p.start}: head due is the minimums, the HELOC's included`);
+    assert.equal(cents(p.credit), cents(p.breakdownTotal !== null ? p.breakdownTotal : p.minimums),
+      `${p.start}: the waterfall Credit is the targets' breakdown where published, else the minimums`);
   }
-  ok(true, 'with a HELOC minimum due, the head due equals the waterfall Credit in every such period (main left the HELOC out)');
+  ok(true, 'with a HELOC minimum due, the head due counts it and the waterfall Credit reads the same membership in every such period (main left the HELOC out)');
   ok(withHeloc.every(p => num(p.totals.minimumsDueCount) && p.totals.minimumsDueCount >= 1),
     'the HELOC counts among the minimums due');
 

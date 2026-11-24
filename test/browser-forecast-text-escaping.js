@@ -74,7 +74,7 @@ const worlds = {
           : file.endsWith('.woff2') ? 'font/woff2' : file.endsWith('.png') ? 'image/png' : 'text/html';
         return intercepted.fulfill({ body: fs.readFileSync(file), contentType: type });
       });
-      await page.addInitScript(...(world.stack ? P.browserInitWith('part|evidence|basis') : P.browserInit));
+      await page.addInitScript(...(world.stack ? P.browserInitWith('part|evidence|basis', 9) : P.browserInit));
       if (world.stack) await page.addInitScript(() => { window.__scope = '#stack-root'; });
       await page.addInitScript(() => {
         window.__injected = [];

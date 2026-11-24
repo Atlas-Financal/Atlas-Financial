@@ -743,7 +743,7 @@ function bootPage(knobs) {
   sandbox.globalThis = sandbox;
   Object.assign(sandbox, { AbortController, setTimeout, clearTimeout });
   vm.createContext(sandbox);
-  for (const file of ['public/app.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) {
+  for (const file of ['public/app.js', 'public/display-name.js', 'public/forecast-card-period.js', 'public/forecast.js', 'public/budget-surface.js', 'public/plan.js']) {
     vm.runInContext(read(file), sandbox, { filename: file });
   }
   // The page no longer restores knobs from storage (finish-line audit
