@@ -52,18 +52,24 @@
         if (tx.date < start || tx.date > through) continue;
         const value = primitives.money(tx);
         if (value === null) { gaps.add('transaction-amount-unqualified'); continue; }
-        if (value <= 0) continue;
+        if (value === 0) continue;
         const aliases = [tx.atlasAccountId, tx.account, tx.accountId].filter(v => v != null).map(String);
         if (!id || tx.pending !== false || tx.savingsPostingEvidence !== 'posted'
           || new Set(aliases).size > 1 || tx.isGroup === true || tx.contradictoryEvidence === true || tx.pendingPostedAmbiguous === true) {
           gaps.add('paying-side-evidence-unconfirmed');
-        } else if (keys.some(key => duplicates.has(key))) {
+          continue;
+        }
+        if (keys.some(key => duplicates.has(key))) {
           gaps.add('duplicate-identity');
-        } else if (!bucket) {
-          payerObserved = true;
-          unconfirmedPayments.push({ date: tx.date, amount: value / 100 });
+          continue;
+        }
+        payerObserved ||= value > 0;
+        if (!bucket) {
+          unconfirmedPayments.push({ date: tx.date, amount: value / 100,
+            ...(destination.reason ? { reason: destination.reason } : {}) });
+        } else if (value < 0) {
+          bucket.gaps.add('payment-direction-unresolved');
         } else {
-          payerObserved = true;
           bucket.cents += value;
           if (!Number.isSafeInteger(bucket.cents)) bucket.gaps.add('transaction-amount-unqualified');
           if (destination.trust === 'estimated') bucket.reasons.add(destination.reason || 'card-payment-by-amount');
@@ -550,10 +556,11 @@
     if (!cards) return null;
     const future = publication.role === 'future';
     const unconfirmedPayments = Array.isArray(publication.unconfirmedPayments) ? publication.unconfirmedPayments : [];
-    // An unassigned transfer affects confidence in each due spend card and the head, without allocating its amount.
+    // Unassigned transfers affect the head and cards with a positive repayment target. Their amounts stay unallocated.
+    const unassignedReasons = unconfirmedPayments.map(payment => payment.reason).filter(Boolean);
     const withUnassignedPayments = figure => unconfirmedPayments.length
       ? { ...figure, trust: weakest(figure.trust, 'estimated'),
-        reasons: [...new Set(figure.reasons.concat('card-payment-destination-unconfirmed'))] } : figure;
+        reasons: [...new Set(figure.reasons.concat('card-payment-destination-unconfirmed', unassignedReasons))] } : figure;
     const minimumIsDue = minimum => cents(minimum.amount) > 0;
     const split = bills && Array.isArray(bills.cardMinimums) ? bills : null;
     const splitTrust = split && typeof split.trust === 'string' && split.trust ? split.trust : 'unavailable';
@@ -598,7 +605,7 @@
           && paid.amount >= 0 && ['estimated', 'calculated'].includes(paid.trust) && Array.isArray(paid.reasons)) return paid;
         const reasons = future ? ['future-not-observed']
           : Array.isArray(paid?.reasons) && paid.reasons.length ? paid.reasons : ['paying-side-coverage-incomplete'];
-        return future || (publication.role === 'current' && pubCard?.manualStatement === true)
+        return future || (publication.role === 'current' && pubCard?.manualStatement === true && !reasons.includes('payment-direction-unresolved'))
           ? countedZero(reasons) : withheldPaid(reasons);
       }
       if (future) return countedZero(['future-not-observed']);
@@ -735,7 +742,7 @@
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
       const payment = paidTowardOf(card, published(card.id));
-      const paidToward = card.id !== 'heloc' && minimumIsDue(minimum) ? withUnassignedPayments(payment) : payment;
+      const paidToward = card.id !== 'heloc' && cents(target.amount) > 0 ? withUnassignedPayments(payment) : payment;
       // Spend cards publish the payer's posted debits. The HELOC retains its signed facility-ledger rule.
       const paidBack = card.id === 'heloc' && paidToward.amount !== null
         && (postedPaymentDebitOf(published('heloc')) || cents(paidToward.amount) < 0)
@@ -811,11 +818,18 @@
           reasons: [...new Set(dueLines.flatMap(line => line.paidToward.reasons))] };
       totals.minimumsDueCount = dueLines.length;
       totals.minimumsCoveredCount = dueLines.filter(coveredOn).length;
+      // Future payments are unobserved by definition. Their placeholders inherit the scheduled minimum's trust.
       totals.minimumsCoveredTrust = dueLines.length
-        ? weakest(...dueLines.flatMap(line => [line.minimum.trust, line.id === 'heloc' && line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
+        ? weakest(...dueLines.flatMap(line => [line.minimum.trust,
+          (future || line.id === 'heloc') && line.minimumCovered.value === 'unknown' ? line.minimum.trust : line.minimumCovered.trust]))
         : splitTrust;
     }
     totals.minimumsPaid = withUnassignedPayments(totals.minimumsPaid);
+    // The ledger cannot assign this credit back to a card. Withhold the head even when its due-card set is empty.
+    if (unconfirmedPayments.some(payment => payment.amount < 0)) {
+      totals.minimumsPaid = { amount: null, trust: 'unavailable',
+        reasons: [...new Set(totals.minimumsPaid.reasons.concat('payment-direction-unresolved'))] };
+    }
     // The balance total is over the spend cards' snapshots (HELOC excluded, as
     // above), with the weakest trust: a stale snapshot is counted and keeps the
     // total estimated; only a card with no snapshot at all is excluded.

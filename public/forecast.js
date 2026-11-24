@@ -12688,6 +12688,9 @@
     const transfer = label === 'transfer' || ['transfer', 'internal-transfer', 'payment', 'bill-payment'].includes(hint)
       || tx.internalTransferIdentity === true;
     if ((!payment && !transfer) || [tx.atlasAccountId, tx.account, tx.accountId].some(isStackCreditLine)) return null;
+    if (cardPaymentDestinationConflict(tx)) {
+      return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
+    }
     const note = cardPaymentNoteEvidence(tx);
     if (CARD_PAYMENT_NOTE_IDS.has(note?.destination)) {
       return { cardId: note.destination, trust: note.byAmount === false ? 'calculated' : 'estimated',

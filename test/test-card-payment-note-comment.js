@@ -96,6 +96,27 @@ console.log('\n2. The page path: the suffixed note confirms the destination');
     && F.payingSidePayment(cardKind)?.cardId === null, 'a posted card payment with no category or note is unassigned');
   ok(!Object.hasOwn(billKind, 'payingSideCardPaymentKind') && F.payingSidePayment(billKind) === null,
     'an ordinary bill payment with the same generic hint stays outside card payments');
+
+  const payerCredit = (kind, extra = {}) => {
+    const transfer = ['bills', -37, null, 'cash', { ...generic, kind, ...extra }];
+    return run(world([transfer])).packet.transactions.find(tx => tx.amount === -37);
+  };
+  const reversed = payerCredit('card-payment');
+  ok(reversed.kindHint === 'payment' && reversed.savingsPostingEvidence === 'posted'
+    && reversed.payingSideCardPaymentKind === true && F.payingSidePayment(reversed)?.cardId === null,
+    'a posted credit with an explicit card-payment kind retains its unassigned payment identity');
+  const billCredit = payerCredit('bill-payment');
+  ok(billCredit.kindHint === 'payment' && !Object.hasOwn(billCredit, 'payingSideCardPaymentKind')
+    && F.payingSidePayment(billCredit) === null, 'an ordinary bill credit retains its generic payment identity');
+  const pendingCredit = payerCredit('card-payment', { is_pending: true });
+  ok(pendingCredit.savingsPostingEvidence === 'pending' && !Object.hasOwn(pendingCredit, 'payingSideCardPaymentKind')
+    && F.payingSidePayment(pendingCredit) === null, 'a pending credit is outside the posted reversal evidence');
+  const conflict = payerCredit('card-payment', { payee: 'MBNA PAYMENT', notes: 'card payment: Travel Visa' });
+  ok(conflict.cardPaymentNoteDestination === 'travelvisa' && conflict.cardPaymentDestination === 'mbna'
+    && F.cardPaymentDestinationConflict(conflict), 'a posted reversal retains both conflicting card identities');
+  const agreeing = payerCredit('card-payment', { payee: 'MBNA PAYMENT', notes: 'card payment: MBNA (by amount)' });
+  ok(agreeing.cardPaymentNoteDestination === 'mbna' && !Object.hasOwn(agreeing, 'cardPaymentDestination')
+    && !Object.hasOwn(agreeing, 'cardPaymentNoteByAmount'), 'an agreeing credit exposes neither extra payee identity nor debit attribution');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} card-payment note comment checks passed`);

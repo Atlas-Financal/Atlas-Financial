@@ -30,7 +30,9 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '74b6dcecbf6ac847ab9dc6be438519f0fd0b3dc8b1bf00079acc76260233135d',
+    // Future covered counts use the due minimum's trust while payment coverage is unknown. Resetting only
+    // totals.minimumsCoveredTrust on four future payPeriodViews to unavailable reproduces the d2d9e062 digest.
+    forecast: '3c3323b06123efa0ed07ae142c014230b95f4a0aecf9bb237019891e6413f181',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',

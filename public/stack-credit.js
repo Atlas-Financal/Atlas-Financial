@@ -196,10 +196,12 @@
   };
   function unconfirmedPaymentsHtml(payments, h) {
     if (!Array.isArray(payments) || !payments.length) return '';
+    const label = payment => payment.amount < 0 ? 'Reversal, card unidentified'
+      : payment.reason === 'card-payment-destination-conflict' ? 'Conflicting card destinations' : 'Card unidentified';
     return '<section data-stack-unconfirmed-payments><h4 class="stack-sheet-txh">Unconfirmed payments</h4>'
       + '<ul class="stack-sheet-tx">' + payments.map(payment =>
         '<li><span class="stack-sheet-txd">' + h.esc(h.date(payment.date)) + '</span>'
-        + '<span class="stack-sheet-txl">Paying account · Card unidentified</span>'
+        + '<span class="stack-sheet-txl">Paying account · ' + label(payment) + '</span>'
         + '<span class="stack-sheet-txa stack-n">' + h.esc(h.txMoney(payment.amount)) + '</span></li>'
       ).join('') + '</ul></section>';
   }
