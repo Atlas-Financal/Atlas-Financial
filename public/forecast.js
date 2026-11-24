@@ -17935,6 +17935,13 @@
       { kind: 'cutover', rows: ((period && period.bills) || []).filter(row => row
         && billBelongsOnPaydayWaterfall(row, asOf, 'cutover-opening')) }, { ...(opts || {}), asOf });
   }
+  // What one household row still holds for the rest of the period: its hold less what is spent, never below
+  // nothing and never above the hold. A net refund (spent below zero) returns money the row never held, so
+  // it cannot raise the remainder past the hold. A row whose hold is itself negative (the Other row takes
+  // its net refund as its hold when it has no target) holds nothing: its remainder is 0, never negative.
+  function heldRemainder(row) {
+    return Math.max(0, Math.min(row.hold, Math.max(0, row.hold - row.spent)));
+  }
   // One card-corrected remaining household allowance (cents) for a period:
   // the S1 seed, the Savings daily walk and the closing walk share it.
   function cardMatchPeriodRemaining(plan, coverage, period, asOf, opts) {
@@ -23603,7 +23610,7 @@
           // Even on payday, observed consumption has already happened. Do
           // not replay it, or add today's scheduled salary to observed cash.
           const remaining = cardRemaining != null ? cardRemaining / 100
-            : roundCent(currentItems.reduce((s, r) => s + Math.max(0, r.hold - r.spent), 0));
+            : roundCent(currentItems.reduce((s, r) => s + heldRemainder(r), 0));
           const forwardDaily = new Map(daily);
           budgetAllowanceDays(forwardDaily, asOf, current.end, remaining, current.bills);
           const forwardOpts = Object.assign({}, walkOpts, {

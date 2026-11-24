@@ -23,7 +23,9 @@
 //   truth, a refund of the purchase: reserve 0, so 500 - 0 - 175 - 25 = 300;
 //   truth, a payment from outside the household: the minimum and the
 //     purchase covered, 500 - 70 = 430 (no constructible world: hand only).
-// Section 2 pins the pre-existing 325 > 300 gap for the oversize linked refund.
+// Section 2 covers the oversize linked refund (105 against the 80 purchase): spent 80 - 105 = -25 on a
+// 150 hold, reserve 0, remainder capped at the hold: 500 - 0 - 150 - 25 = 325, equal to the estimate's 325
+// (not 500 - 0 - 175 - 25 = 300, which counted the 25 refund surplus as extra budget).
 const assert = require('node:assert/strict');
 const { world, run } = require('./fixtures/card-coverage-aggregate-world');
 
@@ -62,14 +64,13 @@ function atMostTruth(degraded, truth, why) {
   check(degraded.coverage.reservedCash >= truth.coverage.reservedCash,
     `${why}: reserve ${degraded.coverage.reservedCash} >= truth ${truth.coverage.reservedCash}`);
 }
-// NEXT PR (#1618 pre-review, item 4): cap the from-today remainder at the hold (forecast.js:23606)
-// and restore atMostTruth at both call sites. On main, spent -25 gives a remainder of 175 on a 150 hold.
-function checkOversizeRefundGap(estimate, linked, why) {
-  const { availableNow: estimatedNow, ...otherEstimated } = moneyLeft(estimate);
-  const { availableNow: linkedNow, ...otherLinked } = moneyLeft(linked);
-  assert.deepEqual([estimatedNow, linkedNow, estimate.coverage.reservedCash, linked.coverage.reservedCash],
-    [325, 300, 80, 0], why + ': known oversize gap, unidentified vs linked 105, available cash and reserve');
-  checkMoneyLeftBounds(otherEstimated, otherLinked, why);
+// A linked refund larger than the purchase leaves the remainder at the hold: hand-derived 325 on both sides.
+function checkOversizeRefund(estimate, linked, why) {
+  assert.deepEqual([linked.period.householdBudget[0].spent, linked.period.householdBudget[0].hold], [-25, 150], why);
+  assert.deepEqual([estimate.period.fromTodayFunding.availableNow, linked.period.fromTodayFunding.availableNow,
+    estimate.coverage.reservedCash, linked.coverage.reservedCash], [325, 325, 80, 0],
+  why + ': unidentified vs linked 105, available cash and reserve');
+  atMostTruth(estimate, linked, why);
 }
 function tags(advice) {
   const out = {};
@@ -120,7 +121,7 @@ check(degraded.coverage.reservedCash === 80, 'the 80 purchase stays reserved as 
 check(/source|came from/.test(degraded.coverage.estimateReason) && /source/.test(degraded.period.plannedPeriodCloseReason || ''),
   'the coverage and close reasons name the unconfirmed source');
 
-console.log('2. Payment-source bounds and the known oversize linked-refund gap');
+console.log('2. Payment-source bounds and the oversize linked refund');
 {
   check(noCredit.coverage.trust === undefined && noCredit.period.fromTodayFunding.availableNow === 325, 'no credit: 325, calculated');
   check(JSON.stringify(moneyLeft(degraded)) === JSON.stringify(moneyLeft(noCredit)), 'every money-left figure equals the no-credit world');
@@ -134,14 +135,14 @@ console.log('2. Payment-source bounds and the known oversize linked-refund gap')
   const linked80 = run(world([purchase, asRefund(80)]));
   assert.deepEqual([linked80.period.fromTodayFunding.availableNow, linked80.coverage.reservedCash], [325, 0]);
   atMostTruth(run(world([purchase, credit(80)])), linked80, '80 credit vs linked refund equal to the purchase');
-  checkOversizeRefundGap(degraded, run(world([purchase, asRefund()])), 'minimum due today');
+  checkOversizeRefund(degraded, run(world([purchase, asRefund()])), 'minimum due today');
   // A payment from outside the household would cover the minimum and the
   // purchase: hand-derived 430, above the estimate.
   check(degraded.period.fromTodayFunding.availableNow <= 430, 'below the hand-derived outside-payment truth 430');
   const later = run(world([purchase, credit()], { minimumDate: '2026-09-28' }));
   degradedShape(later, 'minimum due later');
   atMostTruth(later, run(world([purchase], { minimumDate: '2026-09-28' })), 'minimum later vs no credit');
-  checkOversizeRefundGap(later, run(world([purchase, asRefund()], { minimumDate: '2026-09-28' })), 'minimum due later');
+  checkOversizeRefund(later, run(world([purchase, asRefund()], { minimumDate: '2026-09-28' })), 'minimum due later');
 }
 
 console.log('3. Same class, other shapes');

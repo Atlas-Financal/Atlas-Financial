@@ -26,7 +26,13 @@
 //   truth B, a refund of the grocery purchase: the reserve falls to 50, so
 //     500 - 50 - 100 - 25 = 325;
 //   a payment can only cover the minimum or a purchase, raising the figure.
-// Section 2 also pins the separate remainder defect for a linked refund larger than the purchase.
+// Section 2 also covers a linked refund larger than the purchase, where the from-today remainder
+// is capped at the hold:
+//   linked 120 refund of the 80 purchase: spent 80 - 120 = -40 on a 150 hold, reserve 0, so the
+//     remainder is the hold (150), not 150 + 40 = 190: 500 - 0 - 150 - 25 = 325, the estimate's
+//     325 (500 - 80 - 70 - 25): the estimate is tight against this truth, not above it;
+//   a smaller linked refund is unchanged: 30 gives spent 50, reserve 50, remainder 100 (500 - 50 -
+//     100 - 25 = 325); 80 gives spent 0, reserve 0, remainder 150 (500 - 0 - 150 - 25 = 325).
 const assert = require('node:assert/strict');
 const { world, run } = require('./fixtures/card-coverage-aggregate-world');
 
@@ -118,7 +124,7 @@ check(degraded.period.householdBudget[0].spent === 80, 'groceries spent stays 80
 check(/neither/.test(degraded.coverage.estimateReason) && /neither/.test(degraded.period.plannedPeriodCloseReason || ''),
   'the coverage and the close each say the credit is counted as neither');
 
-console.log('2. Credit-purpose bounds and the known oversize linked-refund gap');
+console.log('2. Credit-purpose bounds and the oversize linked refund');
 {
   const nonPayment = run(world([purchase, asNonPayment()]));
   check(nonPayment.coverage.status === 'ready' && nonPayment.coverage.trust === undefined
@@ -136,17 +142,59 @@ console.log('2. Credit-purpose bounds and the known oversize linked-refund gap')
   atMostTruth(unidentified, standalone, '120 credit vs standalone refund');
   atMostTruth(unidentified, run(world([purchase, asNonPayment(120)])), '120 credit vs non-payment');
 
-  // NEXT PR (#1618 pre-review, item 4): cap the from-today remainder at the hold (forecast.js:23606)
-  // and restore atMostTruth here. On main, spent -40 gives a remainder of 190 on a 150 hold.
+  // A linked refund larger than the purchase: spent is -40 on a 150 hold, and the remainder stays at the hold.
   const linked120 = run(world([purchase, asRefund(120)]));
-  const { availableNow: estimatedNow, ...otherEstimated } = moneyLeft(unidentified);
-  const { availableNow: linkedNow, ...otherLinked } = moneyLeft(linked120);
-  assert.deepEqual([estimatedNow, linkedNow, unidentified.coverage.reservedCash, linked120.coverage.reservedCash],
-    [325, 285, 80, 0], 'known oversize gap: unidentified vs linked 120, available cash and reserve');
-  checkMoneyLeftBounds(otherEstimated, otherLinked, '120 credit vs linked refund');
+  assert.deepEqual([linked120.period.householdBudget[0].spent, linked120.period.householdBudget[0].hold], [-40, 150]);
+  assert.deepEqual([unidentified.period.fromTodayFunding.availableNow, linked120.period.fromTodayFunding.availableNow,
+    unidentified.coverage.reservedCash, linked120.coverage.reservedCash], [325, 325, 80, 0],
+  'unidentified vs linked 120: available cash (hand-derived 325 each) and reserve');
+  atMostTruth(unidentified, linked120, '120 credit vs linked refund');
+  // Control: a refund no larger than the purchase leaves the remainder as hold - spent, as before.
+  for (const [amount, spent, reserve] of [[30, 50, 50], [80, 0, 0]]) {
+    const normal = run(world([purchase, asRefund(amount)]));
+    assert.deepEqual([normal.period.householdBudget[0].spent, normal.coverage.reservedCash,
+      normal.period.fromTodayFunding.availableNow], [spent, reserve, 500 - reserve - (150 - spent) - 25],
+    'a linked ' + amount + ' refund: remainder hold - spent, available 500 - reserve - remainder - 25');
+    checks++;
+  }
   const later = run(world([purchase, unknown()], { minimumDate: '2026-09-28' }));
   degradedShape(later, 'minimum due later');
   atMostTruth(later, run(world([purchase, asRefund()], { minimumDate: '2026-09-28' })), 'minimum later vs refund');
+}
+
+console.log('2b. The from-today remainder of a row is never below nothing and never above its hold');
+{
+  // Direct unit check of heldRemainder (not exported: read its source and evaluate it).
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/forecast.js'), 'utf8');
+  const m = /function heldRemainder\(row\) \{[\s\S]*?\n  \}/.exec(src);
+  assert.ok(m, 'heldRemainder is found in forecast.js');
+  const heldRemainder = new Function(m[0] + '; return heldRemainder;')();
+  // [hold, spent, remainder], each worked by hand: the remainder is hold - spent, floored at 0, capped at the hold.
+  for (const [hold, spent, want] of [[150, 80, 70], [150, 0, 150], [150, 150, 0], [150, 200, 0], [150, -40, 150], [150, -25, 150],
+    [-40, -40, 0], [-40, 0, 0], [-40, 10, 0], [0, 0, 0], [0, -5, 0]]) {
+    assert.equal(heldRemainder({ hold, spent }), want, 'heldRemainder(hold ' + hold + ', spent ' + spent + ') is ' + want);
+    checks++;
+  }
+  // Reviewer probe (#1623, Muse 7132510291): Fuel holds 150 untouched; Groceries has an explicit $0 monthly target, so
+  // it has no row of its own and its purchase 80 and linked refund 120 join Other spending, whose hold is its net -40.
+  // That row holds nothing, so the remainder is Fuel's 150 alone: 500 - 0 - 150 - 25 = 325, never 500 - (150 - 40) - 25 = 365.
+  const probeEdit = x => { x.data.plan.budget.categories = [
+    { id: 'fuel', label: 'Fuel', class: 'essential', plannedPayday: 150, plannedWeekly: 75, confidence: 'confirmed' },
+    { id: 'groceries', label: 'Groceries', class: 'essential', plannedMonthly: 0, confidence: 'confirmed' }]; };
+  const rows = s => s.period.householdBudget.map(r => [r.id, r.hold, r.spent]);
+  const noRefund = run(world([purchase], { edit: probeEdit }));
+  assert.deepEqual(rows(noRefund), [['fuel', 150, 0], ['other-spending', 80, 80]]);
+  assert.deepEqual([noRefund.coverage.reservedCash, noRefund.period.fromTodayFunding.availableNow], [80, 245],
+    'the purchase alone: 500 - 80 - 150 - 25 = 245');
+  const small = run(world([purchase, asRefund(30)], { edit: probeEdit }));
+  assert.deepEqual(rows(small), [['fuel', 150, 0], ['other-spending', 50, 50]]);
+  assert.deepEqual([small.coverage.reservedCash, small.period.fromTodayFunding.availableNow], [50, 275],
+    'a refund of 30: 500 - 50 - 150 - 25 = 275');
+  const probe = run(world([purchase, asRefund(120)], { edit: probeEdit }));
+  assert.deepEqual(rows(probe), [['fuel', 150, 0], ['other-spending', -40, -40]]);
+  assert.deepEqual([probe.coverage.reservedCash, probe.period.fromTodayFunding.availableNow], [0, 325],
+    'a refund of 120 into Other: 500 - 0 - 150 - 25 = 325');
+  checks += 6;
 }
 
 console.log('3. Same class, other shapes');
