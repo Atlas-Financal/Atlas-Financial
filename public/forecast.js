@@ -17937,9 +17937,10 @@
   }
   // What one household row still holds for the rest of the period: its hold less what is spent, never below
   // nothing and never above the hold. A net refund (spent below zero) returns money the row never held, so
-  // it cannot raise the remainder past the hold.
+  // it cannot raise the remainder past the hold. A row whose hold is itself negative (the Other row takes
+  // its net refund as its hold when it has no target) holds nothing: its remainder is 0, never negative.
   function heldRemainder(row) {
-    return Math.min(row.hold, Math.max(0, row.hold - row.spent));
+    return Math.max(0, Math.min(row.hold, Math.max(0, row.hold - row.spent)));
   }
   // One card-corrected remaining household allowance (cents) for a period:
   // the S1 seed, the Savings daily walk and the closing walk share it.
