@@ -356,5 +356,45 @@ console.log('\n=== a partial cash source keeps its genuine shortfall (ATLAS-076 
     'partial: no weekly cap is published off a shortfall', `$${rec.weekly}/week`);
 }
 
+
+console.log('\n=== overdraft headroom is not cash even without an unusable flag ===');
+{
+  const asOf = '2026-09-20';
+  const extraFacilities = [{ id: 'overdraft', cash: 'chequing-b', limit: 600, pending: 0 }];
+  const plan = {
+    windowDays: 21, opening: { asOf }, defaults: { targetBuffer: 500 },
+    startingCash: { breakdown: [{ id: 'chequing-a', value: 400 }, { id: 'chequing-b', value: 200 }] },
+    income: [{ id: 'pay', frequency: 'once', date: '2026-09-28', amount: 3000, confidence: 'confirmed' }],
+    bills: [{ id: 'bill', frequency: 'once', date: '2026-09-25', amount: 250, confidence: 'confirmed' }],
+    obligations: [], commitments: [],
+  };
+  const opts = { debts: [], extraFacilities, targetBuffer: 500 };
+  const expectedGap = 500 - (400 + 200 - 250);
+  const countercases = [
+    ['disabled', { id: 'overdraft', cash: 'chequing-b', unusable: true }],
+    ['usable', { id: 'overdraft', cash: 'chequing-b', unusable: false }],
+    ['flag omitted, matched by cash account', { id: 'facility-alias', cash: 'chequing-b' }],
+    ['residual utilisation includes overdraft', { id: 'cards' }],
+  ];
+  for (const [label, source] of countercases) {
+    const rec = F.recommend(plan, asOf, { ...opts, fundingSources: [source] });
+    const row = rec.funding?.sources.find(item => item.id === source.id);
+    ok(row?.available === 600 && row.contributes === 0 && row.verdict === 'insufficient',
+      label + ': headroom is shown, not offered as cash');
+    ok(rec.mode === 'openingGap' && rec.funding?.feasible === false
+      && rec.funding.shortfall === expectedGap && rec.weekly === 0,
+    label + ': the entire gap stays unfunded and weekly stays zero');
+    ok(!rec.simOptions?.injections?.length, label + ': there is no recovery injection');
+    if (source.unusable !== true) {
+      ok(row?.shortBy === expectedGap, label + ': the source is short by the full gap');
+    }
+    if (source.id === 'cards') {
+      const replay = F.recommend(plan, asOf, rec.planOptions);
+      ok(replay.funding?.feasible === false && replay.weekly === 0,
+        'in-memory rerun does not reinterpret derived capacity as declared cash');
+    }
+  }
+}
+
 console.log('\n' + (failures ? `${failures} failure(s)` : 'All opening-gap no-auto-borrow checks passed'));
 process.exit(failures === 0 ? 0 : 1);
