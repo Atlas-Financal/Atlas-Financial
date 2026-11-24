@@ -9,10 +9,11 @@
  *
  *   1. The lead's worked case, per line (Forecast's card module and its dropdown builder, invented publications): every
  *      dropdown figure is checked against that card's own published figures, never against the total.
- *   2. A world where the old catch-all offset (the targets minus the Credit term) and the honest row differ, through the
- *      real recommend and the real page scripts (no stub): the waterfall's dropdown and the Credit card print Forecast's
- *      figures, and Credit, Balance After Deductions and Surplus are byte-equal to main.
- *   3. Mutants: the plug restored, Still to pay back built from line.paid (pending counted), and the caption dropped.
+ *   2. The invented card week through the real recommend and the real page scripts (no stub): the waterfall's dropdown
+ *      and the Credit card print Forecast's figures, and Credit, Balance After Deductions and Surplus are byte-equal to main.
+ *   2a. A world where the old catch-all offset (the targets minus the Credit term) and the honest row differ, the same way.
+ *   2b, 2c. A posted payment debit withholds Paid back on every line, the HELOC included.
+ *   3. Mutants: each guard above, removed, is caught.
  *
  * Invented data only; every expected figure is worked by hand. `node test/test-credit-paid-back.js`
  */
@@ -23,7 +24,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const F = require('../public/forecast');
 const M = require('../public/forecast-card-period');
-const fx = require('./fixtures/card-posted-period-movement-data');
+const fx = require('./fixtures/stack-card-week');
 
 let checks = 0;
 const ok = (cond, label, detail = '') => { assert.ok(cond, label + (detail ? ' — ' + detail : '')); checks++; console.log('  PASS  ' + label); };
@@ -32,7 +33,7 @@ const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 // main before this change, for the byte-equal controls.
-const BASE = 'e4c7b1a3fa0743f159dab3db1d877390a80c5279';
+const BASE = '17ee87debff166e4314913b49b948f2501e17ed3'; // main at the catch-up (after #1618), before this change
 const show = file => cp.execFileSync('git', ['show', BASE + ':' + file], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 function realm(sources) {
   const c = { console };
@@ -119,14 +120,13 @@ ok(cents(A.paidBack.amount) + cents(B.paidBack.amount) === 7500, 'condition 3: t
     'paid back 90.00 against a 40.00 target: still to pay back 0 (floored), target covered', JSON.stringify([line.target.amount, line.stillToPayBack, line.targetCovered]));
 }
 
-console.log('2. Through recommend and the real page scripts: a world where the old catch-all offset and the honest row differ');
-// The invented card week (fixtures/card-posted-period-movement-data), worked by hand from its rows:
-//   Travel: Spent 236.00 (charges 172.40 + 63.75 + 28.60 pending, interest 6.25, refund −35.00), target 236.00; charges counted
-//     above 264.75; posted payments 100.00. Deduction max(0, 236.00 − 264.75) = 0. Still to pay back 236.00 − 100.00 = 136.00.
+console.log('2. Through recommend and the real page scripts, on the invented card week');
+// The invented card week (fixtures/stack-card-week: no standalone card credits, which #1618 leaves unconfirmed), worked by hand:
+//   Travel: Spent 236.00 (charges 172.40 + 28.75 + 28.60 pending, interest 6.25), target 236.00; charges counted above
+//     229.75; posted payments 100.00. Deduction 236.00 − 229.75 = 6.25 (the interest). Still to pay back 236.00 − 100.00 = 136.00.
 //   Cash Back: target 114.20, all of it counted above; paid back 250.00. Deduction 0. Still to pay back 0 (floored).
 //   Every other card: target 0 and nothing counted above (or its counted charges withheld: it adds nothing).
-// Honest "Already counted above" = −(264.75 + 114.20) = −378.95. The old catch-all offset (Σ targets − Credit) =
-// −(236.00 + 114.20 − 0) = −350.20: it hid Travel's 28.75 floor inside a row named "Already counted above".
+// "Already counted above" = −(229.75 + 114.20) = −343.95, from the cards' own counted charges. The Credit line is (E)'s 6.25.
 const x = fx.fixture();
 const opts = { debts: x.debts, currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, cardLiveOverlay: x.overlay };
 const advice = F.recommend(x.plan, x.asOf, opts), oldAdvice = OLD.recommend(x.plan, x.asOf, opts);
@@ -136,24 +136,17 @@ const travel = view.stackSummary.credit.lines.find(l => l.id === 'travelvisa'), 
 ok(cents(travel.target.amount) === 23600 && cents(travel.paidBack.amount) === 10000 && cents(travel.stillToPayBack.amount) === 13600
   && cents(cash.target.amount) === 11420 && cents(cash.paidBack.amount) === 25000 && cash.stillToPayBack.amount === 0,
   'Travel 100 paid back of 236, 136 still; Cash Back 250 paid back of 114.20, 0 still', JSON.stringify([travel.stillToPayBack, cash.stillToPayBack]));
-ok(cents(b.alreadyCounted.amount) === -37895, 'the honest row: "Already counted above" −378.95, the two cards\' own counted charges', JSON.stringify(b.alreadyCounted));
-const plug = b.rows.reduce((sum, r) => {
-  const line = view.stackSummary.credit.lines.find(l => l.id === r.debtId);
-  return sum + cents(line ? line.target.amount : r.amount);
-}, 0) - cents(b.total);
-ok(plug === 35020 && cents(oldView.stackSummary.creditBreakdown.alreadyCounted.amount) === -35020 && plug !== -cents(b.alreadyCounted.amount),
-  'the old catch-all offset was −350.20 (main prints it); the honest row is −378.95: they differ by Travel\'s 28.75 floor',
-  JSON.stringify(oldView.stackSummary.creditBreakdown.alreadyCounted));
-ok(cents(b.total) === 0 && b.total === oldView.stackSummary.creditBreakdown.total, 'the Credit line is (E)\'s 0.00, as main');
+ok(cents(b.alreadyCounted.amount) === -34395, 'the row: "Already counted above" −343.95, the two cards\' own counted charges', JSON.stringify(b.alreadyCounted));
+ok(cents(b.total) === 625 && b.total === oldView.stackSummary.creditBreakdown.total, 'the Credit line is (E)\'s 6.25, as main');
 // Credit, Balance After Deductions and Surplus byte-equal to main, on every view.
-const same = advice.payPeriodViews.every((v, i) => {
-  const o = oldAdvice.payPeriodViews[i];
+const sameAsMain = (rec, old) => rec.payPeriodViews.length === old.payPeriodViews.length && rec.payPeriodViews.every((v, i) => {
+  const o = old.payPeriodViews[i];
   return JSON.stringify([v.balanceAfterDeductions, v.balanceAfterDeductionsTrust, v.predictedEndingBalanceTerms, v.stackSummary && v.stackSummary.surplus])
     === JSON.stringify([o.balanceAfterDeductions, o.balanceAfterDeductionsTrust, o.predictedEndingBalanceTerms, o.stackSummary && o.stackSummary.surplus])
     && JSON.stringify(v.stackSummary && v.stackSummary.credit && v.stackSummary.credit.totals.deduction)
     === JSON.stringify(o.stackSummary && o.stackSummary.credit && o.stackSummary.credit.totals.deduction);
 });
-ok(same && advice.payPeriodViews.length === oldAdvice.payPeriodViews.length,
+ok(sameAsMain(advice, oldAdvice),
   `Credit, Balance After Deductions (its trust and terms) and Surplus are byte-equal to main on all ${advice.payPeriodViews.length} views`);
 
 // The page: the real Stack shell, the real Credit card and the real waterfall, reading the view Forecast published (no stub,
@@ -172,13 +165,14 @@ function page(sources) {
   return { c, blocks };
 }
 const text = html => html.replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-const ctxFor = rec => ({ data: { debts: x.debts, meta: { asOf: x.asOf } }, plan: x.plan, recommendation: rec, selectedPeriodKey: view.start });
-function render(sources, rec) {
+function render(sources, rec, world = x) {
+  const sel = rec.payPeriodViews.find(v => v.role === 'active');
+  const ctx = { data: { debts: world.debts, meta: { asOf: world.asOf } }, plan: world.plan, recommendation: rec, selectedPeriodKey: sel.start };
   const { c, blocks } = page(sources);
   const el = () => ({ innerHTML: '', addEventListener: () => {}, querySelector: () => null });
-  const card = el(); blocks.credit(card, ctxFor(rec));
+  const card = el(); blocks.credit(card, ctx);
   const W = c.StackWaterfall || null;
-  const wf = W && typeof W.html === 'function' ? W.html(ctxFor(rec), { creditOpen: true }) : (() => { const e = el(); blocks.waterfall(e, ctxFor(rec)); return e.innerHTML; })();
+  const wf = W && typeof W.html === 'function' ? W.html(ctx, { creditOpen: true }) : (() => { const e = el(); blocks.waterfall(e, ctx); return e.innerHTML; })();
   return { card: card.innerHTML, wf };
 }
 const live = render(read, advice);
@@ -186,9 +180,8 @@ const items = html => (html.match(/<li class="wf-card[^"]*"[^>]*>[\s\S]*?<\/li>/
 const dropRows = items(live.wf);
 ok(dropRows[0] === 'Still to pay back on each card', 'the dropdown opens with its plain caption (lead, 2026-11-24)', JSON.stringify(dropRows));
 const travelRow = dropRows.find(r => /\$136\b/.test(r)), countedRow = dropRows.find(r => /^Already counted above/.test(r));
-ok(!!travelRow && countedRow === 'Already counted above −$379', 'the dropdown prints Travel\'s 136 still to pay back and "Already counted above −$379" (−378.95), never the plug\'s −$350',
+ok(!!travelRow && countedRow === 'Already counted above −$344', 'the dropdown prints Travel\'s 136 still to pay back and "Already counted above −$344" (−343.95)',
   JSON.stringify(dropRows));
-ok(!/\$350\b/.test(live.wf), 'the catch-all offset (−350.20) appears nowhere on the page');
 const cardRows = (live.card.match(/<li>[\s\S]*?<\/li>/g) || []).map(text);
 const travelCard = cardRows.find(r => /\/ \$236\b/.test(r)), cashCard = cardRows.find(r => /\/ \$114\b/.test(r));
 ok(!!travelCard && /\+\$100 \/ \$236/.test(travelCard) && !!cashCard && /\+\$250 \/ \$114/.test(cashCard),
@@ -197,13 +190,50 @@ const rowHtml = id => (live.card.match(new RegExp('<li><button class="stack-cred
 ok(/stack-credit-x is-good"/.test(rowHtml('cashback')) && !/is-good/.test(rowHtml('travelvisa')),
   'green only where paid back reached the target: Cash Back green, Travel plain', '');
 ok(!/stack-est|≈|estimated/i.test(live.card + live.wf), 'no estimate styling or words anywhere (OD-034), though these figures are estimated inside Forecast');
-// Main printed the targets in the dropdown and the catch-all offset: the same page scripts on main's engine and page.
+// Main printed each card at its target in the dropdown: the same page scripts on main's engine and page.
 const mainPage = render(show, oldAdvice);
 const creditLine = html => (/<li class="wf-line wf-credit[\s\S]*?<\/button>/.exec(html) || [''])[0];
 ok(creditLine(live.wf) !== '' && creditLine(live.wf) === creditLine(mainPage.wf),
-  'the Credit line itself prints exactly as on main (here withheld with the remainder, as main withholds it)', text(creditLine(live.wf)));
-ok(/Already counted above −\$350/.test(text(mainPage.wf)) && /\$236\b/.test(text(mainPage.wf)),
-  'control: main\'s page printed Travel at its 236 target and "Already counted above −$350" (the plug)', text(mainPage.wf).slice(0, 200));
+  'the Credit line itself prints exactly as on main', text(creditLine(live.wf)));
+ok(/\$236\b/.test(text(mainPage.wf)) && !/\$136\b/.test(text(mainPage.wf)), 'control: main\'s dropdown printed Travel at its 236 target, not what is still owed',
+  text(mainPage.wf).slice(0, 200));
+
+console.log('2a. Through recommend and the real page: a world where the old catch-all offset and the honest row differ');
+// After #1618 no card credit nets as a refund, so the refund floor cannot hide in the row; the beyond-minimum netting can. The
+// invented card-coverage world (fixtures/card-coverage-aggregate-world): a manual pay-down-only card, 200.00 over its limit,
+// with its 25.00 minimum due and a posted 60.00 payment from the bills account (35.00 beyond the minimum). By hand: target
+// max(25.00, new charges withheld, 200.00) = 200.00; nothing counted above (its charges are not seen); due 200.00; netted
+// min(35.00, 200.00 − 25.00) = 35.00; deduction 165.00. Honest "Already counted above" = 0 (nothing was counted above), so
+// the row is not printed. Main's catch-all offset = 200.00 − 165.00 = 35.00, printed as "Already counted above −$35".
+const OVER = (() => {
+  const { world } = require('./fixtures/card-coverage-aggregate-world');
+  const Live = require('../scripts/live-plan');
+  const w = world([['bills', 60, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }]], { card: 'mbna', payDownOnly: ['mbna', 'triangle'],
+    edit: y => { y.payload.accounts[3].last_fetch = y.asOf + 'T17:00:00Z'; y.payload.accounts[3].plaid_last_successful_update = y.asOf + 'T17:00:00Z';
+      const debt = y.data.debts.find(d => d.id === 'mbna'); debt.balance = (debt.limit || 1000) + 200; y.payload.accounts[3].balance = debt.balance; } });
+  const o = Live.fromObservation(w); const ov = o.data.liveOverlay;
+  const args = [o.data.plan, w.asOf, { debts: o.data.debts, currentPeriodActuals: ov.currentPeriodActuals,
+    cardPeriodBalanceEvidence: ov.cardPeriodBalanceEvidence, cardLiveOverlay: { applied: true, overlays: ov.overlays } }];
+  return { args, world: { debts: o.data.debts, asOf: w.asOf, plan: o.data.plan } };
+})();
+let overAdvice;
+{
+  overAdvice = F.recommend(...OVER.args);
+  const oldOver = OLD.recommend(...OVER.args);
+  const v = overAdvice.payPeriodViews.find(p => p.role === 'active'), ov = oldOver.payPeriodViews.find(p => p.role === 'active');
+  const m = v.stackSummary.credit.lines.find(l => l.id === 'mbna');
+  ok(cents(m.target.amount) === 20000 && cents(m.deduction.amount) === 16500 && cents(m.deduction.beyondNetted) === 3500 && m.deduction.alreadyCounted === null
+    && cents(m.stillToPayBack.amount) === 20000, 'the card: target 200.00, 35.00 beyond netted, deduction 165.00, nothing counted above, 200.00 still to pay back',
+    JSON.stringify([m.target.amount, m.deduction, m.stillToPayBack]));
+  ok(v.stackSummary.creditBreakdown.alreadyCounted.amount === 0 && cents(ov.stackSummary.creditBreakdown.alreadyCounted.amount) === -3500,
+    'the honest row is 0 (nothing counted above); main\'s catch-all offset was −35.00 (the netted payment, under the wrong name)',
+    JSON.stringify([v.stackSummary.creditBreakdown.alreadyCounted, ov.stackSummary.creditBreakdown.alreadyCounted]));
+  ok(cents(v.stackSummary.creditBreakdown.total) === 16500 && sameAsMain(overAdvice, oldOver), 'Credit 165.00, and Credit, BAD and Surplus are byte-equal to main on every view');
+  const pg = render(read, overAdvice, OVER.world), mpg = render(show, oldOver, OVER.world);
+  ok(!/Already counted above/.test(text(pg.wf)) && /\$200\b/.test(text(pg.wf)) && /Still to pay back on each card/.test(text(pg.wf)),
+    'the page: the caption and the card\'s 200 still to pay back; no "Already counted above" row, since nothing was counted above', JSON.stringify(items(pg.wf)));
+  ok(/Already counted above −\$35/.test(text(mpg.wf)), 'control: main\'s page printed "Already counted above −$35" for a payment, not a counted charge', text(mpg.wf).slice(0, 240));
+}
 
 console.log('2b. A posted payment row that debits the card (ChatGPT, #1617 7120269248): Paid back withheld, never negative');
 // The same invented card week, with Travel's posted 100.00 payment flipped from a credit to a debit, its explicit payment hint
@@ -293,9 +323,9 @@ console.log('3. Mutants: each must fail a check above');
     "alreadyCounted: { amount: -(rows.reduce((sum, row) => sum + stackCents(lines.find(l => String(l.id) === String(row.debtId)) ? lines.find(l => String(l.id) === String(row.debtId)).target.amount : row.amount), 0) - entry.creditCents) / 100 || 0,");
   ok(plugMutant !== src, 'the plug mutant targets the already-counted row');
   const PF = engine(file => (file === 'public/forecast.js' ? plugMutant : read(file)));
-  const pv = PF.recommend(x.plan, x.asOf, opts).payPeriodViews.find(v => v.role === 'active');
-  ok(cents(pv.stackSummary.creditBreakdown.alreadyCounted.amount) === -35020 && cents(pv.stackSummary.creditBreakdown.alreadyCounted.amount) !== -37895,
-    'MUTANT: the catch-all offset restored prints −350.20, which section 2 rejects');
+  const pv = PF.recommend(...OVER.args).payPeriodViews.find(v => v.role === 'active');
+  ok(cents(pv.stackSummary.creditBreakdown.alreadyCounted.amount) === -3500,
+    'MUTANT: the catch-all offset restored prints −35.00 in the 2a world, which section 2a rejects');
   const cp2 = read('public/forecast-card-period.js');
   const pendingMutant = cp2.replace('const paidToward = paidTowardOf(card, published(card.id));',
     'const paidToward = card.paid.amount !== null ? { amount: card.paid.amount, trust: card.paid.trust, reasons: [] } : paidTowardOf(card, published(card.id));');
