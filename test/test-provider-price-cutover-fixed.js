@@ -14,15 +14,18 @@ const JUNE = '2026-06-01';
 const payments = ['2026-06-05', '2026-07-05', '2026-08-05', '2026-09-05', '2026-10-05'];
 
 function observationInput(dates, { from = JUNE, amounts = [], complete = true, id = 'studio', day = 5,
-  asOf = AS_OF, historyStart = '2026-03-28' } = {}) {
+  asOf = AS_OF, historyStart = '2026-03-28', originalPrice = 70, confidence = 'estimated', firstMonth = '2026-01',
+  noPaymentRequiredOn } = {}) {
   const w = H.baseWorld(asOf);
+  if (w.windowStart > asOf) w.windowStart = asOf.slice(0, 8) + '01';
   const payee = 'Invented ' + id;
   const dayOfMonth = String(day).padStart(2, '0');
-  const firstDue = '2026-01-' + dayOfMonth;
-  w.bills = [{ id, label: payee, payee, frequency: 'monthly', day, firstDue, amount: 70, confidence: 'estimated', payingAccount: 'chequing-a',
+  const firstDue = firstMonth + '-' + dayOfMonth;
+  w.bills = [{ id, label: payee, payee, frequency: 'monthly', day, firstDue, amount: originalPrice, confidence, payingAccount: 'chequing-a',
+    ...(noPaymentRequiredOn ? { noPaymentRequiredOn } : {}),
     ...(from ? { rule: { lunchMoneyRecurringIds: [ITEM_ID], linkedFrom: from } } : {}) }];
   w.amountHistory = { startDate: historyStart, coverage: { complete }, transactions: dates.map((date, i) =>
-    H.lm({ date, payee, account: 'chequing-a', amount: amounts[i] ?? (from ? 93 : 70) })) };
+    H.lm({ date, payee, account: 'chequing-a', amount: amounts[i] ?? (from ? 93 : originalPrice) })) };
   H.productionOpening(w);
   const data = H.canonicalOf(w, H.planOf(w));
   const payload = H.rawPayload(w);
@@ -40,16 +43,16 @@ function observationInput(dates, { from = JUNE, amounts = [], complete = true, i
 
 function check(label, dates, options) {
   test(label, () => {
-    const { id = 'studio', from = JUNE, complete = true, fixed } = options;
+    const { id = 'studio', from = JUNE, complete = true, fixed, originalPrice = 70, confidence = 'estimated' } = options;
     const input = observationInput(dates, options);
     const result = Live.fromObservation(input);
     assert.ifError(result.error);
     const bill = result.data.plan.bills.find(b => b.id === id);
     const report = result.report.derivedAmountFixed;
-    assert.equal(input.data.plan.bills[0].amount, 70, 'original plan price');
-    assert.equal(bill.confidence, 'estimated', 'amount confidence');
-    assert.equal(bill.amount, from ? 93 : 70, 'served price');
-    assert.deepEqual(bill.providerPriceCutover, from ? { from, amountBefore: 70 } : undefined, 'served cutover');
+    assert.equal(input.data.plan.bills[0].amount, originalPrice, 'original plan price');
+    assert.equal(bill.confidence, confidence, 'amount confidence');
+    assert.equal(bill.amount, from ? 93 : originalPrice, 'served price');
+    assert.deepEqual(bill.providerPriceCutover, from ? { from, amountBefore: originalPrice } : undefined, 'served cutover');
     assert.equal(report.status, complete ? 'complete' : 'unavailable', 'history status');
     assert.deepEqual({ billIds: report.billIds, amountFixed: bill.amountFixed },
       { billIds: fixed ? [id] : [], amountFixed: fixed ? true : undefined });
@@ -57,6 +60,12 @@ function check(label, dates, options) {
 }
 
 check('June–September completed at provider price, October is current', payments, { fixed: true });
+const aprilThroughJuly = ['2026-04-05', '2026-05-05', '2026-06-05', '2026-07-05'];
+for (const originalPrice of [null, 0, 70]) {
+  check('April and May cannot qualify the June price when the original price was ' + originalPrice,
+    aprilThroughJuly, { originalPrice, confidence: 'confirmed', asOf: '2026-07-14', historyStart: '2025-12-27', fixed: false });
+}
+check('unknown original price with four completed post-cutover occurrences', payments, { originalPrice: null, confidence: 'confirmed', fixed: true });
 check('one completed payment before June at the same provider price', ['2026-05-05', ...payments], { fixed: false });
 const firstOfMonth = [JUNE, '2026-07-01', '2026-08-01', '2026-09-01', '2026-10-01'];
 check('an occurrence due on the cutover date is eligible', firstOfMonth, { day: 1, fixed: true });
@@ -67,6 +76,12 @@ check('May 30 gym payment posted on June 1 still belongs to the old price',
   { id: 'gym', day: 30, asOf: '2026-09-05', historyStart: '2026-02-17', fixed: false });
 check('a June 20 payment equidistant from June 5 and July 5 cannot establish a fixed price',
   ['2026-06-20', ...payments.slice(1)], { fixed: false });
+check('two separate debits for August 5 still represent just one occurrence', ['2026-08-05', '2026-08-06', '2026-09-05'],
+  { fixed: false });
+check('June 12 cannot settle a first occurrence on July 5', ['2026-06-12', '2026-08-05', '2026-09-05'],
+  { firstMonth: '2026-07', fixed: false });
+check('a payment on a waived July 5 cannot count toward three payable occurrences', payments.slice(1),
+  { noPaymentRequiredOn: ['2026-07-05'], fixed: false });
 check('prior price outside latest six completed payments', ['2026-03-30', '2026-04-05', '2026-05-05', ...payments],
   { from: '2026-04-01', amounts: [70], fixed: true });
 check('complete but empty history', [], { fixed: false });

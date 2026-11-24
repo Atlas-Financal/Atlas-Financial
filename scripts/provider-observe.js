@@ -5980,8 +5980,15 @@ function derivedAmountFixedBills(history, opts) {
     // is the settlement D2 is reading, possibly a partial one, so it never
     // decides whether the price is fixed. Each payment belongs to its nearest
     // scheduled occurrence; with no resolvable schedule the bill is not fixed.
-    const occ = scheduledEventsOnRange(plan, Forecast.addDays(window.startDate, -interval), Forecast.addDays(end, interval))
-      .filter(e => e && e.id === id).map(e => e.date).filter((d, i, all) => all.indexOf(d) === i).sort();
+    const cut = bill.providerPriceCutover;
+    if (cut !== undefined && (kind !== 'bill' || !realIsoDay(cut?.from))) continue;
+    const start = Forecast.addDays(window.startDate, -interval);
+    const through = Forecast.addDays(end, interval);
+    const payableDates = new Set(scheduledEventsOnRange(plan, start, through)
+      .filter(e => e.id === id && (cut === undefined || e.kind === 'bill')).map(e => e.date));
+    if (!payableDates.size) continue;
+    // A missing or zero earlier price suppresses a cash event, but its due date still owns its payment.
+    const occ = cut === undefined ? [...payableDates].sort() : Forecast.occurrences(bill, start, through);
     const current = occ.filter(d => d <= end).pop();
     if (!current) continue;
     const completed = [];
@@ -5999,15 +6006,17 @@ function derivedAmountFixedBills(history, opts) {
           tied = true;
         }
       }
-      // The existing completion rule uses the earlier date on a tie. A tie cannot establish a price period.
-      if (due < current) completed.push({ ...row, due: tied ? null : due });
+      if (due < current) {
+        // An uncertain assignment or a waived occurrence cannot establish a cutover price.
+        const resolved = !tied && closest <= interval / 2 && payableDates.has(due);
+        completed.push({ ...row, due: resolved ? due : null });
+      }
     }
     if (completed.length < AMOUNT_FIXED_MIN_COUNT) continue;
     const sample = completed.slice(-AMOUNT_FIXED_SAMPLE);
     // Forecast prices the scheduled occurrence. A late posting for an earlier occurrence still belongs to its old price.
-    const cut = bill.providerPriceCutover;
-    if (cut !== undefined && (kind !== 'bill' || !realIsoDay(cut?.from)
-      || sample.some(row => !row.due || row.due < cut.from))) continue;
+    if (cut !== undefined && (sample.some(row => !row.due || row.due < cut.from)
+      || new Set(sample.map(row => row.due)).size !== sample.length)) continue;
     if (!sample.every(row => row.cents === plannedCents)) continue;
     if (Forecast.diffDays(sample[sample.length - 1].date, end) > 2 * interval) continue;
     (kind === 'obligation' ? out.obligationIds : out.billIds).push(id);
