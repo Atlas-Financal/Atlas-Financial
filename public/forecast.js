@@ -13255,6 +13255,7 @@
       }
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result),
+          billsAccount: stackBillsAccount(view),
           credit: cardCredit ? cardCredit.credit : null, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
     }
     return result;
@@ -13614,6 +13615,51 @@
   // income class, or a split that does not sum withholds every line: never
   // guessed, never zero.
   const STACK_INCOME_LINE = Object.freeze({ dale: 'dale', amanda: 'amanda', other: 'other', named: 'other' });
+  // The Bills account stack card (lead dispatch 2026-11-24, task 24). Forecast's projection of the active pay period's
+  // billsAccountPeriodBalance for that card: nothing is calculated here, every amount is one the publication already
+  // holds. The page prints these fields as given.
+  //   now          the Bills reading (observedCash and its date), or null with the reason when the reading is missing,
+  //                misaligned or the current plan is untrusted (stale);
+  //   comingIn     income still to land in Bills this period, as counted in the close;
+  //   comingOut    the Bills bills and other Bills outflows still to go out, as counted in the close ('late' past due);
+  //   householdToMove  the Household budget still to move out of Bills (household.remaining);
+  //   alreadyOut   Bills bills already settled this period, with the bill's own counted amount and paid check.
+  // The lists are published only when the close itself is ready: a withheld close may have left an occurrence out.
+  const BILLS_READING_ISSUES = new Set(['bills-cash-unavailable', 'cash-observation-misaligned', 'operating-plan-unavailable']);
+  function stackBillsAccount(view) {
+    const pub = view && view.billsAccountPeriodBalance;
+    if (view.role !== 'active' || !pub || pub.source !== 'Forecast.billsAccountPeriodBalance'
+      || pub.accountId !== BILLS_ACCOUNT_ID) return null;
+    const finite = value => typeof value === 'number' && Number.isFinite(value);
+    const readingIssue = (pub.issues || []).find(row => row && BILLS_READING_ISSUES.has(row.code));
+    const now = !readingIssue && finite(pub.observedCash) && pub.observedAsOf
+      ? { amount: pub.observedCash, asOf: pub.observedAsOf, trust: 'estimated', reason: null }
+      : { amount: null, asOf: null, trust: 'unavailable',
+        reason: readingIssue ? readingIssue.message : 'A dated posted Bills account balance is unavailable.' };
+    const ready = pub.status === 'ready' && Array.isArray(pub.items);
+    const reason = ready ? null : pub.reason || 'The Bills account lines are unavailable.';
+    const rows = new Map((Array.isArray(view.bills) ? view.bills : []).filter(row => row && row.id && row.date)
+      .map(row => [row.id + '@' + row.date, row]));
+    const line = item => ({ id: item.id, label: item.label, date: item.date, amount: item.amount, trust: item.trust,
+      billRow: item.kind === 'bill' && rows.has(item.id + '@' + item.date) });
+    // Each list in date order (then name), as the card reads it.
+    const items = ready ? pub.items.slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
+      || String(a.label || '').localeCompare(String(b.label || ''))) : [];
+    const household = pub.household || {};
+    return { status: ready ? 'ready' : 'unavailable', reason, now,
+      comingIn: ready ? items.filter(item => item.kind === 'income').map(line) : null,
+      comingOut: ready ? items.filter(item => item.kind === 'bill' || item.kind === 'other')
+        .map(item => ({ ...line(item), status: item.status })) : null,
+      householdToMove: ready && finite(household.remaining) ? { amount: household.remaining, trust: household.trust || 'estimated' }
+        : { amount: null, trust: 'unavailable' },
+      alreadyOut: ready ? items.filter(item => item.kind === 'settled').map(item => {
+        const row = rows.get(item.id + '@' + item.date);
+        const amount = row && finite(row.stackBillAmount) ? row.stackBillAmount : null;
+        return { id: item.id, label: item.label, date: item.date, amount,
+          trust: amount == null ? 'unavailable' : row.stackBillAmountTrust || 'estimated',
+          paid: !!row && row.stackBillPaid === true, billRow: !!row };
+      }) : null };
+  }
   function stackIncome(view) {
     const total = view.incomeTotal;
     const withheld = reason => ({ dale: { amount: null, trust: 'unavailable', reason },
@@ -15986,7 +16032,11 @@
       ? roundCent(Math.max(0, coverage.reservedCash - categoryCardCash)) : coverage.status === 'incumbent' ? 0 : null;
     let futureIncome = 0, remainingBills = 0, otherOutflows = 0;
     const futureCashKeys = new Set(), evidence = [], coveredMinimums = [];
-    const addCash = (key, amount, kind, source) => {
+    // The Bills account stack card (lead dispatch 2026-11-24): each counted occurrence, named and dated, exactly as
+    // it enters the close above (the same amount, kind and Bills scope), plus the Bills bills already settled this
+    // period. Display only: the close reads none of it.
+    const items = [];
+    const addCash = (key, amount, kind, source, item) => {
       if (futureCashKeys.has(key)) { issue('future-cash-identity-reused', 'A remaining cash occurrence is duplicated.'); return; }
       futureCashKeys.add(key);
       if (!finite(amount) || amount < 0) { issue('remaining-cash-unknown', 'A remaining cash requirement is unknown.'); return; }
@@ -15994,6 +16044,8 @@
       else if (kind === 'bill') remainingBills = roundCent(remainingBills + amount);
       else otherOutflows = roundCent(otherOutflows + amount);
       evidence.push({ kind, amount, source });
+      if (item) items.push({ id: item.id || null, kind, label: item.label || null, date: item.date || null, amount,
+        status: kind === 'income' ? 'due' : item.date && item.date < day ? 'late' : 'due', trust: 'estimated' });
     };
     // The calendar owns joint household costs, not an account's stock.
     // An explicit other cash payer does not imply a new Bills transfer.
@@ -16105,12 +16157,17 @@
         // D2: a fixed bill paid in part is represented for its paid part only;
         // its remainder is still cash Bills must hold.
         if ((row.settlement === 'represented' && !feeAllowance && !Object.hasOwn(row, 'additionalCashRequired')
-          && row.partlyPaidRemainder !== true) || row.settlement === 'opening') continue;
+          && row.partlyPaidRemainder !== true) || row.settlement === 'opening') {
+          // Already out of Bills this period: the bill's own settled occurrence, in the same Bills scope.
+          if (row.settlement === 'represented' && row.id && row.date && billsCashScope(row))
+            items.push({ id: row.id, kind: 'settled', label: row.label || null, date: row.date, amount: null, status: 'settled', trust: null });
+          continue;
+        }
         if (amount !== 0 && !billsCashScope(row)) continue;
         if (!['confirmed', 'estimated'].includes(row.confidence) && amount !== 0) {
           issue('remaining-cash-unknown', 'The confidence of a remaining bill cash requirement is unknown.'); continue;
         }
-        addCash((row.occurrenceKey || row.id + '@' + row.date), amount, 'bill', 'Forecast.calendarBillSections');
+        addCash((row.occurrenceKey || row.id + '@' + row.date), amount, 'bill', 'Forecast.calendarBillSections', row);
       }
       const events = expandEvents(plan, day, cycle.end, opts);
       const representedIncome = representedKeySet(plan, opts, day);
@@ -16131,12 +16188,12 @@
           if (!['confirmed', 'estimated'].includes(event.confidence)) {
             issue('income-unavailable', 'A future income amount is not qualified by the existing plan.'); continue;
           }
-          addCash(event.id + '@' + event.date, event.amount, 'income', 'Forecast.expandEvents');
+          addCash(event.id + '@' + event.date, event.amount, 'income', 'Forecast.expandEvents', event);
         } else if (['commitment', 'reserve'].includes(event.kind) && event.jointCash !== false) {
           const amount = -operatingEventAmount(event);
           if (event.kind === 'commitment' && amount !== 0
             && !billsCashScope((plan.commitments || []).find(row => row.id === event.id) || event)) continue;
-          if (amount > 0) addCash(event.id + '@' + event.date, amount, 'other', 'Forecast.expandEvents');
+          if (amount > 0) addCash(event.id + '@' + event.date, amount, 'other', 'Forecast.expandEvents', event);
         }
       }
     }
@@ -16154,7 +16211,7 @@
       accountAssumption: 'Unassigned household outflows follow the owner\'s Bills funding anchor. Explicit other cash payers do not imply a Bills transfer.'
         + ((plan.bills || []).some(b => billFundingAccount(b, plan))
           ? ' Explicit bill fundingAccount attributes the individual planned funding requirement to Bills; merchant payment remains held elsewhere.' : ''),
-      issues, reason: issues.length ? issues[0].message : null, evidence,
+      issues, reason: issues.length ? issues[0].message : null, evidence, items,
       provenance: ['Forecast.postedBillsAccountCash', 'Forecast.postedAccountMovements', 'Forecast.householdInternalMovements',
         'Forecast.calendarHouseholdBudget', 'Forecast.reconcileCardPurchases', 'Forecast.cardMinimumState', 'Forecast.expandEvents'],
       grantsSpendPermission: false };

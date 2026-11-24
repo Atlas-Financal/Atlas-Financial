@@ -20,7 +20,9 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
-    forecast: '74354fb84cc96226432a9ebbe74046e5537825149ab07b53ac7648d87e671f51',
+    // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
+    // and billsAccountPeriodBalance adds its items list (display only); removing those two reproduces the previous digest.
+    forecast: '0e9a5798cbe99c4059f628f67bc6b978d3328820fb1e4ce31d69728add90cc0d',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -31,7 +33,9 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
-    forecast: '1e16f48cea779c0dc153fe08b81b7c516cfbd80d822ec01d6113f0cf1bf09fcb',
+    // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
+    // and billsAccountPeriodBalance adds its items list (display only); removing those two reproduces the previous digest.
+    forecast: '3cee41259e6253c659fd910f83eff8092f39beeef29da48687daaa134dde9b27',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -42,7 +46,9 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
-    forecast: 'a4271c92771a20a8f2f73ed73bfccf84466cb6cb10855629cb7c055b705fbcc2',
+    // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
+    // and billsAccountPeriodBalance adds its items list (display only); removing those two reproduces the previous digest.
+    forecast: '9af0479af7b53a96aaeddcdd994c077dd9e1a53bb21ef39de6f2df9b438d3427',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
