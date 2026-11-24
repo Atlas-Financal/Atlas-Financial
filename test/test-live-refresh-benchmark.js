@@ -20,9 +20,11 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
+    // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
+    // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '62dbf635348951c0a2354a0bad1011cf99db6af1351daeb769cb94d81e5b2eec',
+    forecast: '2ccdc073a097bd9d0a4e9f761402e823872fd8381efde4585541fa1ea7af0f61',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -33,9 +35,11 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
+    // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
+    // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '491fdc2701d8017c17d37c7c56ee9a4744d82b7f0bf86db12e99c763302ac2c2',
+    forecast: '39493c4d83563ec16a1ad86d660e0664eb5ca35d7f104dfc56b2a39c7839d896',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -46,9 +50,11 @@ const snapshots = {
     // Still to pay back (display only); the data publication, Credit, Balance After Deductions and Surplus are unchanged.
     // Re-pinned for ChatGPT's #1617 blocker (7120269248): each Credit line adds paidBack (paidToward qualified for display);
     // removing paidBack from the output reproduces the previous digest exactly, so nothing else moved.
+    // Re-pinned for Dale's removal of the "Already counted above" row (#1617 7121410691): main b2a821eb's output with only
+    // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '36ccbc99e7ccc98860d95b595c2712b7d35219d51802ca76a0a3dad31bbbfc83',
+    forecast: 'b8a8fb7b0370f115cf91e72416fa4b70c7cc1f1b93ef9f28513a9d91604c1668',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

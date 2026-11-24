@@ -13547,35 +13547,28 @@
   // withheld (amount null, trust 'unavailable').
   // The waterfall's Credit dropdown (OD-033; desk ruling (1), Plan #6; lead, 2026-11-24): display only. One row per card
   // with a target above $0, at its Still to pay back (target − paid back, the line's published stillToPayBack: unknown is
-  // null, never $0); a card minimum with no line at that minimum; and one "Already counted above" row, the sum of each
-  // line's alreadyCounted: exactly that card's charges the Household budget hold, the bills and the item term already
-  // deduct (Grok Bot's condition 2), never a catch-all offset. The rows do not add up to the Credit line, and nothing here
-  // claims they do: `total` is (E)'s Credit deduction, Σ each line's deduction, unchanged. A card whose counted charges are
-  // withheld adds nothing to the row (its deduction took none of them either) and makes the row estimated. Null where the Credit term is the minimums (a completed or saved period, or no
-  // card evidence): the dropdown then lists the minimums, as before.
+  // null, never $0), and a card minimum with no line at that minimum. No "Already counted above" row (Dale, 2026-11-24,
+  // #1617 7121410691: "i dont need this red circled line"); each line's own deduction still carries its alreadyCounted.
+  // The rows do not add up to the Credit line, and nothing here claims they do: `total` is (E)'s Credit deduction, Σ each
+  // line's deduction, unchanged. Null where the Credit term is the minimums (a completed or saved period, or no card
+  // evidence): the dropdown then lists the minimums, as before.
   function stackCreditBreakdown(entry, bills) {
     if (!entry || !entry.adjusts || !Number.isSafeInteger(entry.creditCents) || !entry.credit) return null;
     const lines = entry.credit.lines;
     const minimums = bills && Array.isArray(bills.cardMinimums) ? bills.cardMinimums : [];
     const lineIds = new Set(lines.map(line => String(line.id)));
     const rows = [];
-    let countedCents = 0, countedUnknown = false;
     for (const line of lines) {
       if (line.target.amount === null) return null;
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
       if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
-      const counted = line.deduction ? line.deduction.alreadyCounted : null;
-      if (counted === null || counted === undefined) countedUnknown = true;
-      else countedCents += stackCents(counted);
     }
     for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
     }
     const RANK = { calculated: 0, estimated: 1, unavailable: 2 };
     const trust = [(bills && bills.trust) || 'calculated', entry.trust || 'calculated'].reduce((worst, t) => (RANK[t] ?? 2) > (RANK[worst] ?? 2) ? t : worst, 'calculated');
-    return { rows,
-      alreadyCounted: { amount: countedCents ? -countedCents / 100 : 0, trust: countedUnknown ? 'estimated' : entry.trust || 'calculated' },
-      total: entry.creditCents / 100, trust };
+    return { rows, total: entry.creditCents / 100, trust };
   }
   const STACK_SURPLUS_UNAVAILABLE = 'Surplus after deductions is unavailable: a term it sums (income, a bills part or the Household budget) is withheld for this period.';
   function stackSurplus(view, bills) {
