@@ -41,20 +41,24 @@ function world(asOf, rows) {
 async function render(asOf, rows, editPacket) {
   const data = world(asOf, rows);
   if (editPacket) editPacket(data.liveOverlay.currentPeriodActuals, data.plan);
+  return renderWorld(data);
+}
+
+async function renderWorld(data) {
   const page = await loadStackPage({ data });
   assert.equal(page.status(), 'rendered');
   const ctx = page.context();
   const view = ctx.recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
   assert.equal(view.timelineRole, 'current');
-  return { credit: view.stackSummary.credit, card: page.blockHtml('credit'),
+  return { period: { start: view.start, end: view.end }, credit: view.stackSummary.credit, card: page.blockHtml('credit'),
     sheet: id => page.sandbox.StackSheet.html(ctx, 'card:' + id) };
 }
 
 const plain = html => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
-function checkPayment(page, amount, trust, reason) {
+function checkPayment(page, amount, trust, reason, cardId = 'travelvisa') {
   const { credit } = page;
-  const line = credit.lines.find(item => item.id === 'travelvisa');
+  const line = credit.lines.find(item => item.id === cardId);
   for (const figure of [line.paidToward, line.paidBack, credit.totals.minimumsPaid]) {
     assert.equal(figure.amount, amount, 'paid toward, Paid back and the head use the single paying-side amount');
     assert.equal(figure.trust, trust);
@@ -68,7 +72,7 @@ function checkPayment(page, amount, trust, reason) {
   const covered = amount >= 20;
   assert.equal(line.minimumCovered.value, covered);
   assert.equal(credit.totals.minimumsCoveredCount, Number(covered));
-  const row = page.card.match(/<li><button[^>]*data-stack-sheet="card:travelvisa"[\s\S]*?<\/li>/)?.[0];
+  const row = page.card.split('<li>').find(item => item.includes('data-stack-sheet="card:' + cardId + '"'))?.split('</li>')[0];
   assert.ok(row, 'the selected card appears on the rendered Credit page');
   assert.equal(row.includes('aria-label="Minimum covered'), covered);
   const paid = row.match(/<span class="stack-credit-x[^"]*"[^>]*>([^<]+)<\/span>/)?.[1];
@@ -76,7 +80,7 @@ function checkPayment(page, amount, trust, reason) {
   const head = page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)?.[1];
   assert.ok(head, 'the Credit head has a published amount');
   assert.equal(plain(head), '$' + amount + ' / $20');
-  assert.match(plain(page.sheet('travelvisa')), new RegExp('Paid back [+$−]*' + amount + '(?![\\d.])'));
+  assert.match(plain(page.sheet(cardId)), new RegExp('Paid back [+$−]*' + amount + '(?![\\d.])'));
 }
 
 test('a ledger-named paying transfer pays its own card before the issuer posts and exactly once afterwards', async () => {
@@ -186,6 +190,22 @@ test('a named reserve debit pays the minimum even with no issuer sync evidence',
   });
   checkPayment(page, 43, 'calculated');
   assert.doesNotMatch(page.sheet('travelvisa'), /data-stack-unconfirmed-payments/);
+});
+
+test('a manual-statement card receives its named payment from the payer alone', async () => {
+  const data = world(FIRST, [payment('card payment: Triangle Mastercard')]);
+  const packet = data.liveOverlay.currentPeriodActuals;
+  packet.syncEvidence = packet.syncEvidence.filter(account => account.id !== 'triangle');
+  data.plan.obligations.find(item => item.debtId === 'travelvisa').debtId = 'triangle';
+
+  const page = await renderWorld(data);
+  const movements = Forecast.cardPeriodMovements(data.plan, data.debts, FIRST, page.period, data.liveOverlay);
+  const manual = movements.cards.find(card => card.id === 'triangle');
+  assert.equal(manual.manualStatement, true);
+  assert.deepEqual(manual.posted, []);
+  assert.deepEqual(manual.pending, []);
+  checkPayment(page, 43, 'calculated', null, 'triangle');
+  assert.equal(page.credit.lines.find(card => card.id === 'travelvisa').paidBack.amount, 0);
 });
 
 function checkWithheld(page, reason) {
