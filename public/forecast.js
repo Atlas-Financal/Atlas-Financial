@@ -35,7 +35,7 @@
     const util = facilities && Array.isArray(facilities.debts)
       ? utilisation(facilities.debts, facilities.extra, facilities.plan) : null;
     return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null,
-      beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined, facilities && facilities.debts);
+      beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined, facilities && facilities.debts, retainedOverLimitBy);
   }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
@@ -1242,6 +1242,8 @@
     if (unknownPending && !(used > limit)) return null;
     return Math.max(0, used - limit);
   }
+  // Credit coverage alone can read the last numeric pending retained by the live plan after a failed observation.
+  const retainedOverLimitBy = debt => publishedOverLimitBy(debt.limit, openingBalance(debt), false);
 
   // Live cash balances live on `plan.startingCash.breakdown` /
   // `heldElsewhere`. The published opening total, the matching `assets[]`
@@ -15778,7 +15780,7 @@
       if (row && row.account != null && c != null && c > 0) beyond.set(String(row.account), (beyond.get(String(row.account)) || 0) + c);
     }
     const util = utilisation(debts, opts.extraFacilities || opts.revolvingExtra, plan);
-    const credit = CardPeriodMovement.stackCreditLines(publication, split, util ? util.rows : null, beyond, debts);
+    const credit = CardPeriodMovement.stackCreditLines(publication, split, util ? util.rows : null, beyond, debts, retainedOverLimitBy);
     if (!credit) return null;
     if (!minimums) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
     const lineIds = new Set(credit.lines.map(line => String(line.id)));

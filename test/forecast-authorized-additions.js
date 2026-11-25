@@ -146,15 +146,15 @@ function proveStackSurplus(view, surplus, bills) {
 
 // stackSummary.credit (desk ruling (E), #1573): the view's one card-target publication (Forecast.stackCreditLines), each line
 // with its target and its deduction; creditBreakdown: the waterfall's Credit rows, proved to sum to the credit term.
-function proveStackCredit(view, credit, breakdown, surplus) {
+function proveStackCredit(view, credit, breakdown, surplus, facilities) {
   if (credit !== null) {
     assert.ok(credit && Array.isArray(credit.lines) && credit.totals, 'authorized addition: stackSummary.credit lists lines and totals');
     for (const line of credit.lines) {
       assert.ok(line.target && line.deduction, 'authorized addition: each Credit line carries its target and deduction');
       if (line.deduction.amount !== null) assert.ok(line.deduction.amount >= 0, 'authorized addition: a deduction is never negative');
       else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
-      // OD-033: target coverage requires a resolved target. A spend card can independently
-      // publish its remaining scheduled minimum when its full repayment target is unresolved.
+      // An unresolved target can retain its last observed coverage at estimated trust.
+      // Its minimum-based remainder is still independent of that coverage.
       // Paid back is paidToward qualified for display: never negative (withheld instead), else paidToward itself.
       assert.ok(line.paidBack && (line.paidBack.amount === null || (line.paidBack.amount >= 0 && line.paidBack.amount === line.paidToward.amount)),
         'authorized addition: Paid back is never negative, and where published it is the line\'s paidToward');
@@ -172,11 +172,33 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       const upperBound = minimumBasis && line.minimum.amount > 0
         && (payerUnknown || line.paidBack.reasons.includes('paid-unavailable-counted-as-zero'));
       assert.equal(remaining.upperBound, upperBound ? true : undefined, 'a known positive minimum bounds what is owed when payment progress is unknown');
-      if (targetIncomplete || payerUnknown) {
-        assert.equal(line.targetCovered.value, 'unknown', 'unresolved repayment progress withholds coverage');
+      // The same target reason can mean a missing limit or an observed card with unknown pending.
+      // Check the input roster retained on the recommendation as well as the card's reported balance.
+      const matches = facilities.filter(row => row.id === line.id);
+      const rows = matches.filter(row => row.limit != null);
+      const observed = rows.length === 1 && rows[0];
+      const pendingUnknown = observed && (observed.pendingUnknown === true || observed.unknownPending === true);
+      const hasSnapshot = observed && finite(observed.limit) && finite(observed.balance) && finite(line.balance.amount)
+        && cents(observed.balance) === cents(line.balance.amount) && !line.balance.reasons.includes('balance-date-after-as-of')
+        && (!line.balance.asOf || !view.budgetProgressAsOf || line.balance.asOf <= view.budgetProgressAsOf)
+        && (pendingUnknown ? matches.length === 1 : observed.pending == null || finite(observed.pending));
+      const qualifies = hasSnapshot && line.target.trust === 'estimated' && !line.paidBack.reasons.includes('paid-unavailable-counted-as-zero');
+      if (t === null || payerUnknown || (unresolvedExposure && !qualifies)) {
+        assert.equal(line.targetCovered.value, 'unknown', 'coverage needs a computable target and payment evidence');
         assert.equal(line.targetCovered.trust, 'unavailable');
       } else {
-        assert.equal(line.targetCovered.value, cents(t) > 0 && cents(w) >= cents(t), 'authorized addition: targetCovered is paid back ≥ a target above $0');
+        // Pending marked unknown is omitted from today's target. Its last stated amount can still
+        // establish what coverage was on the earlier observation, alongside that minimum and spending.
+        const previousOver = unresolvedExposure && pendingUnknown && finite(observed.pending)
+          ? Math.max(0, cents(observed.balance) + cents(observed.pending) - cents(observed.limit)) : null;
+        const targetCents = previousOver === null ? cents(t)
+          : Math.max(cents(line.target.minimum), cents(line.target.newCharges ?? 0), previousOver);
+        assert.equal(line.targetCovered.value, targetCents > 0 && cents(w) >= targetCents, 'targetCovered compares the paid amount with the positive target on the applicable observation');
+        if (unresolvedExposure) {
+          assert.equal(line.targetCovered.trust, 'estimated', 'coverage based on an earlier observation is estimated');
+          assert.ok(line.target.reasons.filter(reason => reason.startsWith('over-limit-')).every(reason => line.targetCovered.reasons.includes(reason)),
+            'coverage names its unresolved exposure');
+        }
       }
       if (minimumBasis) {
         const noMinimum = line.minimum.reasons.includes('no-minimum-due-in-period');
@@ -314,7 +336,7 @@ function proveStackBillsAccount(view, account) {
     assert.equal(row.paid, !!bill && bill.stackBillPaid === true, 'authorized addition: Already out\'s check is the bill row\'s paid check');
   }
 }
-function withoutStackSummary(node, seen = new Set()) {
+function withoutStackSummary(node, facilities, seen = new Set()) {
   if (!node || typeof node !== 'object' || seen.has(node)) return;
   seen.add(node);
   if (Object.hasOwn(node, 'stackSummary') && Object.hasOwn(node, 'incomeTotal')) {
@@ -325,10 +347,10 @@ function withoutStackSummary(node, seen = new Set()) {
     proveStackSurplus(node, node.stackSummary.surplus, node.stackSummary.bills);
     proveStackSavings(node, node.stackSummary.savings);
     proveStackBillsAccount(node, node.stackSummary.billsAccount);
-    proveStackCredit(node, node.stackSummary.credit, node.stackSummary.creditBreakdown, node.stackSummary.surplus);
+    proveStackCredit(node, node.stackSummary.credit, node.stackSummary.creditBreakdown, node.stackSummary.surplus, facilities);
     delete node.stackSummary;
   }
-  for (const value of Object.values(node)) withoutStackSummary(value, seen);
+  for (const value of Object.values(node)) withoutStackSummary(value, facilities, seen);
 }
 
 
@@ -429,7 +451,10 @@ function proveBillHistory(advice) {
 
 function withoutAuthorizedAdditions(advice) {
   if (!advice || typeof advice !== 'object') return advice;
-  withoutStackSummary(advice);
+  const options = advice.planOptions || {};
+  const facilities = (options.debts || [])
+    .concat((options.extraFacilities || []).map(row => ({ ...row, balance: row.used })));
+  withoutStackSummary(advice, facilities);
   withoutReconMatchesSpent(advice);
   if (Object.hasOwn(advice, 'billHistory')) {
     proveBillHistory(advice);

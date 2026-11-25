@@ -9,7 +9,7 @@ const Forecast = require('../public/forecast');
 const { fixture } = require('./fixtures/stack-card-week');
 
 function runCardCase({ id = 'cashback', debt = {}, minimum = 0, payments = false, absent = false,
-  payerOnly = false, cardOnly = false, payerUnavailable = false }, engine = Forecast) {
+  payerOnly = false, cardOnly = false, payerUnavailable = false, reversal = false }, engine = Forecast) {
   const x = fixture();
   // The other cards have a proven zero exposure and complete coverage so only the test card
   // can weaken the waterfall. Income is 1000. The payment cases reserve 200 for groceries.
@@ -30,6 +30,9 @@ function runCardCase({ id = 'cashback', debt = {}, minimum = 0, payments = false
   // The fixture links a 250 payer debit to this card; it also records 114.20 in purchases.
   x.packet.transactions = x.packet.transactions.filter(tx => (payments && tx.account === id)
     || ((payerOnly || payments) && tx.id === 'cash-leg-b') || (cardOnly && tx.id === 'cashback-charge'));
+  if (reversal) x.packet.transactions.push({ id: 'unassigned-return', coverageRef: 'invented-unassigned-return',
+    atlasAccountId: 'chequing-a', accountRole: 'household-cash', date: x.asOf, amount: -37, currency: 'cad',
+    kindHint: 'payment', categoryLabel: 'Credit Card Payment', pending: false, savingsPostingEvidence: 'posted' });
   const debts = absent ? x.debts.filter(card => card.id !== id) : x.debts;
   const recommendation = engine.recommend(x.plan, x.asOf, { debts, currentPeriodActuals: x.packet,
     cardLiveOverlay: x.overlay, weeklyVariable: 0 });
@@ -65,13 +68,40 @@ function rowWith(html, attribute) {
 // leaves 400 to repay. With 600 pending on the card that received 250, 2264.20 + 600 − 2500 leaves 364.20
 // over limit; 114.20 remains to pay back. Its 114.20 purchase is already counted above the Credit line.
 const paymentWorld = { payments: true, debt: { balance: 2264.20, limit: 2500 } };
+const pendingPurchase = { balance: 2275, limit: 2500, pending: 500 };
+const pendingCredit = { balance: 2800, limit: 2500, pending: -200 };
 const cases = {
   'unknown-pending': { ...paymentWorld, debt: { ...paymentWorld.debt, pending: null, pendingUnknown: true },
-    target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0 },
+    target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0, lastCovered: true },
+  // 2275 + 500 - 2500 = 275, so 250 paid fell short. When the 500 is retained from the
+  // last pull, it qualifies coverage only. Today's target uses the 114.20 in purchases.
+  'known-pending-coverage': { payments: true, minimum: 75, debt: pendingPurchase,
+    target: 275, over: 275, still: 25, credit: 160.80, targetTrust: 'estimated', creditTrust: 'estimated' },
+  'retained-pending-coverage': { payments: true, minimum: 75, debt: { ...pendingPurchase, pendingUnknown: true },
+    target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0, minimumOwed: 0, lastCovered: false },
+  'no-retained-pending-coverage': { payments: true, minimum: 75, debt: { ...pendingPurchase, pending: null, pendingUnknown: true },
+    target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0, minimumOwed: 0, lastCovered: true },
+  // A retained pending credit gives the opposite answer: the prior overage was 100, where
+  // posted alone is 300. The 250 payment covered the prior target of 114.20.
+  'known-pending-credit': { payments: true, minimum: 75, debt: pendingCredit,
+    target: 114.20, over: 100, still: 0, covered: true, credit: 0, targetTrust: 'estimated', creditTrust: 'estimated' },
+  'retained-pending-credit': { payments: true, minimum: 75, debt: { ...pendingCredit, pendingUnknown: true },
+    target: 300, over: 300, reason: 'over-limit-pending-unknown', credit: 185.80, minimumOwed: 0, lastCovered: true },
   'pending-minimum-partial': { payments: true, minimum: 300, debt: { balance: 2914.20, limit: 2500, pending: null, pendingUnknown: true },
-    target: 414.20, over: 414.20, reason: 'over-limit-pending-unknown', credit: 300, minimumOwed: 50 },
+    target: 414.20, over: 414.20, reason: 'over-limit-pending-unknown', credit: 300, minimumOwed: 50, lastCovered: false },
   'stale-minimum-met': { payments: true, minimum: 200, debt: { balance: 4000, limit: 3700, evidenceDate: '2026-08-18' },
-    target: 300, over: 300, reason: 'over-limit-balance-estimated', credit: 185.80, minimumOwed: 0 },
+    target: 300, over: 300, reason: 'over-limit-balance-estimated', credit: 185.80, minimumOwed: 0, lastCovered: false },
+  // A last exposure alone cannot settle coverage. The payer history or an unidentified return
+  // can still leave progress unknown; the row and sheet keep the existing minimum-payment display.
+  'stale-payer-unavailable': { payerUnavailable: true, minimum: 40, debt: { evidenceDate: '2026-08-18' },
+    target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100, minimumOwed: 40, upperBound: true,
+    progressReason: 'paying-account-not-observed' },
+  'manual-payer-unavailable': { id: 'mbna', payerUnavailable: true, countedZero: true, minimum: 65, debt: { pending: null, pendingUnknown: true },
+    target: 100, over: 100, reason: 'over-limit-pending-unknown', credit: 100, minimumOwed: 65, upperBound: true,
+    progressReason: 'paid-unavailable-counted-as-zero' },
+  'pending-reversal': { ...paymentWorld, reversal: true, minimum: 75, debt: { ...paymentWorld.debt, pending: null, pendingUnknown: true },
+    target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0, minimumOwed: 75, upperBound: true,
+    progressReason: 'payment-direction-unresolved' },
   'missing-limit-minimum': { payments: true, minimum: 75, debt: { balance: 500, limit: null },
     target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0, minimumOwed: 0 },
   'unavailable-minimum': { payments: true, minimum: 'unqualified', debt: { limit: null }, chargesUnpublished: true,
@@ -82,19 +112,21 @@ const cases = {
     target: 65, over: null, reason: 'over-limit-unknown', credit: 65, minimumOwed: 65, upperBound: true },
   'resolved-minimum-control': { payments: true, minimum: 300, debt: { balance: 2914.20, limit: 2500 },
     target: 414.20, over: 414.20, still: 164.20, credit: 300, targetTrust: 'estimated', creditTrust: 'estimated' },
-  'pending-bound': { debt: { pending: null, pendingUnknown: true }, target: 100, over: 100, reason: 'over-limit-pending-unknown', credit: 100 },
-  // The same observed 800 balance and 700 limit deduct 100 in each case. Only the fresh control
-  // establishes today's overage; older and estimated observations leave repayment progress open.
+  'pending-bound': { debt: { pending: null, pendingUnknown: true }, target: 100, over: 100, reason: 'over-limit-pending-unknown', credit: 100, lastCovered: false },
+  // The same observed 800 balance and 700 limit deduct 100 in each case. Older and estimated
+  // observations retain the coverage from those figures with estimated trust.
   'fresh-observed-overage': { target: 100, over: 100, still: 100, credit: 100 },
-  'stale-balance': { debt: { evidenceDate: '2026-08-18' }, target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
+  'stale-balance': { debt: { evidenceDate: '2026-08-18' }, target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100, lastCovered: false },
   'statement-stale-overage': { debt: { statementCloseDay: 18, balanceAsOf: '2026-07-01', evidenceDate: '2026-07-01' },
+    target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100, lastCovered: false },
+  'future-balance': { debt: { evidenceDate: '2026-08-21' }, chargesUnpublished: true,
     target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
-  'estimated-balance': { debt: { balanceTrust: 'estimated' }, target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
-  'stale-zero-overage': { debt: { balance: 700, evidenceDate: '2026-08-18' }, target: 0, over: null, reason: 'over-limit-balance-estimated', credit: 0 },
-  // A 250 named debit exceeds the observed 150 overage. Only a current balance can give credit
-  // for reaching the target. In both cases the waterfall deducts 150 less 114.20 of charges.
+  'estimated-balance': { debt: { balanceTrust: 'estimated' }, target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100, lastCovered: false },
+  'stale-zero-overage': { debt: { balance: 700, evidenceDate: '2026-08-18' }, target: 0, over: null, reason: 'over-limit-balance-estimated', credit: 0, lastCovered: false },
+  // A 250 named debit exceeds the observed 150 overage. In both cases the waterfall deducts
+  // 150 less 114.20 of charges. The stale case retains true with its reason and uses the minimum display.
   'stale-overage-paid': { payments: true, debt: { balance: 2650, limit: 2500, evidenceDate: '2026-08-18' },
-    target: 150, over: 150, reason: 'over-limit-balance-estimated', credit: 35.80 },
+    target: 150, over: 150, reason: 'over-limit-balance-estimated', credit: 35.80, lastCovered: true },
   'fresh-overage-paid': { payments: true, debt: { balance: 2650, limit: 2500 },
     target: 150, over: 150, still: 0, covered: true, credit: 35.80, targetTrust: 'estimated', creditTrust: 'estimated' },
   'missing-balance': { ...paymentWorld, debt: { ...paymentWorld.debt, balance: null }, minimum: 40, chargesUnpublished: true,
@@ -108,13 +140,13 @@ const cases = {
   'unheld-control': { absent: true, chargesUnpublished: true, target: 0, over: 0, still: 0, credit: 0,
     targetTrust: 'estimated', creditTrust: 'estimated', surplusTrust: 'calculated' },
   'stale-with-minimum': { debt: { evidenceDate: '2026-08-18' }, minimum: 140,
-    target: 140, over: 100, reason: 'over-limit-balance-estimated', credit: 140 },
+    target: 140, over: 100, reason: 'over-limit-balance-estimated', credit: 140, lastCovered: false },
   'util-stale': { debt: { statementCloseDay: 18, balanceAsOf: '2026-07-01' },
-    target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
+    target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100, lastCovered: false },
   // This held manual card has no scheduled minimum. Its dropdown reports the known zero
   // minimum remaining even though the target, Credit deduction and Surplus are estimated.
   'zero-pending-bound': { id: 'mbna', debt: { balance: 100, pending: null, pendingUnknown: true },
-    target: 0, over: null, reason: 'over-limit-unknown', credit: 0 },
+    target: 0, over: null, reason: 'over-limit-unknown', credit: 0, lastCovered: false },
   'unknown-limit': { debt: { limit: null }, minimum: 40, target: 40, over: null, reason: 'over-limit-unknown', credit: 40 },
   'known-control': { debt: { pending: 300 }, target: 400, over: 400, still: 400, credit: 400 },
   'zero-control': { debt: { limit: 1000 }, target: 0, over: 0, still: 0, credit: 0 },
@@ -141,7 +173,7 @@ function verifyCase(name, engine = Forecast, ui = renderers) {
       [c.credit, creditTrust, 1000 - household - c.credit, c.surplusTrust || creditTrust], name + ' waterfall deductions and Surplus');
   }
 
-  if (['util-stale', 'absent-with-activity', 'zero-pending-bound'].includes(name)) {
+  if (['util-stale', 'absent-with-activity', 'zero-pending-bound', 'retained-pending-coverage', 'retained-pending-credit'].includes(name)) {
     const pub = engine.cardPeriodMovements(input.plan, input.debts, input.asOf, input.window,
       { currentPeriodActuals: input.packet, liveOverlay: input.overlay });
     if (name === 'util-stale') {
@@ -150,11 +182,23 @@ function verifyCase(name, engine = Forecast, ui = renderers) {
       const card = direct.lines.find(l => l.id === id);
       assert.deepEqual([card.balance.trust, card.target.trust, card.target.overLimitBy, card.stillToPayBack.amount],
         ['calculated', 'estimated', 100, 0], name + ' target (utilisation only)');
+      // A caller supplying a facility balance of 801 cannot use the publication's 800 balance
+      // as the prior observation for that facility. It still publishes the same minimum reading.
+      const otherBalances = input.debts.map(d => d.id === id ? { ...d, balance: 801 } : d);
+      const different = engine.stackCreditLines(pub, view.stackSummary.bills, { debts: otherBalances, plan: input.plan });
+      const unmatched = different.lines.find(l => l.id === id);
+      assert.deepEqual([unmatched.targetCovered.value, unmatched.targetCovered.trust, unmatched.stillToPayBack.amount],
+        ['unknown', 'unavailable', 0], name + ' rejects mismatched snapshot');
     } else if (name === 'zero-pending-bound') {
       const unassigned = { ...pub, unconfirmedPayments: [{ amount: 42, date: input.asOf }] };
       const direct = engine.stackCreditLines(unassigned, view.stackSummary.bills, { debts: input.debts, plan: input.plan });
       const card = direct.lines.find(l => l.id === id);
       assert.ok(card.paidBack.reasons.includes('card-payment-destination-unconfirmed'), name + ' qualifies unassigned');
+    } else if (name === 'retained-pending-coverage' || name === 'retained-pending-credit') {
+      const direct = engine.stackCreditLines(pub, view.stackSummary.bills, { debts: input.debts, plan: input.plan });
+      const card = direct.lines.find(l => l.id === id);
+      assert.deepEqual([card.targetCovered.value, card.targetCovered.trust, card.target.amount, card.stillToPayBack.amount],
+        [c.lastCovered, 'estimated', c.target, c.minimumOwed], name + ' target coverage (public stackCreditLines)');
     } else {
       // A caller can supply an empty roster or omit facilities. Neither proves a zero over-limit term
       // for a card that the movement publication actually saw. Its known charges still set a floor.
@@ -188,14 +232,16 @@ function verifyCase(name, engine = Forecast, ui = renderers) {
 
   if (c.reason) {
     assert.ok(line.target.reasons.includes(c.reason), name + ' explains its uncertainty');
-    assert.deepEqual([line.targetCovered.value, line.targetCovered.trust], ['unknown', 'unavailable'], name + ' withholds repayment progress');
-    assert.ok(line.targetCovered.reasons.includes(c.reason), name + ' explains withheld progress');
+    const expectedCoverage = typeof c.lastCovered === 'boolean' ? [c.lastCovered, 'estimated'] : ['unknown', 'unavailable'];
+    assert.deepEqual([line.targetCovered.value, line.targetCovered.trust], expectedCoverage, name + ' target coverage');
+    assert.ok(line.targetCovered.reasons.includes(c.reason), name + ' explains target coverage');
+    if (c.progressReason) assert.ok(line.targetCovered.reasons.includes(c.progressReason), name + ' explains withheld payment progress');
     assert.doesNotMatch(row + sheet, /is-good/, name + ' prints no green target');
     const minimum = c.target === null ? null : c.minimum || 0;
     const owed = Object.hasOwn(c, 'minimumOwed') ? c.minimumOwed : c.payments ? 0 : minimum;
     const still = line.stillToPayBack;
     assert.deepEqual([still.basis, still.amount], ['minimum', owed], name + ' publishes minimum remaining');
-    assert.equal(still.trust, owed === null || paid === null ? 'unavailable' : 'estimated', name + ' publishes minimum remaining trust');
+    assert.equal(still.trust, owed === null || paid === null || c.reversal ? 'unavailable' : 'estimated', name + ' publishes minimum remaining trust');
     assert.equal(still.upperBound === true, c.upperBound === true, name + ' qualifies unknown payment');
     if (c.upperBound) assert.equal(line.minimumCovered.value, 'unknown', name + ' withholds unknown minimum check');
     assert.equal(row.includes('aria-label="Minimum covered'), minimum > 0 && owed === 0, name + ' minimum check');

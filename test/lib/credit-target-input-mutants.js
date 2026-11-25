@@ -51,7 +51,7 @@ module.exports = function verifyMutants(verifyCase, loadRenderers) {
   restore('absent roster hides a card posting', 'card-only', 'target',
     'card.transactions.length > 0 || (Number.isFinite(payerAmount)', '(Number.isFinite(payerAmount)');
   restore('missing pending exposure reads as zero', 'unknown-pending', 'target',
-    'if (by === null || cents(row.used)', 'if (by === null) return zero;\n      if (cents(row.used)');
+    'const snapshotOverage = observedCents => {', 'if (by === null) return zero;\n      const snapshotOverage = observedCents => {');
   restore('posted overage earns calculated trust', 'pending-bound', 'target',
     'const unresolved = row.pendingUnknown === true;', 'const unresolved = false;');
   restore('absent balance reads as posted zero', 'missing-balance', 'target',
@@ -60,7 +60,7 @@ module.exports = function verifyMutants(verifyCase, loadRenderers) {
     "unknown('over-limit-balance-estimated', by > 0 ? by : null)", "unknown('over-limit-balance-estimated')");
   restore('publish an old zero overage', 'stale-zero-overage', 'target',
     "unknown('over-limit-balance-estimated', by > 0 ? by : null)", "unknown('over-limit-balance-estimated', by)");
-  restore('last observed positive overage resolves repayment progress', 'stale-balance', 'withholds repayment progress',
+  restore('last observed positive overage resolves repayment progress', 'stale-balance', 'explains target coverage',
     "cents: lastObservedCents, trust: 'estimated', unresolved: true", "cents: lastObservedCents, trust: 'estimated', unresolved: lastObservedCents === null");
   restore('overage ignores snapshot freshness', 'stale-balance', 'target',
     "row.balanceTrust === 'estimated' || balance.trust === 'estimated'", "row.balanceTrust === 'estimated'");
@@ -68,8 +68,34 @@ module.exports = function verifyMutants(verifyCase, loadRenderers) {
     "row.balanceTrust === 'estimated' || balance.trust === 'estimated'", "balance.trust === 'estimated'");
   restore('explicit balance estimate is lost', 'estimated-balance', 'target',
     "...(debt.balanceTrust === 'estimated' ? { trust: 'estimated' } : {}), ", '');
-  restore('coverage compares a lower bound', 'unknown-pending', 'withholds repayment progress',
-    'const targetCovered = shortOf', 'const targetCovered = targetCents === null || towardCents === null');
+  restore('discard last computed coverage for unknown pending', 'unknown-pending', 'target coverage',
+    'const targetCovered = coverageCents === null || towardCents === null', 'const targetCovered = shortOf');
+  restore('discard last coverage on a posted overage with pending unknown', 'pending-minimum-partial', 'target coverage',
+    'if (unresolved) out.snapshotCents = snapshotOverage(by);', '');
+  restore('discard the last observed stale coverage', 'stale-overage-paid', 'target coverage',
+    "unknown('over-limit-balance-estimated', by > 0 ? by : null), snapshotCents: snapshotOverage(by)", "unknown('over-limit-balance-estimated', by > 0 ? by : null)");
+  restore('report coverage for a card with no known limit', 'unknown-limit', 'target coverage',
+    'over.snapshotCents == null || paymentUnobserved', 'paymentUnobserved');
+  restore('a balance from after the selected day supports historical coverage', 'future-balance', 'target coverage',
+    ' || (balance.asOf && balance.asOf > publication.asOf)', '');
+  restore('a different posted balance supports historical coverage', 'util-stale', 'rejects mismatched snapshot',
+    " || (Object.hasOwn(row, 'posted') && cents(row.posted) !== cents(balance.amount))", '');
+  restore('compare an unobserved payment to an estimated target', 'stale-payer-unavailable', 'target coverage',
+    'const towardCents = cents(progress.amount);', 'const towardCents = cents(progress.amount) ?? 0;');
+  restore('manual estimated zero proves last coverage', 'manual-payer-unavailable', 'target coverage',
+    "paymentUnobserved || target.trust !== 'estimated'", "towardCents === null || target.trust !== 'estimated'");
+  restore('strip the reason from retained coverage', 'unknown-pending', 'explains target coverage',
+    'trust: weakest(target.trust, progress.trust), reasons: progressReasons.slice()', 'trust: weakest(target.trust, progress.trust), reasons: []');
+  restore('retained pending leaks into the current repayment target', 'retained-pending-coverage', 'target',
+    'const used = unknownPending ? x.balance : openingBalance(x);', 'const used = openingBalance(x);', forecast);
+  restore('ignore retained pending when deciding coverage', 'retained-pending-coverage', 'target coverage (public stackCreditLines)',
+    'return cents(retainedOverLimitBy(debt));', 'return observedCents;');
+  restore('ignore a retained pending credit', 'retained-pending-credit', 'target coverage (public stackCreditLines)',
+    'debt.pending === 0) return observedCents;', 'debt.pending <= 0) return observedCents;');
+  restore('direct Credit lines lose the retained exposure', 'retained-pending-coverage', 'target coverage (public stackCreditLines)',
+    'facilities && facilities.debts, retainedOverLimitBy);', 'facilities && facilities.debts);', forecast);
+  restore('the active period loses the retained exposure', 'retained-pending-coverage', 'target coverage',
+    'beyond, debts, retainedOverLimitBy);', 'beyond, debts);', forecast);
   restore('withhold all progress when exposure is unresolved', 'pending-minimum-partial', 'publishes minimum remaining',
     "if (targetIncomplete && card.id !== 'heloc')", "if (false && card.id !== 'heloc')");
   restore('published minimum remaining is a dash', 'pending-minimum-partial', 'publishes minimum remaining',
@@ -79,7 +105,7 @@ module.exports = function verifyMutants(verifyCase, loadRenderers) {
   restore('an unavailable minimum becomes an exact zero owed', 'unavailable-minimum', 'publishes minimum remaining',
     'amount: minimumCents === null ? null :', 'amount: minimumCents === null ? 0 :');
   restore('unobserved manual payment counts as a confirmed zero', 'manual-unobserved-minimum', 'qualifies unknown payment',
-    "towardCents === null || progress.reasons.includes('paid-unavailable-counted-as-zero')", 'towardCents === null');
+    'minimumCents > 0 && paymentUnobserved ?', 'minimumCents > 0 && towardCents === null ?');
   restore('zero lower bound closes the target to unassigned payments', 'zero-pending-bound', 'qualifies unassigned',
     'const targetOpen = target.overLimitUnresolved === true || ', 'const targetOpen = ');
 
@@ -105,6 +131,8 @@ module.exports = function verifyMutants(verifyCase, loadRenderers) {
     'minimumBasis ? line.target?.minimum :', 'minimumBasis ? (line.target?.minimum ?? 0) :');
   restoreRenderer('meeting only the minimum turns the target green', 'stale-minimum-met', 'prints no green target', 'stack-credit',
     '!minimumBasis && out.x != null && covered', 'out.x != null && (covered || (minimumBasis && cv === true))');
+  restoreRenderer('last observed coverage turns a minimum-based figure green', 'stale-overage-paid', 'prints no green target', 'stack-credit',
+    '!minimumBasis && out.x != null && covered', 'out.x != null && covered');
   restoreRenderer('sheet hides minimum remaining', 'pending-minimum-partial', 'sheet shows minimum remaining', 'stack-credit',
     "r.minimumBasis ? rowHtml('Minimum still owed'", "false ? rowHtml('Minimum still owed'");
   restoreRenderer('sheet turns known minimum remaining into a dash', 'pending-minimum-partial', 'sheet shows minimum remaining', 'stack-credit',
@@ -126,9 +154,9 @@ module.exports = function verifyMutants(verifyCase, loadRenderers) {
   restore('known overage is estimated', 'known-control', 'target',
     "trust: unresolved ? 'estimated' : 'calculated'", "trust: 'estimated'");
   restore('a covered target stays unchecked', 'covered-control', 'reports repayment progress',
-    'value: targetCents > 0 && towardCents >= targetCents', 'value: false');
+    'value: coverageCents > 0 && towardCents >= coverageCents', 'value: false');
   restore('known zero treated as missing', 'zero-control', 'target',
-    'if (by === null || cents(row.used)', 'if (!by || cents(row.used)');
+    'if (by === null) return { ...unknown(', 'if (!by) return { ...unknown(');
   restore('a proven absent facility is unresolved', 'unheld-control', 'target',
     '&& !hasActivity) return zero;', "&& !hasActivity) return unknown('over-limit-unknown');");
 };
