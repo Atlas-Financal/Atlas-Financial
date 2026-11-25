@@ -92,7 +92,9 @@ console.log('\n=== nothing but the link settles it ===');
   const noteVaried = hits(observe([row({ notes: 'anything else entirely' })]));
   ok(noteVaried.length === 1 && noteVaried[0].date === DUE, 'with the link, notes text does not matter');
   ok(hits(observe([row({ is_pending: true })])).length === 0, 'a pending linked row does not settle it');
-  ok(hits(observe([row({ account_id: 1002 })])).length === 0, 'a linked row on another account does not settle it');
+  // A card account is still refused. Weekly spend (1002) is the other household chequing account, which a tied bill now accepts
+  // (Dale, #821 7168507103; Grok Bot 7169173042).
+  ok(hits(observe([row({ account_id: 2001 })])).length === 0, 'a linked row on a card account does not settle it');
   ok(hits(observe([row({ amount: -SCHEDULED })])).length === 0, 'a linked credit does not settle it');
 }
 
