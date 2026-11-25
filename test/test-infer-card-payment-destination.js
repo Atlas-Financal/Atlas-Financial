@@ -148,6 +148,14 @@ test('4d. only a payment or transfer receipt is a landing, never a purchase refu
   assert.equal(refund.unassigned, '[75]');
 });
 
+test('4c2. two names that disagree infer nothing; a TD card payment credit is a landing', async () => {
+  const conflict = await read([debit(75, { cardPaymentDestination: 'heloc', minimumCategoryDebt: 'travelvisa' }), landing('heloc', 75)]);
+  assert.equal(conflict.heloc.paidBack.amount, 0, 'the row names two lines: nothing inferred');
+  assert.equal(conflict.travel.paidBack.amount, 0);
+  const td = await read([debit(75), landing('travelvisa', 75, { categoryLabel: null, original_name: 'PAYMENT - THANK YOU', displayedPayee: 'PAYMENT - THANK YOU' })]);
+  assert.equal(td.travel.paidBack.amount, 75, 'a TD "payment - thank you" credit (no category, the observer\'s flag) is a landing');
+});
+
 test('4e. a debit that competed for a reserved landing never falls through to the minimum rule (Codex on #1650)', async () => {
   const r = await read([debit(210, { id: 'n', notes: 'card payment: HELOC' }), debit(210, { id: 'u' }), landing('heloc', 210)]);
   assert.equal(r.heloc.paidBack.amount, 210, 'the noted 210 counts once; its twin is not added by the 210 minimum');

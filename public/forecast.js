@@ -90,7 +90,7 @@
         const label = normalizeCategoryLabel(tx.categoryLabel);
         const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
         return TRANSFER_CATEGORY_LABELS.has(label) || ['card-payment', 'payment', 'transfer', 'internal-transfer', 'bill-payment'].includes(hint)
-          || tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true;
+          || tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true || tx.tdCardPaymentCredit === true;
       },
       expectedMinimumCents: (from, to) => expectedCreditLineMinimumCents(plan, from, to),
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
