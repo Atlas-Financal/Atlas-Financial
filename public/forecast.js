@@ -331,7 +331,7 @@
     if (original) return original.scheduledDate;
     return records.find(item => item.dueDate === value)?.scheduledDate || value;
   }
-    return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits, statementRows };
+    return { resolveOccurrences, mappedDate, originalDate, state, ownedDebits, statementRows, fixedInterestMinimum };
   })();
   /* --------------------------------------------------------------- dates */
   // ISO date strings throughout; arithmetic in UTC so DST can never shift a
@@ -929,7 +929,7 @@
             || !['cashback', 'travelvisa', 'tdcc'].includes(row.debtId)))) continue;
       const due = statementOccurrenceDate(plan, row.id, p.scheduledDate);
       const occurrence = obligationOccurrences(row, p.scheduledDate < due ? p.scheduledDate : due,
-        p.scheduledDate > due ? p.scheduledDate : due)
+        p.scheduledDate > due ? p.scheduledDate : due, undefined, plan)
         .find(o => o.scheduledDate === p.scheduledDate);
       // Forecast alone decides amount satisfaction. This is the household's
       // category confirmation, never a fabricated issuer posting transaction.
@@ -1017,8 +1017,43 @@
     const due = statementOccurrenceDate(plan, id, original);
     return representedKeySet(plan, opts, asOf).has(id + '@' + due);
   }
-  function obligationOccurrences(row, start, end, periodStart) {
-    const dates = CardMinimumContract.resolveOccurrences(row, start, end, occurrences, outflowDates);
+  // Future card minimums carry the card's latest published minimum (owner, Dale, #821, lead 13 record OD-028): every
+  // occurrence of any of a card's payment rows dated after the card's latest statement, with no statement of its own,
+  // takes that statement's minimum, tagged estimated; a fixedInterestMinimum row takes max(fixed, carried). Per card,
+  // across all its rows (a card's rows hand over at lastDue / firstDue). A card with no statement keeps its plan amounts;
+  // the HELOC's capitalising cash leg is unchanged (its planned minimum stands). Read once per plan.
+  const carriedMinimumCache = new WeakMap();
+  function carriedCardMinimum(plan, row) {
+    if (!plan || !row || row.effect !== 'payment' || row.nonCash || row.debtId == null || !isStackCreditLine(row.debtId)) return null;
+    const list = Array.isArray(plan.obligations) ? plan.obligations : null;
+    if (!list) return null;
+    let byDebt = carriedMinimumCache.get(list);
+    if (!byDebt) {
+      byDebt = new Map();
+      for (const o of list) {
+        if (!o || o.effect !== 'payment' || o.nonCash || o.debtId == null || o.statementOccurrences == null) continue;
+        let records;
+        try { records = CardMinimumContract.statementRows(o, occurrences); } catch (_) { records = null; }
+        if (!records) { byDebt.set(String(o.debtId), null); continue; }
+        for (const record of records) {
+          const prior = byDebt.get(String(o.debtId));
+          if (prior === null) break;
+          if (!prior || record.dueDate > prior.dueDate) byDebt.set(String(o.debtId), { dueDate: record.dueDate, minimum: record.minimum });
+        }
+      }
+      carriedMinimumCache.set(list, byDebt);
+    }
+    return byDebt.get(String(row.debtId)) || null;
+  }
+  function obligationOccurrences(row, start, end, periodStart, plan) {
+    let dates = CardMinimumContract.resolveOccurrences(row, start, end, occurrences, outflowDates);
+    const carried = carriedCardMinimum(plan, row);
+    if (carried) {
+      const fixed = obligationHasAmountSchedule(row) ? null : CardMinimumContract.fixedInterestMinimum(row);
+      dates = dates.map(occ => occ.statement || occ.date <= carried.dueDate ? occ
+        : { ...occ, amount: fixed == null ? carried.minimum : Math.max(fixed, carried.minimum), confidence: 'estimated',
+          carriedMinimum: true });
+    }
     // A statement can move a once minimum across payday in either direction.
     // Apply the period boundary to its effective due date after replacement.
     return periodStart && row.frequency === 'once' ? dates.filter(occ => occ.date >= periodStart) : dates;
@@ -3738,7 +3773,7 @@
       // timing cutover is read date by date (ChatGPT 7098708528, 7099423097, 7100106374).
       const impossibleDates = impossibleYearlyDates(o, start, end);
       let impossibleDayReported = false;
-      for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
+      for (const occurrence of obligationOccurrences(o, start, end, periodStart, plan)) {
         if (occurrence.statement !== true && !impossibleDayReported
           && impossibleDates.has(occurrence.scheduledDate || occurrence.date)) {
           unknowns.push({ carrier: 'obligation', id: o.id || null, date: occurrence.date,
@@ -3863,7 +3898,7 @@
         }
         for (const o of plan.obligations || []) {
           if (!o || o.nonCash) continue;
-          for (const occurrence of obligationOccurrences(o, from, to)) {
+          for (const occurrence of obligationOccurrences(o, from, to, undefined, plan)) {
             if (scheduledAmountValue(occurrence.amount) != null) continue;
             pushLookback('obligation', o.id || null, occurrence.date,
               occurrence.scheduledDate);
@@ -4359,7 +4394,7 @@
     const obligation = (plan.obligations || []).find(item => item && item.id === id
       && item.nonCash !== true && obligationMayBePositive(item));
     if (obligation) {
-      return obligationOccurrences(obligation, date, date)
+      return obligationOccurrences(obligation, date, date, undefined, plan)
         .some(occ => occ.date === date && obligationOccurrencePositive(obligation, occ));
     }
     const capitalising = (plan.obligations || []).find(item => item && item.id === id
@@ -4960,7 +4995,7 @@
     }
     const obligationMinimumState = minimumStateForLoop(plan, start, opts);
     for (const o of plan.obligations) {
-      for (const occurrence of obligationOccurrences(o, start, end, periodStart)) {
+      for (const occurrence of obligationOccurrences(o, start, end, periodStart, plan)) {
         const date = occurrence.date;
         const evidenceEvent = { id: o.id, date, scheduledDate: occurrence.scheduledDate,
           kind: 'obligation', effect: o.effect };
@@ -16268,7 +16303,7 @@
       }
       for (const obligation of plan.obligations || []) {
         if (obligation.nonCash) continue;
-        for (const occurrence of obligationOccurrences(obligation, cycle.start, cycle.end, cycle.start)) {
+        for (const occurrence of obligationOccurrences(obligation, cycle.start, cycle.end, cycle.start, plan)) {
           if (settled(obligation.id, occurrence.date) || occurrence.amount === 0) continue;
           if (!billsCashScope(obligation)) continue;
           if (!finite(occurrence.amount) || occurrence.amount < 0) issue('remaining-cash-unknown', 'A remaining obligation amount is unknown.');
@@ -17162,7 +17197,7 @@
       const currentEnd = spendingCycle(plan, asOf)?.end || asOf;
       for (const row of minimumRows) {
         if (origin > currentEnd) continue;
-        for (const occurrence of obligationOccurrences(row, origin, currentEnd)) {
+        for (const occurrence of obligationOccurrences(row, origin, currentEnd, undefined, plan)) {
           const cents = savingsCents(occurrence.amount);
           if (cents == null) { issue('coverage-minimum-amount-unknown'); continue; }
           if (!cents) continue;
@@ -17239,7 +17274,7 @@
             let beyond = left;
             if (payDownOnly.has(account) && left > 0 && !minimums.length) {
               const next = minimumRows.filter(row => row.debtId === account)
-                .flatMap(row => obligationOccurrences(row, addDays(start, 1), addDays(start, 120))
+                .flatMap(row => obligationOccurrences(row, addDays(start, 1), addDays(start, 120), undefined, plan)
                   .map(occurrence => ({ key: row.id + '@' + (occurrence.scheduledDate || occurrence.date),
                     date: occurrence.date, cents: savingsCents(occurrence.amount) })))
                 .filter(occurrence => occurrence.cents != null && occurrence.cents > 0 && periodOf(occurrence.date) > start)
