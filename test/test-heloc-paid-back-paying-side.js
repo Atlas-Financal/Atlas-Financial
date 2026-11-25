@@ -121,7 +121,7 @@ test('a noted HELOC payment leaves the spend cards exactly as with no HELOC paym
 test('a mutant restoring the HELOC-side-only rule fails the paying-side checks', async () => {
   const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
   const source = fs.readFileSync(file, 'utf8');
-  const from = "      if (card.id === 'heloc' && !pubCard) return countedZero(['heloc-not-observed']);\n";
+  const from = "      if (card.id === 'heloc' && !pubCard) return future ? countedZero(['future-not-observed'])\n";
   assert.ok(source.includes(from), 'forecast-card-period.js carries the rule to mutate');
   // The rule this PR replaces: only the HELOC account's own posted rows of kind 'payment' count.
   const mutant = source.replace(from, `      if (card.id === 'heloc') {
@@ -130,7 +130,7 @@ test('a mutant restoring the HELOC-side-only rule fails the paying-side checks',
         for (const row of pubCard.posted || []) if (row.kind === 'payment') paidCents += -Math.round(row.amount * 100);
         return { amount: paidCents / 100, trust: 'estimated', reasons: [] };
       }
-`);
+` + from);
   const read = fs.readFileSync;
   fs.readFileSync = function (target, ...rest) {
     return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);

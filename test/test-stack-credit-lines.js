@@ -496,6 +496,9 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   const future = helocWorld([]); future.window = F.spendingCycle(future.plan, '2026-08-28');
   const past = helocWorld([]); past.window = F.spendingCycle(past.plan, '2026-07-20');
   ok(toward(future, 'heloc').amount === 0, 'HELOC: an upcoming period reads $0');
+  const pastUnobserved = fx.fixture(); pastUnobserved.window = F.spendingCycle(pastUnobserved.plan, '2026-07-20');
+  const pu = toward(pastUnobserved, 'heloc');
+  ok(pu.amount === null && pu.reasons.includes('not-current-period'), 'an unobserved HELOC in a past period stays withheld, as on main', JSON.stringify(pu));
   // The head is the sum of every due line's paidToward, the HELOC's included (one membership for Credit), so the rows always add up to it.
   const worlds = [['current', x], ['payer coverage incomplete', failed], ['HELOC paid from Bills', helocWorld([], 'proven', { amount: 150, byAmount: false })], ['past', past], ['upcoming', future]];
   const bills = { cardMinimums: [{ debtId: 'travelvisa', amount: 25 }, { debtId: 'cashback', amount: 300 }, { debtId: 'triangle', amount: 400 }, { debtId: 'heloc', amount: 50 }], trust: 'calculated' };
@@ -513,13 +516,14 @@ console.log('13. paidToward: one published paid figure per line, read by the row
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
   const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
-  const obsGuard = "      if (card.id === 'heloc' && !pubCard) return countedZero(['heloc-not-observed']);\n";
-  ok(src.includes(obsGuard), 'the HELOC mutants target the paying-side read');
-  const noObs = load(src.replace(obsGuard, "      if (card.id === 'heloc' && !pubCard) return withheldPaid(['heloc-not-observed']);\n"));
+  const obsGuard = "      if (card.id === 'heloc' && !pubCard) return future ? countedZero(['future-not-observed'])\n";
+  const obsCurrent = ": countedZero(['heloc-not-observed']);";
+  ok(src.includes(obsGuard) && src.split(obsCurrent).length === 2, 'the HELOC mutants target the paying-side read');
+  const noObs = load(src.replace(obsCurrent, ": withheldPaid(['heloc-not-observed']);"));
   ok(noObs.stackCreditLines(publish(x), bills).lines.find(l => l.id === 'heloc').paidToward.amount === null,
     'MUTANT: withholding for an unobserved HELOC reads a dash, which the not-observed check above rejects');
   const helocSide = load(src.replace(obsGuard, "      if (card.id === 'heloc') { let c = 0; for (const r of (pubCard && pubCard.posted) || []) if (r.kind === 'payment') c -= Math.round(r.amount * 100);\n"
-    + "        return { amount: c / 100, trust: 'estimated', reasons: [] }; }\n"));
+    + "        return { amount: c / 100, trust: 'estimated', reasons: [] }; }\n" + obsGuard));
   ok(helocSide.stackCreditLines(publish(helocWorld([['heloc-pay', '2026-08-18', -150, 'payment']])), bills).lines.find(l => l.id === 'heloc').paidToward.amount === 150,
     'MUTANT: restoring the HELOC-side rule counts the HELOC\'s own payment row, which the never-read check above rejects');
 }

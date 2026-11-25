@@ -354,9 +354,10 @@ console.log('3. Mutants: each must fail a check above');
   ok(receiptMutant !== cp2 && receiptLine.paidBack.amount === 75 && receiptLine.minimumCovered.value === true,
     'MUTANT: restoring receiving-side authority counts the posted receipt and covers the minimum without a payer debit');
   // The superseded HELOC rule restored: only the HELOC's own posted payment rows count.
-  const helocSide = cp2.replace("      if (card.id === 'heloc' && !pubCard) return countedZero(['heloc-not-observed']);\n",
+  const helocFrom = "      if (card.id === 'heloc' && !pubCard) return future ? countedZero(['future-not-observed'])\n";
+  const helocSide = cp2.replace(helocFrom,
     "      if (card.id === 'heloc') { let c = 0; for (const r of (pubCard && pubCard.posted) || []) if (r.kind === 'payment') c -= Math.round(r.amount * 100);\n"
-    + "        return { amount: c / 100, trust: 'estimated', reasons: [] }; }\n");
+    + "        return { amount: c / 100, trust: 'estimated', reasons: [] }; }\n" + helocFrom);
   ok(helocSide !== cp2, 'the HELOC mutant targets the paying-side read');
   const HM = realm(file => (file === 'public/forecast-card-period.js' ? helocSide : read(file))).ForecastCardPeriod;
   const hm = helocLine([row('payment', -150)], undefined, HM);

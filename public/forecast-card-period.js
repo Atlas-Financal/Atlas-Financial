@@ -599,7 +599,10 @@
     // be counted when it leaves the bills account"). The HELOC's own "TFR-FR" receipt is never read for it, so it is neither
     // counted twice nor a reversal (Grok Bot, rule 17, Plan #6).
     const paidTowardOf = (card, pubCard) => {
-      if (card.id === 'heloc' && !pubCard) return countedZero(['heloc-not-observed']);
+      // A HELOC whose account has no publication card keeps its unobserved reading: $0 in an upcoming period, withheld in a past
+      // one, an estimated $0 in the current one.
+      if (card.id === 'heloc' && !pubCard) return future ? countedZero(['future-not-observed'])
+        : publication.role !== 'current' ? withheldPaid(['not-current-period']) : countedZero(['heloc-not-observed']);
       const paid = pubCard?.payerPaid;
       if (['current', 'past'].includes(publication.role) && paid && typeof paid.amount === 'number' && Number.isSafeInteger(Math.round(paid.amount * 100))
         && paid.amount >= 0 && ['estimated', 'calculated'].includes(paid.trust) && Array.isArray(paid.reasons)) return paid;
