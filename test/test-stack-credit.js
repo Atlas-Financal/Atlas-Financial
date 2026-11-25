@@ -388,13 +388,28 @@ console.log('5. the sheet');
   const ctx = context(TOTALS.complete);
   const visa = text(win.StackSheet.html(ctx, 'card:travelvisa'));
   ok(visa === 'Credit · Mar 1 – 14 Blue Visa +$400 / $25 Paid back $400 New charges $400 Minimum $25 ✓ Target $25'
-    + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you +$400 Mar 10 Pending Cafe $12.50', 'card sheet', visa);
+    + ' Transactions Mar 3 Corner Grocer $150 Mar 9 Payment thank you Card-side receipt · Excluded from Paid back +$400'
+    + ' Mar 10 Pending Cafe $12.50', 'card sheet', visa);
   const tx = win.StackSheet.html(ctx, 'card:travelvisa');
   ok(/class="is-pay"><span class="stack-sheet-txd">Mar 9/.test(tx) && /class=" is-pending"/.test(tx), 'a payment row is marked bold and a pending row dimmed');
   // A pending row also carries a hollow dot named "pending" (no printed word, rule B5); a posted row never does
   // (lead ruling, ATLAS LEAD 12, 2026-11-22, on Dale's walk: four pending rows dimmed alike read as plain grey text).
   const DOT = '<span class="stack-sheet-txp" role="img" aria-label="pending"></span>';
   const rowsOf = html => (html.match(/<li class="[^"]*">.*?<\/li>/g) || []);
+  const issuerOnly = context(TOTALS.complete);
+  const issuerPayment = { date: '2031-03-09', name: 'PAYMENT – THANK YOU', amount: -43, kind: 'payment', payment: true, pending: false };
+  const issuerLine = { ...LINES[0], paidToward: fig(0), minimumCovered: { value: false, trust: 'estimated' },
+    transactions: [issuerPayment, { ...issuerPayment, name: 'Debit adjustment', amount: 11 },
+      { ...issuerPayment, name: 'Processing', pending: true },
+      { ...issuerPayment, name: 'Shop return', kind: 'refund', payment: false }] };
+  issuerOnly.Forecast.stackCreditLines = () => ({ lines: withTargets([issuerLine]), totals: TOTALS.complete });
+  const issuerSheet = win.StackSheet.html(issuerOnly, 'card:travelvisa');
+  ok(text(issuerSheet).includes('Paid back $0') && rowsOf(issuerSheet).map(text).join('\n') === [
+    'Mar 9 PAYMENT – THANK YOU Card-side receipt · Excluded from Paid back +$43',
+    'Mar 9 Debit adjustment Card-side entry · Excluded from Paid back $11',
+    'Mar 9 Processing Card-side entry · Excluded from Paid back +$43',
+    'Mar 9 Shop return −$43',
+  ].join('\n'), 'the card-side receipt is identified beside zero Paid back; a debit, pending payment and refund keep their own meanings');
   const pendingRows = rows => rows.filter(r => /^<li class="[^"]*is-pending/.test(r));
   const txRows = rowsOf(tx.slice(tx.indexOf('stack-sheet-tx"')));
   ok(txRows.length === 3 && pendingRows(txRows).length === 1 && pendingRows(txRows).every(r => r.includes(DOT))

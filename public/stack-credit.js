@@ -230,11 +230,13 @@
           // A payment onto the card is published negative with payment: true; its printed value's minus sign becomes "+".
           const printed = txMoney(t.amount);
           const shown = t.payment ? printed.replace(/^−/, '+') : printed;
+          const paymentLabel = t.amount < 0 && !t.pending ? 'Card-side receipt' : 'Card-side entry';
           // A pending row is dimmed and carries a hollow dot named "pending" (no printed word, owner rule B5), so it reads as
           // pending even when every row in the list is pending and there is no posted row to compare it with.
           return `<li class="${t.payment ? 'is-pay' : ''}${t.pending ? ' is-pending' : ''}">`
             + `<span class="stack-sheet-txd">${escape(formatDate(t.date))}</span><span class="stack-sheet-txl">`
-            + `${t.pending ? PENDING_DOT : ''}${escape(t.name || '')}</span>`
+            + `${t.pending ? PENDING_DOT : ''}${escape(t.name || '')}`
+            + (t.payment ? `<br><small>${paymentLabel} · Excluded from Paid back</small>` : '') + '</span>'
             + `<span class="stack-sheet-txa stack-n">${escape(shown)}</span></li>`;
         }).join('') + '</ul>'
         : '') + unconfirmedPaymentsHtml(view?.stackSummary?.credit?.unconfirmedPayments, h));

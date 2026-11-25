@@ -51,6 +51,7 @@ async function renderWorld(data) {
   const view = ctx.recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
   assert.equal(view.timelineRole, 'current');
   return { period: { start: view.start, end: view.end }, credit: view.stackSummary.credit, card: page.blockHtml('credit'),
+    waterfall: page.blockHtml('waterfall'),
     sheet: id => page.sandbox.StackSheet.html(ctx, 'card:' + id) };
 }
 
@@ -298,6 +299,56 @@ test('an unidentified reversal withholds the head even if no minimum is due', as
   assert.equal(totals.minimumsPaid.amount, null);
   assert.equal(totals.minimumsPaid.trust, 'unavailable');
   assert.ok(totals.minimumsPaid.reasons.includes('payment-direction-unresolved'));
+});
+
+test('an unidentified reversal withholds the due card checks, coverage bar and remaining amount', async () => {
+  const page = await render(THIRD, [
+    payment(EXACT), payment(undefined, { id: 'undirected-return', date: THIRD, amount: -43 }),
+  ]);
+  const { totals, lines, unconfirmedPayments } = page.credit;
+  const line = lines.find(item => item.id === 'travelvisa');
+  assert.equal(line.paidBack.amount, 43);
+  assert.equal(unconfirmedPayments[0].amount, -43);
+  assert.equal(line.minimum.amount, 20);
+  assert.equal(line.target.amount, 20);
+  assert.equal(line.minimumCovered.value, 'unknown');
+  assert.equal(line.targetCovered.value, 'unknown');
+  assert.equal(line.stillToPayBack.amount, null);
+  assert.equal(totals.minimumsPaid.amount, null);
+  for (const figure of [line.minimumCovered, line.targetCovered, line.stillToPayBack, totals.minimumsPaid]) {
+    assert.equal(figure.trust, 'unavailable');
+    assert.ok(figure.reasons.includes('payment-direction-unresolved'));
+  }
+  assert.equal(totals.minimumsDueCount, 1);
+  assert.equal(totals.minimumsCoveredCount, null);
+  assert.equal(totals.minimumsCoveredTrust, 'unavailable');
+  const row = page.card.match(/<li><button[^>]*data-stack-sheet="card:travelvisa"[\s\S]*?<\/li>/)[0];
+  assert.match(row, /aria-label="Paid back \$43"/);
+  assert.doesNotMatch(row, /aria-label="Minimum covered|is-good|stack-credit-tick is-on/);
+  assert.match(page.card, /class="stack-credit-bar[^"]*"[^>]*><i style="width:0(?:\.0)?%"/);
+  const sheet = page.sheet('travelvisa');
+  assert.match(plain(sheet), /Minimum \$20\b/);
+  assert.doesNotMatch(sheet, /✓|stack-credit-x is-good/);
+  const remaining = page.waterfall.match(/<li[^>]*data-debt-id="travelvisa"[^>]*>[\s\S]*?<\/li>/)[0];
+  assert.match(remaining, /data-unpublished="true"/);
+  assert.match(remaining, /aria-label="not available"/);
+  assert.doesNotMatch(remaining, /aria-label="Minimum paid/);
+});
+
+test('a differently sized unidentified return withholds progress only where the spend card has a positive target', async () => {
+  const page = await render(THIRD, [
+    payment(EXACT), payment('card payment: TD Cash Back Visa', { id: 'other-payment', amount: 11 }),
+    payment(undefined, { id: 'unidentified-return', date: THIRD, amount: -7 }),
+  ]);
+  const due = page.credit.lines.find(item => item.id === 'travelvisa');
+  assert.equal(due.paidBack.amount, 43);
+  assert.equal(due.minimumCovered.value, 'unknown');
+  assert.ok(due.minimumCovered.reasons.includes('payment-direction-unresolved'));
+  const other = page.credit.lines.find(item => item.id === 'cashback');
+  assert.equal(other.target.amount, 0);
+  assert.equal(other.paidBack.amount, 11);
+  assert.equal(other.stillToPayBack.amount, 0);
+  assert.equal(other.targetCovered.value, false);
 });
 
 test('a named reversal on a manual-statement card cannot fall back to an estimated zero', async () => {

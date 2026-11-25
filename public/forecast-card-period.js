@@ -556,6 +556,7 @@
     if (!cards) return null;
     const future = publication.role === 'future';
     const unconfirmedPayments = Array.isArray(publication.unconfirmedPayments) ? publication.unconfirmedPayments : [];
+    const hasUnassignedReversal = unconfirmedPayments.some(payment => payment.amount < 0);
     // Unassigned transfers affect the head and cards with a positive repayment target. Their amounts stay unallocated.
     const unassignedReasons = unconfirmedPayments.map(payment => payment.reason).filter(Boolean);
     const withUnassignedPayments = figure => unconfirmedPayments.length
@@ -749,16 +750,20 @@
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(['payment-direction-unresolved'].concat(paidToward.reasons))] }
         : paidToward;
       const targetCents = target.amount === null ? null : cents(target.amount);
-      const towardCents = paidBack.amount === null ? null : cents(paidBack.amount);
+      // Named debits still show what was sent. An unidentified return leaves repayment progress unresolved.
+      const progress = hasUnassignedReversal && card.id !== 'heloc' && targetCents > 0
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set(paidBack.reasons.concat('payment-direction-unresolved'))] }
+        : paidBack;
+      const towardCents = cents(progress.amount);
       const shortOf = targetCents === null || towardCents === null;
       const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? paidBack.reasons : []))] }
-        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, paidBack.trust), reasons: [] };
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))] }
+        : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
       const targetCovered = shortOf
         ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
-        : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, paidBack.trust), reasons: [] };
+        : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
-      const paidForMinimum = card.id === 'heloc' ? paid : paidBack;
+      const paidForMinimum = card.id === 'heloc' ? paid : progress;
       const covered = paidForMinimum.amount === null || minimum.amount === null
         || paidForMinimum.reasons.includes('paid-unavailable-counted-as-zero') ? 'unknown'
         : cents(paidForMinimum.amount) >= cents(minimum.amount);
@@ -826,9 +831,13 @@
     }
     totals.minimumsPaid = withUnassignedPayments(totals.minimumsPaid);
     // The ledger cannot assign this credit back to a card. Withhold the head even when its due-card set is empty.
-    if (unconfirmedPayments.some(payment => payment.amount < 0)) {
+    if (hasUnassignedReversal) {
       totals.minimumsPaid = { amount: null, trust: 'unavailable',
         reasons: [...new Set(totals.minimumsPaid.reasons.concat('payment-direction-unresolved'))] };
+      if (dueLines.some(line => line.id !== 'heloc')) {
+        totals.minimumsCoveredCount = null;
+        totals.minimumsCoveredTrust = 'unavailable';
+      }
     }
     // The balance total is over the spend cards' snapshots (HELOC excluded, as
     // above), with the weakest trust: a stale snapshot is counted and keeps the

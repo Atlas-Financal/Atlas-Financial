@@ -400,22 +400,49 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
   const load = text => { const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file)); m._compile(text, file); return m.exports; };
-  const guard = "future || (publication.role === 'current' && pubCard?.manualStatement === true)";
-  ok(src.includes(guard), 'the mutants target the per-line manual fallback');
   const pastManual = mp(manualBills, past);
   ok(pastManual.amount === null && pastManual.reasons[0] === 'paid-unavailable', 'a manual card in a past period with missing payer history is withheld', JSON.stringify(pastManual));
-  const noPast = load(src.replace(guard, 'future || pubCard?.manualStatement === true'));
+  const reversal = fx.fixture();
+  Object.assign(reversal.packet.transactions.find(row => row.id === 'cash-leg-a'), {
+    amount: -37, cardPaymentNoteDestination: 'triangle', cardPaymentNoteByAmount: false,
+  });
+  const reversed = mp(manualBills, reversal);
+  ok(reversed.amount === null && reversed.trust === 'unavailable' && reversed.reasons.includes('payment-direction-unresolved')
+    && !reversed.reasons.includes('paid-unavailable-counted-as-zero'),
+    'a posted reversal naming a current manual card withholds its paid amount', JSON.stringify(reversed));
+  const current = "publication.role === 'current'";
+  const manualCard = 'pubCard?.manualStatement === true';
+  const directionKnown = "!reasons.includes('payment-direction-unresolved')";
+  const guard = `future || (${current} && ${manualCard} && ${directionKnown})`;
+  ok(src.includes(guard), 'the mutants target the per-line manual fallback');
+  const noPast = load(src.replace(guard, `future || (${manualCard} && ${directionKnown})`));
   ok(noPast.stackCreditLines(publish(past), manualBills).totals.minimumsPaid.amount === 0,
     'MUTANT: applying the manual fallback in a past period hides missing history');
-  const feedAsZero = load(src.replace(guard, 'true'));
+  const feedAsZero = load(src.replace(guard, `future || (${current} && ${directionKnown})`));
   ok(feedAsZero.stackCreditLines(publish(failed), travelDue).totals.minimumsPaid.amount === 0,
     'MUTANT: applying the manual fallback to a tracked card hides missing payer history');
-  const dashEverywhere = load(src.replace(guard, 'false'));
+  const dashEverywhere = load(src.replace(guard, 'future'));
   ok(dashEverywhere.stackCreditLines(publish(failed), manualBills).totals.minimumsPaid.amount === null,
     'MUTANT: removing the fallback withholds a current manual card with incomplete payer evidence');
+  const directionIgnored = load(src.replace(guard, `future || (${current} && ${manualCard})`));
+  const hiddenReversal = directionIgnored.stackCreditLines(publish(reversal), manualBills).totals.minimumsPaid;
+  ok(hiddenReversal.amount === 0 && hiddenReversal.trust === 'estimated' && hiddenReversal.reasons.includes('paid-unavailable-counted-as-zero'),
+    'MUTANT: ignoring the reversal converts a manual card’s unresolved paid amount into estimated zero');
   const lies = load(src.replace("trust: dueLines.length ? weakest(...dueLines.map(line => line.paidToward.trust)) : splitTrust,", "trust: 'calculated',"));
   ok(lies.stackCreditLines(publish(failed), manualBills).totals.minimumsPaid.trust === 'calculated',
     'MUTANT: a trust word of calculated on an unseen card reads calculated, which the honest-trust checks above reject');
+
+  const returned = { ...publish(x), unconfirmedPayments: [{ date: x.asOf, amount: -100 }] };
+  const progressOf = api => api.stackCreditLines(returned, travelDue).lines.find(card => card.id === 'travelvisa');
+  const unresolved = progressOf(F);
+  ok(unresolved.paidBack.amount === 100 && unresolved.minimumCovered.value === 'unknown'
+    && unresolved.stillToPayBack.amount === null && unresolved.stillToPayBack.reasons.includes('payment-direction-unresolved'),
+    'a return with no destination preserves the named debit and withholds progress on the due card');
+  const progressGuard = 'const progress = hasUnassignedReversal &&';
+  ok(src.includes(progressGuard), 'the reversal mutant targets the per-card progress check');
+  const unchecked = progressOf(load(src.replace(progressGuard, 'const progress = false &&')));
+  ok(unchecked.minimumCovered.value === true && unchecked.stillToPayBack.amount !== null,
+    'MUTANT: ignoring an unidentified return publishes a covered minimum and a remaining amount');
 }
 
 console.log('13. paidToward: one published paid figure per line, read by the row and summed by the head (Dale, 2026-11-20)');
