@@ -20,7 +20,8 @@
  *   7. on a real Forecast recommendation for an invented harness world, every
  *      printed amount still equals its published source;
  *   8. the source has no money arithmetic (no reduce, no Math, no + or −
- *      between figures).
+ *      between figures);
+ *  12. a non-zero published savings-item term gets its own row, so the printed rows add up to the printed Surplus.
  *
  * `node test/test-stack-waterfall.js` */
 const fs = require('node:fs');
@@ -374,6 +375,138 @@ console.log('11. A real Forecast recommendation whose operating plan is unavaila
   MONEY.lastIndex = 0;
   ok(MONEY.test(mutantHtml), 'mutant: printing an unpublished amount as $0 shows money on the unavailable period and is caught');
   MONEY.lastIndex = 0;
+}
+
+console.log('12. Surplus subtracts linked savings-item spending, so the waterfall prints that row (lead, run 5 Track A; bug hunt 3 finding 7)');
+{
+  // The rows the page prints, read back out of the markup: data-row, operator, source and printed text of each line's first cell.
+  const rowsOf = html => [...html.matchAll(/<li class="wf-line[^"]*" data-row="([^"]*)">([\s\S]*?)<\/li>/g)].map(m => {
+    const op = /<span class="op" aria-hidden="true">([^<]*)<\/span>/.exec(m[2]);
+    const cell = /<span class="n[^"]*" data-source="([^"]+)"[^>]*>([^<]*)<\/span>/.exec(m[2]);
+    return { row: m[1], op: op ? op[1] : null, source: cell ? cell[1] : null, text: cell ? unescape(cell[2]) : null };
+  });
+  const slabOf = html => { const m = /data-row="surplus">[\s\S]*?data-source="([^"]+)"[^>]*>([^<]*)</.exec(html); return m ? { source: m[1], text: unescape(m[2]) } : null; };
+  // Independent of the block: the printed whole-dollar figures must add up. Total income, less every row marked −, is the Surplus.
+  const printedInt = t => (/^[−-]/.test(t) ? -1 : 1) * Number(t.replace(/[^\d]/g, ''));
+  const sumsOnScreen = html => {
+    const rows = rowsOf(html).filter(r => r.text !== null);
+    const total = rows.find(r => r.row === 'total');
+    const slab = slabOf(html);
+    return { total: total ? printedInt(total.text) : null, minus: rows.filter(r => r.op === '−').map(r => printedInt(r.text)), surplus: slab ? printedInt(slab.text) : null };
+  };
+  const reconciles = s => s.total !== null && s.surplus !== null && s.total - s.minus.reduce((a, b) => a + b, 0) === s.surplus;
+
+  // Invented: $1,400 income, $400 Budget, $200 linked savings item, nothing else, so Surplus is +$800.
+  const withItem = () => {
+    const v = fullView();
+    v.budgetHold = 400;
+    v.stackSummary.income = { dale: { amount: 1400, trust: 'calculated' }, amanda: { amount: 0, trust: 'calculated' },
+      other: { amount: 0, trust: 'calculated' }, total: { amount: 1400, trust: 'calculated' } };
+    v.stackSummary.bills = { mortgage: 0, cardMinimums: [], other: 0, trust: 'calculated' };
+    v.stackSummary.surplus = { amount: 800, terms: { income: 1400, bills: 0, household: 400, mortgage: 0, credit: 0, savingsItemSpending: 200 },
+      trust: 'calculated', projected: false };
+    return v;
+  };
+  const noItem = () => {
+    const v = withItem();
+    v.stackSummary.surplus = { amount: 1000, terms: { income: 1400, bills: 0, household: 400, mortgage: 0, credit: 0 }, trust: 'calculated', projected: false };
+    return v;
+  };
+
+  const view = withItem();
+  const out = W.html(ctxOf([view]), {});
+  const rows = rowsOf(out);
+  const item = rows.find(r => r.row === 'savings-item');
+  ok(!!item && item.op === '−' && item.source === 'stackSummary.surplus.terms.savingsItemSpending' && item.text === '$200'
+    && item.source === W.LINE_SOURCES.savingsItem,
+  'the row prints the published term, $200, as a − line, read from stackSummary.surplus.terms.savingsItemSpending', JSON.stringify(item));
+  ok(/data-row="savings-item"><span class="op" aria-hidden="true">−<\/span><span class="lab">Savings items<\/span>/.test(out),
+    'it is labelled Savings items (the name the Budget page already uses)');
+  const order = rows.map(r => r.row).join(',');
+  ok(order === 'dale,amanda,other,total,bills,budget,mortgage,credit,savings-item', 'it sits after Credit, before the Surplus slab', order);
+  const sums = sumsOnScreen(out);
+  ok(JSON.stringify(sums) === JSON.stringify({ total: 1400, minus: [0, 400, 0, 0, 200], surplus: 800 }) && reconciles(sums),
+    'the repro: $1,400 − $0 − $400 − $0 − $0 − $200 = +$800, and the printed rows add up to the printed Surplus', JSON.stringify(sums));
+  // Money on the block is still only in sourced cells (nothing computed or printed outside a published value).
+  proveSourced(out, view, 'with a savings-item term');
+
+  // The trust is Surplus's own: an estimated Surplus makes the row soft, exactly as the Surplus figure is.
+  globalThis.StackBlocks.estClass = trust => (trust === 'estimated' ? ' est' : '');
+  const cellClass = (html, source) => { const m = new RegExp(`<span class="n( est)?" data-source="${source.replace(/\./g, '\\.')}"`).exec(html); return m ? m[1] || '' : null; };
+  const soft = withItem();
+  soft.stackSummary.surplus.trust = 'estimated';
+  const softOut = W.html(ctxOf([soft]), {});
+  ok(cellClass(softOut, 'stackSummary.surplus.terms.savingsItemSpending') === ' est' && cellClass(softOut, 'stackSummary.surplus.amount') === ' est'
+    && cellClass(out, 'stackSummary.surplus.terms.savingsItemSpending') === '' && cellClass(out, 'stackSummary.surplus.amount') === '',
+  'the row carries the trust Surplus carries (stackSummary.surplus.trust): estimated is soft on both, calculated on neither');
+  delete globalThis.StackBlocks.estClass;
+
+  // A zero or absent term: no row, and the markup is exactly what it was without the term (byte-identical to main's output).
+  const absent = W.html(ctxOf([noItem()]), {});
+  const zeroView = noItem();
+  zeroView.stackSummary.surplus.terms.savingsItemSpending = 0;
+  const zero = W.html(ctxOf([zeroView]), {});
+  ok(!/savings-item|Savings items/.test(absent) && !/savings-item|Savings items/.test(zero) && zero === absent,
+    'with no term, or a zero term, no row appears and the two outputs are byte-identical');
+  ok(/data-row="credit">[\s\S]*?<\/ul><\/li>\n  <\/ul>\n  <div class="wf-slab" data-row="surplus">/.test(absent),
+    'the markup around where the row would go is the pre-change shape: the Credit item, the closing list, then the slab');
+  const nullView = noItem();
+  nullView.stackSummary.surplus.terms.savingsItemSpending = null;
+  ok(W.html(ctxOf([nullView]), {}) === absent, 'a non-numeric term prints no row either');
+  const withheld = withItem();
+  withheld.stackSummary.surplus = { amount: null, terms: null, trust: 'unavailable', projected: false, reason: 'withheld' };
+  ok(!/savings-item/.test(W.html(ctxOf([withheld]), {})), 'a withheld Surplus (terms null) prints no savings-item row');
+
+  // A real Forecast recommendation (invented harness world: $1,400 payroll, $400 Budget hold, a linked $200 savings item).
+  {
+    const H = require('./acceptance/harness.js');
+    const F = require('../public/forecast.js');
+    const w = H.baseWorld();
+    w.transactions = [H.lm({ date: '2026-10-09', amount: -1400, category: 'Payroll', account: 'chequing-a', payee: 'Invented employer' })];
+    w.commitments = [{ id: 'trip', label: 'Invented trip', date: '2026-11-20', amount: 600, confidence: 'confirmed', sinkingFund: true }];
+    w.savingsPool = { value: 1000 };
+    w.links = [{ categoryId: 106, goalRef: { kind: 'commitment', id: 'trip' }, occurrenceDate: '2026-11-20', effectiveFrom: '2026-09-01', effectiveThrough: '2026-12-31' }];
+    w.transactions.push(H.lm({ date: '2026-10-12', amount: 200, category: 106, account: 'chequing-a', payee: 'Invented outfitter' }));
+    const { data, packet, error } = H.dataOf(w);
+    if (error) throw error;
+    const rec = F.recommend(data.plan, w.asOf, { debts: data.debts, currentPeriodActuals: packet });
+    const cur = rec.payPeriodViews.find(v => v.start === '2026-10-09');
+    const render = (v, mod) => (mod || W).html({ data, plan: data.plan, recommendation: rec, selectedPeriodKey: v.start, Forecast: F }, {});
+    const s = sumsOnScreen(render(cur));
+    ok(cur && cur.stackSummary.surplus.terms.savingsItemSpending === 200 && cur.stackSummary.surplus.amount === 800
+      && s.total === 1400 && s.surplus === 800 && s.minus.includes(200) && reconciles(s),
+    'on the real Forecast publication: the printed rows add up to the published +$800 Surplus', JSON.stringify([cur && cur.stackSummary.surplus, s]));
+    let checked = 0;
+    const broke = [];
+    for (const v of rec.payPeriodViews) {
+      const t = sumsOnScreen(render(v));
+      if (t.total === null || t.surplus === null) continue;
+      checked++;
+      if (!reconciles(t)) broke.push([v.start, t]);
+    }
+    ok(checked > 0 && broke.length === 0, `every period with a published total and surplus reconciles on screen (${checked} checked)`, JSON.stringify(broke));
+  }
+
+  // Mutants: dropping the row fails the reconciliation; printing a zero term changes the zero-term markup; a wrong source fails.
+  const src = fs.readFileSync(FILE, 'utf8');
+  const Module = require('node:module');
+  const mutantOf = (from, to) => {
+    ok(src.split(from).length === 2, `the mutation target appears once: ${from.slice(0, 40)}`);
+    const mm = new Module(FILE);
+    mm.filename = FILE;
+    mm.paths = Module._nodeModulePaths(path.dirname(FILE));
+    mm._compile(src.replace(from, to), FILE);
+    return mm.exports;
+  };
+  const dropped = mutantOf('isAmount(itemTerm) && itemTerm !== 0', 'false');
+  const droppedHtml = dropped.html(ctxOf([view]), {});
+  ok(!reconciles(sumsOnScreen(droppedHtml)) && !/savings-item/.test(droppedHtml),
+    'mutant: dropping the row leaves $1,400 − $0 − $400 − $0 − $0 ≠ +$800, and the reconciliation fails', JSON.stringify(sumsOnScreen(droppedHtml)));
+  const zeroRow = mutantOf('isAmount(itemTerm) && itemTerm !== 0', 'isAmount(itemTerm)');
+  ok(/savings-item/.test(zeroRow.html(ctxOf([zeroView]), {})) && zeroRow.html(ctxOf([zeroView]), {}) !== absent,
+    'mutant: printing a zero term adds a row, which the byte-identical check above catches');
+  const wrongSource = mutantOf("savingsItem: 'stackSummary.surplus.terms.savingsItemSpending'", "savingsItem: 'stackSummary.surplus.terms.household'");
+  ok(!reconciles(sumsOnScreen(wrongSource.html(ctxOf([view]), {}))), 'mutant: reading the wrong published term fails the reconciliation');
 }
 
 console.log(failures ? `\n${failures} of ${checks} FAILED` : `\nAll ${checks} stack waterfall checks passed`);

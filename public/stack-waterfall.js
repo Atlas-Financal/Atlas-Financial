@@ -24,6 +24,8 @@
  *                  Still to pay back, OD-033; no "Already counted above" row, Dale, 7121410691) (desk ruling
  *                  (E)); where Forecast publishes no breakdown (a completed or saved
  *                  period), stackSummary.bills.cardMinimums[i].amount
+ *   Savings items  stackSummary.surplus.terms.savingsItemSpending, its own row only when Forecast published that
+ *                  term and it is not zero (Surplus subtracts it, so the rows must show it); Surplus's own trust
  *   Surplus        stackSummary.surplus.amount
  *
  * Registered with the Stack shell as StackBlocks.register('waterfall', render),
@@ -54,6 +56,7 @@
     budget: 'budgetHold',
     mortgage: 'stackSummary.bills.mortgage',
     credit: 'stackSummary.surplus.terms.credit',
+    savingsItem: 'stackSummary.surplus.terms.savingsItemSpending',
     surplus: 'stackSummary.surplus.amount',
   });
   // B5: the published trust of each row's figure, for the shell's one trust treatment (StackBlocks.estClass).
@@ -66,6 +69,7 @@
     budget: 'budgetHoldTrust',
     mortgage: 'stackSummary.bills.trust',
     credit: 'stackSummary.bills.trust',
+    savingsItem: 'stackSummary.surplus.trust',
     surplus: 'stackSummary.surplus.trust',
   });
   const est = (view, path) => {
@@ -231,6 +235,11 @@
       : line('−', 'Mortgage', amountCell(view, 'mortgage'), '', 'mortgage');
     // A withheld surplus shows its name and a dash, no sentence (owner, 2026-11-20: no explanatory text on the page).
     const dash = amount === null ? DASH : '';
+    // Surplus subtracts linked savings-item spending, so the rows show it: its own line, the published term as is, only when
+    // Forecast published it and it is not zero. A zero or absent term adds nothing, so the markup is exactly what it was.
+    const itemTerm = readPath(view, LINE_SOURCES.savingsItem);
+    const savingsItem = isAmount(itemTerm) && itemTerm !== 0
+      ? `\n    ${line('−', 'Savings items', amountCell(view, 'savingsItem'), '', 'savings-item')}` : '';
     return `<section class="stack-waterfall" data-block="waterfall" data-period="${escape(view.start || '')}"${surplus && surplus.projected ? ' data-projected="true"' : ''}>
   <ul class="wf-math">
     ${line('', 'Dale’s income', amountCell(view, 'dale'), '', 'dale')}
@@ -240,7 +249,7 @@
     ${line('−', 'Bills', amountCell(view, 'bills'), '', 'bills')}
     ${line('−', 'Budget', amountCell(view, 'budget'), '', 'budget')}
     ${mortgage}
-    ${credit}
+    ${credit}${savingsItem}
   </ul>
   <div class="wf-slab${deficit ? ' neg' : ''}" data-row="surplus"><div class="sl"><span aria-hidden="true">=</span> ${word}</div>${amountCell(view, 'surplus', { sign: true })}${dash}</div>
 </section>`;
