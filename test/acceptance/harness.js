@@ -185,6 +185,8 @@ function rawPayload(w, { captureCash = false } = {}) {
     transactionWindow: { startDate: w.windowStart, endDate: w.asOf, ...w.coverage },
     pendingCoverage: w.pendingCoverage,
     fetchedAt: w.asOf + 'T18:00:00.000Z',
+    // Lunch Money's recurring-item read: present only when a world sets it.
+    ...(w.recurringItems ? { recurringItems: w.recurringItems } : {}),
     // The fixed-amount history read (derivedAmountFixedBills): present only when a world sets it.
     ...(w.amountHistory ? { amountHistory: { transactions: w.amountHistory.transactions || [],
       transactionWindow: { startDate: w.amountHistory.startDate || '2026-04-01', endDate: w.amountHistory.endDate || w.asOf,
