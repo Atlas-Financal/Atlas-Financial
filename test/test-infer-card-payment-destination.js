@@ -162,6 +162,12 @@ test('4e. a debit that competed for a reserved landing never falls through to th
   assert.equal(r.unassigned, '[210]');
 });
 
+test('4e2. a minimum a noted payment already matches is taken: a second debit of that amount is not inferred to it', async () => {
+  const r = await read([debit(210, { id: 'n', notes: 'card payment: HELOC' }), debit(210, { id: 'u' })]);
+  assert.equal(r.heloc.paidBack.amount, 210, 'the noted 210 counts; the un-noted 210 does not claim the same minimum');
+  assert.equal(r.unassigned, '[210]');
+});
+
 test('4f. a landing with contradictory evidence is no landing (Codex on #1650)', async () => {
   const aliases = await read([debit(300), landing('heloc', 300, { account: 'travelvisa' })]);
   assert.equal(aliases.heloc.paidBack.amount, 0, 'conflicting account aliases: not a landing');

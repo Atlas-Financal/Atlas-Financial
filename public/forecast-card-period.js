@@ -81,8 +81,10 @@
       const byLine = new Map();
       for (const d of noteless) {
         if (d.inferred || competed.has(d) || named.get(d) === 'conflict') continue;
+        // A minimum that an already-named payment matches is taken: it is never claimed again by a second debit.
+        const taken = (cardId, amount) => assigned.some(a => a.cardId === cardId && Math.abs(a.value - amount) <= INFER_TOLERANCE(amount));
         const lines = [...expected].filter(([cardId, amounts]) => byCard.has(cardId) && allowed(d, cardId)
-          && amounts.some(amount => Math.abs(d.value - amount) <= INFER_TOLERANCE(amount))).map(([cardId]) => cardId);
+          && amounts.some(amount => !taken(cardId, amount) && Math.abs(d.value - amount) <= INFER_TOLERANCE(amount))).map(([cardId]) => cardId);
         if (lines.length !== 1) continue;
         byLine.set(lines[0], (byLine.get(lines[0]) || []).concat([d]));
       }
