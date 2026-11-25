@@ -130,10 +130,12 @@ console.log('7. phone layout rules (the browser proof is test/browser-stack-layo
   const pad = /html\.stack-view \.sc-card\{[^}]*padding:\d+px \d+px (\d+)px/.exec(cards);
   ok(pad && Number(pad[1]) >= 38 + 16 && /\.sc-card\{[^}]*margin-top:-38px/.test(cards) && /\.sc-card\{[^}]*border-radius:38px/.test(cards),
     'each card overlaps the one above by 38px with at least 54px of bottom padding, so the next card covers only padding, never the head', pad && pad[1]);
-  // :last-of-type (reorderable stacks): a card's slot also holds the screen reader's hidden Move buttons, which are not cards.
-  ok(/:has\(\+ \.stack-block:empty\) \.sc-card:last-of-type[^{]*\{padding-bottom:22px\}/.test(cards), 'the last card drops to 22px of bottom padding when no block follows it');
-  ok(/\[data-stack-block="credit"\]\.stack-slot:not\(:last-child\) \.stack-credit \{ padding-bottom: 56px; \}/.test(pile),
-    'Credit moved above another card keeps 56px of bottom padding, so that card covers only padding');
+  // Every card keeps its full foot wherever it sits, the last included (Dale, 2026-11-25: the bottom card read shorter):
+  // no rule trims a card's or Credit's bottom padding by position. The heights are measured in browser-stack-last-card-full-height.
+  ok(!/\.sc-card:last-of-type[^{]*\{[^}]*padding-bottom/.test(cards) && !/:last-child[^{]*\.sc-card[^{]*\{[^}]*padding-bottom/.test(cards),
+    'no rule trims the last card\'s bottom padding');
+  ok(/\[data-stack-block="credit"\]\.stack-slot \.stack-credit \{ padding-bottom: 56px; \}/.test(pile) && !/:not\(:last-child\) \.stack-credit/.test(pile),
+    'Credit keeps 56px of bottom padding in every position, the last included');
   const wf = read('public/stack-waterfall.css').replace(/\/\*[\s\S]*?\*\//g, '');
   const slab = /\.wf-slab \{[^}]*container-type: inline-size;/.test(wf);
   const size = /\.wf-slab \.n, html\.stack-view \.stack-waterfall \.wf-slab \.wf-dash \{ font-size: min\(66px, (\d+(?:\.\d+)?)cqi\); white-space: nowrap; \}/.exec(wf);
