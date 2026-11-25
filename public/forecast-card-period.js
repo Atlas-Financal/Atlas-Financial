@@ -743,7 +743,9 @@
         toGo = { amount: gap > 0 ? gap / 100 : 0, trust: inputsTrust, reasons };
       }
       const payment = paidTowardOf(card, published(card.id));
-      const paidToward = card.id !== 'heloc' && cents(target.amount) > 0 ? withUnassignedPayments(payment) : payment;
+      // An unknown target (cents null) is qualified like a positive one: only a known $0 target leaves the row unqualified.
+      const targetOpen = cents(target.amount) === null || cents(target.amount) > 0;
+      const paidToward = card.id !== 'heloc' && targetOpen ? withUnassignedPayments(payment) : payment;
       // Spend cards publish the payer's posted debits. The HELOC retains its signed facility-ledger rule.
       const paidBack = card.id === 'heloc' && paidToward.amount !== null
         && (postedPaymentDebitOf(published('heloc')) || cents(paidToward.amount) < 0)
@@ -751,7 +753,7 @@
         : paidToward;
       const targetCents = target.amount === null ? null : cents(target.amount);
       // Named debits still show what was sent. An unidentified return leaves repayment progress unresolved.
-      const progress = hasUnassignedReversal && card.id !== 'heloc' && targetCents > 0
+      const progress = hasUnassignedReversal && card.id !== 'heloc' && targetOpen
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(paidBack.reasons.concat('payment-direction-unresolved'))] }
         : paidBack;
       const towardCents = cents(progress.amount);

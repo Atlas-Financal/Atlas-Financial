@@ -435,3 +435,71 @@ test('a posted payer transfer sharing a native ID with a different ledger row ca
   });
   checkWithheld(page, 'duplicate-identity');
 });
+
+// Muse, #1628 7151767722 (bounded blocker; lead ATLAS LEAD 13): an unassigned payment or reversal qualifies a spend card
+// whose target is positive OR unknown. Only a known $0 target (ruled intended) leaves the row unqualified. The invented
+// Travel minimum is left unread (amount null), so the card's target is unknown.
+const UNKNOWN_TARGET = (_packet, plan) => { plan.obligations.find(o => o.debtId === 'travelvisa').amount = null; };
+const UNASSIGNED_CASES = [
+  ['an unassigned payment', { id: 'unassigned', amount: 71 }],
+  ['an unassigned reversal', { id: 'unassigned-return', date: THIRD, amount: -43 }],
+];
+
+function assertUnknownTargetQualified(page, label, reversal) {
+  const line = page.credit.lines.find(item => item.id === 'travelvisa');
+  assert.equal(line.target.amount, null, `${label}: the target is unknown`);
+  for (const figure of [line.paidToward, line.paidBack]) {
+    assert.equal(figure.amount, 43, `${label}: the named payment still shows`);
+    assert.notEqual(figure.trust, 'calculated', `${label}: paid back is not calculated beside it`);
+    assert.equal(figure.trust, 'estimated');
+    assert.ok(figure.reasons.includes('card-payment-destination-unconfirmed'), `${label}: the unassigned reason`);
+  }
+  assert.equal(line.stillToPayBack.amount, null);
+  assert.equal(line.targetCovered.value, 'unknown');
+  if (reversal) assert.ok(line.stillToPayBack.reasons.includes('payment-direction-unresolved'), `${label}: progress is unresolved`);
+}
+
+for (const [label, extra] of UNASSIGNED_CASES) {
+  test(`${label} qualifies paid back on a card whose target is unknown`, async () => {
+    const page = await render(THIRD, [payment(EXACT), payment(undefined, extra)], UNKNOWN_TARGET);
+    assertUnknownTargetQualified(page, label, extra.amount < 0);
+  });
+
+  test(`${label} leaves a known $0 target exactly as it was`, async () => {
+    const page = await render(THIRD, [payment(EXACT),
+      payment('card payment: TD Cash Back Visa', { id: 'other-payment', amount: 11 }), payment(undefined, extra)]);
+    const line = page.credit.lines.find(item => item.id === 'cashback');
+    assert.equal(line.target.amount, 0);
+    for (const figure of [line.paidToward, line.paidBack]) {
+      assert.equal(figure.amount, 11);
+      assert.equal(figure.trust, 'calculated');
+      assert.equal(figure.reasons.length, 0, 'no unassigned reason on a known $0 target');
+    }
+    assert.equal(line.stillToPayBack.amount, 0);
+    assert.equal(line.targetCovered.value, false);
+  });
+}
+
+test('a mutant qualifying only a positive target fails the unknown-target checks', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const from = 'const targetOpen = cents(target.amount) === null || cents(target.amount) > 0;';
+  assert.ok(source.includes(from), 'forecast-card-period.js carries the rule to mutate');
+  const mutant = source.replace(from, 'const targetOpen = cents(target.amount) > 0;');
+  // Serve the mutant to the page harness for these renders only; nothing is written to disk.
+  const read = fs.readFileSync;
+  fs.readFileSync = function (target, ...rest) {
+    return path.resolve(String(target)) === file ? mutant : read.call(this, target, ...rest);
+  };
+  try {
+    for (const [label, extra] of UNASSIGNED_CASES) {
+      const page = await render(THIRD, [payment(EXACT), payment(undefined, extra)], UNKNOWN_TARGET);
+      assert.throws(() => assertUnknownTargetQualified(page, label, extra.amount < 0), assert.AssertionError,
+        `MUTANT (${label}): the > 0-only rule leaves paid back calculated beside it`);
+    }
+  } finally {
+    fs.readFileSync = read;
+  }
+});
