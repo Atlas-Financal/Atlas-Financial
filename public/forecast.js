@@ -13668,7 +13668,12 @@
   //   householdToMove  the Household budget still to move out of Bills (household.remaining);
   //   alreadyOut   Bills bills already settled this period, with the bill's own counted amount and paid check.
   // The lists are published only when the close itself is ready: a withheld close may have left an occurrence out.
-  const BILLS_READING_ISSUES = new Set(['bills-cash-unavailable', 'cash-observation-misaligned', 'operating-plan-unavailable']);
+  //   A reading is a dash too (OD-037: "a stale or missing reading shows a dash") when no chequing observation exists for
+  //   the Bills account (the plan's Bills row alone is not a reading: billsAccountReadingByPublication) and when the
+  //   posted movements are not covered through the as-of day ('posted-window-incomplete'). The close itself is not
+  //   changed by either: only what this card prints as "Bank reading".
+  const BILLS_READING_ISSUES = new Set(['bills-cash-unavailable', 'cash-observation-misaligned', 'operating-plan-unavailable',
+    'posted-window-incomplete']);
   function stackBillsAccount(view) {
     const pub = view && view.billsAccountPeriodBalance;
     if (view.role !== 'active' || !pub || pub.source !== 'Forecast.billsAccountPeriodBalance'
@@ -13677,10 +13682,13 @@
     // The reading is gated on the reading alone (lead ruling on #1627, 2026-11-24: the bank balance is still true when
     // the close is withheld for another reason; Dale asked for "just the now number"); the lists are gated on the close.
     const readingIssue = (pub.issues || []).find(row => row && BILLS_READING_ISSUES.has(row.code));
-    const now = !readingIssue && finite(pub.observedCash) && pub.observedAsOf
+    // Fail closed: a publication that has no record (a copy, a saved close) or no chequing observation has no reading.
+    const observed = (billsAccountReadingByPublication.get(pub) || {}).observed === true;
+    const now = !readingIssue && observed && finite(pub.observedCash) && pub.observedAsOf
       ? { amount: pub.observedCash, asOf: pub.observedAsOf, trust: 'estimated', reason: null }
       : { amount: null, asOf: null, trust: 'unavailable',
-        reason: readingIssue ? readingIssue.message : 'A dated posted Bills account balance is unavailable.' };
+        reason: readingIssue ? readingIssue.message : observed ? 'A dated posted Bills account balance is unavailable.'
+          : 'No bank reading of the Bills account is available.' };
     const pubItems = billsAccountItemsByPublication.get(pub);
     const ready = pub.status === 'ready' && Array.isArray(pubItems);
     const reason = ready ? null : pub.reason || 'The Bills account lines are unavailable.';
@@ -15943,6 +15951,9 @@
   // the publication, never on it: the close and every saved record of it stay exactly as before. Read only by
   // stackBillsAccount; a publication without an entry (a copy, a saved record) has no lines.
   const billsAccountItemsByPublication = new WeakMap();
+  // Whether the Bills account has its own chequing observation for each publication, kept beside it for the same reason
+  // (the close and its saved records stay exact). The plan's Bills row alone is not a bank reading.
+  const billsAccountReadingByPublication = new WeakMap();
 
   // Owner 2026-10-07: expected period-end stock of BILLS only. This
   // derives a separate estimate; it never replaces the period-income BAD,
@@ -16289,6 +16300,7 @@
         'Forecast.calendarHouseholdBudget', 'Forecast.reconcileCardPurchases', 'Forecast.cardMinimumState', 'Forecast.expandEvents'],
       grantsSpendPermission: false };
     billsAccountItemsByPublication.set(publication, items);
+    billsAccountReadingByPublication.set(publication, { observed: observedRows.length > 0 });
     return publication;
   }
 

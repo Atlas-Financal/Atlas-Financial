@@ -61,6 +61,17 @@ function world(mode) {
     p.startingCash.breakdown = p.startingCash.breakdown.filter(r => r.id !== 'chequing-a');
     d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
   }
+  // Bug hunt 3 (#1607) finding 4: only the Bills chequing observation is gone; the plan's Bills row (1373.29) stays.
+  if (mode === 'no-observation') {
+    d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
+  }
+  // Finding 9: the Bills balance is dated Aug 17 (as of Aug 20), posted-transaction coverage is partial through Aug 17,
+  // and nothing posted after Aug 17.
+  if (mode === 'window-incomplete') {
+    d.liveOverlay.observedCash.accounts.find(r => r.id === 'chequing-a').evidenceDate = '2026-08-17';
+    pk.coverageThrough = '2026-08-17'; pk.transactionCoverage = 'partial';
+    pk.transactions = pk.transactions.filter(r => r.date <= '2026-08-17');
+  }
   d.meta = { ...(d.meta || {}), asOf: fx.AS_OF };
   return d;
 }
@@ -127,6 +138,29 @@ for (const [mode, code] of [['stale', 'operating-plan-unavailable'], ['misaligne
     mode + ': no amount, no date, the reason is the close\'s own (' + code + ')', JSON.stringify(b && b.now));
   ok(b.status === 'unavailable' && b.comingIn === null && b.comingOut === null && b.alreadyOut === null
     && b.householdToMove.amount === null, mode + ': the lists are withheld with the close', JSON.stringify(b.status));
+}
+
+console.log('2a. No chequing observation, or coverage incomplete through as-of: a dash (OD-037; #1607 findings 4 and 9)');
+for (const [mode, code] of [['no-observation', null], ['window-incomplete', 'posted-window-incomplete']]) {
+  const v = activeOf(advise(F, world(mode))), b = v.stackSummary.billsAccount, pub = v.billsAccountPeriodBalance;
+  const issue = code && pub.issues.find(i => i.code === code);
+  ok(b && b.now.amount === null && b.now.asOf === null && b.now.trust === 'unavailable'
+    && b.now.reason === (code ? issue && issue.message : 'No bank reading of the Bills account is available.'),
+  mode + ': no amount, no date, ' + (code ? 'the close\'s own reason (' + code + ')' : 'the reason is that no bank reading exists'), JSON.stringify(b && b.now));
+  ok(!code ? pub.observedCash === 1373.29 && pub.issues.length === 0 && pub.status === 'ready' : pub.status === 'unavailable',
+    mode + ': the plan row alone still stands in the close; the close is not moved by this change', JSON.stringify([pub.observedCash, pub.status, pub.issues.map(i => i.code)]));
+}
+{
+  // The close is byte-equal to main in both worlds: only the card's reading changes.
+  for (const mode of ['no-observation', 'window-incomplete']) {
+    ok(JSON.stringify(activeOf(advise(F, world(mode))).billsAccountPeriodBalance) === JSON.stringify(activeOf(advise(OLD, world(mode))).billsAccountPeriodBalance),
+      mode + ': billsAccountPeriodBalance is byte-equal to main');
+  }
+}
+{
+  // A fresh, complete reading still prints (and the same world with its observation does).
+  const b = activeOf(advise(F, world())).stackSummary.billsAccount;
+  ok(b.now.amount === 1373.29 && b.now.asOf === '2026-08-20' && b.now.reason === null, 'a fresh, complete reading still prints', JSON.stringify(b.now));
 }
 
 console.log('2b. A close withheld for another reason (lead ruling on #1627): the reading still shows; the lists do not');
@@ -212,9 +246,19 @@ ok(/sc-check/.test(card) === (paidRow.stackBillPaid === true), 'the paid check f
   checked.stackSummary.billsAccount.alreadyOut[0].paid = true;
   ok((cardOf(checked).match(/sc-check/g) || []).length === 1, 'a paid settled bill is ticked, once');
 }
-for (const mode of ['stale', 'misaligned', 'missing']) {
+for (const mode of ['stale', 'misaligned', 'missing', 'no-observation', 'window-incomplete']) {
   const v = activeOf(advise(F, world(mode))), h = cardOf(v), b = v.stackSummary.billsAccount;
-  ok(h && head(h) === 'Bills account ' + b.now.reason + ' —' && !/\$/.test(h), mode + ': the head is a dash with the reason; no amount anywhere', head(h || ''));
+  // The head never carries an amount. The lists follow the close: a withheld close has none, so no amount anywhere; a
+  // ready close (no observation: the close is not changed by this outcome) still lists, under the dash.
+  ok(h && head(h) === 'Bills account ' + b.now.reason + ' —' && !/\$/.test(head(h)) && (b.status === 'ready' || !/\$/.test(h)),
+    mode + ': the head is a dash with the reason; no amount in the head' + (b.status === 'ready' ? '' : ' or anywhere'), head(h || ''));
+}
+{
+  // Finding 9 and 4 through the real page, as the exact head strings on invented data.
+  for (const [mode, want] of [['no-observation', 'Bills account No bank reading of the Bills account is available. —'],
+    ['window-incomplete', 'Bills account Posted Bills movements do not cover this pay period completely. —']]) {
+    ok(head(cardOf(activeOf(advise(F, world(mode))))) === want, mode + ': the head reads "' + want + '"', head(cardOf(activeOf(advise(F, world(mode))))));
+  }
 }
 {
   const v = activeOf(advise(F, unknownBill(world()))), h = cardOf(v);
@@ -245,8 +289,14 @@ mutant('a settled bill from another account listed', 'public/forecast.js',
     return !b.alreadyOut.some(r => r.id === 'weekly-bill'); });
 mutant('the late word dropped', 'public/forecast.js', "item.date && item.date < day ? 'late' : 'due'", "'due'",
   sources => fresh(sources).comingOut.find(r => r.id === 'late-bill').status === 'late');
-mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && finite(pub.observedCash)', 'const now = finite(pub.observedCash)',
+mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && observed && finite(pub.observedCash)', 'const now = observed && finite(pub.observedCash)',
   sources => activeOf(advise(engine(sources), world('misaligned'))).stackSummary.billsAccount.now.amount === null);
+mutant('no observation still prints the plan row', 'public/forecast.js', 'const now = !readingIssue && observed && finite',
+  'const now = !readingIssue && finite',
+  sources => activeOf(advise(engine(sources), world('no-observation'))).stackSummary.billsAccount.now.amount === null);
+mutant('an incomplete posted window still prints the reading', 'public/forecast.js', "'posted-window-incomplete']);",
+  "]);",
+  sources => activeOf(advise(engine(sources), world('window-incomplete'))).stackSummary.billsAccount.now.amount === null);
 mutant('the lists published with a withheld close', 'public/forecast.js', "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
   'const ready = Array.isArray(pubItems);',
   sources => activeOf(advise(engine(sources), world('stale'))).stackSummary.billsAccount.comingOut === null);
