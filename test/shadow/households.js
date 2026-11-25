@@ -90,7 +90,7 @@ function makeHousehold(input) {
       source.fixed?.balanceCents || 0) + source.balancePad : source.cents * 8;
     const pending = source.pending || 0;
     debts.push({ id, label: 'Invented ' + id, balance: money(balance), pending: money(pending),
-      ...(id === 'mbna' ? { limit: money(balance + pending + source.limitDelta) } : {}),
+      ...(id === 'mbna' ? { evidenceDate: asOf, limit: money(balance + pending + source.limitDelta) } : {}),
       secured: id === 'mortgage', rate: 0,
       payment: obligation.amount, confidence: 'confirmed' });
   }
