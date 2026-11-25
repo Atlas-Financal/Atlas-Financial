@@ -47,7 +47,9 @@ for(const pendingCoverage of ['partial','unknown']){
  assert.equal(p.budgetProgress.coverage.remainingClaim,'posted-only');
  assert.equal(p.budgetProgress.household.actual.completeness,'partial');
  assert.equal(p.budgetProgress.household.actual.amount,247.63);
- assert.equal(p.householdBudget.find(r=>r.id==='other-spending').remaining,312.74,'engine publication stays unchanged; display must qualify completeness');
+ // T3 bug hunt 2, finding 2 (#1607 7147675369): the engine itself now withholds each row's Left on the posted-only
+ // claim (it published 312.74 here before); the display below still qualifies it the same way.
+ assert.ok(p.householdBudget.every(r=>r.remaining===null&&r.overspend===null&&r.remainingTrust==='unavailable'),'the engine withholds every row\'s Left on the posted-only claim');
  assert.equal(p.budgetHold,925);assert.equal(p.balanceAfterDeductions,381.28,'1400 − 925 − the invented 93.72 unproven transfer');
  const sealed=JSON.stringify(p),html=sheet(render(p,f.plan)),other=html.split('data-budget-category="other-spending"')[1].split('</dl>')[0];
  assert.match(total(html),/247\.63[\s\S]*partial evidence/);
