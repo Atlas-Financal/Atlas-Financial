@@ -52,6 +52,7 @@ async function renderWorld(data) {
   assert.equal(view.timelineRole, 'current');
   return { period: { start: view.start, end: view.end }, credit: view.stackSummary.credit, card: page.blockHtml('credit'),
     waterfall: page.blockHtml('waterfall'),
+    openWaterfall: () => page.sandbox.StackWaterfall.html(ctx, { creditOpen: true }),
     sheet: id => page.sandbox.StackSheet.html(ctx, 'card:' + id) };
 }
 
@@ -131,6 +132,91 @@ test('a separate unconfirmed transfer cannot inflate or erase the known paying-s
   checkPayment(page, 43, 'estimated', 'card-payment-destination-unconfirmed');
   assert.equal(page.credit.unconfirmedPayments.length, 1);
   assert.equal(page.credit.unconfirmedPayments[0].amount, 71);
+});
+
+const internalDebit = payment(undefined, {
+  id: 'invented-transfer-out', categoryLabel: 'Payment, Transfer', amount: 250,
+  payee: 'AB123 TFR-TO INVENTED-B',
+});
+const internalCredit = payment(undefined, {
+  id: 'invented-transfer-in', categoryLabel: 'Payment, Transfer', amount: -250,
+  payee: 'AB123 TFR-FR INVENTED-A', atlasAccountId: 'chequing-b',
+});
+
+function waterfallCardRow(html, id) {
+  const row = html.split('</li>').find(part => part.includes(`data-debt-id="${id}"`));
+  assert.ok(row, 'the opened Credit dropdown includes the card');
+  return row;
+}
+
+function assertTransferRepayment(page) {
+  checkPayment(page, 43, 'calculated');
+  assert.equal(page.credit.unconfirmedPayments.length, 0);
+  const due = page.credit.lines.find(line => line.minimum.amount === 20);
+  assert.equal(due.stillToPayBack.amount, 0);
+  const html = page.openWaterfall();
+  assert.match(html, /Still to pay back on each card/);
+  assert.match(waterfallCardRow(html, due.id), /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$0<\/span>/);
+}
+
+test('a household transfer pair leaves the Credit head and waterfall at the noted repayment', async () => {
+  assertTransferRepayment(await render(FIRST, [payment(EXACT)]));
+  assertTransferRepayment(await render(FIRST, [payment(EXACT), internalDebit, internalCredit]));
+  assertTransferRepayment(await render(FIRST, [
+    { ...internalDebit, amount: 43, notes: EXACT }, { ...internalCredit, amount: -43 },
+  ]));
+
+  const purchase = {
+    id: 'invented-purchase', date: FIRST, atlasAccountId: 'cashback', accountRole: 'revolving-credit',
+    categoryLabel: 'Groceries', displayedPayee: 'Invented shop', amount: 71, currency: 'cad', pending: false,
+  };
+  const page = await render(FIRST, [payment(EXACT), internalDebit, internalCredit, purchase]);
+  assertTransferRepayment(page);
+  assert.match(waterfallCardRow(page.openWaterfall(), purchase.atlasAccountId),
+    /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount">\$71<\/span>/);
+});
+
+test('an unpaired transfer and an unnoted card transfer stay unassigned', async () => {
+  const cardDebit = { ...internalDebit, payee: 'AB123 TFR-TO C/C', original_name: 'AB123 TFR-TO C/C' };
+  for (const rows of [[internalDebit], [cardDebit], [cardDebit, internalCredit]]) {
+    const page = await render(FIRST, [payment(EXACT), ...rows]);
+    assert.deepEqual(Array.from(page.credit.unconfirmedPayments, row => row.amount), rows.map(row => row.amount));
+    const due = page.credit.lines.find(line => line.minimum.amount === 20);
+    assert.ok(due.paidBack.reasons.includes('card-payment-destination-unconfirmed'));
+    if (rows.length === 2) {
+      assert.equal(page.credit.totals.minimumsPaid.amount, null);
+      assert.equal(due.stillToPayBack.amount, null);
+    }
+  }
+});
+
+test('removing the household exclusion reproduces both Credit dashes', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const exclusion = 'if (primitives.unnotedHouseholdMovement?.(tx)) continue;';
+  assert.ok(source.includes(exclusion));
+  const read = fs.readFileSync;
+  fs.readFileSync = function (target, ...rest) {
+    return path.resolve(String(target)) === file ? source.replace(exclusion, '') : read.call(this, target, ...rest);
+  };
+  try {
+    const page = await render(FIRST, [payment(EXACT), internalDebit, internalCredit]);
+    assert.throws(() => assertTransferRepayment(page), assert.AssertionError);
+    assert.deepEqual(Array.from(page.credit.unconfirmedPayments, row => row.amount), [250, -250]);
+    const due = page.credit.lines.find(line => line.minimum.amount === 20);
+    assert.equal(due.paidBack.amount, 43);
+    assert.equal(due.minimumCovered.value, 'unknown');
+    assert.equal(due.stillToPayBack.amount, null);
+    assert.equal(page.credit.totals.minimumsPaid.amount, null);
+    assert.equal(plain(page.card.match(/data-stack-credit-total>([\s\S]*?)<\/i>/)[1]), '\u2014 / $20');
+    const row = waterfallCardRow(page.openWaterfall(), due.id);
+    assert.match(row, /data-source="stackSummary\.creditBreakdown\.rows\.\d+\.amount" data-unpublished="true"><\/span>/);
+    assert.match(row, /\u2014/);
+  } finally {
+    fs.readFileSync = read;
+  }
 });
 
 test('a non-due card keeps its named payment when a separate debit has no destination', async () => {

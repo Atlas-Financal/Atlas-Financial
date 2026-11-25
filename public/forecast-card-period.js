@@ -64,6 +64,8 @@
           continue;
         }
         payerObserved ||= value > 0;
+        // An internal debit can show the payer was observed without supplying a card payment or reversal.
+        if (primitives.unnotedHouseholdMovement?.(tx)) continue;
         if (!bucket) {
           unconfirmedPayments.push({ date: tx.date, amount: value / 100,
             ...(destination.reason ? { reason: destination.reason } : {}) });
