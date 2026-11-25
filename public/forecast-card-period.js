@@ -185,7 +185,7 @@
         && cents(row.proposedValue, true) === cents(debt?.balance, true)
         && date(row.evidenceDate) && row.evidenceDate <= asOf);
       if (role === 'current' && debt && cents(debt.balance, true) !== null) card.reportedBalance = {
-        amount: debt.balance, date: date(observed?.evidenceDate) ? observed.evidenceDate
+        amount: debt.balance, ...(debt.balanceTrust === 'estimated' ? { trust: 'estimated' } : {}), date: date(observed?.evidenceDate) ? observed.evidenceDate
           : date(debt.evidenceDate) ? debt.evidenceDate : null,
         status: date(observed?.evidenceDate) || date(debt.evidenceDate) ? 'dated' : 'date-unavailable' };
       // Forecast's verdict on this snapshot's own published date rides with it:
@@ -535,6 +535,7 @@
     if (amount === null) return { amount: null, asOf: null, trust: 'unavailable', reasons: ['balance-unavailable'] };
     const asOf = typeof reported.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(reported.date) ? reported.date : null;
     const reasons = [];
+    if (reported.trust === 'estimated') reasons.push('balance-estimated');
     const assessment = reported.freshness && reported.freshness.status;
     const beforeAsOf = asOf && typeof publication.asOf === 'string' && asOf < publication.asOf;
     if (!asOf || assessment === 'undated') reasons.push('balance-date-unavailable');
@@ -554,7 +555,7 @@
   const cents = value => typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null;
   // `utilisation` (optional): Forecast.utilisation's rows (used against limit, pending included), read for each card's
   // over-limit amount; never recomputed here.
-  function stackCreditLines(publication, bills, utilisation, beyondMinimumPaid) {
+  function stackCreditLines(publication, bills, utilisation, beyondMinimumPaid, debts) {
     // Card-side posted payments remain an input to the independent over-limit authority.
     const cards = stackCardFigures(publication);
     if (!cards) return null;
@@ -621,17 +622,32 @@
     // amount, a lower bound tagged estimated with its reason; an unknown over-limit is the same. A withheld minimum withholds the target. Never a
     // confident wrong number. The HELOC keeps its own rule: its target is its minimum.
     const utilRows = Array.isArray(utilisation) ? utilisation : null;
-    const overLimitOf = (id, card) => {
-      if (publication.role !== 'current') return { cents: 0, trust: 'calculated', reasons: [] };
-      if (!utilRows) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unavailable'] };
-      const rows = utilRows.filter(row => row && row.id === id);
-      if (rows.length > 1) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unavailable'] };
-      if (!rows.length) return { cents: 0, trust: 'calculated', reasons: [] };
-      const by = cents(rows[0].overLimitBy);
-      if (by === null) return { cents: 0, trust: 'estimated', reasons: ['over-limit-unknown'] };
-      const stale = rows[0].balanceTrust === 'estimated';
-      const out = { cents: Math.max(0, by), trust: stale ? 'estimated' : 'calculated',
-        reasons: stale ? ['over-limit-balance-estimated'] : [] };
+    const overLimitOf = (card, minimum, balance) => {
+      const zero = { cents: 0, trust: 'calculated', reasons: [] };
+      if (publication.role !== 'current') return zero;
+      const unknown = reason => ({ cents: null, trust: 'estimated', unresolved: true, reasons: [reason] });
+      if (!utilRows) return unknown('over-limit-unavailable');
+      const rows = utilRows.filter(row => row && row.id === card.id);
+      // Utilisation omits debts without a limit. Only a known absence from the facility roster
+      // proves that a placeholder card has no over-limit requirement.
+      if (!rows.length) {
+        const absent = Array.isArray(debts) && !debts.some(debt => debt && debt.id === card.id);
+        const payerAmount = published(card.id)?.payerPaid?.amount;
+        const hasActivity = card.transactions.length > 0 || (Number.isFinite(payerAmount) && payerAmount !== 0);
+        if (absent && balance.amount === null && !minimumIsDue(minimum) && !hasActivity) return zero;
+        return unknown('over-limit-unknown');
+      }
+      if (rows.length > 1) return unknown('over-limit-unavailable');
+      const row = rows[0], by = cents(row.overLimitBy);
+      if (by === null || cents(row.used) === null || cents(row.limit) === null
+        || (Object.hasOwn(row, 'posted') && cents(row.posted) === null)) return unknown('over-limit-unknown');
+      // A stale or explicitly estimated balance can be higher or lower than today's balance.
+      // Its difference from the limit is not a lower bound on what is owed today.
+      if (row.balanceTrust === 'estimated' || balance.trust === 'estimated') return unknown('over-limit-balance-estimated');
+      // A fresh posted overage remains a lower bound when pending exposure is unknown.
+      const unresolved = row.pendingUnknown === true;
+      const out = { cents: Math.max(0, by), trust: unresolved ? 'estimated' : 'calculated', unresolved,
+        reasons: unresolved ? ['over-limit-pending-unknown'] : [] };
       // This period's posted payments are already off the observed balance, so the observed amount over the limit can be
       // smaller than the amount the period's charges and payments are on (desk, Plan #6, on Neon 7113251603 item 2 and
       // review 7116017401). A payment counts back only where a qualified closing endpoint is tied to the exact provider
@@ -642,13 +658,13 @@
       // never raises a figure.
       const paid = card && card.paidPosted;
       const paidCents = paid && paid.amount !== null && paid.amount !== undefined ? cents(paid.amount) : null;
-      const used = cents(rows[0].used), limit = cents(rows[0].limit);
+      const used = cents(row.used), limit = cents(row.limit);
       const couldHide = paidCents === null ? true
         : paidCents > 0 && (by > 0 || used === null || limit === null || used + paidCents > limit);
       if (card && card.id !== 'heloc' && couldHide) { out.trust = 'estimated'; out.reasons.push('over-limit-payments-unproven'); }
       return out;
     };
-    const targetOf = (card, minimum) => {
+    const targetOf = (card, minimum, balance) => {
       const noneDue = minimum.amount === null && minimum.reasons.includes('no-minimum-due-in-period');
       // The HELOC: its minimum, or a published 0 when none is due this period (nothing to repay, never "withheld").
       if (card.id === 'heloc') return noneDue
@@ -659,7 +675,7 @@
       const minCents = noneDue ? 0 : cents(minimum.amount);
       const minTrust = noneDue ? (STACK_TRUST_ORDER.includes(splitTrust) ? splitTrust : 'estimated') : minimum.trust;
       const charges = cents(card.spent.amount);
-      const over = overLimitOf(card.id, card);
+      const over = overLimitOf(card, minimum, balance);
       const reasons = over.reasons.slice();
       if (charges === null) reasons.push('new-charges-unavailable');
       // What must be repaid this period, counted once (Neon 7113251603 item 2; desk ruling, Plan #6): the minimum, the
@@ -668,12 +684,13 @@
       // under; an over-limit amount older than this period's charges is the larger term and stands. The over-limit amount
       // is the observed one (overLimitOf): where a payment this period may have reduced it, the target is a lower bound,
       // estimated, never raised by a payment the balance is not proven to include.
-      const amount = Math.max(minCents, charges === null ? 0 : charges, over.cents);
+      const amount = Math.max(minCents, charges === null ? 0 : charges, over.cents ?? 0);
       return { amount: amount / 100,
         trust: weakest(minTrust, charges === null ? 'estimated' : card.spent.trust, over.trust),
         reasons: [...new Set(reasons)],
         newCharges: charges === null ? null : charges / 100, minimum: minCents / 100,
-        overLimitBy: over.reasons.includes('over-limit-unknown') || over.reasons.includes('over-limit-unavailable') ? null : over.cents / 100 };
+        overLimitBy: over.cents === null ? null : over.cents / 100,
+        ...(over.unresolved ? { overLimitUnresolved: true } : {}) };
     };
     // The Credit deduction (desk ruling (E), #1573, Plan #6): "The Credit deduction is their sum minus the qualifying charges
     // already counted above, each deducted from that sum only once." Per card:
@@ -712,9 +729,9 @@
     };
     const lines = cards.concat([heloc]).map(card => {
       const minimum = minimumOf(card.id);
-      const target = targetOf(card, minimum);
-      const deduction = deductionOf(card, target);
       const balance = balanceOf(published(card.id), publication);
+      const target = targetOf(card, minimum, balance);
+      const deduction = deductionOf(card, target);
       const paid = card.paid, spent = card.spent;
       const known = paid.amount !== null && spent.amount !== null;
       const inputsTrust = weakest(paid.trust, spent.trust);
@@ -729,7 +746,7 @@
       }
       const payment = paidTowardOf(card, published(card.id));
       // An unknown target (cents null) is qualified like a positive one: only a known $0 target leaves the row unqualified.
-      const targetOpen = cents(target.amount) === null || cents(target.amount) > 0;
+      const targetOpen = target.overLimitUnresolved === true || cents(target.amount) === null || cents(target.amount) > 0;
       const paidToward = targetOpen ? withUnassignedPayments(payment) : payment;
       // Every line publishes the payer's posted debits.
       const paidBack = paidToward;
@@ -739,9 +756,10 @@
         ? { amount: null, trust: 'unavailable', reasons: [...new Set(paidBack.reasons.concat('payment-direction-unresolved'))] }
         : paidBack;
       const towardCents = cents(progress.amount);
-      const shortOf = targetCents === null || towardCents === null;
+      const targetIncomplete = targetCents === null || target.overLimitUnresolved === true;
+      const shortOf = targetIncomplete || towardCents === null;
       const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetCents === null ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))] }
+        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetIncomplete ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))] }
         : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
       const targetCovered = shortOf
         ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }

@@ -303,7 +303,10 @@ console.log('6. Which card evidence the remainder\'s trust reads (review 7106640
   ok(trustOf(unsynced) === 'estimated' && unsynced.stackSummary.surplus.trust === 'estimated',
     'a feed card without a proven sync keeps Balance After Deductions and the Surplus estimated');
   // A manual card the household holds with no minimum due (the second invented card): adds no uncertainty.
-  const manual = active(advise([interest(25)], F, { twoCards: true }));
+  const manual = active(advise([interest(25)], F, { twoCards: true, edit: x => {
+    synced(x);
+    x.data.debts.find(d => d.id === 'mbna').evidenceDate = x.asOf;
+  } }));
   const mbna = manual.stackSummary.credit.lines.find(l => l.id === 'mbna');
   ok(mbna && mbna.deduction.trust === 'estimated' && mbna.minimum.reasons.includes('no-minimum-due-in-period')
     && trustOf(manual) === 'calculated' && manual.stackSummary.surplus.trust === 'calculated',
@@ -312,7 +315,7 @@ console.log('6. Which card evidence the remainder\'s trust reads (review 7106640
   // it is not the unseen zero and lends its estimated trust. Balance After Deductions 825.00 - 200.00 = 625.00, estimated,
   // and the Surplus estimated too.
   const over = active(advise([interest(25)], F, { twoCards: true, edit: x => { synced(x);
-    const debt = x.data.debts.find(d => d.id === 'mbna'); debt.balance = 1200;
+    const debt = x.data.debts.find(d => d.id === 'mbna'); debt.balance = 1200; debt.evidenceDate = x.asOf;
     const acct = x.payload.accounts.find(a => a.name === 'Invented mbna'); if (acct) acct.balance = 1200; } }));
   const overLine = over.stackSummary.credit.lines.find(l => l.id === 'mbna');
   ok(overLine && cents(overLine.deduction.amount) === 20000 && overLine.deduction.trust === 'estimated'

@@ -145,6 +145,8 @@ console.log('2. Through recommend and the real page scripts, on the invented car
 // Main (with #1617) printed "Already counted above −$344" (229.75 + 114.20); this change prints no such row (Dale, 7121410691).
 // Each card keeps its counted charges on its own line. The Credit line is (E)'s 6.25, as main.
 const x = fx.fixture();
+// This comparison isolates the removed counted row with current balance evidence on every card.
+for (const observation of x.overlay.overlays) observation.evidenceDate = x.asOf;
 const opts = { debts: x.debts, currentPeriodActuals: x.packet, cardPeriodBalanceEvidence: x.balanceEvidence, cardLiveOverlay: x.overlay };
 const advice = F.recommend(x.plan, x.asOf, opts), oldAdvice = OLD.recommend(x.plan, x.asOf, opts);
 const view = advice.payPeriodViews.find(v => v.role === 'active'), oldView = oldAdvice.payPeriodViews.find(v => v.role === 'active');
@@ -230,7 +232,10 @@ const OVER = (() => {
   const Live = require('../scripts/live-plan');
   const w = world([['bills', 60, null, 'cash', { payee: 'MBNA M/C', category_name: 'DEBT&PAYMENTS' }]], { card: 'mbna', payDownOnly: ['mbna', 'triangle'],
     edit: y => { y.payload.accounts[3].last_fetch = y.asOf + 'T17:00:00Z'; y.payload.accounts[3].plaid_last_successful_update = y.asOf + 'T17:00:00Z';
-      const debt = y.data.debts.find(d => d.id === 'mbna'); debt.balance = (debt.limit || 1000) + 200; y.payload.accounts[3].balance = debt.balance; } });
+      const debt = y.data.debts.find(d => d.id === 'mbna');
+      debt.evidenceDate = y.asOf;
+      debt.balance = (debt.limit || 1000) + 200;
+      y.payload.accounts[3].balance = debt.balance; } });
   const o = Live.fromObservation(w); const ov = o.data.liveOverlay;
   const args = [o.data.plan, w.asOf, { debts: o.data.debts, currentPeriodActuals: ov.currentPeriodActuals,
     cardPeriodBalanceEvidence: ov.cardPeriodBalanceEvidence, cardLiveOverlay: { applied: true, overlays: ov.overlays } }];

@@ -435,8 +435,10 @@ console.log('12. minimums paid: the paid side of the Credit head, over exactly t
     'MUTANT: a trust word of calculated on an unseen card reads calculated, which the honest-trust checks above reject');
 
   const returned = { ...publish(x), unconfirmedPayments: [{ date: x.asOf, amount: -100 }] };
-  const progressOf = api => api.stackCreditLines(returned, travelDue).lines.find(card => card.id === 'travelvisa');
-  const unresolved = progressOf(F);
+  // Supply the known limit and balance so only the reversal can withhold this target's progress.
+  const util = F.utilisation(x.debts, null, x.plan).rows;
+  const progressOf = api => api.stackCreditLines(returned, travelDue, util).lines.find(card => card.id === 'travelvisa');
+  const unresolved = progressOf(load(src));
   ok(unresolved.paidBack.amount === 100 && unresolved.minimumCovered.value === 'unknown'
     && unresolved.stillToPayBack.amount === null && unresolved.stillToPayBack.reasons.includes('payment-direction-unresolved'),
     'a return with no destination preserves the named debit and withholds progress on the due card');

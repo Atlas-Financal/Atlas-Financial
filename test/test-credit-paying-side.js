@@ -571,7 +571,7 @@ test('a mutant qualifying only a positive target fails the unknown-target checks
   const path = require('node:path');
   const file = path.join(__dirname, '..', 'public', 'forecast-card-period.js');
   const source = fs.readFileSync(file, 'utf8');
-  const from = 'const targetOpen = cents(target.amount) === null || cents(target.amount) > 0;';
+  const from = 'const targetOpen = target.overLimitUnresolved === true || cents(target.amount) === null || cents(target.amount) > 0;';
   assert.ok(source.includes(from), 'forecast-card-period.js carries the rule to mutate');
   const mutant = source.replace(from, 'const targetOpen = cents(target.amount) > 0;');
   // Serve the mutant to the page harness for these renders only; nothing is written to disk.

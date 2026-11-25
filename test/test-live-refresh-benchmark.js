@@ -35,7 +35,10 @@ const snapshots = {
     // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
     // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
     // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
-    forecast: '88ac55ceb27f000a6ed3582d42fba040c5ae8cf7ca77f8d964750838018c8704',
+    // Build 6: the current spend card's stale balance qualifies its over-limit target in both copies of the active view.
+    // Restoring the prior overLimitBy and reasons on target, targetCovered and stillToPayBack, and removing
+    // overLimitUnresolved, reproduces the base Forecast bytes at 7f8747af.
+    forecast: 'a7861ae7b8640f6984402bf16dc876f4a0c34457e041dfeb1a5b5ffb7c9fbfb0',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',

@@ -121,10 +121,15 @@ console.log('2. Never above the truth, whichever card it paid (or none tracked)'
   check(paidTravel.coverage.status === 'ready' && paidTravel.coverage.trust === undefined
     && paidTravel.period.fromTodayFunding.availableNow === 325, 'truth A (paid Travel Visa): 325, calculated');
   atMostTruth(degraded, paidTravel, 'vs truth A (Travel Visa)');
-  const travel = result => result.period.stackSummary.credit.lines.find(line => line.id === 'travelvisa');
-  const unassigned = travel(degraded), named = travel(paidTravel);
-  check(unassigned.target.amount === named.target.amount && unassigned.paidBack.amount === 0 && named.paidBack.amount === 105
-    && unassigned.stillToPayBack.amount > named.stillToPayBack.amount,
+  // Use the same dated balance and known limit in both cases so the payment destination alone changes the remainder.
+  const travelRepayment = extra => {
+    const x = world([purchase, cashLeg(105, extra)]);
+    x.data.debts.find(d => d.id === 'travelvisa').evidenceDate = x.asOf;
+    return run(x).period.stackSummary.credit.lines.find(line => line.id === 'travelvisa');
+  };
+  const unassigned = travelRepayment({}), named = travelRepayment({ notes: TRAVEL });
+  check(unassigned.target.amount === 25 && named.target.amount === 25 && unassigned.paidBack.amount === 0 && named.paidBack.amount === 105
+    && unassigned.stillToPayBack.amount === 25 && named.stillToPayBack.amount === 0,
     'only the named paying-side transfer reduces Travel’s remaining repayment');
   // Truth B: the same debit is confirmed to a second card that holds no
   // purchase (the second card's own payment credit pairs with it): nothing

@@ -35,7 +35,7 @@
     const util = facilities && Array.isArray(facilities.debts)
       ? utilisation(facilities.debts, facilities.extra, facilities.plan) : null;
     return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null,
-      beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined);
+      beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined, facilities && facilities.debts);
   }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
@@ -13625,7 +13625,7 @@
     for (const line of lines) {
       if (line.target.amount === null) return null;
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
-      if (stackCents(line.target.amount) > 0) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
+      if (stackCents(line.target.amount) > 0 || line.target.overLimitUnresolved) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
     }
     for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });
@@ -15748,7 +15748,9 @@
       // Both exemptions are for a zero line only (review 7110654511): a line that still deducts something (a manual card's
       // over-limit amount, say) lends its trust like any other.
       const zero = line.deduction.amount === 0;
-      if (zero && (!held.has(id) || (manual.has(id) && noneDue))) continue;
+      // A zero floor on unresolved exposure still qualifies Surplus, including a payer debit for
+      // a card absent from the roster. Only a confirmed zero gets either exemption.
+      if (zero && !line.target.overLimitUnresolved && (!held.has(id) || (manual.has(id) && noneDue))) continue;
       const t = Object.hasOwn(RANK, line.deduction.trust) ? line.deduction.trust : 'unavailable';
       if (RANK[t] > RANK[worst]) worst = t;
     }
@@ -15772,7 +15774,7 @@
       if (row && row.account != null && c != null && c > 0) beyond.set(String(row.account), (beyond.get(String(row.account)) || 0) + c);
     }
     const util = utilisation(debts, opts.extraFacilities || opts.revolvingExtra, plan);
-    const credit = CardPeriodMovement.stackCreditLines(publication, split, util ? util.rows : null, beyond);
+    const credit = CardPeriodMovement.stackCreditLines(publication, split, util ? util.rows : null, beyond, debts);
     if (!credit) return null;
     if (!minimums) return { credit, adjustmentCents: null, trust: 'unavailable', remainderTrust: 'unavailable' };
     const lineIds = new Set(credit.lines.map(line => String(line.id)));
