@@ -157,10 +157,22 @@ assert.strictEqual(buildCardsHTML(null), '');
 const z = JSON.parse(JSON.stringify(view)); z.stackSummary.bills.other = 0;
 assert(buildCardsHTML(ctx(z)).includes('$0<'));
 
+// Every selector must start with html.stack-view. An at-rule wrapper line (@media ... {) is not a selector, so it is skipped;
+// the selectors nested inside it are still checked.
+function unscopedSelectors(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g)
+    .map(x => x.trim()).filter(x => !x.startsWith('@'))
+    .flatMap(x => x.split(',').map(y => y.trim())).filter(x => !x.startsWith('html.stack-view '));
+}
+assert.deepStrictEqual(unscopedSelectors('@media (max-width:359px){html.stack-view .a{x:1}}'), [], 'an @media wrapper with scoped selectors passes');
+assert.deepStrictEqual(unscopedSelectors('@media (max-width:359px){.a{x:1}}'), ['.a'], 'an unscoped selector inside @media still fails');
+assert.deepStrictEqual(unscopedSelectors('html.stack-view .a, .b{x:1}'), ['.b'], 'an unscoped selector in a list still fails');
+assert.deepStrictEqual(unscopedSelectors('.a{x:1}'), ['.a'], 'an unscoped top-level selector still fails');
+
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
-assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
+assert.deepStrictEqual(unscopedSelectors(css), [], 'selectors scoped');
 
 // Savings card (owner rule 2026-11-20, invented values): nothing until published
 assert(!html.includes('data-stack-card="savings"'), 'savings renders nothing until published');
@@ -228,7 +240,7 @@ assert(amounts(balanceCard(null, null, 'unavailable', 'unavailable')).length ===
 // card colours: every kind's variable is defined in the CSS file
 ['bills', 'budget', 'savings'].forEach(k => assert(css.includes('--sc-' + k + ':'), 'css var missing: ' + k));
 // both themes: fixed fills with dark ink, so no theme-dependent rule is needed; every selector is scoped
-assert(css.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+(?=\{)/g).every(s => s.split(',').every(x => x.trim().startsWith('html.stack-view '))), 'selectors scoped');
+assert.deepStrictEqual(unscopedSelectors(css), [], 'selectors scoped');
 
 // strips are numbers only: Budget reads the spent figure, then "of" the budget figure in the muted style, no words
 {
