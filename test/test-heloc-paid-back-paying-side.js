@@ -127,6 +127,18 @@ test('a HELOC note contradicted by a payee identity or minimum category naming a
   }
 });
 
+test('the reverse: a spend-card note contradicted by a destination naming the HELOC pays neither (the shared conflict rule)', async () => {
+  for (const field of ['cardPaymentDestination', 'minimumCategoryDebt']) {
+    const page = await render([billsDebit({ notes: 'card payment: Travel Visa' })], packet => {
+      packet.transactions.find(tx => tx.id === 'to-heloc')[field] = 'heloc';
+    });
+    assert.equal(page.heloc.paidBack.amount, 0, `${field}: not counted for the HELOC`);
+    assert.equal(page.credit.lines.find(line => line.id === 'travelvisa').paidBack.amount, 0, `${field}: not counted for Travel`);
+    assert.equal(amounts(page.credit.unconfirmedPayments), '[300]');
+    assert.equal(page.credit.unconfirmedPayments[0].reason, 'card-payment-destination-conflict');
+  }
+});
+
 test('a noted HELOC payment leaves the spend cards exactly as with no HELOC payment', async () => {
   const noted = await render([billsDebit({ notes: LONG_NOTE }), helocReceipt]);
   const none = await render([]);
