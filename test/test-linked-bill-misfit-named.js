@@ -57,14 +57,14 @@ const powerRow = r => r.rows.filter(t => t.displayedPayee === 'Invented power co
 
 // The misfit cases: which water gate the row breaks, and the check named.
 const MISFITS = [
-  { name: 'linked by recurring id, other account', check: 'account', world: () => world({ waterRule: { atlasAccountId: 'chequing-b' } }) },
+  { name: 'linked by recurring id, other account', check: 'account', world: () => world({ waterRule: { atlasAccountId: 'savings' } }) },
   // Six days after the due date: past the due-day window and past the three
   // near-due days (which name a row on its bill instead).
   { name: 'linked by recurring id, posted outside the due window', check: 'date', asOf: '2026-10-20',
     world: () => world({ asOf: '2026-10-20', row: { date: '2026-10-18' } }) },
   { name: 'linked by recurring id, far above the bill amount', check: 'amount', world: () => world({ row: { amount: 500 } }) },
   { name: 'linked by item note, other account', check: 'account',
-    world: () => world({ waterRule: { atlasAccountId: 'chequing-b' }, row: { notes: 'item: Invented water', raw: { recurring_id: null } } }) },
+    world: () => world({ waterRule: { atlasAccountId: 'savings' }, row: { notes: 'item: Invented water', raw: { recurring_id: null } } }) },
 ];
 
 function hasBrowser() {
@@ -203,7 +203,7 @@ function hasBrowser() {
     H.expect(r.txs.every(t => !t.linkedBillMisfit), 'no line');
   });
   await report('engine: a pending linked row carries no misfit line', async () => {
-    const r = engine(world({ waterRule: { atlasAccountId: 'chequing-b' }, row: { pending: true } }));
+    const r = engine(world({ waterRule: { atlasAccountId: 'savings' }, row: { pending: true } }));
     H.expect(r.txs.every(t => !t.linkedBillMisfit), `no misfit marker (got ${JSON.stringify(r.txs.map(t => t.linkedBillMisfit))})`);
   });
 

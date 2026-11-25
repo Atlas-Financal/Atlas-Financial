@@ -189,7 +189,7 @@ console.log('6. Any inconsistency leaves today\'s behaviour (the incumbent 7-day
   // A found payment on another account, or at ten times the amount, is not
   // accepted either.
   const wrongAcct = [pay('2026-09-01'), pay('2026-10-01'), H.lm({ id: ++nextId, date: '2026-10-12', amount: 80,
-    account: 'chequing-b', payee: 'Invented e-transfer', raw: { recurring_id: Number(ID) } })];
+    account: 'savings', payee: 'Invented e-transfer', raw: { recurring_id: Number(ID) } })];
   wrongAcct[2].txId = nextId;
   const a = serve({ payments: wrongAcct, lm: lmRead({ expected, found: wrongAcct }) });
   ok(!a.paidOn.has('2026-11-01'), 'a found payment on another account: Nov 1 not settled', JSON.stringify([...a.paidOn]));
