@@ -32,7 +32,10 @@ const snapshots = {
     // (display only); removing it reproduces the previous digest exactly.
     // Future covered counts use the due minimum's trust while payment coverage is unknown. Resetting only
     // totals.minimumsCoveredTrust on four future payPeriodViews to unavailable reproduces the d2d9e062 digest.
-    forecast: '3c3323b06123efa0ed07ae142c014230b95f4a0aecf9bb237019891e6413f181',
+    // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
+    // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
+    // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
+    forecast: '88ac55ceb27f000a6ed3582d42fba040c5ae8cf7ca77f8d964750838018c8704',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -47,7 +50,10 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: 'b23684a97d94412c5215d914d6c2dd28b2deaa1a3c3659914b88b99825240667',
+    // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
+    // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
+    // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
+    forecast: '91f87064464d2a77111e9a8c49088ec0ef8de2b62ce7659d06d187b8256d1083',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -62,7 +68,10 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '540ce6984cc9d5c1fbd131d926d3d01cb31ec78788c72873a88aa47f963499a4',
+    // Re-pinned for the HELOC's paying-side Paid back (Dale, #821 7161929211): these invented cases have no HELOC account, so
+    // only each HELOC line's minimumCovered.reasons change (from not-a-spend-card to its paid figure's reasons; the value stays
+    // unknown). Restoring those reasons on every HELOC line reproduces the previous digest exactly; no amount or trust moved.
+    forecast: 'dc8b1bbcb79024063775d5e0a70ea7a23293060a387e9b3b3af0deb6ca7eaed7',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
