@@ -148,6 +148,20 @@ test('4d. only a payment or transfer receipt is a landing, never a purchase refu
   assert.equal(refund.unassigned, '[75]');
 });
 
+test('4e. a debit that competed for a reserved landing never falls through to the minimum rule (Codex on #1650)', async () => {
+  const r = await read([debit(210, { id: 'n', notes: 'card payment: HELOC' }), debit(210, { id: 'u' }), landing('heloc', 210)]);
+  assert.equal(r.heloc.paidBack.amount, 210, 'the noted 210 counts once; its twin is not added by the 210 minimum');
+  assert.equal(r.unassigned, '[210]');
+});
+
+test('4f. a landing with contradictory evidence is no landing (Codex on #1650)', async () => {
+  const aliases = await read([debit(300), landing('heloc', 300, { account: 'travelvisa' })]);
+  assert.equal(aliases.heloc.paidBack.amount, 0, 'conflicting account aliases: not a landing');
+  assert.equal(aliases.travel.paidBack.amount, 0);
+  const ambiguous = await read([debit(300), landing('heloc', 300, { pendingPostedAmbiguous: true })]);
+  assert.equal(ambiguous.heloc.paidBack.amount, 0, 'an ambiguous pending/posted landing: not a landing');
+});
+
 test('5. the HELOC settlement follows: an inferred payment settles the HELOC minimum row too (#1646)', async () => {
   const page = await loadStackPage({ data: world([debit(300), landing('heloc', 300)]) });
   const rec = page.context().recommendation;

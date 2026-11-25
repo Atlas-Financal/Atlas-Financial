@@ -44,6 +44,10 @@
       if (!byCard.has(cardId) || !primitives.date(tx.date)) continue;
       const pending = tx.pending === true;
       if (pending && (tx.pendingPostedDuplicate === true || primitives.replacedPending?.(tx))) continue;
+      // The payer path's own evidence checks (Codex on #1650): conflicting account aliases or an ambiguous pending/posted
+      // pairing are not evidence of a destination.
+      const aliases = [tx.atlasAccountId, tx.account, tx.accountId].filter(v => v != null).map(String);
+      if (new Set(aliases).size > 1 || tx.pendingPostedAmbiguous === true || tx.isGroup === true) continue;
       if (!pending && !(tx.pending === false && tx.savingsPostingEvidence !== 'pending')) continue;
       const cents = primitives.money(tx);
       if (cents === null || !(cents < 0)) continue;
@@ -59,6 +63,9 @@
       if (own.length === 1) own[0].used = true;
     }
     // Rule 1.
+    // A debit that matches any landing, reserved or not, competed for it: it never falls through to the minimum rule
+    // (Codex on #1650), so a reserved landing's twin stays unassigned.
+    const competed = new Set(noteless.filter(d => landings.some(l => near(d, l))));
     const candidates = new Map(noteless.map(d => [d, named.get(d) === 'conflict' ? [] : landings.filter(l => !l.used && near(d, l) && allowed(d, l.cardId))]));
     for (const d of noteless) {
       const mine = candidates.get(d);
@@ -73,7 +80,7 @@
     if (expected instanceof Map) {
       const byLine = new Map();
       for (const d of noteless) {
-        if (d.inferred || candidates.get(d).length || named.get(d) === 'conflict') continue;
+        if (d.inferred || competed.has(d) || named.get(d) === 'conflict') continue;
         const lines = [...expected].filter(([cardId, amounts]) => byCard.has(cardId) && allowed(d, cardId)
           && amounts.some(amount => Math.abs(d.value - amount) <= INFER_TOLERANCE(amount))).map(([cardId]) => cardId);
         if (lines.length !== 1) continue;
