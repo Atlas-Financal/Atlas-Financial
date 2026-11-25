@@ -11,8 +11,76 @@
   const BALANCE_VERDICTS = ['stale', 'current', 'not-assessed', 'undated', 'after-as-of'];
   const cardIdentities = [['travelvisa', 'Travel'], ['cashback', 'Cash Back'], ['tdcc', 'Emerald'],
     ['triangle', 'Triangle'], ['mbna', 'Amazon Mastercard']];
+  // Inferred destination (owner, Dale, #821 7174658128, amending rule 17 for this case): a posted Bills or Weekly debit
+  // that the paying side calls a card payment but that carries no `card payment:` note (and no conflicting destination)
+  // counts toward a card or the HELOC when one of two rules names exactly one line. A note always wins; internal household
+  // movements are excluded before this runs (unnotedHouseholdMovement). Read only: a landing is read as evidence, nothing
+  // on the card side changes.
+  //   1. Two-sided: a row on exactly one card or HELOC account of the opposite amount, posted or pending (not replaced by its
+  //      posted twin), dated within INFER_WINDOW_DAYS of the debit. Pairing is one to one; a landing that pairs with a
+  //      note-tied debit is reserved for it first. Trust: calculated on a posted landing, estimated on a pending one.
+  //   2. Expected amount: otherwise, the debit is within INFER_TOLERANCE (the larger of $1 and 1%) of a scheduled minimum
+  //      Forecast expects for exactly one line in the period (primitives.expectedMinimumCents, the plan's own scheduled
+  //      occurrences, so the HELOC settlement and Paid back read one figure). Trust: estimated.
+  //   Ambiguity (two lines, two debits for one landing, or two debits for one line's minimum) attributes nothing.
+  // Returns every unassigned debit with its inferred destination, or null to stay unassigned.
+  const INFER_WINDOW_DAYS = 3;
+  const INFER_TOLERANCE = cents => Math.max(100, Math.round(Math.abs(cents) * 0.01));
+  function inferDestinations(packet, start, end, assigned, unassigned, byCard, primitives) {
+    const out = unassigned.map(entry => ({ ...entry, inferred: null }));
+    const noteless = out.filter(entry => entry.value > 0 && !entry.destination.reason
+      && typeof primitives.cardPaymentNote === 'function' && !primitives.cardPaymentNote(entry.tx));
+    const rows = Array.isArray(packet && packet.transactions) ? packet.transactions : [];
+    const landings = [];
+    for (const tx of rows) {
+      if (!tx || !['revolving-credit', 'heloc'].includes(tx.accountRole) || tx.contradictoryEvidence === true) continue;
+      const cardId = tx.atlasAccountId || tx.account;
+      if (!byCard.has(cardId) || !primitives.date(tx.date)) continue;
+      const pending = tx.pending === true;
+      if (pending && (tx.pendingPostedDuplicate === true || primitives.replacedPending?.(tx))) continue;
+      if (!pending && !(tx.pending === false && tx.savingsPostingEvidence !== 'pending')) continue;
+      const cents = primitives.money(tx);
+      if (cents === null || !(cents < 0)) continue;
+      landings.push({ tx, cardId, cents, pending, used: false });
+    }
+    const near = (debit, landing) => landing.cents === -debit.value
+      && landing.tx.date >= primitives.addDays(debit.tx.date, -INFER_WINDOW_DAYS)
+      && landing.tx.date <= primitives.addDays(debit.tx.date, INFER_WINDOW_DAYS);
+    // Note-tied (or otherwise named) payments take their own landing first, when it is the only one.
+    for (const debit of assigned) {
+      if (!(debit.value > 0)) continue;
+      const own = landings.filter(l => !l.used && l.cardId === debit.cardId && near(debit, l));
+      if (own.length === 1) own[0].used = true;
+    }
+    // Rule 1.
+    const candidates = new Map(noteless.map(d => [d, landings.filter(l => !l.used && near(d, l))]));
+    for (const d of noteless) {
+      const mine = candidates.get(d);
+      if (mine.length !== 1) continue;
+      const landing = mine[0];
+      if (noteless.filter(other => candidates.get(other).includes(landing)).length !== 1) continue;
+      landing.used = true;
+      d.inferred = { cardId: landing.cardId, ...(landing.pending ? { reason: 'card-payment-inferred-pending-landing' } : {}) };
+    }
+    // Rule 2.
+    const expected = typeof primitives.expectedMinimumCents === 'function' ? primitives.expectedMinimumCents(start, end) : null;
+    if (expected instanceof Map) {
+      const byLine = new Map();
+      for (const d of noteless) {
+        if (d.inferred || candidates.get(d).length) continue;
+        const lines = [...expected].filter(([cardId, amounts]) => byCard.has(cardId)
+          && amounts.some(amount => Math.abs(d.value - amount) <= INFER_TOLERANCE(amount))).map(([cardId]) => cardId);
+        if (lines.length !== 1) continue;
+        byLine.set(lines[0], (byLine.get(lines[0]) || []).concat([d]));
+      }
+      for (const [cardId, debits] of byLine) {
+        if (debits.length === 1) debits[0].inferred = { cardId, reason: 'card-payment-inferred-by-minimum' };
+      }
+    }
+    return out.map(entry => ({ tx: entry.tx, value: entry.value, destination: entry.inferred, reason: entry.destination.reason }));
+  }
   // The paying account owns this figure. Card postings, allocations and balances cannot establish who sent a payment.
-  function periodPayerPayments(packet, start, through, observed, primitives) {
+  function periodPayerPayments(packet, start, through, observed, primitives, end) {
     const unconfirmedPayments = [];
     // The HELOC is paid from Bills like a card (Dale, #821 7161929211), so it has a paying-side bucket too.
     const byCard = new Map(cardIdentities.concat([['heloc']]).map(([id]) => [id, { cents: 0, reasons: new Set(), gaps: new Set() }]));
@@ -46,6 +114,7 @@
         const destination = primitives.payingSidePayment(tx);
         if (destination) candidates.push({ tx, destination, id, keys });
       }
+      const unassigned = [], assigned = [];
       for (const { tx, destination, id, keys } of candidates) {
         const bucket = byCard.get(destination.cardId);
         const gaps = bucket ? bucket.gaps : globalGaps;
@@ -68,14 +137,24 @@
         // An internal debit can show the payer was observed without supplying a card payment or reversal.
         if (primitives.unnotedHouseholdMovement?.(tx)) continue;
         if (!bucket) {
-          unconfirmedPayments.push({ date: tx.date, amount: value / 100,
-            ...(destination.reason ? { reason: destination.reason } : {}) });
+          unassigned.push({ tx, value, destination });
         } else if (value < 0) {
           bucket.gaps.add('payment-direction-unresolved');
         } else {
           bucket.cents += value;
           if (!Number.isSafeInteger(bucket.cents)) bucket.gaps.add('transaction-amount-unqualified');
           if (destination.trust === 'estimated') bucket.reasons.add(destination.reason || 'card-payment-by-amount');
+          assigned.push({ tx, value, cardId: destination.cardId });
+        }
+      }
+      for (const { tx, value, destination, reason } of inferDestinations(packet, start, end || through, assigned, unassigned, byCard, primitives)) {
+        if (destination) {
+          const bucket = byCard.get(destination.cardId);
+          bucket.cents += value;
+          if (!Number.isSafeInteger(bucket.cents)) bucket.gaps.add('transaction-amount-unqualified');
+          if (destination.reason) bucket.reasons.add(destination.reason);
+        } else {
+          unconfirmedPayments.push({ date: tx.date, amount: value / 100, ...(reason ? { reason } : {}) });
         }
       }
       if (!payerObserved) globalGaps.add('paying-account-not-observed');
@@ -114,7 +193,7 @@
     const coverage = packetCurrent && ledgerValid && covered(packet.transactionCoverage)
       && date(packet.coverageStart) && date(packet.coverageThrough)
       && packet.coverageStart <= start && packet.coverageThrough >= through;
-    const payer = periodPayerPayments(packet, start, through, windowKnown && through && coverage, primitives);
+    const payer = periodPayerPayments(packet, start, through, windowKnown && through && coverage, primitives, end);
     const known = new Set(identities.map(([id]) => id));
     const movementRole = tx => tx?.accountRole === 'revolving-credit' || tx?.accountRole === 'heloc';
     const duplicateCards = new Set();

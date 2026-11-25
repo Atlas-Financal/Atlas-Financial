@@ -37,6 +37,22 @@
     return CardPeriodMovement.stackCreditLines(publication, bills, util ? util.rows : null,
       beyondMinimumPaid instanceof Map ? beyondMinimumPaid : undefined);
   }
+  function expectedCreditLineMinimumCents(plan, from, to) {
+    const out = new Map();
+    if (!savingsDate(from) || !savingsDate(to) || from > to) return out;
+    const addMinimum = (id, amount) => {
+      const c = savingsCents(amount);
+      if (c != null && c > 0) out.set(id, (out.get(id) || []).concat([c]));
+    };
+    for (const o of (plan && plan.obligations) || []) {
+      if (!o || o.debtId == null || !isStackCreditLine(o.debtId)) continue;
+      const id = String(o.debtId);
+      if (o.nonCash) { for (const occ of capitalisingCashMinimumOccurrences(o, from, to)) addMinimum(id, occ.amount); continue; }
+      if (o.effect !== 'payment') continue;
+      for (const occ of obligationOccurrences(o, from, to)) addMinimum(id, occ.amount);
+    }
+    return out;
+  }
   function cardPeriodMovements(plan, debts, asOf, window, opts) {
     opts = opts || {};
     const cycle = savingsDate(window?.start) ? spendingCycle(plan, window.start) : null;
@@ -56,6 +72,11 @@
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
       unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
+      // Inferred destination (Dale, #821 7174658128): whether a debit carries a `card payment:` note (a note always wins),
+      // and the minimum Forecast expects per credit line over a window: the plan's own scheduled occurrences (a card's
+      // payment rows, the HELOC's cash leg), read from the plan, never from a settled row, so this reading cannot loop.
+      cardPaymentNote: tx => !!cardPaymentNoteEvidence(tx),
+      expectedMinimumCents: (from, to) => expectedCreditLineMinimumCents(plan, from, to),
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
