@@ -9980,7 +9980,7 @@
           remaining: sent.issuerMinimumStatus === 'satisfied' ? 0 : null,
           settlement: sent.issuerMinimumStatus === 'satisfied' ? 'represented' : 'unverified' } : {}),
         ...(covered ? covered.full
-          ? { actual: covered.evidence.covered, remaining: 0, settlement: 'represented', minimumCoverage: covered.evidence }
+          ? { actual: covered.evidence.paid ?? covered.evidence.covered, remaining: 0, settlement: 'represented', minimumCoverage: covered.evidence }
           : { actual: covered.evidence.covered, remaining: (covered.due - covered.covered) / 100,
             minimumCoverage: covered.evidence } : {}),
         ...occurrenceTrustFields(e),
@@ -11771,10 +11771,52 @@
   // which returns that holder's one computation (every opted-in caller fills
   // it first). It never allocates coverage itself. No or an unrelated holder,
   // a non-ready ledger, or no unique match keeps the full minimum reserved.
+  // The HELOC minimum is paid by what leaves the paying side (Dale, #821 7161929211; #1641): the posted Bills debits
+  // noted `card payment: HELOC`, summed over the occurrence's pay period through as-of. That is the one reading the
+  // Credit line's Paid back and its minimum check use (cardPeriodMovements → periodPayerPayments → payingSidePayment),
+  // so the Bills row, the cash walk, nextDue and nextPaymentOut follow the Credit line and cannot contradict it
+  // (lead 13: one authority, no reconciliation). Null (no change) when that reading is withheld, counted as zero, or
+  // not a positive sum; read once per pay period through the coverage holder.
+  function helocPayingSideCoverage(plan, event, asOf, opts, holder) {
+    if (!CardPeriodMovement || !Array.isArray(opts.debts) || !opts.debts.some(row => row && row.id === 'heloc')) return null;
+    const cycle = savingsDate(event.date) ? spendingCycle(plan, event.date) : null;
+    if (!cycle || !savingsDate(cycle.start) || !savingsDate(cycle.end) || cycle.start > asOf) return null;
+    holder.helocPaid = holder.helocPaid || new Map();
+    if (!holder.helocPaid.has(cycle.start)) {
+      const publication = cardPeriodMovements(plan, opts.debts, asOf, { start: cycle.start, end: cycle.end }, {
+        currentPeriodActuals: opts.currentPeriodActuals,
+        cardPeriodBalanceEvidence: opts.cardPeriodBalanceEvidence || null,
+        liveOverlay: opts.cardLiveOverlay || null,
+      });
+      const card = publication && Array.isArray(publication.cards) ? publication.cards.filter(row => row && row.id === 'heloc') : [];
+      holder.helocPaid.set(cycle.start, card.length === 1 ? card[0].payerPaid : null);
+    }
+    const paid = holder.helocPaid.get(cycle.start);
+    if (!paid || typeof paid.amount !== 'number' || !['calculated', 'estimated'].includes(paid.trust)
+      || !Array.isArray(paid.reasons) || paid.reasons.includes('paid-unavailable-counted-as-zero')) return null;
+    const paidCents = savingsCents(paid.amount);
+    return paidCents != null && paidCents > 0 ? { paidCents, trust: paid.trust, reasons: paid.reasons.slice() } : null;
+  }
+
   function coveredCardMinimum(plan, event, asOf, opts, known) {
     if (!event || event.kind !== 'obligation' || event.effect !== 'payment' || !opts) return null;
     const holder = opts.cardCoverageReuse;
     if (!holder || !cardCoverageHolderMatches(holder, plan, asOf, opts)) return null;
+    if (event.debtId === 'heloc') {
+      // Applied once. The coupled cash walk caps each obligation at what the debt walk absorbed (opts.obligationAbsorbed),
+      // and the debt walk already took this coverage off (withCoveredCardMinimums): a capped occurrence is already its
+      // remainder, so the same payment never covers it twice. A copy this function already reduced is skipped too.
+      if (event.minimumCoverage) return null;
+      if (opts.obligationAbsorbed && Object.prototype.hasOwnProperty.call(opts.obligationAbsorbed, event.date + ':' + event.id)) return null;
+      const due = savingsCents(event.minimumAmount != null ? event.minimumAmount : -event.amount);
+      const heloc = due > 0 ? helocPayingSideCoverage(plan, event, asOf, opts, holder) : null;
+      if (!heloc) return null;
+      const covered = Math.min(heloc.paidCents, due);
+      return { due, covered, full: covered === due,
+        evidence: { source: 'Forecast.periodPayerPayments', covered: covered / 100, paid: heloc.paidCents / 100,
+          due: due / 100, status: covered === due ? 'covered-by-payment' : 'partial', paymentIds: [], trust: heloc.trust,
+          ...(heloc.reasons.length ? { reasons: heloc.reasons } : {}) } };
+    }
     const coverage = known || probeCardCoverage(plan, asOf, opts);
     if (!coverage || coverage.status !== 'ready' || !Array.isArray(coverage.minimumCoverage)) return null;
     const matches = coverage.minimumCoverage.filter(row => row && row.obligationId === event.id
@@ -11931,8 +11973,8 @@
         status: sent.issuerMinimumStatus === 'satisfied' ? 'PAID' : 'unconfirmed',
         glanceKind: sent.issuerMinimumStatus === 'satisfied' ? 'paid' : 'unconfirmed' } : {}),
       ...(minimumCovered ? minimumCovered.full
-        ? { actual: minimumCovered.evidence.covered, remaining: 0, settlement: 'represented', status: 'PAID',
-          glanceKind: 'paid', movement: householdMovement(minimumCovered.evidence.covered, 'out'),
+        ? { actual: minimumCovered.evidence.paid ?? minimumCovered.evidence.covered, remaining: 0, settlement: 'represented', status: 'PAID',
+          glanceKind: 'paid', movement: householdMovement(minimumCovered.evidence.paid ?? minimumCovered.evidence.covered, 'out'),
           minimumCoverage: minimumCovered.evidence }
         : { actual: minimumCovered.evidence.covered,
           remaining: (minimumCovered.due - minimumCovered.covered) / 100, minimumCoverage: minimumCovered.evidence } : {}),
@@ -16240,7 +16282,8 @@
         if (row.minimumCoverage) coveredMinimums.push({ id: row.id, date: row.date,
           status: row.status === 'PAID' ? 'paid' : 'partial', due: row.minimumCoverage.due,
           covered: row.minimumCoverage.covered, remaining: row.remaining,
-          paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source, trust: 'calculated' });
+          paymentIds: row.minimumCoverage.paymentIds.slice(), source: row.minimumCoverage.source,
+          trust: row.minimumCoverage.trust === 'estimated' ? 'estimated' : 'calculated' });
         // H2-8b: a scheduled fee allowance (tdfees) still holds its unspent
         // allowance after a fee posts, exactly as the period view's
         // remainingTotal reads it; being represented does not drop it.
