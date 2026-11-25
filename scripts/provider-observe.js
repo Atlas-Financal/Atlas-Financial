@@ -7735,6 +7735,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
     const displayedNote = displayedItemNote(tx.notes || tx.note);
     const bankDescription = bankDescriptionText(tx.originalName);
     if (bankDescription) bankDescriptions.set(localId, bankDescription);
+    const payeeDestination = payeeCardDestination(tx, mapping, flags);
     const emittedRow = {
       id: localId,
       coverageRef: cardCoverageReference(tx),
@@ -7789,8 +7790,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // (MBNA, CAN TIRE MC) on a household cash or Savings (reserve) debit:
       // money onto the card counts from either (owner rule). The generic TD
       // "TFR-TO C/C" names no card and never sets this.
-      ...(amount > 0 && payeeCardDestination(tx, mapping, flags)
-        ? { cardPaymentDestination: payeeCardDestination(tx, mapping, flags) } : {}),
+      ...(amount > 0 && payeeDestination ? { cardPaymentDestination: payeeDestination } : {}),
       cardFinanceChargeIdentity: flags.cardFinanceChargeIdentity,
       ...(flags.helocFinanceChargeIdentity === true ? { helocFinanceChargeIdentity: true } : {}),
       internalTransferIdentity: flags.internalTransferIdentity,
@@ -7810,6 +7810,21 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       // held reader can see a category/note conflict (cardPaymentDestinationConflict).
       ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
     };
+    // On a posted credit, retain the payee destination only when it exposes contradictory card evidence.
+    if (amount < 0 && emittedRow.savingsPostingEvidence === 'posted' && payeeDestination
+      && Forecast.cardPaymentDestinationConflict({ ...emittedRow, cardPaymentDestination: payeeDestination })) {
+      emittedRow.cardPaymentDestination = payeeDestination;
+    }
+    const explicitCardKind = kindHint === 'payment' && String(tx.kind).toLowerCase() === 'card-payment';
+    if (amount !== 0 && emittedRow.savingsPostingEvidence === 'posted' && (flags.cardPaymentNoteDestination || explicitCardKind)) {
+      const payment = Forecast.payingSidePayment(emittedRow);
+      if (amount > 0 && payment?.cardId && typeof flags.cardPaymentNoteByAmount === 'boolean') {
+        emittedRow.cardPaymentNoteByAmount = flags.cardPaymentNoteByAmount;
+      } else if (!payment && explicitCardKind && Forecast.payingSidePayment({ ...emittedRow, kindHint: 'card-payment' })) {
+        // The generic hint also covers ordinary bills. Keep the explicit kind if the category and note lost that distinction.
+        emittedRow.payingSideCardPaymentKind = true;
+      }
+    }
     txs.push(emittedRow);
     const distinctPending = distinctPendingByPosted.get(tx);
     if (distinctPending) distinctPendingRows.push([emittedRow, distinctPending.providerTransactionId]);

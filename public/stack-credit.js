@@ -73,8 +73,8 @@
 
   // One line, read for the row's figure "Paid back / Total to pay back" (OD-033, Dale, 2026-11-23). Only published values
   // are compared or printed; nothing is added or subtracted here:
-  //   * X is Forecast's published paidBack: posted payments onto this card in this period, never a net (a $0 when nothing
-  //     was paid or the card cannot be seen, the HELOC's posted payments); a dash only when Forecast withholds it;
+  //   * X is Forecast's published paidBack: posted paying-account transfers naming this card for the period,
+  //     or the HELOC's own posted payments; a dash when Forecast withholds it;
   //   * after the slash, the published target (OD-028); nothing after it when the target is $0, a dash when withheld;
   //   * X is green only when Forecast publishes targetCovered true and the period is not upcoming; otherwise plain ink;
   //   * the ✓ is the minimum covered, unchanged (Dale: "once that minimum is paid I want a check mark").
@@ -99,11 +99,9 @@
     // carry the ✓ too. It agrees with the head bar and the waterfall, which count the same check.
     if (min != null && cv === true) {
       out.ok = true;
-      out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paid));
+      out.tickSoft = est(view, trustOf(line.minimumCovered), trustOf(line.minimum), trustOf(line.paidBack));
     }
-    // OD-033 (Dale, 2026-11-23): X is Paid back, Forecast's published paidBack (posted payments onto this card in this
-    // period, never a net, never negative; $0 for a card Forecast cannot see; a dash when withheld, including when a posted
-    // payment row debits the card). Green only when Forecast
+    // OD-033: X reads Forecast's published paidBack. Green only when Forecast
     // publishes targetCovered true (paid back has reached the target), never from the minimum alone (Neon REPORT 4). No red:
     // what is left is the card's Still to pay back, in the Credit dropdown.
     const toward = amountOf(line.paidBack);
@@ -153,8 +151,7 @@
   function cardHtml(reading) {
     const t = reading.totals, view = reading.view;
     // Both sides are Forecast's published totals over exactly the lines whose minimums are due (the HELOC included, so the due equals the waterfall's Credit), never
-    // added up here: totals.minimumsPaid (paid toward them: $0 when nothing was paid, a due card Forecast cannot see counting
-    // $0 by owner decision) over totals.minimumsDue. The paid figure prints in normal type, whatever its trust word (Dale,
+    // added up here: totals.minimumsPaid over totals.minimumsDue. The paid figure prints in normal type, whatever its trust word (Dale,
     // 2026-11-20: no estimated distinction). A past period with incomplete posted coverage withholds minimumsPaid, so the paid
     // side is a dash there; the minimums due is a dash when it is withheld.
     // The bar is covered over due, from Forecast's two published counts, so it is full only when every due minimum is covered.
@@ -197,6 +194,17 @@
     const target = amountOf(line.target);
     return rowHtml('Target', target != null ? soft(formatMoney(target), est(view, trustOf(line.target))) : dash);
   };
+  function unconfirmedPaymentsHtml(payments, h) {
+    if (!Array.isArray(payments) || !payments.length) return '';
+    const label = payment => payment.amount < 0 ? 'Reversal, card unidentified'
+      : payment.reason === 'card-payment-destination-conflict' ? 'Conflicting card destinations' : 'Card unidentified';
+    return '<section data-stack-unconfirmed-payments><h4 class="stack-sheet-txh">Unconfirmed payments</h4>'
+      + '<ul class="stack-sheet-tx">' + payments.map(payment =>
+        '<li><span class="stack-sheet-txd">' + h.esc(h.date(payment.date)) + '</span>'
+        + '<span class="stack-sheet-txl">Paying account · ' + label(payment) + '</span>'
+        + '<span class="stack-sheet-txa stack-n">' + h.esc(h.txMoney(payment.amount)) + '</span></li>'
+      ).join('') + '</ul></section>';
+  }
   function sheetHtml(line, h, view) {
     const heloc = line.id === 'heloc';
     const r = readLine(line, view);
@@ -217,19 +225,21 @@
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
       + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + targetRow(line, view, rowHtml, soft, formatMoney))
       + '</dl>'
-      + (heloc ? '' : '<h4 class="stack-sheet-txh">Transactions</h4>' + (tx.length
+      + (heloc ? '' : '<h4 class="stack-sheet-txh" aria-label="Card transactions">Transactions</h4>' + (tx.length
         ? '<ul class="stack-sheet-tx">' + tx.map(t => {
           // A payment onto the card is published negative with payment: true; its printed value's minus sign becomes "+".
           const printed = txMoney(t.amount);
           const shown = t.payment ? printed.replace(/^−/, '+') : printed;
+          const paymentLabel = t.amount < 0 && !t.pending ? 'Card-side receipt' : 'Card-side entry';
           // A pending row is dimmed and carries a hollow dot named "pending" (no printed word, owner rule B5), so it reads as
           // pending even when every row in the list is pending and there is no posted row to compare it with.
           return `<li class="${t.payment ? 'is-pay' : ''}${t.pending ? ' is-pending' : ''}">`
             + `<span class="stack-sheet-txd">${escape(formatDate(t.date))}</span><span class="stack-sheet-txl">`
-            + `${t.pending ? PENDING_DOT : ''}${escape(t.name || '')}</span>`
+            + `${t.pending ? PENDING_DOT : ''}${escape(t.name || '')}`
+            + (t.payment ? `<br><small>${paymentLabel} · Excluded from Paid back</small>` : '') + '</span>'
             + `<span class="stack-sheet-txa stack-n">${escape(shown)}</span></li>`;
         }).join('') + '</ul>'
-        : ''));
+        : '') + unconfirmedPaymentsHtml(view?.stackSummary?.credit?.unconfirmedPayments, h));
   }
 
   window.StackCredit = {

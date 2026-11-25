@@ -8,6 +8,10 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // Keeping only digests here avoids checking in megabytes of generated output.
 // Re-pinned for #1624: the recommendation options echo extraFacilities instead of revolvingExtra (both empty here).
 // Renaming that key back in simOptions and planOptions reproduces all three previous digests exactly; no figure moved.
+// These invented cases have no qualifying paying-side transfer. Removing the empty unconfirmedPayments list
+// and restoring the prior reasons on paidToward, paidBack, stillToPayBack, targetCovered and minimumCovered
+// reproduces the d70784b1 Forecast digests. The budget case also requires the previous totals.minimumsPaid.reasons
+// and totals.minimumsCoveredTrust (now unavailable where payer evidence is missing). No amount or data digest changed.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
@@ -26,7 +30,9 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '53a5553c3fbf152c671bd57a6ec48542a9928d9b19692c738044202578ffc3f3',
+    // Future covered counts use the due minimum's trust while payment coverage is unknown. Resetting only
+    // totals.minimumsCoveredTrust on four future payPeriodViews to unavailable reproduces the d2d9e062 digest.
+    forecast: '3c3323b06123efa0ed07ae142c014230b95f4a0aecf9bb237019891e6413f181',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -41,7 +47,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: 'f6b6bd4a362d45dd216feeeaa43f4af4cfbcbeb92d93a21a29687932ca760f65',
+    forecast: 'b23684a97d94412c5215d914d6c2dd28b2deaa1a3c3659914b88b99825240667',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -56,7 +62,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: 'fffaf220eb748ffc326c45725930fdc3d0cbabf7b072a2ed2e0fd97470c715ba',
+    forecast: '540ce6984cc9d5c1fbd131d926d3d01cb31ec78788c72873a88aa47f963499a4',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

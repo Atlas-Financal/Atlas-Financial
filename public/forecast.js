@@ -54,6 +54,7 @@
       windowQualified: cycle?.start === window?.start && cycle?.end === window?.end,
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
+      payingSidePayment,
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
@@ -7993,8 +7994,7 @@
   ]);
   // Stack Wallet Credit line (owner decision, Dale: the Credit line lists the
   // household's credit lines by name, the HELOC among them; lead ruling
-  // 2026-11-19): the revolving cards plus the HELOC. Read only by the Stack
-  // Wallet bills split (periodAssignedBillParts); no other figure uses it.
+  // 2026-11-19): the revolving cards plus the HELOC.
   const STACK_CREDIT_LINE_IDS = new Set([...REVOLVING_CARD_ACCOUNT_IDS, 'heloc']);
   const isStackCreditLine = debtId => debtId != null && debtId !== ''
     && STACK_CREDIT_LINE_IDS.has(String(debtId).trim().toLowerCase().replace(/[\s_-]+/g, ''));
@@ -8357,7 +8357,7 @@
   // 'unknown' card or a two-card note names no definite card.
   function definiteNotedCard(tx) {
     const noted = cardPaymentNoteDestination(tx);
-    return noted && noted !== 'unknown' && Object.values(CARD_PAYMENT_NOTE_CARDS).includes(noted) ? noted : null;
+    return CARD_PAYMENT_NOTE_IDS.has(noted) ? noted : null;
   }
   function cardPaymentOtherSideEvidence(tx) {
     if (!tx) return false;
@@ -12631,25 +12631,32 @@
   // contract while Grok consultation is paused, #821 6964009921).
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
     'td personal credit card': 'tdcc', 'triangle mastercard': 'triangle', 'mbna': 'mbna' });
+  const CARD_PAYMENT_NOTE_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
   // Card coverage's note path is for TD "TFR-TO C/C" transfers, which pay a TD
   // card: a Triangle or MBNA name on one is contradictory and stays unconfirmed
   // (#1316 pre-review). Those names exist for the destination, not this path.
   const CARD_PAYMENT_NOTE_CARD_IDS = new Set(['cashback', 'travelvisa', 'tdcc']
-    .filter(id => Object.values(CARD_PAYMENT_NOTE_CARDS).includes(id)));
+    .filter(id => CARD_PAYMENT_NOTE_IDS.has(id)));
   // A note may carry a trailing comment after the card (lead, OD-021: notes
   // are only ever appended to): "<card>[ ...NNNN] - <text>" or
-  // "<card>[ ...NNNN] (<text>)". The comment is ignored, except that one
-  // naming a different table card makes the segment 'unknown'. Any other
+  // "<card>[ ...NNNN] (<text>)". A comment naming a different table card
+  // makes the segment 'unknown'. "(by amount)" records how the card was named. Any other
   // words after the name, without that separator, stay 'unknown'. Runs of
   // whitespace in the name and the comment count as one space.
   const CARD_PAYMENT_NOTE_COMMENT = /\s(?:-\s|\()/;
   function cardPaymentNoteNames(text, name) {
     return new RegExp('(^|[^a-z0-9])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])').test(text);
   }
-  function cardPaymentNoteDestination(tx) {
+  function cardPaymentNoteEvidence(tx) {
     const raw = tx && (tx.notes ?? tx.note);
-    if (typeof raw !== 'string') return tx && typeof tx.cardPaymentNoteDestination === 'string' ? tx.cardPaymentNoteDestination : null;
+    if (typeof raw !== 'string') {
+      if (typeof tx?.cardPaymentNoteDestination !== 'string') return null;
+      // Older packets retained the destination but discarded the source of its attribution.
+      const byAmount = typeof tx.cardPaymentNoteByAmount === 'boolean' ? tx.cardPaymentNoteByAmount : null;
+      return { destination: tx.cardPaymentNoteDestination, byAmount };
+    }
     const found = new Set();
+    let byAmount = false;
     for (const segment of raw.split(/[;\n\r]/)) {
       const m = /^\s*card payment:\s*(.*)$/i.exec(segment);
       if (!m) continue;
@@ -12661,9 +12668,39 @@
       if (id !== 'unknown' && Object.keys(CARD_PAYMENT_NOTE_CARDS)
         .some(other => CARD_PAYMENT_NOTE_CARDS[other] !== id && cardPaymentNoteNames(comment, other))) id = 'unknown';
       found.add(id);
+      if (/\(\s*by\s+amount\s*\)/i.test(comment)) byAmount = true;
     }
     if (!found.size) return null;
-    return found.size === 1 ? [...found][0] : 'unknown';
+    return { destination: found.size === 1 ? [...found][0] : 'unknown', byAmount };
+  }
+  function cardPaymentNoteDestination(tx) {
+    return cardPaymentNoteEvidence(tx)?.destination ?? null;
+  }
+
+  // The payer supplies the transfer. Only its ledger note can name the receiving card.
+  // Posting, direction, window and row identity are checked by the period publisher.
+  function payingSidePayment(tx) {
+    if (!tx || !['household-cash', 'household-reserve'].includes(tx.accountRole)) return null;
+    const payer = tx.atlasAccountId || tx.account || tx.accountId;
+    if (typeof payer !== 'string' || !payer.trim()) return null;
+    const label = normalizeCategoryLabel(tx.categoryLabel);
+    const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
+    const payment = (TRANSFER_CATEGORY_LABELS.has(label) && label !== 'transfer')
+      || hint === 'card-payment' || tx.payingSideCardPaymentKind === true
+      || tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true
+      || CARD_PAYMENT_NOTE_IDS.has(tx.minimumCategoryDebt);
+    const transfer = label === 'transfer' || ['transfer', 'internal-transfer', 'payment', 'bill-payment'].includes(hint)
+      || tx.internalTransferIdentity === true;
+    if ((!payment && !transfer) || [tx.atlasAccountId, tx.account, tx.accountId].some(isStackCreditLine)) return null;
+    if (cardPaymentDestinationConflict(tx)) {
+      return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
+    }
+    const note = cardPaymentNoteEvidence(tx);
+    if (CARD_PAYMENT_NOTE_IDS.has(note?.destination)) {
+      return { cardId: note.destination, trust: note.byAmount === false ? 'calculated' : 'estimated',
+        ...(note.byAmount === null ? { reason: 'card-payment-note-provenance-unconfirmed' } : {}) };
+    }
+    return note || payment ? { cardId: null, trust: 'estimated' } : null;
   }
 
   function householdCashLocationId(tx) {
@@ -14679,6 +14716,7 @@
     const parsedTfr = parseTdInternalTransferIdentity(tx);
     const internalTransferIdentity = isInternalTransferIdentity(tx);
     const card = derivedCardFlags(tx);
+    const paymentNote = cardPaymentNoteEvidence(tx);
     const cashWithdrawalIdentity = isCashWithdrawalIdentity(tx);
     const externalCashDeposit = isExternalCashDepositIdentity(tx);
     const dogFoodLunchMoneyLink = isLunchMoneyLinkedDogFood(tx, plan);
@@ -14699,7 +14737,9 @@
       tdCardPaymentIdentity: card.tdCardPaymentIdentity,
       tdCardPaymentCredit: isTdCardPaymentCredit(tx),
       tdRewardsRedemptionCredit: isTdRewardsRedemptionCredit(tx),
-      cardPaymentNoteDestination: cardPaymentNoteDestination(tx),
+      cardPaymentNoteDestination: paymentNote?.destination ?? null,
+      ...(CARD_PAYMENT_NOTE_IDS.has(paymentNote?.destination) && typeof paymentNote.byAmount === 'boolean'
+        ? { cardPaymentNoteByAmount: paymentNote.byAmount } : {}),
       cardFinanceChargeIdentity: card.cardFinanceChargeIdentity,
       helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
       internalTransferIdentity,
@@ -31804,7 +31844,7 @@
   }
 
   const Forecast = { earlyReceiptLegMembership, earlyReceiptOpeningSeed, earlyReceiptSweptSeed, cardPaymentNoteDestination, cardPaymentDestinationConflict, cardNotePaymentReceipts, periodBankCheck, billPaymentState, fixedBillPartialPayment, billPaymentHistorySummary, savingsLinkTarget, savingsItemLedger, billsAccountPeriodBalance, minimumCategoryAllocationConflict, incomeReconciliationState, cardMinimumState, cardMinimumOwnedDebits, scheduledAmountState, cardMinimumReceiptIdentity, obligationOccurrences, obligationAmountScheduleSelect, debtPrincipalShareFor, statementOccurrenceDate, statementOccurrenceIdentity, statementPaymentsReflectedThrough, representedOccurrence, savingsInventory, savingsFundingTimeline, savingsDailyFunding, savingsEarmarksState, HOUSEHOLD_TIMEZONE, financialDate, cardBalanceFreshness, withCardBalanceFreshness, addDays, diffDays, businessDaysAfter, occurrences, commitmentSettledOn, commitmentSettledBy, commitmentCashDate, scheduledInputState, billNeedsDate, billIsHouseholdObligation, billAffectsJointCash, isCardPaidBill, carriedOnceJointCashOutflow, prepaidJointCashOutflow, prepaidIncomeOccurrence, liveOperatingPlanUnavailable, budgetAsOf, budgetKnobInputs, budgetRecommendInputs, budgetTrajectoryInputs, budgetBreakdownInputs, representedEventEffectiveBy, expandEvents, simulate, establishPaydaySnapshot, paydayBoundaryAccountObservation, postedAccountMovements, prePaydayBillsAccountCash,
-    cardPeriodMovements, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases,
+    cardPeriodMovements, payingSidePayment, stackCardSummary, stackCreditLines, stackCreditBreakdown, pendingHoldReleases,
     knowledgeHorizon, viewRange, commitmentNeed, fundingSequence, majorPlans, planSpendPaydayFunding, savingsFundingPublication, budgetPeriodProgress, plannedDebt, debtPriority, paydayAllocation,
     classifyCurrentPeriodTransaction, bankFeedFreshness, householdInternalMovements, paydayPeriodOrigin, currentPeriodObligationStates, currentPeriodAction,
     spendingCycle, incomeReceivedAmount, calendarIncomeContribution,
