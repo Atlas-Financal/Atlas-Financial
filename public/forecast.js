@@ -12633,6 +12633,11 @@
   const CARD_PAYMENT_NOTE_CARDS = Object.freeze({ 'td cash back visa': 'cashback', 'travel visa': 'travelvisa',
     'td personal credit card': 'tdcc', 'triangle mastercard': 'triangle', 'mbna': 'mbna' });
   const CARD_PAYMENT_NOTE_IDS = new Set(Object.values(CARD_PAYMENT_NOTE_CARDS));
+  // The paying side alone also reads the HELOC (Dale, #821 7161929211: "It can be counted when it leaves the bills account";
+  // Grok Bot, rule 17, Plan #6: Grok notes each HELOC payment leaving Bills with the line `card payment: HELOC`, Dale-confirmed).
+  // The card table above stays the spend cards': Budget's held-transfer rule and the card-coverage pairing are unchanged.
+  const PAYING_SIDE_NOTE_CARDS = Object.freeze({ ...CARD_PAYMENT_NOTE_CARDS, 'heloc': 'heloc' });
+  const PAYING_SIDE_NOTE_IDS = new Set(Object.values(PAYING_SIDE_NOTE_CARDS));
   // Card coverage's note path is for TD "TFR-TO C/C" transfers, which pay a TD
   // card: a Triangle or MBNA name on one is contradictory and stays unconfirmed
   // (#1316 pre-review). Those names exist for the destination, not this path.
@@ -12665,7 +12670,9 @@
       const head = cut === -1 ? m[1] : m[1].slice(0, cut);
       const comment = cut === -1 ? '' : m[1].slice(cut).replace(/\s+/g, ' ').toLowerCase();
       const name = head.replace(/\s*\.{3}\s*\d+\s*$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
-      let id = Object.hasOwn(CARD_PAYMENT_NOTE_CARDS, name) ? CARD_PAYMENT_NOTE_CARDS[name] : 'unknown';
+      let id = Object.hasOwn(PAYING_SIDE_NOTE_CARDS, name) ? PAYING_SIDE_NOTE_CARDS[name] : 'unknown';
+      // A comment naming another spend card makes the segment 'unknown'; one mentioning the HELOC does not (a spend-card
+      // payment's note may say where the money came from).
       if (id !== 'unknown' && Object.keys(CARD_PAYMENT_NOTE_CARDS)
         .some(other => CARD_PAYMENT_NOTE_CARDS[other] !== id && cardPaymentNoteNames(comment, other))) id = 'unknown';
       found.add(id);
@@ -12697,7 +12704,13 @@
       return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
     }
     const note = cardPaymentNoteEvidence(tx);
-    if (CARD_PAYMENT_NOTE_IDS.has(note?.destination)) {
+    // The shared conflict rule above reads the spend-card table only, so a HELOC note is checked here against the same
+    // two other destinations: a payee identity or minimum category naming another line pays neither (Codex on #1641).
+    if (note?.destination === 'heloc' && [tx.cardPaymentDestination, tx.minimumCategoryDebt]
+      .some(card => typeof card === 'string' && card !== '' && card !== 'heloc')) {
+      return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
+    }
+    if (PAYING_SIDE_NOTE_IDS.has(note?.destination)) {
       return { cardId: note.destination, trust: note.byAmount === false ? 'calculated' : 'estimated',
         ...(note.byAmount === null ? { reason: 'card-payment-note-provenance-unconfirmed' } : {}) };
     }
@@ -14747,7 +14760,7 @@
       tdCardPaymentCredit: isTdCardPaymentCredit(tx),
       tdRewardsRedemptionCredit: isTdRewardsRedemptionCredit(tx),
       cardPaymentNoteDestination: paymentNote?.destination ?? null,
-      ...(CARD_PAYMENT_NOTE_IDS.has(paymentNote?.destination) && typeof paymentNote.byAmount === 'boolean'
+      ...(PAYING_SIDE_NOTE_IDS.has(paymentNote?.destination) && typeof paymentNote.byAmount === 'boolean'
         ? { cardPaymentNoteByAmount: paymentNote.byAmount } : {}),
       cardFinanceChargeIdentity: card.cardFinanceChargeIdentity,
       helocFinanceChargeIdentity: isHelocFinanceCharge(tx),
