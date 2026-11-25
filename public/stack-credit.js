@@ -6,8 +6,8 @@
  *                  minimumCovered: {value: true|false|'unknown'}, transactions }],
  *        totals: { paid, spent, trust, completeness: 'complete'|'partial'|'none', excluded: [ids], reasons } }
  *
- * Closed: "Credit" and paid / minimums due from totals. Open: one row per line: "Paid back / Total to pay back" (OD-033),
- * green when Forecast publishes targetCovered, and the ✓ when the minimum is covered. HELOC: its minimum is its target. Each row opens the sheet
+ * Closed: "Credit" and paid / minimums due from totals. Open: each line shows paid / target, or paid / minimum when
+ * Forecast publishes a minimum-based remainder. Green marks a covered target and the ✓ marks a covered minimum. Each row opens the sheet
  * (data-stack-sheet="card:<id>"), which reads the same line through window.StackCredit.
  *
  * L-001: prints only what Forecast publishes. No arithmetic on money: a bar's width comes from the shell's one
@@ -70,12 +70,13 @@
   const coverage = line => (line.minimumCovered && (line.minimumCovered.value === true || line.minimumCovered.value === false)
     && COVERAGE_TRUST.includes(line.minimumCovered.trust) ? line.minimumCovered.value : null);
   const dash = '<span class="stack-credit-dash" role="img" aria-label="not available">—</span>';
+  const minimumPaymentLabel = 'Paid back / Minimum payment';
 
   // One line, read for the row's figure "Paid back / Total to pay back" (OD-033, Dale, 2026-11-23). Only published values
   // are compared or printed; nothing is added or subtracted here:
   //   * X is Forecast's published paidBack: posted paying-account transfers naming this card for the period,
   //     or the HELOC's own posted payments; a dash when Forecast withholds it;
-  //   * after the slash, the published target (OD-028); nothing after it when the target is $0, a dash when withheld;
+  //   * after the slash, the published target (OD-028) or the labelled minimum payment when Forecast uses that basis;
   //   * X is green only when Forecast publishes targetCovered true and the period is not upcoming; otherwise plain ink;
   //   * the ✓ is the minimum covered, unchanged (Dale: "once that minimum is paid I want a check mark").
   // Every figure displays the same way whatever its trust word (OD-034).
@@ -88,12 +89,13 @@
     const min = published === 0 ? null : published;
     const minReasons = line.minimum && Array.isArray(line.minimum.reasons) ? line.minimum.reasons : [];
     const notDue = published === 0 || (published == null && minReasons.includes('no-minimum-due-in-period'));
-    // The figure after the slash is the card's repayment target (Dale, 2026-11-23, OD-028), Forecast's published
-    // line.target: a published $0 is nothing to repay (X alone); a withheld target is a dash, never reassurance.
-    const target = amountOf(line.target);
-    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, target: target === 0 ? null : target,
-      targetOff: target == null, x: null, tone: '', ok: false, xSoft: '', minSoft: est(view, trustOf(line.minimum)),
-      targetSoft: est(view, trustOf(line.target)), tickSoft: '' };
+    // Forecast names a minimum-based remainder when the full target is unresolved. Its minimum includes a known $0 due.
+    const minimumBasis = line.stillToPayBack?.basis === 'minimum';
+    const denominator = minimumBasis ? line.target?.minimum : amountOf(line.target);
+    const out = { paid, spent, min, notDue, minOff: published == null && !notDue, minimumBasis,
+      denominator: num(denominator) && (minimumBasis || denominator !== 0) ? denominator : null,
+      denominatorOff: !num(denominator), x: null, tone: '', ok: false, xSoft: '', minSoft: est(view, trustOf(line.minimum)),
+      denominatorSoft: est(view, trustOf(minimumBasis ? line.minimum : line.target)), tickSoft: '' };
     // The ✓ circle means "minimum covered" and nothing else (Dale: "once that minimum is paid I want a check mark"): a
     // published true on trust the page may show, with a minimum due. The colour then shows over or under, so a red row can
     // carry the ✓ too. It agrees with the head bar and the waterfall, which count the same check.
@@ -107,7 +109,7 @@
     const toward = amountOf(line.paidBack);
     if (toward != null) out.x = toward;
     const covered = line.targetCovered && line.targetCovered.value === true && COVERAGE_TRUST.includes(line.targetCovered.trust);
-    if (out.x != null && covered && line.status !== 'upcoming') out.tone = 'good';
+    if (!minimumBasis && out.x != null && covered && line.status !== 'upcoming') out.tone = 'good';
     return out;
   }
   // X is named for a screen reader: "Paid back $20". The visible text stays the number; role="img" makes the name the
@@ -121,9 +123,8 @@
     // (StackBlocks.estClass: now always ''), never a published string.
     const tone = r.tone ? ` is-${r.tone}` : '';
     const xSoft = r.x == null ? '' : r.xSoft;
-    const targetSoft = r.targetSoft;
     return `<span class="stack-credit-x${tone}${xSoft}"${r.x == null ? '' : ` role="img" aria-label="${esc(xName(r))}"`}>${r.x == null ? dash : esc(signed(r))}</span>`
-      + (r.target != null ? `<i class="stack-credit-of${targetSoft}"> / ${esc(money(r.target))}</i>` : r.targetOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
+      + (r.denominator != null ? `<i class="stack-credit-of${esc(r.denominatorSoft)}"> / ${esc(money(r.denominator))}</i>` : r.denominatorOff ? `<i class="stack-credit-of"> / ${dash}</i>` : '');
   };
   const paidOfSpent = line => (amountOf(line.paid) != null && amountOf(line.spent) != null
     ? `${money(amountOf(line.paid))} of ${money(amountOf(line.spent))}` : '');
@@ -141,6 +142,7 @@
       + `<span class="stack-credit-tick${tick}>${TICK}</span>`
       + `<span class="stack-credit-name"><span class="stack-credit-top"><b>${esc(line.label)}</b></span>`
       + (balanceShown(line) ? `<small class="stack-credit-bal stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${esc(money(amountOf(line.balance)))}</small>` : '')
+      + (r.minimumBasis ? `<small class="stack-credit-min">${minimumPaymentLabel}</small>` : '')
       + '</span>'
       // The figure sits on the right, centred on the row, as in the design.
       + `<span class="stack-credit-fig stack-n">${figureHtml(r)}</span>`
@@ -180,9 +182,9 @@
       + reading.lines.map(line => lineHtml(line, view)).join('') + '</ul></div></div></section>';
   }
 
-  // The sheet's view of one line (stack-sheet.js asks for it with its own helpers): the same "X / target" figure as the
-  // row, in the same colour, then the target's breakdown in plain words (OD-028): "Paid back" (the row's X), "New charges" (the
-  // card's Spent), "Minimum" (with its ✓ when covered, "Not due this period" when no minimum is due), "Over the limit by"
+  // The sheet repeats the row's paid / target or paid / minimum figure, then the published breakdown (OD-028):
+  // "Paid back" (the row's X), "New charges" (the card's Spent), "Minimum" (with its ✓ when covered, "Not due this period"
+  // when no minimum is due), "Over the limit by"
   // (only when the card is over), and "Target", each Forecast's published figure; then the dated transactions.
   // "Over the limit by": Forecast's published part of the target, printed only when the card is over (a positive amount).
   const overLimitRow = (line, view, rowHtml, soft, formatMoney) => {
@@ -214,8 +216,11 @@
     // cls is the shell's trust treatment (StackBlocks.estClass: now always ''), a class token from this file's fixed vocabulary.
     const soft = (text, cls) => { const tokens = cls.trim(); return `<span class="${tokens}">${escape(text)}</span>`; };
     const tx = Array.isArray(line.transactions) ? line.transactions : [];
+    const minimumOwed = amountOf(line.stillToPayBack);
+    const minimumOwedLabel = line.stillToPayBack?.upperBound === true ? 'Up to ' : '';
     return head('Credit', line.label || '')
-      + (r.x != null || r.target != null || r.min != null || !balanceShown(line)
+      + (r.minimumBasis ? `<small>${minimumPaymentLabel}</small>` : '')
+      + (r.minimumBasis || r.x != null || r.denominator != null || r.min != null || !balanceShown(line)
         ? `<div class="stack-sheet-big stack-credit-big stack-n">${figureHtml(r)}</div>`
         : `<div class="stack-sheet-big stack-n${est(view, trustOf(line.balance))}" data-stack-credit-balance ${balanceAttrs(line, est(view, trustOf(line.balance)))}>${escape(formatMoney(amountOf(line.balance)))}</div>`)
       + '<dl>' + (heloc ? '' : (r.x != null ? rowHtml('Paid back', soft(formatMoney(r.x), est(view, trustOf(line.paidBack)))) : '')
@@ -223,6 +228,8 @@
       + (r.min != null
         ? rowHtml('Minimum', soft(formatMoney(r.min), r.minSoft) + (r.ok ? ' ' + soft('✓', r.tickSoft) : ''))
         : rowHtml('Minimum', r.notDue ? 'Not due this period' : dash))
+      + (r.minimumBasis ? rowHtml('Minimum still owed', minimumOwed == null ? dash
+        : soft(minimumOwedLabel + formatMoney(minimumOwed), est(view, trustOf(line.stillToPayBack)))) : '')
       + (heloc ? '' : overLimitRow(line, view, rowHtml, soft, formatMoney) + targetRow(line, view, rowHtml, soft, formatMoney))
       + '</dl>'
       + (heloc ? '' : '<h4 class="stack-sheet-txh" aria-label="Card transactions">Transactions</h4>' + (tx.length

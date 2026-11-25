@@ -38,7 +38,10 @@ const snapshots = {
     // Build 6: the current spend card's stale balance qualifies its over-limit target in both copies of the active view.
     // Restoring the prior overLimitBy and reasons on target, targetCovered and stillToPayBack, and removing
     // overLimitUnresolved, reproduces the base Forecast bytes at 7f8747af.
-    forecast: 'a7861ae7b8640f6984402bf16dc876f4a0c34457e041dfeb1a5b5ffb7c9fbfb0',
+    // With the payer unobserved, the stale card's minimum remainder and its dropdown row both disclose
+    // an upper bound of 60. In both copies of the active view, removing their basis and upperBound,
+    // restoring their null amounts and the remainder's previous target reasons reproduces f64f89e0 exactly.
+    forecast: 'b0beecfe4921aca109d5580b715cfb1570d05d720199747afa3e84fd809462b7',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',

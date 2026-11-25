@@ -153,8 +153,8 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       assert.ok(line.target && line.deduction, 'authorized addition: each Credit line carries its target and deduction');
       if (line.deduction.amount !== null) assert.ok(line.deduction.amount >= 0, 'authorized addition: a deduction is never negative');
       else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
-      // OD-033: a resolved target and payment determine repayment progress. A target with unresolved
-      // over-limit exposure cannot establish either the remaining amount or coverage.
+      // OD-033: target coverage requires a resolved target. A spend card can independently
+      // publish its remaining scheduled minimum when its full repayment target is unresolved.
       // Paid back is paidToward qualified for display: never negative (withheld instead), else paidToward itself.
       assert.ok(line.paidBack && (line.paidBack.amount === null || (line.paidBack.amount >= 0 && line.paidBack.amount === line.paidToward.amount)),
         'authorized addition: Paid back is never negative, and where published it is the line\'s paidToward');
@@ -163,15 +163,36 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       const unresolvedExposure = line.target.reasons.some(reason =>
         ['over-limit-unknown', 'over-limit-unavailable', 'over-limit-pending-unknown', 'over-limit-balance-estimated'].includes(reason));
       if (unresolvedExposure) assert.notEqual(line.target.trust, 'calculated', 'a target with unresolved exposure cannot be calculated');
-      if (t === null || w === null || unresolvedExposure) {
-        assert.equal(line.stillToPayBack.amount, null, 'unresolved repayment progress withholds Still to pay back');
+      const targetIncomplete = t === null || unresolvedExposure;
+      const reversal = (targetIncomplete || t > 0) && credit.unconfirmedPayments.some(payment => payment.amount < 0);
+      const minimumBasis = line.id !== 'heloc' && targetIncomplete;
+      const remaining = line.stillToPayBack;
+      assert.equal(remaining.basis, minimumBasis ? 'minimum' : undefined, 'the published remainder names its minimum basis only on an unresolved card target');
+      const payerUnknown = w === null || reversal;
+      const upperBound = minimumBasis && line.minimum.amount > 0
+        && (payerUnknown || line.paidBack.reasons.includes('paid-unavailable-counted-as-zero'));
+      assert.equal(remaining.upperBound, upperBound ? true : undefined, 'a known positive minimum bounds what is owed when payment progress is unknown');
+      if (targetIncomplete || payerUnknown) {
         assert.equal(line.targetCovered.value, 'unknown', 'unresolved repayment progress withholds coverage');
-        assert.equal(line.stillToPayBack.trust, 'unavailable');
         assert.equal(line.targetCovered.trust, 'unavailable');
       } else {
-        assert.equal(cents(line.stillToPayBack.amount), Math.max(0, cents(t) - cents(w)), 'authorized addition: Still to pay back is target − paid back, floored at 0');
-        assert.ok(line.stillToPayBack.amount <= t, 'authorized addition: Still to pay back never exceeds the target');
         assert.equal(line.targetCovered.value, cents(t) > 0 && cents(w) >= cents(t), 'authorized addition: targetCovered is paid back ≥ a target above $0');
+      }
+      if (minimumBasis) {
+        const noMinimum = line.minimum.reasons.includes('no-minimum-due-in-period');
+        const due = noMinimum ? 0 : line.minimum.amount;
+        assert.equal(line.target.minimum, due, 'the minimum basis uses the published minimum due');
+        const owed = due === null || payerUnknown ? due : Math.max(0, cents(due) - cents(w)) / 100;
+        assert.equal(remaining.amount, owed, 'the minimum remainder uses its qualified payment or the explicit upper bound');
+        const paymentTrust = payerUnknown ? 'unavailable' : line.paidBack.trust;
+        const words = [noMinimum ? view.stackSummary.bills.trust : line.minimum.trust, paymentTrust];
+        const weakest = ['unavailable', 'estimated', 'calculated'].find(trust => words.includes(trust));
+        assert.equal(remaining.trust, weakest, 'the minimum remainder carries the weaker minimum and payment trust');
+      } else if (t === null || payerUnknown) {
+        assert.equal(remaining.amount, null, 'unresolved repayment progress withholds Still to pay back');
+        assert.equal(remaining.trust, 'unavailable');
+      } else {
+        assert.equal(remaining.amount, Math.max(0, cents(t) - cents(w)) / 100, 'authorized addition: Still to pay back is target − paid back, floored at 0');
       }
       // The deduction's two published parts close it per line, so no reader needs the totals to show them.
       if (line.deduction.amount !== null) assert.equal(cents(line.target.amount) - cents(line.deduction.countedOffset) - cents(line.deduction.beyondNetted),
@@ -188,7 +209,9 @@ function proveStackCredit(view, credit, breakdown, surplus) {
   const byId = new Map(lines.map(line => [String(line.id), line]));
   for (const row of breakdown.rows) {
     const line = byId.get(String(row.debtId));
-    if (line) assert.equal(row.amount, line.stillToPayBack.amount, 'authorized addition: a card row is that card\'s Still to pay back');
+    if (line) assert.deepEqual([row.amount, row.trust, row.basis, row.upperBound],
+      [line.stillToPayBack.amount, line.stillToPayBack.trust, line.stillToPayBack.basis, line.stillToPayBack.upperBound],
+      'a dropdown row carries its card\'s remainder, trust, basis and bound');
   }
   if (credit) {
     const unlined = (view.stackSummary && view.stackSummary.bills && Array.isArray(view.stackSummary.bills.cardMinimums) ? view.stackSummary.bills.cardMinimums : [])

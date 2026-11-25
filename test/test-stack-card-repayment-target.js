@@ -195,8 +195,10 @@ console.log('9. Every card, minimum due or not: $0 only with no minimum, no new 
   ok(m.target.amount === 60 && m.target.overLimitBy === 60 && m.target.trust === 'estimated'
     && m.deduction.amount === 60 && m.deduction.trust === 'estimated'
     && m.target.reasons.includes('over-limit-balance-estimated') && m.target.reasons.includes('new-charges-unavailable')
-    && m.targetCovered.value === 'unknown' && m.stillToPayBack.amount === null,
-    'a stale manual balance carries its observed 60.00 overage and withholds repayment progress', JSON.stringify(m.target));
+    && m.target.minimum === 0 && m.stillToPayBack.amount === 0 && m.stillToPayBack.basis === 'minimum'
+    && m.targetCovered.value === 'unknown',
+    'the stale manual card carries its estimated 60.00 overage, owes 0.00 on its minimum and has unknown target coverage',
+    JSON.stringify([m.target, m.stillToPayBack, m.targetCovered]));
 }
 
 console.log(`\nPASS Stack card repayment target (${checks})`);

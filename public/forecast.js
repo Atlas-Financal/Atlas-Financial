@@ -13610,8 +13610,8 @@
   // stackSummary keys: { amount, trust, ... }, with `reason` only when
   // withheld (amount null, trust 'unavailable').
   // The waterfall's Credit dropdown (OD-033; desk ruling (1), Plan #6; lead, 2026-11-24): display only. One row per card
-  // with a target above $0, at its Still to pay back (target − paid back, the line's published stillToPayBack: unknown is
-  // null, never $0), and a card minimum with no line at that minimum. No "Already counted above" row (Dale, 2026-11-24,
+  // with a positive target or unresolved exposure, at its published remaining repayment. On unresolved exposure the row
+  // names the minimum as its basis. A minimum with no card line appears at its own amount. No "Already counted above" row (Dale, 2026-11-24,
   // #1617 7121410691: "i dont need this red circled line"); each line's own deduction still carries its alreadyCounted.
   // The rows do not add up to the Credit line, and nothing here claims they do: `total` is (E)'s Credit deduction, Σ each
   // line's deduction, unchanged. Null where the Credit term is the minimums (a completed or saved period, or no card
@@ -13625,7 +13625,11 @@
     for (const line of lines) {
       if (line.target.amount === null) return null;
       const still = line.stillToPayBack || { amount: null, trust: 'unavailable' };
-      if (stackCents(line.target.amount) > 0 || line.target.overLimitUnresolved) rows.push({ debtId: line.id, amount: still.amount, trust: still.trust });
+      if (stackCents(line.target.amount) > 0 || line.target.overLimitUnresolved) rows.push({
+        debtId: line.id, amount: still.amount, trust: still.trust,
+        ...(still.basis === 'minimum' ? { basis: 'minimum' } : {}),
+        ...(still.upperBound ? { upperBound: true } : {}),
+      });
     }
     for (const card of minimums) if (!lineIds.has(String(card.debtId)) && stackCents(card.amount) > 0) {
       rows.push({ debtId: card.debtId, amount: card.amount, trust: bills.trust || 'calculated' });

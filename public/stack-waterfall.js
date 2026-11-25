@@ -197,8 +197,12 @@
       : `<span class="n" data-source="${source}" data-unpublished="true"></span>${DASH}`;
     const cards = breakdown.rows.map((row, i) => {
       const due = row ? dueLabel(view, row.debtId) : '';
-      return `<li class="wf-card" data-row="card" data-debt-id="${escape(row && row.debtId)}"><span class="wf-name"><b>${escape(cardLabel(ctx, row && row.debtId))}</b>${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
-        + `<span class="wf-amt">${cell(row && row.amount, `stackSummary.creditBreakdown.rows.${i}.amount`, `stackSummary.creditBreakdown.rows.${i}.trust`)}${minimumCheck(ctx, view, row && row.debtId)}</span></li>`;
+      const name = `<b>${escape(cardLabel(ctx, row && row.debtId))}</b>`;
+      const minimumBasis = row?.basis === 'minimum';
+      const label = minimumBasis ? `<span>${name}<small>Minimum still owed</small></span>` : name;
+      const upperBound = minimumBasis && row.upperBound === true && isAmount(row.amount) ? 'Up to ' : '';
+      return `<li class="wf-card" data-row="card" data-debt-id="${escape(row && row.debtId)}"><span class="wf-name">${label}${due ? `<span class="wf-due">${escape(due)}</span>` : ''}</span>`
+        + `<span class="wf-amt">${upperBound}${cell(row && row.amount, `stackSummary.creditBreakdown.rows.${i}.amount`, `stackSummary.creditBreakdown.rows.${i}.trust`)}${minimumCheck(ctx, view, row && row.debtId)}</span></li>`;
     }).join('');
     const caption = cards ? `<li class="wf-card wf-caption" data-row="still-caption"><span class="wf-name">${escape(STILL_CAPTION)}</span></li>` : '';
     return caption + cards;

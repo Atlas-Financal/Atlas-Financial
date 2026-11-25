@@ -759,12 +759,27 @@
       const towardCents = cents(progress.amount);
       const targetIncomplete = targetCents === null || target.overLimitUnresolved === true;
       const shortOf = targetIncomplete || towardCents === null;
-      const stillToPayBack = shortOf
-        ? { amount: null, trust: 'unavailable', reasons: [...new Set((targetIncomplete ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))] }
+      const progressReasons = [...new Set((targetIncomplete ? target.reasons : []).concat(towardCents === null ? progress.reasons : []))];
+      let stillToPayBack = shortOf
+        ? { amount: null, trust: 'unavailable', reasons: progressReasons }
         : { amount: Math.max(0, targetCents - towardCents) / 100, trust: weakest(target.trust, progress.trust), reasons: [] };
       const targetCovered = shortOf
-        ? { value: 'unknown', trust: 'unavailable', reasons: stillToPayBack.reasons.slice() }
+        ? { value: 'unknown', trust: 'unavailable', reasons: progressReasons.slice() }
         : { value: targetCents > 0 && towardCents >= targetCents, trust: weakest(target.trust, progress.trust), reasons: [] };
+      // Dale's minimum-payment display applies only when a spend card's full target is unresolved.
+      // The target and deduction keep their own amounts. A confirmed period with no minimum has a $0 minimum.
+      if (targetIncomplete && card.id !== 'heloc') {
+        const minimumCents = cents(target.minimum);
+        const minTrust = minimum.amount === null && minimumCents === 0 ? splitTrust : minimum.trust;
+        const paymentUnobserved = towardCents === null || progress.reasons.includes('paid-unavailable-counted-as-zero');
+        stillToPayBack = {
+          basis: 'minimum',
+          amount: minimumCents === null ? null : Math.max(0, minimumCents - (towardCents ?? 0)) / 100,
+          trust: weakest(minTrust, progress.trust),
+          reasons: [...new Set(minimum.reasons.concat(progress.reasons))],
+          ...(minimumCents > 0 && paymentUnobserved ? { upperBound: true } : {}),
+        };
+      }
       // Covered reads posted payments only: a pending payment never by itself makes a minimum covered (lead ruling, 2026-11-22).
       const paidForMinimum = progress;
       const covered = paidForMinimum.amount === null || minimum.amount === null

@@ -18,17 +18,28 @@ function compile(file, source, cardAuthority) {
   return m.exports;
 }
 
-module.exports = function verifyMutants(verifyCase) {
+module.exports = function verifyMutants(verifyCase, loadRenderers) {
   const card = fs.readFileSync(cardFile, 'utf8');
   const forecast = fs.readFileSync(forecastFile, 'utf8');
-  function restore(name, testCase, failure, from, to, source = card) {
+  function edit(name, source, from, to) {
     assert.equal(source.split(from).length, 2, 'exactly one restore site for ' + name);
-    const edited = source.replace(from, to);
+    return source.replace(from, to);
+  }
+  function fails(name, testCase, failure, check) {
+    assert.throws(check,
+      error => error instanceof assert.AssertionError && error.message.split('\n')[0] === testCase + ' ' + failure,
+      'the ' + name + ' mutant must fail the ' + failure + ' assertion');
+  }
+  function restore(name, testCase, failure, from, to, source = card) {
+    const edited = edit(name, source, from, to);
     const authority = compile(cardFile, source === card ? edited : card);
     const engine = compile(forecastFile, source === forecast ? edited : forecast, authority);
-    assert.throws(() => verifyCase(testCase, engine),
-      error => error instanceof assert.AssertionError && error.message.startsWith(testCase + ' ' + failure),
-      'the ' + name + ' mutant must fail the ' + failure + ' assertion');
+    fails(name, testCase, failure, () => verifyCase(testCase, engine));
+  }
+  function restoreRenderer(name, testCase, failure, renderer, from, to) {
+    const source = fs.readFileSync(require.resolve('../../public/' + renderer), 'utf8');
+    const ui = loadRenderers({ [renderer]: edit(name, source, from, to) });
+    fails(name, testCase, failure, () => verifyCase(testCase, undefined, ui));
   }
 
   restore('absent limit reads as zero', 'unknown-limit', 'target',
@@ -53,20 +64,32 @@ module.exports = function verifyMutants(verifyCase) {
     "cents: lastObservedCents, trust: 'estimated', unresolved: true", "cents: lastObservedCents, trust: 'estimated', unresolved: lastObservedCents === null");
   restore('overage ignores snapshot freshness', 'stale-balance', 'target',
     "row.balanceTrust === 'estimated' || balance.trust === 'estimated'", "row.balanceTrust === 'estimated'");
-  restore('overage ignores utilisation freshness', 'util-stale', 'target',
+  restore('overage ignores utilisation freshness', 'util-stale', 'target (utilisation only)',
     "row.balanceTrust === 'estimated' || balance.trust === 'estimated'", "balance.trust === 'estimated'");
   restore('explicit balance estimate is lost', 'estimated-balance', 'target',
     "...(debt.balanceTrust === 'estimated' ? { trust: 'estimated' } : {}), ", '');
   restore('coverage compares a lower bound', 'unknown-pending', 'withholds repayment progress',
     'const targetCovered = shortOf', 'const targetCovered = targetCents === null || towardCents === null');
-  restore('posted amount clears an unknown remainder', 'unknown-pending', 'withholds repayment progress',
-    'const stillToPayBack = shortOf', 'const stillToPayBack = targetCents === null || towardCents === null');
+  restore('withhold all progress when exposure is unresolved', 'pending-minimum-partial', 'publishes minimum remaining',
+    "if (targetIncomplete && card.id !== 'heloc')", "if (false && card.id !== 'heloc')");
+  restore('published minimum remaining is a dash', 'pending-minimum-partial', 'publishes minimum remaining',
+    'amount: minimumCents === null ? null : Math.max(', 'amount: true ? null : Math.max(');
+  restore('posted amount is compared with the unresolved full target', 'pending-minimum-partial', 'publishes minimum remaining',
+    'minimumCents - (towardCents ?? 0)', 'targetCents - (towardCents ?? 0)');
+  restore('an unavailable minimum becomes an exact zero owed', 'unavailable-minimum', 'publishes minimum remaining',
+    'amount: minimumCents === null ? null :', 'amount: minimumCents === null ? 0 :');
+  restore('unobserved manual payment counts as a confirmed zero', 'manual-unobserved-minimum', 'qualifies unknown payment',
+    "towardCents === null || progress.reasons.includes('paid-unavailable-counted-as-zero')", 'towardCents === null');
   restore('zero lower bound closes the target to unassigned payments', 'zero-pending-bound', 'qualifies unassigned',
     'const targetOpen = target.overLimitUnresolved === true || ', 'const targetOpen = ');
 
-  restore('unknown zero removes the waterfall row', 'zero-pending-bound', 'dropdown prints a dash',
+  restore('unknown zero removes the waterfall row', 'zero-pending-bound', 'dropdown shows minimum remaining publication',
     'stackCents(line.target.amount) > 0 || line.target.overLimitUnresolved',
     'stackCents(line.target.amount) > 0', forecast);
+  restore('published waterfall row loses its minimum basis', 'pending-minimum-partial', 'dropdown shows minimum remaining publication',
+    "...(still.basis === 'minimum' ? { basis: 'minimum' } : {}),", '', forecast);
+  restore('published waterfall amount loses its upper bound', 'unavailable-payer-minimum', 'dropdown shows minimum remaining publication',
+    '...(still.upperBound ? { upperBound: true } : {}),', '', forecast);
   restore('unknown manual zero leaves Surplus calculated', 'zero-pending-bound', 'waterfall deductions and Surplus',
     '!line.target.overLimitUnresolved && (!held.has(id) || (manual.has(id) && noneDue))',
     '((!line.target.overLimitUnresolved && !held.has(id)) || (manual.has(id) && noneDue))', forecast);
@@ -74,7 +97,30 @@ module.exports = function verifyMutants(verifyCase) {
     '!line.target.overLimitUnresolved && (!held.has(id) || (manual.has(id) && noneDue))',
     '(!held.has(id) || (!line.target.overLimitUnresolved && manual.has(id) && noneDue))', forecast);
 
+  restoreRenderer('Credit row drops its minimum label', 'pending-minimum-partial', 'row labels its minimum', 'stack-credit',
+    'r.minimumBasis ? `<small class="stack-credit-min">', 'false ? `<small class="stack-credit-min">');
+  restoreRenderer('Credit row divides paid by the estimated target', 'stale-minimum-met', 'row labels its minimum', 'stack-credit',
+    'minimumBasis ? line.target?.minimum : amountOf(line.target)', 'amountOf(line.target)');
+  restoreRenderer('a missing minimum prints as zero', 'unavailable-minimum', 'row labels its minimum', 'stack-credit',
+    'minimumBasis ? line.target?.minimum :', 'minimumBasis ? (line.target?.minimum ?? 0) :');
+  restoreRenderer('meeting only the minimum turns the target green', 'stale-minimum-met', 'prints no green target', 'stack-credit',
+    '!minimumBasis && out.x != null && covered', 'out.x != null && (covered || (minimumBasis && cv === true))');
+  restoreRenderer('sheet hides minimum remaining', 'pending-minimum-partial', 'sheet shows minimum remaining', 'stack-credit',
+    "r.minimumBasis ? rowHtml('Minimum still owed'", "false ? rowHtml('Minimum still owed'");
+  restoreRenderer('sheet turns known minimum remaining into a dash', 'pending-minimum-partial', 'sheet shows minimum remaining', 'stack-credit',
+    'minimumOwed == null ? dash', 'true ? dash');
+  restoreRenderer('waterfall drops its minimum label', 'pending-minimum-partial', 'dropdown shows minimum remaining', 'stack-waterfall',
+    'const label = minimumBasis ?', 'const label = false ?');
+  restoreRenderer('waterfall replaces minimum remaining with a dash', 'pending-minimum-partial', 'dropdown shows minimum remaining', 'stack-waterfall',
+    'cell(row && row.amount,', "cell(row?.basis === 'minimum' ? null : row && row.amount,");
+  restoreRenderer('sheet prints an upper bound as an exact amount', 'unavailable-payer-minimum', 'sheet shows minimum remaining', 'stack-credit',
+    "line.stillToPayBack?.upperBound === true ? 'Up to '", "false ? 'Up to '");
+  restoreRenderer('waterfall prints an upper bound as an exact amount', 'unavailable-payer-minimum', 'dropdown shows minimum remaining', 'stack-waterfall',
+    "minimumBasis && row.upperBound === true && isAmount(row.amount) ? 'Up to '", "false ? 'Up to '");
+
   // Negative controls keep cautious handling from spreading to fully known amounts.
+  restore('resolved target switches to minimum progress', 'resolved-minimum-control', 'reports repayment progress',
+    "if (targetIncomplete && card.id !== 'heloc')", "if (card.id !== 'heloc')");
   restore('overage always zero', 'positive-pending-control', 'target',
     'cents: Math.max(0, by)', 'cents: 0');
   restore('known overage is estimated', 'known-control', 'target',
