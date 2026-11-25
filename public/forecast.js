@@ -76,6 +76,22 @@
       // and the minimum Forecast expects per credit line over a window: the plan's own scheduled occurrences (a card's
       // payment rows, the HELOC's cash leg), read from the plan, never from a settled row, so this reading cannot loop.
       cardPaymentNote: tx => !!cardPaymentNoteEvidence(tx),
+      // The line the debit's own row names (the observer's payee identity or minimum category), or 'conflict' when two
+      // name different lines: inference may only confirm that line, never pick another (pre-review on #1650).
+      namedDestination: tx => {
+        const named = [...new Set([tx && tx.cardPaymentDestination, tx && tx.minimumCategoryDebt]
+          .filter(v => typeof v === 'string' && v !== ''))];
+        return named.length === 1 ? named[0] : named.length > 1 ? 'conflict' : null;
+      },
+      // A card-side row that reads as a payment or transfer receipt (the categories and kinds the paying side reads as a
+      // payment): only these can be a landing, never a purchase refund.
+      cardPaymentLanding: tx => {
+        if (!tx) return false;
+        const label = normalizeCategoryLabel(tx.categoryLabel);
+        const hint = normalizeCategoryLabel(tx.kindHint || tx.kind);
+        return TRANSFER_CATEGORY_LABELS.has(label) || ['card-payment', 'payment', 'transfer', 'internal-transfer', 'bill-payment'].includes(hint)
+          || tx.cardPaymentIdentity === true || tx.tdCardPaymentIdentity === true;
+      },
       expectedMinimumCents: (from, to) => expectedCreditLineMinimumCents(plan, from, to),
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.

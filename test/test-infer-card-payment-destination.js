@@ -7,7 +7,8 @@
  *   2. Expected amount: otherwise, within the larger of $1 and 1% of a minimum the plan schedules for exactly one line in
  *      the period: estimated.
  *   3. Ambiguity (two lines, two debits for one landing, two debits for one line's minimum) attributes nothing.
- *   4. A note always wins; internal household movements stay excluded.
+ *   4. A note always wins; internal household movements stay excluded; a line the debit's own row names is the only line
+ *      inference may confirm; only a payment or transfer receipt (never a refund) is a landing.
  * The Credit line's Paid back, its minimum check and (through the same reading) the HELOC settlement all follow.
  * Invented data only: the #1641 fixture world (test/fixtures/card-posted-period-movement-data.js), as of 2026-08-20, a
  * HELOC minimum of 210 and a Travel card minimum of 20, both due 2026-08-22. Expectations are written by hand. */
@@ -126,6 +127,25 @@ test('4b. an internal household transfer (a TFR-TO / TFR-FR pair between the che
   const back = { ...debit(-210, { id: 'tfr-in', atlasAccountId: 'chequing-b', original_name: 'EF901 TFR-FR 1112223', displayedPayee: 'EF901 TFR-FR 1112223' }) };
   const r = await read([out, back]);
   assert.equal(r.heloc.paidBack.amount, 0, 'the 210 transfer matches the HELOC minimum but is an internal movement: not counted');
+});
+
+test('4c. a destination the row names is the only line inference may confirm (pre-review on #1650)', async () => {
+  for (const field of ['cardPaymentDestination', 'minimumCategoryDebt']) {
+    const other = await read([debit(75, { [field]: 'heloc' }), landing('travelvisa', 75)]);
+    assert.equal(other.travel.paidBack.amount, 0, field + ' names the HELOC: a Travel landing is not taken');
+    assert.equal(other.heloc.paidBack.amount, 0, 'and no landing on the HELOC: nothing counted');
+    assert.equal(other.unassigned, '[75]');
+    const same = await read([debit(75, { [field]: 'heloc' }), landing('heloc', 75)]);
+    assert.equal(same.heloc.paidBack.amount, 75, field + ' names the HELOC and the landing is there: confirmed');
+    const byMinimum = await read([debit(20, { [field]: 'heloc' })]);
+    assert.equal(byMinimum.travel.paidBack.amount, 0, field + ' names the HELOC: the Travel minimum (20) is not inferred');
+  }
+});
+
+test('4d. only a payment or transfer receipt is a landing, never a purchase refund', async () => {
+  const refund = await read([debit(75), landing('travelvisa', 75, { categoryLabel: 'Shopping', original_name: 'REFUND STORE', displayedPayee: 'Refund store' })]);
+  assert.equal(refund.travel.paidBack.amount, 0, 'a refund of the same amount is not a landing');
+  assert.equal(refund.unassigned, '[75]');
 });
 
 test('5. the HELOC settlement follows: an inferred payment settles the HELOC minimum row too (#1646)', async () => {

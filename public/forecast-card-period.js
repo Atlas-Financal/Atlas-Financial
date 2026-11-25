@@ -30,10 +30,16 @@
     const out = unassigned.map(entry => ({ ...entry, inferred: null }));
     const noteless = out.filter(entry => entry.value > 0 && !entry.destination.reason
       && typeof primitives.cardPaymentNote === 'function' && !primitives.cardPaymentNote(entry.tx));
+    // A debit whose own row names a line may only be confirmed to that line; two names that disagree infer nothing.
+    const named = new Map(noteless.map(d => [d, typeof primitives.namedDestination === 'function' ? primitives.namedDestination(d.tx) : null]));
+    const allowed = (d, cardId) => !named.get(d) || named.get(d) === cardId;
     const rows = Array.isArray(packet && packet.transactions) ? packet.transactions : [];
     const landings = [];
     for (const tx of rows) {
       if (!tx || !['revolving-credit', 'heloc'].includes(tx.accountRole) || tx.contradictoryEvidence === true) continue;
+      // Only a payment or transfer receipt can be a landing (never a purchase refund), and never a split parent.
+      if (typeof primitives.cardPaymentLanding !== 'function' || !primitives.cardPaymentLanding(tx)) continue;
+      if (typeof primitives.skipParent === 'function' && primitives.skipParent(tx, packet)) continue;
       const cardId = tx.atlasAccountId || tx.account;
       if (!byCard.has(cardId) || !primitives.date(tx.date)) continue;
       const pending = tx.pending === true;
@@ -53,7 +59,7 @@
       if (own.length === 1) own[0].used = true;
     }
     // Rule 1.
-    const candidates = new Map(noteless.map(d => [d, landings.filter(l => !l.used && near(d, l))]));
+    const candidates = new Map(noteless.map(d => [d, named.get(d) === 'conflict' ? [] : landings.filter(l => !l.used && near(d, l) && allowed(d, l.cardId))]));
     for (const d of noteless) {
       const mine = candidates.get(d);
       if (mine.length !== 1) continue;
@@ -67,8 +73,8 @@
     if (expected instanceof Map) {
       const byLine = new Map();
       for (const d of noteless) {
-        if (d.inferred || candidates.get(d).length) continue;
-        const lines = [...expected].filter(([cardId, amounts]) => byCard.has(cardId)
+        if (d.inferred || candidates.get(d).length || named.get(d) === 'conflict') continue;
+        const lines = [...expected].filter(([cardId, amounts]) => byCard.has(cardId) && allowed(d, cardId)
           && amounts.some(amount => Math.abs(d.value - amount) <= INFER_TOLERANCE(amount))).map(([cardId]) => cardId);
         if (lines.length !== 1) continue;
         byLine.set(lines[0], (byLine.get(lines[0]) || []).concat([d]));
