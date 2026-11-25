@@ -1428,7 +1428,7 @@ const ids = plan.income.concat(plan.obligations, plan.bills || [], plan.commitme
 ok(new Set(ids).size === ids.length, 'every plan item has a unique id', `${ids.length} items`);
 
 // A dated bill must not also be inside the variable budget for its category.
-const budget = F.budgetBreakdown(plan, periods, { paypalPerMonth: data.paypal.perMonth });
+const budget = F.budgetBreakdown(plan, periods, { asOf, paypalPerMonth: data.paypal.perMonth });
 const catIds = new Set(plan.budget.categories.map(c => c.id));
 for (const b of (plan.bills || [])) {
   ok(b.budgetCategory === null || catIds.has(b.budgetCategory),

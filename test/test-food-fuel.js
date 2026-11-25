@@ -177,6 +177,7 @@ const liveAdv = F.recommend(data.plan, data.meta.asOf, {
   extraDebtTarget: data.plan.nextDollar.target, fundingSources: data.plan.funding.options,
 });
 const liveB = F.budgetBreakdown(data.plan, periods, {
+  asOf: data.meta.asOf,
   paypalPerMonth: data.paypal.perMonth, disabled: [],
   weeklyCap: liveAdv.weekly, recommendedWeekly: liveAdv.weekly,
 });
