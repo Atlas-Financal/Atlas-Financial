@@ -12704,6 +12704,12 @@
       return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
     }
     const note = cardPaymentNoteEvidence(tx);
+    // The shared conflict rule above reads the spend-card table only, so a HELOC note is checked here against the same
+    // two other destinations: a payee identity or minimum category naming another line pays neither (Codex on #1641).
+    if (note?.destination === 'heloc' && [tx.cardPaymentDestination, tx.minimumCategoryDebt]
+      .some(card => typeof card === 'string' && card !== '' && card !== 'heloc')) {
+      return { cardId: null, trust: 'estimated', reason: 'card-payment-destination-conflict' };
+    }
     if (PAYING_SIDE_NOTE_IDS.has(note?.destination)) {
       return { cardId: note.destination, trust: note.byAmount === false ? 'calculated' : 'estimated',
         ...(note.byAmount === null ? { reason: 'card-payment-note-provenance-unconfirmed' } : {}) };

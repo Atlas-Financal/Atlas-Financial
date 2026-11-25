@@ -52,8 +52,10 @@ function world(rows) {
     liveOverlay: { ...overlay, operatingPlan: 'live', currentPeriodActuals: packet } };
 }
 
-async function render(rows) {
-  const page = await loadStackPage({ data: world(rows) });
+async function render(rows, editPacket) {
+  const data = world(rows);
+  if (editPacket) editPacket(data.liveOverlay.currentPeriodActuals);
+  const page = await loadStackPage({ data });
   assert.equal(page.status(), 'rendered');
   const ctx = page.context();
   const view = ctx.recommendation.payPeriodViews.find(v => v.start === page.selectedKey());
@@ -110,6 +112,19 @@ test('an unnoted Bills debit to the HELOC stays an unconfirmed payment and is no
   assert.notEqual(page.heloc.minimumCovered.value, true);
   const travel = page.credit.lines.find(line => line.id === 'travelvisa');
   assert.ok(travel.paidBack.reasons.includes('card-payment-destination-unconfirmed'), 'the spend cards are qualified as before');
+});
+
+test('a HELOC note contradicted by a payee identity or minimum category naming a spend card pays neither (Codex on #1641)', async () => {
+  for (const field of ['cardPaymentDestination', 'minimumCategoryDebt']) {
+    const raw = billsDebit({ notes: LONG_NOTE });
+    const page = await render([raw], packet => {
+      packet.transactions.find(tx => tx.id === 'to-heloc')[field] = 'cashback';
+    });
+    assert.equal(page.heloc.paidBack.amount, 0, `${field}: not counted for the HELOC`);
+    assert.notEqual(page.heloc.minimumCovered.value, true, `${field}: the minimum is not covered`);
+    assert.equal(amounts(page.credit.unconfirmedPayments), '[300]', `${field}: listed as unconfirmed`);
+    assert.equal(page.credit.unconfirmedPayments[0].reason, 'card-payment-destination-conflict');
+  }
 });
 
 test('a noted HELOC payment leaves the spend cards exactly as with no HELOC payment', async () => {
