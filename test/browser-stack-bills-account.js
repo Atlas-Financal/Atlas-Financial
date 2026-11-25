@@ -9,6 +9,9 @@
  *      Already out; the Weekly-paid bill is not on it.
  *   3. Tapping a bill line opens that bill's sheet; Escape closes it.
  *   4. A stale reading: the head is a dash with the reason.
+ *   6. Closed cards are all the same height whichever card is last (the Bills account card has no bar and a two-line head):
+ *      the closed heads are equal, and each card's visible strip (its top to the next card's top, or its foot) agrees within
+ *      the 4px by which the last card's foot padding (22px) exceeds the 18px of padding the next card leaves showing.
  *   5. No page errors; the other cards are unchanged in number and order.
  *
  * Optional: STACK_BILLS_ACCOUNT_SHOTS=<dir> writes screenshots. `node test/browser-stack-bills-account.js`
@@ -88,6 +91,48 @@ async function open(browser, width, mode) {
       await page.keyboard.press('Escape');
       await page.waitForFunction(() => !document.querySelector('.stack-sheet'), null, { timeout: 5000 });
       ok(true, width + ': Escape closes the sheet');
+      ok(errors.length === 0, width + ': no page errors', errors.join(' | '));
+      await page.close();
+    }
+    console.log('6. Equal closed-card heights, in the default order and with each card last');
+    for (const width of [390, 320]) {
+      const { page, errors } = await open(browser, width);
+      // One entry per card slot (Credit included): the closed head's height, the card's height, and its visible strip.
+      const measure = () => page.$$eval('[data-stack-pile] > [data-stack-slot]', els => els.map((slot, i) => {
+        const c = slot.querySelector('details.sc-card, .stack-credit') || slot, h = c.querySelector('summary, .stack-credit-head') || c;
+        const next = els[i + 1], top = c.getBoundingClientRect().top;
+        const end = next ? (next.querySelector('details.sc-card, .stack-credit') || next).getBoundingClientRect().top : c.getBoundingClientRect().bottom;
+        return { id: slot.getAttribute('data-stack-slot'), head: h.getBoundingClientRect().height, card: c.getBoundingClientRect().height, strip: end - top, last: !next };
+      }));
+      const check = async (label) => {
+        const m = await measure(), cards = m.filter(x => x.id !== 'credit'), info = JSON.stringify(m);
+        ok(cards.length >= 3 && cards.some(x => x.id === 'billsacct'), width + ' ' + label + ': the cards are there', info);
+        ok(new Set(cards.map(x => x.head)).size === 1, width + ' ' + label + ': every closed card head is the same height', info);
+        const notLast = cards.filter(x => !x.last);
+        ok(new Set(notLast.map(x => x.card)).size === 1, width + ' ' + label + ': every card with another below it is the same height', info);
+        const strips = cards.map(x => x.strip);
+        ok(Math.max(...strips) - Math.min(...strips) <= 4, width + ' ' + label + ': the visible strip of every card agrees within 4px', info);
+        return m;
+      };
+      await check('default order');
+      const move = async (id, key, times) => {
+        await page.locator('[data-stack-slot="' + id + '"] > details > summary').first().focus();
+        for (let i = 0; i < times; i++) await page.keyboard.press(key);
+        await page.waitForTimeout(100);
+      };
+      const n = (await measure()).length;
+      await move('billsacct', 'Alt+ArrowDown', n);
+      let m = await check('Bills account last');
+      ok(m[m.length - 1].id === 'billsacct', width + ': the Bills account card is the last in the pile', JSON.stringify(m.map(x => x.id)));
+      await move('bills', 'Alt+ArrowDown', n);
+      m = await check('Bills last');
+      ok(m[m.length - 1].id === 'bills', width + ': the Bills card is the last in the pile', JSON.stringify(m.map(x => x.id)));
+      // Open, the card grows and nothing else moves out of line: the open card is taller than closed, the rest keep their height.
+      const closedHead = (await measure()).find(x => x.id === 'billsacct').head;
+      await page.locator('[data-stack-card="billsacct"] > summary').click();
+      await page.waitForTimeout(200);
+      const opened = (await measure()).find(x => x.id === 'billsacct');
+      ok(opened.card > closedHead && opened.head >= closedHead, width + ': open, the Bills account card is taller than closed', JSON.stringify(opened));
       ok(errors.length === 0, width + ': no page errors', errors.join(' | '));
       await page.close();
     }
