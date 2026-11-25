@@ -1813,8 +1813,9 @@ function noteItemNames(notes) {
 
 // The bill-paid tie (owner, Dale, #821 7168507103: a bill is paid in full at the posted amount once "one good piece of
 // evidence tied to the bill" shows the money left; Grok Bot, rule 17, Plan #6 thread, 2026-11-25 09:46 and 09:50 MST):
-// the tie is the row's Lunch Money recurring-item match (its recurring_id is one this bill's rule names), or the backup
-// note line "bill paid: <exact recurring item name>" naming one of the rule's item names. A category, a payee pattern
+// the tie is Lunch Money's recurring-item match (the row's recurring_id, or the item's foundTransactions, naming an item
+// this bill's rule names), or the backup note line "bill paid: <exact recurring item name>" naming one of the rule's
+// item names. A category, a payee pattern
 // or an amount alone is never the tie. The note line: exactly "bill paid:" at the start of any line (case-sensitive, no
 // leading space, as Grok Bot's "bill verified" line is), then the name, compared as the "item:" note's names are. Only
 // the boolean leaves this file, never the note.
@@ -1829,10 +1830,44 @@ function billPaidNoteNames(notes) {
   }
   return [...new Set(names)];
 }
+// Lunch Money keeps its recurring-item matches on the item (matches.foundTransactions), not always on the row (Grok
+// Bot, Plan #6, 2026-11-25 10:13 MST). Each observation records, per posted row, the one recurring item that lists it.
+// Fail closed: only a complete read with no pagination doubt; a row listed twice under one item, or under two items,
+// is no tie; a pending row is never tied from the item side (its tie is the note line alone).
+const LM_FOUND_ITEM = new WeakMap();
+function stampRecurringFoundTransactions(transactions, rawRecurring) {
+  for (const tx of transactions || []) if (tx && typeof tx === 'object') LM_FOUND_ITEM.delete(tx);
+  const read = rawRecurring && rawRecurring.status === 'read' ? rawRecurring.read : null;
+  if (!read || !Array.isArray(read.items) || read.unexpectedPaginationEvidence !== false) return;
+  const owners = new Map();
+  for (const item of read.items) {
+    const found = item && item.matches && Array.isArray(item.matches.foundTransactions) ? item.matches.foundTransactions : null;
+    if (!found || item.providerId == null) continue;
+    const itemId = String(item.providerId);
+    const ids = found.map(f => (f && f.transactionId != null ? String(f.transactionId) : ''));
+    for (const id of ids) {
+      if (!id) continue;
+      const twice = ids.filter(other => other === id).length > 1;
+      const prior = owners.get(id);
+      owners.set(id, twice || (prior !== undefined && prior !== itemId) ? null : itemId);
+    }
+  }
+  for (const tx of transactions || []) {
+    if (!tx || typeof tx !== 'object' || tx.pending === true || tx.providerTransactionId == null) continue;
+    const itemId = owners.get(String(tx.providerTransactionId));
+    if (itemId) LM_FOUND_ITEM.set(tx, itemId);
+  }
+}
+// A pending row is tied only by the note line (lead 13 on Grok Bot's 10:13 MST finding): no recurring-match path is
+// claimed for a pending row, from the row or from the item.
 function billPaidTie(tx, rules) {
   if (!tx || !Array.isArray(rules) || !rules.length) return false;
-  const linked = tx.recurringId == null ? '' : String(tx.recurringId).trim();
-  if (linked && rules.some(rule => ruleLunchMoneyRecurringIds(rule).includes(linked))) return true;
+  if (tx.pending !== true) {
+    const linked = tx.recurringId == null ? '' : String(tx.recurringId).trim();
+    if (linked && rules.some(rule => ruleLunchMoneyRecurringIds(rule).includes(linked))) return true;
+    const foundUnder = typeof tx === 'object' ? LM_FOUND_ITEM.get(tx) : undefined;
+    if (foundUnder && rules.some(rule => ruleLunchMoneyRecurringIds(rule).includes(foundUnder))) return true;
+  }
   const names = billPaidNoteNames(tx.notes || tx.note);
   return names.length === 1 && rules.some(rule => ruleLunchMoneyItemNames(rule).includes(names[0]));
 }
@@ -5064,6 +5099,7 @@ function observeCore(input, capture) {
   });
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
     input.payload && input.payload.recurringItems, normalized.transactionWindow, recurringSchedules);
+  stampRecurringFoundTransactions(collapsed.transactions, input.payload && input.payload.recurringItems);
   stampPendingReplacementHits(normalized.transactions, collapsed.transactions, {
     accountMap: mapDoc,
     plan: planForIdentity,
