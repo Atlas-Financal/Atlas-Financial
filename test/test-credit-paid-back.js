@@ -13,7 +13,8 @@
  *   2. The invented card week through the real recommend and the real page scripts (no stub): the waterfall's dropdown
  *      and the Credit card print Forecast's figures, and Credit, Balance After Deductions and Surplus are byte-equal to main.
  *   2a. A world where the old catch-all offset (the targets minus the Credit term) and the honest row differ, the same way.
- *   2b, 2c. A reversed receiving-side entry leaves the spend card’s payer evidence intact. The HELOC retains its own debit guard.
+ *   2b, 2c. A reversed receiving-side entry leaves the spend card’s payer evidence intact. The HELOC reads the paying side too
+ *       (Dale, #821 7161929211): its own posted rows are never read.
  *   3. Mutants: each guard above, removed, is caught.
  *
  * Invented data only; every expected figure is worked by hand. `node test/test-credit-paid-back.js`
@@ -276,25 +277,28 @@ console.log('2b. A reversed card receipt cannot revoke or repeat the named payer
     'both views continue to show the payer-derived amounts');
 }
 
-console.log('2c. The HELOC keeps its observed payment-direction rule');
-// The HELOC line's paid comes from its own posted rows, not the card figures. An invented HELOC publication card: a posted
-// 150.00 payment credit and a posted 50.00 payment debit (net +100.00) against an 80.00 minimum. Paid back, Still to pay
-// back and target covered are withheld; its paidToward (the head's input) stays the incumbent 100.00.
-const helocPub = posted => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
-  cards: [{ id: 'heloc', label: 'HELOC', syncState: 'proven', postedCoverage: 'complete-provider-response', reasons: [], posted, pending: [] }] });
+console.log('2c. The HELOC reads the paying side like a card; its own posted rows are never read');
+// Superseded rule: the HELOC used to count its own posted payment rows (and withhold on a mixed credit and debit). Dale's
+// ruling (#821 7161929211, "It can be counted when it leaves the bills account") and Grok Bot's rule 17 answer (the
+// HELOC-side TFR-FR receipt is ignored for Paid back and is never a reversal) move it to the payer's published figure.
+// An invented HELOC publication card: a posted 150.00 credit and a 50.00 debit on the HELOC itself, against an 80.00 minimum.
+const helocPub = (posted, payerPaid) => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
+  cards: [{ id: 'heloc', label: 'HELOC', syncState: 'proven', postedCoverage: 'complete-provider-response', reasons: [], posted, pending: [],
+    ...(payerPaid ? { payerPaid } : {}) }] });
 const HELOC_BILLS = { cardMinimums: [{ debtId: 'heloc', amount: 80 }], trust: 'calculated' };
-const helocLine = (posted, mod = M) => mod.stackCreditLines(helocPub(posted), HELOC_BILLS, [], new Map()).lines.find(l => l.id === 'heloc');
+const helocLine = (posted, payerPaid, mod = M) => mod.stackCreditLines(helocPub(posted, payerPaid), HELOC_BILLS, [], new Map()).lines.find(l => l.id === 'heloc');
+const PAYER_100 = { amount: 100, trust: 'calculated', reasons: [] };
 {
-  const mixed = helocLine([row('payment', -150), row('payment', 50)]);
-  ok(mixed.paidBack.amount === null && mixed.paidBack.reasons.includes('payment-direction-unresolved') && mixed.stillToPayBack.amount === null
-    && mixed.targetCovered.value === 'unknown' && cents(mixed.paidToward.amount) === 10000,
-    'HELOC, 150 credit and 50 debit: Paid back, Still to pay back and target covered withheld; paidToward stays 100.00',
+  const mixed = helocLine([row('payment', -150), row('payment', 50)], PAYER_100);
+  ok(cents(mixed.paidBack.amount) === 10000 && cents(mixed.paidToward.amount) === 10000 && mixed.stillToPayBack.amount === 0
+    && mixed.targetCovered.value === true && mixed.minimumCovered.value === true && !mixed.paidBack.reasons.includes('payment-direction-unresolved'),
+    'HELOC with a 150 credit and a 50 debit on its own ledger and 100.00 paid from Bills: Paid back is the payer\'s 100.00, covered',
     JSON.stringify([mixed.paidBack, mixed.stillToPayBack, mixed.targetCovered]));
-  const plain = helocLine([row('payment', -150)]);
-  ok(cents(plain.paidBack.amount) === 15000 && plain.stillToPayBack.amount === 0 && plain.targetCovered.value === true,
-    'control: the HELOC with an ordinary 150.00 credit is Paid back 150.00 of its 80.00 target, covered');
+  const unseen = helocLine([row('payment', -150)]);
+  ok(unseen.paidBack.amount === null && unseen.paidBack.reasons.includes('paying-side-coverage-incomplete'),
+    'control: with no paying-side figure, the HELOC\'s own 150.00 credit is not counted; Paid back is withheld', JSON.stringify(unseen.paidBack));
 }
-// The same credits and debits on every receiving ledger distinguish spend-card payer notes from the HELOC rule.
+// The same credits and debits on every receiving ledger change no line: each reads its payer.
 {
   const ids = ['a', 'b', 'c'];
   const sweepPub = withDebit => ({ source: 'Forecast.cardPeriodMovements', currency: 'CAD', role: 'current', asOf: '2031-03-10',
@@ -302,17 +306,16 @@ const helocLine = (posted, mod = M) => mod.stackCreditLines(helocPub(posted), HE
       postedMovement: { trust: 'calculated', completeness: 'complete', reasons: [] },
       posted: [row('payment', -120, RECONCILED)].concat(withDebit ? [row('payment', 20, RECONCILED)] : []) }))
       .concat([{ id: 'heloc', label: 'HELOC', syncState: 'proven', postedCoverage: 'complete-provider-response', reasons: [], pending: [],
+        payerPaid: { amount: 120, trust: 'calculated', reasons: [] },
         posted: [row('payment', -120)].concat(withDebit ? [row('payment', 20)] : []) }]) });
   const bills = { cardMinimums: ids.concat(['heloc']).map(debtId => ({ debtId, amount: 40 })), trust: 'calculated' };
   const withDebits = M.stackCreditLines(sweepPub(true), bills, [], new Map()).lines;
   const without = M.stackCreditLines(sweepPub(false), bills, [], new Map()).lines;
-  const heloc = withDebits.find(l => l.id === 'heloc');
-  ok(withDebits.length === 4 && ids.every(id => withDebits.find(l => l.id === id).paidBack.amount === 120)
-    && heloc.paidBack.amount === null && heloc.paidBack.reasons.includes('payment-direction-unresolved')
-    && heloc.stillToPayBack.amount === null && heloc.targetCovered.value === 'unknown',
-    'all three spend cards read their payer notes, while the HELOC mixed credit and debit withholds Paid back');
-  ok(without.length === 4 && without.every(l => cents(l.paidBack.amount) === 12000), 'control: with the debits removed every line publishes Paid back 120.00',
-    JSON.stringify(without.map(l => [l.id, l.paidBack.amount])));
+  ok(withDebits.length === 4 && withDebits.every(l => cents(l.paidBack.amount) === 12000),
+    'every line, the HELOC included, reads its payer: debits on the receiving ledgers change nothing',
+    JSON.stringify(withDebits.map(l => [l.id, l.paidBack.amount])));
+  const figures = lines => JSON.stringify(lines.map(l => [l.id, l.paidBack, l.paidToward, l.stillToPayBack, l.targetCovered, l.minimumCovered]));
+  ok(figures(withDebits) === figures(without), 'control: with the debits removed every line\'s Paid back figures are identical');
 }
 // The legacy card summary carries none of the internal inputs.
 {
@@ -350,11 +353,14 @@ console.log('3. Mutants: each must fail a check above');
   const receiptLine = receiptModule.stackCreditLines(receiptOnly, BILLS, UTIL, new Map()).lines.find(l => l.id === 'a');
   ok(receiptMutant !== cp2 && receiptLine.paidBack.amount === 75 && receiptLine.minimumCovered.value === true,
     'MUTANT: restoring receiving-side authority counts the posted receipt and covers the minimum without a payer debit');
-  const helocBlind = cp2.replace("postedPaymentDebitOf(published('heloc')) ||", 'false ||');
-  ok(helocBlind !== cp2, 'the HELOC mutant targets the HELOC debit read');
-  const HM = realm(file => (file === 'public/forecast-card-period.js' ? helocBlind : read(file))).ForecastCardPeriod;
-  const hm = helocLine([row('payment', -150), row('payment', 50)], HM);
-  ok(cents(hm.paidBack.amount) === 10000 && hm.targetCovered.value === true, 'MUTANT (HELOC debit not read): Paid back 100.00 and covered true come back, which section 2c rejects');
+  // The superseded HELOC rule restored: only the HELOC's own posted payment rows count.
+  const helocSide = cp2.replace("      if (card.id === 'heloc' && !pubCard) return countedZero(['heloc-not-observed']);\n",
+    "      if (card.id === 'heloc') { let c = 0; for (const r of (pubCard && pubCard.posted) || []) if (r.kind === 'payment') c -= Math.round(r.amount * 100);\n"
+    + "        return { amount: c / 100, trust: 'estimated', reasons: [] }; }\n");
+  ok(helocSide !== cp2, 'the HELOC mutant targets the paying-side read');
+  const HM = realm(file => (file === 'public/forecast-card-period.js' ? helocSide : read(file))).ForecastCardPeriod;
+  const hm = helocLine([row('payment', -150)], undefined, HM);
+  ok(cents(hm.paidBack.amount) === 15000, 'MUTANT (HELOC-side rule restored): the HELOC\'s own 150.00 credit counts again, which section 2c rejects');
   const leak = cp2.replace('cards.map(({ paidPosted, chargesCounted, ...card }) => card)', 'cards.map(({ chargesCounted, ...card }) => card)');
   ok(leak !== cp2 && Object.keys(realm(file => (file === 'public/forecast-card-period.js' ? leak : read(file))).Forecast
     .stackCardSummary(pub([['a', []]]))[0]).includes('paidPosted'), 'MUTANT (internal amount not stripped): the summary leaks paidPosted, which section 2c rejects');

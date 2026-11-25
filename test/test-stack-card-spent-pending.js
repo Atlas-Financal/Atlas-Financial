@@ -263,7 +263,7 @@ console.log('10. A pending payment counts in Paid, never toward the minimum (lea
   const fs = require('node:fs'), Module = require('module'), pathMod = require('node:path');
   const file = require.resolve('../public/forecast-card-period.js');
   const src = fs.readFileSync(file, 'utf8');
-  const target = 'const paidForMinimum = card.id === \'heloc\' ? paid : progress;';
+  const target = 'const paidForMinimum = progress;';
   ok(src.includes(target), 'the mutant targets the posted-only minimum rule');
   const m = new Module(file, null); m.filename = file; m.paths = Module._nodeModulePaths(pathMod.dirname(file));
   m._compile(src.replace(target, 'const paidForMinimum = paid;'), file);
