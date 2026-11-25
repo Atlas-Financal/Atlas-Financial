@@ -67,8 +67,20 @@ const cases = {
   'unknown-pending': { ...paymentWorld, debt: { ...paymentWorld.debt, pending: null, pendingUnknown: true },
     target: 114.20, over: null, reason: 'over-limit-unknown', credit: 0 },
   'pending-bound': { debt: { pending: null, pendingUnknown: true }, target: 100, over: 100, reason: 'over-limit-pending-unknown', credit: 100 },
-  'stale-balance': { debt: { evidenceDate: '2026-08-18' }, target: 0, over: null, reason: 'over-limit-balance-estimated', credit: 0 },
-  'estimated-balance': { debt: { balanceTrust: 'estimated' }, target: 0, over: null, reason: 'over-limit-balance-estimated', credit: 0 },
+  // The same observed 800 balance and 700 limit deduct 100 in each case. Only the fresh control
+  // establishes today's overage; older and estimated observations leave repayment progress open.
+  'fresh-observed-overage': { target: 100, over: 100, still: 100, credit: 100 },
+  'stale-balance': { debt: { evidenceDate: '2026-08-18' }, target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
+  'statement-stale-overage': { debt: { statementCloseDay: 18, balanceAsOf: '2026-07-01', evidenceDate: '2026-07-01' },
+    target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
+  'estimated-balance': { debt: { balanceTrust: 'estimated' }, target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
+  'stale-zero-overage': { debt: { balance: 700, evidenceDate: '2026-08-18' }, target: 0, over: null, reason: 'over-limit-balance-estimated', credit: 0 },
+  // A 250 named debit exceeds the observed 150 overage. Only a current balance can give credit
+  // for reaching the target. In both cases the waterfall deducts 150 less 114.20 of charges.
+  'stale-overage-paid': { payments: true, debt: { balance: 2650, limit: 2500, evidenceDate: '2026-08-18' },
+    target: 150, over: 150, reason: 'over-limit-balance-estimated', credit: 35.80 },
+  'fresh-overage-paid': { payments: true, debt: { balance: 2650, limit: 2500 },
+    target: 150, over: 150, still: 0, covered: true, credit: 35.80, targetTrust: 'estimated', creditTrust: 'estimated' },
   'missing-balance': { ...paymentWorld, debt: { ...paymentWorld.debt, balance: null }, minimum: 40, chargesUnpublished: true,
     target: 40, over: null, reason: 'over-limit-unknown', credit: 40 },
   'absent-with-activity': { ...paymentWorld, absent: true, minimum: 40, chargesUnpublished: true,
@@ -79,10 +91,10 @@ const cases = {
     target: 0, over: null, reason: 'over-limit-unknown', credit: 0 },
   'unheld-control': { absent: true, chargesUnpublished: true, target: 0, over: 0, still: 0, credit: 0,
     targetTrust: 'estimated', creditTrust: 'estimated', surplusTrust: 'calculated' },
-  'stale-with-minimum': { debt: { evidenceDate: '2026-08-18' }, minimum: 40,
-    target: 40, over: null, reason: 'over-limit-balance-estimated', credit: 40 },
+  'stale-with-minimum': { debt: { evidenceDate: '2026-08-18' }, minimum: 140,
+    target: 140, over: 100, reason: 'over-limit-balance-estimated', credit: 140 },
   'util-stale': { debt: { statementCloseDay: 18, balanceAsOf: '2026-07-01' },
-    target: 0, over: null, reason: 'over-limit-balance-estimated', credit: 0 },
+    target: 100, over: 100, reason: 'over-limit-balance-estimated', credit: 100 },
   // This held manual card has a zero lower bound. It still needs a dash in the dropdown and
   // qualifies the Credit deduction and Surplus even though there is no scheduled minimum.
   'zero-pending-bound': { id: 'mbna', debt: { balance: 100, pending: null, pendingUnknown: true },
@@ -116,7 +128,7 @@ function verifyCase(name, engine = Forecast) {
       const direct = engine.stackCreditLines(pub, view.stackSummary.bills, { debts: input.debts, plan: input.plan });
       const card = direct.lines.find(l => l.id === id);
       assert.deepEqual([card.balance.trust, card.target.trust, card.target.overLimitBy, card.stillToPayBack.amount],
-        ['calculated', 'estimated', null, null], name + ' target (utilisation only)');
+        ['calculated', 'estimated', 100, null], name + ' target (utilisation only)');
     } else if (name === 'zero-pending-bound') {
       const unassigned = { ...pub, unconfirmedPayments: [{ amount: 42, date: input.asOf }] };
       const direct = engine.stackCreditLines(unassigned, view.stackSummary.bills, { debts: input.debts, plan: input.plan });
@@ -152,7 +164,7 @@ function verifyCase(name, engine = Forecast) {
   else assert.doesNotMatch(text(sheet), /Over the limit by/, name + ' sheet omits absent or zero over-limit');
 
   if (c.reason) {
-    assert.ok(line.target.reasons.includes(c.reason), name + ' explains its lower bound');
+    assert.ok(line.target.reasons.includes(c.reason), name + ' explains its uncertainty');
     assert.deepEqual([line.targetCovered.value, line.targetCovered.trust, line.stillToPayBack.amount, line.stillToPayBack.trust],
       ['unknown', 'unavailable', null, 'unavailable'], name + ' withholds repayment progress');
     assert.ok(line.targetCovered.reasons.includes(c.reason) && line.stillToPayBack.reasons.includes(c.reason), name + ' explains withheld progress');

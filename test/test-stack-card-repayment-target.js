@@ -188,14 +188,15 @@ console.log('9. Every card, minimum due or not: $0 only with no minimum, no new 
   const cb = lineOf(fx.fixture(), 'cashback', noMin);
   ok(!cb.target.reasons.includes('over-limit-payments-unproven'), 'a card far under its limit after its payment: no payments reason', JSON.stringify(cb.target));
   // Amazon Mastercard: a manual card (Spent withheld), no minimum this period, over its limit, and its balance a stale
-  // estimate (dated before its statement cycle). The previous 60.00 overage cannot establish today's overage.
+  // estimate (dated before its statement cycle). Its last observation was 760.00 against a 700.00 limit.
   const stale = withLimit(fx.fixture(), 'mbna', 700);
   Object.assign(stale.debts.find(d => d.id === 'mbna'), { statementCloseDay: 5, balanceAsOf: '2026-07-07' });
   const m = lineOf(stale, 'mbna', bills(MINIMUMS));
-  ok(m.target.amount === 0 && m.target.overLimitBy === null && m.target.trust === 'estimated'
+  ok(m.target.amount === 60 && m.target.overLimitBy === 60 && m.target.trust === 'estimated'
+    && m.deduction.amount === 60 && m.deduction.trust === 'estimated'
     && m.target.reasons.includes('over-limit-balance-estimated') && m.target.reasons.includes('new-charges-unavailable')
     && m.targetCovered.value === 'unknown' && m.stillToPayBack.amount === null,
-    'a stale manual balance with no minimum or known spending withholds the overage and repayment progress', JSON.stringify(m.target));
+    'a stale manual balance carries its observed 60.00 overage and withholds repayment progress', JSON.stringify(m.target));
 }
 
 console.log(`\nPASS Stack card repayment target (${checks})`);

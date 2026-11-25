@@ -617,15 +617,15 @@
     //   target = max(statement minimum, the period's new charges, the amount that brings an over-limit card under its limit),
     // counted once (desk ruling on Neon 7113251603, Plan #6): the three come from one balance, never summed.
     // New charges are the card's published Spent (pending counted, a replaced pending once; fees and interest are charges).
-    // The over-limit amount is Forecast.utilisation's overLimitBy for the card, a figure as of today, so it counts in the
-    // current period only (overLimitOf). Where Spent is withheld the target is the larger of the minimum and the over-limit
-    // amount, a lower bound tagged estimated with its reason; an unknown over-limit is the same. A withheld minimum withholds the target. Never a
-    // confident wrong number. The HELOC keeps its own rule: its target is its minimum.
+    // Forecast.utilisation's observed overage applies only to the current period. A stale positive observation still
+    // counts, as an estimate. Where Spent or exposure is unknown, the available terms determine the estimated target.
+    // A withheld minimum withholds the target. The HELOC's target is its minimum.
     const utilRows = Array.isArray(utilisation) ? utilisation : null;
     const overLimitOf = (card, minimum, balance) => {
       const zero = { cents: 0, trust: 'calculated', reasons: [] };
       if (publication.role !== 'current') return zero;
-      const unknown = reason => ({ cents: null, trust: 'estimated', unresolved: true, reasons: [reason] });
+      const unknown = (reason, lastObservedCents = null) => ({
+        cents: lastObservedCents, trust: 'estimated', unresolved: true, reasons: [reason] });
       if (!utilRows) return unknown('over-limit-unavailable');
       const rows = utilRows.filter(row => row && row.id === card.id);
       // Utilisation omits debts without a limit. Only a known absence from the facility roster
@@ -641,9 +641,10 @@
       const row = rows[0], by = cents(row.overLimitBy);
       if (by === null || cents(row.used) === null || cents(row.limit) === null
         || (Object.hasOwn(row, 'posted') && cents(row.posted) === null)) return unknown('over-limit-unknown');
-      // A stale or explicitly estimated balance can be higher or lower than today's balance.
-      // Its difference from the limit is not a lower bound on what is owed today.
-      if (row.balanceTrust === 'estimated' || balance.trust === 'estimated') return unknown('over-limit-balance-estimated');
+      // Keep the last observed positive overage in the cash plan until a fresh balance can
+      // resolve it. An old reading at or below the limit establishes no overage to carry.
+      if (row.balanceTrust === 'estimated' || balance.trust === 'estimated')
+        return unknown('over-limit-balance-estimated', by > 0 ? by : null);
       // A fresh posted overage remains a lower bound when pending exposure is unknown.
       const unresolved = row.pendingUnknown === true;
       const out = { cents: Math.max(0, by), trust: unresolved ? 'estimated' : 'calculated', unresolved,
@@ -682,8 +683,8 @@
       // period's new charges and the amount over the limit come from one balance, so the target is the largest of them,
       // never their sum. Repaying a charge that pushed the card over its limit is the same dollar as bringing it back
       // under; an over-limit amount older than this period's charges is the larger term and stands. The over-limit amount
-      // is the observed one (overLimitOf): where a payment this period may have reduced it, the target is a lower bound,
-      // estimated, never raised by a payment the balance is not proven to include.
+      // is the observed one (overLimitOf). A stale positive overage remains an estimate. Where a payment this period may
+      // have reduced a fresh balance, the target is a lower bound, never raised by a payment the balance may already include.
       const amount = Math.max(minCents, charges === null ? 0 : charges, over.cents ?? 0);
       return { amount: amount / 100,
         trust: weakest(minTrust, charges === null ? 'estimated' : card.spent.trust, over.trust),

@@ -45,6 +45,12 @@ module.exports = function verifyMutants(verifyCase) {
     'const unresolved = row.pendingUnknown === true;', 'const unresolved = false;');
   restore('absent balance reads as posted zero', 'missing-balance', 'target',
     " || (Object.hasOwn(row, 'posted') && cents(row.posted) === null)", '');
+  restore('withhold the last observed positive overage', 'stale-balance', 'target',
+    "unknown('over-limit-balance-estimated', by > 0 ? by : null)", "unknown('over-limit-balance-estimated')");
+  restore('publish an old zero overage', 'stale-zero-overage', 'target',
+    "unknown('over-limit-balance-estimated', by > 0 ? by : null)", "unknown('over-limit-balance-estimated', by)");
+  restore('last observed positive overage resolves repayment progress', 'stale-balance', 'withholds repayment progress',
+    "cents: lastObservedCents, trust: 'estimated', unresolved: true", "cents: lastObservedCents, trust: 'estimated', unresolved: lastObservedCents === null");
   restore('overage ignores snapshot freshness', 'stale-balance', 'target',
     "row.balanceTrust === 'estimated' || balance.trust === 'estimated'", "row.balanceTrust === 'estimated'");
   restore('overage ignores utilisation freshness', 'util-stale', 'target',

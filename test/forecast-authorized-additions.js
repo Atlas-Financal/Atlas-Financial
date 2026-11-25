@@ -153,8 +153,8 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       assert.ok(line.target && line.deduction, 'authorized addition: each Credit line carries its target and deduction');
       if (line.deduction.amount !== null) assert.ok(line.deduction.amount >= 0, 'authorized addition: a deduction is never negative');
       else assert.equal(line.deduction.trust, 'unavailable', 'authorized addition: a withheld deduction reads unavailable');
-      // OD-033: a resolved target and payment determine repayment progress. A published lower bound
-      // with unresolved over-limit exposure cannot establish either the remaining amount or coverage.
+      // OD-033: a resolved target and payment determine repayment progress. A target with unresolved
+      // over-limit exposure cannot establish either the remaining amount or coverage.
       // Paid back is paidToward qualified for display: never negative (withheld instead), else paidToward itself.
       assert.ok(line.paidBack && (line.paidBack.amount === null || (line.paidBack.amount >= 0 && line.paidBack.amount === line.paidToward.amount)),
         'authorized addition: Paid back is never negative, and where published it is the line\'s paidToward');
@@ -162,7 +162,7 @@ function proveStackCredit(view, credit, breakdown, surplus) {
       assert.ok(line.stillToPayBack && line.targetCovered, 'authorized addition: each Credit line carries stillToPayBack and targetCovered');
       const unresolvedExposure = line.target.reasons.some(reason =>
         ['over-limit-unknown', 'over-limit-unavailable', 'over-limit-pending-unknown', 'over-limit-balance-estimated'].includes(reason));
-      if (unresolvedExposure) assert.notEqual(line.target.trust, 'calculated', 'a lower bound with unresolved exposure cannot be calculated');
+      if (unresolvedExposure) assert.notEqual(line.target.trust, 'calculated', 'a target with unresolved exposure cannot be calculated');
       if (t === null || w === null || unresolvedExposure) {
         assert.equal(line.stillToPayBack.amount, null, 'unresolved repayment progress withholds Still to pay back');
         assert.equal(line.targetCovered.value, 'unknown', 'unresolved repayment progress withholds coverage');
