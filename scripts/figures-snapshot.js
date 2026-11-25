@@ -725,11 +725,11 @@ function putPayPeriods(put, putField, advice) {
         putField(p + '.' + key, account.now, field);
       for (const [field, key] of [['amount', 'stackBillsAccountHousehold'], ['trust', 'stackBillsAccountHouseholdTrust']])
         putField(p + '.' + key, account.householdToMove, field);
-      for (const [list, name] of [['comingIn', 'In'], ['comingOut', 'Out'], ['alreadyOut', 'Settled']]) {
+      for (const [list, name] of [['comingIn', 'In'], ['comingOut', 'Out'], ['postedUnconfirmed', 'PostedUnconfirmed'], ['alreadyOut', 'Settled']]) {
         const keys = new Set();
         for (const line of Array.isArray(account[list]) ? account[list] : []) {
           const k = uniqueKey(keys, p + '.stackBillsAccount' + name + '.' + segment(line && line.id) + '@' + segment(line && line.date));
-          for (const field of ['amount', 'trust', 'status', 'paid']) if (line && Object.hasOwn(line, field)) putField(k + '.' + field, line, field);
+          for (const field of ['amount', 'trust', 'status', 'paid', 'partial']) if (line && Object.hasOwn(line, field)) putField(k + '.' + field, line, field);
         }
       }
     }

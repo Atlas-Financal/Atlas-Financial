@@ -33,7 +33,8 @@ function world(mode) {
   p.bills.push({ id: 'paid-bills', label: 'Invented paid utility', frequency: 'once', date: '2026-08-16', amount: 45.12, confidence: 'confirmed', payingAccount: 'chequing-a' });
   p.bills.push({ id: 'weekly-bill', label: 'Invented weekly-paid bill', frequency: 'once', date: '2026-08-22', amount: 51.30, confidence: 'confirmed', payingAccount: 'chequing-b' });
   p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
-  pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
+  pk.transactions.push(fx.tx('posted-paid-bills', 'chequing-a', '2026-08-16', 45.12, 'Utilities'));
+  pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12, postedOn: '2026-08-16', transactionId: 'posted-paid-bills' });
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
   // Only the Bills chequing observation is gone; the plan's Bills row stays (OD-037: a missing reading shows a dash).
   if (mode === 'no-observation') d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');

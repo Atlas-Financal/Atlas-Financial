@@ -85,7 +85,7 @@ test('Stack reserves only the unpaid part of a fixed bill and counts the full bi
     const x = await stackBillAmounts(fixture.w, '2026-10-09', 'hydro', '2026-10-12');
     assert.deepEqual([x.bill.actual, x.bill.planned, x.bill.remaining, x.remaining, x.totals.other],
       [paid, 90, remainder, remainder, 90], 'the actual and held remainder assign the bill once');
-    assert.equal(x.cardAmount, '$90', 'the card shows the full assigned bill');
+    assert.equal(x.cardAmount, fixture === part ? '$50' : '$90', 'the card shows the remaining amount for the partial bill');
     assert.deepEqual([x.cardPaid, x.sheetPaid], [checked, checked], 'only the fully paid occurrence gets the Paid check');
   }
 });

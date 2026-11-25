@@ -39,8 +39,14 @@ function engine(sources) {
   return c.Forecast;
 }
 
+function addPostedBill(packet, id, date, actual, account, postedOn = date) {
+  const transactionId = 'posted-' + id;
+  packet.transactions.push(fx.tx(transactionId, account, postedOn, actual, 'Utilities', { representedBill: true }));
+  packet.representedActuals.push({ id, date, actual, postedOn, transactionId });
+}
+
 // The invented world. The fixture's Bills week (as of 2026-08-20, period 2026-08-14..2026-08-27) plus:
-//   paid-bills   45.12 from Bills on 08-16, settled (a represented actual): Already out.
+//   paid-bills   45.12 from Bills on 08-16, settled by its linked posted debit: Already out.
 //   weekly-bill  51.30 from Weekly (chequing-b) on 08-22: not a Bills line, on no list.
 //   late-bill    62.40 from Bills on 08-18, unpaid and past due: Coming out, 'late'.
 // Hand-worked lists:
@@ -54,7 +60,7 @@ function world(mode) {
   p.bills.push({ id: 'paid-bills', label: 'Invented paid utility', frequency: 'once', date: '2026-08-16', amount: 45.12, confidence: 'confirmed', payingAccount: 'chequing-a' });
   p.bills.push({ id: 'weekly-bill', label: 'Invented weekly-paid bill', frequency: 'once', date: '2026-08-22', amount: 51.30, confidence: 'confirmed', payingAccount: 'chequing-b' });
   p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
-  pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
+  addPostedBill(pk, 'paid-bills', '2026-08-16', 45.12, 'chequing-a');
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
   if (mode === 'misaligned') d.liveOverlay.observedCash.accounts[0].value = 1400.01;
   if (mode === 'missing') {
@@ -97,7 +103,7 @@ ok(cents(ba.householdToMove.amount) === 16051 && ba.householdToMove.trust === 'e
   'Household budget still to move: 160.51 (520.37 − 359.86)', JSON.stringify(ba.householdToMove));
 const paidRow = view.bills.find(r => r.id === 'paid-bills');
 ok(ba.alreadyOut.length === 1 && ba.alreadyOut[0].id === 'paid-bills' && cents(ba.alreadyOut[0].amount) === 4512
-  && ba.alreadyOut[0].paid === (paidRow.stackBillPaid === true) && ba.alreadyOut[0].trust === paidRow.stackBillAmountTrust,
+  && paidRow.stackBillPaid === true && ba.alreadyOut[0].paid === true && ba.alreadyOut[0].trust === paidRow.stackBillAmountTrust,
   'already out: the settled 45.12 Bills bill, with the bill row\'s own amount, trust and paid check', JSON.stringify(ba.alreadyOut));
 // Each list reconciles to the close's own published terms (no term moved, nothing counted twice or left out).
 const sum = rows => rows.reduce((t, r) => t + cents(r.amount), 0);
@@ -180,7 +186,7 @@ console.log('2c. A settled bill with an unknown payer is not listed and never wi
 const externalSettled = d => {
   d.plan.bills.push({ id: 'ext-settled', label: 'Invented external bill', frequency: 'once', date: '2026-08-17', amount: 38.20,
     confidence: 'confirmed', payingAccount: 'external-payer' });
-  d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'ext-settled', date: '2026-08-17', actual: 38.20 });
+  addPostedBill(d.liveOverlay.currentPeriodActuals, 'ext-settled', '2026-08-17', 38.20, 'external-payer');
   return d;
 };
 {
@@ -193,10 +199,10 @@ const externalSettled = d => {
 }
 
 console.log('2d. A settled card-paid bill is not Already out of Bills: the charge went on a card (Neon, #1607 7141216339)');
-const cardSettled = (how) => d => {
+const cardSettled = (how, receiptAccount = 'travelvisa') => d => {
   d.plan.bills.push({ id: 'card-settled', label: 'Invented card bill', frequency: 'once', date: '2026-08-17', amount: 30.00,
     confidence: 'confirmed', ...(how === 'payer' ? { payingAccount: 'travelvisa' } : { jointCash: false }) });
-  d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'card-settled', date: '2026-08-17', actual: 30.00 });
+  addPostedBill(d.liveOverlay.currentPeriodActuals, 'card-settled', '2026-08-17', 30, receiptAccount);
   return d;
 };
 for (const how of ['payer', 'jointCash']) {
@@ -234,18 +240,13 @@ ok(card && head(card) === 'Bills account Bank reading Aug 20 $1,373 now', 'close
 ok(!/sc-bar/.test(card), 'no bar on the card head');
 const body = text(card.slice(card.indexOf('</summary>')));
 ok(body === 'Coming in Invented partner salary Aug 25 $643 Coming out · this pay period Invented late bill Aug 18 · late $62 '
-  + 'Invented commitment Aug 23 $27 Invented service Aug 24 $93 Household budget still to move $161 Already out Invented paid utility Aug 16 $45',
+  + 'Invented commitment Aug 23 $27 Invented service Aug 24 $93 Household budget still to move $161 Already out Invented paid utility Aug 16 $45 ✓',
   'open: the three sections, in Forecast\'s order, with Forecast\'s words and amounts', body);
 ok(!/weekly-paid/i.test(card), 'the Weekly-paid bill is not printed');
 ok(/data-stack-sheet="bill:late-bill@2026-08-18"/.test(card) && /data-stack-sheet="bill:service@2026-08-24"/.test(card)
   && /data-stack-sheet="bill:paid-bills@2026-08-16"/.test(card) && (card.match(/data-stack-sheet=/g) || []).length === 3,
   'each bill line opens its bill sheet; income, the commitment and the household line do not');
-ok(/sc-check/.test(card) === (paidRow.stackBillPaid === true), 'the paid check follows Forecast\'s paid check');
-{
-  const checked = JSON.parse(JSON.stringify(view));
-  checked.stackSummary.billsAccount.alreadyOut[0].paid = true;
-  ok((cardOf(checked).match(/sc-check/g) || []).length === 1, 'a paid settled bill is ticked, once');
-}
+ok((card.match(/sc-check/g) || []).length === 1, 'the confirmed paid bill is ticked once');
 for (const mode of ['stale', 'misaligned', 'missing', 'no-observation', 'window-incomplete']) {
   const v = activeOf(advise(F, world(mode))), h = cardOf(v), b = v.stackSummary.billsAccount;
   // The head never carries an amount. The lists follow the close: a withheld close has none, so no amount anywhere; a
@@ -282,11 +283,24 @@ const mutant = (label, file, from, to, check) => {
   ok(caught, 'mutant caught: ' + label);
 };
 const fresh = sources => activeOf(advise(engine(sources), world())).stackSummary.billsAccount;
+// Keep the receipt on Bills to isolate the schedule's payer guard in these mutants.
+const weeklyWithBillsReceipt = () => {
+  const d = world();
+  addPostedBill(d.liveOverlay.currentPeriodActuals, 'weekly-bill', '2026-08-22', 51.30, 'chequing-a', fx.AS_OF);
+  return d;
+};
+const cardWithBillsReceipt = () => cardSettled('jointCash', 'chequing-a')(world());
+const onlyScheduledBillsPayer = (sources, data, id) => {
+  const v = activeOf(advise(engine(sources), data));
+  assert.equal(v.bills.find(row => row.id === id).stackBillPaid, true);
+  return v.stackSummary.billsAccount.alreadyOut.every(row => row.id !== id);
+};
+ok(onlyScheduledBillsPayer(read, weeklyWithBillsReceipt(), 'weekly-bill')
+  && onlyScheduledBillsPayer(read, cardWithBillsReceipt(), 'card-settled'),
+  'a linked Bills debit alone cannot override the scheduled Weekly or card payer');
 mutant('a settled bill from another account listed', 'public/forecast.js',
-  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", ')',
-  sources => { const d = world(); d.liveOverlay.currentPeriodActuals.representedActuals.push({ id: 'weekly-bill', date: '2026-08-22', actual: 51.30 });
-    const b = activeOf(advise(engine(sources), d)).stackSummary.billsAccount;
-    return !b.alreadyOut.some(r => r.id === 'weekly-bill'); });
+  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))\n", ')\n',
+  sources => onlyScheduledBillsPayer(sources, weeklyWithBillsReceipt(), 'weekly-bill'));
 mutant('the late word dropped', 'public/forecast.js', "item.date && item.date < day ? 'late' : 'due'", "'due'",
   sources => fresh(sources).comingOut.find(r => r.id === 'late-bill').status === 'late');
 mutant('the reading guard dropped', 'public/forecast.js', 'const now = !readingIssue && observed && finite(pub.observedCash)', 'const now = observed && finite(pub.observedCash)',
@@ -301,11 +315,11 @@ mutant('the lists published with a withheld close', 'public/forecast.js', "const
   'const ready = Array.isArray(pubItems);',
   sources => activeOf(advise(engine(sources), world('stale'))).stackSummary.billsAccount.comingOut === null);
 mutant('the settled line uses the scope check that records an issue', 'public/forecast.js',
-  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))", '&& billsCashScope(row))',
+  "&& (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID))\n", '&& billsCashScope(row))\n',
   sources => activeOf(advise(engine(sources), externalSettled(world()))).billsAccountPeriodBalance.status === 'ready');
 mutant('a settled card-paid bill listed as Already out', 'public/forecast.js',
   "&& row.cardPaid !== true\n", '\n',
-  sources => !activeOf(advise(engine(sources), cardSettled('jointCash')(world()))).stackSummary.billsAccount.alreadyOut.some(r => r.id === 'card-settled'));
+  sources => onlyScheduledBillsPayer(sources, cardWithBillsReceipt(), 'card-settled'));
 {
   const src = read('public/stack-cards.js');
   const from = "accountRow(r, r.status === 'late' ? 'late' : null, false)";

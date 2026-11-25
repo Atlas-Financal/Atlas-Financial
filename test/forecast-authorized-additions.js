@@ -265,7 +265,7 @@ function proveStackBillsAccount(view, account) {
     : now.amount === close.observedCash && now.asOf === close.observedAsOf && now.trust === 'estimated' && now.reason === null,
   'authorized addition: the Bills reading is the close\'s observedCash and date, or nothing with a reason');
   if (account.status !== 'ready') {
-    assert.ok(account.comingIn === null && account.comingOut === null && account.alreadyOut === null && account.householdToMove.amount === null,
+    assert.ok(account.comingIn === null && account.comingOut === null && account.postedUnconfirmed === null && account.alreadyOut === null && account.householdToMove.amount === null,
       'authorized addition: a withheld card publishes no lists');
     return;
   }
@@ -276,13 +276,16 @@ function proveStackBillsAccount(view, account) {
     'authorized addition: Coming out adds up to the close\'s remainingBills and otherOutflows');
   for (const row of account.comingOut) assert.equal(row.status, row.date < close.asOf ? 'late' : 'due', 'authorized addition: late is exactly past due');
   assert.equal(account.householdToMove.amount, close.household.remaining, 'authorized addition: the household line is household.remaining');
-  for (const row of [...account.comingIn, ...account.comingOut, ...account.alreadyOut]) {
+  for (const row of [...account.comingIn, ...account.comingOut, ...account.postedUnconfirmed, ...account.alreadyOut]) {
     assert.ok(ACCOUNT_TRUST.has(row.trust) && (row.amount === null ? row.trust === 'unavailable' : isFigure(row.amount) && row.amount >= 0),
       'authorized addition: each Bills account line carries a trust word and a non-negative amount or nothing');
   }
   for (const row of account.alreadyOut) {
     const bill = (view.bills || []).find(b => b && b.id === row.id && b.date === row.date);
-    assert.equal(row.paid, !!bill && bill.stackBillPaid === true, 'authorized addition: Already out\'s check is the bill row\'s paid check');
+    assert.ok(isFigure(view.stackSummary.bills.paid) && bill && bill.stackBillPart === 'other' && bill.stackBillPaid && row.paid,
+      'authorized addition: Already out contains only occurrences counted by Bills paid');
+    assert.equal(row.amount, bill.stackBillAmount);
+    assert.equal(row.trust, bill.stackBillAmountTrust);
   }
 }
 function withoutStackSummary(node, seen = new Set()) {
@@ -436,7 +439,7 @@ function authorizedTagKey(key, value) {
   }
   // The Bills account card (lead dispatch 2026-11-24): its reading, household line and each line's trust, proved in
   // proveStackBillsAccount (the reading is never more certain than estimated; a line keeps its own word).
-  if (/\.stackSummary\.billsAccount\.(now|householdToMove|(comingIn|comingOut|alreadyOut)\.\d+)\.trust$/.test(key)) {
+  if (/\.stackSummary\.billsAccount\.(now|householdToMove|(comingIn|comingOut|postedUnconfirmed|alreadyOut)\.\d+)\.trust$/.test(key)) {
     assert.ok(['calculated', 'estimated', 'unavailable'].includes(value), `authorized addition tag ${key} is a trust word`);
     return true;
   }

@@ -13306,7 +13306,7 @@
       }
       view.stackSummary = Object.assign(view.stackSummary || {},
         { income: stackIncome(view), bills, surplus: stackSurplus(view, bills), savings: stackSavings(view, result),
-          billsAccount: stackBillsAccount(view),
+          billsAccount: stackBillsAccount(view, bills, asOf, opts),
           credit: cardCredit ? cardCredit.credit : null, creditBreakdown: stackCreditBreakdown(cardCredit, bills) });
     }
     return result;
@@ -13667,7 +13667,8 @@
   //   comingIn     income still to land in Bills this period, as counted in the close;
   //   comingOut    the Bills bills and other Bills outflows still to go out, as counted in the close ('late' past due);
   //   householdToMove  the Household budget still to move out of Bills (household.remaining);
-  //   alreadyOut   Bills bills already settled this period, with the bill's own counted amount and paid check.
+  //   alreadyOut   Bills-funded occurrences counted in the Bills paid head, with the same amount and trust;
+  //   postedUnconfirmed   the linked posted portion beside a remaining bill or fee allowance, outside the paid head.
   // The lists are published only when the close itself is ready: a withheld close may have left an occurrence out.
   //   A reading is a dash too (OD-037: "a stale or missing reading shows a dash") when no chequing observation exists for
   //   the Bills account (the plan's Bills row alone is not a reading: billsAccountReadingByPublication) and when the
@@ -13675,7 +13676,7 @@
   //   changed by either: only what this card prints as "Bank reading".
   const BILLS_READING_ISSUES = new Set(['bills-cash-unavailable', 'cash-observation-misaligned', 'operating-plan-unavailable',
     'posted-window-incomplete']);
-  function stackBillsAccount(view) {
+  function stackBillsAccount(view, bills, asOf, opts) {
     const pub = view && view.billsAccountPeriodBalance;
     if (view.role !== 'active' || !pub || pub.source !== 'Forecast.billsAccountPeriodBalance'
       || pub.accountId !== BILLS_ACCOUNT_ID) return null;
@@ -13700,20 +13701,43 @@
     // Each list in date order (then name), as the card reads it.
     const items = ready ? pubItems.slice().sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))
       || String(a.label || '').localeCompare(String(b.label || ''))) : [];
+    const alreadyOut = [], postedUnconfirmed = [], comingOut = [];
+    for (const item of items) {
+      if (item.kind === 'other') {
+        comingOut.push({ ...line(item), status: item.status });
+        continue;
+      }
+      if (item.kind !== 'bill' && item.kind !== 'settled') continue;
+      const row = rows.get(item.id + '@' + item.date);
+      // Settled items passed the close's display-only Bills payer check. A bill item can also be
+      // a card's funding requirement or a zero from a non-Bills payer. Neither is a Bills receipt.
+      const own = row && row.stackBillPart === 'other' && (item.kind === 'settled' ||
+        (row.cardPaid !== true && (!row.payingAccount || row.payingAccount === BILLS_ACCOUNT_ID)));
+      const partial = own && row.stackBillPaid === false && item.amount > 0
+        && (row.partlyPaidRemainder === true || (row.scheduledFeeAllowance && row.scheduledFeeAllowance.recordedExpense > 0));
+      // The checked occurrence determines what Bills counts as paid. The same linked receipt
+      // must also show a debit on this account before either list can say cash left Bills.
+      const receipt = own && (row.stackBillPaid === true || partial) && linkedBillPostedReceipt(row, asOf, opts);
+      const billsDebit = receipt && receipt.account === BILLS_ACCOUNT_ID && receipt.cents > 0;
+      if (own && row.stackBillPaid === true && finite(bills.paid) && billsDebit) {
+        alreadyOut.push({ ...line(item), amount: row.stackBillAmount, trust: row.stackBillAmountTrust, paid: true, billRow: true });
+      }
+      if (item.kind !== 'bill' || (item.amount === 0 && own && row.stackBillPaid === true)) continue;
+      comingOut.push({ ...line(item), status: item.status, ...(partial ? { partial: true } : {}) });
+      // The close owns the remainder. Only an existing posted link proves what left. A represented
+      // amount alone, including a fixed bill's partial, cannot supply this separate disclosure.
+      if (partial && billsDebit) {
+        postedUnconfirmed.push({ ...line(item), amount: Math.abs(row.actual), trust: 'calculated' });
+      }
+    }
     const household = pub.household || {};
     return { status: ready ? 'ready' : 'unavailable', reason, now,
       comingIn: ready ? items.filter(item => item.kind === 'income').map(line) : null,
-      comingOut: ready ? items.filter(item => item.kind === 'bill' || item.kind === 'other')
-        .map(item => ({ ...line(item), status: item.status })) : null,
+      comingOut: ready ? comingOut : null,
       householdToMove: ready && finite(household.remaining) ? { amount: household.remaining, trust: household.trust || 'estimated' }
         : { amount: null, trust: 'unavailable' },
-      alreadyOut: ready ? items.filter(item => item.kind === 'settled').map(item => {
-        const row = rows.get(item.id + '@' + item.date);
-        const amount = row && finite(row.stackBillAmount) ? row.stackBillAmount : null;
-        return { id: item.id, label: item.label, date: item.date, amount,
-          trust: amount == null ? 'unavailable' : row.stackBillAmountTrust || 'estimated',
-          paid: !!row && row.stackBillPaid === true, billRow: !!row };
-      }) : null };
+      postedUnconfirmed: ready ? postedUnconfirmed : null,
+      alreadyOut: ready ? alreadyOut : null };
   }
   function stackIncome(view) {
     const total = view.incomeTotal;
@@ -23003,6 +23027,11 @@
   // observer on posted rows only). A row also linked to another occurrence fails the link above, so its marker never
   // verifies this one (one note, one occurrence). Rule 17: the marker is read, never matched or inferred.
   function budgetBillPostedLink(row, asOf, opts) {
+    return row && row.status === 'PAID' ? linkedBillPostedReceipt(row, asOf, opts) : null;
+  }
+  // The incumbent posted-link proof, also read for disclosure on a fixed bill still due for its remainder.
+  // Only budgetBillPostedLink can use it to confirm a PAID occurrence.
+  function linkedBillPostedReceipt(row, asOf, opts) {
     const packet = currentPeriodActualsPacket(opts);
     // Legacy availability selectors accept absent/unrecognized coverage.
     // Exact actual display needs an explicit complete stamp, without changing
@@ -23010,7 +23039,7 @@
     const complete = coverage => coverage === 'complete' || !!(coverage
       && typeof coverage === 'object' && coverage.complete === true
       && coverage.truncated !== true && (coverage.status == null || coverage.status === 'complete'));
-    if (!row || row.status !== 'PAID' || row.settlement !== 'represented'
+    if (!row || row.settlement !== 'represented'
       || typeof row.actual !== 'number' || !isFinite(row.actual)
       || typeof row.movement !== 'number' || !isFinite(row.movement)
       || Math.abs(roundCent(row.movement)) !== Math.abs(roundCent(row.actual))
@@ -23070,7 +23099,7 @@
       if (!lastPosted || tx.date > lastPosted) lastPosted = tx.date;
     }
     return lastPosted === claim.postedOn
-      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100)) ? { verified } : null;
+      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100)) ? { verified, account, cents: totalCents } : null;
   }
 
   // ---------------------------------------------------------------------------------------------------------------

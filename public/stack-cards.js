@@ -11,7 +11,8 @@
  * Reads, from the selected pay period view:
  *   stackSummary.bills.other                           (#1426)
  *   bills[].stackBillPart / .stackBillAmount  Forecast's own place for each row in that split and the amount it
- *     counts there: a card lists exactly its part's rows, so its rows add up to its head. A row with no mark is
+ *     counts there. The Bills card lists its part's rows. A partial shows its remainder and unconfirmed posting
+ *     from the same account publication as the Bills account card. A row with no mark is
  *     not listed (Forecast marks no row when it cannot say), never placed by a rule of this page.
  *   bills[].stackBillPaymentEvidence / .stackBillAmountTrust  the payment evidence and the counted amount's trust
  *   bills[].stackBillPaid  Forecast's paid check (stackBillPaidEvidence: 'posted-equal' (#1465) or 'posted-verified'
@@ -22,7 +23,7 @@
  *   stackSummary.savings.items[] {label, saved, needed, trust} and .totals {balance, saved, needed, unallocated,
  *     trust, reasons[]}  (owner rule 2026-11-20: the balance poured nearest due first; plain numbers or null)
  *   stackSummary.billsAccount {status, reason, now {amount, asOf, reason}, comingIn[], comingOut[] (status 'late'),
- *     householdToMove {amount}, alreadyOut[] (paid)}  the Bills account card (lead dispatch 2026-11-24)
+ *     householdToMove {amount}, postedUnconfirmed[], alreadyOut[] (paid)}  the Bills account card (lead dispatch 2026-11-24)
  */
 (function (root) {
   'use strict';
@@ -142,11 +143,11 @@
       && sb.isEstimated(h.trust, estView);
   }
   function stateRow(label, r, target) {
-    var amountText = money(r.stackBillAmount);
     var evidence = r.stackBillPaymentEvidence;
     // Forecast's one paid rule (stackBillPaidEvidence): a posted payment of exactly the plan, or one Grok Bot verified
     // with a "bill verified" note (counted at its own amount). The same rows stackSummary.bills.paid sums.
     var exact = r.stackBillPaid === true;
+    var amountText = exact && !r.stackBillAmountTrust ? null : money(r.stackBillAmount);
     // A pending or unmatched payment counts the plan; a differing posted payment may count above it (the Bills total
     // rule), so it is named from what it is, never "Planned".
     var name = amountText == null ? null : exact ? 'Paid ' + amountText
@@ -164,13 +165,24 @@
 
   function billsCard(view) {
     var split = get(view, ['stackSummary', 'bills']) || {};
+    var account = get(view, ['stackSummary', 'billsAccount']);
     var rows = partRows(view, 'other');
     // Dale (2026-11-20): "bills needs the paid/owed". The head is Forecast's paid (stackSummary.bills.paid, the
     // checked Bills rows) over the Bills total, as Budget prints spent / budget, and the bar is the shell's one
     // shared drawing ratio of the two, as Budget's. An unpublished paid is a dash and an empty bar, never $0.
     var paid = money(split.paid), total = money(split.other);
     var body = '<ul class="sc-list">' + rows.map(function (r) {
-      return stateRow(billName(r.label || r.name) || 'Bill', r, billTarget('bill', r));
+      var label = billName(r.label || r.name) || 'Bill', target = billTarget('bill', r);
+      var sameOccurrence = function (item) { return item.billRow && item.id === r.id && item.date === r.date; };
+      var remainder = account && Array.isArray(account.comingOut) && account.comingOut.find(function (item) {
+        return item.partial === true && sameOccurrence(item);
+      });
+      if (!remainder) return stateRow(label, r, target);
+      var posted = Array.isArray(account.postedUnconfirmed) && account.postedUnconfirmed.find(sameOccurrence);
+      var note = posted ? '<small>Posted but unconfirmed ' + esc(money(posted.amount) || DASH) + '</small>' : '';
+      return '<li class="sc-row sc-bill' + (target ? ' sc-go-row' : '') + '"' + sheetAttrs(target) + '>' +
+        '<span><span class="sc-n">' + esc(label) + '</span>' + note + '</span><span><small>Remaining</small><br><span class="sc-a">' +
+        esc(money(remainder.amount) || DASH) + '</span></span><span class="sc-ck"></span>' + (target ? RCV : '') + '</li>';
     }).join('') + '</ul>';
     // No greyed bill amounts on the rows (owner decision, Dale, 2026-11-22): an estimated bill amount keeps its published
     // trust and is drawn soft in its tap-in sheet (stack-sheet.js). The head (paid / total) and its bar have no sheet, so
@@ -282,6 +294,7 @@
         accountSection('Coming out \u00b7 this pay period', list(ba.comingOut, function (r) {
           return accountRow(r, r.status === 'late' ? 'late' : null, false);
         }) + hhRow) +
+        accountSection('Posted but unconfirmed', list(ba.postedUnconfirmed, function (r) { return accountRow(r, null, false); })) +
         accountSection('Already out', list(ba.alreadyOut, function (r) { return accountRow(r, null, r.paid === true); })) +
         '</ul>';
     }
