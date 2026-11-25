@@ -9623,6 +9623,8 @@
         postedOn,
         // How many linked posted entries name this occurrence (D2 reads one).
         entries: (prior ? prior.entries : 0) + 1,
+        // The bill-paid tie (observer billPaidTie) on every linked posted entry of the occurrence.
+        ...(row.paidTie === true && (!prior || prior.paidTie === true) ? { paidTie: true } : {}),
         ...(row.settlementBasis === SCHEDULE_TRUST_SETTLEMENT_BASIS
           ? { settlementBasis: SCHEDULE_TRUST_SETTLEMENT_BASIS } : {}),
       });
@@ -9639,6 +9641,25 @@
       if (row && row.pending === true && row.id && row.date) keys.add(row.id + '@' + row.date);
     }
     return keys;
+  }
+  // The pending linked rows that carry the bill-paid tie themselves (observer billPaidTie on the pending row).
+  function pendingTiedBillKeys(opts) {
+    const packet = currentPeriodActualsPacket(opts);
+    const keys = new Set();
+    for (const row of packet && Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+      if (row && row.pending === true && row.paidTie === true && row.id && row.date) keys.add(row.id + '@' + row.date);
+    }
+    return keys;
+  }
+  // An ordinary bill paid in full at the posted amount (owner, Dale, #821 7168507103: "bills aren't paid in portions ...
+  // when the bill is posted and paid ... It should be able to just pivot, post that amount, and call it paid"): a bill
+  // occurrence (never a card minimum, the mortgage or another obligation, and never a card-paid bill) whose linked posted
+  // payment carries the bill-paid tie on every entry. Grok Bot, rule 17 (Plan #6, 2026-11-25): the tie is the Lunch Money
+  // recurring-item match or the "bill paid: <name>" note line; a category, payee or amount alone never is.
+  function ordinaryBillPaidTie(event, observed) {
+    if (!event || event.kind !== 'bill' || event.cardPaid === true || !event.id || !event.date) return false;
+    const seen = observed && observed.get(event.id + '@' + event.date);
+    return !!(seen && seen.paidTie === true && !seen.settlementBasis);
   }
 
   function observedActual(observed, id, date) {
@@ -9725,6 +9746,8 @@
     if (event.kind === 'obligation' && (event.effect !== 'payment' || event.cashMinimum === true
       || event.minimumPayment || event.minimumAmount != null || event.occurrenceKey)) return null;
     const seen = observed && observed.get(event.id + '@' + event.date);
+    // A tied ordinary bill is paid in full at what was posted: no remainder (ordinaryBillPaidTie).
+    if (ordinaryBillPaidTie(event, observed)) return null;
     // One linked posted instalment only: several entries for one occurrence
     // are not one partial payment, so they keep the incumbent reading.
     if (!seen || seen.settlementBasis || seen.entries !== 1
@@ -11913,6 +11936,12 @@
     // A linked payment that is still pending is never Paid: the bill stays owed and reads 'Payment pending' until a posted
     // payment links. (An occurrence settled by a posted payment is `paid` and wins.)
     const pendingLinked = !paid && pendingBillKeys(opts).has(event.id + '@' + event.date);
+    // A pending linked payment that carries the bill-paid tie itself counts as paid on the Stack Bills card, marked pending
+    // and never more certain than estimated (owner, Dale: a pending charge counts; Grok Bot, Plan #6, 09:50 MST). The row's
+    // status, settlement and every total stay as before: the plan drives the forecast until a payment posts.
+    const pendingTie = pendingLinked && event.kind === 'bill' && event.cardPaid !== true
+      && pendingTiedBillKeys(opts).has(event.id + '@' + event.date);
+    const tiedInFull = paid && ordinaryBillPaidTie(event, observed);
     // A posted linked payment below the planned amount is Partly paid, at any shortfall (integer cents, the planned amount's
     // provenance as for the excess). It is a label only: status, settlement, actual, remaining and every total stay as
     // before, except on a bill derived `amountFixed: true` (#1355), which stays still due for its remainder (D2,
@@ -11922,7 +11951,7 @@
     // Only the incumbent posted pair links (no single leg, no pending, no matching); the figures stay as
     // scheduledFeeOccurrenceAmounts publishes them. A fee above its allowance keeps its excess and is flagged for review.
     const scheduledFee = event.id === 'tdfees';
-    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust ? {
+    const partlyPaid = payment && payment.state === 'underpaid' && excessTrust && !tiedInFull ? {
       paymentState: 'partly-paid', shortfall: (payment.plannedCents - payment.paidCents) / 100,
       shortfallTrust: scheduledFee ? 'estimated' : excessTrust, shortfallSource: 'Forecast.billPaymentState' } : null;
     const status = partPaid ? 'still due'
@@ -11959,6 +11988,7 @@
       glanceKind: status === 'PAID' ? 'paid' : inside ? 'planned' : 'still-due',
       movement: householdMovement(display, 'out'),
       ...(partPaid ? { partlyPaidRemainder: true } : {}),
+      ...(pendingTie ? { billPaymentPendingTie: true } : {}),
       payingAccount,
       payerLabel: plannedPayerLabel(payingAccount, event.merchantPayingAccount, plan),
       ...(event.fundingAccount ? { fundingAccount: event.fundingAccount,
@@ -13556,13 +13586,15 @@
       if (row.billPaymentVerified === true) return posted === cents ? 'posted-verified' : 'posted-differs';
       return posted === cents && posted === stackBillPlannedCents(row) ? 'posted-equal' : 'posted-differs';
     }
+    // A pending payment that carries the bill-paid tie (billPaymentPendingTie): paid, marked pending, estimated at most.
+    if (row.billPaymentPendingTie === true) return 'pending-tied';
     return billPaidState(row) === 'paid' ? 'pending' : 'none';
   }
   // The one rule for "confirmed paid" (owner, Dale, on #1465 7046237901; lead, 2026-11-20): the counted
   // amount's trust below, the page's paid check (stackBillPaid) and stackSummary.bills.paid all read it,
   // so paid is the sum of the checked rows by construction.
   function stackBillPaidEvidence(evidence) {
-    return evidence === 'posted-equal' || evidence === 'posted-verified';
+    return evidence === 'posted-equal' || evidence === 'posted-verified' || evidence === 'pending-tied';
   }
   function publishStackBillParts(view, bills) {
     const rows = Array.isArray(view.bills) ? view.bills : [];
@@ -13578,8 +13610,10 @@
       const evidence = stackBillPaymentEvidence(mark.row, mark.cents);
       mark.row.stackBillPaymentEvidence = evidence;
       mark.row.stackBillPaid = stackBillPaidEvidence(evidence);
-      const trust = stackBillPaidEvidence(evidence)
-        ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
+      // A tied pending payment is never more certain than estimated, nor than the plan it is counted at.
+      const plan = billScheduleDisplayTrust(mark.row);
+      const trust = evidence === 'pending-tied' ? (plan == null || plan === 'calculated' ? 'estimated' : plan)
+        : stackBillPaidEvidence(evidence) ? mark.row.displayAmountTrust : billScheduleDisplayTrust(mark.row);
       // Never more certain than the row's own word: no word stays no word.
       if (trust != null) mark.row.stackBillAmountTrust = trust;
     }
@@ -15440,7 +15474,9 @@
     if (!row || row.status !== 'PAID' || row.settlement !== 'represented') return false;
     if (typeof row.actual !== 'number' || !Number.isFinite(row.actual) || asOf == null) return false;
     const link = budgetBillPostedLink(row, asOf, opts);
-    return !!(link && link.verified);
+    // Grok Bot's "bill verified" note, or the bill-paid tie on an ordinary bill (Dale, #821 7168507103): either way the
+    // posted payment is the occurrence's amount, settled in full, above or below the plan.
+    return !!(link && (link.verified || (link.tied && row.kind === 'bill' && row.cardPaid !== true)));
   }
   // The amount an assigned bill row deducts. A verified posted payment IS the occurrence's amount, above or below
   // the plan (owner, Dale, 2026-11-20, #821 7046237901; Grok Bot's "bill verified" marker; lead ruling (A)): the
@@ -23125,8 +23161,10 @@
       totalCents += Math.round(tx.amount * 100);
       if (!lastPosted || tx.date > lastPosted) lastPosted = tx.date;
     }
+    // tied: every entry of the occurrence carries the bill-paid tie (observer billPaidTie; ordinaryBillPaidTie).
     return lastPosted === claim.postedOn
-      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100)) ? { verified } : null;
+      && Math.abs(totalCents) === Math.abs(Math.round(row.actual * 100))
+      ? { verified, tied: matches.every(item => item.paidTie === true) } : null;
   }
 
   // ---------------------------------------------------------------------------------------------------------------
