@@ -15096,8 +15096,12 @@
         plannedPayday: cat.plannedPayday != null ? roundCent(Number(cat.plannedPayday)) : null,
         planned,
         spent,
-        remaining,
-        overspend,
+        // T3 hunt 2 finding 1 (#1607 7147675369): with the period's actuals not current (coverageLost: the feed does not
+        // cover through today), spent is unknown, so Left and Over are unknown too, as on the Other row and the household
+        // total; never the whole plan as a plain number. The hold is unchanged. (Kept apart from the remaining rule,
+        // which #1633 reworks.)
+        remaining: coverageLost ? null : remaining,
+        overspend: coverageLost ? null : overspend,
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
