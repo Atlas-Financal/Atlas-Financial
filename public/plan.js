@@ -2220,8 +2220,9 @@ function householdBudgetCategoryHtml(row, opts = {}) {
   if (row.spent != null || recon.length || datedOtherPlan) {
     metrics.push(householdBudgetMetric('Spent', row.spent, { recon, id: row.id, unavailableText: datedOtherPlan ? 'Unavailable' : null }));
   }
-  if ((!other || datedOtherPlan) && !historicalPlanUnknown && (row.remaining != null || datedOtherPlan)) {
-    metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, unavailableText: datedOtherPlan || remainingUnavailable ? 'Unavailable' : null }));
+  // A row Forecast withholds (remainingTrust 'unavailable', T3 bug hunt 2) keeps its Remaining line, reading Unavailable.
+  if ((!other || datedOtherPlan) && !historicalPlanUnknown && (row.remaining != null || datedOtherPlan || row.remainingTrust === 'unavailable')) {
+    metrics.push(householdBudgetMetric('Remaining', remainingUnavailable ? null : row.remaining, { remaining: true, unavailableText: datedOtherPlan || remainingUnavailable || row.remainingTrust === 'unavailable' ? 'Unavailable' : null }));
   }
   const kind = other ? 'other' : 'category';
   // The archive keeps no trust word on a category row. Say so beside the
