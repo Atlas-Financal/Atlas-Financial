@@ -13,6 +13,7 @@
  *   7. Keyboard: Alt+Down / Alt+Up moves the focused card; screen reader: the hidden Move buttons move it and it is
  *      announced.
  *   8. Every card head stays wholly visible and uncovered in a moved order (Credit in the middle).
+ *   9. Auto-scroll: a card held at the bottom edge scrolls the page, so it can be dropped past a tall open card.
  *
  * `node test/browser-stack-reorder.js`
  */
@@ -204,6 +205,70 @@ async function holdAndDrag(page, from, toY, { holdMs = 650 } = {}) {
       ok(hidden.length === 0, 'every card head is wholly visible and uncovered', JSON.stringify(hidden));
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');
       ok(errors.length === 0, 'no page errors', errors.join(' | '));
+    }
+
+    console.log('9. Auto-scroll: a held card dragged to the screen edge scrolls the page, past a tall open card');
+    {
+      await page.evaluate(() => localStorage.removeItem('atlas.stackOrder.v1'));
+      await page.setViewportSize({ width: 390, height: 560 });
+      await page.reload();
+      await page.waitForSelector('#stack-root [data-stack-slot]');
+      const start = await slots(page);
+      // Open the Budget card, so the pile below the first card is taller than the screen.
+      const budget = headOf(page, 'budget');
+      await budget.scrollIntoViewIfNeeded();
+      await budget.tap();
+      await page.waitForTimeout(150);
+      const first = headOf(page, start[0]);
+      await first.evaluate(el => el.scrollIntoView({ block: 'start' }));
+      const last = await headOf(page, start[start.length - 1]).boundingBox();
+      const viewH = await page.evaluate(() => window.innerHeight);
+      ok(!!(await page.$('[data-stack-slot="budget"] > details[open]')) && last.y > viewH,
+        'the world: Budget is open and the last card is below the screen', JSON.stringify({ lastY: last.y, viewH }));
+      // Hold the first card, drag it to the bottom edge and keep it there while the page scrolls, then release.
+      const box = await first.boundingBox();
+      const x = box.x + box.width / 2, y = box.y + 15, edgeY = viewH - 8;
+      const cdp = await page.context().newCDPSession(page);
+      const touch = (type, py) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y: py }] });
+      const scroll0 = await page.evaluate(() => window.scrollY);
+      const maxScroll = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+      await touch('touchStart', y);
+      await page.waitForTimeout(650);
+      for (let i = 1; i <= 10; i++) { await touch('touchMove', y + (edgeY - y) * i / 10); await page.waitForTimeout(16); }
+      let prev = -1;
+      for (let i = 0; i < 80; i++) {
+        await page.waitForTimeout(50);
+        const now = await page.evaluate(() => window.scrollY);
+        if (now === prev) break;
+        prev = now;
+      }
+      const scrolled = await page.evaluate(() => window.scrollY);
+      // The end of the page as it was before the lift (the moving card does not stretch it).
+      const atBottom = scrolled >= maxScroll - 1 && scrolled <= maxScroll + 1;
+      // Under the finger at the bottom edge, the held card sits below every other card's middle.
+      await touch('touchMove', edgeY - 1);
+      await page.waitForTimeout(50);
+      await touch('touchEnd', edgeY - 1);
+      await page.waitForTimeout(150);
+      const after = await slots(page);
+      ok(scrolled > scroll0 + 100 && atBottom, 'holding the card at the bottom edge scrolled the page to the end of the pile',
+        JSON.stringify({ scroll0, scrolled, maxScroll }));
+      ok(after[after.length - 1] === start[0] && after.length === start.length,
+        `the held ${start[0]} card dropped last, past the open Budget card`, JSON.stringify([start, after]));
+      ok(await page.evaluate(() => !document.querySelector('.is-lifted') && !document.documentElement.classList.contains('stack-dragging')),
+        'nothing stays lifted');
+      // Without a hold, a swipe still scrolls and moves nothing; the keyboard move is unchanged.
+      const before = await slots(page);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const sb = await headOf(page, before[0]).boundingBox();
+      const sy = Math.min(sb.y + 10, viewH - 40);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: sy }] });
+      for (let i = 1; i <= 10; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: sy - i * 25 }] }); await page.waitForTimeout(16); }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(300);
+      ok(await page.evaluate(() => window.scrollY) > 0 && JSON.stringify(await slots(page)) === JSON.stringify(before), 'a plain swipe still scrolls and moves nothing');
+      ok(errors.length === 0, 'no page errors', errors.join(' | '));
+      await page.setViewportSize({ width: 390, height: 844 });
     }
     await ctx.close();
 

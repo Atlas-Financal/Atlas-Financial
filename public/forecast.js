@@ -2774,6 +2774,7 @@
   // unclaimed utilisation. A usable option with a declared planning available
   // and no locator keeps that figure (fixtures, a counterfactual top-up).
   // Chequing B remains the overdraft usage authority.
+  // Borrowing headroom from an extra facility or from residual (unclaimed) utilisation: never cash for an opening gap.
   const EXTRA_FACILITY_HEADROOM = Symbol('extraFacilityHeadroom');
 
   function resolveFundingSources(sources, extra, plan, debts) {
@@ -2834,7 +2835,10 @@
         if (claimedDebt.has(row.id) || claimedExtra.has(row.id)) continue;
         if (row.available == null) continue;
         const available = Number(row.available) || 0;
-        if (available > 0 && byId.has(row.id)) markExtraHeadroom();
+        // Every residual row is borrowing room (an extra facility or an unclaimed card limit), so any residual-derived
+        // source is marked as borrowing headroom and can never auto-cover an opening gap, whatever its `unusable` flag
+        // says (B70; Neon on #1624, #1607 7141215801). Its visible headroom is unchanged.
+        if (available > 0) markExtraHeadroom();
         sum += available;
       }
       return sum;
@@ -15070,8 +15074,6 @@
       const withheld = withheldCategories.has(id);
       const spent = actualsReady && !withheld ? spentFromRecon(recon) : null;
       const knownSpent = coverageLost || withheld ? spentFromRecon(recon) : null;
-      const remaining = lookback || withheld ? null
-        : (spent != null ? roundCent(planned - spent) : planned);
       const overspend = lookback || withheld ? null
         : (spent != null ? roundCent(Math.max(0, spent - planned)) : 0);
       // Owner 2026-09-04: a planned category reserves at least its
@@ -15087,6 +15089,10 @@
         : (spent != null
           ? roundCent(Math.max(planned, spent))
           : roundCent(knownSpent != null ? Math.max(planned, knownSpent) : planned));
+      // The printed Remaining is the hold's own remainder (budgetRowRemaining), so the Budget page and the
+      // from-today household allowance read one rule. No spent evidence leaves the plan unspent.
+      const remaining = lookback || withheld ? null
+        : (spent != null ? budgetRowRemaining({ planned, spent, hold }) : planned);
       const pendingRecon = actualsReady ? recon.filter(r => r.pending === true) : [];
       items.push({
         id,
@@ -15150,6 +15156,9 @@
       const otherPossibleDuplicate = observed != null
         && confirmationRecon.some(r => r && r.pendingPostedDuplicate === true && r.pending === true);
       const targetKnown = otherTarget != null;
+      const otherHold = lookback ? roundCent(observed || 0) : targetKnown
+        ? roundCent(Math.max(otherTarget, observed != null ? observed : (coverageLost ? confirmationSpent : 0)))
+        : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0));
       items.push({
         id: OTHER_SPENDING_ID,
         label: 'Other spending',
@@ -15159,11 +15168,10 @@
         planned: otherTarget,
         spent: observed,
         remaining: lookback ? null : targetKnown
-          ? observed != null ? roundCent(otherTarget - observed) : role === 'future' ? otherTarget : null : null,
+          ? observed != null ? budgetRowRemaining({ planned: otherTarget, spent: observed, hold: otherHold })
+            : role === 'future' ? otherTarget : null : null,
         overspend: lookback ? null : targetKnown && observed != null ? roundCent(Math.max(0, observed - otherTarget)) : null,
-        hold: lookback ? roundCent(observed || 0) : targetKnown
-          ? roundCent(Math.max(otherTarget, observed != null ? observed : (coverageLost ? confirmationSpent : 0)))
-          : roundCent(observed != null ? observed : (coverageLost ? confirmationSpent : 0)),
+        hold: otherHold,
         targetEffectiveFrom: targetKnown ? byId.get(OTHER_SPEND_ID).targetEffectiveFrom : null,
         ...(role === 'future' && targetKnown ? { confidence: 'estimated', trust: 'estimated' } : {}),
         ...(otherPossibleDuplicate ? possibleDuplicateTrust : {}),
@@ -18037,6 +18045,13 @@
   // its net refund as its hold when it has no target) holds nothing: its remainder is 0, never negative.
   function heldRemainder(row) {
     return Math.max(0, Math.min(row.hold, Math.max(0, row.hold - row.spent)));
+  }
+  // What a household category row prints as Remaining: the same held remainder the from-today allowance sums,
+  // so a net refund that takes spent below zero reads the hold, not planned - spent past it. A row over its
+  // plan keeps its negative planned - spent, which the page reads as Over; its held remainder is 0, but the
+  // overspent amount is still the fact the page shows, so that floor does not reach the printed figure.
+  function budgetRowRemaining(row) {
+    return row.spent > row.planned ? roundCent(row.planned - row.spent) : roundCent(heldRemainder(row));
   }
   // One card-corrected remaining household allowance (cents) for a period:
   // the S1 seed, the Savings daily walk and the closing walk share it.
