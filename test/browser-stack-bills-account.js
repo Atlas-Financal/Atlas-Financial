@@ -8,8 +8,8 @@
  *   2. Tapping the head opens it: Coming in, Coming out (the late bill reads "late"), Household budget still to move,
  *      Already out; the Weekly-paid bill is not on it.
  *   3. Tapping a bill line opens that bill's sheet; Escape closes it.
- *   4. A stale reading: the head is a dash with the reason.
- *   4b. No Bills chequing observation (the plan row alone): the head is a dash with its reason, no "Bank reading".
+ *   4. A stale or missing reading: the head is a dash without explanatory text.
+ *   4b. An unpaired Bills debit: all three lists are visible, with the transfer once under Already out.
  *   6. Closed cards are all the same height whichever card is last (the Bills account card has no bar and a two-line head):
  *      the closed heads are equal, and each card's visible strip (its top to the next card's top, or its foot) agrees within
  *      the 4px by which the last card's foot padding (22px) exceeds the 18px of padding the next card leaves showing.
@@ -34,6 +34,7 @@ function world(mode) {
   p.bills.push({ id: 'weekly-bill', label: 'Invented weekly-paid bill', frequency: 'once', date: '2026-08-22', amount: 51.30, confidence: 'confirmed', payingAccount: 'chequing-b' });
   p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
   pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
+  if (mode === 'unpaired') pk.transactions = pk.transactions.filter(row => row.id !== 'weekly-credit');
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
   // Only the Bills chequing observation is gone; the plan's Bills row stays (OD-037: a missing reading shows a dash).
   if (mode === 'no-observation') d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
@@ -82,6 +83,8 @@ async function open(browser, width, mode) {
       const body = flat(await card.innerText());
       ok(/Coming in Invented partner salary Aug 25 \$643/.test(body) && /Coming out · this pay period Invented late bill Aug 18 · late \$62/.test(body)
         && /Household budget still to move \$161/.test(body) && /Already out Invented paid utility Aug 16 \$45/.test(body), width + ': open card', body);
+      ok(await card.getByText('Transfer', { exact: true }).count() === 0, width + ': paired Weekly funding is not also an unpaired transfer');
+      ok(await card.locator('.sc-why').count() === 0, width + ': paired control has no explanatory sentence');
       ok(!/weekly-paid/i.test(body), width + ': the Weekly-paid bill is not on the card');
       ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), width + ': no sideways scroll (open)');
       const overflow = await card.evaluate(c => [...c.querySelectorAll('.sc-row')].filter(r => r.scrollWidth > r.clientWidth + 1).length);
@@ -139,23 +142,36 @@ async function open(browser, width, mode) {
       ok(errors.length === 0, width + ': no page errors', errors.join(' | '));
       await page.close();
     }
-    console.log('4. A stale reading');
-    {
-      const { page, errors } = await open(browser, 390, 'stale');
-      const head = flat(await page.locator('[data-stack-card="billsacct"] summary').innerText());
-      ok(/Bills account/.test(head) && /The current cash observation is untrusted\./.test(head) && head.includes('—') && !/\$/.test(head),
-        'stale: a dash with the reason, no amount', head);
-      if (shots) await page.locator('[data-stack-card="billsacct"]').screenshot({ path: path.join(shots, 'bills-account-stale-390.png') });
-      ok(errors.length === 0, 'stale: no page errors', errors.join(' | '));
+    console.log('4. A stale or missing Bills bank reading');
+    for (const mode of ['stale', 'no-observation']) {
+      const { page, errors } = await open(browser, 390, mode);
+      const card = page.locator('[data-stack-card="billsacct"]');
+      const head = flat(await card.locator('summary').innerText());
+      ok(/^Bills account\s*—$/.test(head), mode + ': only the title and a dash in the head', head);
+      if (shots) await card.screenshot({ path: path.join(shots, 'bills-account-' + mode + '-390.png') });
+      await card.locator('summary').click();
+      ok(await card.locator('.sc-why').count() === 0, mode + ': no explanatory sentence on the open card');
+      if (mode === 'stale') ok(flat(await card.locator('.sc-unavailable').innerText()) === '—', 'stale: unreadable lists render as a dash');
+      ok(errors.length === 0, mode + ': no page errors', errors.join(' | '));
       await page.close();
     }
-    console.log('4b. No chequing observation for Bills');
+    console.log('4b. A posted transfer out of Bills with no paired Weekly credit');
     {
-      const { page, errors } = await open(browser, 390, 'no-observation');
-      const head = flat(await page.locator('[data-stack-card="billsacct"] summary').innerText());
-      ok(/Bills account/.test(head) && /No bank reading of the Bills account is available\./.test(head) && head.includes('—') && !/\$/.test(head) && !/Bank reading Aug/.test(head),
-        'no observation: a dash with the reason, no amount, no "Bank reading <date>"', head);
-      ok(errors.length === 0, 'no observation: no page errors', errors.join(' | '));
+      const { page, errors } = await open(browser, 390, 'unpaired');
+      const card = page.locator('[data-stack-card="billsacct"]');
+      await card.locator('summary').click();
+      const captions = await card.locator('.sc-cap:visible').allTextContents();
+      assert.deepEqual(captions, ['Coming in', 'Coming out · this pay period', 'Already out'], '390: all three sections are visible in order');
+      const transfers = card.locator('.sc-row').filter({ has: page.getByText('Transfer', { exact: true }) });
+      ok(await transfers.count() === 1, '390: exactly one transfer across the three lists');
+      const transfer = transfers.first();
+      const alreadyOutTransfers = card.locator('.sc-cap:text-is("Already out") ~ .sc-row').filter({ has: page.getByText('Transfer', { exact: true }) });
+      ok(await alreadyOutTransfers.count() === 1, '390: the transfer belongs to Already out');
+      ok(flat(await transfer.innerText()) === 'Transfer Aug 18 $240' && await transfer.locator('.sc-check').count() === 0,
+        '390: the transfer has its posted date and displayed amount without a paid-bill check');
+      ok(await card.locator('.sc-why').count() === 0, '390: no explanatory sentence on the unpaired card');
+      ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '390: unpaired card fits the viewport');
+      ok(errors.length === 0, '390: no page errors', errors.join(' | '));
       await page.close();
     }
   } finally {

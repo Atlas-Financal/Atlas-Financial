@@ -8,7 +8,8 @@
  *   1. An invented world where only some bills pay from Bills: the card's lists are exactly the Bills lines, a bill paid
  *      from another account is excluded, a past-due unsettled bill reads 'late', and each list reconciles to the close's
  *      own published terms (independently worked by hand below). The close itself is byte-equal to main.
- *   2. A stale, misaligned or missing reading: no amount, Forecast's reason, no lists.
+ *   2. An unpaired posted Bills transfer appears once under Already out. Other figures retain their values and trust.
+ *      An unreadable reading prints a dash; an unavailable card never prints a reason.
  *   3. End to end through recommend and the real stack-cards.js: the closed card, the open card, the sheets.
  *   4. Mutants: the account scope, the late word and the reading guard, each removed, are caught.
  *
@@ -55,6 +56,7 @@ function world(mode) {
   p.bills.push({ id: 'weekly-bill', label: 'Invented weekly-paid bill', frequency: 'once', date: '2026-08-22', amount: 51.30, confidence: 'confirmed', payingAccount: 'chequing-b' });
   p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
   pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
+  if (mode === 'unpaired') pk.transactions = pk.transactions.filter(tx => tx.id !== 'weekly-credit');
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
   if (mode === 'misaligned') d.liveOverlay.observedCash.accounts[0].value = 1400.01;
   if (mode === 'missing') {
@@ -128,6 +130,30 @@ ok(JSON.stringify(advice.defaultView.billsAccountPeriodBalance) === JSON.stringi
   ok(!bad.length && !Object.keys(snap).some(key => key.includes('weekly-bill') && key.includes('stackBillsAccount')),
     'the figures snapshot captures the card\'s figures as published, and no Weekly-paid line', JSON.stringify(bad));
 }
+
+// The fixture's posted Bills debit is 240.16 on Aug 18. Removing only the Weekly credit makes
+// its purpose unknown. The debit is still observed, independently of whether the close can use it.
+const unpairedView = activeOf(advise(F, world('unpaired')));
+const unpaired = unpairedView.stackSummary.billsAccount;
+const unpairedClose = unpairedView.billsAccountPeriodBalance;
+ok(unpairedClose.issues.some(issue => issue.code === 'unpaired-bills-transfer')
+  && unpairedClose.status === 'unavailable' && unpairedClose.amount === null && unpairedClose.trust === 'unknown',
+  'the unmatched leg still withholds the Bills ending balance');
+ok(unpairedClose.household.weeklyFunding === 0 && unpairedClose.household.funded === 119.70
+  && unpairedClose.household.remaining === null && unpaired.householdToMove.amount === null
+  && unpaired.householdToMove.trust === 'unavailable' && unpairedView.stackSummary.surplus.amount === null
+  && unpairedView.stackSummary.surplus.trust === 'unavailable',
+  'only direct spending and backfill fund the budget; the funding remainder and Surplus stay unavailable');
+assert.deepEqual(unpaired.comingIn, ba.comingIn);
+assert.deepEqual(unpaired.comingOut, ba.comingOut);
+assert.deepEqual(unpaired.now, ba.now);
+assert.deepEqual(unpaired.alreadyOut, [...ba.alreadyOut, {
+  id: 'weekly-debit', label: 'Transfer', date: '2026-08-18', amount: 240.16,
+  trust: 'calculated', paid: false, billRow: false,
+}]);
+ok(unpaired.status === 'ready', 'the unpaired debit appears once under Already out, with its posted amount and trust');
+ok(close.household.weeklyFunding === 240.16 && close.amount === 1672.95 && view.stackSummary.surplus.amount === 1977.70,
+  'paired control: the transfer still funds Weekly once and the ending balance and Surplus retain their figures');
 
 console.log('2. A stale, misaligned or missing reading: a dash, Forecast\'s reason, no lists');
 for (const [mode, code] of [['stale', 'operating-plan-unavailable'], ['misaligned', 'cash-observation-misaligned'],
@@ -248,23 +274,25 @@ ok(/sc-check/.test(card) === (paidRow.stackBillPaid === true), 'the paid check f
 }
 for (const mode of ['stale', 'misaligned', 'missing', 'no-observation', 'window-incomplete']) {
   const v = activeOf(advise(F, world(mode))), h = cardOf(v), b = v.stackSummary.billsAccount;
-  // The head never carries an amount. The lists follow the close: a withheld close has none, so no amount anywhere; a
-  // ready close (no observation: the close is not changed by this outcome) still lists, under the dash.
-  ok(h && head(h) === 'Bills account ' + b.now.reason + ' —' && !/\$/.test(head(h)) && (b.status === 'ready' || !/\$/.test(h)),
-    mode + ': the head is a dash with the reason; no amount in the head' + (b.status === 'ready' ? '' : ' or anywhere'), head(h || ''));
+  ok(h && head(h) === 'Bills account —' && !h.includes(b.now.reason) && !h.includes('sc-why')
+    && (b.status === 'ready' || !/\$/.test(h)), mode + ': the unreadable bank reading is a dash without a sentence');
 }
 {
-  // Finding 9 and 4 through the real page, as the exact head strings on invented data.
-  for (const [mode, want] of [['no-observation', 'Bills account No bank reading of the Bills account is available. —'],
-    ['window-incomplete', 'Bills account Posted Bills movements do not cover this pay period completely. —']]) {
-    ok(head(cardOf(activeOf(advise(F, world(mode))))) === want, mode + ': the head reads "' + want + '"', head(cardOf(activeOf(advise(F, world(mode))))));
-  }
+  // The posted transfer remains visible only when the other inputs needed for the lists are readable.
+  const v = activeOf(advise(F, unknownBill(world('unpaired')))), h = cardOf(v);
+  const openBody = text(h.slice(h.indexOf('</summary>')));
+  ok(v.billsAccountPeriodBalance.issues.some(i => i.code === 'unpaired-bills-transfer')
+    && v.stackSummary.billsAccount.comingOut === null && !h.includes('sc-why') && openBody === '—'
+    && head(h) === 'Bills account Bank reading Aug 20 $1,373 now',
+    'a second blocking issue preserves the readable head and gives the unreadable body a dash');
 }
 {
-  const v = activeOf(advise(F, unknownBill(world()))), h = cardOf(v);
-  const body2 = text(h.slice(h.indexOf('</summary>')));
-  ok(h && head(h) === 'Bills account Bank reading Aug 20 $1,373 now' && body2 === v.billsAccountPeriodBalance.reason,
-    'a close withheld for another reason: the head shows the reading; the open card shows only the close\'s reason', head(h || '') + ' | ' + body2);
+  const h = cardOf(unpairedView), openBody = text(h.slice(h.indexOf('</summary>')));
+  ok(!h.includes('sc-why') && !h.includes(unpairedClose.reason)
+    && openBody.endsWith('Already out Invented paid utility Aug 16 $45 Transfer Aug 18 $240')
+    && (openBody.match(/\bTransfer\b/g) || []).length === 1,
+    'the real renderer lists the unpaired transfer once under Already out, with no explanatory sentence');
+  ok(!card.includes('sc-why'), 'the paired control has no explanatory sentence');
 }
 {
   const other = advice.payPeriodViews.find(v => v.role !== 'active' && v.stackSummary);
@@ -297,7 +325,11 @@ mutant('no observation still prints the plan row', 'public/forecast.js', 'const 
 mutant('an incomplete posted window still prints the reading', 'public/forecast.js', "'posted-window-incomplete']);",
   "]);",
   sources => activeOf(advise(engine(sources), world('window-incomplete'))).stackSummary.billsAccount.now.amount === null);
-mutant('the lists published with a withheld close', 'public/forecast.js', "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
+const listGate = "const ready = Array.isArray(pubItems) && (pub.status === 'ready' || unpairedOnly);";
+mutant('an unpaired transfer withholds every list again', 'public/forecast.js', listGate,
+  "const ready = pub.status === 'ready' && Array.isArray(pubItems);",
+  sources => Array.isArray(activeOf(advise(engine(sources), world('unpaired'))).stackSummary.billsAccount.alreadyOut));
+mutant('the lists published with a withheld close', 'public/forecast.js', listGate,
   'const ready = Array.isArray(pubItems);',
   sources => activeOf(advise(engine(sources), world('stale'))).stackSummary.billsAccount.comingOut === null);
 mutant('the settled line uses the scope check that records an issue', 'public/forecast.js',

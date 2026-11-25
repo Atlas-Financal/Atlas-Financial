@@ -242,10 +242,10 @@
 
   // Bills account (lead dispatch 2026-11-24): the Bills bank account, read from Forecast's stackSummary.billsAccount (the
   // active pay period only; no card elsewhere). Closed: the bank reading now and its date, no projection and no bar; a
-  // missing, misaligned or stale reading is a dash with Forecast's reason. Open: Coming in, Coming out this pay period
+  // missing, misaligned or stale reading is a dash. Open: Coming in, Coming out this pay period
   // (Forecast's 'late' word on a past-due bill) with the Household budget still to move, and Already out (a check only
   // where Forecast's paid check is true). Every amount, date, word and list is Forecast's, printed as given; a bill row
-  // opens its bill sheet. Lists Forecast withholds show its reason instead.
+  // opens its bill sheet. Unavailable lists show a dash.
   var DAY = typeof Intl !== 'undefined' ? new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : null;
   function day(iso) {
     return DAY && typeof iso === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) ? DAY.format(new Date(iso + 'T12:00:00Z')) : '';
@@ -267,11 +267,10 @@
     var ba = get(view, ['stackSummary', 'billsAccount']);
     if (!ba || typeof ba !== 'object' || !ba.now) return '';
     var now = money(ba.now.amount);
-    var sub = now == null ? (ba.now.reason || '') : 'Bank reading ' + day(ba.now.asOf);
+    var sub = now == null ? '' : 'Bank reading ' + day(ba.now.asOf);
     var body;
     if (ba.status !== 'ready') {
-      // The reason once: when it is the reading's own reason, the head already shows it.
-      body = ba.reason && !(now == null && ba.reason === ba.now.reason) ? '<p class="sc-why">' + esc(ba.reason) + '</p>' : '';
+      body = '<p class="sc-unavailable">' + DASH + '</p>';
     } else {
       var list = function (rows, fn) { return (Array.isArray(rows) ? rows : []).filter(function (r) { return r; }).map(fn).join(''); };
       var hh = ba.householdToMove || {};
