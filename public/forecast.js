@@ -15096,12 +15096,8 @@
         plannedPayday: cat.plannedPayday != null ? roundCent(Number(cat.plannedPayday)) : null,
         planned,
         spent,
-        // T3 hunt 2 finding 1 (#1607 7147675369): with the period's actuals not current (coverageLost: the feed does not
-        // cover through today), spent is unknown, so Left and Over are unknown too, as on the Other row and the household
-        // total; never the whole plan as a plain number. The hold is unchanged. (Kept apart from the remaining rule,
-        // which #1633 reworks.)
-        remaining: coverageLost ? null : remaining,
-        overspend: coverageLost ? null : overspend,
+        remaining,
+        overspend,
         hold,
         projected: role === 'future',
         ...(withheld ? { withheldReason: 'dropped-row' } : {}),
@@ -15228,6 +15224,17 @@
     if (anyWithheld) holdTrust = 'estimated';
     if (items.some(row => row.spent != null && (lookback || row.planned == null || row.spent > row.planned)
       && row.recon.some(tx => tx.pendingAmountEstimated === true))) holdTrust = 'estimated';
+    // T3 bug hunt 2, findings 1 and 2 (#1607 7147675369; lead ATLAS LEAD 13): what a category has Left (or Over) is a
+    // claim on the whole period's spending, so it is published only with the full claim (remainingClaim 'precise'), as
+    // the household delta is. With the feed not current through today (finding 1: spent unknown) or pending coverage
+    // unknown or partial (finding 2: posted spent is a lower bound, so planned − posted is an upper bound), every row's
+    // Left and Over are unknown, tagged unavailable with Forecast's own reason; never the whole plan, or an upper bound,
+    // as a plain number. Spent, the plan and the hold are unchanged, and a period with no actuals in play still shows
+    // its plan as left. (One pass over the finished rows, apart from the per-row remaining rule #1633 reworks.)
+    if (useActuals && !lookback && packet && coverage.remainingClaim !== 'precise') {
+      const reason = coverage.reason || 'Current-period spending is not complete, so what is left is unavailable.';
+      for (const row of items) Object.assign(row, { remaining: null, overspend: null, remainingTrust: 'unavailable', remainingReason: reason });
+    }
     return {
       items,
       // An invalid declared target has no quantity, so the total hold is

@@ -345,6 +345,24 @@ for(const [spent,opts] of [[137.26,{}],[618.73,{}],[1034.19,{}],[814.63,{}],
     }
     return advice;
   };
+  // Authorized trust-only change (T3 bug hunt 2, findings 1 and 2; lead ATLAS LEAD 13, #1607 7147675369): a
+  // category row's Left and Over are published only with the full claim on the period's spending. Pending
+  // coverage unknown is the posted-only claim, so every such row is withheld. Each withheld row is validated
+  // (both values null, tagged unavailable with Forecast's coverage reason) and only those four fields are left
+  // out, on both sides at the same place; spent, the plan, the hold and every other value still agree exactly.
+  let withheldRows=0;
+  const leaveOutWithheldLeft=(cur,base)=>{
+    if(!cur||typeof cur!=='object'||!base||typeof base!=='object')return;
+    if(cur.remainingTrust==='unavailable'&&Object.hasOwn(cur,'remaining')){
+      assert.equal(cur.remaining,null);assert.equal(cur.overspend,null);assert.equal(cur.id,base.id);
+      assert.equal(cur.remainingReason,'Pending coverage is not complete. Observed pending still constrains remaining; additional unknown pending may exist.');
+      for(const key of ['remaining','overspend','remainingTrust','remainingReason']){delete cur[key];delete base[key];}
+      withheldRows++;
+    }
+    for(const key of Object.keys(cur))leaveOutWithheldLeft(cur[key],base[key]);
+  };
+  leaveOutWithheldLeft(currentAdvice,baselineAdvice);
+  assert.equal(withheldRows>0,opts.pendingCoverage==='unknown','category Left is withheld exactly on the posted-only case');
   assert.deepEqual(leaveOutLookbackTrust(blankActions(withoutDelta(currentAdvice))),leaveOutLookbackTrust(blankActions(baselineAdvice)),
     'all pre-existing recommendation values/qualifications agree with exact main');
   assert.equal(JSON.stringify(x),input);

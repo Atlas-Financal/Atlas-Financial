@@ -1,16 +1,23 @@
 'use strict';
-/* T3 bug hunt 2, finding 1 (#1607 7147675369): when the period's transaction feed does not cover through the as-of day
- * (`coverageThrough` before it, remainingClaim 'unavailable'), a named household category's spent is unknown, so what is
- * Left (and Over) is unknown too. Main published `remaining = planned` and `overspend: 0` with no trust, and the Stack
- * sheet printed "Left $<whole plan>" while the card head, the Other row and the household total withheld.
+/* T3 bug hunt 2, findings 1 and 2 (#1607 7147675369; scope from ATLAS LEAD 13): what a household category has Left
+ * (or Over) is published only with the full claim on the period's spending (remainingClaim 'precise'), as the household
+ * delta is.
+ *   Finding 1: the feed does not cover through the as-of day (`coverageThrough` before it, claim 'unavailable'), so
+ *   spent is unknown; main published `remaining = planned`, `overspend: 0`, and the sheet read "Left $<whole plan>".
+ *   Finding 2: pending coverage is unknown or partial (claim 'posted-only'), so posted spent is a lower bound; main
+ *   published `remaining = planned − posted` with no trust, and the sheets read "Left $313" (Other) and "Left $110".
+ * Now every row's remaining and overspend are null, with remainingTrust 'unavailable' and Forecast's own reason.
  *
- *   1. The hunt's invented repro (test/fixtures/other-period-target.js, coverageThrough one day before the as-of):
+ *   1. Finding 1's invented repro (test/fixtures/other-period-target.js, coverageThrough one day before the as-of):
  *      on main every named category publishes its whole plan as remaining and the Groceries sheet reads "Left $220";
  *      on this head every named category publishes remaining and overspend null, as the Other row does, and the sheet
  *      prints no Left, as the Other sheet does.
- *   2. Unchanged: the hold (each category still reserves its plan), the household total's withhold, a current feed
- *      (Left = plan − spent), and a later period with no actuals in play (Left = its plan).
- *   3. A mutant removing the coverage-lost condition is caught.
+ *   1b. Finding 2's invented repros (pendingCoverage 'unknown' and 'partial'): main printed "Left $313" (Other) and
+ *      "Left $110" (Groceries); this head withholds every row's Left with the coverage reason. Spent stays published.
+ *   2. Unchanged: the hold (each category still reserves its plan), the household total (published as partial for
+ *      finding 2, withheld for finding 1), a complete feed (Left = plan − spent, byte-equal to main), and a later period
+ *      with no actuals in play (Left = its plan).
+ *   3. Mutants: the full-claim rule removed, and the posted-only case let through, are each caught.
  *
  * Invented data only. `node test/test-category-left-stale-actuals.js`
  */
@@ -69,6 +76,9 @@ console.log('1. The feed does not cover through today');
   const rec = advise(F, x), now = rows(active(rec));
   ok(NAMED.every(id => now.get(id).spent === null && now.get(id).remaining === null && now.get(id).overspend === null),
     'this head: every named category publishes Left and Over unknown (null)', JSON.stringify(NAMED.map(id => [id, now.get(id).remaining])));
+  const reason = 'Transaction actuals are not current through the financial as-of.';
+  ok([...now.values()].every(r => r.remainingTrust === 'unavailable' && r.remainingReason === reason),
+    'every row is tagged remainingTrust unavailable with Forecast\'s own coverage reason', JSON.stringify([...now.values()].map(r => r.remainingReason)));
   const other = now.get('other-spending');
   ok(other && other.remaining === null && other.overspend === null, 'the same as the Other row');
   const g = sheet(rec, x, 'budget:groceries'), o = sheet(rec, x, 'budget:other-spending');
@@ -79,6 +89,27 @@ console.log('1. The feed does not cover through today');
   ok(NAMED.every(id => now.get(id).hold === before.get(id).hold && now.get(id).planned === before.get(id).planned),
     'each category\'s hold and plan are unchanged (it still reserves its plan)');
   ok(active(rec).budgetHold === active(advise(OLD, x)).budgetHold, 'the period\'s Household budget hold is unchanged');
+}
+
+console.log('1b. Pending coverage unknown or partial (finding 2)');
+for (const pendingCoverage of ['unknown', 'partial']) {
+  const x = fx.build(137.26, fx.asOf, { pendingCoverage });
+  const recOld = advise(OLD, x), rec = advise(F, x);
+  const before = rows(active(recOld)), now = rows(active(rec));
+  ok(before.get('other-spending').remaining === 312.74 && before.get('groceries').remaining === 109.63,
+    pendingCoverage + ', main: Other publishes 450.00 − 137.26 = 312.74 left and Groceries 220.00 − 110.37 = 109.63, as fact (the defect)');
+  ok(/Left \$313/.test(sheet(recOld, x, 'budget:other-spending')) && /Left \$110/.test(sheet(recOld, x, 'budget:groceries')),
+    pendingCoverage + ', main: the sheets read "Left $313" and "Left $110"');
+  const reason = 'Pending coverage is not complete. Observed pending still constrains remaining; additional unknown pending may exist.';
+  ok([...now.values()].every(r => r.remaining === null && r.overspend === null && r.remainingTrust === 'unavailable' && r.remainingReason === reason),
+    pendingCoverage + ', this head: every row\'s Left and Over are withheld, with the coverage reason', JSON.stringify([...now.values()].map(r => [r.id, r.remaining, r.remainingReason])));
+  ok(now.get('groceries').spent === 110.37 && now.get('other-spending').spent === 137.26
+    && [...now.values()].every(r => r.hold === before.get(r.id).hold && r.planned === before.get(r.id).planned),
+    pendingCoverage + ': spent (the posted lower bound), the plan and the hold are unchanged');
+  ok(!/Left|Over/.test(sheet(rec, x, 'budget:other-spending')) && !/Left|Over/.test(sheet(rec, x, 'budget:groceries')),
+    pendingCoverage + ': the sheets print no Left');
+  ok(JSON.stringify(active(rec).budgetProgress) === JSON.stringify(active(recOld).budgetProgress) && active(rec).budgetHold === active(recOld).budgetHold,
+    pendingCoverage + ': the household total (published as partial, no badge per OD-034) and the hold are byte-equal to main');
 }
 
 console.log('2. Unchanged where the feed is current, or no actuals are in play');
@@ -99,9 +130,12 @@ console.log('2. Unchanged where the feed is current, or no actuals are in play')
 console.log('3. Mutant');
 {
   const src = read('public/forecast.js');
-  const from = 'remaining: coverageLost ? null : remaining,';
+  const from = "if (useActuals && !lookback && packet && coverage.remainingClaim !== 'precise') {";
   assert.ok(src.includes(from));
-  const M = engine(src.replace(from, 'remaining,'));
-  ok(rows(active(advise(M, world(true)))).get('groceries').remaining === 220, 'mutant caught: without the condition Left is the whole plan again');
+  const M1 = engine(src.replace(from, 'if (false) {'));
+  ok(rows(active(advise(M1, world(true)))).get('groceries').remaining === 220, 'mutant caught: without the rule Left is the whole plan again');
+  const M2 = engine(src.replace(from, "if (useActuals && !lookback && packet && coverage.remainingClaim === 'unavailable') {"));
+  ok(rows(active(advise(M2, fx.build(137.26, fx.asOf, { pendingCoverage: 'unknown' })))).get('other-spending').remaining === 312.74,
+    'mutant caught: letting the posted-only claim through prints the upper bound as Left again');
 }
 console.log(`\n${checks} checks passed`);
