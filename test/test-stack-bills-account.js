@@ -155,6 +155,26 @@ ok(unpaired.status === 'ready', 'the unpaired debit appears once under Already o
 ok(close.household.weeklyFunding === 240.16 && close.amount === 1672.95 && view.stackSummary.surplus.amount === 1977.70,
   'paired control: the transfer still funds Weekly once and the ending balance and Surplus retain their figures');
 
+// Same day and amount in every case. Only the explicit transaction link on a listed
+// settlement proves that its Already out row and the posted transfer are the same debit.
+for (const [name, link, payer, expectedIds] of [
+  ['single link', { transactionId: 'weekly-debit' }, 'chequing-a', ['paid-bills']],
+  ['array link', { transactionIds: ['weekly-debit'] }, 'chequing-a', ['paid-bills']],
+  ['no link', {}, 'chequing-a', ['paid-bills', 'weekly-debit']],
+  ['link on a bill paid elsewhere', { transactionId: 'weekly-debit' }, 'chequing-b', ['weekly-debit']],
+]) {
+  const d = world('unpaired');
+  const bill = d.plan.bills.find(r => r.id === 'paid-bills');
+  Object.assign(bill, { date: '2026-08-18', amount: 240.16, payingAccount: payer });
+  const settlement = d.liveOverlay.currentPeriodActuals.representedActuals.find(r => r.id === bill.id);
+  Object.assign(settlement, { date: bill.date, actual: bill.amount }, link);
+  const v = activeOf(advise(F, d)), rows = v.stackSummary.billsAccount.alreadyOut;
+  assert.deepEqual(rows.map(r => r.id).sort(), expectedIds);
+  ok(rows.every(r => r.amount === 240.16 && (r.id === 'paid-bills'
+    ? r.billRow && r.label === bill.label : !r.billRow && r.label === 'Transfer')),
+    name + ': each distinct posted amount appears once on its own row');
+}
+
 console.log('2. A stale, misaligned or missing reading: a dash, Forecast\'s reason, no lists');
 for (const [mode, code] of [['stale', 'operating-plan-unavailable'], ['misaligned', 'cash-observation-misaligned'],
   ['missing', 'bills-cash-unavailable']]) {

@@ -16054,6 +16054,7 @@
     let fundingEventCount = 0;
     // Display lines for the Bills account card. Keep them beside the publication so they never enter the close.
     const items = [];
+    const unpairedDebits = new Map();
     const usedCash = new Set();
     const takeFunding = id => {
       if (usedCash.has(id)) { issue('funding-identity-reused', 'One posted cash event cannot fund two household purposes.'); return false; }
@@ -16068,7 +16069,7 @@
       } else if (mov.amount < 0 && tx && isInternalTransferIdentity(tx) && !mov.internalTransfer
         && ['UNKNOWN', 'transfer'].includes(mov.classification)) {
         issue('unpaired-bills-transfer', 'A Bills transfer has no proven destination and funding purpose.');
-        items.push({ id: mov.id, kind: 'transfer', label: 'Transfer', date: mov.date, amount: -mov.amount, trust: 'calculated' });
+        unpairedDebits.set(mov.id, mov);
       }
     }
     for (const { tx, amount } of supporting) {
@@ -16314,6 +16315,19 @@
       provenance: ['Forecast.postedBillsAccountCash', 'Forecast.postedAccountMovements', 'Forecast.householdInternalMovements',
         'Forecast.calendarHouseholdBudget', 'Forecast.reconcileCardPurchases', 'Forecast.cardMinimumState', 'Forecast.expandEvents'],
       grantsSpendPermission: false };
+    if (unpairedDebits.size) {
+      // A displayed bill can already represent the same posted debit. Keep its full settled
+      // amount (including multi-leg payments) and omit only explicitly linked transfer rows.
+      const settledKeys = new Set(items.filter(item => item.kind === 'settled').map(item => item.id + '@' + item.date));
+      for (const link of Array.isArray(packet.representedActuals) ? packet.representedActuals : []) {
+        if (!link || link.pending === true || !finite(link.actual) || !settledKeys.has(link.id + '@' + link.date)) continue;
+        if (link.transactionId != null) unpairedDebits.delete(String(link.transactionId));
+        for (const id of Array.isArray(link.transactionIds) ? link.transactionIds : []) unpairedDebits.delete(String(id));
+      }
+      for (const mov of unpairedDebits.values()) {
+        items.push({ id: mov.id, kind: 'transfer', label: 'Transfer', date: mov.date, amount: -mov.amount, trust: 'calculated' });
+      }
+    }
     billsAccountItemsByPublication.set(publication, items);
     billsAccountReadingByPublication.set(publication, { observed: observedRows.length > 0 });
     return publication;
