@@ -55,6 +55,7 @@
       balanceEvidence: opts.cardPeriodBalanceEvidence || null, overlay: opts.liveOverlay || null }, {
       date: savingsDate, cents: savingsCents, money: cardMoneyCents, addDays, skipParent: skipSplitParent,
       payingSidePayment,
+      unnotedHouseholdMovement: tx => provenInternalMovementForTx(tx, opts) && !cardPaymentNoteEvidence(tx),
       // Stack credit balance snapshot: Forecast's statement-cycle verdict on
       // the snapshot's own published date, never re-derived in the module.
       balanceFreshness: (debt, shownDate) => cardBalanceAssessment(debt, plan, asOf, shownDate),
