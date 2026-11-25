@@ -12,6 +12,9 @@ const { CASE_NAMES, runCase } = require('../scripts/live-refresh-benchmark');
 // and restoring the prior reasons on paidToward, paidBack, stillToPayBack, targetCovered and minimumCovered
 // reproduces the d70784b1 Forecast digests. The budget case also requires the previous totals.minimumsPaid.reasons
 // and totals.minimumsCoveredTrust (now unavailable where payer evidence is missing). No amount or data digest changed.
+// Build 5 (#1642) adds billsAccount.postedUnconfirmed to the active view. The budget case also serializes
+// billRow before paid on its Already out entry. Restoring those two details reproduces the base Forecast
+// digests for all three invented cases, including field order.
 const snapshots = {
   budget: {
     data: '05b6f393c7b83e81d8bba130f9d6d7834b7c850e9b0dc942093834e60a8cf8bd',
@@ -32,7 +35,7 @@ const snapshots = {
     // (display only); removing it reproduces the previous digest exactly.
     // Future covered counts use the due minimum's trust while payment coverage is unknown. Resetting only
     // totals.minimumsCoveredTrust on four future payPeriodViews to unavailable reproduces the d2d9e062 digest.
-    forecast: '3c3323b06123efa0ed07ae142c014230b95f4a0aecf9bb237019891e6413f181',
+    forecast: '51eeaf0df0ad45031c222a94611913a095dbe710c7b8dfa8db33bdcb421298ce',
   },
   cards: {
     data: 'a94fdc3c78fb627a805f6dd90c23cbb578d5dddc26d0badc09057ec449185e4a',
@@ -47,7 +50,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: 'b23684a97d94412c5215d914d6c2dd28b2deaa1a3c3659914b88b99825240667',
+    forecast: '597793b46e76a86f2e360f257252cb85f85af2fe320912a9a6197f355f5ccc64',
   },
   history: {
     data: 'c04e408eb8bcd7566e10fc0dbe71f3f09330a7d587070cd008a9829db93b3ba7',
@@ -62,7 +65,7 @@ const snapshots = {
     // each view's creditBreakdown.alreadyCounted removed reproduces this digest exactly; the data publication is unchanged.
     // Re-pinned for the Bills account stack card (lead dispatch 2026-11-24): the active view adds stackSummary.billsAccount
     // (display only); removing it reproduces the previous digest exactly.
-    forecast: '540ce6984cc9d5c1fbd131d926d3d01cb31ec78788c72873a88aa47f963499a4',
+    forecast: '6048ade4177dc28b8a00a147726195700c3b833587776cad24f2c21a5c718ded',
   },
 };
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
