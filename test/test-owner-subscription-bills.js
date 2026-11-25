@@ -154,6 +154,8 @@ console.log('\n=== hand-computed calendar dates through expandEvents ===');
   const google = billEvents('google-storage-100gb', asOf, viewEnd).map(e => e.date);
   ok(sameDates(google, ['2026-08-31', '2026-09-30', '2026-10-31']),
     'Google storage uses last calendar day', google.join(', '));
+  ok(sameDates(billEvents('google-storage-100gb', '2026-10-01', '2027-01-31').map(e => e.date), ['2026-10-31']),
+    'Google storage keeps the final October occurrence and ends thereafter');
 
   const icloud = billEvents('icloud-storage', asOf, viewEnd).map(e => e.date);
   ok(sameDates(icloud, ICLOUD_91),
@@ -311,7 +313,9 @@ console.log('\n=== dated subtraction uses yearly amount/12, not $50/month ===');
   const subs = budget.categories.find(c => c.id === 'subscriptions');
   // The separately approved Wise services now have individual Bills funding
   // requirements; membership remains card-paid and outside this fixture.
-  const independentDated = 26.87 + 26.87 + 3.13 + 13 + 17 + 28 + 24.99 + (50 / 12)
+  // The opening's window retains three storage charges, not a continuing monthly equivalent.
+  const storageDated = (3 * 3.13) / ((plan.windowDays || 91) / (365.25 / 12));
+  const independentDated = 26.87 + 26.87 + storageDated + 13 + 17 + 28 + 24.99 + (50 / 12)
     + 13.43 + 16.79 + 3.35 + 13.43
     // Owner-provided bills added 2026-11-21 (Dale, lead session): Microsoft, TeamSnap+ and Muse from Meta,
     // each monthly, tax included, as Dale stated them (independent literals, not read from the plan).

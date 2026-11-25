@@ -713,10 +713,11 @@
                 "label": "Google storage — 100 GB",
                 "frequency": "monthly",
                 "day": 31,
+                "lastDue": "2026-10-31",
                 "amount": 3.13,
                 "confidence": "confirmed",
                 "budgetCategory": "subscriptions",
-                "note": "Owner-confirmed 2026-08-27: $3.13/month, billed around month-end. Forecast uses last calendar day (day 31 clamped). Moved off PayPal onto the household debit/bills path; specific paying account is not named. Dale's and Amanda's Google subscriptions both moved; this row is the named 100 GB storage bill, not a second Google product list.",
+                "note": "Owner-confirmed 2026-08-27: $3.13/month, billed around month-end. Forecast uses last calendar day (day 31 clamped). Moved off PayPal onto the household debit/bills path; specific paying account is not named. Dale's and Amanda's Google subscriptions both moved; this row is the named 100 GB storage bill, not a second Google product list. Owner-confirmed 2026-11-24: \"Google storage is no longer a bill ever since I got the Google ai pro plan so we can delete it from the list.\" Grok confirmed the last storage charge posted 2026-10-29; the scheduled October 31 occurrence stays in history. No future storage occurrence is planned.",
                 "payingAccount": "chequing-a"
             },
             {
