@@ -286,6 +286,7 @@ console.log('\n=== 7. the published plan reconciles ===');
     extraDebtTarget: plan.nextDollar.target, fundingSources: plan.funding.options,
   });
   const b = F.budgetBreakdown(plan, periods, {
+    asOf,
     paypalPerMonth: data.paypal.perMonth, disabled: [],
     weeklyCap: adv.weekly, recommendedWeekly: adv.weekly,
   });
@@ -620,6 +621,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
     fundingSources: plan.funding && plan.funding.options,
   });
   const liveBudget = F.budgetBreakdown(plan, periods, {
+    asOf,
     paypalPerMonth: data.paypal && data.paypal.perMonth,
     weeklyCap: advice.weekly, recommendedWeekly: advice.weekly,
   });
@@ -673,6 +675,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
 
   /* --- at a $1,800/week override: the state the review found --- */
   const overCap = F.budgetBreakdown(plan, periods, {
+    asOf,
     paypalPerMonth: data.paypal && data.paypal.perMonth,
     weeklyCap: 1800, recommendedWeekly: advice.weekly,
   }).cap;

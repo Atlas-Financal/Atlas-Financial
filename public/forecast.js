@@ -25064,20 +25064,29 @@
     // normalization. It is refused (unknown, never averaged) when the
     // schedule is invalid, asOf is unknown, or any occurrence in the
     // window [asOf, asOf + windowDays) is promotional.
-    const scheduleAsOf = opts.asOf || opts.start || null;
-    const scheduleLastIncluded = scheduleAsOf
-      ? addDays(scheduleAsOf, (plan.windowDays || 91) - 1) : null;
-    const billMonthlyRefused = b => billHasAmountSchedule(b)
-      && billScheduleBlocksNormalization(b, scheduleAsOf, scheduleLastIncluded);
+    const billEnd = b => b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue)
+      ? b.lastDue : null;
+    const scheduleWindow = asOf => ({
+      asOf,
+      lastIncluded: asOf ? addDays(asOf, (plan.windowDays || 91) - 1) : null,
+    });
+    const explicitScheduleAsOf = opts.asOf || opts.start || null;
+    const defaultSchedule = scheduleWindow(explicitScheduleAsOf);
+    // Recommendation already carries its date as budgetTargetAsOf. If there
+    // is no explicit window, use that date only for bounded bill schedules,
+    // not for Savings relief, settled commitments, or unbounded bills.
+    const boundedSchedule = !explicitScheduleAsOf && opts.budgetTargetAsOf
+      ? scheduleWindow(opts.budgetTargetAsOf) : defaultSchedule;
+    const billMonthlyRefused = (b, window) => billHasAmountSchedule(b)
+      && billScheduleBlocksNormalization(b, window.asOf, window.lastIncluded);
     // #1583 (desk ruling (b)): a provider price cutover is never refused for being dated. A window wholly on one side of
     // it takes that side's monthly equivalent (before it: the plan's own price and, under a timing cutover, its own
     // cadence); a window that straddles it, or in which the bill ends, takes its own date-priced occurrences divided by
     // the window's months. A malformed cutover, an unknown window start or an unknown price on either side is unknown.
-    const cutoverMonthly = b => {
+    const cutoverMonthly = (b, last, { asOf: scheduleAsOf, lastIncluded: scheduleLastIncluded }) => {
       const cut = billPriceCutover(b);
       if (!cut) return null;
       if (cut.invalid || !scheduleAsOf) return { amount: null, reason: cut.invalid ? 'price-cutover-invalid' : 'bill-date-unknown' };
-      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue) ? b.lastDue : null;
       const endsInWindow = !!(last && last < scheduleLastIncluded);
       if (!endsInWindow && scheduleAsOf >= cut.from) return { amount: billMonthly(b) };
       if (!endsInWindow && scheduleLastIncluded < cut.from) {
@@ -25105,11 +25114,13 @@
     };
     for (const b of plan.bills || []) {
       if (!billAffectsJointCash(b, plan) && !isCardPaidBill(b, plan)) continue;
+      const last = billEnd(b);
+      const schedule = last ? boundedSchedule : defaultSchedule;
       // A6 (#726): an undated bill is not dropped as $0 from its category;
       // the category's dated figure is unknown, like a refused schedule.
       const undated = billNeedsDate(b);
       const amountUnknown = scheduledInputState(b, 'bill').amountUnknown;
-      if (b.budgetCategory && (undated || amountUnknown || billMonthlyRefused(b))) {
+      if (b.budgetCategory && (undated || amountUnknown || billMonthlyRefused(b, schedule))) {
         addDated(b.budgetCategory, 0, b.label, 'bill');
         const acc = datedByCategory[b.budgetCategory];
         acc.items[acc.items.length - 1] = { label: b.label, amount: null, kind: 'bill',
@@ -25118,7 +25129,7 @@
         continue;
       }
       if (undated) continue;
-      const cutover = cutoverMonthly(b);
+      const cutover = cutoverMonthly(b, last, schedule);
       if (cutover) {
         if (!b.budgetCategory) continue;
         if (cutover.amount == null) {
@@ -25134,10 +25145,8 @@
       // stops does not keep drawing its full monthly equivalent from the
       // category. Without a window start its share is unknown, like a refused
       // schedule.
-      const last = b.frequency !== 'once' && typeof b.lastDue === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.lastDue)
-        ? b.lastDue : null;
-      if (last && (!scheduleLastIncluded || last < scheduleLastIncluded)) {
-        if (!scheduleAsOf) {
+      if (last && (!schedule.lastIncluded || last < schedule.lastIncluded)) {
+        if (!schedule.asOf) {
           if (b.budgetCategory) {
             addDated(b.budgetCategory, 0, b.label, 'bill');
             const acc = datedByCategory[b.budgetCategory];
@@ -25146,7 +25155,7 @@
           }
           continue;
         }
-        const count = billNeedsDate(b) ? 0 : occurrences(b, scheduleAsOf, scheduleLastIncluded).length;
+        const count = billNeedsDate(b) ? 0 : occurrences(b, schedule.asOf, schedule.lastIncluded).length;
         addDated(b.budgetCategory, count * b.amount / monthsInWindow, b.label, 'bill');
         continue;
       }
@@ -25251,9 +25260,11 @@
       const cardPaidMonthly = ((plan && plan.bills) || []).reduce((sum, b) => {
         if (!b || b.budgetCategory !== c.id) return sum;
         if (!isCardPaidBill(b, plan)) return sum;
-        if (billNeedsDate(b) || scheduledInputState(b, 'bill').amountUnknown || billMonthlyRefused(b)) { cardPaidRefused = true; return sum; }
+        const last = billEnd(b);
+        const schedule = last ? boundedSchedule : defaultSchedule;
+        if (billNeedsDate(b) || scheduledInputState(b, 'bill').amountUnknown || billMonthlyRefused(b, schedule)) { cardPaidRefused = true; return sum; }
         // A provider price cutover (#1583) takes the same window rule as the dated figure.
-        const cutover = cutoverMonthly(b);
+        const cutover = cutoverMonthly(b, last, schedule);
         if (cutover && cutover.amount == null) { cardPaidRefused = true; return sum; }
         return sum + (cutover ? cutover.amount : billMonthly(b));
       }, 0);

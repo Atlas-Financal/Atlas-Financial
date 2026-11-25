@@ -233,5 +233,73 @@ console.log('9. A linked schedule cannot extend an owner-ended bill');
     J(dates(overlapping)));
 }
 
+console.log('10. The operating answer uses the forecast day only for bounded bill schedules');
+{
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const Module = require('node:module');
+  const OA = require('../scripts/operating-answer');
+  const periodsFile = path.resolve(__dirname, '../public/periods.json');
+  const periods = { periods: { ytd: { months: 6, spending: [] } } };
+  const asOf = '2026-10-14';
+  const w = H.baseWorld(asOf);
+  w.bills = [{ ...BILL, day: 1, lastDue: '2026-10-01' }];
+  w.budget = [{ id: 'utilities', label: 'Utilities', class: 'essential', plannedMonthly: 304.38 }];
+  const data = H.canonicalOf(w, H.planOf(w));
+  const opts = { mode: 'canonical' };
+
+  // Replace only the OS read for the known fixture path: exercise the real
+  // operating-answer entry point with invented periods and no household file.
+  function operating(data, forecast) {
+    const { existsSync, readFileSync } = fs;
+    const realRecommend = F.recommend;
+    let advice;
+    try {
+      fs.existsSync = (file, ...args) => file === periodsFile || existsSync.call(fs, file, ...args);
+      fs.readFileSync = (file, ...args) => file === periodsFile
+        ? J(periods) : readFileSync.call(fs, file, ...args);
+      F.recommend = (...args) => (advice = forecast(...args));
+      return { packet: OA.fromRefreshedState(data, opts), advice };
+    } finally {
+      F.recommend = realRecommend;
+      fs.existsSync = existsSync;
+      fs.readFileSync = readFileSync;
+    }
+  }
+  const args = F.budgetRecommendInputs(data, { periods });
+  const budget = F.budgetBreakdown(data.plan, periods, { ...args, asOf });
+  const direct = F.recommend(data.plan, asOf, { ...args, asOf });
+  const actual = operating(data, F.recommend);
+  const cat = r => r.currentPeriodAction.categories.find(c => c.id === 'utilities') || {};
+  const budgetRow = budget.categories.find(c => c.id === 'utilities');
+  const cap = r => [r.weekly, r.weeklyCap, r.spendPermission];
+  ok(budgetRow.dated === 0 && budgetRow.planned === 304.38 && cat(actual.advice).planned === 90
+    && J(cat(actual.advice)) === J(cat(direct)),
+    'ended bill draws zero; the invented 304.38 monthly Budget target yields 90 for the nine remaining days in the operating answer');
+  ok(J(cap(actual.packet.currentSpendingPermission)) === J([direct.weekly,
+    direct.currentPeriodAction.weeklyCap, direct.currentPeriodAction.spendPermission]),
+    'operating-answer spending permission matches the explicitly dated Budget recommendation');
+  ok(F.budgetBreakdown(data.plan, periods, args).categories[0].dated === null,
+    'without an explicit or carried forecast day the bounded bill still withholds');
+
+  const forecastFile = require.resolve('../public/forecast.js');
+  const src = fs.readFileSync(forecastFile, 'utf8');
+  const marker = 'scheduleWindow(opts.budgetTargetAsOf)';
+  const mutant = new Module(forecastFile, module);
+  mutant.filename = forecastFile;
+  mutant.paths = module.paths;
+  ok(src.includes(marker), 'mutant removes the schedule date propagation');
+  mutant._compile(src.replace(marker, 'defaultSchedule'), forecastFile);
+  ok(cat(operating(data, mutant.exports.recommend).advice).planned !== 90,
+    'dropping the forecast date fails the same operating-answer Budget expectation');
+
+  const active = structuredClone(data);
+  delete active.plan.bills[0].lastDue;
+  // Give the active bill a provider cutover too, to catch a broadened fallback.
+  active.plan.bills[0].providerPriceCutover = { from: '2026-11-01', amountBefore: 50 };
+  ok(J(operating(active, F.recommend)) === J(operating(active, mutant.exports.recommend)),
+    'no ended bill: the complete operating answer and Forecast advice are byte-identical to the pre-repair behavior');
+}
+
 console.log(`\n${checks - failures}/${checks} passed`);
 if (failures) process.exit(1);

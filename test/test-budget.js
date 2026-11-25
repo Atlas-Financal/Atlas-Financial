@@ -24,7 +24,7 @@ const WEEKS_PER_MONTH = 365.25 / 12 / 7;
 const groceryPayday = 900;
 const groceryOwnerMonthly = Math.round(groceryPayday * (365.25 / 12) / 14 * 100) / 100;
 const fuelPaydayMonthly = Math.round(325 * (365.25 / 12) / 14 * 100) / 100;
-const budget = F.budgetBreakdown(plan, periods, { paypalPerMonth: data.paypal.perMonth });
+const budget = F.budgetBreakdown(plan, periods, { asOf, paypalPerMonth: data.paypal.perMonth });
 
 console.log('=== the budget block exists and is wired in ===');
 ok(!!budget, 'budgetBreakdown returns a result');
@@ -248,7 +248,7 @@ ok(discretionaryRoom < budget.discretionaryMonthly,
 // `budgetBreakdown` owns the conversion, this file's independent copy becomes a
 // real cross-check: the engine has to land on the figures worked out here.
 const engineCap = F.budgetBreakdown(plan, periods, {
-  paypalPerMonth: data.paypal.perMonth, weeklyCap: advice.weekly,
+  asOf, paypalPerMonth: data.paypal.perMonth, weeklyCap: advice.weekly,
 }).cap;
 ok(near(engineCap.monthly, capMonthly, 0.005),
   'the engine converts the cap to the same month this file computed independently',
