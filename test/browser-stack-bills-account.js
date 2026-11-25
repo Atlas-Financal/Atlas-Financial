@@ -9,6 +9,7 @@
  *      Already out; the Weekly-paid bill is not on it.
  *   3. Tapping a bill line opens that bill's sheet; Escape closes it.
  *   4. A stale reading: the head is a dash with the reason.
+ *   4b. No Bills chequing observation (the plan row alone): the head is a dash with its reason, no "Bank reading".
  *   5. No page errors; the other cards are unchanged in number and order.
  *
  * Optional: STACK_BILLS_ACCOUNT_SHOTS=<dir> writes screenshots. `node test/browser-stack-bills-account.js`
@@ -31,6 +32,8 @@ function world(mode) {
   p.bills.push({ id: 'late-bill', label: 'Invented late bill', frequency: 'once', date: '2026-08-18', amount: 62.40, confidence: 'confirmed', payingAccount: 'chequing-a' });
   pk.representedActuals.push({ id: 'paid-bills', date: '2026-08-16', actual: 45.12 });
   if (mode === 'stale') d.liveOverlay.operatingPlan = 'unavailable';
+  // Only the Bills chequing observation is gone; the plan's Bills row stays (OD-037: a missing reading shows a dash).
+  if (mode === 'no-observation') d.liveOverlay.observedCash.accounts = d.liveOverlay.observedCash.accounts.filter(r => r.id !== 'chequing-a');
   d.meta = { ...(d.meta || {}), asOf: fx.AS_OF };
   return d;
 }
@@ -99,6 +102,15 @@ async function open(browser, width, mode) {
         'stale: a dash with the reason, no amount', head);
       if (shots) await page.locator('[data-stack-card="billsacct"]').screenshot({ path: path.join(shots, 'bills-account-stale-390.png') });
       ok(errors.length === 0, 'stale: no page errors', errors.join(' | '));
+      await page.close();
+    }
+    console.log('4b. No chequing observation for Bills');
+    {
+      const { page, errors } = await open(browser, 390, 'no-observation');
+      const head = flat(await page.locator('[data-stack-card="billsacct"] summary').innerText());
+      ok(/Bills account/.test(head) && /No bank reading of the Bills account is available\./.test(head) && head.includes('—') && !/\$/.test(head) && !/Bank reading Aug/.test(head),
+        'no observation: a dash with the reason, no amount, no "Bank reading <date>"', head);
+      ok(errors.length === 0, 'no observation: no page errors', errors.join(' | '));
       await page.close();
     }
   } finally {
