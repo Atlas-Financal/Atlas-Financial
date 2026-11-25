@@ -23,8 +23,8 @@ const ID = '7123461';
 const BILL = { id: 'studio', label: 'Invented studio', amount: 70, frequency: 'monthly', day: 20, firstDue: '2026-10-01',
   confidence: 'estimated', dateConfidence: 'estimated', payingAccount: 'chequing-a', householdObligation: true,
   budgetCategory: 'utilities' };
-const item = (amount, anchor = '2026-01-01', expected = ['2026-11-01']) => ({ providerId: ID, status: 'reviewed', unavailableFields: [],
-  criteria: { startDate: anchor, endDate: null, granularity: 'month', quantity: 1, anchorDate: anchor,
+const item = (amount, anchor = '2026-01-01', expected = ['2026-11-01'], endDate = null) => ({ providerId: ID, status: 'reviewed', unavailableFields: [],
+  criteria: { startDate: anchor, endDate, granularity: 'month', quantity: 1, anchorDate: anchor,
     currency: 'CAD', plaidAccountId: '9001', manualAccountId: null, ...(amount === undefined ? {} : { amount }) },
   matches: { expectedOccurrenceDates: expected, foundTransactions: [] } });
 const read = items => ({ status: 'read', read: { unexpectedPaginationEvidence: false,
@@ -201,6 +201,36 @@ console.log('8. A posted payment settles its occurrence at the price that occurr
   const nov = s.rows('2026-10-23');
   ok(nov.length === 1 && nov[0].date === '2026-11-01' && nov[0].amount === 93 && nov[0].status !== 'PAID',
     'Nov 1 is still owed at 93.00', J(nov.map(b => [b.date, b.amount, b.status])));
+}
+
+console.log('9. A linked schedule cannot extend an owner-ended bill');
+{
+  const lastDue = '2026-10-31';
+  const linkedFrom = '2026-12-01';
+  const dates = s => F.expandEvents(s.plan, '2026-10-14', '2027-01-31')
+    .filter(e => e.id === 'studio').map(e => [e.date, -e.amount]);
+  const run = (endDate, bound = { lastDue }) => serve([
+    item('93.0000', '2026-01-22', ['2026-12-22'], endDate)
+  ], { bill: { day: 31, ...bound }, linkedFrom });
+  for (const endDate of [null, '2027-01-22']) {
+    const s = run(endDate);
+    ok(s.schedules.length === 1 && s.bill.lastDue === lastDue,
+      'accepted provider schedule keeps the owner end over ' + (endDate || 'an open item'));
+    ok(J(dates(s)) === J([['2026-10-31', 70]]) && s.unchanged,
+      'served calendar keeps the final October bill at the plan price, no November or later', J(dates(s)));
+  }
+  const active = run(null, {});
+  ok(J(dates(active)) === J([['2026-10-31', 70], ['2026-11-30', 70], ['2026-12-22', 93], ['2027-01-22', 93]]),
+    'no owner end: November and the provider date and price still appear', J(dates(active)));
+  const shorter = serve([item('93.0000', '2026-01-01', ['2026-11-01'], '2026-11-01')],
+    { bill: { lastDue: '2026-12-31' } });
+  ok(shorter.bill.lastDue === '2026-11-01' && J(dates(shorter)) === J([['2026-10-20', 70], ['2026-11-01', 93]]),
+    'an earlier provider end still applies, inclusive of its final occurrence', J(dates(shorter)));
+  const overlapping = serve([item('93.0000', '2026-01-01', ['2026-11-01', '2026-12-01'])],
+    { bill: { lastDue: '2026-11-01' } });
+  ok(J(dates(overlapping)) === J([['2026-10-20', 70], ['2026-11-01', 93]]),
+    'provider timing and price still apply at the inclusive owner end; later expected dates are excluded',
+    J(dates(overlapping)));
 }
 
 console.log(`\n${checks - failures}/${checks} passed`);

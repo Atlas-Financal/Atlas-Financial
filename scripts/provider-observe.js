@@ -6861,6 +6861,9 @@ function applyRecurringSchedule(bill, schedule) {
   const out = { ...bill };
   for (const field of RECURRING_TIMING_FIELDS) delete out[field];
   for (const field of RECURRING_TIMING_FIELDS) if (Object.hasOwn(schedule.timing, field)) out[field] = schedule.timing[field];
+  // A provider end can shorten the schedule, but it cannot extend an
+  // owner-entered end, including when the provider item is still open.
+  if (realIsoDay(bill.lastDue) && (!out.lastDue || bill.lastDue < out.lastDue)) out.lastDue = bill.lastDue;
   out.dateConfidence = schedule.dateConfidence;
   return out;
 }
