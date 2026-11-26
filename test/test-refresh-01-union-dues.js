@@ -234,7 +234,8 @@ function commitmentKey(row) {
 }
 // Oct 1 team-fee replacement has its own exact-input/synthetic regression;
 // that authorized replacement is not a union-dues side effect.
-const SUPERSEDED_COMMITMENT_IDS = new Set(['fusion-season', 'warriors', 'home-insurance', 'burrards-team-fees']);
+const SUPERSEDED_COMMITMENT_IDS = new Set(['fusion-season', 'warriors', 'home-insurance', 'burrards-team-fees',
+  'christmas-2026']); // owner-raised savings goal (this PR): authorized change, not a union-dues side effect
 const OWNER_2026_09_23_RETIRED = new Set([
   'downstairs-couch',
   'exterior-painting',
