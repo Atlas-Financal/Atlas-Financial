@@ -2068,7 +2068,7 @@ function ruleMatchesTransactionIdentity(tx, rule) {
 
 // Pending-bill disclosure and replacement inheritance can find an identity
 // here. Only a posted receipt can settle it.
-function matchesIdentityFields(tx, rule) {
+function matchesIdentityFields(tx, rule, previouslyProvedPayee = false) {
   if (!tx || !rule) return false;
   // A near-amount-and-payday rule is matched only by nearPaydaySalaryHits.
   if (rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) return false;
@@ -2107,7 +2107,33 @@ function matchesIdentityFields(tx, rule) {
     if (!ruleCounterpartExternalId(rule)) return false;
     if (!rulePayeePatterns(rule).length) return true;
   }
-  return payeeMatchesRule(tx, rule);
+  return previouslyProvedPayee || payeeMatchesRule(tx, rule);
+}
+
+function payeeOnlyBillRule(rule, billIds) {
+  return billIds.has(rule.eventId) && rule.direction === 'debit' && !rule.transactionKind
+    && !rule.settlesWhen && rule.sameAccountSplitLegs !== true
+    && rulePayeePatterns(rule).length > 0 && !ruleOriginalNamePatterns(rule).length
+    && !ruleLunchMoneyRecurringIds(rule).length && !ruleLunchMoneyItemNames(rule).length
+    && !ruleLunchMoneyCategoryIds(rule).length;
+}
+
+// Private to observation memory. The posted native id is part of the key,
+// along with the economic evidence. Display payee and ordinary memos can change.
+function postedBillReceiptKey(tx, window) {
+  if (window?.complete !== true || !tx.providerAccountId || !parseIsoDate(tx.date)
+    || !parseIsoDate(window.startDate) || !parseIsoDate(window.endDate)
+    || tx.date < window.startDate || tx.date > window.endDate || !(tx.amount > 0)
+    || tx.currency !== 'cad' || tx.coverageCurrencyConflict || tx.currencySettlementUnconfirmed
+    || tx.isGroup || tx.parentId || tx.splitIdentity || tx.pendingPostedAmbiguous
+    || tx.recurringId || LM_FOUND_ITEM.has(tx) || noteItemNames(tx.notes).length
+    || Forecast.cardPaymentNoteDestination(tx) || explicitPersonalOwnerFromTagsNotes(tx)
+    || tx.isIncome || transactionIsTransfer(tx)
+    || tx.minimumCategoryDebt) return null;
+  return crypto.hash('sha256', JSON.stringify([tx.providerTransactionId, tx.providerAccountId,
+    tx.amount, tx.date, tx.currency, tx.originalName, tx.externalId, tx.plaidTransactionId,
+    tx.pendingTransactionId, tx.plaidPendingTransactionId,
+    tx.categoryId, tx.categoryLabel, tx.kind, tx.excludeFromBudget === true]));
 }
 
 // A mapped CAD account does not qualify an individual transaction's units.
@@ -3142,7 +3168,7 @@ function billDebitAmountConsistent(rule, amount, scheduledAmount, tx, date) {
   return Number.isFinite(amount) && Math.abs(amount) <= need * BILL_IDENTITY_AMOUNT_SHARE + IDENTITY_AMOUNT_EPSILON;
 }
 
-function collectIdentityHits(tx, input, rules) {
+function collectIdentityHits(tx, input, rules, sourceRules) {
   if (!tx || tx.contradictoryEvidence === true) return [];
   const mapDoc = input && input.accountMap;
   const mapping = mappingFor(mapDoc, tx.providerAccountId);
@@ -3181,7 +3207,7 @@ function collectIdentityHits(tx, input, rules) {
         const counterpartCount = countTransferCounterparts(tx, rule, input, amount);
         if (counterpartCount !== 1) continue;
       }
-      hits.push({
+      const hit = {
         id: rule.eventId,
         date: scheduledDate,
         postingDate: tx.date,
@@ -3197,7 +3223,9 @@ function collectIdentityHits(tx, input, rules) {
         settlesWhen: rule.settlesWhen || null,
         sameAccountSplitLegs: rule.sameAccountSplitLegs === true,
         ...(rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER ? { lateWindow: true } : {}),
-      });
+      };
+      sourceRules?.set(hit, rule);
+      hits.push(hit);
     }
   }
   return hits;
@@ -3273,6 +3301,8 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     byPostedId.set(id, list);
   }
   const rules = stampRuleSetClaims(input.identityRules).filter(ruleHasIdentity);
+  const billIds = new Set((input.plan?.bills || []).map(row => row?.id));
+  const sourceRules = new WeakMap();
   for (const link of links) {
     if (!link || kept.has(link.pending)) continue;
     const postedId = link.posted && link.posted.providerTransactionId;
@@ -3294,11 +3324,16 @@ function stampPendingReplacementHits(preTransactions, collapsedTransactions, inp
     )) {
       survivors[0].ownerConfirmedFuel = true;
     }
-    const hits = collectIdentityHits(link.pending, input, rules).filter(hit =>
+    const hits = collectIdentityHits(link.pending, input, rules, sourceRules).filter(hit =>
       hit && hit.settlesWhen !== SETTLES_WHEN_TWO_LEG_SUM
       && hit.sameAccountSplitLegs !== true
       && isBillOrObligationEvent(input.plan, hit.id));
     if (hits.length !== 1) continue;
+    const sourceRule = sourceRules.get(hits[0]);
+    // A provider replacement proves which row posted. For a payee-only bill,
+    // the posted receipt must supply its own identity for that bill.
+    if (payeeOnlyBillRule(sourceRule, billIds)
+      && !ruleMatchesTransactionIdentity(survivors[0], sourceRule)) continue;
     const postedDate = parseIsoDate(link.posted.date);
     if (!postedDate) continue;
     // The opt-in late window never inherits through pending replacement
@@ -3746,7 +3781,7 @@ function stampLunchMoneyMatched(transactions, identityRules, plan, accountMap, r
 
 function representedEventHitGroups(input) {
   const diagnostic = input.salaryDiagnostic;
-  const empty = { unique: [], ambiguous: [] };
+  const empty = { unique: [], ambiguous: [], postedBillReceipts: [] };
   if (input.transactionWindow && input.transactionWindow.complete === false) {
     diagnostic?.window(false, 'WINDOW_INCOMPLETE');
     return empty;
@@ -3762,6 +3797,10 @@ function representedEventHitGroups(input) {
   diagnostic?.rulesScanned();
   if (!rules.length) return empty;
   const mapDoc = input.accountMap;
+  const billIds = new Set((input.plan?.bills || []).map(row => row?.id));
+  const payeeOnlyRules = new Set(rules.filter(rule => payeeOnlyBillRule(rule, billIds)));
+  const priorReceipts = new Map((input.priorPostedBillReceipts || []).map(row => [row.receipt, row]));
+  const receiptByHit = new WeakMap();
   const eventHits = new Map();
   const counterpartAmbiguous = new Map();
   for (const hit of nearPaydaySalaryHits(input, rules).concat(salaryReceiptTransferHits(input, rules))) {
@@ -3785,16 +3824,23 @@ function representedEventHitGroups(input) {
     const mapping = mappingFor(mapDoc, tx.providerAccountId);
     if (!mapping || !mapping.canonical || !mapping.canonical.id) continue;
     const amount = lunchMoneyDebitAmount(tx.amount);
+    const receipt = payeeOnlyRules.size && postedIdCount.get(tx.providerTransactionId) === 1
+      ? postedBillReceiptKey(tx, input.transactionWindow) : null;
+    const prior = priorReceipts.get(receipt);
+    const carry = prior && !tx.pendingReplacementHit
+      && !rules.some(rule => ruleMatchesTransactionIdentity(tx, rule)) ? prior : null;
     for (const rule of rules) {
       // E2: an opted-in card rule is let through only for its narrow LM case.
       if (cardMinimumNeedsConfirmation(input.plan, rule.eventId, mapDoc) && !lmMatchedCardMinimum(tx, rule)) continue;
       if (!ruleAccountAccepts(rule, mapping.canonical.id, tx, input.plan)) continue;
-      if (!ruleMatchesTransactionIdentity(tx, rule)) continue;
+      const reuse = carry?.id === rule.eventId && payeeOnlyRules.has(rule);
+      if (!matchesIdentityFields(tx, rule, reuse)) continue;
       if (!ruleCurrencyQualified(tx, rule)) continue;
       if (rule.direction === 'credit' && !(amount < 0)) continue;
       if (rule.direction === 'debit' && !(amount > 0)) continue;
       if (rule.postingDateRule === DUE_OR_UP_TO_TWO_DAYS_AFTER && !(Number.isFinite(amount) && amount > 0)) continue;
       for (const scheduledDate of coveringScheduledDates(input.plan, rule, tx.date, tx, input.transactions)) {
+        if (reuse && scheduledDate !== carry.date) continue;
         const scheduled = scheduledOccurrence(input.plan, rule.eventId, scheduledDate);
         if (scheduled.length !== 1) continue;
         const relation = postingDateRelation(scheduledDate, tx.date, rule, tx);
@@ -3842,7 +3888,7 @@ function representedEventHitGroups(input) {
             && rule.singleLegSettles === true) sameTx.singleLegDuplicateId = true;
           continue;
         }
-        list.push({
+        const hit = {
           id: rule.eventId,
           date: scheduledDate,
           postingDate: tx.date,
@@ -3861,7 +3907,9 @@ function representedEventHitGroups(input) {
             ? { singleLegSettles: true,
               ...((postedIdCount.get(String(tx.providerTransactionId)) || 0) > 1 ? { singleLegDuplicateId: true } : {}) }
             : {}),
-        });
+        };
+        if (receipt && payeeOnlyRules.has(rule)) receiptByHit.set(hit, { receipt, id: hit.id, date: hit.date });
+        list.push(hit);
         eventHits.set(key, list);
       }
     }
@@ -4037,7 +4085,7 @@ function representedEventHitGroups(input) {
   return { unique: uniqueOnce.map(hit => {
     const original = Forecast.statementOccurrenceIdentity(input.plan, hit.id, hit.date);
     return original === hit.date ? hit : { ...hit, scheduledDate: original };
-  }), ambiguous };
+  }), ambiguous, postedBillReceipts: uniqueOnce.map(hit => receiptByHit.get(hit)).filter(Boolean) };
 }
 
 function sanitizedSameDayInboundAmbiguity(groups) {
@@ -4591,6 +4639,7 @@ function reconciliationReceipt(report, opts) {
     identityRules,
     transactionWindow: report && report.transactionWindow,
     asOf: scheduleTrustAsOf,
+    priorPostedBillReceipts: opts.priorPostedBillReceipts,
   });
   const uniqueByKey = new Map();
   for (const candidate of groups.unique) {
@@ -5142,6 +5191,7 @@ function observeCore(input, capture) {
     transactionWindow: normalized.transactionWindow,
     asOf: scheduleTrustAsOf,
     salaryDiagnostic,
+    priorPostedBillReceipts: input.priorPostedBillReceipts,
   });
   const represented = hitGroups.unique.map(c => classifyRepresentedCandidate(c, openingAsOf));
   const explicitlyPostedCounts = new Map();
@@ -5224,6 +5274,7 @@ function observeCore(input, capture) {
     data: input.data,
     accountMap: mapDoc,
     identityRules,
+    priorPostedBillReceipts: input.priorPostedBillReceipts,
   });
   const actualsPass = sanitizedCurrentPeriodActualsPass(assembled, {
     accountMap: mapDoc,
@@ -5244,6 +5295,9 @@ function observeCore(input, capture) {
     onCoverageDiagnostic: input.onCoverageDiagnostic,
   });
   assembled.currentPeriodActuals = actualsPass.packet;
+  if (actualsPass.packet?.transactionCoverage === 'complete' && hitGroups.postedBillReceipts.length) {
+    assembled.postedBillReceipts = hitGroups.postedBillReceipts;
+  }
   // U4: a noted TD minimum payment stays evidence only if card coverage, on
   // this observation's own packet, paired it with the card's posted credit.
   if (assembled.cardMinimumCategoryEvidence) {
