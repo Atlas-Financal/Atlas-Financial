@@ -551,6 +551,7 @@
   ["Enabled Savings attribution preserves G1 capture grammar","test-savings-link-capture.js"],
   ["Savings item ledger: signed attribution, edge cases, traps and live effects (A4a, A4b)","test-savings-item-ledger.js"],
   ["Savings item bar: tagged spending tally (posted and pending purchases less posted refunds) reaches the bar as taggedSpend, never relieving Paid, need, backing or Still to fund","test-savings-tagged-spend-tally.js"],
+  ["Savings row in real Chromium (skips without Playwright): a withheld tagged-spend tally says Tagged spending: Withheld on the visible Blend row, its accessible name and the opened detail; a known zero and a normal tagged item never do","test-browser-savings-tagged-withheld.js"],
   ["a savings goal remaining never goes negative or eats a sibling need on ledger overspend (M11)","test-goal-remaining-floor.js"],
   ["A4b: item routing and backing (check 2 and 3, Savings vs chequing, split/pair, owner overlap, reload)","test-savings-a4b-routing.js"],
   ["owner-confirmed Savings-paid item: Paid is the linked Savings debit, else Unknown (acceptance 2.6/2.7)","test-savings-owner-confirmed-paid.js"],

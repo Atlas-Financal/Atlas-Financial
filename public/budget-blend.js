@@ -168,6 +168,9 @@
       fact('paid', 'Paid', blank ? [document.createTextNode('Amount not given')] : [...paid.childNodes],
         text(row.querySelector('[data-budget-goal-owner-confirmation]')), blank);
     }
+    if (goalTagWithheldText(row.querySelector('[data-budget-goal-paid-progress]'))) {
+      fact('tagged-spending', GOAL_TAG_WITHHELD_LABEL, [document.createTextNode(GOAL_TAG_WITHHELD_WORD)], GOAL_TAG_WITHHELD_WHY);
+    }
     const gap = row.querySelector('[data-budget-goal-still-to-fund]');
     if (gap) {
       const reason = gap.querySelector('[data-budget-goal-still-to-fund-reason]');
@@ -304,6 +307,19 @@
     if (tag === 'withheld') return null;
     if (tag === 'known') return stampedAmount(block?.getAttribute('data-budget-goal-spent-amount'));
     return stampedAmount(block?.getAttribute('data-budget-goal-paid-amount'));
+  }
+
+  // Display-only: an item with a tag whose tagged-spend tally is withheld says
+  // so on the visible row, in its accessible name and in the opened window. A
+  // known tally (including a known zero) and an item with no tag say nothing
+  // here. It reads only plan.js's published tag-state stamp; no figure and no
+  // geometry depends on it.
+  const GOAL_TAG_WITHHELD_LABEL = 'Tagged spending';
+  const GOAL_TAG_WITHHELD_WORD = 'Withheld';
+  const GOAL_TAG_WITHHELD_WHY = 'Tagged spending cannot be totalled from the transactions loaded for this item, so no amount is shown. It is not zero.';
+  function goalTagWithheldText(block) {
+    return block?.getAttribute('data-budget-goal-tag-state') === 'withheld'
+      ? GOAL_TAG_WITHHELD_LABEL + ': ' + GOAL_TAG_WITHHELD_WORD : null;
   }
 
   // The visible goal band: class and fill width, from the stamps plan.js prints
@@ -2429,6 +2445,8 @@
         figures.appendChild(word);
         if (word.textContent) spoken.push(word.textContent);
       }
+      const tagNote = goalTagWithheldText(progressBlock);
+      if (tagNote) spoken.push(tagNote);
       button.setAttribute('aria-label', spoken.join('. '));
       const bar = document.createElement('span');
       bar.className = 'blend-g-bar';
@@ -2451,6 +2469,13 @@
       bar.classList.add(band);
       item.classList.add(band);
       button.append(name, figures, bar);
+      if (tagNote) {
+        const note = document.createElement('span');
+        note.className = 'blend-goal-tag-note';
+        note.setAttribute('data-blend-goal-tag-withheld', '');
+        note.textContent = tagNote;
+        button.appendChild(note);
+      }
       button.addEventListener('click', () => explainGoal(button, row));
       item.appendChild(button);
       list.appendChild(item);
@@ -3153,6 +3178,7 @@
     module.exports.stampedAmount = stampedAmount;
     module.exports.goalBarTaggedAmount = goalBarTaggedAmount;
     module.exports.goalBarBand = goalBarBand;
+    module.exports.goalTagWithheldText = goalTagWithheldText;
     module.exports.wholeDollarAmount = wholeDollarAmount;
     module.exports.pairSideText = pairSideText;
     module.exports.replacePrintedAmount = replacePrintedAmount;

@@ -139,7 +139,7 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
   const blend = { module: { exports: {} }, document: { readyState: 'loading', addEventListener() {} }, console, setTimeout, clearTimeout,
     matchMedia: () => ({ matches: false, addEventListener() {} }), localStorage: { getItem() { return null; }, setItem() {} } };
   vm.runInContext(script('budget-blend'), vm.createContext(Object.assign(blend, { window: blend })));
-  const { goalBarTaggedAmount, goalBarBand } = blend.module.exports;
+  const { goalBarTaggedAmount, goalBarBand, goalTagWithheldText } = blend.module.exports;
   const render = costItem => {
     context.row = { ...costItem, saved: 0, savedTrust: 'calculated' };
     const html = vm.runInContext('budgetGoalPaidProgressHtml(row)', context);
@@ -147,7 +147,7 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     const block = { getAttribute: name => attrs[name] ?? null };
     // final: the band class and width the visible Blend bar renders for this
     // goal (the same function the DOM code applies), with Saved 0 of 60 needed.
-    return { html, attrs, band: goalBarTaggedAmount(block), final: goalBarBand(block, 0, 60),
+    return { html, attrs, tag: goalTagWithheldText(block), band: goalBarTaggedAmount(block), final: goalBarBand(block, 0, 60),
       segment: (html.match(/data-budget-goal-bar-paid style="--goal-paid:([0-9.]+)"/) || [])[1] ?? null };
   };
   const dated = (txs, links, through) => {
@@ -232,6 +232,7 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     assert.match(out.html, /data-budget-goal-tag-state="withheld"/);
     assert.match(out.html, /data-budget-goal-spent-withheld>Withheld</);
     assert.doesNotMatch(out.html, /data-budget-goal-spent-amount|data-budget-goal-bar-paid/);
+    assert.equal(out.tag, 'Tagged spending: Withheld', 'the Blend row and window text for a withheld tally');
     assert.equal(out.band, null);
     assert.deepEqual([out.final.band, out.final.width], ['is-red', '0.0000'], 'only the Saved / required fallback (0 of 60): no tagged amount, never Paid');
     // Rolled window + a known owner-paid amount: Paid is not used for the tagged segment.
@@ -271,6 +272,7 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     const zero = render(full(costOf(tagged([])).item));
     assert.match(zero.html, /data-budget-goal-paid-progress="paid"/, 'Paid status stays paid');
     assert.match(zero.html, /data-budget-goal-tag-state="known"/);
+    assert.equal(zero.tag, null, 'a known zero never says Withheld');
     assert.match(zero.html, /data-budget-goal-spent-amount="0"/);
     assert.doesNotMatch(zero.html, /data-budget-goal-bar-paid/, 'known zero tally: no full segment');
     assert.deepEqual([zero.band, zero.final.band, zero.final.width], [0, 'is-red', '0.0000'],
@@ -279,6 +281,7 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     assert.match(part.html, /data-budget-goal-paid-progress="paid"/);
     assert.equal(part.segment, '0.2057', 'plan.js segment follows the 12.34 tally, not full');
     assert.deepEqual([part.band, part.final.band, part.final.width], [12.34, 'is-red', '0.2057']);
+    assert.equal(part.tag, null, 'a known tally never says Withheld');
     // The same through the real ledger (no synthetic fact): charges that cover the plan make
     // Paid full (60.00 of 60.00) while the whole charge falls after the tally cutoff.
     const links = [{ ...link('tag'), effectiveThrough: '2026-12-31' }];
@@ -293,6 +296,7 @@ const bothLinked = txs => tagged(txs, [link('tag'), { ...link('tag', 'far', '202
     const noTag = render(full(costOf(tagged([raw()], [link('category')])).item));
     assert.match(noTag.html, /data-budget-goal-paid-progress="paid"/);
     assert.doesNotMatch(noTag.html, /data-budget-goal-tag-state/);
+    assert.equal(noTag.tag, null, 'an untagged item never says Withheld');
     assert.equal(noTag.segment, '1');
     assert.deepEqual([noTag.final.band, noTag.final.width], ['is-paid', null]);
   }
