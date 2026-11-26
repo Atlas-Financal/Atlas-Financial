@@ -9,8 +9,10 @@ const { test } = require('node:test');
 const Forecast = require('../public/forecast');
 const Live = require('../scripts/live-plan');
 const Memory = require('../scripts/server-observation-memory');
+const Observe = require('../scripts/provider-observe');
 const { world } = require('./fixtures/card-coverage-aggregate-world');
 const { loadStackPage } = require('./lib/budget-page-harness');
+const Savings = require('./test-savings-link-foundation');
 
 const DAY = '2026-09-20';
 const PRIOR = '2026-09-18';
@@ -62,6 +64,12 @@ function proofOf(observed) {
   return proof;
 }
 
+function groceriesSpent(view) {
+  const row = (view.householdBudget || []).find(item => item && item.id === 'groceries');
+  assert.ok(row, 'Groceries is on the budget');
+  return row.spent;
+}
+
 function assertKeepsPayment(page) {
   assert.equal(page.line.target.amount, 117);
   assert.equal(page.line.paidBack.amount, 25);
@@ -85,7 +93,8 @@ test('a proved $25 payment keeps Paid back, the minimum tick and $92 still owed 
   assert.equal(edited.payer.cardPaymentNoteDestination, 'travelvisa');
   assert.equal(edited.payer.provedPayerReceipt.coverageRef, proof.coverageRef);
   assert.equal(edited.view.stackSummary.surplus.amount, control.view.stackSummary.surplus.amount);
-  assert.equal(edited.view.stackSummary.surplus.terms.budget, control.view.stackSummary.surplus.terms.budget);
+  assert.equal(groceriesSpent(edited.view), groceriesSpent(control.view));
+  assert.equal(groceriesSpent(edited.view), 117);
 });
 
 test('removing the note after the receipt was proved still counts it', async () => {
@@ -165,6 +174,106 @@ test('restoring the category return ahead of the proved receipt drops Paid back'
   } finally {
     fs.readFileSync = read;
   }
+});
+
+test('clearing the category after the receipt was proved still counts it', async () => {
+  const proof = proofOf(proved(ledger()));
+  const page = await publish(ledger(tx => { tx.category_name = null; tx.category_id = null; }), [proof]);
+  assertKeepsPayment(page);
+  assert.equal(page.payer.categoryLabel, null);
+  assert.equal(page.payer.provedPayerReceipt.cardId, 'travelvisa');
+});
+
+test('a two-card note or an unknown card name counts the proved receipt toward nothing', async () => {
+  const proof = proofOf(proved(ledger()));
+  for (const notes of ['card payment: Travel Visa; card payment: MBNA', 'card payment: Not A Real Card']) {
+    const page = await publish(ledger(tx => { tx.notes = notes; }), [proof]);
+    assert.equal(page.line.paidBack.amount, 0, notes);
+    assert.equal(page.line.paidBack.trust, 'estimated', notes);
+    assert.ok(page.line.paidBack.reasons.includes('card-payment-destination-unconfirmed'), notes);
+    assert.equal(page.payer.provedPayerReceipt.cardId, 'travelvisa');
+    assert.equal(page.line.minimumCovered.value, false);
+  }
+});
+
+function withPowerBill() {
+  return ledger((tx, source) => {
+    const identity = structuredClone(source.identity);
+    identity.rules.push({
+      eventId: 'invented-power',
+      payeePatterns: [],
+      atlasAccountId: 'chequing-a',
+      direction: 'debit',
+      requiredCurrency: 'cad',
+      requiredPostingEvidence: 'posted',
+      postingDateRule: 'covers-early-or-due-on-or-before-posting',
+      lunchMoneyCategoryIds: [{ id: '7770001', name: 'Invented Power Bill' }],
+    });
+    source.identity = identity;
+    source.data.plan.bills.push({
+      id: 'invented-power', label: 'Invented power', frequency: 'monthly', day: 20,
+      amount: 25, confidence: 'confirmed', householdObligation: true, payingAccount: 'chequing-a',
+    });
+    tx.category_id = 7770001;
+    tx.category_name = 'Invented Power Bill';
+  });
+}
+
+test('a proved receipt is not also a paid bill', async () => {
+  const proof = proofOf(proved(ledger()));
+  const open = await publish(withPowerBill());
+  assert.equal(open.view.stackSummary.bills.paid, 25);
+  assert.equal(open.line.paidBack.amount, 0);
+  const held = await publish(withPowerBill(), [proof]);
+  assert.equal(held.view.stackSummary.bills.paid, 0);
+  assert.equal(held.line.paidBack.amount, 25);
+  assert.equal(held.line.paidBack.trust, 'calculated');
+  assert.equal(held.observed.report.representedEventCandidates.some(row => row && row.id === 'invented-power'), false);
+  assert.equal(held.payer.provedPayerReceipt.cardId, 'travelvisa');
+});
+
+test('a proved receipt is not also a savings-item charge', () => {
+  const x = Savings.fixture();
+  const input = { provider: 'lunchmoney', payload: x.payload, accountMap: x.map, data: x.data,
+    identity: { rules: [] }, fetchedAt: x.payload.fetchedAt };
+  const open = Observe.observe(input).currentPeriodActuals;
+  assert.equal(open.savingsLinks.evidence[0].state, 'posted');
+  assert.equal(open.savingsLinks.evidence[0].direction, 'charge');
+  const row = open.transactions.find(tx => tx.amount === 12.34);
+  const proof = { coverageRef: row.coverageRef, account: 'chequing-a', amountCents: 1234,
+    cardId: 'travelvisa', trust: 'calculated' };
+  const held = Observe.observe({ ...input, provedPayerReceipts: [proof] }).currentPeriodActuals;
+  assert.equal(held.savingsLinks.evidence.some(item => item.direction === 'charge'), false);
+  const stamped = held.transactions.find(tx => tx.coverageRef === row.coverageRef);
+  assert.equal(stamped.provedPayerReceipt.cardId, 'travelvisa');
+  assert.equal(Forecast.classifyCurrentPeriodTransaction(stamped, x.data.plan, {
+    packet: held, currentPeriodActuals: held,
+  }).kind, 'card-payment');
+});
+
+test('the same amount on another account or another row does not inherit the proof', async () => {
+  const proof = proofOf(proved(ledger()));
+  const otherAccount = {
+    accountRole: 'household-cash', atlasAccountId: 'chequing-b', account: 'chequing-b',
+    amount: 25, currency: 'cad', categoryLabel: 'Groceries', coverageRef: proof.coverageRef,
+  };
+  assert.equal(Forecast.payingSidePayment({ ...otherAccount, provedPayerReceipt: proof }), null);
+  assert.equal(Forecast.carriedPayerReceipt(otherAccount, [proof]), null);
+  const otherRow = {
+    accountRole: 'household-cash', atlasAccountId: 'chequing-a', account: 'chequing-a',
+    amount: 25, currency: 'cad', categoryLabel: 'Groceries', coverageRef: 'pc-' + 'ab'.repeat(12),
+  };
+  assert.equal(Forecast.payingSidePayment({ ...otherRow, provedPayerReceipt: proof }), null);
+  assert.equal(Forecast.carriedPayerReceipt(otherRow, [proof]), null);
+  const page = await publish(ledger((tx, source) => {
+    source.payload.transactions.push({ ...tx, id: 110, category_name: 'Groceries', notes: null });
+  }), [proof]);
+  assert.equal(page.line.paidBack.amount, 25);
+  const second = page.observed.data.liveOverlay.currentPeriodActuals.transactions
+    .find(tx => tx.amount === 25 && tx.categoryLabel === 'Groceries');
+  assert.ok(second);
+  assert.notEqual(second.coverageRef, proof.coverageRef);
+  assert.equal(second.provedPayerReceipt, undefined);
 });
 
 test('observation memory keeps a proved receipt and rejects a note stuffed into one', () => {

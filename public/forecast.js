@@ -2356,6 +2356,9 @@
   }
   function savingsItemMember(tx, plan, opts) {
     const packet = opts && (opts.packet || opts.currentPeriodActuals);
+    // A stamped payer receipt is that card payment, including when the current note conflicts.
+    // It is not also a savings-item charge.
+    if (tx && tx.provedPayerReceipt) return null;
     if (pendingHoldReleaseLeg(tx, packet)) return null;
     const member = tx && tx.id != null ? savingsItemMembership(plan, packet)?.get(String(tx.id)) : null;
     return member && member.date === tx.date ? member : null;
@@ -12919,8 +12922,12 @@
   function provedPayerReceiptDisagrees(tx, proof) {
     if (cardPaymentDestinationConflict(tx)) return true;
     const noted = cardPaymentNoteDestination(tx);
-    const definiteNote = PAYING_SIDE_NOTE_IDS.has(noted) ? noted : null;
-    return [tx.cardPaymentDestination, tx.minimumCategoryDebt, definiteNote]
+    // A vanished note is not a disagreement: the proved receipt still counts.
+    // Any current card-payment note that does not name exactly this card — a
+    // different card, two cards, or an unknown name — does. Trust stays no
+    // stronger than that current note.
+    if (noted != null && noted !== proof.cardId) return true;
+    return [tx.cardPaymentDestination, tx.minimumCategoryDebt]
       .some(card => typeof card === 'string' && card !== '' && card !== proof.cardId);
   }
   function acceptedProvedPayerReceipt(tx) {

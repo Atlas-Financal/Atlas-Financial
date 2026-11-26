@@ -2074,10 +2074,60 @@ function matchesIdentityFields(tx, rule, previouslyProvedPayee = false) {
   return transactionIdentityEvidence(tx, rule, previouslyProvedPayee) !== null;
 }
 
+// One debit is one thing. A collapsed row whose served shape would carry a
+// proved payer receipt is not also a bill. The set is replaced at the start
+// of an observation. A later hit-groups call that has no proof list must not
+// drop claims already made for that observation.
+let provedPayerReceiptClaims = new WeakSet();
+
+function provedPayerStandIn(tx, mapping, plan) {
+  const amount = Number(tx.amount);
+  const derivedInput = currentPeriodTransactionFlagInput(tx, mapping, amount, tx.tags);
+  const flags = Forecast.classifyCurrentPeriodTransaction.derivedFlags({
+    ...derivedInput,
+    categoryId: tx.categoryId,
+    recurringId: tx.recurringId,
+  }, plan);
+  const payeeDestination = payeeCardDestination(tx, mapping, flags);
+  return {
+    accountRole: atlasAccountRole(mapping),
+    atlasAccountId: derivedInput.atlasAccountId,
+    account: derivedInput.atlasAccountId,
+    accountId: derivedInput.atlasAccountId,
+    amount,
+    currency: tx.currency,
+    coverageCurrencyConflict: tx.coverageCurrencyConflict === true,
+    notes: tx.notes,
+    note: tx.notes || tx.note,
+    categoryLabel: tx.categoryLabel,
+    kindHint: derivedInput.kindHint,
+    kind: tx.kind,
+    coverageRef: cardCoverageReference(tx),
+    cardPaymentIdentity: flags.cardPaymentIdentity === true,
+    ...(flags.tdCardPaymentIdentity === true ? { tdCardPaymentIdentity: true } : {}),
+    internalTransferIdentity: flags.internalTransferIdentity === true,
+    ...(flags.cardPaymentNoteDestination ? { cardPaymentNoteDestination: flags.cardPaymentNoteDestination } : {}),
+    ...(amount > 0 && payeeDestination ? { cardPaymentDestination: payeeDestination } : {}),
+    ...(typeof tx.minimumCategoryDebt === 'string' ? { minimumCategoryDebt: tx.minimumCategoryDebt } : {}),
+  };
+}
+
+function claimProvedPayerReceipts(transactions, proofs, accountMap, plan) {
+  if (!Array.isArray(proofs) || !proofs.length) return;
+  for (const tx of transactions || []) {
+    if (!tx || typeof tx !== 'object' || provedPayerReceiptClaims.has(tx)) continue;
+    const mapping = mappingFor(accountMap, tx.providerAccountId);
+    if (!mapping || !mapping.canonical) continue;
+    if (Forecast.carriedPayerReceipt(provedPayerStandIn(tx, mapping, plan), proofs)) provedPayerReceiptClaims.add(tx);
+  }
+}
+
 // Pending-bill disclosure and replacement inheritance can find an identity
 // here. Only a posted receipt can settle it.
 function transactionIdentityEvidence(tx, rule, previouslyProvedPayee = false) {
   if (!tx || !rule) return null;
+  // A proved payer receipt is that card payment, not a bill, whatever the new category says.
+  if (provedPayerReceiptClaims.has(tx)) return null;
   // A near-amount-and-payday rule is matched only by nearPaydaySalaryHits.
   if (rule.settlesWhen === SETTLES_WHEN_NEAR_AMOUNT_AND_PAYDAY) return null;
   // An explicit posting qualifier also constrains candidate-only paths.
@@ -3816,6 +3866,7 @@ function representedEventHitGroups(input) {
   const billIds = new Set((input.plan?.bills || []).map(row => row?.id));
   const payeeOnlyRules = new Set(rules.filter(rule => payeeOnlyBillRule(rule, billIds)));
   const priorReceipts = new Map((input.priorPostedBillReceipts || []).map(row => [row.receipt, row]));
+  claimProvedPayerReceipts(input.transactions, input.provedPayerReceipts, mapDoc, input.plan);
   const receiptByHit = new WeakMap();
   const eventHits = new Map();
   const counterpartAmbiguous = new Map();
@@ -5039,6 +5090,7 @@ function observe(input) {
 // null capture the execution — and every output — is exactly the shipped
 // behaviour.
 function observeCore(input, capture) {
+  provedPayerReceiptClaims = new WeakSet();
   const provider = input.provider;
   if (provider !== 'lunchmoney') fail(`Unsupported provider: ${provider || '(missing)'}.`);
   const fetchedAt = input.fetchedAt || new Date().toISOString();
@@ -5181,6 +5233,7 @@ function observeCore(input, capture) {
   const planForIdentity = Object.assign({}, (input.data && input.data.plan) || {}, {
     debts: (input.data && input.data.debts) || [],
   });
+  claimProvedPayerReceipts(collapsed.transactions, input.provedPayerReceipts, mapDoc, input.data && input.data.plan);
   stampLunchMoneyMatched(collapsed.transactions, identityRules, planForIdentity, mapDoc,
     input.payload && input.payload.recurringItems, normalized.transactionWindow, recurringSchedules);
   stampRecurringFoundTransactions(collapsed.transactions, input.payload && input.payload.recurringItems);
@@ -5212,6 +5265,7 @@ function observeCore(input, capture) {
     asOf: scheduleTrustAsOf,
     salaryDiagnostic,
     priorPostedBillReceipts: input.priorPostedBillReceipts,
+    provedPayerReceipts: input.provedPayerReceipts,
   });
   const represented = hitGroups.unique.map(c => classifyRepresentedCandidate(c, openingAsOf));
   const explicitlyPostedCounts = new Map();
@@ -8152,6 +8206,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
   const isReplacedPending = row => row.pending === true && row.pendingPostedDuplicate === true && row.pendingPostedAmbiguous !== true;
   const linkedChargeRefs = new Map();
   for (const row of txs) {
+    if (row && row.provedPayerReceipt) continue;
     const hits = row && savingsLinks ? linkHits.get(row.id) || [] : [];
     const key = hits.length && row.amount > 0 && !isSplitParent(row) && !isReplacedPending(row) ? linkedChargeKey(row) : null;
     if (!key) continue;
@@ -8172,7 +8227,7 @@ function sanitizedCurrentPeriodActualsPass(report, opts) {
       packet: classifyPacket,
       currentPeriodActuals: classifyPacket,
     });
-    const hits = linkHits.get(row.id) || [];
+    const hits = row.provedPayerReceipt ? [] : (linkHits.get(row.id) || []);
     // Same date bound as the link hits above: Forecast refuses the whole
     // link publication for evidence dated after the observation.
     const unlinkedRefundRefs = !hits.length && savingsLinkDate(row.date) && row.date <= asOf
