@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { wrap } = require('node:module');
 const { execFileSync } = require('child_process');
 
 let failures = 0;
@@ -35,7 +36,7 @@ for (const f of scripts) {
   catch (e) { ok(false, `public/${f}`, e.message); }
 }
 for (const f of ['server.js', 'test/test-forecast.js', 'test/test-budget.js', 'test/test-debt.js', 'test/test-invariants.js', 'test/test-mergecard.js']) {
-  try { new vm.Script(read(f), { filename: f }); ok(true, f); }
+  try { new vm.Script(wrap(read(f)), { filename: f }); ok(true, f); }
   catch (e) { ok(false, f, e.message); }
 }
 
